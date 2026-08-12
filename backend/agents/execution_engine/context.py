@@ -276,18 +276,29 @@ class ExecutionContext:
     # ``derived_from`` lineage of a re-run is intentionally NOT an ectx field — it is
     # a _run_agent loop local so it cannot leak across agents (F3).
     redo_directive: str = ""
-    # spec_revision_prior_artifact: the PRIOR version of the artifact a revision pass is
-    # rewriting, published for exactly ONE dispatch. Joins the consume-once
+    # spec_revision_prior_artifact: the PRIOR version of the artifact an agent is being
+    # asked to amend, published for exactly ONE dispatch. Joins the consume-once
     # injection-seam family (``redo_directive`` / ``spec_revision_context`` /
-    # ``steering_notes``) and follows its discipline exactly: set by
-    # ``_run_spec_revision_sub_pipeline`` immediately before the specify sub-dispatch,
-    # cleared in the SAME ``finally`` that clears ``spec_revision_context`` so the
-    # cancel / error / return paths all consume it once. The revision block instructs
-    # the writer to "preserve unchanged sections" while that writer declares
-    # ``consumes: []`` + ``tools: []`` — this field is its ONLY channel to the document
-    # (BUGFIX-SPEC-REVISION-CONTEXT D1). Default-empty ⇒ DORMANT on every non-revision
-    # dispatch (no block appended) ⇒ INV-3 byte-parity holds. Transient per-run scratch
-    # (INV-2 — never the engine singleton).
+    # ``steering_notes``) and follows its discipline exactly.
+    #
+    # TWO publishers, ONE field and ONE renderer (INV-12 — the alternative was a second
+    # field and a second block meaning the same thing):
+    #   * ``_run_spec_revision_sub_pipeline`` sets it immediately before the specify
+    #     sub-dispatch and RESTORES it in the same ``finally`` that restores
+    #     ``spec_revision_context`` (BUGFIX-SPEC-REVISION-CONTEXT D1 / FIX-217);
+    #   * ``_run_agent``'s redo loop sets it around the re-run's compose call and restores
+    #     it immediately after (ISS-086 / FIX-228) — a "Request changes" re-run is an
+    #     amendment, and the agent cannot amend a document it cannot see.
+    # Both publishers SAVE/RESTORE rather than clear, because a redo can fire at a gate
+    # opened inside a revision pass: zeroing there would strip the outer pass's own
+    # subject mid-flight (the quick-260811-si4 defect-A shape).
+    #
+    # It is the agent's ONLY channel to its own prior output: self-consumption is
+    # structurally impossible (``_filter_consumed_outputs`` breaks on
+    # ``upstream.id == spec.id``), the re-run threads a FRESH checkpoint id so nothing is
+    # replayed, and the gated authoring agents declare ``consumes: []`` + ``tools: []``.
+    # Default-empty ⇒ DORMANT on every non-revision, non-redo dispatch (no block appended)
+    # ⇒ INV-3 byte-parity holds. Transient per-run scratch (INV-2 — never the singleton).
     spec_revision_prior_artifact: str = ""
     # spec_revision_context: the ANALYSIS REPORT a revision pass is acting on, published
     # for the pass's dispatches so ``_compose_context_message`` can render the revision

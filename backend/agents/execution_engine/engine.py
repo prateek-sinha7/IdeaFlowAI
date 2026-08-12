@@ -3328,12 +3328,14 @@ class ExecutionEngine:
         # ── REDO-GATE redo loop (F2): unbounded human-paced redos are a FLAT
         # while-loop, NOT recursion — N redos = N iterations, O(1) stack, O(1) per
         # event. The loop body is the EXISTING single run + inline gate; only the
-        # loop framing + the _gate_redo branch are new. The redo directive +
-        # derived_from lineage are LOOP LOCALS (consume-once, F3): captured per
-        # iteration and reset BEFORE the model call, so an empty-output / errored /
-        # non-redo exit can never leak lineage or a REVISE block onto the next agent.
+        # loop framing + the _gate_redo branch are new. The redo directive, the
+        # derived_from lineage and the prior artifact are LOOP LOCALS (consume-once,
+        # F3): captured per iteration and reset BEFORE the model call, so an
+        # empty-output / errored / non-redo exit can never leak lineage, a REVISE
+        # block or a prior-artifact block onto the next agent.
         redo_directive = ""          # extra instructions for the NEXT re-run
         redo_derived_from = None     # rejected ref id the re-run supersedes
+        redo_prior_artifact = ""     # ISS-086: the rejected CONTENT the re-run amends
         redo_attempt = 0             # 0 = first run; N>0 = Nth redo → fresh checkpoint thread
         spec_revision_attempt = 0   # KAN-101: 0 = first run; N>0 = Nth spec revision cycle
         while True:
@@ -3427,30 +3429,13 @@ class ExecutionEngine:
                             if results:
                                 results[-1] = {**results[-1], "output": edited}
                         elif gate_event.get("type") == "_gate_redo":
-                            redo_directive = gate_event.get("instructions") or ""
-                            _kind = self._artifact_kind_for(spec)
-                            _cands = [
-                                r for r in ectx.artifacts.list_by_kind(_kind)
-                                if r.producer_agent == spec.id
-                            ]
-                            redo_derived_from = (
-                                max(_cands, key=lambda r: r.version).id
-                                if _cands else None
+                            # RESUME-17 gate re-entry: identical to the live consumer, via
+                            # the ONE shared helper (INV-12).
+                            (redo_directive, redo_derived_from,
+                             redo_prior_artifact) = await self._consume_redo(
+                                gate_event=gate_event, spec=spec,
+                                results=results, ectx=ectx,
                             )
-                            if results and results[-1].get("agent_id") == spec.id:
-                                results.pop()
-                            _runner = getattr(ectx, "runner", None)
-                            if _runner is not None and hasattr(_runner, "record_gate_event"):
-                                try:
-                                    await _runner.record_gate_event(
-                                        spec.id, "human", "redo",
-                                        {"has_instructions": bool(redo_directive)},
-                                    )
-                                except Exception:  # noqa: BLE001 — audit never aborts a run
-                                    logger.debug(
-                                        "redo audit row failed for agent %s (ignored)",
-                                        spec.id, exc_info=True,
-                                    )
                             redo_attempt += 1
                             break
                         elif gate_event.get("type") == "_gate_update_specs":
@@ -3547,7 +3532,20 @@ class ExecutionEngine:
                             if results and results[-1].get("agent_id") == spec.id:
                                 results[-1] = {**results[-1], "output": edited}
                         elif gate_event.get("type") == "_gate_redo":
-                            redo_directive = gate_event.get("instructions") or ""
+                            # ── ISS-086 ──────────────────────────────────────────────
+                            # This branch was a THIN COPY: it set the directive and
+                            # nothing else, so a redo at the gate re-opened after a
+                            # revision pass lost its ``derived_from`` lineage, left a
+                            # DUPLICATE ``results`` entry (the re-run appends, and only
+                            # this branch never popped) and wrote no audit row — which
+                            # also under-seeded ``_seed_gate_reentry_attempts``, risking a
+                            # colliding ``:redo{N}`` after a restart. Driving the ONE
+                            # shared consumer closes all three for free (INV-12).
+                            (redo_directive, redo_derived_from,
+                             redo_prior_artifact) = await self._consume_redo(
+                                gate_event=gate_event, spec=spec,
+                                results=results, ectx=ectx,
+                            )
                             redo_attempt += 1
                             break
                         elif gate_event.get("type") == "_gate_update_specs":
@@ -3614,17 +3612,42 @@ class ExecutionEngine:
             # Publish the redo directive to ectx ONLY around this compose call, then
             # clear it UNCONDITIONALLY right after — so an empty-output / errored /
             # non-redo path can never carry a REVISE block onto the next agent. The
-            # derived_from lineage never touches ectx (it stays a loop local), and both
-            # locals are reset to empty here so a NON-redo exit cannot leak either.
+            # derived_from lineage never touches ectx (it stays a loop local), and all
+            # three locals are reset to empty here so a NON-redo exit cannot leak any.
+            #
+            # ── ISS-086: the re-run's SUBJECT rides the same seam ────────────────────
+            # "Request changes" asks the agent to AMEND, and an amendment needs the
+            # document. It is published on FIX-217's existing consume-once field and
+            # rendered by that field's existing block — one field, one renderer, two
+            # publishers (INV-12), not a parallel seam. SAVE/RESTORE rather than clear
+            # (the quick-260811-si4 defect-A shape): a redo can fire at a gate opened
+            # INSIDE a revision pass, and zeroing the field there would strip the outer
+            # pass's own subject mid-flight. At the outer level the saved value is "" so
+            # this is byte-equivalent to a clear, and the whole block is dormant on every
+            # non-redo dispatch (INV-3).
+            #
+            # The ``finally`` covers the one path that is NOT inside _run_agent's own
+            # try/except: ``_compose_context_message`` itself raising (it reads template /
+            # design-system files, so a missing one propagates). Without it a compose-time
+            # failure would strand BOTH published fields on the shared per-run ectx.
+            # On the success path this is byte-identical to the previous straight-line
+            # clear — the same two assignments, in the same order (INV-3).
+            _saved_prior_artifact = ectx.spec_revision_prior_artifact
             ectx.redo_directive = redo_directive
-            context_message = await self._compose_context_message(
-                spec, index, ordered_agents, user_message,
-                planning_context, ectx,
-            )
-            ectx.redo_directive = ""
+            if redo_prior_artifact:
+                ectx.spec_revision_prior_artifact = redo_prior_artifact
+            try:
+                context_message = await self._compose_context_message(
+                    spec, index, ordered_agents, user_message,
+                    planning_context, ectx,
+                )
+            finally:
+                ectx.redo_directive = ""
+                ectx.spec_revision_prior_artifact = _saved_prior_artifact
             _iter_derived = redo_derived_from   # lineage for THIS iteration's write
             redo_directive = ""
             redo_derived_from = None
+            redo_prior_artifact = ""
 
             # UPLD-02 residue (30-03): drain any per-turn images queued by the chat
             # ``POST /api/runs/{id}/messages`` path (via chat_router.apply_turn_images →
@@ -4461,36 +4484,14 @@ class ExecutionEngine:
                             # Set the LOOP LOCALS the next iteration consumes (F3) —
                             # the rejected output stays as a prior ArtifactRef version
                             # (decision #4); the re-run's write records derived_from
-                            # lineage to it. Keyed on the GENERIC event type (SC-001).
-                            redo_directive = gate_event.get("instructions") or ""
-                            _kind = self._artifact_kind_for(spec)
-                            _cands = [
-                                r for r in ectx.artifacts.list_by_kind(_kind)
-                                if r.producer_agent == spec.id
-                            ]
-                            redo_derived_from = (
-                                max(_cands, key=lambda r: r.version).id
-                                if _cands else None
+                            # lineage to it, and (ISS-086) the re-run's PROMPT carries
+                            # that same version as its subject. Keyed on the GENERIC
+                            # event type (SC-001); the body is the ONE shared consumer.
+                            (redo_directive, redo_derived_from,
+                             redo_prior_artifact) = await self._consume_redo(
+                                gate_event=gate_event, spec=spec,
+                                results=results, ectx=ectx,
                             )
-                            # Drop the rejected output's results entry (matching
-                            # agent_id) so the re-run appends a fresh one.
-                            if results and results[-1].get("agent_id") == spec.id:
-                                results.pop()
-                            # T7 (B8): best-effort, content-free redo audit row in the
-                            # INLINE consumer (NOT _run_review_gate, which has no ectx).
-                            # Dormant on goldens (they never redo). Never breaks the run.
-                            _runner = getattr(ectx, "runner", None)
-                            if _runner is not None and hasattr(_runner, "record_gate_event"):
-                                try:
-                                    await _runner.record_gate_event(
-                                        spec.id, "human", "redo",
-                                        {"has_instructions": bool(redo_directive)},
-                                    )
-                                except Exception:  # noqa: BLE001 — audit never aborts a run
-                                    logger.debug(
-                                        "redo audit row failed for agent %s (ignored)",
-                                        spec.id, exc_info=True,
-                                    )
                             redo_attempt += 1  # next re-run gets a FRESH checkpoint thread (:redo{N})
                             break  # leave the gate consumer; the while-loop re-runs
                         elif gate_event.get("type") == "_gate_update_specs":
@@ -5483,6 +5484,82 @@ class ExecutionEngine:
         # the sentinel, skips the model call and jumps straight to the gate.
         ectx.spec_revision_pending_output = new_analysis_output
         yield {"type": "_update_specs_done", "cancelled": False}
+
+    async def _consume_redo(
+        self,
+        *,
+        gate_event: dict,
+        spec,
+        results: list[dict],
+        ectx,
+    ) -> tuple[str, str | None, str]:
+        """The ONE ``_gate_redo`` consumer, shared by all three gate branches.
+
+        Three places hand back ``_gate_redo`` — the RESUME-17 restart-parked re-entry
+        gate, the gate re-opened after a revision pass, and the live post-stream gate.
+        They held two near-identical copies and one THIN copy that set only the directive,
+        so a redo at the re-opened gate silently lost its ``derived_from`` lineage, left a
+        duplicate ``results`` entry and wrote no audit row. This is the single
+        implementation (INV-12), mirroring ``_consume_update_specs``.
+
+        Returns the three loop locals the while-loop consumes on its next iteration:
+        ``(directive, derived_from, prior_artifact)``. ``redo_attempt`` stays at the call
+        site — it is the caller's fresh-thread counter, exactly as
+        ``spec_revision_attempt`` is at the ``_consume_update_specs`` call sites.
+
+        **ISS-086.** ``prior_artifact`` is the re-run's SUBJECT: the very output the user
+        is asking to amend. It is read off the SAME kind-scoped max-version ref the
+        lineage stamp uses — no extra read, and kind-scoped by construction, which matters
+        because one producer can write two kinds (``prototype-build`` writes both
+        ``html_file`` and ``file_bundle``, so a producer-only lookup would serve the wrong
+        document). It is WITHHELD in two cases:
+
+          * **a blank redo** — the FE labels that "leave blank to just regenerate", and
+            regenerate-from-scratch is precisely the P23 semantics the ``:redo{N}`` fresh
+            thread exists to enforce. Only a non-blank instruction asks for an amendment;
+          * **a per-task build dispatch** (``build_task_number`` set) — that dispatch
+            already carries a COMPACTED view of the same document, so injecting the full
+            artifact on top would double-inject the deliverable.
+
+        Keyed on the generic gate vocabulary + generic scratch only — no agent id, no
+        workflow name (SC-001 / INV-1).
+        """
+        directive = gate_event.get("instructions") or ""
+        kind = self._artifact_kind_for(spec)
+        cands = [
+            r for r in ectx.artifacts.list_by_kind(kind)
+            if r.producer_agent == spec.id
+        ]
+        latest = max(cands, key=lambda r: r.version) if cands else None
+        derived_from = latest.id if latest is not None else None
+
+        prior_artifact = ""
+        if latest is not None and directive and not (ectx.build_task_number or ""):
+            prior_artifact = latest.content or ""
+
+        # Drop the rejected output's results entry (matching agent_id) so the re-run
+        # appends a fresh one.
+        if results and results[-1].get("agent_id") == spec.id:
+            results.pop()
+
+        # T7 (B8): best-effort, content-free redo audit row — written HERE and not in
+        # ``_run_review_gate``, which has no ectx. It is what makes a post-restart
+        # ``redo_attempt`` derivable from durable evidence (_seed_gate_reentry_attempts),
+        # so a re-entered gate cannot mint a colliding ``:redo{N}``. Dormant on the
+        # goldens (they never redo). Never aborts the run.
+        _runner = getattr(ectx, "runner", None)
+        if _runner is not None and hasattr(_runner, "record_gate_event"):
+            try:
+                await _runner.record_gate_event(
+                    spec.id, "human", "redo",
+                    {"has_instructions": bool(directive)},
+                )
+            except Exception:  # noqa: BLE001 — audit never aborts a run
+                logger.debug(
+                    "redo audit row failed for agent %s (ignored)",
+                    spec.id, exc_info=True,
+                )
+        return directive, derived_from, prior_artifact
 
     async def _run_review_gate(
         self,
@@ -8864,6 +8941,37 @@ class ExecutionEngine:
             label = f"{prev.name} ({prev.role})" if prev else aid
             parts.append(f"\n--- Output from {label} ---\n{output}")
 
+        # ── D1: the artifact UNDER revision — rendered BEFORE the instruction blocks ──
+        # SUBJECT FIRST, INSTRUCTIONS SECOND. Both blocks that follow — the REVISE
+        # directive and the analysis report — tell the agent to preserve what it was not
+        # asked to change, and that is unsatisfiable unless the document is in the prompt.
+        # This block is the agent's ONLY channel to its own prior output: it declares
+        # ``consumes: []`` + ``tools: []``, self-consumption is structurally impossible
+        # (_filter_consumed_outputs breaks on upstream.id == spec.id), and the re-run
+        # threads a FRESH checkpoint id so nothing is replayed.
+        #
+        # ORDERING IS LOAD-BEARING, not cosmetic (ISS-086): the REVISE block used to be
+        # appended ABOVE this one, so reusing the field for a redo without moving it would
+        # have read "instructions first, subject second" — the inverse of the rule FIX-217
+        # learned. The move is INV-3-safe: on the revision path ``redo_directive`` is empty,
+        # so the REVISE block renders nothing and PRIOR → REPORT keeps its relative order.
+        #
+        # Two publishers (FIX-217's revision pass, ISS-086's redo loop), one field, one
+        # block (INV-12). Keyed on the generic scratch field — no workflow/agent literal
+        # (SC-001) — and dormant on every non-revision, non-redo dispatch ⇒ the goldens
+        # stay byte-identical (INV-3). Costs one extra copy of the artifact per pass.
+        prior_artifact = getattr(ectx, "spec_revision_prior_artifact", "") or ""
+        if prior_artifact:
+            parts.append(
+                "\n=== PRIOR ARTIFACT UNDER REVISION ===\n"
+                "This is YOUR OWN previous output for this run. Revise THIS document in "
+                "place: reproduce verbatim every section you were not asked to change, and "
+                "change only what the instructions below identify. Do NOT regenerate from "
+                "scratch and do NOT drop sections you were not asked to change.\n\n"
+                f"{prior_artifact}\n"
+                "=== END PRIOR ARTIFACT UNDER REVISION ==="
+            )
+
         # ── REDO-GATE B6: the optional "redo with additional instructions" block ──
         # Appended IFF ectx.redo_directive is set for THIS re-run (set adjacently in
         # _run_agent's redo loop, cleared unconditionally right after — consume-once,
@@ -8876,29 +8984,6 @@ class ExecutionEngine:
                 "\n=== ADDITIONAL INSTRUCTIONS (REVISE) ===\n"
                 f"{redo_note}\n"
                 "=== END ADDITIONAL INSTRUCTIONS ==="
-            )
-
-        # ── D1: the artifact UNDER revision — rendered BEFORE the report below ────────
-        # The revision block that follows tells the writer to preserve the sections it
-        # was not asked to change; that instruction is unsatisfiable unless the document
-        # is in the prompt. The writer declares ``consumes: []`` (and self-consumption is
-        # structurally impossible — _filter_consumed_outputs breaks on upstream.id ==
-        # spec.id) plus ``tools: []``, so this block is its ONLY channel to its own prior
-        # output (BUGFIX-SPEC-REVISION-CONTEXT D1). Subject first, instructions second.
-        # Keyed on the generic scratch field — no workflow/agent literal (SC-001) — and
-        # dormant on every non-revision dispatch ⇒ the goldens stay byte-identical
-        # (INV-3). Costs ~11k tokens, once per revision pass.
-        prior_artifact = getattr(ectx, "spec_revision_prior_artifact", "") or ""
-        if prior_artifact:
-            parts.append(
-                "\n=== PRIOR ARTIFACT UNDER REVISION ===\n"
-                "This is YOUR OWN previous output for this run — the document the analysis "
-                "report below refers to. Revise THIS document in place: reproduce every "
-                "section the report does not call out, verbatim, and change only what the "
-                "report identifies. Do NOT regenerate from scratch and do NOT drop sections "
-                "you were not asked to change.\n\n"
-                f"{prior_artifact}\n"
-                "=== END PRIOR ARTIFACT UNDER REVISION ==="
             )
 
         # ── KAN-101: Spec revision context — injected during a revision sub-pipeline ──
