@@ -20,6 +20,7 @@
 | TEST-008 | FIX-223 + FIX-224 (quick-260812-35u) | 2026-08-12 | `backend/tests/agents/test_loader.py`, `backend/tests/agents/test_banned_patterns.py`, `backend/tests/agents/characterization/_normalize.py`, `backend/agents/prompts/prototype-build/AGENT.md`, `backend/agents/capabilities/strategies/task_loop.py`, `backend/tests/agents/characterization/golden/prototype_revision.events.json` | 4 | 4 | 0 | ✅ Pass |
 | TEST-009 | FIX-225 (quick-260812-4ss) | 2026-08-12 | `frontend/src/hooks/useWorkflow.ts`, `frontend/src/hooks/useRunStateStore.ts`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/types/index.ts` | 12 | 12 | 0 | ✅ Pass |
 | TEST-010 | FIX-226 (quick-260812-77g) | 2026-08-12 | `frontend/src/components/results/AgentDetailPanel.tsx` | 4 | 4 | 0 | ✅ Pass |
+| TEST-011 | FIX-227 (quick-260812-7sk) | 2026-08-12 | `backend/agents/execution_engine/engine.py`, `backend/app/api/run_engine.py`, `backend/app/main.py`, `backend/app/api/run_commands.py`, `backend/app/api/run_shutdown.py` | 9 | 9 | 0 | ✅ Pass |
 
 ---
 
@@ -804,3 +805,102 @@ run's CURRENT `protoCompletedTasks` when an older `<tasks>` version is selected,
 checks badge still reflects the agent's current `validationPassed`. Both are run/agent
 state that is not versioned anywhere in the FE, so following the selection would mean
 inventing data. Filed as `ISS-087` rather than silently fixed or silently ignored.
+
+---
+
+### TEST-011 — FIX-227 (quick-260812-7sk): Stop actually stops a run, and the run reaches a terminal state
+
+```
+TEST COVERAGE — FIX-227
+Unit tests:        9 NEW backend cases, ALL GREEN:
+                   5 in backend/tests/agents/test_cancel_stops_resumed_run.py (NEW file)
+                   3 in backend/tests/unit/test_run_shutdown.py (TestPerRunStopEscalation)
+                   1 in backend/tests/unit/test_rest_answers_cancel.py (the anti-lie test)
+                   Suites: 5/5 · 7/7 · 10/10. 99 passed across the whole changed area
+                   (adds test_fanout_cancel, test_rest_gate_commands, test_rest_resume,
+                   test_sse_stream, test_pipeline_failure_semantics).
+Integration tests: N/A as a separate tier — the end-to-end case IS an offline unit test:
+                   test_cancel_stops_resumed_run.py drives the real resume_run over a real
+                   in-memory-SQLite ScopedStore with a scripted model, reusing
+                   test_restart_resume's _ResumeHarness (INV-12, no cloned harness). No
+                   network, no Bedrock, no money. This defect was found because a resumed
+                   build burned 16.5M tokens; nothing here launches or resumes a live run.
+Frontend tests:    N/A — no FE behaviour changed. api.ts's postCancel return TYPE was
+                   widened to carry accepted/status and warn against branching on
+                   `cancelled`; no caller reads the body (both call sites only .catch).
+                   tsc --noEmit unchanged at its 2 pre-existing errors
+                   (NotificationPanel.fix195.test.tsx, useNotifications.fix202.test.tsx).
+Goldens:           10 passed / 0 failed — IDENTICAL to the pre-change commit 1ed94666.
+                   No golden regenerated (git status on characterization/ clean).
+lint-imports:      4 kept / 0 broken — IDENTICAL to 1ed94666. The kernel gains an INJECTED
+                   callback, never an app.api import; this is the contract that proves it.
+                   NB: must be run from backend/ — from the repo root it prints
+                   "Could not read any configuration" and exits, which reads as a pass.
+
+  backend/tests/agents/test_cancel_stops_resumed_run.py
+    test_resume_funnel_hands_the_cancel_event_to_execute_impl
+      RED BEFORE (observed): "the resume funnel passed NO cancel_event to _execute_impl"
+        — the kwarg was absent from the call entirely. THE root cause, asserted directly.
+    test_resume_funnel_is_dormant_when_the_hook_is_unset
+      RED BEFORE (observed): assert 'MISSING' is None. INV-3 guard: hook unset ⇒ the
+        goldens/offline harness still see cancel_event=None.
+    test_the_engine_reads_the_same_event_object_the_rest_registry_holds
+      RED BEFORE (observed): AttributeError — no such hook existed. Object IDENTITY, not
+        presence: this is the assertion that makes the orphan impossible to reintroduce.
+    test_cancel_stops_a_resumed_drive_and_writes_the_terminal_row
+      RED BEFORE (observed, by mutating the root-cause line back):
+        "a cancelled resume kept dispatching agents: {'a': 2, 'b': 2} ->
+         {'a': 4, 'b': 4, 'c': 2, 'd': 2}"
+        — the production symptom, reproduced offline. Also asserts pipeline_cancelled is
+        persisted to run_events and WorkflowRun.status == "cancelled".
+    test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume
+      RED BEFORE (observed, same mutation):
+        "the next boot re-adopted a run the owner paid to stop:
+         ['stamp:iss084-bcbda284', 'resume_run:iss084-bcbda284']"
+        — i.e. restarting the backend to stop a run makes the run FINISH. Measured in
+        production too: the replacement backend emitted pipeline_start two seconds after
+        boot and billed 7.5M further tokens.
+
+  backend/tests/unit/test_run_shutdown.py — TestPerRunStopEscalation
+    test_a_driver_that_ignores_the_stop_is_cancelled_and_left_terminal
+      RED BEFORE (observed, by short-circuiting stop_run_driver): "an unresponsive driver
+        must not survive a Stop". Also asserts the terminal reconcile fires.
+    test_a_cooperative_driver_is_never_force_cancelled
+      RED BEFORE (observed, same mutation): task never reached done(). ISS-007's contract:
+        escalation is a FALLBACK, never the mechanism.
+    test_stop_run_driver_is_a_no_op_without_a_live_task
+
+  backend/tests/unit/test_rest_answers_cancel.py
+    test_cancel_does_not_claim_success_without_a_live_driver
+      RED BEFORE (observed, by disabling the liveness gate): "the endpoint claimed a
+        cancellation nothing could perform: {'accepted': True, 'status': 'stopping'}".
+
+Regression guards:
+  - test_a_cancelled_resumed_run_is_not_re_adopted_by_auto_resume: THE guard that matters
+    most. A cancel that leaves the row non-terminal is not a cancel, it is a delayed
+    re-run — restore_non_terminal_runs re-adopts every non-terminal row on the next boot.
+  - test_the_engine_reads_the_same_event_object_the_rest_registry_holds: object identity
+    is what makes the orphan-Event class of bug unrepeatable.
+  - test_resume_funnel_hands_the_cancel_event_to_execute_impl: the funnel guard. Every
+    future resume driver reaches _execute_impl through _drive_resumed_stream, so this one
+    assertion covers resume_run, _rearm_gate_run, _replay_clarify_run and POST /resume,
+    and stops the next resume-path feature re-opening the hole (the TEST-008/009 shape).
+  - test_resume_funnel_is_dormant_when_the_hook_is_unset: proves the INV-3 dormancy the
+    10/10 goldens depend on, at the seam rather than only end-to-end.
+  - test_restart_resume.py held at 7 failed / 48 passed, identical to 1ed94666 — ISS-078's
+    territory, neither fixed nor worsened.
+  - tests/unit/test_rest_run_launch.py + test_rest_revisions.py show 4 failures
+    ('_FakeUser' object has no attribute 'tier'). Re-baselined in a detached worktree at
+    1ed94666: the SAME 4 fail there. Pre-existing, with the SHA.
+```
+
+**Why the existing cancel suite missed a CRITICAL defect for six weeks:**
+`test_rest_answers_cancel.py:210-224` seeded `_CANCEL_EVENTS[run_id]` **itself** and then
+asserted the endpoint had set it — the one thing that still worked. The test and the bug
+were the same shape: both mistook *"an Event object was in a dict and `.set()` did not
+raise"* for *"the run was cancelled"*. Its docstring premise ("a live run has an armed
+cancel event") was unfalsifiable because the test manufactured it. It is **reconciled, not
+deleted**: it now seeds the driver task too, making the premise true, and asserts the
+honest `accepted` acknowledgement. No test anywhere asserted that a drive OBSERVES the
+event, that `pipeline_cancelled` is emitted, or that the status flips — TEST-011 is those
+assertions.

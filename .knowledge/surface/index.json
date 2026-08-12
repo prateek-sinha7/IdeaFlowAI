@@ -1,5 +1,5 @@
 {
-  "count": 627,
+  "count": 630,
   "entries": [
     {
       "area": [
@@ -5340,6 +5340,21 @@
     },
     {
       "area": [
+        "sse",
+        "resume",
+        "auth"
+      ],
+      "date": "2026-08-12",
+      "files": [],
+      "id": "FIX-227",
+      "path": ".knowledge/cards/FIX-227.md",
+      "source": ".planning/FIX-REGISTER.md#fix-227",
+      "status": "done",
+      "summary": "There was NO way for anyone \u2014 user or operator \u2014 to stop a running build once it had crossed a backend restart, and every un-stoppable od_prototype build costs 5\u201321M Bedrock tokens of the owner's money",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -6807,6 +6822,7 @@
       "area": [
         "sse",
         "resume",
+        "workflow",
         "agents",
         "auth"
       ],
@@ -6815,10 +6831,13 @@
       "id": "ISS-084",
       "path": ".knowledge/cards/ISS-084.md",
       "relates": [
-        "ISS-078"
+        "ISS-078",
+        "FIX-227",
+        "ISS-088",
+        "ISS-089"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-084",
-      "status": "open",
+      "status": "done",
       "summary": "Stop / cancel does not stop a building run. POST /api/runs/{id}/cancel returns HTTP 200 {\"ok\":true,\"cancelled\":true} and the run keeps generating",
       "type": "issue"
     },
@@ -6882,6 +6901,44 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-087",
       "status": "open",
       "summary": "The un-versioned halves of the agent-detail cards do not follow the artifact version picker. FIX-226 made every CONTENT-derived surface follow the selection",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "auth"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-088",
+      "path": ".knowledge/cards/ISS-088.md",
+      "relates": [
+        "ISS-084"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-088",
+      "status": "open",
+      "summary": "The local backend cannot be stopped by SIGTERM while any run is streaming, so shutdown_run_infrastructure() never executes locally at all \u2014 and even where it does execute it does not stop the runs",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "workflow",
+        "auth"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-089",
+      "path": ".knowledge/cards/ISS-089.md",
+      "relates": [
+        "FIX-227",
+        "ISS-084"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-089",
+      "status": "open",
+      "summary": "A cancel is purely in-process, so a Stop that arrives when no driver is live is lost \u2014 and the next boot auto-resumes the run the owner just tried to stop",
       "type": "issue"
     },
     {
@@ -9753,7 +9810,7 @@
     "area": {
       "agents": 228,
       "artifacts": 93,
-      "auth": 84,
+      "auth": 87,
       "backend": 93,
       "docs": 2,
       "engine": 1,
@@ -9762,25 +9819,25 @@
       "harness": 2,
       "infra": 1,
       "product": 29,
-      "resume": 54,
+      "resume": 57,
       "runtime": 31,
-      "sse": 156,
+      "sse": 159,
       "test-infra": 11,
       "tooling": 2,
-      "workflow": 201
+      "workflow": 203
     },
     "status": {
       "accepted": 1,
-      "done": 580,
-      "open": 37,
+      "done": 582,
+      "open": 38,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 223,
-      "issue": 87,
+      "fix": 224,
+      "issue": 89,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -9798,5 +9855,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-12 05:32"
+  "generated": "2026-08-12 06:03"
 }
