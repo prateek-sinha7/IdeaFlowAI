@@ -1,5 +1,5 @@
 {
-  "count": 706,
+  "count": 709,
   "entries": [
     {
       "area": [
@@ -5766,6 +5766,27 @@
     },
     {
       "area": [
+        "backend",
+        "frontend",
+        "sse",
+        "auth"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "backend/app/api/run_stream.py",
+        "backend/tests/unit/test_sse_stream.py",
+        "frontend/e2e/fixtures/mockSse.ts",
+        "frontend/e2e/tests/ts-sse-resilience.spec.ts"
+      ],
+      "id": "FIX-248",
+      "path": ".knowledge/cards/FIX-248.md",
+      "source": ".planning/FIX-REGISTER.md#fix-248",
+      "status": "done",
+      "summary": "The narrator's \"Delivered \u2014 open in Preview\" milestone card rendered TWICE in the run chat lane after a mid-run SSE reconnect (ISS-146)",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8523,6 +8544,42 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-145",
       "status": "open",
       "summary": "Frontend test-suite baselines recorded elsewhere in this repo are stale by roughly an order of magnitude \u2014 re-baseline before gating any future fix on suite colour",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "tooling",
+        "sse",
+        "auth"
+      ],
+      "date": "",
+      "files": [
+        "scripts/knowledge/ctx.py"
+      ],
+      "id": "ISS-146",
+      "path": ".knowledge/cards/ISS-146.md",
+      "relates": [
+        "FIX-248"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-146",
+      "status": "done",
+      "summary": "The narrator's \"Delivered \u2014 open in Preview\" chat card rendered TWICE after a mid-run SSE reconnect. GET /api/runs/{id}/events (api.ts:583-590) merges a durable row's event_id/seq COLUMNS over payload_json",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse"
+      ],
+      "date": "",
+      "files": [
+        "frontend/src/hooks/useRunStream.ts"
+      ],
+      "id": "ISS-147",
+      "path": ".knowledge/cards/ISS-147.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-147",
+      "status": "open",
+      "summary": "pipeline_complete is missing from useRunStream.ts's non-live-close terminal list, so a completed run's stream reconnects when it should settle quietly \u2014 ADR-0001's own predicted failure mode, realized",
       "type": "issue"
     },
     {
@@ -11394,37 +11451,37 @@
     "area": {
       "agents": 276,
       "artifacts": 110,
-      "auth": 116,
-      "backend": 119,
+      "auth": 118,
+      "backend": 120,
       "cost": 1,
       "docs": 4,
       "engine": 14,
       "evals": 19,
-      "frontend": 211,
+      "frontend": 213,
       "harness": 2,
       "infra": 5,
       "perf": 1,
       "product": 30,
       "resume": 80,
       "runtime": 39,
-      "sse": 213,
+      "sse": 216,
       "test": 3,
       "test-infra": 16,
-      "tooling": 3,
+      "tooling": 4,
       "workflow": 240
     },
     "status": {
       "accepted": 1,
-      "done": 623,
-      "open": 73,
+      "done": 625,
+      "open": 74,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 244,
-      "issue": 145,
+      "fix": 245,
+      "issue": 147,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -11442,5 +11499,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-13 02:04"
+  "generated": "2026-08-13 03:56"
 }

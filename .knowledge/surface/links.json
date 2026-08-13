@@ -364,6 +364,9 @@
       "ISS-144",
       "ISS-145"
     ],
+    "FIX-248": [
+      "ISS-146"
+    ],
     "ISS-007": [
       "ISS-035"
     ],
@@ -1084,6 +1087,7 @@
       "FIX-242",
       "FIX-243",
       "FIX-246",
+      "FIX-248",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -1126,6 +1130,7 @@
       "ISS-129",
       "ISS-131",
       "ISS-145",
+      "ISS-146",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -1258,6 +1263,7 @@
       "FIX-243",
       "FIX-244",
       "FIX-246",
+      "FIX-248",
       "ISS-033",
       "ISS-054",
       "ISS-055",
@@ -1507,6 +1513,7 @@
       "FIX-239",
       "FIX-245",
       "FIX-247",
+      "FIX-248",
       "ISS-022",
       "ISS-025",
       "ISS-054",
@@ -1539,6 +1546,7 @@
       "ISS-140",
       "ISS-141",
       "ISS-143",
+      "ISS-147",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -1808,6 +1816,7 @@
       "FIX-245",
       "FIX-246",
       "FIX-247",
+      "FIX-248",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1883,6 +1892,8 @@
       "ISS-142",
       "ISS-143",
       "ISS-145",
+      "ISS-146",
+      "ISS-147",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1952,7 +1963,8 @@
     "tooling": [
       "ISS-050",
       "ISS-069",
-      "ISS-089"
+      "ISS-089",
+      "ISS-146"
     ],
     "workflow": [
       "BUG-002-sse",
@@ -2551,7 +2563,8 @@
     "backend/app/api/run_stream.py": [
       "BUG-015-sse",
       "FIX-152",
-      "FIX-240"
+      "FIX-240",
+      "FIX-248"
     ],
     "backend/app/api/runs.py": [
       "FIX-004",
@@ -2768,7 +2781,8 @@
       "FIX-240"
     ],
     "backend/tests/unit/test_sse_stream.py": [
-      "FIX-240"
+      "FIX-240",
+      "FIX-248"
     ],
     "backend/tests/unit/test_update_specs_ingress_fence.py": [
       "FIX-219"
@@ -2796,6 +2810,9 @@
     "frontend/e2e/fixtures/live.ts": [
       "ISS-088"
     ],
+    "frontend/e2e/fixtures/mockSse.ts": [
+      "FIX-248"
+    ],
     "frontend/e2e/tests/ts-chat-cards.spec.ts": [
       "FIX-236"
     ],
@@ -2803,7 +2820,8 @@
       "FIX-247"
     ],
     "frontend/e2e/tests/ts-sse-resilience.spec.ts": [
-      "FIX-152"
+      "FIX-152",
+      "FIX-248"
     ],
     "frontend/e2e/tests/ts-v.per-workflow.live.spec.ts": [
       "FIX-234"
@@ -3259,7 +3277,8 @@
       "FIX-122",
       "FIX-129",
       "FIX-135",
-      "FIX-207"
+      "FIX-207",
+      "ISS-147"
     ],
     "frontend/src/hooks/useSmoothText.ts": [
       "FIX-209"
@@ -3332,6 +3351,9 @@
     "scripts/knowledge/check_ids.py": [
       "ISS-050",
       "ISS-069"
+    ],
+    "scripts/knowledge/ctx.py": [
+      "ISS-146"
     ]
   },
   "edges": {
@@ -3964,6 +3986,9 @@
     ],
     "ISS-145": [
       "FIX-247"
+    ],
+    "ISS-146": [
+      "FIX-248"
     ]
   },
   "rules_by_file": {

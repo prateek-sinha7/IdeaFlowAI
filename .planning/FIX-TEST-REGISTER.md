@@ -42,6 +42,7 @@
 | TEST-028 | FIX-244 (quick-260812-wir) | 2026-08-12 | `backend/tests/unit/test_rest_answers_cancel.py` | 4 new (20 → 24 in file) | 24 | 0 | ✅ Pass |
 | TEST-029 | FIX-245 (quick-260812-wir) | 2026-08-12 | `frontend/src/hooks/__tests__/terminalStatusReconcile.test.ts`, `frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts` | 23 new | 23 | 0 | ✅ Pass |
 | TEST-030 | FIX-247 (quick-260813-1b1) | 2026-08-13 | `frontend/e2e/tests/ts-r.cancel.spec.ts`, `frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts`, `frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts` | 1 new e2e (TS-R-05) + 2 source-lock `it()` blocks reconciled | 4 e2e (1 pre-existing fixme skipped) + 35 vitest | 0 | ✅ Pass |
+| TEST-031 | FIX-248 (quick-260813-3wo) | 2026-08-13 | `backend/tests/unit/test_sse_stream.py`, `frontend/e2e/tests/ts-sse-resilience.spec.ts` | 1 new backend unit (`TestReplayIdentityProjection`) + 1 reconciled exact-body assertion + 1 new mounted-browser e2e (TS-SSE-RESILIENCE-06) | 44 backend + 5 e2e | 0 | ✅ Pass (live proof BLOCKED — see below) |
 
 ---
 
@@ -2381,4 +2382,80 @@ Regression guards:
 **Why the regression proof is PAIRED rather than compared to a recorded baseline.** The frontend baselines written down elsewhere in this repo ("~8 vitest reds", "mocked e2e 132/0") are stale by roughly an order of magnitude — measured fresh here as 147 vitest reds and a 34-failed e2e baseline, independently twice (ISS-145). A recorded baseline that cannot be trusted cannot certify a regression, so both suites were measured **in the same session, reverted vs HEAD**, and the verdict is a **set-diff of failing test NAMES**, not a count: zero newly failing.
 
 **Live verification, and the money rules.** Two fresh `user_stories` runs only (~$0.01 each) — never `od_prototype`. The paused `od_prototype` run `41f77342-b3c4-42ee-bf9c-215209dfc2aa` was never launched, resumed or approved; both probe scripts assert the launched run id does not match it, and a read-only API check before and after confirmed it stayed at `waiting_for_user`. GATEPROBE exists as the **regression control** on the review-gate path this fix deliberately does not touch — and it is also what independently reproduced ISS-143 (the header "N Running" pill going stale after a cancel), which is a different defect and was filed rather than folded.
+
+### TEST-031 — FIX-248 (quick-260813-3wo): ISS-146 — a replayed narrator card must carry its row's identity
+
+```
+TEST COVERAGE — FIX-248
+Backend unit: 1 NEW test (TestReplayIdentityProjection::test_replayed_identity_less_chat_reply_carries_its_row_identity,
+  backend/tests/unit/test_sse_stream.py) → seen RED against the unfixed projection:
+  `assert data.get("event_id") == row_event_id` failed with `AssertionError: assert None == '<uuid>'`
+  (event_id simply absent from the replayed frame's data). Then GREEN after the one-line fix.
+  Also reconciled the PRE-EXISTING exact-body assertion in test_replay_from_cursor_projects_seq_frames
+  (line ~180: `assert replay[0]["data"] == {"seq": 2, "text": "hi"}`) to include the row's REAL,
+  DB-read-back event_id — not a hardcoded literal (it is a random uuid4 per test run).
+  Whole file, isolated: 43 passed/0 failed (baseline) → 44 passed/0 failed (post-fix), independently
+  re-run by the orchestrating agent after the executor's own report (identical count both times).
+Frontend e2e (mocked Playwright): 1 NEW test (TS-SSE-RESILIENCE-06, frontend/e2e/tests/ts-sse-resilience.spec.ts)
+  → mounts the REAL app (not a modeled/raw-fetch consumer, unlike the file's other 4 tests) and
+  reproduces the ACTUAL production mechanism end to end: launches via the real launch flow (so
+  sessionStorage `tab_launched_run_ids` is genuinely populated), fires a real browser `online` event
+  WHILE the run is still active (arming `RunConnectionProvider.autoIdsRef`, the precondition that
+  defeats `detachRun`'s insurance — verified via `mockSse.runListFetchCount` actually incrementing,
+  not just the event being dispatched), drives to `pipeline_complete`, then emits the narrator
+  deliverable card so it lands on the durable tail strictly AFTER the terminal frame — mirroring how
+  the engine actually queues it. Required 2 corrections to `frontend/e2e/fixtures/mockSse.ts` that
+  did not exist before this fix: (a) replay-vs-live awareness in `serialize()`/`handleStream()` (a
+  frame already pending when a stream response begins is a REPLAY frame; one arriving later, waking
+  a parked long-poll, is LIVE) — temporarily paired with a `simulatePreFixReplay` flag to model
+  today's pre-fix server, DELETED in the fix commit, no dead toggle left behind; (b) the durable REST
+  twin `GET /api/runs/{id}/events` (`handleRunEvents`), previously UNMOCKED entirely (fell through to
+  `mockApi`, which does not implement it either) — meaning the completion-backfill path
+  (`page.tsx` → `getRunEvents`) was invisible to the WHOLE mocked suite before this fix, not just this
+  test. Seen RED (received 2 cards, expected 1) against the pre-fix-modeling mock, then GREEN
+  (exactly 1 card) once the mock's replay path was corrected to mirror the shipped
+  `run_stream.py:202` merge. Full file, isolated, both via `npx playwright test` and the project's own
+  `npm run e2e -- ts-sse-resilience`: 5 passed (7.6s) — TS-SSE-RESILIENCE-01/02/03/04 unperturbed.
+Mocked e2e suite-wide impact of the new REST-twin mock endpoint (executor-measured, not independently
+  re-run end-to-end by the orchestrator): 34 failed/108 passed/43 skipped → 30 failed/112 passed/43
+  skipped. ZERO tests moved pass→fail; three pre-existing `ts-t.history` failures fixed as a side
+  effect (the endpoint they needed was simply absent before).
+Goldens: 10 passed / 0 failed (5 characterization files, 2 tests each — `tests/agents/characterization/`
+  ALONE collects 0 items and is NOT the right invocation, the exact ISS-145 collected-0/exit-0 trap;
+  the right selection is the 5 `test_characterization_*.py` files under `tests/agents/`). Zero golden
+  files touched (`git status --porcelain`/`git diff --stat` on the fixtures: empty), independently
+  re-run by the orchestrating agent, not just the executor.
+lint-imports: 4 kept / 0 broken (run from `backend/`, `/opt/homebrew/bin/lint-imports` — "Analyzed 215
+  files, 526 dependencies"), independently re-run.
+Live browser (real backend + real frontend + real SSE, not mocked): ATTEMPTED, NOT COMPLETED.
+  Two fresh `user_stories` attempts (`SSEFIXPROBEV2`, `SSEFIXPROBEV3`) both failed within ~9s of
+  leaving clarify — EVERY agent returned "The model rejected this request." The backend log
+  (`scratchpad/backend-3wo.log`) shows the real cause on both: `botocore.errorfactory.InvalidGrantException:
+  An error occurred (InvalidGrantException) when calling the CreateToken operation: Invalid refresh
+  token provided`. Confirmed as an infrastructure issue, not a code issue: `AWS_PROFILE=hex-ai-fe aws
+  sts get-caller-identity` independently fails the same way ("Token has expired and refresh failed"),
+  and `aws sso login --profile hex-uki` requires an interactive browser OAuth completion no agent can
+  perform. A first attempt (`SSEFIXPROBE`, before the SSO issue was diagnosed) separately surfaced a
+  PRE-EXISTING gap in the reproduction script `20-live-control.mjs` — it clicks "skip all" exactly
+  once, but this pipeline can ask a SECOND clarify round, leaving the run stuck at `waiting_for_user`.
+  A corrected script (`scratchpad/24-live-control-v2.mjs`, loops the skip-click and gates the
+  network-drop on the run's REAL status rather than a fixed timer) is written and ready, but has not
+  yet been run to completion because Bedrock access is down for both available SSO profiles. **This
+  live pass is a follow-up, not a closure condition waived** — recorded honestly as blocked, not as
+  passed.
+Regression guards:
+  - TestReplayIdentityProjection (backend/tests/unit/test_sse_stream.py): pins that a durable-replay
+    frame for an identity-less app-layer row carries the row's REAL event_id/seq, merged from the
+    columns — the root-cause-level guard.
+  - TS-SSE-RESILIENCE-06 (frontend/e2e/tests/ts-sse-resilience.spec.ts): pins the user-visible
+    contract end to end — one narrator milestone renders as exactly ONE chat card across a
+    terminal-close reconnect racing the completion backfill, through the REAL app code, not a
+    hand-simulated consumer.
+```
+
+**Why no `useRunChat.test.ts` hook-level unit test was added, on purpose.** The obvious construction — hand-build two frames with mismatched identity (one with no `event_id`, one with a different one) and assert `handleFrame` collapses them to one message — was considered and REJECTED. FIX-248 is a server-only wire-contract fix; it changes nothing in `useRunChat.ts`. Such a test would still be RED after the fix, with no path to GREEN inside this change's scope, because the frontend reducer code it exercises is byte-unchanged. This codebase has ZERO precedent for an intentionally-red/inverted-assertion **unit** test (`grep -rn "\.fails(" frontend/src frontend/e2e` returns nothing; the one "documented known gap" idiom, `test.fixme`, is Playwright-e2e-only). Rather than invent a new pattern or commit a permanently-failing test, the mounted e2e test above is the correct, buildable, mechanically-sound proof at the frontend layer instead — it exercises the SAME reducer code through the REAL wire-parsing path (`useRunStream`), which is strictly better coverage than a hand-simulated hook test would have been.
+
+**Why the naive "emit card, then drop the connection" test shape could never go red, and what replaced it.** `useRunStream.ts` advances its resume cursor from `data.seq` on every dispatched frame, so a card already processed live is never replayed on a plain drop-then-reconnect — there is no race to catch. The REAL mechanism (traced end to end by direct source reading of `RunConnectionProvider.tsx` and `page.tsx`, not guessed) is: the SSE endpoint's own `_STREAM_TERMINAL_TYPES` includes `pipeline_complete`, so the live drain returns the instant it drains that frame — the narrator card, queued right after it, is NEVER delivered live at all on that connection. The client's `pipeline_complete` close then schedules a reconnect (`useRunStream.ts:301` omits `pipeline_complete` from its non-live list — filed separately as ISS-147, not fixed here), and that reconnect's replay is what raced the completion backfill. Getting the test to reproduce this needed one more precondition the first attempt at this test missed: the run's id must ALSO be in `RunConnectionProvider.autoIdsRef` (armed by an `online`/`visibilitychange` wake while the run is still active) or `detachRun`'s insurance unmounts the connection before any reconnect can happen — exactly mirroring why the live `DROP=1` (network blip mid-run) and `DROP=0` (no blip) probes differ.
+
+**Live verification is a genuine follow-up, not a skipped step.** Unlike every other TEST entry in this register, this one does not carry a completed live-Bedrock pass. The blocker (AWS SSO refresh-token invalidity across both available profiles) was diagnosed with the same rigor as the code fix — read the actual backend traceback, cross-checked with a direct `aws sts`/`aws sso login` probe — rather than assumed or retried blindly. Do not treat FIX-248 as live-proven until this is closed out.
 
