@@ -1,5 +1,5 @@
 {
-  "count": 738,
+  "count": 742,
   "entries": [
     {
       "area": [
@@ -5254,6 +5254,32 @@
     },
     {
       "area": [
+        "backend",
+        "frontend",
+        "agents"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "backend/app/api/run_commands.py",
+        "backend/app/agents/chat/concierge.py",
+        "backend/app/core/entitlements.py",
+        "frontend/src/hooks/useChatAttachments.ts",
+        "frontend/src/hooks/useRunChat.ts",
+        "frontend/src/components/chat/ChatAttachments.tsx",
+        "frontend/src/components/chat/RunChatLane.tsx",
+        "frontend/src/components/chat/MessageBubble.tsx",
+        "frontend/src/components/results/AgentDetailPanel.tsx",
+        "backend/tests/unit/test_run_commands_fix218.py"
+      ],
+      "id": "FIX-218",
+      "path": ".knowledge/cards/FIX-218.md",
+      "source": ".planning/FIX-REGISTER.md#fix-218",
+      "status": "done",
+      "summary": "revision agents receive file as structured reference; filename shown on history replay; chip cleared after send; copy bar fixed; professional file bubble; filename in Context Received panel",
+      "type": "fix"
+    },
+    {
+      "area": [
         "backend"
       ],
       "date": "2026-08-13",
@@ -6025,6 +6051,68 @@
       "source": ".planning/FIX-REGISTER.md#fix-254",
       "status": "done",
       "summary": "One \"Update the Specs\" click opened the analyze gate THREE times and nothing on the wire told the firings apart \u2014 A modelling gap, not a mechanism: the sub-pipeline was DESIGNED headless",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "auth"
+      ],
+      "date": "2026-08-13",
+      "files": [],
+      "id": "FIX-255",
+      "path": ".knowledge/cards/FIX-255.md",
+      "relates": [
+        "FIX-217",
+        "FIX-216"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-255",
+      "status": "done",
+      "summary": "A run with no brief could be launched, and the pipeline it could launch is the 5-21M-token one. LaunchCommand.message was a bare str and launch_run never checked it",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "workflow"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/hooks/useRunStateStore.ts",
+        "frontend/src/app/dashboard/bridgeTerminality.source.test.ts"
+      ],
+      "id": "FIX-256",
+      "path": ".knowledge/cards/FIX-256.md",
+      "relates": [
+        "ISS-138",
+        "ISS-157",
+        "FIX-220"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-256",
+      "status": "done",
+      "summary": "The FIX-201 legacy\u2192store bridge could resurrect a stood-down run, and dev shipped a second never-called mechanism beside it. Closes ISS-138 (open since 2026-08-12) and ISS-157",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "agents",
+        "auth"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "backend/app/agents/chat/concierge.py"
+      ],
+      "id": "FIX-257",
+      "path": ".knowledge/cards/FIX-257.md",
+      "relates": [
+        "FIX-218",
+        "FIX-233"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-257",
+      "status": "done",
+      "summary": "The Concierge's file-attachment prompt forbade a tool that no longer exists, and converted questions into steering notes",
       "type": "fix"
     },
     {
@@ -6836,17 +6924,19 @@
       "area": [
         "sse",
         "resume",
-        "agents"
+        "agents",
+        "runtime"
       ],
       "date": "",
       "files": [],
       "id": "ISS-051",
       "path": ".knowledge/cards/ISS-051.md",
       "relates": [
-        "ISS-050"
+        "ISS-064",
+        "FIX-218"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-051",
-      "status": "open",
+      "status": "done",
       "summary": "A nested revision reaches depth 2 with BOTH levels computing revision_index=1, so two passes collide on the same :rev1 checkpoint thread (measured: 7 dispatches, only 4 unique thread ids)",
       "type": "issue"
     },
@@ -8648,7 +8738,7 @@
         "ISS-126"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-138",
-      "status": "open",
+      "status": "done",
       "summary": "The FIX-201 legacy->store bridge overwrites the run store's pipelineState WHOLESALE, silently discarding any store-only correction",
       "type": "issue"
     },
@@ -8970,12 +9060,9 @@
       "files": [],
       "id": "ISS-155",
       "path": ".knowledge/cards/ISS-155.md",
-      "relates": [
-        "FIX-216"
-      ],
       "source": ".planning/ISSUES-REGISTER.md#iss-155",
-      "status": "open",
-      "summary": "The od_prototype / od_ppt staging guards no longer require a brief, and now DISAGREE with the consumption guards. dev's FIX-216c removed `\\",
+      "status": "done",
+      "summary": "\\ \u2014 chainContextBlock?.trim()), and all four staging/consumption guards agree so the reload path can no longer reach a different verdict. TEST-034 (3), seen RED \u2014 the empty brief returned 200 OK and minted a run",
       "type": "issue"
     },
     {
@@ -9015,7 +9102,7 @@
         "FIX-220"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-157",
-      "status": "open",
+      "status": "done",
       "summary": "syncPipelineStateOnly is added to the run store, exported on the interface, and never called \u2014 dev's FIX-220 register row says \"for future use\". The rAF fix it ships alongside still calls runStore.updatePipelineState",
       "type": "issue"
     },
@@ -9037,7 +9124,7 @@
         "FIX-218"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-158",
-      "status": "open",
+      "status": "done",
       "summary": "dev's Concierge file-override prompt instructs the model to \"NEVER call read_events\" \u2014 a tool this branch DELETED in FIX-233 (ISS-092)",
       "type": "issue"
     },
@@ -11956,38 +12043,38 @@
   ],
   "facets": {
     "area": {
-      "agents": 286,
+      "agents": 288,
       "artifacts": 117,
-      "auth": 131,
-      "backend": 131,
+      "auth": 133,
+      "backend": 133,
       "cost": 1,
       "docs": 4,
       "engine": 14,
       "evals": 19,
-      "frontend": 220,
+      "frontend": 222,
       "harness": 2,
       "infra": 5,
       "perf": 1,
       "product": 30,
       "resume": 81,
-      "runtime": 40,
-      "sse": 223,
+      "runtime": 41,
+      "sse": 224,
       "test": 3,
       "test-infra": 18,
       "tooling": 4,
-      "workflow": 250
+      "workflow": 251
     },
     "status": {
       "accepted": 1,
-      "done": 642,
-      "open": 86,
+      "done": 651,
+      "open": 81,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 260,
+      "fix": 264,
       "issue": 161,
       "phase": 23,
       "req": 40,
@@ -12006,5 +12093,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-13 12:57"
+  "generated": "2026-08-13 14:38"
 }

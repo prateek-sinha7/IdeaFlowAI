@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-738 cards · rules 1 · fixes 260 · issues 161 · phases 23 · built 2026-08-13 12:57
+742 cards · rules 1 · fixes 264 · issues 161 · phases 23 · built 2026-08-13 14:38
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,14 +12,18 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (260)
+## Fixes (264)
 
+FIX-257 2026-08-13 [backend,agents,auth] The Concierge's file-attachment prompt forbade a tool that no longer exists, and converted questions into steering notes
+FIX-256 2026-08-13 [frontend,sse,workflow] The FIX-201 legacy→store bridge could resurrect a stood-down run, and dev shipped a second never-called mechanism beside it. Closes ISS-138 (open since 2026-08-12) and ISS-157
+FIX-255 2026-08-13 [auth] A run with no brief could be launched, and the pipeline it could launch is the 5-21M-token one. LaunchCommand.message was a bare str and launch_run never checked it
 FIX-250 2026-08-13 [backend,resume,workflow,agents,auth,artifacts] Every completed revision run silently lost 7 WorkflowRun output columns — the fourth caller BUG-R03 never wired, and the row it defeated (get_token_usage, FIX-249) had shipped the SAME session (ISS-152)
 FIX-249 2026-08-13 [backend,sse,workflow,agents,auth,artifacts] The Concierge told a user the product "does not expose billing or token usage metrics" and referred them to support, for a number rendered inches away in the same viewport (ISS-148)
 FIX-248 2026-08-13 [backend,frontend,sse,auth] The narrator's "Delivered — open in Preview" milestone card rendered TWICE in the run chat lane after a mid-run SSE reconnect (ISS-146)
 FIX-247 2026-08-13 [frontend,sse,evals] Stop at the clarify gate cancelled the run, but the screen never repainted — the live terminal handler cleared only legacy React state, never the run store the lane actually reads (ISS-140)
 FIX-220 2026-08-13 [frontend] Maximum update depth exceeded — useWorkflow.pipelineState sync effect fires 26× per SSE frame causing infinite re-render loop; coalesced via rAF
 FIX-219 2026-08-13 [backend] od_ppt Concierge revision routes to ppt_revision (2 agents) instead of od_ppt_revision (1 agent) — FIX-216b regression; stale proposal correction added
+FIX-218 2026-08-13 [backend,frontend,agents] revision agents receive file as structured reference; filename shown on history replay; chip cleared after send; copy bar fixed; professional file bubble; filename in Context Received panel
 FIX-254 2026-08-12 [backend,frontend,agents] One "Update the Specs" click opened the analyze gate THREE times and nothing on the wire told the firings apart — A modelling gap, not a mechanism: the sub-pipeline was DESIGNED headless
 FIX-253 2026-08-12 [backend,sse,agents] update_specs_eligible was advertised but never enforced — the review gate ran the spec-revision sub-pipeline at firings that had published the affordance as unavailable
 FIX-246 2026-08-12 [backend,sse,workflow,agents,auth,artifacts] The historical event loss was recorded as an unmeasured range with a half-wrong justification (ISS-123); it is now a read-only, re-runnable audit. Shipped backend/scripts/audit_lost_run_events.py — mode=ro, zero INSERT/UPDATE/DELETE/ALTER
@@ -283,7 +287,7 @@ ISS-159 - [sse,artifacts] A chained run records NO lineage. Chaining passes cont
 ISS-158 - [backend,agents,auth] dev's Concierge file-override prompt instructs the model to "NEVER call read_events" — a tool this branch DELETED in FIX-233 (ISS-092)
 ISS-157 - [frontend] syncPipelineStateOnly is added to the run store, exported on the interface, and never called — dev's FIX-220 register row says "for future use". The rAF fix it ships alongside still calls runStore.updatePipelineState
 ISS-156 - [backend,frontend,sse,agents,test-infra] dev shipped FIX-218 with five red tests, which the merge inherits. backend/tests/unit/test_run_commands_fix218.py asserts the Concierge prompt contains ## Attached files while dev's own code emits ## PRIORITY OVERRIDE
-ISS-155 - [-] The od_prototype / od_ppt staging guards no longer require a brief, and now DISAGREE with the consumption guards. dev's FIX-216c removed `\
+ISS-155 - [-] \ — chainContextBlock?.trim()), and all four staging/consumption guards agree so the reload path can no longer reach a different verdict. TEST-034 (3), seen RED — the empty brief returned 200 OK and minted a run
 ISS-154 - [frontend,sse,workflow,agents,auth,artifacts] Switching the in-family version picker to an OLDER, non-latest revision whose .output is NULL shows a blank "Output will appear here" preview instead of the deliverable, or any explanatory message
 ISS-153 - [runtime,backend] A failed revision run shows the user no reason at all. _persist_terminal_status inside _drive_revision_to_queue (run_commands.py:2764, ~line 2803) has NO error parameter
 ISS-152 - [workflow,agents,auth,artifacts,backend] Every completed revision run silently lost 7 WorkflowRun output columns — the fourth caller BUG-R03 never wired
@@ -387,7 +391,7 @@ ISS-055 - [backend,sse,auth] Tier entitlement never enforced at launch — any u
 ISS-054 - [frontend,backend,sse,agents] Concierge chain / gate_action / revision proposals never surface — the proposals binding was dead, so consequential Concierge proposals (chain, gate_action, revision) were held but never rendered as chips
 ISS-053 - [sse,agents,evals,auth] update_specs_eligible is an FE affordance only — _run_review_gate (engine.py:5470) acts on the gate action WITHOUT ever consulting it
 ISS-052 - [agents,artifacts] One "Update the Specs" click costs FOUR approvals: the re-run specify gate, the re-run plan gate, then the analyze gate RE-OPENS after the sub-pipeline returns
-ISS-051 - [sse,resume,agents] A nested revision reaches depth 2 with BOTH levels computing revision_index=1, so two passes collide on the same :rev1 checkpoint thread (measured: 7 dispatches, only 4 unique thread ids)
+ISS-051 - [sse,resume,agents,runtime] A nested revision reaches depth 2 with BOTH levels computing revision_index=1, so two passes collide on the same :rev1 checkpoint thread (measured: 7 dispatches, only 4 unique thread ids)
 ISS-050 - [tooling] TOMBSTONE. This id was allocated to "CR-02 guard blocks prototype_revision and user_stories_revision", closed by FIX-185 (commit fd2ad8f1), and the id lived ONLY in that commit message — never in a register or card
 ISS-049 - [sse,workflow,agents,auth,test-infra] Surfaced by the 37-07 rebuild agent's careful re-analysis (corrects the earlier "~10 pre-existing" hand-wave): the FE suite has 2 DETERMINISTIC failures (both pre-existing, unrelated to 37-07) + ~8 FLAKY
 ISS-048 - [sse,resume,workflow,agents,auth,product] Phase-38 review (verifier PASS 11/11, 0 crit/high): (MD-1) useNotifications.ts:99/DashboardLayout.tsx:489 gate notification never reverts
