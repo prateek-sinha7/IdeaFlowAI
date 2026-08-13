@@ -18,7 +18,7 @@ Where the project is right now, and what constrains a change to it. Every other 
 - Phase: ALL COMPLETE — 45 [R0] 4/4 · 46 [R1] 8/8 · 47 [R2] 4/4 · 48 [R3] 4/4 · 49 [R4] 5/5 (KAN-88 green) · 50 [R5] 5/5
 - Plan: 14/14 plans complete across 6 phases; register reconciliation batch appended; requirements RESUME-05..18 all Complete
 - Status: Milestone v3.0 OFFLINE-COMPLETE — remaining: the consolidated live-Bedrock pass (orchestrator-owned) + /gsd-complete-milestone (user step; v2.0 close-out also still pending)
-- Last activity: 2026-08-12 — Completed quick task 260812-wir: durable app-layer driver terminals (FIX-244/ISS-124), a reopened TERMINAL run renders as terminal (FIX-245/ISS-126, live-proven A/B on 808612bf vs 1ea6d262), and a read-only forensic audit of the historical event loss (FIX-246/ISS-123, corrected to 15 destroyed across 9 runs). 7 new findings filed as ISS-135..141.
+- Last activity: 2026-08-13 — Completed quick task 260813-1b1: a Stop at the clarify gate now repaints the screen (FIX-247/TEST-030, closing ISS-140 — re-severitied minor -> major, its filed "masked, not user-visible" claim disproven twice — and ISS-139, the unreachable switch arm, deleted with its two live-relevant effects rescued onto the reachable path). Live-proven on Bedrock with two cheap user_stories runs (FIXPROBE + GATEPROBE control) sampled at t+3s/8s/15s/25s; goldens 10/0 identical to d2d2da53, lint-imports 4/0, paired e2e regression set-diff zero newly failing. 3 new findings filed as ISS-143..145.
 
 ## Enforced boundaries
 
@@ -35,7 +35,7 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 
 | component | what it is | cards | on disk |
 |---|---|---:|---|
-| `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 53 | 27 files |
+| `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 54 | 27 files |
 | `backend/app/services` | application services | 2 | 5 files |
 | `backend/app/models` | persistence — additive migrations only | 1 | 23 files |
 | `backend/agents/execution_engine` | the execution kernel | 37 | 11 files |
@@ -44,7 +44,7 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 | `backend/agents/runtime` | runtime services | 0 | 2 files |
 | `backend/agents/artifact_store` | artifact persistence | 1 | 2 files |
 | `backend/agents/guardrails` | policy enforcement | 0 | 0 files |
-| `frontend/src/app` | Next.js routes | 58 | 24 files |
+| `frontend/src/app` | Next.js routes | 61 | 24 files |
 | `frontend/src/components` | UI components | 209 | 192 files |
 | `frontend/src/hooks` | client state + stream handling | 39 | 27 files |
 
@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (274), `workflow` (238), `sse` (210), `frontend` (209), `backend` (118), `auth` (115), `artifacts` (109), `resume` (79).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (276), `workflow` (240), `sse` (213), `frontend` (211), `backend` (119), `auth` (116), `artifacts` (110), `resume` (80).
 
 ## Constraints that bind every phase
 
@@ -66,6 +66,6 @@ Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas c
 
 ## What this file does not know
 
-- Only 1 decision card exists against 271 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
+- Only 1 decision card exists against 272 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
 - Runtime topology (what is deployed where) is not derived — see `docs/SIMPLE_AWS_DEPLOYMENT.md`.
 - The component table counts files and card hits. It does not verify that a component still does what its description says.

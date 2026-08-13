@@ -41,6 +41,7 @@
 | TEST-027 | FIX-243 (quick-260812-tni) | 2026-08-12 | `backend/tests/unit/test_rest_answers_cancel.py` | 10 new + 2 reconciled (10 → 20 in file) | 20 | 0 | ✅ Pass |
 | TEST-028 | FIX-244 (quick-260812-wir) | 2026-08-12 | `backend/tests/unit/test_rest_answers_cancel.py` | 4 new (20 → 24 in file) | 24 | 0 | ✅ Pass |
 | TEST-029 | FIX-245 (quick-260812-wir) | 2026-08-12 | `frontend/src/hooks/__tests__/terminalStatusReconcile.test.ts`, `frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts` | 23 new | 23 | 0 | ✅ Pass |
+| TEST-030 | FIX-247 (quick-260813-1b1) | 2026-08-13 | `frontend/e2e/tests/ts-r.cancel.spec.ts`, `frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts`, `frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts` | 1 new e2e (TS-R-05) + 2 source-lock `it()` blocks reconciled | 4 e2e (1 pre-existing fixme skipped) + 35 vitest | 0 | ✅ Pass |
 
 ---
 
@@ -2324,4 +2325,60 @@ that motivated the row cost **$3.58**, ≈**$1.61** of it after the cancel.
 **Regression method — IDs, never counts.** Full vitest **871 → 894 passed** (+23 = exactly the new tests) with the failing set **147 → 147** and the failing **test IDs byte-identical**, diffed against a baseline measured in a **detached git worktree at `e3c38594`** (`git worktree add --detach`, never `git stash`). `tsc --noEmit` the same 2 pre-existing errors. The pinned reducer guards — the ISS-035 cancel-marker suite, the FIX-039 accumulator-reset guard, `useWorkflow.reconnect`, `attachRunOnOpen.source` — are all green, which is what proves the routing was a **move, not a copy**.
 
 **And the tests were still not enough.** With all of the above green, the fix was INVISIBLE in a real browser. The live A/B on `808612bf` (corrupted) vs `1ea6d262` (clean control) is the gate that caught it — twice, for two different reasons (ISS-138's wholesale bridge overwrite, then the `laneClarifyOpen` branch). Final live result: both runs render `lane-run-status` **"Cancelled"** (tone=neutral) with no Stop control and no gate actions.
+
+### TEST-030 — FIX-247 (quick-260813-1b1): ISS-139 + ISS-140 — a cancel at the clarify gate must repaint the screen
+
+```
+TEST COVERAGE — FIX-247
+Frontend e2e (mocked Playwright): 1 NEW test (TS-R-05, frontend/e2e/tests/ts-r.cancel.spec.ts)
+  → seen RED against the unfixed source (git checkout ae208b53^ -- page.tsx), independently
+    reproduced by both the fix's executor AND the orchestrating agent separately — IDENTICAL
+    failure both times: lane-run-status stuck at "Clarifying" (data-status-tone="running"),
+    timeout waiting for /Cancelled/. Then GREEN after the fix, independently re-run: 1 skipped
+    (pre-existing TS-R-04 fixme), 4 passed.
+Frontend unit (vitest source-locks): 2 files reconciled (terminalReopenReconcile.source.test.ts,
+  liveRunSwitch.fix201.test.ts) → npx vitest --run on both: 2 passed (2 files), 35 passed (35
+  tests) — includes the 8 OTHER unmodified it() blocks in terminalReopenReconcile.source.test.ts
+  (an unrelated ISS-126/FIX-245 suite) still green.
+Full mocked e2e suite regression check: PAIRED measurement, page.tsx reverted vs HEAD, same
+  session — baseline (reverted) 34 failed/108 passed/43 skipped; post-fix (HEAD) 31 failed/111
+  passed/43 skipped. Set-diff of the two failed-test-name lists: ZERO tests newly failing
+  post-fix; three tests flip baseline-only (ts-r.cancel:117 = TS-R-05 = the fix itself;
+  ts-l.token-usage:77 and ts-t.history:65 = proven pre-existing parallel-worker flake, unrelated
+  to this diff, see ISS-145 below).
+Full frontend vitest suite: 147 failed / 894 passed / 1041 total post-fix — IDENTICAL count
+  independently measured twice (once by the executor, once by the orchestrator). This baseline
+  itself is badly stale relative to what's on record elsewhere in this repo (see ISS-145) — NOT
+  caused by, NOT fixed by, this change.
+Goldens: 10 passed / 0 failed (collected 10 items — not a false-pass from bad path collection),
+  IDENTICAL to the pre-change commit d2d2da53. Zero golden files touched (git status --short on
+  the characterization/golden tree: empty).
+lint-imports: 4 kept / 0 broken (run from backend/, /opt/homebrew/bin/lint-imports).
+Live browser (real backend + real frontend + real SSE, not mocked): TWO fresh cheap
+  (user_stories, ~$0.01 each) runs. FIXPROBE: clarify card confirmed rendered (15 chips / 4
+  questions / AWAITING YOU) before Stop; sampled at t+3s/8s/15s/25s after Stop — all four samples
+  identical: "Cancelled", Stop absent, clarify submit absent, chip count 0, terminal-cancelled
+  card present, API status cancelled. GATEPROBE (regression control, the review-gate path this
+  fix does NOT touch): review gate confirmed armed before Stop; sampled at the same four
+  intervals — all identical: "Cancelled", Stop absent, both gate actions absent,
+  terminal-cancelled card present. Neither script could touch the forbidden paused od_prototype
+  run (41f77342...) — both assert the launched run id doesn't match it; confirmed via read-only
+  API check before and after that it stayed untouched at waiting_for_user.
+Regression guards:
+  - TS-R-05 (frontend/e2e/tests/ts-r.cancel.spec.ts): pins the user-visible repaint contract —
+    cancel while paused at clarify must clear Stop/clarify-submit/clarify-chips and show the
+    Cancelled terminal card, sampled after a real SSE round-trip via mockSse.
+  - terminalReopenReconcile.source.test.ts (rewritten it block): pins that the dead switch arm
+    stays deleted and the live block keeps carrying the store write.
+  - liveRunSwitch.fix201.test.ts (rewritten it block): pins the SAME, plus that the write stays
+    inside the run-scoping if (!isForeignFrame) guard (the T-1b1-01 threat-model mitigation).
+```
+
+**Why TS-R-05 is a SEPARATE `test.describe` block.** `frontend/e2e/tests/ts-r.cancel.spec.ts` already carried a `TS-R — cancel` suite whose `beforeEach` starts a **BUILDING** run — the wrong starting state for a clarify-gate scenario, and adjusting it would have changed the meaning of four existing tests. TS-R-05 lives in its own `test.describe("TS-R — cancel at clarify")` with its own setup instead.
+
+**Two source-lock reconciliations, and only one of them was planned.** `terminalReopenReconcile.source.test.ts` was known (TEST-029 deliberately pinned the unreachable arm's existence as part of ISS-126's proof). `liveRunSwitch.fix201.test.ts` was **not anticipated by the plan** — a second lock on the same dead code via a different string, found mid-execution. Both were reconciled with identical reasoning and both came out **TIGHTER, never relaxed**: from "the dead arm exists and is where it should be" to "the dead arm is GONE and the live block carries the store write", with the `liveRunSwitch` one additionally asserting the write stays inside `if (!isForeignFrame)`. **Both had been GREEN while pinning code that had never once executed** — the lesson worth carrying: a source lock satisfied only by unreachable code proves nothing about behaviour.
+
+**Why the regression proof is PAIRED rather than compared to a recorded baseline.** The frontend baselines written down elsewhere in this repo ("~8 vitest reds", "mocked e2e 132/0") are stale by roughly an order of magnitude — measured fresh here as 147 vitest reds and a 34-failed e2e baseline, independently twice (ISS-145). A recorded baseline that cannot be trusted cannot certify a regression, so both suites were measured **in the same session, reverted vs HEAD**, and the verdict is a **set-diff of failing test NAMES**, not a count: zero newly failing.
+
+**Live verification, and the money rules.** Two fresh `user_stories` runs only (~$0.01 each) — never `od_prototype`. The paused `od_prototype` run `41f77342-b3c4-42ee-bf9c-215209dfc2aa` was never launched, resumed or approved; both probe scripts assert the launched run id does not match it, and a read-only API check before and after confirmed it stayed at `waiting_for_user`. GATEPROBE exists as the **regression control** on the review-gate path this fix deliberately does not touch — and it is also what independently reproduced ISS-143 (the header "N Running" pill going stale after a cancel), which is a different defect and was filed rather than folded.
 

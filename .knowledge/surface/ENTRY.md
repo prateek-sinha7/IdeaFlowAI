@@ -2,7 +2,7 @@
 
 # Project knowledge — entry point
 
-You were redirected here because you asked to read a `.planning/` register whole. All 18.0 MB of `.planning/` is carried as **702 cards** in `.knowledge/cards/`; the registers themselves are unchanged on disk.
+You were redirected here because you asked to read a `.planning/` register whole. All 18.1 MB of `.planning/` is carried as **706 cards** in `.knowledge/cards/`; the registers themselves are unchanged on disk.
 
 This is not a failure. Query below — do not retry the original path.
 
@@ -26,8 +26,8 @@ python3 scripts/knowledge/ctx.py --show <ID>             # one card, full prose
 | type | n | what it is | example |
 |---|---:|---|---|
 | `decision` | 1 | rules in force — always loaded | `ctx.py --rules sse` |
-| `fix` | 243 | shipped fixes, symptom + cause | `ctx.py "reconnect banner"` |
-| `issue` | 142 | tracked issues | `ctx.py --type issue "review gate"` |
+| `fix` | 244 | shipped fixes, symptom + cause | `ctx.py "reconnect banner"` |
+| `issue` | 145 | tracked issues | `ctx.py --type issue "review gate"` |
 | `bug` | 28 | QA campaign bugs | `ctx.py --type bug "resume"` |
 | `phase` | 23 | phase pointers → _register-parts/ shards | `ctx.py --type phase "compiler"` |
 | `test` | 49 | test-register sections | `ctx.py --type test "compiler"` |
@@ -35,7 +35,7 @@ python3 scripts/knowledge/ctx.py --show <ID>             # one card, full prose
 | `doc` | 65 | pointers to planning documents | `ctx.py --type doc "roadmap"` |
 | `task` | 111 | pointers to quick/ and phases/ work folders | `ctx.py --type task "resume"` |
 
-**Areas:** `agents` (274), `workflow` (238), `sse` (210), `frontend` (209), `backend` (118), `auth` (115), `artifacts` (109), `resume` (79), `runtime` (39), `product` (30)
+**Areas:** `agents` (276), `workflow` (240), `sse` (213), `frontend` (211), `backend` (119), `auth` (116), `artifacts` (110), `resume` (80), `runtime` (39), `product` (30)
 
 ## Full lists
 
@@ -44,7 +44,7 @@ python3 scripts/knowledge/ctx.py --show <ID>             # one card, full prose
 | `.knowledge/surface/ARCHITECTURE.md` | **current state** — milestone, phase, enforced boundaries, ADRs in force | **first** |
 | `.knowledge/INVARIANTS.md` | project-wide constraints | always |
 | `.knowledge/surface/RULES.md` | decisions in force | always |
-| `.knowledge/surface/INDEX.md` | 409 primary cards (decision, fix, issue, phase) | always |
+| `.knowledge/surface/INDEX.md` | 413 primary cards (decision, fix, issue, phase) | always |
 | `.knowledge/surface/CATALOG.md` | 293 secondary cards (bug, test, req, doc, task) | on demand |
 | `.knowledge/surface/index.json` | every entry + `facets` for filtering | tools only |
 

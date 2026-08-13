@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-702 cards · rules 1 · fixes 243 · issues 142 · phases 23 · built 2026-08-13 00:05
+706 cards · rules 1 · fixes 244 · issues 145 · phases 23 · built 2026-08-13 02:04
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (243)
+## Fixes (244)
 
+FIX-247 2026-08-13 [frontend,sse,evals] Stop at the clarify gate cancelled the run, but the screen never repainted — the live terminal handler cleared only legacy React state, never the run store the lane actually reads (ISS-140)
 FIX-246 2026-08-12 [backend,sse,workflow,agents,auth,artifacts] The historical event loss was recorded as an unmeasured range with a half-wrong justification (ISS-123); it is now a read-only, re-runnable audit. Shipped backend/scripts/audit_lost_run_events.py — mode=ro, zero INSERT/UPDATE/DELETE/ALTER
 FIX-245 2026-08-12 [frontend,sse,workflow] A reopened TERMINAL run rendered as if it were still live — header "Awaiting approval", an armed Stop button, armed gate cards (ISS-126)
 FIX-244 2026-08-12 [backend,sse,resume] The two app-layer driver terminals wrote no durable row at all, so the owner's Stop was recorded as a FAILURE and fresh corrupted runs were still being minted (ISS-124)
@@ -258,12 +259,15 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (142)
+## Issues (145)
 
+ISS-145 - [sse,workflow,agents,auth,artifacts,test-infra] Frontend test-suite baselines recorded elsewhere in this repo are stale by roughly an order of magnitude — re-baseline before gating any future fix on suite colour
+ISS-144 - [backend,resume,agents] POST /api/runs/{run_id}/answers accepts a terminal run — no 409 guard, unlike /gate. backend/app/api/run_commands.py:327-352 (submit_answers) checks ownership (_review_gate_owned_by) before writing but has NO terminal-run check
+ISS-143 - [sse,workflow,frontend] The header "N Running" pill goes stale after a live cancel. AppHeader.tsx derives the pill from recentRuns (LIVE_STATUSES.has(r.status), which includes waiting_for_user)
 ISS-142 - [sse,workflow,evals] The WS->SSE cutover DROPPED status from the reconnect ack, breaking parity with locked decision D-13. IMPLEMENTATION-REGISTER.md records for D-13/12-09 that the pipeline_reconnected reply carries live/status/replayed_through_seq
 ISS-141 - [sse,frontend] A reopened TERMINAL run still renders an actionable clarify card. useRunChat.ts's terminal auto-resolve covers only cardKind === "gate"
-ISS-140 - [frontend] The LIVE terminal path clears only the legacy React state, never the run store. page.tsx:1196-1201 calls setReviewGateData(null) / setQuestionnaireData(null) / setActivePipelineRunId(null)
-ISS-139 - [sse,frontend] page.tsx's case "pipeline_cancelled": case "pipeline_failed": switch arm is UNREACHABLE dead code (~:1527-1562) — Verified during the ISS-126 investigation; the trap is that the arm reads exactly like the right place to fix ISS-126
+ISS-140 - [evals,frontend] The LIVE terminal path cleared only the legacy React state, never the run store — and it WAS user-visible: a Stop at the clarify gate cancelled the run, but the screen never repainted
+ISS-139 - [sse,frontend] page.tsx's case "pipeline_cancelled": case "pipeline_failed": switch arm was UNREACHABLE dead code (~:1527-1562) — Verified during the ISS-126 investigation; the trap is that the arm reads exactly like the right place to fix ISS-126
 ISS-138 - [sse,workflow,frontend] The FIX-201 legacy->store bridge overwrites the run store's pipelineState WHOLESALE, silently discarding any store-only correction
 ISS-137 - [sse,workflow,agents,evals,frontend] pipeline_reconnected is a DEAD frame with a live handler, a live test suite and a divergent status list. Verified: NO backend path emits it — grep over backend/app + backend/agents finds it only in comments
 ISS-136 - [sse,workflow,frontend] Four divergent FE definitions of "terminal", and they disagree. page.tsx:64 {completed,failed,cancelled,degraded} (correct, matches backend chat_router.py:62)

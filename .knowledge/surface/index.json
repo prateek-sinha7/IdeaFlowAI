@@ -1,5 +1,5 @@
 {
-  "count": 702,
+  "count": 706,
   "entries": [
     {
       "area": [
@@ -5746,6 +5746,26 @@
     },
     {
       "area": [
+        "frontend",
+        "sse",
+        "evals"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts",
+        "frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts",
+        "frontend/e2e/tests/ts-r.cancel.spec.ts"
+      ],
+      "id": "FIX-247",
+      "path": ".knowledge/cards/FIX-247.md",
+      "source": ".planning/FIX-REGISTER.md#fix-247",
+      "status": "done",
+      "summary": "Stop at the clarify gate cancelled the run, but the screen never repainted \u2014 the live terminal handler cleared only legacy React state, never the run store the lane actually reads (ISS-140)",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8379,15 +8399,18 @@
       "id": "ISS-139",
       "path": ".knowledge/cards/ISS-139.md",
       "relates": [
-        "ISS-126"
+        "ISS-126",
+        "FIX-247",
+        "ISS-140"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-139",
-      "status": "open",
-      "summary": "page.tsx's case \"pipeline_cancelled\": case \"pipeline_failed\": switch arm is UNREACHABLE dead code (~:1527-1562) \u2014 Verified during the ISS-126 investigation; the trap is that the arm reads exactly like the right place to fix ISS-126",
+      "status": "done",
+      "summary": "page.tsx's case \"pipeline_cancelled\": case \"pipeline_failed\": switch arm was UNREACHABLE dead code (~:1527-1562) \u2014 Verified during the ISS-126 investigation; the trap is that the arm reads exactly like the right place to fix ISS-126",
       "type": "issue"
     },
     {
       "area": [
+        "evals",
         "frontend"
       ],
       "date": "",
@@ -8396,11 +8419,12 @@
       "path": ".knowledge/cards/ISS-140.md",
       "relates": [
         "ISS-126",
-        "FIX-245"
+        "FIX-245",
+        "FIX-247"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-140",
-      "status": "open",
-      "summary": "The LIVE terminal path clears only the legacy React state, never the run store. page.tsx:1196-1201 calls setReviewGateData(null) / setQuestionnaireData(null) / setActivePipelineRunId(null)",
+      "status": "done",
+      "summary": "The LIVE terminal path cleared only the legacy React state, never the run store \u2014 and it WAS user-visible: a Stop at the clarify gate cancelled the run, but the screen never repainted",
       "type": "issue"
     },
     {
@@ -8440,6 +8464,65 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-142",
       "status": "open",
       "summary": "The WS->SSE cutover DROPPED status from the reconnect ack, breaking parity with locked decision D-13. IMPLEMENTATION-REGISTER.md records for D-13/12-09 that the pipeline_reconnected reply carries live/status/replayed_through_seq",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-143",
+      "path": ".knowledge/cards/ISS-143.md",
+      "relates": [
+        "FIX-247"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-143",
+      "status": "open",
+      "summary": "The header \"N Running\" pill goes stale after a live cancel. AppHeader.tsx derives the pill from recentRuns (LIVE_STATUSES.has(r.status), which includes waiting_for_user)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "resume",
+        "agents"
+      ],
+      "date": "",
+      "files": [
+        "backend/app/api/run_commands.py"
+      ],
+      "id": "ISS-144",
+      "path": ".knowledge/cards/ISS-144.md",
+      "relates": [
+        "FIX-247"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-144",
+      "status": "open",
+      "summary": "POST /api/runs/{run_id}/answers accepts a terminal run \u2014 no 409 guard, unlike /gate. backend/app/api/run_commands.py:327-352 (submit_answers) checks ownership (_review_gate_owned_by) before writing but has NO terminal-run check",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-145",
+      "path": ".knowledge/cards/ISS-145.md",
+      "relates": [
+        "FIX-247"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-145",
+      "status": "open",
+      "summary": "Frontend test-suite baselines recorded elsewhere in this repo are stale by roughly an order of magnitude \u2014 re-baseline before gating any future fix on suite colour",
       "type": "issue"
     },
     {
@@ -11309,39 +11392,39 @@
   ],
   "facets": {
     "area": {
-      "agents": 274,
-      "artifacts": 109,
-      "auth": 115,
-      "backend": 118,
+      "agents": 276,
+      "artifacts": 110,
+      "auth": 116,
+      "backend": 119,
       "cost": 1,
       "docs": 4,
       "engine": 14,
-      "evals": 17,
-      "frontend": 209,
+      "evals": 19,
+      "frontend": 211,
       "harness": 2,
       "infra": 5,
       "perf": 1,
       "product": 30,
-      "resume": 79,
+      "resume": 80,
       "runtime": 39,
-      "sse": 210,
+      "sse": 213,
       "test": 3,
-      "test-infra": 15,
+      "test-infra": 16,
       "tooling": 3,
-      "workflow": 238
+      "workflow": 240
     },
     "status": {
       "accepted": 1,
-      "done": 620,
-      "open": 72,
+      "done": 623,
+      "open": 73,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 243,
-      "issue": 142,
+      "fix": 244,
+      "issue": 145,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -11359,5 +11442,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-13 00:05"
+  "generated": "2026-08-13 02:04"
 }
