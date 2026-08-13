@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-577 cards · rules 1 · fixes 213 · issues 49 · phases 23 · built 2026-08-11 15:16
+577 cards · rules 1 · fixes 219 · issues 49 · phases 23 · built 2026-08-13
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,13 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (213)
+## Fixes (219)
 
+FIX-218 2026-08-13 [backend,frontend,chat,concierge] Chat file attachment injection — files in chat injected into pipeline agents; revision agents receive file as reference; filename on replay; chip cleared after send; copy bar fixed; file bubble; filename in Context Received panel (KAN-170)
+FIX-217 2026-08-12 [backend,frontend,workflow] Chain context missing from prototype/ppt revisions — ancestor walk only one level; stale chain context leaking; empty brief on wizard-chained launches (FIX-216c included)
+FIX-216b 2026-08-11 [backend] od_prototype/od_ppt revision maps to wrong pipeline type — od_prototype_revision has no agents + excluded from hexaware tier
+FIX-215 2026-08-11 [frontend,workflow] Notification click always opened latest run — workflowRunId never stamped; fell through to type-based stale lookup
+FIX-214 2026-08-11 [frontend] Clarify action button labels updated to action-neutral wording
 FIX-213 2026-08-11 [backend,agents] Concierge system prompt overhaul — emojis, internals leakage, verbose agent detail, no proactive next-step, wrong run state label
 FIX-212 2026-08-11 [backend,frontend,workflow] "Start this workflow" chain chip persisted after clicking; revision pipeline_not_entitled; blank bubble on confirm; confirm button no feedback
 FIX-211 2026-08-11 [backend] chat_router auto-approved gate / auto-submitted clarify on plain chat text — PHASE_GATE_PAUSED: plain text with no gate action defaulted to action="approve" — any chat message during a review gate silently approved it

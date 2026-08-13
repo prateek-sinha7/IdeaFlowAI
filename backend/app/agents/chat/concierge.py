@@ -465,7 +465,43 @@ class ConciergeCapability:
         via ``getattr(ctx, "chain_hints", None)`` and joined as GENERIC data). No branch
         on pipeline_type / spec.id / workflow name.
         """
-        parts: list[str] = [
+        # FIX-218 (KAN-170): if a file is attached this turn, inject its rules FIRST
+        # — before role, before intent routing — so the file-injection obligation
+        # is the highest-priority instruction and cannot be overridden by the user's
+        # message text or any other routing rule. Payload-transient (ND-10).
+        attached_files = getattr(ctx, "attached_files", "") or ""
+        file_override_block: str = ""
+        if attached_files.strip():
+            file_override_block = (
+                "## PRIORITY OVERRIDE — File attached this turn\n\n"
+                "A file has been uploaded by the user. This overrides ALL other routing rules.\n"
+                "You MUST decide based on the user's message text:\n\n"
+                "CASE A — User message contains a revision request "
+                "(e.g. 'add X', 'fix Y', 'revise Z', 'update it', 'make it better'):\n"
+                "→ Call propose_revision. The USER'S CHAT MESSAGE IS THE PRIMARY INSTRUCTION — "
+                "always honour it exactly as stated. The attached file is SECONDARY reference "
+                "material only. If the file content conflicts with or is unrelated to the user's "
+                "request, IGNORE the file content and follow the user's request alone. "
+                "Set the instruction to the user's request, and if the file is relevant, add: "
+                "'Use the attached [filename] as supplementary reference if applicable.'\n"
+                "Reply: 'I'll revise based on your request. The attached [filename] will be used "
+                "as supplementary reference where relevant.'\n\n"
+                "CASE B — No revision request (user just attached a file or asked about status):\n"
+                "→ Call propose_steering_note with the full file content as the note text.\n"
+                "Reply: 'I've read [filename] and injected its content into the pipeline agents.'\n\n"
+                "ALWAYS use the actual filename from the file block below.\n"
+                "NEVER ask clarifying questions. NEVER call read_events when a file is attached.\n"
+                "If a file shows [Extraction error: ...], tell the user it could not be read.\n\n"
+                + attached_files.strip()
+            )
+
+        parts: list[str] = []
+
+        # File override goes first — nothing can outrank it.
+        if file_override_block:
+            parts.append(file_override_block)
+
+        parts += [
             # Role: brief, professional assistant scoped to this run only.
             "You are VelocityAI's run assistant. You help users understand the status "
             "of their current run and take the right next action. Be brief and direct. "
@@ -603,5 +639,9 @@ class ConciergeCapability:
                     "call propose_chain(target_id=<id>) immediately with one short sentence. "
                     "Use the exact id. Do not invent ids not in the list."
                 )
+
+        # FIX-218 (KAN-170): the attached file block was already injected at the TOP
+        # of the prompt (priority override section) when a file is present.
+        # No second injection needed here — skip to avoid duplication.
 
         return "\n\n".join(parts)
