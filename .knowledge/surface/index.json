@@ -1,5 +1,5 @@
 {
-  "count": 710,
+  "count": 714,
   "entries": [
     {
       "area": [
@@ -5808,6 +5808,27 @@
     },
     {
       "area": [
+        "backend",
+        "resume",
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "backend/app/api/run_commands.py",
+        "backend/tests/unit/test_rest_revisions.py"
+      ],
+      "id": "FIX-250",
+      "path": ".knowledge/cards/FIX-250.md",
+      "source": ".planning/FIX-REGISTER.md#fix-250",
+      "status": "done",
+      "summary": "Every completed revision run silently lost 7 WorkflowRun output columns \u2014 the fourth caller BUG-R03 never wired, and the row it defeated (get_token_usage, FIX-249) had shipped the SAME session (ISS-152)",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -8601,6 +8622,64 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-147",
       "status": "open",
       "summary": "pipeline_complete is missing from useRunStream.ts's non-live-close terminal list, so a completed run's stream reconnects when it should settle quietly \u2014 ADR-0001's own predicted failure mode, realized",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts",
+        "backend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-152",
+      "path": ".knowledge/cards/ISS-152.md",
+      "relates": [
+        "FIX-249",
+        "FIX-250"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-152",
+      "status": "done",
+      "summary": "Every completed revision run silently lost 7 WorkflowRun output columns \u2014 the fourth caller BUG-R03 never wired",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "runtime",
+        "backend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-153",
+      "path": ".knowledge/cards/ISS-153.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-153",
+      "status": "open",
+      "summary": "A failed revision run shows the user no reason at all. _persist_terminal_status inside _drive_revision_to_queue (run_commands.py:2764, ~line 2803) has NO error parameter",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [
+        "frontend/src/components/preview/PreviewPanel.tsx"
+      ],
+      "id": "ISS-154",
+      "path": ".knowledge/cards/ISS-154.md",
+      "relates": [
+        "FIX-250"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-154",
+      "status": "open",
+      "summary": "Switching the in-family version picker to an OLDER, non-latest revision whose .output is NULL shows a blank \"Output will appear here\" preview instead of the deliverable, or any explanatory message",
       "type": "issue"
     },
     {
@@ -11470,39 +11549,39 @@
   ],
   "facets": {
     "area": {
-      "agents": 277,
-      "artifacts": 111,
-      "auth": 119,
-      "backend": 121,
+      "agents": 280,
+      "artifacts": 114,
+      "auth": 122,
+      "backend": 124,
       "cost": 1,
       "docs": 4,
       "engine": 14,
       "evals": 19,
-      "frontend": 213,
+      "frontend": 214,
       "harness": 2,
       "infra": 5,
       "perf": 1,
       "product": 30,
-      "resume": 80,
-      "runtime": 39,
-      "sse": 217,
+      "resume": 81,
+      "runtime": 40,
+      "sse": 218,
       "test": 3,
       "test-infra": 16,
       "tooling": 4,
-      "workflow": 241
+      "workflow": 244
     },
     "status": {
       "accepted": 1,
-      "done": 626,
-      "open": 74,
+      "done": 628,
+      "open": 76,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 246,
-      "issue": 147,
+      "fix": 247,
+      "issue": 150,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -11520,5 +11599,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-13 04:38"
+  "generated": "2026-08-13 08:18"
 }

@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-710 cards · rules 1 · fixes 246 · issues 147 · phases 23 · built 2026-08-13 04:38
+714 cards · rules 1 · fixes 247 · issues 150 · phases 23 · built 2026-08-13 08:18
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (246)
+## Fixes (247)
 
+FIX-250 2026-08-13 [backend,resume,workflow,agents,auth,artifacts] Every completed revision run silently lost 7 WorkflowRun output columns — the fourth caller BUG-R03 never wired, and the row it defeated (get_token_usage, FIX-249) had shipped the SAME session (ISS-152)
 FIX-249 2026-08-13 [backend,sse,workflow,agents,auth,artifacts] The Concierge told a user the product "does not expose billing or token usage metrics" and referred them to support, for a number rendered inches away in the same viewport (ISS-148)
 FIX-248 2026-08-13 [backend,frontend,sse,auth] The narrator's "Delivered — open in Preview" milestone card rendered TWICE in the run chat lane after a mid-run SSE reconnect (ISS-146)
 FIX-247 2026-08-13 [frontend,sse,evals] Stop at the clarify gate cancelled the run, but the screen never repainted — the live terminal handler cleared only legacy React state, never the run store the lane actually reads (ISS-140)
@@ -261,8 +262,11 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (147)
+## Issues (150)
 
+ISS-154 - [frontend,sse,workflow,agents,auth,artifacts] Switching the in-family version picker to an OLDER, non-latest revision whose .output is NULL shows a blank "Output will appear here" preview instead of the deliverable, or any explanatory message
+ISS-153 - [runtime,backend] A failed revision run shows the user no reason at all. _persist_terminal_status inside _drive_revision_to_queue (run_commands.py:2764, ~line 2803) has NO error parameter
+ISS-152 - [workflow,agents,auth,artifacts,backend] Every completed revision run silently lost 7 WorkflowRun output columns — the fourth caller BUG-R03 never wired
 ISS-147 - [frontend,sse] pipeline_complete is missing from useRunStream.ts's non-live-close terminal list, so a completed run's stream reconnects when it should settle quietly — ADR-0001's own predicted failure mode, realized
 ISS-146 - [tooling,sse,auth] The narrator's "Delivered — open in Preview" chat card rendered TWICE after a mid-run SSE reconnect. GET /api/runs/{id}/events (api.ts:583-590) merges a durable row's event_id/seq COLUMNS over payload_json
 ISS-145 - [sse,workflow,agents,auth,artifacts,test-infra] Frontend test-suite baselines recorded elsewhere in this repo are stale by roughly an order of magnitude — re-baseline before gating any future fix on suite colour

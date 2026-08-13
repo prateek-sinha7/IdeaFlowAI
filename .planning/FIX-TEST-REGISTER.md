@@ -43,6 +43,8 @@
 | TEST-029 | FIX-245 (quick-260812-wir) | 2026-08-12 | `frontend/src/hooks/__tests__/terminalStatusReconcile.test.ts`, `frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts` | 23 new | 23 | 0 | ✅ Pass |
 | TEST-030 | FIX-247 (quick-260813-1b1) | 2026-08-13 | `frontend/e2e/tests/ts-r.cancel.spec.ts`, `frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts`, `frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts` | 1 new e2e (TS-R-05) + 2 source-lock `it()` blocks reconciled | 4 e2e (1 pre-existing fixme skipped) + 35 vitest | 0 | ✅ Pass |
 | TEST-031 | FIX-248 (quick-260813-3wo) | 2026-08-13 | `backend/tests/unit/test_sse_stream.py`, `frontend/e2e/tests/ts-sse-resilience.spec.ts` | 1 new backend unit (`TestReplayIdentityProjection`) + 1 reconciled exact-body assertion + 1 new mounted-browser e2e (TS-SSE-RESILIENCE-06) | 44 backend + 5 e2e | 0 | ✅ Pass (live proof BLOCKED — see below) |
+| TEST-032 | FIX-249 (quick-260813-5qr) | 2026-08-13 | `backend/tests/agents/test_concierge_capability.py` | 2 updated (never weakened) + 4 new | 37 (whole file, 1 pre-existing unrelated fail — ISS-151) | 0 | ✅ Pass (live-proven) |
+| TEST-033 | FIX-250 (quick-260813-as6) | 2026-08-13 | `backend/tests/unit/test_rest_revisions.py` | 1 new (`test_driver_happy_path_persists_output_columns`) | 13 (whole file, 2 pre-existing unrelated fails — ISS-102/ISS-119 `_FakeUser.tier`) | 0 | ✅ Pass (live-proven) |
 
 ---
 
@@ -2550,4 +2552,113 @@ fix does not silently close part of ISS-149 without that being a decision anyone
 commit messages on this branch AND `origin/dev` + `git log --all`) confirmed FIX-248/TEST-031/
 ISS-147 are genuinely taken — by `quick-260813-3wo`'s SSE-replay fix, a different defect entirely —
 with no further collisions above that floor, landing this entry at TEST-032/FIX-249/ISS-148.
+
+---
+
+**Note (2026-08-13, quick-260813-as6): TEST-032's summary-table row was missing above — added
+retroactively during this pass, backfilled from this section's own numbers. The detailed section
+itself was always present and correct; only the one-line table row had been skipped.**
+
+### TEST-033 — FIX-250 (quick-260813-as6): ISS-152 — the revision driver must persist all 7 output columns
+
+```
+TEST COVERAGE — FIX-250
+Backend unit: 1 new in backend/tests/unit/test_rest_revisions.py → GREEN after the fix
+  - test_driver_happy_path_persists_output_columns (NEW): drives the full agent_start →
+    agent_chunk → agent_complete → pipeline_complete vocabulary through the existing
+    _StubEngine/_drive harness (mirrors test_driver_persists_model_id_and_prices_non_circular in
+    test_rest_run_launch.py) and asserts all 7 previously-lost columns are populated:
+    output, agent_outputs (agent_id + duration + token fields), token_usage (exact
+    total_input/output/total_tokens), duration (not None), model_id (threaded from
+    owner.preferred_model), deliverable_mimetype, deliverable_filename.
+Isolated (python3.11 -m pytest tests/unit/test_rest_revisions.py::test_driver_happy_path_persists_output_columns -v):
+  RED (against unmodified run_commands.py) — 1 failed:
+    AssertionError: assert None == '<html>revised</html>'
+     +  where None = <app.models.workflow.WorkflowRun object>.output
+  GREEN (after the fix) — 1 passed.
+Whole file, isolated (python3.11 -m pytest tests/unit/test_rest_revisions.py -v), at the
+  committed state (e127684e): 15 collected, 13 passed, 2 failed. Both failures PRE-EXISTING and
+  UNRELATED — proven, not asserted: identical 2 tests run against an unmodified `git worktree`
+  checked out at the pre-fix commit 48c76403 (never `git stash`) produced BYTE-IDENTICAL error
+  messages (`AttributeError: '_FakeUser' object has no attribute 'tier'`, the KAN-161/ISS-055
+  entitlement gate reading a stale test double — already a documented defect class, ISS-102/
+  ISS-119, in a completely different test file). Worktree removed after comparison.
+Adjacent regression file, isolated (python3.11 -m pytest tests/unit/test_rest_run_launch.py -v):
+  25 collected, 23 passed, 2 failed — both ALSO pre-existing/unrelated, same worktree-comparison
+  method, byte-identical failures both sides (test_unsatisfiable_custom_composition_rejected_pre_mint,
+  test_owned_source_links_the_child — neither touches _drive_revision_to_queue or
+  _apply_terminal_output_columns's behavior, only its docstring, which this fix also edited).
+Goldens: 10 passed / 0 failed (the 5 test_characterization_*.py files under tests/agents/).
+  git diff --stat confirms zero golden fixture files touched (only run_commands.py and
+  test_rest_revisions.py changed). Independently re-run by the orchestrating agent, twice.
+lint-imports: 4 kept / 0 broken (run from backend/; "Analyzed 215 files, 526 dependencies").
+Regression guards:
+  - _apply_terminal_output_columns itself is UNMODIFIED except its docstring — it stays the sole
+    writer of these 7 columns for all four callers now (launch, both resume entry points, and
+    the revision driver), so a resume-completion or launch-completion row is unaffected by this
+    change; only the revision driver's terminal write gained the missing call.
+  - duration_seconds is computed from the driver's own time.monotonic() delta, never
+    pipeline_complete.total_duration, so this fix does not add a THIRD disagreeing duration
+    source on top of the pre-existing ISS-150 gap.
+LIVE VERIFICATION — full pass performed and PASSED (Bedrock, user_stories only, ~$0.01-0.02
+  total). Backend restarted first (uvicorn runs without --reload here) so the live pass actually
+  exercised the fixed code. SSO confirmed via a real Bedrock model call inside the run itself,
+  not `aws sts get-caller-identity`. The prescribed chat-driven script (31-revise-confirm.mjs)
+  did NOT create a revision this time — the Concierge classified the message as channel=gate_action,
+  not revision (backend log: "Concierge proposal disposed: run=... channel=gate_action held=True");
+  unrelated to this fix (that classification code, run_commands.py ~lines 1009-1262, is untouched
+  by this diff) and most likely live-LLM tool-selection variance — NOT filed as an issue on one
+  unreproduced data point. Switched to the deterministic POST /{id}/revisions REST endpoint
+  instead — one of the same three entry points that funnel into the exact driver this fix
+  touches. Dispatched against the existing completed user_stories parent a5d059e1...
+  (SSEPROOFDROP) with instruction "ISS152PROOF add an acceptance criterion for orders placed
+  after 5pm requiring next-day manager approval" → run 5914e5f1... completed in 8s.
+  GET /api/runs/5914e5f1... verbatim: output = the full revised user story INCLUDING the new
+  criterion verbatim; agent_outputs = 1 entry (user-story-revision-agent, duration 2.13,
+  input_tokens 3951, output_tokens 294, total_tokens 4245); token_usage = {total_input_tokens:
+  3951, total_output_tokens: 294, total_tokens: 4245, estimated_cost_usd: 0.005963, ...};
+  duration = 2.2; model_id = null (CORRECT, not a gap — the QA user has no preferred_model set,
+  so None is exactly what the launch driver would also persist for the same user; the cost
+  estimate still uses the settings fallback internally, hence the real non-zero
+  estimated_cost_usd); deliverable_mimetype = "text/markdown"; deliverable_filename =
+  "user_stories.md"; error = null. Disambiguated against a false-positive read: parent v1 has
+  total_tokens=24016, the old un-backfilled v2 (8a970205) still has token_usage=None — the
+  "4.2K tokens" seen throughout the UI is uniquely this new row's real number.
+  UI: History row showed "v3 · 4.2K" inline before even opening it (screenshot
+  33-history-search.png). Opened family (screenshot 33-opened.png): header "USER STORIES
+  REVISION · Done · ... · 2s · 4.2K tokens", version v3, full Product Backlog rendered with the
+  new criterion verbatim. Zero HTTP≥400 responses during the whole pass.
+  THE FIX-249 PROOF (screenshot 33-concierge-reply.png): asked in the revision run's own chat
+  lane, "How many tokens did this run use in total, and what did it cost?" — live reply,
+  verbatim: "This run used 4,245 total tokens and cost an estimated $0.01." Matches the row's
+  own numbers exactly. This is the interaction FIX-249 was defeated on for every revision before
+  this fix; it is now repaired.
+  Analytics (screenshot 33-analytics.png): Est. Cost $18.28 across 22 completed runs, rendering
+  without error; the "User Stories" (revision) pipeline-type bucket shows "4 runs · 4.2K ·
+  <$0.01" — every revision previously forced a hard $0.00 in every bucket it touched.
+  No-regression control (screenshot 34-opened-default.png, as directed, re-run post-fix):
+  reopening the family still works (defaults to the new latest v3) — did NOT regress.
+```
+
+**A genuine NEW defect surfaced while running the no-regression control — filed ISS-154, NOT
+caused by this fix, NOT fixed here.** Explicitly switching the in-family version picker to the
+OLDER, non-latest v2 (`8a970205`, deliberately never backfilled) shows a blank "Output will
+appear here" preview (screenshot `34-v2-selected.png`). Root cause, read directly:
+`frontend/src/components/preview/PreviewPanel.tsx:528-543` `handleSelectVersion` sets
+`viewingVersion.content = run.output` with no fallback. Confirmed NOT introduced by this fix: the
+diff is 100% backend, touches no frontend file, and `8a970205`'s own data is byte-unchanged
+before/after. See ISS-154 for the full analysis.
+
+**Two items surfaced, not silently performed.** The `wr.error` omission (`_persist_terminal_status`
+has no `error` parameter — a failed revision gets no reason) is a SEPARATE, deliberately unfixed
+defect in the same function, filed ISS-153. The one-row backfill of `8a970205`'s 7 columns from
+its own durable `run_events` (lossless per the originating investigation's own replay,
+precedent `scripts/cutover_legacy_runs.py`) was deliberately NOT performed — left as an open
+owner decision.
+
+**ID allocation, four-source sweep run and recorded.** FIX: register/card-store/this-branch-
+commits/all-commits all topped out at 249 → **FIX-250**. ISS: register max 151 (also the max
+across FIX-REGISTER mentions, card store, and `git log --all`) → **ISS-152/153/154**. TEST:
+FIX-TEST-REGISTER max 032 (card store's TEST-NN series is a DIFFERENT series, correctly not
+used) → **TEST-033**. No collisions found.
 
