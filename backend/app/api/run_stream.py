@@ -199,7 +199,18 @@ async def _iter_sse_frames(
         # is never in this set, so it is never filtered.
         rows = await store.read_events(run_id, after_seq=after_seq)
         for r in rows:
-            yield _sse_frame(r.seq, r.type, r.payload_json)
+            # The row's ``event_id``/``seq`` COLUMNS are the authoritative identity and
+            # are merged LAST, so they win over any same-named payload key — mirroring
+            # the REST twin ``GET /api/runs/{id}/events`` (frontend/src/lib/api.ts's
+            # getRunEvents projection), so both durable readers key identically. For an
+            # engine-authored row this is a provable no-op: the engine stamps the same
+            # seq/event_id into the payload at its single emit boundary. It only REPAIRS
+            # the four app-layer types persisted with no embedded identity — chat_reply,
+            # chat_message, chat_usage, run_resuming — which without this reach the
+            # client anonymous and get re-keyed (and so re-rendered) by the consumer.
+            yield _sse_frame(
+                r.seq, r.type, {**(r.payload_json or {}), "event_id": r.event_id, "seq": r.seq}
+            )
             replayed_through_seq = r.seq
             replayed_event_ids.add(r.event_id)
         # Release the replay list (and the loop variable's last row) NOW. This generator

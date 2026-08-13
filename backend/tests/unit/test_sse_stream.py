@@ -165,6 +165,10 @@ class TestReplay:
                 (3, "agent_complete", {"seq": 3}),
             ],
         )
+        # The replayed body now also carries the row's authoritative event_id COLUMN
+        # (see TestReplayIdentityProjection); _seed_events mints a fresh uuid4 per row,
+        # so the expected value is read back rather than hardcoded.
+        row_event_id = db_session.query(RunEvent).filter_by(run_id="run-1", seq=2).one().event_id
         frames = asyncio.run(
             _collect(
                 _iter_sse_frames(
@@ -177,7 +181,7 @@ class TestReplay:
         replay = [p for p in parsed if p["type"] != "stream_attached"]
         assert [p["id"] for p in replay] == ["2", "3"]
         assert [p["type"] for p in replay] == ["agent_chunk", "agent_complete"]
-        assert replay[0]["data"] == {"seq": 2, "text": "hi"}
+        assert replay[0]["data"] == {"seq": 2, "text": "hi", "event_id": row_event_id}
 
     def test_replay_full_when_cursor_zero(self, db_session):
         _seed_run(db_session)
