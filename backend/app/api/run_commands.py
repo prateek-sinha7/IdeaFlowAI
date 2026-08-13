@@ -2252,10 +2252,12 @@ def _apply_terminal_output_columns(
     (launch's seen-flags, user-resume's ``_reconcile_terminal_status``, the engine state
     machine on restart). It does NOT commit — the caller owns the session.
 
-    This is the SOLE writer of these columns for BOTH the launch path AND the two resume
-    entry points (restart auto-resume via the engine ``_resume_output_persist_sink`` hook,
-    user-resume via ``_reconcile_terminal_status``), so a resume-completion row matches a
-    never-restarted launch completion. Workflow-agnostic (SC-001 — no workflow/agent name).
+    This is the SOLE writer of these columns for the launch path, the two resume entry
+    points (restart auto-resume via the engine ``_resume_output_persist_sink`` hook,
+    user-resume via ``_reconcile_terminal_status``), AND the revision driver
+    (``_drive_revision_to_queue``, ISS-152 — the fourth caller BUG-R03 missed), so a
+    revision or resume-completion row matches a never-restarted launch completion.
+    Workflow-agnostic (SC-001 — no workflow/agent name).
     """
     agent_outputs_collector: list[dict] = []
     current_agent: dict = {}
@@ -2785,11 +2787,19 @@ async def _drive_revision_to_queue(
     pipeline_failed_seen = False
     degraded_seen = False
     pipeline_cancelled_seen = False
+    # ISS-152: this driver is a fourth caller of the shared
+    # _apply_terminal_output_columns mapping (BUG-R03, INV-12) — mirrors the launch
+    # driver's raw_events/monotonic_start (this file, _drive_launch_to_queue) so a
+    # revision completion carries output/agent_outputs/token_usage/duration/model_id/
+    # deliverable_* exactly like a launch or resume completion, never silently NULL.
+    raw_events: list[tuple[str, dict]] = []
+    monotonic_start = time.monotonic()
 
     async def _queue_send(event: dict) -> None:
         nonlocal pipeline_complete_seen, pipeline_failed_seen, degraded_seen
         nonlocal pipeline_cancelled_seen
         etype = event.get("type")
+        raw_events.append((etype or "", event.get("data") or {}))
         if etype == "pipeline_cancelled":
             pipeline_cancelled_seen = True
         if etype == "pipeline_complete":
@@ -2807,6 +2817,16 @@ async def _drive_revision_to_queue(
             if swr:
                 swr.status = new_status
                 swr.completed_at = datetime.now(timezone.utc)
+                # ISS-152: the SOLE event→column mapping (_apply_terminal_output_columns),
+                # reused byte-for-byte from the launch driver — the driver's OWN monotonic
+                # clock, never pipeline_complete's total_duration (keeps ISS-150's two
+                # disagreeing duration numbers from getting a third).
+                _apply_terminal_output_columns(
+                    swr,
+                    raw_events,
+                    model_id=getattr(user, "preferred_model", None) or None,
+                    duration_seconds=round(time.monotonic() - monotonic_start, 1),
+                )
                 sdb.commit()
         finally:
             sdb.close()
