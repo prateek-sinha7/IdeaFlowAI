@@ -185,6 +185,52 @@ def test_unknown_agent_id_rejected(env):
     assert _RecordingEngine.invoked is False
 
 
+def test_empty_brief_rejected_pre_mint(env):
+    """ISS-155: a launch with no brief is denied at the ingress, PRE-MINT.
+
+    The path that makes this reachable is the chain: `LaunchWizard.canContinue`
+    waived the brief whenever `isChaining` was true, on the assumption a chain
+    context block would stand in for it — and `handleLaunch` falls through to
+    `brief.trim()`, the empty string, whenever that block is absent (a failed
+    `getChainContext` is swallowed as non-fatal). dev's FIX-216c then removed the
+    last client-side net, the `!draft.brief` staging guard.
+
+    The spend is committed HERE, so the refusal belongs HERE: an od_prototype build
+    is 5-21M Bedrock tokens (measured ceiling 37.3M). No WorkflowRun row, no driver,
+    no model call."""
+    user = _seed_user(env)
+    env["state"]["user"] = user
+    resp = _post_launch(env, message="", pipeline_type="user_stories")
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "empty_brief"
+    assert _run_count(env) == 0
+    assert _RecordingEngine.invoked is False
+
+
+def test_whitespace_only_brief_rejected_pre_mint(env):
+    """ISS-155: whitespace is not a brief. Pinned separately because the empty
+    string and "   \\n  " reach the guard by different routes — a blank textarea
+    versus a context block that resolved to nothing but newlines."""
+    user = _seed_user(env)
+    env["state"]["user"] = user
+    resp = _post_launch(env, message="   \n\t  ", pipeline_type="user_stories")
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "empty_brief"
+    assert _run_count(env) == 0
+    assert _RecordingEngine.invoked is False
+
+
+def test_nonempty_brief_still_launches(env):
+    """ISS-155 positive control: the guard must deny ONLY the empty case. Without
+    this, a guard that rejected everything would pass the two tests above."""
+    user = _seed_user(env)
+    env["state"]["user"] = user
+    resp = _post_launch(env, message="build a stationery ordering flow",
+                        pipeline_type="user_stories")
+    assert resp.status_code == 200, resp.json()
+    assert _run_count(env) == 1
+
+
 def test_bare_prototype_missing_template_context_rejected_pre_mint(env):
     """DEF-44-08-1 / F3 (13-06): a bare ``prototype`` launch whose resolved agents
     declare ``template`` injection but carries no ``template_body`` (no ``template_id``,

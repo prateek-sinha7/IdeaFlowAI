@@ -2165,6 +2165,29 @@ async def launch_run(
     pipeline_type = body.pipeline_type
     content = body.message
 
+    # ── Empty-brief gate (ISS-155) ─────────────────────────────────────────────
+    # A run with no brief has nothing to build, and the spend is committed HERE —
+    # an od_prototype build is 5–21M Bedrock tokens (measured ceiling 37.3M), so a
+    # briefless launch burns the owner's money on nothing. This has to live at the
+    # ingress rather than in the wizard: `LaunchCommand.message` is a bare `str`,
+    # every client shares this seam (wizard, chain, Concierge, any future API
+    # consumer), and a stale `sessionStorage` draft can reach it with no wizard in
+    # the loop at all. Deny BEFORE the mint, like every other ingress denial here
+    # (no WorkflowRun row, no driver, no spend).
+    #
+    # Reachable in practice, not theoretical: the chain path waives the brief on
+    # the wizard side (`LaunchWizard.canContinue` — `isChaining || brief.trim()`)
+    # on the assumption a chain context block stands in for it, and `handleLaunch`
+    # falls through to `brief.trim()` — the empty string — whenever that block is
+    # absent. A legitimate chained launch is unaffected: when chaining works, the
+    # context block IS the message, and it is never blank.
+    if not (content or "").strip():
+        raise _reject(
+            "empty_brief",
+            "A run needs a brief. Describe what you want built, or — when chaining — "
+            "make sure the source run's context could be loaded.",
+        )
+
     base_pipeline_type, od_context = _resolve_launch_agents(body)
 
     # ── Entitlement gate (tier) — KAN-161 / ISS-055 ────────────────────────────
