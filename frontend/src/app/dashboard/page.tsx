@@ -422,12 +422,17 @@ export default function DashboardPage() {
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
       // KAN-87: templateId is now optional (no-template mode). Only require designSystemId.
-      // FIX-216c: allow empty brief when chaining (wizard canContinue already validated it).
+      // FIX-216c: allow empty brief when chaining — for a chained run the context block
+      // IS the brief. ISS-155: dropping the `!draft.brief` clause here also dropped the
+      // type-narrowing it happened to provide, leaving `brief: draft.brief` assigning
+      // `string | undefined` to `string` — a real tsc error on the branch. Coerce
+      // EXPLICITLY: a staged draft may legitimately carry no brief, and an actually-empty
+      // one is refused at the ingress (`launch_run` → `empty_brief`), not silently here.
       if (!draft.designSystemId) return;
       pendingOdProtoRef.current = {
         templateId: draft.templateId ?? "",  // empty string = no template
         designSystemId: draft.designSystemId,
-        brief: draft.brief,
+        brief: draft.brief ?? "",
         discovery,
         customDsBody: draft.customDsBody,
         customTemplateBody: draft.customTemplateBody,
@@ -460,11 +465,12 @@ export default function DashboardPage() {
       };
       // FIX-216c: allow empty brief when chaining (the chain context block IS the
       // brief; wizard canContinue guard already validated it). Only require templateId.
+      // ISS-155: explicit coercion — see the od_prototype twin above.
       if (!draft.templateId) return;
       pendingOdPptRef.current = {
         templateId: draft.templateId,
         designSystemId: draft.designSystemId ?? null,
-        brief: draft.brief,
+        brief: draft.brief ?? "",
         discovery: null,
         customDsBody: draft.customDsBody,
         customTemplateBody: draft.customTemplateBody,
@@ -1646,10 +1652,27 @@ export default function DashboardPage() {
   // If either doesn't match (different run's state leaked into useWorkflow, or
   // user is watching a different run than is building), skip the sync.
   //
-  // FIX-220: coalesce rapid pipelineState changes via rAF to prevent the
+  // FIX-220 [dev]: coalesce rapid pipelineState changes via rAF to prevent the
   // setViewedState→re-render→pipelineState-new-obj→effect→setViewedState loop.
-  // handleFrame's project() already updates the UI on every SSE frame. This sync
-  // only needs to fire once per animation frame, not 26× per SSE frame.
+  // One store write per animation frame instead of 26× per SSE frame.
+  //
+  // ISS-138: the write is terminality-preserving rather than a WHOLESALE replace.
+  // `activelyBuildingRunIdRef` is only ever assigned, never cleared — and reopening a
+  // run from history assigns it (:2226) — so a TERMINAL run reaches this bridge with
+  // the legacy container still carrying `isRunning: true` from a terminal-less replay.
+  // A blind `() => snapshot` therefore resurrects a stood-down run: observed live in
+  // quick-260812-wir flipping the store back to `isRunning:true` ~4s after it was set
+  // false, with no handleFrame involved, and it cost a real false-green during FIX-245.
+  //
+  // The rule is OWNERSHIP, not a merge of every field: legacy owns live progress
+  // (agents, counts, tokens), the STORE owns terminality. The store's own verdict is
+  // re-applied on top of each snapshot through the SAME `applyTerminalStatus` both
+  // containers already share (INV-12 — "terminal" keeps exactly one definition), and
+  // that helper is ONE-WAY by construction: a non-terminal or unknown status returns
+  // its input untouched, so a fresh entry and a genuinely-live run both pass straight
+  // through. The terminal signal is explicit — the `cancelled`/`failed`/`degraded`
+  // markers, or the server's persisted status for a reopened run — never inferred from
+  // `isRunning:false`, which a not-yet-started entry also carries.
   const syncRafRef = useRef<number | null>(null);
   useEffect(() => {
     const runId = pipelineState.pipelineRunId;
@@ -1659,9 +1682,17 @@ export default function DashboardPage() {
     // Cancel any pending rAF and schedule a new one with the latest snapshot.
     if (syncRafRef.current !== null) cancelAnimationFrame(syncRafRef.current);
     const snapshot = pipelineState;
+    const reopened = reopenedRunStatus;
     syncRafRef.current = requestAnimationFrame(() => {
       syncRafRef.current = null;
-      runStore.updatePipelineState(runId, () => snapshot);
+      runStore.updatePipelineState(runId, (prev) => {
+        const storeTerminal =
+          prev.cancelled ? "cancelled"
+          : prev.failed ? "failed"
+          : prev.degraded ? "degraded"
+          : (reopened ?? "");
+        return applyTerminalStatus(snapshot, storeTerminal);
+      });
     });
     return () => {
       if (syncRafRef.current !== null) {
@@ -1670,7 +1701,9 @@ export default function DashboardPage() {
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipelineState]);  // ─── Phase 31 (CHATUI-01/02/03) — live chat transcript + deep-link seam ──────
+  }, [pipelineState, reopenedRunStatus]);
+
+  // ─── Phase 31 (CHATUI-01/02/03) — live chat transcript + deep-link seam ──────
 
   // SSE is the LIVE pipeline down-channel. Feed the SAME handleWebSocketMessage
   // router (pipeline / wave / questionnaire / review-gate switch, which
@@ -1784,12 +1817,18 @@ export default function DashboardPage() {
           agentIds?: string[];
         };
         const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
-        // KAN-87: templateId is now optional (no-template mode). Only require designSystemId + brief.
-        if (!draft.designSystemId || !draft.brief) return;
+        // KAN-87: templateId is now optional (no-template mode). Only require designSystemId.
+        // ISS-155: the brief clause is GONE here so this reload/reconnect path agrees with
+        // the direct path at :426, which dropped it in FIX-216c. While the two disagreed a
+        // chained launch fired normally but SILENTLY never started if the user reloaded
+        // before SSE connected — same draft, two verdicts. An empty brief is now refused
+        // where refusing it is useful: the wizard (`LaunchWizard.canContinue`, with a
+        // visible "Add a brief" pill) and the ingress (`launch_run` → `empty_brief`).
+        if (!draft.designSystemId) return;
         pending = {
           templateId: draft.templateId ?? "",  // empty string = no template
           designSystemId: draft.designSystemId,
-          brief: draft.brief,
+          brief: draft.brief ?? "",   // ISS-155 — see the direct path at :426
           discovery,
           customDsBody: draft.customDsBody,
           customTemplateBody: draft.customTemplateBody,
@@ -1856,11 +1895,14 @@ export default function DashboardPage() {
           images?: { name: string; mime_type: string; data: string }[];
           agentIds?: string[];
         };
-        if (!draft.templateId || !draft.brief) return;
+        // ISS-155: brief clause dropped to match the direct path at :463 (see the
+        // od_prototype twin above) — the reload path must not reach a different verdict
+        // on the same staged draft.
+        if (!draft.templateId) return;
         pending = {
           templateId: draft.templateId,
           designSystemId: draft.designSystemId ?? null,
-          brief: draft.brief,
+          brief: draft.brief ?? "",   // ISS-155 — see the direct path at :468
           discovery: null,
           customDsBody: draft.customDsBody,
           customTemplateBody: draft.customTemplateBody,
