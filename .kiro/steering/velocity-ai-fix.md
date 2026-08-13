@@ -16,6 +16,46 @@ You have been invoked to investigate, diagnose, and fix an issue in the Velocity
 
 ---
 
+## Step 0 — Local environment facts (CI and this machine are NOT the same)
+
+Every command in this document was written for **CI**, which provisions a synced
+environment (`astral-sh/setup-uv` + `requirements.txt`, `ci.yml:95-121`). A local
+developer machine has no such environment, so the CI-canonical `uv run --no-sync`
+form does **not** work here. Use the local column.
+
+| Task | CI (`ci.yml`) | This machine (local) |
+|---|---|---|
+| Run pytest | `uv run --no-sync pytest tests/ -v` | `cd backend && python3.11 -m pytest ...` |
+| Import-boundary check | `uv run --no-sync lint-imports` | `cd backend && /opt/homebrew/bin/lint-imports` |
+
+Two traps that cost real time:
+
+- **`uv run --no-sync` does not fail loudly here — it fails silently.** There is no
+  `backend/.venv`, so `uv` *creates* one (an empty CPython 3.12 environment), skips the
+  dependency install because of `--no-sync`, and only then dies on the first import. You
+  are left with a stray `backend/.venv` that shadows the working interpreter. The local
+  runtime is **python3.11** — the running backend is python3.11 and `python3.11 -m pytest`
+  resolves pytest 8.3.4. (`backend/pyproject.toml` declares `requires-python = ">=3.12"`;
+  that declaration does not match the local runtime. Do not "fix" it as part of an
+  unrelated change.)
+- **`lint-imports` must be run from `backend/`.** Its configuration lives in
+  `backend/pyproject.toml`. Run from the repo root it prints *"Could not read any
+  configuration"* and exits — which reads like a pass if you are not looking closely.
+
+**The `dev.db` decoy.** `backend/app/core/config.py:322` defaults `DATABASE_URL` to
+`sqlite:///./dev.db` — a path **relative to the process working directory**. The real
+database is `backend/dev.db`. A query run from the repo root therefore opens a
+*different, empty* database and returns zero rows **with no error**. Always query
+`backend/dev.db` by explicit path.
+
+**Do not trust any measured number written into this document.** Counts of passing
+tests, kept contracts, and migration heads drift, and a stale number asserted as a
+requirement is worse than no number. Every such figure below has been replaced with the
+command that produces the current value. Baseline by re-measuring at the pre-change
+commit, and record the SHA you compared against.
+
+---
+
 ## Step 1 — Load Context: Always-On Steering
 
 These are always loaded — confirm you have them:
@@ -203,7 +243,7 @@ LOCKED DECISIONS RESPECTED:
 - Read the changed files — confirm the edit looks right in context
 - Trace the fix — mentally walk the execution path
 - INV-3 check: `git status --porcelain backend/tests/agents/characterization/golden/` → empty
-- Lint / import-boundary check: `cd backend && uv run --no-sync lint-imports` → 4 kept / 0 broken (if `agents/` or `app/` changed)
+- Lint / import-boundary check: `cd backend && /opt/homebrew/bin/lint-imports` (if `agents/` or `app/` changed) → the kept/broken counts must be **IDENTICAL to the pre-change commit**, not any fixed number. There is a known pre-existing broken contract (`agents.capabilities.strategies.task_loop` → `agents.execution_engine.od_context` → `app.services.od_loader`); inheriting it is not your regression, adding to it is.
 - **FIX-039 check**: if `useWorkflow.ts` was touched, confirm `agent_start` still resets all accumulators
 - Backend restart needed? Restart if backend files changed.
 
@@ -223,8 +263,8 @@ Write tests that:
 
 | Fix area | Test location | Test runner |
 |---|---|---|
-| Python backend (`app/api/`, `agents/`, etc.) | `backend/tests/unit/` or `backend/tests/agents/` | `uv run --no-sync pytest` |
-| Python cross-layer (API + engine + DB) | `backend/tests/integration/` | `uv run --no-sync pytest` |
+| Python backend (`app/api/`, `agents/`, etc.) | `backend/tests/unit/` or `backend/tests/agents/` | `python3.11 -m pytest` (CI: `uv run --no-sync pytest`) |
+| Python cross-layer (API + engine + DB) | `backend/tests/integration/` | `python3.11 -m pytest` (CI: `uv run --no-sync pytest`) |
 | Frontend React/TS component | `frontend/src/components/<Comp>/<Comp>.test.tsx` | `vitest` |
 | Frontend hook | `frontend/src/hooks/<hook>.test.ts` | `vitest` |
 | Frontend page-level | `frontend/src/app/**/*.test.tsx` | `vitest` |
@@ -313,34 +353,36 @@ Every test suite for a fix must include at minimum:
 
 ### 8c — Run the tests
 
-**Backend** (CI standard: `uv run --no-sync` from `backend/` working directory — matches `ci.yml`):
+**Backend** (local form — see Step 0; CI uses `uv run --no-sync` from `backend/`, matching `ci.yml`):
 
 ```bash
 # Run only the new fix tests first
-cd backend && uv run --no-sync pytest tests/unit/test_<module>_fix<NNN>.py -v
+cd backend && python3.11 -m pytest tests/unit/test_<module>_fix<NNN>.py -v
 
 # Then run the full affected module's test suite to confirm no regression
-cd backend && uv run --no-sync pytest tests/unit/test_<module>.py -v
+cd backend && python3.11 -m pytest tests/unit/test_<module>.py -v
 
 # If integration tests were written
-cd backend && uv run --no-sync pytest tests/integration/test_<area>_fix<NNN>.py -v
+cd backend && python3.11 -m pytest tests/integration/test_<area>_fix<NNN>.py -v
 
-# INV-3: characterization goldens must stay clean (all 5 named explicitly)
-cd backend && uv run --no-sync pytest \
+# INV-3: characterization goldens (all 5 named explicitly). Compare failing ids against
+# the pre-change commit — some are red pre-existing; a red golden is not automatically
+# your regression, and a green run is not the bar.
+cd backend && python3.11 -m pytest \
   tests/agents/test_characterization_prototype.py \
   tests/agents/test_characterization_od_prototype.py \
   tests/agents/test_characterization_prototype_revision.py \
   tests/agents/test_characterization_od_ppt.py \
   tests/agents/test_characterization_app_builder.py -v
-
-# Run the whole test suite (same as CI: uv run --no-sync pytest tests/ -v)
-cd backend && uv run --no-sync pytest tests/ -v
 ```
 
-> **Note:** `uv run --no-sync` activates the project's `.venv` without re-syncing
-> dependencies — the same invocation `ci.yml` uses. Bare `pytest` or `python -m pytest`
-> also work if the venv is already activated (`source backend/.venv/bin/activate`), but
-> `uv run --no-sync` is the CI-canonical form and works without venv activation.
+> **Do not run the whole suite locally.** `pytest tests/ -v` HANGS on this machine — parts
+> of it are gated on Chromium, Bedrock credentials and Postgres, and they block rather
+> than skip. CI runs the full suite; locally, always use targeted selections.
+>
+> **Do not use `uv run --no-sync` locally.** There is no `backend/.venv`, so it silently
+> creates an empty CPython 3.12 environment, skips the dependency install, and fails on
+> the first import — leaving a stray venv behind. See Step 0.
 
 **Frontend** (the project uses **vitest** exclusively — there is no Jest; `package.json`
 `"test": "vitest --run"`):
@@ -367,7 +409,8 @@ cd frontend && npx vitest --run src/hooks/
 cd frontend && npm run e2e
 # equivalent: npx playwright test --project=mocked
 
-# Live suite — requires a running backend on :8002
+# Live suite — requires a running backend. Locally that is :8010, NOT :8002.
+# Confirm before running: lsof -nP -iTCP:8010 -sTCP:LISTEN
 cd frontend && npm run e2e:live
 # equivalent: npx playwright test --project=live
 ```
@@ -375,8 +418,11 @@ cd frontend && npm run e2e:live
 **Import-linter** (run after any change to `agents/` or `app/`):
 
 ```bash
-# Must report: 4 kept / 0 broken
-cd backend && uv run --no-sync lint-imports
+# Must report the SAME kept/broken counts as the pre-change commit — there is no fixed
+# expected number, and at least one contract is known-broken pre-existing. Must be run
+# from backend/ (the config lives in backend/pyproject.toml); from the repo root it
+# prints "Could not read any configuration" and exits, which looks like a pass.
+cd backend && /opt/homebrew/bin/lint-imports
 ```
 
 **All tests must be GREEN before proceeding to Step 9. If any test fails:**
@@ -397,7 +443,10 @@ TEST COVERAGE — FIX-<NNN>
 Unit tests:        <N> tests in backend/tests/unit/test_<module>_fix<NNN>.py  → ALL GREEN
 Integration tests: <N> tests in backend/tests/integration/...                 → ALL GREEN  (or N/A)
 Frontend tests:    <N> tests in frontend/src/.../<Component>.test.tsx          → ALL GREEN (or N/A)
-Goldens:           cd backend && uv run --no-sync pytest tests/agents/test_characterization_*.py → UNCHANGED (INV-3 ✅)
+Goldens:           cd backend && python3.11 -m pytest tests/agents/test_characterization_*.py
+                   → <N> failed / <N> passed — IDENTICAL failing ids to pre-change commit <sha> (INV-3 ✅)
+lint-imports:      cd backend && /opt/homebrew/bin/lint-imports
+                   → <N> kept / <N> broken — IDENTICAL to <sha>
 Regression guards:
   - <test name>: <what it proves>
   - <test name>: <what it proves>
@@ -466,7 +515,8 @@ Before closing the fix, confirm every item is ticked:
 
 **Transport:** SSE + REST is the sole run transport. `/ws/chat` is DELETED. `/ws/handoff` STAYS.
 
-**Migrations:** Additive only. Head = **0026**. Every new table: `owner_id` + `workspace_id` NOT NULL.
+**Migrations:** Additive only. Read the current head — do not trust a number written here:
+`ls backend/alembic/versions/ | sort | tail -1`. Every new table: `owner_id` + `workspace_id` NOT NULL.
 
 **Security:** Owner-scoping key = `WorkflowRun.user_id` (NOT nullable `owner_id`). Cross-owner → 404, never 403.
 
@@ -482,12 +532,12 @@ Before closing the fix, confirm every item is ticked:
 | Current milestone/phase | `.knowledge/surface/ARCHITECTURE.md` |
 | All decisions in force | `.knowledge/surface/RULES.md` |
 | Full fix index | `.knowledge/surface/INDEX.md` |
-| Next FIX-ID | Count from `.knowledge/surface/INDEX.md` `## Fixes` section (highest shown + 1) |
-| Run backend tests | `cd backend && uv run --no-sync pytest tests/ -v` |
+| Next FIX-ID / ISS-ID / TEST-ID | **Never** "highest in one source + 1" — that rule re-issued a live id and forced a renumber. Take the max across **four** sources (register, `.knowledge` cards, `git log --all` commit messages, open branches) and add 1. Full procedure: `.claude/skills/velocity-ai-bookkeeping/SKILL.md` Step 1 |
+| Run backend tests | `cd backend && python3.11 -m pytest tests/ -v` (CI: `uv run --no-sync`) |
 | Run frontend tests | `cd frontend && npm test` (= `vitest --run`) |
 | Run a specific frontend file | `cd frontend && npx vitest --run src/path/to/file.test.tsx` |
 | Run Playwright mocked suite | `cd frontend && npm run e2e` |
-| Import-boundary check | `cd backend && uv run --no-sync lint-imports` (must report 4 kept / 0 broken) |
+| Import-boundary check | `cd backend && /opt/homebrew/bin/lint-imports` (counts must match the pre-change commit; must be run from `backend/`) |
 | Golden freshness | `git status --porcelain backend/tests/agents/characterization/golden/` |
 | Rebuild knowledge index | `python3 scripts/knowledge/build_index.py` |
 | Check knowledge store | `python3 scripts/knowledge/check.py` |

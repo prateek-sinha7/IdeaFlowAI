@@ -83,3 +83,6 @@ backend/evals/minimal/report.html
 
 # Local issues / grounded-context files (personal, not for team use)
 /issues/
+
+# Stale local run output — the live RUNS_ROOT is /tmp/flowin-runs, nothing references this
+backend/.runs-local/

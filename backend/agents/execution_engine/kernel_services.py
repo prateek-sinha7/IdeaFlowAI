@@ -178,6 +178,7 @@ class KernelServices:
         results: list[dict],
         cancel_event: Any,
         allowed_workers: list[str] | None = None,
+        aux_usage_sink: Any = None,
     ) -> None:
         self._engine = engine
         self._ectx = ectx
@@ -192,6 +193,12 @@ class KernelServices:
         self._model_id = model_id
         self._results = results
         self.cancel_event = cancel_event
+        # ISS-033-A: the run's aux token-usage sink (``aux_token_usage.append``), bound
+        # per-run at construction rather than stashed on the engine singleton (INV-2).
+        # The validation fix-loop's sub-agent spend is routed here so it reaches the
+        # pipeline_complete totals. None ⇒ the loop counts nothing (direct unit-style
+        # invocations), which is exactly today's behavior.
+        self._aux_usage_sink = aux_usage_sink
         # The exec-granted Workspace bound by 10-02's host seam (the §15 wiring):
         # validators reach exec via ``target.runner.workspace.exec_command(argv)``.
         # Declared here so the attribute always exists; stays None until an
@@ -209,6 +216,22 @@ class KernelServices:
     @property
     def od_context(self) -> dict | None:
         return self._ectx.od_context
+
+    # ── Run terminality (ISS-091) ─────────────────────────────────────────────
+    def is_run_terminal(self) -> bool:
+        """True once the run has reached a terminal state.
+
+        The fan-out cancel boundary (``fanout._check_cancel``) reads this in
+        addition to ``cancel_event``, because a run driven terminal by anything
+        OTHER than the Stop button — a review-gate rejection — sets no
+        ``cancel_event`` at all. No run is ever ``failed`` while fan-out is in
+        flight (both transitions live outside the step loop), so a True here
+        always means the run genuinely ended.
+        """
+        return self._engine._state_machine.get_state(self.run_id) in (
+            "cancelled",
+            "failed",
+        )
 
     # ── The run's user message (read/write) ────────────────────────────────────
     # The previous_run provider (07-10 / CR-06) reads this to extract the existing
@@ -383,10 +406,18 @@ class KernelServices:
         if queue is None:
             return
         try:
-            queue.put_nowait({
-                "type": "hook_run",
-                "data": dict(detail) if detail else {},
-            })
+            data = dict(detail) if detail else {}
+            # ISS-082 — the frame's ONLY identity. This is the one event pushed straight
+            # onto the live queue instead of being yielded, so it never reaches execute()'s
+            # seq/event_id stamping chokepoint and carries no ``seq`` and has no run_events
+            # row. Without an id every consumer's dedup is a no-op for it by design
+            # (wsReplayState.shouldApplyEvent returns True for an unstamped frame), so a
+            # re-delivered hook row was appended twice. Keep it TRANSIENT: routing it
+            # through execute() would persist a row AND add a frame to the engine's yield
+            # stream — a golden event-multiset change (INV-3) that _VOLATILE_STRIP_KEYS
+            # strips seq/event_id from but cannot strip a whole row away.
+            data.setdefault("event_id", str(_uuid4()))
+            queue.put_nowait({"type": "hook_run", "data": data})
         except Exception:  # noqa: BLE001 — emit must never abort a hook
             pass
 
@@ -877,6 +908,10 @@ class KernelServices:
                     "Resolve the following fan-out merge conflict in the "
                     f"workspace (attempt {attempt}):\n{conflict_block}"
                 ),
+                # ISS-097: same shape as run_worker — a bounded merge attempt is an
+                # invocation, not a step, and its events are consumed with a bare
+                # ``pass`` below, so an inline gate here would be equally invisible.
+                invocation_gated=False,
             ):
                 pass  # consumed internally — the conflict flow re-emits its own events
             return True
@@ -987,12 +1022,21 @@ class KernelServices:
         # WR-05: total_tasks is the WAVE WIDTH (threaded from run_fanout, which
         # knows len(selected)) — not worker_index+1, which showed every worker but
         # the last a wrong "task i of N" in its CURRENT TASK header.
+        # ISS-097: a worker is an INVOCATION, not a step. ``gate_agent_ids`` selects
+        # steps ("checked agents pause the pipeline after they finish"), so a self×N
+        # fan-out would otherwise arm one inline gate PER WORKER — all on the ONE
+        # gate_key f"{run_id}:{agent_id}" — and ``run_fanout`` forwards no worker
+        # event, so not one of those gates reaches the stream or ``run_events``: the
+        # run parks at ``waiting_for_user`` on a gate nobody can see or resolve. This
+        # is the ONLY site that suppresses it for a worker; the step's own gate
+        # (declared ``gates:``, evaluated at the step boundary) is untouched.
         async for event in self.run_agent(
             worker_step,
             ctx,
             task_number=worker_index + 1,
             total_tasks=total_workers or (worker_index + 1),
             task_block=input,
+            invocation_gated=False,
         ):
             yield event
 
@@ -1196,6 +1240,7 @@ class KernelServices:
         total_tasks: int | None = None,
         task_block: str | None = None,
         skeleton: str | None = None,
+        invocation_gated: bool = True,
     ) -> AsyncIterator[dict]:
         """Run ONE agent and re-yield its events (delegates to engine._run_agent).
 
@@ -1212,6 +1257,12 @@ class KernelServices:
         ``ectx.current_prototype_skeleton`` so the engine emits the legacy STANDALONE
         skeleton block (after the CURRENT TASK block); reset afterwards like the
         other build scratch. Task 1 passes ``None`` → no skeleton block.
+
+        ISS-097: ``invocation_gated`` is forwarded to ``_run_agent``'s inline
+        review-gate decision. It rides as an ARGUMENT rather than per-run state
+        because N fan-out workers share ONE ``ExecutionContext`` under
+        ``asyncio.gather`` — a save/restore field would race (INV-2). Default
+        ``True`` ⇒ every existing caller is byte-identical.
         """
         spec = self._spec_for(step)
         index = self._index_for(spec)
@@ -1249,6 +1300,7 @@ class KernelServices:
                 self._results,
                 self.cancel_event,
                 self._ectx,
+                invocation_gated=invocation_gated,
             ):
                 yield event
         finally:
@@ -1333,6 +1385,9 @@ class KernelServices:
             # Per-step render fail-closed knob (quick-260701-bob / REQUIRE-RENDER-KNOB):
             # None → the loop falls back to settings.PROTOTYPE_REQUIRE_RENDER (parity).
             require_render=getattr(step, "require_render", None),
+            # ISS-033-A: the run's aux usage sink, so the fix sub-agent's tokens are
+            # COUNTED in the run totals instead of discarded by the internal drain.
+            aux_usage_sink=self._aux_usage_sink,
         )
 
     # ── Post-task typed dual-write (keeps _latest_typed_content current) ───────

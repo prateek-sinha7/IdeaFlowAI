@@ -39,7 +39,7 @@ import logging
 import time
 import uuid as _uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -77,6 +77,7 @@ from app.api.run_engine import (
     _get_or_create_queue,
     _is_run_live,
     _resolve_owned_parent_run_id,
+    _review_gate_advertises_update_specs,
     _review_gate_owned_by,
     _review_gate_run_is_terminal,
     _revalidate_selections_trust_user,
@@ -107,7 +108,12 @@ class GateCommand(BaseModel):
     """
 
     gate_key: str
-    action: str = "approve"
+    # ISS-070: a CLOSED domain. The vocabulary's single authority is
+    # ``chat_router.GATE_ACTIONS``; ``Literal`` needs static values, so the two are
+    # pinned together by a set-equality test rather than a second constant (INV-12).
+    # The default is RETAINED — an ABSENT action still means approve (the published
+    # OpenAPI contract, and test_attach_replay_matrix.py:551's bare POST).
+    action: Literal["approve", "reject", "redo", "update_specs"] = "approve"
     approved: bool | None = None
     edited_content: str | None = None
     instructions: str | None = None
@@ -155,6 +161,62 @@ def _deny_unknown_gate() -> HTTPException:
     are indistinguishable to the caller — both 404 "Unknown gate_key"."""
     return HTTPException(
         status_code=status.HTTP_404_NOT_FOUND, detail="Unknown gate_key"
+    )
+
+
+def _deny_update_specs_not_offered(gate_key: str) -> HTTPException:
+    """ISS-053: this gate firing did not offer the spec-revision affordance.
+
+    The verdict is the engine's own, read back off the ``review_gate_ready`` it published
+    (``_review_gate_advertises_update_specs``) — this restates no rule. Raised by ALL
+    THREE ``set_review_response`` ingresses so no channel is privileged; a fence on
+    ``POST /gate`` alone would leave both ``/messages`` routes open.
+
+    409 rather than 403: the request is well-formed and authorised, it just conflicts with
+    the run's current state — the same shape as the KAN-100 terminal fence beside it.
+    ``recoverable: false`` because retrying the identical POST cannot succeed; the user
+    must approve to the gate where a revision cycle IS offered.
+    """
+    logger.warning(
+        "gate update_specs REFUSED at ingress: gate_key=%s — the gate published "
+        "update_specs_eligible=False",
+        gate_key,
+    )
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "error": "This review gate does not offer a spec-revision cycle",
+            "code": "update_specs_not_offered",
+            "recoverable": False,
+        },
+    )
+
+
+def _deny_unknown_gate_action(action: object) -> HTTPException:
+    """ISS-070: an unrecognised discriminator must never resolve a HITL gate.
+
+    The degrade is to REFUSE and leave the gate ARMED — never approve (the fail-open
+    this replaces), and never reject either: FIX-232 makes a rejection terminal, so
+    degrading an unparseable action into a denial would destroy the run on a typo.
+    Refusing the request is the only degrade that preserves every legitimate option —
+    the same choice the engine already makes for an ineligible ``update_specs``.
+
+    400 rather than 409: the request is malformed, not in conflict with the run's state,
+    so re-issuing it correctly WILL succeed — hence ``recoverable: true``.
+
+    Raised by ALL THREE ``set_review_response`` ingresses so no channel is privileged.
+    The log line is the forensic trace: the refused action is never persisted, and the
+    store's own ``action="approve"`` default would otherwise launder it into a clean-
+    looking approval record.
+    """
+    logger.warning("gate action REFUSED at ingress: unrecognised action=%r", action)
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "error": "Unknown gate action",
+            "code": "unknown_gate_action",
+            "recoverable": True,
+        },
     )
 
 
@@ -228,6 +290,10 @@ async def resolve_gate(
     elif action == "update_specs":
         # KAN-101: route to the shipped spec-revision sub-pipeline. The analysis
         # report is carried in the generic ``instructions`` field (SC-001 / INV-1).
+        # ISS-053: only at a gate that ADVERTISED the affordance — the engine's own
+        # published verdict, read back rather than recomputed.
+        if not _review_gate_advertises_update_specs(gate_key):
+            raise _deny_update_specs_not_offered(gate_key)
         analysis_report = body.analysis_report or ""
         await store.set_review_response(
             gate_key, approved=False, action="update_specs", instructions=analysis_report
@@ -236,11 +302,19 @@ async def resolve_gate(
         await store.set_review_response(
             gate_key, approved=False, edited_content=body.edited_content
         )
-    else:  # approve (default)
+    elif action == "approve":
         approved = True if body.approved is None else bool(body.approved)
         await store.set_review_response(
-            gate_key, approved=approved, edited_content=body.edited_content
+            gate_key,
+            approved=approved,
+            action="approve",
+            edited_content=body.edited_content,
         )
+    else:
+        # ISS-070: fail CLOSED. Unreachable over HTTP now that the schema closes the
+        # domain — kept because an in-process caller (or a fifth Literal member added
+        # without a branch here) would otherwise reopen the silent approval.
+        raise _deny_unknown_gate_action(action)
 
     return {"ok": True, "action": action, "gate_key": gate_key}
 
@@ -282,6 +356,141 @@ async def submit_answers(
 # POST /api/runs/{run_id}/cancel — cooperative cancel
 # ---------------------------------------------------------------------------
 
+# Strong references to the detached escalation backstops, so a task started for a Stop is
+# not garbage-collected mid-flight (the asyncio contract). Mirrors _CONCIERGE_STREAM_TASKS.
+_CANCEL_ESCALATIONS: set = set()
+
+
+def _arm_cancel_escalation(run_id: str) -> None:
+    """Start the bounded fallback for a Stop, detached from the HTTP response.
+
+    The cooperative event is the mechanism; this only backstops the mid-model-call blind
+    window. Best-effort by construction: no running loop (a sync test client outside the
+    portal) simply means no escalation, never a failed Stop.
+    """
+    from app.api.run_shutdown import stop_run_driver
+
+    try:
+        task = asyncio.get_running_loop().create_task(stop_run_driver(run_id))
+    except Exception as exc:  # noqa: BLE001 — the ack must never depend on the backstop
+        logger.warning("cancel(run=%s): could not arm the escalation: %s", run_id, exc)
+        return
+    _CANCEL_ESCALATIONS.add(task)
+    task.add_done_callback(_CANCEL_ESCALATIONS.discard)
+
+
+async def _record_cancellation_in_the_durable_tail(
+    run_id: str, *, reason: str = "owner_stopped_run_with_no_live_driver"
+) -> None:
+    """Append the ``pipeline_cancelled`` row a driver would have emitted (ISS-089).
+
+    Best-effort: audit + SSE replay + ``_reconcile_terminal_status`` agreement, none of
+    which the money guarantee depends on. It rides ``append_event_at_or_after`` — the
+    COLLISION-SAFE append — because the chat lane allocates from the same per-run seq
+    space and FIX-240 (ISS-121) proved a ``uq_run_events_scope_seq`` rejection here is
+    swallowed by the persist degrade rather than retried.
+
+    Principal resolution is ``_reconcile_terminal_status``'s, verbatim: never the nullable
+    ``owner_id`` alone, and the run's RECOVERED workspace (the value the sink actually
+    wrote under) rather than the WS-path row's frequently-NULL ``workspace_id``.
+
+    ``reason`` is parameterised for ISS-124 — the two app-layer DRIVER terminals
+    (``_drive_launch_to_queue`` / ``_drive_revision_to_queue``) reach this same append
+    from their ``except asyncio.CancelledError`` branches, where a driver WAS live and
+    was destructively cancelled. The default is FIX-243's original string, unchanged, so
+    the no-live-driver payload stays byte-identical. Extended, not copied (INV-12): one
+    durable-terminal writer, three callers.
+    """
+    from agents.authz import ScopedStore
+    from agents.execution_engine.engine import get_execution_engine
+
+    db = _get_db()
+    try:
+        wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        if wr is None:
+            return
+        owner_id = wr.owner_id or wr.user_id or f"anon:{wr.session_id or run_id}"
+    finally:
+        db.close()
+
+    try:
+        workspace_id = await get_execution_engine()._recover_workspace_id(owner_id, run_id)
+        store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
+        await store.append_event_at_or_after(
+            run_id,
+            (await store._max_event_seq(run_id)) + 1,
+            str(_uuid.uuid4()),
+            "pipeline_cancelled",
+            {"pipeline_run_id": run_id, "reason": reason},
+        )
+    except Exception as exc:  # noqa: BLE001 — the audit row must never fail the Stop
+        logger.warning(
+            "cancel(run=%s): durable pipeline_cancelled append failed: %s", run_id, exc
+        )
+
+
+async def _cancel_run_without_a_live_driver(run_id: str) -> dict:
+    """Make the owner's Stop DURABLE when no in-process driver can carry it (ISS-089).
+
+    The cooperative ``asyncio.Event`` and the escalation task both die with the process,
+    so before this a Stop that arrived with no live driver wrote NOTHING — and the run
+    stayed inside ``NON_TERMINAL_RUN_STATUSES``, so the next boot re-adopted it and drove
+    it to completion at the owner's expense (the ``d5dbc9f2`` incident: 45% of a
+    16,530,718-token run billed AFTER the API answered ``cancelled: true``).
+
+    Writing the terminal status HERE needs no migration, no new event type and no change
+    to ``restore_non_terminal_runs``: ``cancelled`` is already outside
+    ``NON_TERMINAL_RUN_STATUSES``, so the boot scan consults this decision through the
+    filter it already has, and ``POST /resume`` already accepts ``cancelled`` — the run
+    moves from AUTOMATIC resume to EXPLICIT, owner-authenticated resume, which is what a
+    Stop should mean.
+
+    SCOPE — single-process only. ``_is_run_live`` is process-local, and today the
+    deployment is single-process (``exec uvicorn``, no ``--workers``, no replicas), so
+    "not live here" == "not live anywhere". Under the locked ECS Fargate to-be, a Stop
+    landing on instance B would mark a row cancelled while instance A kept billing; that
+    needs a cross-process liveness fact (lease/heartbeat) and is NOT solved here.
+    """
+    from agents.execution_engine.engine import NON_TERMINAL_RUN_STATUSES
+
+    db = _get_db()
+    try:
+        wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        status_now = wr.status if wr is not None else None
+    finally:
+        db.close()
+
+    # Already terminal (or gone) — nothing is owed, so answer exactly as before, key order
+    # included, and write nothing. This is what makes a repeated Stop idempotent.
+    if status_now not in NON_TERMINAL_RUN_STATUSES:
+        return {
+            "ok": True, "run_id": run_id, "accepted": False, "cancelled": False,
+            "status": "not_running", "message": "No active pipeline",
+        }
+
+    await _record_cancellation_in_the_durable_tail(run_id)
+    try:
+        # AUTHORITATIVE, unlike the audit row above: this is the write that closes the
+        # money hole, so it must not inherit _reconcile_terminal_status's best-effort
+        # degrade. A failure is reported as a failure.
+        _persist_resume_status(run_id, "cancelled")
+    except Exception as exc:  # noqa: BLE001 — surfaced, never swallowed into a false ack
+        logger.error(
+            "cancel(run=%s): terminal status write FAILED: %s", run_id, exc, exc_info=True
+        )
+        raise _reject(
+            "cancel_not_persisted",
+            "The run could not be marked cancelled; it may still resume on the next "
+            "restart. Retry the Stop.",
+            http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            recoverable=True,
+        ) from exc
+
+    return {
+        "ok": True, "run_id": run_id, "accepted": True, "cancelled": True,
+        "status": "cancelled",
+    }
+
 
 @router.post("/{run_id}/cancel")
 async def cancel_run(
@@ -291,20 +500,44 @@ async def cancel_run(
     """Cooperatively cancel a run over HTTP (mirrors WS ``cancel_pipeline``).
 
     Owner-gated (T-29-03-3) → 404 on cross-owner. Sets the per-run cooperative
-    ``asyncio.Event`` in ``_CANCEL_EVENTS`` (ISS-007) — the engine observes it
-    (per-chunk / pre-agent) and emits ``pipeline_cancelled`` through the normal
-    persisted+drained path; suspend/persist semantics are unchanged. When no live
-    event exists the ack is idempotent (nothing to cancel).
+    ``asyncio.Event`` in ``_CANCEL_EVENTS`` (ISS-007) — the engine observes it at its next
+    boundary and emits ``pipeline_cancelled`` through the normal persisted+drained path,
+    which is what writes the terminal ``WorkflowRun.status``; suspend/persist semantics are
+    unchanged. ``stop_run_driver`` backstops the mid-model-call blind window.
+
+    ISS-084 — the response is an ACCEPTANCE, not a claim of cancellation. It used to
+    answer ``cancelled: true`` whenever an Event object existed in a dict and ``.set()``
+    did not raise, which said nothing about whether any consumer held that object. For
+    every resumed run that Event was an orphan, so the field was ``true`` in exactly the
+    case where cancelling was impossible — an unfalsifiable success that turned a visible
+    failure into a silent one while the run kept billing. Liveness (``_is_run_live``, the
+    driver TASK, which also self-heals a stale registration) is now the truth condition,
+    and the field says what actually happened:
+
+      * ``accepted: true`` + ``status: "stopping"`` — a live driver was signalled. The
+        terminal follows on the event stream; it is not asserted here.
+      * ``accepted: true`` + ``cancelled: true`` + ``status: "cancelled"`` — no live
+        driver, but the run was still owed work, so the Stop was made DURABLE here
+        (ISS-089). Nothing follows on the event stream; the row is already terminal.
+      * ``accepted: false`` + ``status: "not_running"`` — nothing to stop (idempotent ack,
+        so the client UI still returns to idle).
     """
     if not _review_gate_owned_by(run_id, current_user.id):
         raise _deny_unknown_gate()
 
+    # Ordering: the liveness probe self-heals (and clears _CANCEL_EVENTS for) a stale
+    # registration, so it must run BEFORE the event lookup.
+    if not _is_run_live(run_id):
+        return await _cancel_run_without_a_live_driver(run_id)
+
     event: asyncio.Event | None = _CANCEL_EVENTS.get(run_id)
     if event is not None:
         event.set()
-        return {"ok": True, "run_id": run_id, "cancelled": True}
-    # Idempotent: nothing active to cancel, but ack so the client returns to idle.
-    return {"ok": True, "run_id": run_id, "cancelled": False, "message": "No active pipeline"}
+    _arm_cancel_escalation(run_id)
+    return {
+        "ok": True, "run_id": run_id, "accepted": True, "cancelled": False,
+        "status": "stopping",
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -514,16 +747,31 @@ async def _reconcile_terminal_status(run_id: str) -> None:
         # cancellation) AND pipeline_complete (from the resume) in the durable tail.
         # The original logic unconditionally prioritised cancelled, leaving a
         # successfully-resumed run with status="cancelled" in history.
-        # Fix: if a clean pipeline_complete exists with a higher seq than the last
-        # pipeline_cancelled, the resume supersedes the cancellation → completed.
+        # Fix: a clean pipeline_complete belonging to a LATER ATTEMPT than the last
+        # pipeline_cancelled supersedes that cancellation → completed.
+        #
+        # FIX-229 (ISS-078): "later attempt", not merely "higher seq". A user who
+        # REJECTS at a gate on a resumed run produces both events within ONE attempt —
+        # the engine emits pipeline_cancelled and the dispatch loop then falls through
+        # to the run's single pipeline_complete emitter:
+        #     … 5:review_gate_ready | 6:pipeline_cancelled | 7:pipeline_complete
+        # On a bare seq comparison that trailing complete wins and the run the user
+        # explicitly rejected is recorded as "completed". An attempt boundary is a
+        # run_resuming / pipeline_start row, so require one BETWEEN the cancellation
+        # and the winning completion — same-attempt tails then keep the cancellation.
         cancelled_seqs = [e.seq for e in events if e.type == "pipeline_cancelled"]
         complete_seqs = [e.seq for e in completes
                          if not (isinstance(e.payload_json, dict)
                                  and e.payload_json.get("status") == "degraded")]
+        reattempt_seqs = [e.seq for e in events
+                          if e.type in ("run_resuming", "pipeline_start")]
         resume_supersedes = (
             cancelled
             and complete_seqs
             and max(complete_seqs) > max(cancelled_seqs)
+            and any(
+                max(cancelled_seqs) < s < max(complete_seqs) for s in reattempt_seqs
+            )
         )
         if cancelled and not resume_supersedes:
             new_status = "cancelled"
@@ -868,11 +1116,21 @@ class _ConciergeCtx:
         # The run's persisted status (WorkflowRun.status) — used to distinguish a
         # live-building run from a completed one so the prompt label is accurate.
         self.run_status = run_status or ""
-        # FIX-218 (KAN-170): pre-extracted file text from chat attachments. A rendered
+        # ISS-092: DECLARE the ``conversation`` inject so ``context_provider:conversation``
+        # surfaces this run's bounded chat transcript. Before this, the Concierge's only
+        # cross-turn memory was the unbounded read_events tool happening to return chat
+        # rows inside the whole event log; with that tool gone, this is what keeps
+        # multi-turn coherent. The provider self-gates on this token, so declaring it
+        # HERE — on the Concierge ctx alone — leaves every pipeline agent untouched and
+        # the characterization goldens byte-identical (INV-3).
+        self.current_spec_injects = {"conversation"}
+        # FIX-218 [dev] (KAN-170): pre-extracted file text from chat attachments. A rendered
         # text block injected into the system prompt so the Concierge can answer
         # questions about the file and surface a propose_steering_note for injection.
         # Payload-transient (ND-10) — never persisted. Format: formatted text block
         # ready to inject into the system prompt, or "" when no files were attached.
+        # NOTE (merge 2026-08-13): "FIX-218" here is dev's id. This branch's own FIX-218
+        # was renumbered to FIX-252 on merge — see .planning/FIX-REGISTER.md.
         self.attached_files = attached_files or ""
 
 
@@ -1051,14 +1309,23 @@ async def _dispose_concierge_proposal(
                 gate_key, approved=False, action="redo", instructions=rationale
             )
         elif action == "update_specs":
+            # ISS-053: the Concierge reaches the same seam, so it rides the same fence.
+            if not _review_gate_advertises_update_specs(gate_key):
+                raise _deny_update_specs_not_offered(gate_key)
             await art_store.set_review_response(
                 gate_key, approved=False, action="update_specs",
                 instructions=rationale or "",
             )
         elif action == "reject":
             await art_store.set_review_response(gate_key, approved=False)
-        else:  # approve (default)
+        elif action == "approve":
             await art_store.set_review_response(gate_key, approved=True)
+        else:
+            # ISS-070 hardening: currently unreachable — concierge.py:350 normalizes any
+            # action outside _GATE_ACTIONS to request_changes, and these params are
+            # server-written (H1), never client body. Fail closed so adding a member to
+            # concierge.py:80 without a branch here cannot silently approve a gate.
+            raise _deny_unknown_gate_action(action)
         return {"channel": channel, "disposed": "gate", "action": action}
 
     # ── chain → surface to FE as a chain proposal (FIX-115 / Option A). ───────────
@@ -1295,14 +1562,25 @@ async def post_message(
                 _gk, approved=False, action="redo", instructions=dispatch.instructions
             )
         elif dispatch.action == "update_specs":
+            # ISS-053: this route needs no gate_key from the caller (the server derives it
+            # from the event log), so it is the EASIEST ingress to replay — fence it too.
+            if not _review_gate_advertises_update_specs(_gk):
+                raise _deny_update_specs_not_offered(_gk)
             await art_store.set_review_response(
                 _gk, approved=False, action="update_specs",
                 instructions=dispatch.instructions or "",
             )
         elif dispatch.action == "reject":
             await art_store.set_review_response(_gk, approved=False)
-        else:  # approve (default)
+        elif dispatch.action == "approve":
             await art_store.set_review_response(_gk, approved=True)
+        else:
+            # ISS-070 hardening: currently unreachable — BOTH Dispatch(channel=
+            # CHANNEL_GATE) sites (chat_router.py:244/:255) require
+            # turn.action in GATE_ACTIONS, which IS the ISS-119 routing contract and is
+            # deliberately NOT touched here. Fail closed so adding a member to
+            # GATE_ACTIONS without a branch here cannot silently approve a gate.
+            raise _deny_unknown_gate_action(dispatch.action)
     elif dispatch.channel == CHANNEL_STEERING:
         # A.3 (Phase 43): resolve the RUNNING run's live in-process ectx ONCE (the live-ectx
         # registry now populates it at run start — DEF-29-09-1 closed) and drain BOTH the
@@ -1531,6 +1809,62 @@ async def post_message(
                         "text": answer_text or "",
                     },
                 )
+                # ── ISS-092: record the Concierge's OWN model spend, durably. ──────
+                # ``converse`` runs here, in a background task spawned AFTER the run
+                # settled — outside execute()'s lifetime — so neither the engine's
+                # aux_token_usage fold nor _apply_terminal_completion can ever see it.
+                # Without this row a chat turn's cost does not exist anywhere.
+                #
+                # It is a run_events row, NOT a workflow_runs column: token_usage is
+                # written solely by _apply_terminal_completion (the documented SOLE
+                # writer, already run and never run again) and answers "what does this
+                # workflow cost to RUN" — folding a user's chattiness into it would make
+                # two runs of the same workflow non-comparable. Reported as a separate
+                # line instead.
+                #
+                # event_id is namespaced on message_id, so append_event_next_seq's
+                # idempotency makes a retried/double-submitted POST a no-op rather than
+                # a double count. An ABSENT ctx.usage writes NO row: a token that was not
+                # observed is reported as unmeasured, never estimated from len(answer).
+                # Its own try/except — telemetry must never break the reply.
+                try:
+                    chat_usage = getattr(ctx, "usage", None)
+                    if isinstance(chat_usage, dict):
+                        _in = int(chat_usage.get("input_tokens", 0) or 0)
+                        _out = int(chat_usage.get("output_tokens", 0) or 0)
+                        _cr = int(chat_usage.get("cache_read_tokens", 0) or 0)
+                        _cw = int(chat_usage.get("cache_write_tokens", 0) or 0)
+                        _model = (
+                            chat_usage.get("model_id")
+                            or settings.BEDROCK_INFERENCE_PROFILE_ID
+                        )
+                        await store.append_event_next_seq(
+                            run_id,
+                            event_id=f"chat-usage:{body.message_id}",
+                            type="chat_usage",
+                            payload_json={
+                                "pipeline_run_id": run_id,
+                                "message_id": body.message_id,
+                                "model_id": _model,
+                                "input_tokens": _in,
+                                "output_tokens": _out,
+                                "total_tokens": _in + _out,
+                                "cache_read_tokens": _cr,
+                                "cache_write_tokens": _cw,
+                                # Same pricing convention as the run's headline cost
+                                # site (:2107): input_tokens is the UNCACHED portion.
+                                "estimated_cost_usd": estimate_cost_usd(
+                                    _model,
+                                    input_tokens=max(0, _in - _cr - _cw),
+                                    output_tokens=_out,
+                                    cache_read_tokens=_cr,
+                                    cache_write_tokens=_cw,
+                                    cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+                                ),
+                            },
+                        )
+                except Exception:  # noqa: BLE001 — telemetry never breaks the answer.
+                    logger.exception("chat_usage record failed for run %s", run_id)
                 # Drain + dispose proposals EXACTLY as today — still HELD behind a confirm
                 # chip (T-33-03-01), never auto-executed; only the call-site moved here.
                 for intent in _drain_concierge_proposals(concierge, ctx):
@@ -1831,6 +2165,29 @@ async def launch_run(
     pipeline_type = body.pipeline_type
     content = body.message
 
+    # ── Empty-brief gate (ISS-155) ─────────────────────────────────────────────
+    # A run with no brief has nothing to build, and the spend is committed HERE —
+    # an od_prototype build is 5–21M Bedrock tokens (measured ceiling 37.3M), so a
+    # briefless launch burns the owner's money on nothing. This has to live at the
+    # ingress rather than in the wizard: `LaunchCommand.message` is a bare `str`,
+    # every client shares this seam (wizard, chain, Concierge, any future API
+    # consumer), and a stale `sessionStorage` draft can reach it with no wizard in
+    # the loop at all. Deny BEFORE the mint, like every other ingress denial here
+    # (no WorkflowRun row, no driver, no spend).
+    #
+    # Reachable in practice, not theoretical: the chain path waives the brief on
+    # the wizard side (`LaunchWizard.canContinue` — `isChaining || brief.trim()`)
+    # on the assumption a chain context block stands in for it, and `handleLaunch`
+    # falls through to `brief.trim()` — the empty string — whenever that block is
+    # absent. A legitimate chained launch is unaffected: when chaining works, the
+    # context block IS the message, and it is never blank.
+    if not (content or "").strip():
+        raise _reject(
+            "empty_brief",
+            "A run needs a brief. Describe what you want built, or — when chaining — "
+            "make sure the source run's context could be loaded.",
+        )
+
     base_pipeline_type, od_context = _resolve_launch_agents(body)
 
     # ── Entitlement gate (tier) — KAN-161 / ISS-055 ────────────────────────────
@@ -2034,10 +2391,12 @@ def _apply_terminal_output_columns(
     (launch's seen-flags, user-resume's ``_reconcile_terminal_status``, the engine state
     machine on restart). It does NOT commit — the caller owns the session.
 
-    This is the SOLE writer of these columns for BOTH the launch path AND the two resume
-    entry points (restart auto-resume via the engine ``_resume_output_persist_sink`` hook,
-    user-resume via ``_reconcile_terminal_status``), so a resume-completion row matches a
-    never-restarted launch completion. Workflow-agnostic (SC-001 — no workflow/agent name).
+    This is the SOLE writer of these columns for the launch path, the two resume entry
+    points (restart auto-resume via the engine ``_resume_output_persist_sink`` hook,
+    user-resume via ``_reconcile_terminal_status``), AND the revision driver
+    (``_drive_revision_to_queue``, ISS-152 — the fourth caller BUG-R03 missed), so a
+    revision or resume-completion row matches a never-restarted launch completion.
+    Workflow-agnostic (SC-001 — no workflow/agent name).
     """
     agent_outputs_collector: list[dict] = []
     current_agent: dict = {}
@@ -2124,6 +2483,16 @@ def _apply_terminal_output_columns(
                 cache_read_tokens=total_cache_read,
                 cache_write_tokens=total_cache_write,
                 cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+            ),
+            # ISS-034: the as-if-UNCACHED counterfactual on the SAME token base, so
+            # Analytics can report the SIGNED effect of prompt caching. Rows written
+            # before this key existed simply lack it — every reader is a tolerant
+            # json.loads and the Analytics fold treats an absent key as a ZERO delta
+            # (never a fabricated $0 baseline), so no migration is needed.
+            "estimated_cost_full_usd": estimate_cost_usd(
+                wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
+                input_tokens=total_input,
+                output_tokens=total_output,
             ),
         })
     if not wr.completed_at:
@@ -2372,7 +2741,21 @@ async def _drive_launch_to_queue(
                 db.close()
     except asyncio.CancelledError:
         await event_queue.put({"type": "pipeline_cancelled", "data": {"message": "Pipeline cancelled"}})
+        # ISS-124: make the terminal DURABLE, not queue-only. This branch is the
+        # ``stop_run_driver`` escalation path (``task.cancel()`` for a driver that could
+        # not observe the cooperative event in bounded time), and it wrote no ``run_events``
+        # row at all — so (a) the run's durable log ended on whatever came before, which is
+        # how ISS-126's dangling ``review_gate_ready`` reopens are still being MINTED, and
+        # (b) ``stop_run_driver`` then runs ``_reconcile_terminal_status``, which decides
+        # from the durable tail alone and took its D2 fail-safe → the owner's Stop was
+        # recorded as ``failed``, overwriting the ``cancelled`` written just below.
+        # The frame above is already emitted unconditionally; this only makes the row agree
+        # with it. Best-effort by construction (the helper swallows its own failures), so a
+        # cancelled driver can never be made worse by the audit write.
         if workflow_run_id:
+            await _record_cancellation_in_the_durable_tail(
+                workflow_run_id, reason="driver_task_cancelled"
+            )
             db = _get_db()
             try:
                 wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
@@ -2543,11 +2926,19 @@ async def _drive_revision_to_queue(
     pipeline_failed_seen = False
     degraded_seen = False
     pipeline_cancelled_seen = False
+    # ISS-152: this driver is a fourth caller of the shared
+    # _apply_terminal_output_columns mapping (BUG-R03, INV-12) — mirrors the launch
+    # driver's raw_events/monotonic_start (this file, _drive_launch_to_queue) so a
+    # revision completion carries output/agent_outputs/token_usage/duration/model_id/
+    # deliverable_* exactly like a launch or resume completion, never silently NULL.
+    raw_events: list[tuple[str, dict]] = []
+    monotonic_start = time.monotonic()
 
     async def _queue_send(event: dict) -> None:
         nonlocal pipeline_complete_seen, pipeline_failed_seen, degraded_seen
         nonlocal pipeline_cancelled_seen
         etype = event.get("type")
+        raw_events.append((etype or "", event.get("data") or {}))
         if etype == "pipeline_cancelled":
             pipeline_cancelled_seen = True
         if etype == "pipeline_complete":
@@ -2565,6 +2956,16 @@ async def _drive_revision_to_queue(
             if swr:
                 swr.status = new_status
                 swr.completed_at = datetime.now(timezone.utc)
+                # ISS-152: the SOLE event→column mapping (_apply_terminal_output_columns),
+                # reused byte-for-byte from the launch driver — the driver's OWN monotonic
+                # clock, never pipeline_complete's total_duration (keeps ISS-150's two
+                # disagreeing duration numbers from getting a third).
+                _apply_terminal_output_columns(
+                    swr,
+                    raw_events,
+                    model_id=getattr(user, "preferred_model", None) or None,
+                    duration_seconds=round(time.monotonic() - monotonic_start, 1),
+                )
                 sdb.commit()
         finally:
             sdb.close()
@@ -2605,6 +3006,12 @@ async def _drive_revision_to_queue(
             "type": "pipeline_cancelled",
             "data": {"message": "Revision cancelled"},
         })
+        # ISS-124 (second locus) — identical hole, identical fix. See the launch driver's
+        # CancelledError branch for the full rationale; the two drivers stay behaviorally
+        # identical by design (LOCK-B).
+        await _record_cancellation_in_the_durable_tail(
+            workflow_run_id, reason="driver_task_cancelled"
+        )
         _persist_terminal_status("cancelled")
     except Exception as exc:
         logger.error("REST revision driver failed: %s", exc, exc_info=True)

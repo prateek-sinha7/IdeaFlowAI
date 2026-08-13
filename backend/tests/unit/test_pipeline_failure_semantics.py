@@ -81,6 +81,9 @@ def _make_stub_run_agent(fail_ids: set[str]):
         self, spec, index, ordered_agents, user_message, sandbox,
         pipeline_run_id, pipeline_type, planning_context, attached_skills,
         attached_hooks, model_id, results, cancel_event, ectx,
+        # ``**_kw`` absorbs additive keyword-only params (ISS-097 added
+        # ``invocation_gated``) so this double never pins a stale arity.
+        **_kw,
     ):
         yield {
             "type": "agent_start",
@@ -238,6 +241,9 @@ def _make_timeout_shaped_stub(timeout_ids: set[str]):
         self, spec, index, ordered_agents, user_message, sandbox,
         pipeline_run_id, pipeline_type, planning_context, attached_skills,
         attached_hooks, model_id, results, cancel_event, ectx,
+        # ``**_kw`` absorbs additive keyword-only params (ISS-097 added
+        # ``invocation_gated``) so this double never pins a stale arity.
+        **_kw,
     ):
         yield {
             "type": "agent_start",
@@ -323,6 +329,7 @@ async def test_unrecovered_failure_alongside_recovered_timeout_lists_only_the_fa
             self, spec, index, ordered_agents, user_message, sandbox,
             pipeline_run_id, pipeline_type, planning_context, attached_skills,
             attached_hooks, model_id, results, cancel_event, ectx,
+            **_kw,  # additive keyword-only params (ISS-097: invocation_gated)
         ):
             yield {
                 "type": "agent_start",

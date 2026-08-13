@@ -163,7 +163,10 @@ CORS_ORIGINS=["https://ideaflow.yourdomain.com"]
 ```bash
 # === OFFICE LAPTOP (Mock Mode) ===
 # No setup needed — just run:
-cd backend && python -m uvicorn app.main:app --reload --port 8000
+# --timeout-graceful-shutdown is required: without it a live SSE stream makes
+# uvicorn ignore SIGTERM forever (only kill -9 ends it) and the shutdown code
+# never runs. Do not add --reload; it masks crashes and doubles that problem.
+cd backend && python3.11 -m uvicorn app.main:app --port 8000 --timeout-graceful-shutdown 5
 cd frontend && npm run dev
 
 # === PERSONAL LAPTOP (Anthropic API Key) ===
@@ -175,7 +178,7 @@ docker-compose -f docker-compose.dev.yml up -d postgres redis
 # 4. Run migrations:
 cd backend && alembic upgrade head
 # 5. Start servers:
-cd backend && python -m uvicorn app.main:app --reload --port 8000
+cd backend && python3.11 -m uvicorn app.main:app --port 8000 --timeout-graceful-shutdown 5
 cd frontend && npm run dev
 
 # === PERSONAL LAPTOP (AWS Bedrock) ===

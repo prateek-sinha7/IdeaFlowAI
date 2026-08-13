@@ -98,6 +98,8 @@ function GateAwaitingCard({
           redoable={laneGate.redoable}
           updateSpecsEligible={laneGate.updateSpecsEligible}
           artifactKind={laneGate.artifactKind}
+          revisionCycle={laneGate.revisionCycle}
+          revisionInFlight={laneGate.revisionInFlight}
           isPipelineRunning={isRunning}
           approveLabel={laneGate.approveLabel}
           onApprove={onApprove}

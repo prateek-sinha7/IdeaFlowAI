@@ -669,8 +669,15 @@ async def drive_engine_pipeline(
     #    engine instance is per-drive, so no restore is needed. ────────────────
     _orig_review_gate = engine._run_review_gate
 
-    async def _auto_resume_review_gate(pipeline_run_id, agent_id, agent_name, output):
-        async for _gev in _orig_review_gate(pipeline_run_id, agent_id, agent_name, output):
+    #    ``**kwargs`` must be BOTH accepted and FORWARDED: the engine grew redoable /
+    #    update_specs_eligible / artifact_kind / revision_cycle / revision_in_flight /
+    #    cancel_event and passes them by keyword. Accepting without forwarding is green on
+    #    every arity check while dropping Stop (cancel_event) and the name-free SC-001
+    #    discriminators. The four named parameters stay named — the body reads two of them.
+    async def _auto_resume_review_gate(pipeline_run_id, agent_id, agent_name, output, **kwargs):
+        async for _gev in _orig_review_gate(
+            pipeline_run_id, agent_id, agent_name, output, **kwargs
+        ):
             if auto_resume_gates and _gev.get("type") == "review_gate_ready":
                 result.gated = True
                 _gdata = dict(_gev.get("data") or {})

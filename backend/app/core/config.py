@@ -194,11 +194,24 @@ class Settings(BaseSettings):
 
     # ---- Graceful shutdown budget (KAN-151 D8) ────────────────────────────
     # The container's hard ceiling is docker's stop_grace_period (30s,
-    # docker-compose.yml:138); uvicorn's own --timeout-graceful-shutdown (5s,
-    # docker-entrypoint.sh) is spent BEFORE the lifespan body runs. These two
-    # knobs bound what the lifespan body itself may consume. Sum them with 5s for
-    # the checkpointer pool close and keep the total under 25s so SIGKILL is never
-    # the thing that ends the process.
+    # docker-compose.yml:75); uvicorn's own --timeout-graceful-shutdown (5s,
+    # docker-entrypoint.sh) is spent BEFORE the lifespan body runs. Worst case from
+    # SIGTERM to process exit, counting EVERY wait on the path:
+    #    5  uvicorn graceful window      docker-entrypoint.sh
+    #   10  Concierge drain              run_shutdown.py step 1
+    #    3  Concierge cancel-and-wait    run_shutdown.py step 1 escalation
+    #    3  pump drain                   run_shutdown.py step 2b
+    #    3  pump cancel-and-wait         run_shutdown.py step 2b escalation
+    #   ──
+    #   24  with SHUTDOWN_STOP_RUNS off. Turning it on adds a driver drain plus its
+    #       escalation (+3 +3) for 30s — AT the SIGKILL line, which is the arithmetic
+    #       reason production keeps it off. tests/unit/test_shutdown_reachability.py
+    #       asserts this sum against the parsed stop_grace_period instead of trusting
+    #       this comment: the previous version claimed "under 25s" while omitting both
+    #       escalations and the pump drain entirely.
+    #       These are the BOUNDED waits only. Step 4's close_checkpointer() awaits
+    #       pool.close() with no timeout (checkpointer.py:142), so it sits on top of
+    #       the 24s and the true worst case is unbounded — ISS-106.
     # A Concierge turn owns the ONLY durable write of its chat_reply row
     # (run_commands.py:1356) and is explicitly never cancelled on client
     # disconnect - so it is AWAITED, not cancelled, and only cut past this bound.
@@ -206,12 +219,29 @@ class Settings(BaseSettings):
     # How long to wait for run-transport teardown (pump tasks after A2, queue
     # sentinels) before escalating to task.cancel().
     SHUTDOWN_TASK_DRAIN_SECONDS: float = 3.0
-    # D8/D9 conflict switch - see the D8 investigation section I11. When False
-    # (default) the shutdown leaves in-flight runs non-terminal so the next boot's
+    # D8/D9 conflict switch - see the D8 investigation section I11. When False the
+    # shutdown leaves in-flight runs non-terminal so the next boot's
     # restore_non_terminal_runs auto-resumes them (the shipped Phase 45-50 tier).
     # When True the shutdown cooperatively cancels them: every in-flight run lands
     # "cancelled", auto-resume is replaced by the user's "Run again" button
     # (POST /api/runs/{id}/resume already accepts "cancelled", run_commands.py:379).
+    #
+    # The DEFAULT is environment-differentiated (ISS-088), resolved by
+    # _default_shutdown_stop_runs_from_env below - this declared value is the
+    # conservative one and is what every non-development ENV resolves to:
+    #   production/staging/ci -> False. Deploys stay invisible to users mid-run,
+    #     and the teardown budget stays under stop_grace_period (see above).
+    #   development           -> True. Restarting the backend to stop an expensive
+    #     experiment must actually stop it; an od_prototype build costs 5-21M Bedrock
+    #     tokens and today survives the restart.
+    # An explicit SHUTDOWN_STOP_RUNS env var always wins, in both directions.
+    #
+    # This is NOT already true by accident: uvicorn re-raises the captured signal
+    # inside serve() (server.py:326-330) after restoring the default disposition, so
+    # under SIGTERM the process dies before asyncio.run's _cancel_all_tasks can run and
+    # no driver's CancelledError handler ever writes a terminal status. (Under SIGINT
+    # the restored handler raises KeyboardInterrupt, which unwinds normally and DOES
+    # reach that teardown - so Ctrl-C already cancels runs regardless of this switch.)
     SHUTDOWN_STOP_RUNS: bool = False
 
     # ---- Image-input ingress (default ON) ----
@@ -352,6 +382,18 @@ class Settings(BaseSettings):
         # secrets-loader pours every SSM key into the env file, etc.).
         # Without this, any unexpected variable raises ValidationError at boot.
         extra = "ignore"
+
+    @model_validator(mode="after")
+    def _default_shutdown_stop_runs_from_env(self) -> "Settings":
+        """Resolve SHUTDOWN_STOP_RUNS' environment-differentiated default (ISS-088).
+
+        Only when the operator did not supply a value: ``model_fields_set`` carries
+        every field an env var, an ``.env`` entry or a constructor argument provided,
+        so an explicit setting is never overridden - in either direction.
+        """
+        if "SHUTDOWN_STOP_RUNS" not in self.model_fields_set:
+            self.SHUTDOWN_STOP_RUNS = self.ENV.lower() == "development"
+        return self
 
     @model_validator(mode="after")
     def _validate_secret_key(self) -> "Settings":

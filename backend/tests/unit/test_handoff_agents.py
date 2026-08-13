@@ -47,12 +47,16 @@ class _FakeModel:
     the patched ``build_model`` spy.
     """
 
-    def __init__(self, content: Any) -> None:
+    def __init__(self, content: Any, usage: dict | None = None) -> None:
         self._content = content
+        # ISS-033: an optional ``usage_metadata`` so a test can assert the call's
+        # tokens reach the caller's run-usage sink through ``cached_invoke``.
+        self._usage = usage
 
-    async def ainvoke(self, messages: list) -> AIMessage:  # noqa: D401
+    async def ainvoke(self, messages: list, **kwargs: Any) -> AIMessage:  # noqa: D401
         self.last_messages = messages
-        return AIMessage(content=self._content)
+        self.last_kwargs = kwargs
+        return AIMessage(content=self._content, usage_metadata=self._usage)
 
 
 def _patch_build_model(module, content: Any):
@@ -191,6 +195,66 @@ async def test_test_agent_non_json_raises() -> None:
     with _patch_build_model(test_mod, "no json here"):
         with pytest.raises(ValueError, match="no JSON object"):
             await HandoffTestAgent().analyse(task="t", repo_tree="", test_files={})
+
+
+# ---------------------------------------------------------------------------
+# ISS-033-A — TestAgent is CACHED and COUNTED (the 43-04 miss)
+#
+# Phase 43-04 routed "handoff Test(classifier)" through the shared cached-invoke
+# helper — but ``classifier.py`` is the coding-vs-test ROUTER, not the Test agent.
+# ``TestAgent.analyse`` kept calling ``llm.ainvoke`` raw, so it was the one handoff
+# agent that was neither cache-pointed nor counted. These two pin the parity with
+# ``ComplianceAgent``, which has been routed since 43-04.
+# ---------------------------------------------------------------------------
+
+
+_TEST_AGENT_USAGE = {
+    "input_tokens": 9412,
+    "output_tokens": 388,
+    "total_tokens": 9800,
+    "input_token_details": {"cache_read": 7000, "cache_creation": 1200},
+}
+
+
+@pytest.mark.asyncio
+async def test_test_agent_counts_its_tokens_through_the_usage_sink() -> None:
+    """The analysis call's tokens reach the caller's run-usage sink — the whole
+    point of ISS-033. Before FIX-230 the raw ``ainvoke`` dropped them on the floor."""
+    collected: list[dict] = []
+    fake = _FakeModel('{"summary": "ok"}', usage=_TEST_AGENT_USAGE)
+    with patch.object(test_mod, "build_model", return_value=fake):
+        await HandoffTestAgent(usage_sink=collected.append).analyse(
+            task="t", repo_tree="", test_files={}
+        )
+
+    assert len(collected) == 1, f"the model call was not counted: {collected}"
+    assert collected[0] == {
+        "input_tokens": 9412,
+        "output_tokens": 388,
+        "cache_read_tokens": 7000,
+        "cache_write_tokens": 1200,
+    }
+
+
+@pytest.mark.asyncio
+async def test_test_agent_sends_a_cache_eligible_system_prefix() -> None:
+    """The stable analysis prompt goes as a SEPARATE ``SystemMessage`` — that prefix
+    is where ``langchain_aws`` places the Bedrock cachePoint, so this pins the shape
+    the caching half depends on (parity with ComplianceAgent).
+
+    A shape pin, NOT a regression proof: it is green before and after FIX-230, because
+    the pre-fix raw ``ainvoke`` also sent ``[SystemMessage, HumanMessage]``. What FIX-230
+    changed is that the call now goes through ``cached_invoke``, which places the Bedrock
+    ``cache_control`` on that prefix — proven behaviorally by the sink test above and
+    generically by ``tests/unit/test_cached_invoke.py``.
+    """
+    fake = _FakeModel('{"summary": "ok"}')
+    with patch.object(test_mod, "build_model", return_value=fake):
+        await HandoffTestAgent().analyse(task="t", repo_tree="tree", test_files={})
+
+    system, human = fake.last_messages
+    assert system.content == test_mod._TEST_SYSTEM_PROMPT
+    assert "TASK" in human.content and "REPOSITORY TREE" in human.content
 
 
 # ---------------------------------------------------------------------------

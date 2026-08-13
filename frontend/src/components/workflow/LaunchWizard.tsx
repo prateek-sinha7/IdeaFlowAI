@@ -407,14 +407,25 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     });
   }, []);
 
+  // ISS-155: validate what `handleLaunch` ACTUALLY consumes, not a proxy for it.
+  // The previous form was `isChaining || brief.trim()` — chaining WAIVED the brief
+  // on the assumption a chain context block would stand in for it, but nothing ever
+  // checked that the block exists. `DashboardLayout` swallows a failed
+  // `getChainContext` as non-fatal and (FIX-217) now clears `chain.context_block`
+  // up front, so "chaining with no context block" is reachable — and `handleLaunch`
+  // then falls through to `brief.trim()`, the empty string. Requiring the union of
+  // the two things `handleLaunch` reads keeps dev's UX goal (no brief needed when
+  // chaining WORKS) while closing the briefless launch.
+  const hasBuildInput = Boolean(brief.trim() || chainContextBlock?.trim());
+
   const canContinue = useMemo(() => {
     if (mode === "prototype") {
-      // KAN-87: template optional; DS required (color tokens). Brief unless chaining.
-      return Boolean(selectedDsId && (isChaining || brief.trim()));
+      // KAN-87: template optional; DS required (color tokens).
+      return Boolean(selectedDsId && hasBuildInput);
     }
     // ppt: template required; DS only when the template declares it.
-    return Boolean(selectedTemplateId && (isChaining || brief.trim()) && (!dsRequired || selectedDsId));
-  }, [mode, selectedDsId, selectedTemplateId, dsRequired, isChaining, brief]);
+    return Boolean(selectedTemplateId && hasBuildInput && (!dsRequired || selectedDsId));
+  }, [mode, selectedDsId, selectedTemplateId, dsRequired, hasBuildInput]);
 
   const handleSaveWorkflow = useCallback(async (name: string, description: string) => {
     setShowSaveModal(false);
@@ -743,7 +754,11 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         <div className="pt-2">
           {!canContinue && (
             <div className="mb-4 flex flex-wrap gap-2">
-              {!isChaining && !brief.trim() && <Pill label="Add a brief" />}
+              {/* ISS-155: keyed on hasBuildInput, NOT on `!isChaining`. A chained
+                  launch whose context block failed to load now blocks Continue, and
+                  the old condition hid this pill for every chained launch — leaving
+                  a disabled button with no stated reason. */}
+              {!hasBuildInput && <Pill label="Add a brief" />}
               {mode === "ppt" && !selectedTemplateId && <Pill label="Pick a template" />}
               {(mode === "prototype" || dsRequired) && !selectedDsId && <Pill label="Pick a design system" />}
             </div>

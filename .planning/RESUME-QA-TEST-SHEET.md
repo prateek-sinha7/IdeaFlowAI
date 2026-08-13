@@ -23,8 +23,16 @@ aws sso login --profile hex-ai-fe        # interactive browser login (type `! aw
 cd /Users/1000060523/Documents/Work/UKI/Flowin/flowin/backend        # ABSOLUTE path (stray backend/backend exists)
 export AWS_PROFILE=hex-ai-fe            # Bedrock provider; leave ANTHROPIC_API_KEY empty
 python3.11 -m alembic upgrade head      # brings 0026 (subagent task identity — additive nullable, safe)
-python3.11 -m uvicorn app.main:app --port 8000   # NO --reload
+python3.11 -m uvicorn app.main:app --port 8000 --timeout-graceful-shutdown 5   # NO --reload
 ```
+
+`--timeout-graceful-shutdown 5` (ISS-088) is what lets a plain SIGTERM stop the server at
+all while a run is streaming; without it only `kill -9` works. It does **not** weaken this
+campaign: SIGKILL is uncatchable, so the crash procedure below is unchanged, and a crashed
+run is still left non-terminal for the next boot to auto-resume. A **graceful** stop is now
+different on a dev machine — `SHUTDOWN_STOP_RUNS` defaults ON when `ENV=development`, so
+Ctrl-C/`kill` CANCELS in-flight runs rather than leaving them resumable. Use `kill -9` for
+every resume specimen.
 
 **Crash procedure:** `kill -9 <uvicorn pid>` (SIGKILL — no graceful cleanup, the honest crash), then relaunch the same command. **Broken-env restart** (for the D1b failed-run specimen): relaunch with `AWS_PROFILE` unset/bogus so the first model call errors.
 

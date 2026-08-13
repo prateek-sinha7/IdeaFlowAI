@@ -198,7 +198,7 @@ async def test_run_event_sink_degrades_on_db_persist_failure():
     from sqlalchemy.exc import OperationalError
 
     class _BoomStore:
-        async def append_event(self, *a, **k):
+        async def append_event_at_or_after(self, *a, **k):
             raise OperationalError("no such table: run_events", None, Exception())
 
     sink = _RunEventSink()
@@ -213,7 +213,7 @@ async def test_run_event_sink_reraises_non_db_persist_failure():
     condition) must PROPAGATE, not be masked as a silent no-op."""
 
     class _BoomStore:
-        async def append_event(self, *a, **k):
+        async def append_event_at_or_after(self, *a, **k):
             raise RuntimeError("unexpected non-DB failure")
 
     sink = _RunEventSink()
@@ -320,3 +320,136 @@ async def test_append_event_next_seq_retries_past_a_raced_seq(db_session):
         .all()
     )
     assert [r.seq for r in rows] == [1, 2]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ISS-121 — the OTHER half of the race: what happens to the LOSER
+#
+# The pair above proves only that the CHAT writer wins a seq collision. Nothing
+# asked what became of the engine event it displaced — and the answer, until
+# FIX-240, was "discarded with a warning": ``_RunEventSink.persist`` catches
+# SQLAlchemyError, IntegrityError IS one, so a production seq collision took the
+# branch written for "the offline harness has no schema". Every app-layer row
+# written while a run is live destroyed exactly one subsequent engine event.
+#
+# These tests assert the durable ROW, never the yielded frame. The live stream is
+# intact on every path (the event is queued before/independently of the persist),
+# so any probe that reads ``execute()``'s output passes on the broken code — the
+# distinction that let three earlier offline probes miss this entirely.
+# ════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_engine_sink_survives_a_raced_seq_instead_of_losing_the_event(db_session):
+    """A chat turn takes the seq the idle engine's counter still owns; the engine's
+    NEXT event must still land in the durable log — re-appended past the racing
+    writer's tail, never dropped (ISS-121).
+
+    Reproduces the live shape of run 808612bf: parked at a review gate, rejected
+    through the chat lane (``POST /messages``, which persists a row — unlike
+    ``POST /gate`` and ``POST /cancel``, which persist none), so the destroyed event
+    is deterministically the terminal frame.
+    """
+    from agents.capabilities.gate_pendency import derive_open_gate
+
+    _seed_run(db_session, run_id="run-1", owner_id="alice", workspace_id="ws-1")
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    sink = _RunEventSink()
+    sink.arm(store, "run-1")
+
+    await sink.persist(1, "engine-1", "agent_complete", {"seq": 1})
+    await sink.persist(
+        2, "engine-2", "review_gate_ready", {"seq": 2, "gate_key": "run-1:domain-analyst"}
+    )
+
+    # The user rejects through the chat lane. The app writer allocates max(seq)+1 → 3,
+    # which is exactly the seq the parked engine's in-memory counter still believes it owns.
+    created, chat_seq = await store.append_event_next_seq(
+        "run-1",
+        event_id="chat:m1",
+        type="chat_message",
+        payload_json={"text": "Not what I wanted — stop."},
+    )
+    assert (created, chat_seq) == (True, 3)
+
+    # The gate resolves; the engine emits its terminal frame at the colliding seq.
+    actual_seq = await sink.persist(3, "engine-3", "pipeline_cancelled", {"seq": 3})
+
+    rows = (
+        db_session.query(RunEvent)
+        .filter(RunEvent.run_id == "run-1")
+        .order_by(RunEvent.seq.asc())
+        .all()
+    )
+    assert [r.type for r in rows] == [
+        "agent_complete",
+        "review_gate_ready",
+        "chat_message",
+        "pipeline_cancelled",
+    ], "the engine's terminal event was silently DROPPED by the seq collision"
+
+    # persist reports the seq the row ACTUALLY landed on, so execute() can re-stamp the
+    # outgoing frame with it (the SSE id: cursor is row.seq on replay, data["seq"] live).
+    assert actual_seq == 4
+    assert rows[-1].seq == actual_seq
+
+    # The user-visible consequence: with the terminal row present, a cancelled run no
+    # longer derives an OPEN review gate on reopen (the ISS-121 symptom).
+    assert derive_open_gate(rows) == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_execute_restamps_seq_onto_the_frame_it_yields(db_session, monkeypatch):
+    """``execute()`` must re-stamp ``data["seq"]`` with the seq the row actually landed
+    on, and advance its allocator past it — the idiom it already applies to a narrator
+    milestone card (``engine.py:1078-1079``).
+
+    Without the re-stamp the durable row and the live frame carry DIFFERENT seqs, and
+    ``run_stream`` emits the SSE ``id:`` cursor from ``row.seq`` on replay (:198) but from
+    ``data["seq"]`` live (:264) — so ``Last-Event-ID`` resumption would silently skip or
+    re-deliver events. Drives the REAL wrapper with a scripted ``_execute_impl`` (the
+    ``_sink`` kwarg is the production arming seam).
+    """
+    from agents.execution_engine.engine import ExecutionEngine
+
+    _seed_run(db_session, run_id="run-1", owner_id="alice", workspace_id="ws-1")
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+
+    async def _scripted_impl(self, **kwargs):
+        kwargs["_sink"].arm(store, "run-1")
+        yield {"type": "review_gate_ready", "data": {"gate_key": "run-1:a"}}
+        # A chat turn lands between the two engine events and takes seq 2.
+        await store.append_event_next_seq(
+            "run-1", event_id="chat:m1", type="chat_message", payload_json={"t": "stop"}
+        )
+        yield {"type": "pipeline_cancelled", "data": {}}
+        yield {"type": "agent_chunk", "data": {}}
+
+    monkeypatch.setattr(ExecutionEngine, "_execute_impl", _scripted_impl)
+
+    yielded = [
+        ev
+        async for ev in ExecutionEngine().execute(
+            agents=[], user_message="", pipeline_run_id="run-1"
+        )
+    ]
+
+    rows = (
+        db_session.query(RunEvent)
+        .filter(RunEvent.run_id == "run-1")
+        .order_by(RunEvent.seq.asc())
+        .all()
+    )
+    by_type = {r.type: r.seq for r in rows}
+    assert "pipeline_cancelled" in by_type, "terminal row lost to the seq collision"
+
+    # Row seq and frame seq agree for EVERY event — the Last-Event-ID contract.
+    assert [(e["type"], e["data"]["seq"]) for e in yielded] == [
+        ("review_gate_ready", by_type["review_gate_ready"]),
+        ("pipeline_cancelled", by_type["pipeline_cancelled"]),
+        ("agent_chunk", by_type["agent_chunk"]),
+    ]
+    # …and the allocator advanced PAST the displaced seq, so the event AFTER the
+    # collision does not collide in turn.
+    assert by_type["pipeline_cancelled"] == 3
+    assert by_type["agent_chunk"] == 4

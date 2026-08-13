@@ -472,6 +472,31 @@ async def test_kernel_services_run_merge_agent_runs_designated_worker():
 
 
 @pytest.mark.asyncio
+async def test_kernel_services_run_merge_agent_opts_out_of_the_inline_gate():
+    """ISS-097 sibling: a bounded merge attempt must not arm the inline review gate.
+
+    ``run_merge_agent`` consumes every event with a bare ``pass``, so an inline gate
+    opened inside it would be exactly as invisible as the fan-out worker's — the
+    merge would block on a pause with no frame on the wire and no ``run_events`` row.
+    Pinned at the seam: the delegate must receive ``invocation_gated=False``.
+    """
+    ks, calls = _real_ks_for_merge_agent()
+    captured: dict = {}
+
+    async def _capture_run_agent(step, ctx, *, task_number=None, total_tasks=None,
+                                 task_block=None, skeleton=None,
+                                 invocation_gated=True):
+        captured["invocation_gated"] = invocation_gated
+        yield {"type": "agent_chunk", "data": {}}
+
+    ks.run_agent = _capture_run_agent  # type: ignore[assignment]
+    resolved = await ks.run_merge_agent("merge-worker", {"conflicts": []}, attempt=1)
+
+    assert resolved is True
+    assert captured["invocation_gated"] is False
+
+
+@pytest.mark.asyncio
 async def test_kernel_services_run_merge_agent_unknown_worker_degrades_false():
     """An unknown merge worker returns False (the caller falls back to human_gate)."""
     ks, calls = _real_ks_for_merge_agent()

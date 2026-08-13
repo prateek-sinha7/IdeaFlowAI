@@ -231,6 +231,19 @@ def _check_cancel(ctx: Any) -> None:
     cancel_event = getattr(ctx, "cancel_event", None)
     if cancel_event is not None and cancel_event.is_set():
         raise asyncio.CancelledError()
+    # ── ISS-091 defence-in-depth ──────────────────────────────────────────────
+    # A run driven terminal by something OTHER than the Stop button — a review-gate
+    # rejection — sets no ``cancel_event``, so the check above cannot see it. Without
+    # this, every worker no-ops on _run_agent's terminal guard yet its subagent_runs
+    # row is still flipped "complete" and its wave "completed": a durable record of
+    # work that never happened, which wave_scheduler's resume skip then trusts,
+    # permanently losing the run's output. The dispatch-loop fix means no reported
+    # path reaches here; this keeps the SINGLE fan-out cancel boundary (rather than a
+    # second one in a strategy — INV-12) correct for any future path that does.
+    # None-degrading: a ctx whose runner predates this exposes no such attribute.
+    _is_terminal = getattr(getattr(ctx, "runner", None), "is_run_terminal", None)
+    if callable(_is_terminal) and _is_terminal():
+        raise asyncio.CancelledError()
 
 
 def _select_isolation_scope(base_workspace: Any) -> str:

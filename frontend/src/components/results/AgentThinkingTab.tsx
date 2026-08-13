@@ -180,6 +180,8 @@ export function AgentThinkingTab({
           <AgentDetailPanel
             agent={selectedAgent}
             onBack={() => setSelectedAgentId(null)}
+            // ISS-065 — lets the detail list this agent's earlier artifact versions.
+            runId={runId ?? null}
             construction={isConstructionSelected ? {
               completedCount: completedTaskCount,
               totalTasks,
@@ -202,8 +204,6 @@ export function AgentThinkingTab({
             onOpenTask={isConstructionSelected ? (i) => setSelectedTaskIndex(i) : undefined}
             agents={agents}
             agentIndex={agents.findIndex(a => a.id === selectedAgent.id)}
-            protoCompletedTasks={pipelineState?.protoCompletedTasks}
-            protoCompletedTaskCount={pipelineState?.protoCompletedTaskCount}
             dagEdges={pipelineState?.dagEdges}
           />
         ) : (

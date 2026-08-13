@@ -174,6 +174,69 @@ describe("InlineGateActions", () => {
     expect(onApprove).toHaveBeenCalledTimes(1);
   });
 
+  // ── ISS-052 — the doubled analyze gate ─────────────────────────────────────
+  // One "Update the Specs" click opens the analyze gate twice more: once INSIDE the
+  // revision pass and once after it returns. Both carry the SAME `gateKey` and the SAME
+  // `output` bytes (live: 11,974 chars, sha1 0136795fc392, 5 ms apart), so the server's
+  // `revisionCycle`/`revisionInFlight` pair is the only thing that tells them apart.
+
+  it("ISS-052: re-arms the one-action latch when the same gate re-opens with a new stamp", () => {
+    const onApprove = vi.fn();
+    const props = {
+      agentId: "some-agent",
+      agentName: "Analyzer",
+      output: OUTPUT,
+      gateKey: "gate-1",
+      isPipelineRunning: true,
+      redoable: true,
+      updateSpecsEligible: false,
+      revisionCycle: 1,
+      revisionInFlight: true,
+      onApprove,
+      onReject: vi.fn(),
+      onRedo: vi.fn(),
+      onUpdateSpecs: vi.fn(),
+    };
+    const { rerender } = render(<InlineGateActions {...props} />);
+
+    fireEvent.click(screen.getByTestId("chat-gate-approve"));
+    expect(onApprove).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("chat-gate-approve")).toBeDisabled();
+
+    // The gate RE-OPENS: same output, same gateKey — only the stamp moved (the pass
+    // returned). Without the stamp in the reset effect's deps the latch stays stuck and
+    // the user is left staring at a live gate with every action disabled.
+    rerender(
+      <InlineGateActions
+        {...props}
+        revisionInFlight={false}
+        updateSpecsEligible
+      />,
+    );
+    expect(screen.getByTestId("chat-gate-approve")).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId("chat-gate-approve"));
+    expect(onApprove).toHaveBeenCalledTimes(2);
+  });
+
+  it("ISS-052: names the revision cycle, and reads differently in-pass vs re-opened", () => {
+    // A gate outside any revision cycle is UNCHANGED — no badge at all.
+    const { unmount } = renderGate();
+    expect(screen.queryByTestId("chat-gate-revision")).toBeNull();
+    unmount();
+
+    // Inside the pass.
+    const inPass = renderGate({ revisionCycle: 1, revisionInFlight: true });
+    const inPassText = screen.getByTestId("chat-gate-revision").textContent ?? "";
+    expect(inPassText).toContain("1");
+    inPass.unmount();
+
+    // After the pass returned — same cycle, different reading.
+    renderGate({ revisionCycle: 1, revisionInFlight: false });
+    const reopenedText = screen.getByTestId("chat-gate-revision").textContent ?? "";
+    expect(reopenedText).toContain("1");
+    expect(reopenedText).not.toBe(inPassText);
+  });
+
   it("SC-001: the source carries no workflow-name literal", () => {
     const src = readFileSync(
       join(process.cwd(), "src/components/chat/InlineGateActions.tsx"),

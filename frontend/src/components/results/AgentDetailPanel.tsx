@@ -22,7 +22,9 @@ import {
 } from "lucide-react";
 import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup } from "@/types/index";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
-import { discriminateArtifact, AnalysisPreview, parseSpecSections, parseSpecOverview } from "./artifactPreview";
+import { discriminateArtifact, AnalysisPreview, parseSpecSections, parseSpecOverview, parseTasks } from "./artifactPreview";
+import { ArtifactVersionPicker } from "./ArtifactVersionPicker";
+import { ReadOnlyVersionBanner } from "@/components/preview/ReadOnlyVersionBanner";
 
 // ─── Shared context-source formatting (INV-12 — the single derivation the sticky
 //     panel + any future consumer share; was inline in the retired ContextSourcesRow).
@@ -66,14 +68,13 @@ export function formatContextSource(src: ContextSource): { name: string; meta: s
 // tag, never a workflow/agent-name literal — SC-001). Every branch keys on
 // GENERIC in-state data; nothing keys on the agent's id/name. Cards are
 // CONDITIONAL — an agent whose output carries no recognized artifact tag (and a
-// tasks agent with no completed tasks, e.g. single_shot) renders NO card, exactly
-// as today. All data flows on the §9-verified FRONTEND-ONLY path (protoCompletedTasks
-// / validation* / dagEdges) — zero backend/golden/transport dependency.
+// tasks agent whose body contains no `## Task N:` rows) renders NO card. All data
+// flows on the FRONTEND-ONLY path (the artifact body / validation* / dagEdges) —
+// zero backend/golden/transport dependency.
 
-/** In-state pipeline data the artifact cards + handoff consume (all §9-verified). */
+/** Run-scoped pipeline data the handoff line consumes. The artifact CARDS take no
+ *  run state: their content is the artifact on screen (ISS-087). */
 export interface ArtifactCardData {
-  protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
-  protoCompletedTaskCount?: number;
   dagEdges?: Array<{ from: string; to: string; artifact_type: string }>;
 }
 
@@ -83,13 +84,13 @@ export interface ArtifactCardModel {
   kind: "spec" | "tasks" | "analysis" | null;
   /** pages/sections card (spec output present). */
   showPages: boolean;
-  /** tasks card (tasks output AND protoCompletedTasks non-empty). */
+  /** tasks card (tasks output whose body contains at least one `## Task N:` row). */
   showTasks: boolean;
   /** checks card (analysis output). */
   showChecks: boolean;
-  /** tasks-card rows from protoCompletedTasks (empty unless showTasks). */
+  /** tasks-card rows parsed from the artifact body (empty unless showTasks). */
   tasks: Array<{ number: number; title: string }>;
-  /** "N planned" count for the tasks card. */
+  /** "N planned" count — the size of the plan on screen. */
   taskCount: number;
   /** checks-card verdict: pass/fail derived from validationPassed/validationIssues. */
   checksPassed: boolean;
@@ -118,7 +119,10 @@ function deriveHandoff(
 
 /** Pure derivation (exported for the test): pick the card kind via the shared
  *  discriminator, derive its data from in-state fields, and resolve the handoff.
- *  Keys ONLY on generic state/props — never `agent.id`/`agent.name`. */
+ *  Keys ONLY on generic state/props — never `agent.id`/`agent.name`.
+ *  ISS-085: `agent.output` must be the version ON SCREEN, not necessarily the
+ *  newest — the artifact's TYPE is a property of that artifact, so an older
+ *  version of a different shape has to reach its own renderer. */
 export function deriveArtifactCardModel(
   agent: AgentRunState,
   index: number,
@@ -127,12 +131,16 @@ export function deriveArtifactCardModel(
 ): ArtifactCardModel {
   const kind = discriminateArtifact(agent.output || "");
 
-  // tasks card — a tasks-artifact agent WITH completed tasks in state. Empty
-  // protoCompletedTasks (single_shot workflows) → NO card (correct, generic).
-  const allTasks = data.protoCompletedTasks ?? [];
-  const showTasks = kind === "tasks" && allTasks.length > 0;
-  const tasks = showTasks ? allTasks.map(t => ({ number: t.number, title: t.title })) : [];
-  const taskCount = showTasks ? (data.protoCompletedTaskCount ?? allTasks.length) : 0;
+  // tasks card — the plan's own rows, parsed from the artifact body ON SCREEN.
+  // ISS-087: this read the build agent's `task_progress` completed-task stream, so a
+  // card labelled "N planned" rendered the number COMPLETED (wrong even at the latest
+  // version) and stayed pinned to the run while the version picker moved everything
+  // around it. The plan's size is a property of the plan, so it comes from the plan.
+  // A `<tasks>` body with no `## Task N:` rows → NO card (generic degrade).
+  const plannedTasks = kind === "tasks" ? parseTasks(agent.output || "") : [];
+  const showTasks = plannedTasks.length > 0;
+  const tasks = plannedTasks.map(t => ({ number: t.number, title: t.title }));
+  const taskCount = plannedTasks.length;
 
   // checks card — an analysis-artifact agent; badge from validation* (structured).
   const showChecks = kind === "analysis";
@@ -603,11 +611,15 @@ function ContextReceivedPanel({ sources }: { sources: ContextSource[] }) {
 //   Both are backend/additive — OUTSIDE this plan's FRONTEND-ONLY fence
 //   (SC-001/LOCK-B): a card needing them means OUT OF SCOPE → flag, never build.
 //   Recorded in 42-09-SUMMARY (deferred-items) for the 42-11 phase reconcile.
-function SettledArtifactCards({ agent, model }: { agent: AgentRunState; model: ArtifactCardModel }) {
+//
+// ISS-085 — this takes the artifact CONTENT on screen, never the agent: rendering
+// an older version while these cards re-parsed `agent.output` is what made the
+// version picker look inert. `model` carries the un-versioned agent facts.
+function SettledArtifactCards({ output, model }: { output: string; model: ArtifactCardModel }) {
   const hasCard = model.showPages || model.showTasks || model.showChecks;
   if (!hasCard) return null;
-  const pages = model.showPages ? parseSpecSections(agent.output) : [];
-  const pagesOverview = model.showPages ? parseSpecOverview(agent.output) : "";
+  const pages = model.showPages ? parseSpecSections(output) : [];
+  const pagesOverview = model.showPages ? parseSpecOverview(output) : "";
   return (
     <>
       {/* PAGES / SECTIONS card — the mock's 3-col page-thumbnail grid, built from the
@@ -634,7 +646,7 @@ function SettledArtifactCards({ agent, model }: { agent: AgentRunState; model: A
         </div>
       )}
 
-      {/* TASKS card — "N planned" + a row per task from protoCompletedTasks. */}
+      {/* TASKS card — "N planned" + a row per task in the plan on screen. */}
       {model.showTasks && (
         <div className="mt-3 rounded-[11px] border border-line-border bg-surface-white p-3.5">
           <div className="flex items-center gap-2 mb-2">
@@ -682,7 +694,7 @@ function SettledArtifactCards({ agent, model }: { agent: AgentRunState; model: A
               </span>
             )}
           </div>
-          <AnalysisPreview content={agent.output} />
+          <AnalysisPreview content={output} />
         </div>
       )}
 
@@ -714,19 +726,32 @@ export interface AgentDetailPanelProps {
   };
   onOpenTask?: (taskIndex: number) => void;
   // 42-09 — the ordered agent list + this agent's index for the handoff fallback,
-  // plus the in-state artifact-card data (protoCompletedTasks / dagEdges). All
-  // optional: absent → no cards (SC-001 generic degrade).
+  // plus the run's DAG edges for the handoff label. All optional: absent → no
+  // handoff (SC-001 generic degrade). The artifact cards need no run state.
   agents?: AgentRunState[];
   agentIndex?: number;
-  protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
-  protoCompletedTaskCount?: number;
   dagEdges?: Array<{ from: string; to: string; artifact_type: string }>;
+  // ISS-065 — the run whose artifact_refs back this agent's output, so an earlier
+  // version can be read after an update_specs cycle overwrote it in memory.
+  // Optional: absent → no picker, and the panel renders exactly as before.
+  runId?: string | null;
 }
 
 export function AgentDetailPanel({
   agent, onBack, construction, onOpenTask,
-  agents, agentIndex, protoCompletedTasks, protoCompletedTaskCount, dagEdges,
+  agents, agentIndex, dagEdges,
+  runId,
 }: AgentDetailPanelProps) {
+  // ISS-065 — the older artifact version currently on screen, if any.
+  const [viewed, setViewed] = useState<{ index: number; content: string } | null>(null);
+  useEffect(() => { setViewed(null); }, [agent.id]);
+  // ISS-085 — this agent AS OF the version on screen. Every consumer of the
+  // artifact reads from here, so one selection moves the whole panel; deriving the
+  // cards from `agent.output` while the output section read the selected version
+  // is what made the picker look like it did nothing. Only `output` is swapped —
+  // validation, handoff and task state are run facts, not artifact versions.
+  const displayed = viewed ? { ...agent, output: viewed.content } : agent;
+  const shownOutput = displayed.output ?? "";
   const isRunning = agent.status === "running" || agent.status === "thinking";
   const isDone = agent.status === "done";
   const isError = agent.status === "error";
@@ -763,10 +788,10 @@ export function AgentDetailPanel({
   // the shared name-free discriminator. Renders conditionally between reasoning and
   // tool calls; the KEEP construction card (build agent) is a separate block.
   const cardModel = deriveArtifactCardModel(
-    agent,
+    displayed,
     agentIndex ?? agent.index,
     agents ?? [],
-    { protoCompletedTasks, protoCompletedTaskCount, dagEdges },
+    { dagEdges },
   );
 
   const metaBits = [
@@ -810,6 +835,15 @@ export function AgentDetailPanel({
                 </div>
                 <p className="m-0 text-[11px] text-ink-400 truncate">{agent.role}</p>
               </div>
+              {/* ISS-065 — per-artifact version picker. Renders nothing unless this
+                  agent produced more than one distinct artifact version, so every
+                  un-revised run looks exactly as it did before. */}
+              <ArtifactVersionPicker
+                runId={runId}
+                agentId={agent.id}
+                selectedIndex={viewed?.index}
+                onSelect={setViewed}
+              />
               {metaBits.length > 0 && (
                 <span className="flex items-center gap-1 text-[11px] text-ink-200 font-mono flex-none">
                   {metaBits.includes(`${formatTokenCount(agent.totalTokens ?? 0)} tok`) && <Cpu className="h-2.5 w-2.5" />}
@@ -830,14 +864,17 @@ export function AgentDetailPanel({
                     emits no separate reasoning/thinking stream, so agent.thinkingText is
                     always empty; surface the live output so every running agent
                     (spec-writer, plan, analyze, build…) shows its work instead of a
-                    blank cursor. The completed output is shown by OutputPreviewSection. */}
+                    blank cursor. The completed output is shown by OutputPreviewSection.
+                    ISS-085 exception: this one card reads `agent.output`, NOT the
+                    selected version — it is labelled "(live)" and pinning it to an
+                    older version would leave no way to watch the re-run it announces. */}
                 {reasoning.trim().length > 0 && <ReasoningCard text={reasoning} live={isRunning} />}
                 {reasoning.trim().length === 0 && isRunning && <ReasoningCard text={agent.output || ""} live label="Output" />}
 
                 {/* settled artifact cards (pages/sections · tasks · checks) + handoff
                     line — conditional, generically keyed (42-09). Distinct from the
                     KEEP construction card below. */}
-                <SettledArtifactCards agent={agent} model={cardModel} />
+                <SettledArtifactCards output={shownOutput} model={cardModel} />
 
                 {/* construction fan-out (build agent) */}
                 {construction && (
@@ -857,8 +894,16 @@ export function AgentDetailPanel({
                 {/* full input */}
                 {agent.inputPrompt && <InputPromptSection prompt={agent.inputPrompt} />}
 
-                {/* output */}
-                {isDone && agent.output && agent.output.trim().length > 0 && <OutputPreviewSection output={agent.output} />}
+                {/* output — an older artifact version when one is selected, else the
+                    agent's live/settled output. ISS-065: the `isDone` gate is widened
+                    for `viewed` because the whole point is reading v1 while v3 is
+                    being rewritten, i.e. while this agent is back in "running". */}
+                {viewed && (
+                  <div className="mt-3">
+                    <ReadOnlyVersionBanner versionNumber={viewed.index} onBackToLatest={() => setViewed(null)} />
+                  </div>
+                )}
+                {(isDone || viewed) && shownOutput.trim().length > 0 && <OutputPreviewSection output={shownOutput} />}
 
                 {/* failed reason card */}
                 {isError && agent.error && (

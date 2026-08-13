@@ -62,6 +62,20 @@ LiveEctxUnregister = Callable[[str], None]
 # DORMANT — byte/event-identical resume (INV-3). Keyed on run_id ONLY (SC-001 — no workflow
 # name, no column literal in the kernel).
 ResumeOutputPersist = Callable[[str], Awaitable[None]]
+
+# ISS-084: the app-layer per-run cooperative cancel Event lookup, INJECTED into the engine
+# (never imported — the kernel must not import ``app.*``, import-linter 4/0). The launch
+# path receives its Event as an ``execute()`` argument, but a RESUMED run has no such
+# caller: ``restore_non_terminal_runs`` spawns its drivers from the kernel itself, so
+# ``_drive_resumed_stream`` passed ``_execute_impl`` no ``cancel_event`` at all and every
+# cooperative guard (``if cancel_event and cancel_event.is_set()``) bound None and
+# short-circuited — no resumed run could be stopped by anyone. This callback resolves the
+# SAME Event object the REST cancel endpoint sets (one registry, one object; an Event the
+# engine does not hold is an orphan, which is what made ``cancel`` answer ``true`` while
+# the run kept billing). Typed as a generic run_id→Event so no app symbol crosses the
+# boundary; ``None`` (the goldens + every non-app driver) keeps it DORMANT → the funnel
+# passes ``cancel_event=None``, byte/event-identical (INV-3). Keyed on run_id ONLY (SC-001).
+ResumeCancelEvent = Callable[[str], "asyncio.Event | None"]
 from agents.capabilities.context_providers.opendesign import (
     RAW_BLOCK_PREFIX as _RAW_BLOCK_PREFIX,
 )
@@ -70,6 +84,15 @@ from agents.capabilities.gate_pendency import derive_open_gate
 from agents.capabilities.registry import CapabilityRegistry
 from agents.capabilities.validators.severity import render_coverage_status
 from agents.execution_engine.budget import BudgetExceeded, BudgetManager, BudgetSnapshot
+# _ClarifyEngineImpl is bound at IMPORT time on purpose, and does NOT supersede the
+# function-level ``from ... import ClarifyEngine`` inside the clarify drain loop. There
+# is still exactly one ClarifyEngine and one _merge_answers — only the RESOLUTION TIMING
+# differs, deliberately. The live clarify invocation must stay LATE-bound because two
+# tests monkeypatch the module attribute (test_restart_resume.py's _FakeClarify /
+# _ParkingClarify); the rehydrator must stay EARLY-bound because those same fakes have no
+# _merge_answers and a late binding would silently pick them up, leaving a resumed run
+# with none of its clarification answers. Do not "tidy" either binding away.
+from agents.execution_engine.clarify_engine import ClarifyEngine as _ClarifyEngineImpl
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
 from agents.execution_engine.state_machine import get_state_machine
@@ -405,12 +428,21 @@ class _RunEventSink:
 
     async def persist(
         self, seq: int, event_id: str, type: str, payload_json: dict
-    ) -> None:
-        """Append one ``run_events`` row for the stamped event (best-effort)."""
+    ) -> int | None:
+        """Append one ``run_events`` row for the stamped event (best-effort).
+
+        Returns the seq the row ACTUALLY landed on, or ``None`` when the sink is unarmed
+        or the write degraded. ``seq`` is a REQUEST, not a guarantee: the chat lane writes
+        into the same per-run seq space on every turn, so a live run's engine event can
+        find its seq already taken (FIX-240 / ISS-121). ``append_event_at_or_after``
+        re-appends past the racing writer instead of losing the row; the caller must
+        re-stamp the returned seq onto the event it is about to yield, because the SSE
+        ``id:`` cursor is ``row.seq`` on replay and ``data["seq"]`` live.
+        """
         if self._store is None or self._run_id is None:
-            return
+            return None
         try:
-            await self._store.append_event(
+            return await self._store.append_event_at_or_after(
                 self._run_id, seq, event_id, type, payload_json
             )
         except Exception as exc:  # noqa: BLE001 — never break the live stream
@@ -428,10 +460,25 @@ class _RunEventSink:
                 "stream unaffected (PERSIST-03 best-effort)",
                 self._run_id, seq, exc,
             )
+            return None
 
 
 PLANNER_TIMEOUT_SECONDS = 120.0  # SmartPlanner: single call (generous — large chained prompts run slower). On timeout it defaults to PROCEED, so it never discards agent work.
 PLANNER_AGENT_ID = "deep-planner"
+
+# The statuses a boot re-adopts. ``restore_non_terminal_runs`` filters on this set, so a
+# run is auto-resumed by the next process IFF its status is in here — which makes the
+# tuple the system's single definition of "still owed work", read by the startup scan AND
+# by every caller that must decide whether a run would be picked up again (ISS-089's
+# durable cancel).
+#
+# Module scope, not an inline literal: this value was copied into three places and cited by
+# five different ``file:line`` values in one week, and every citation was wrong within days.
+# One definition, imported — never re-stated (INV-12).
+NON_TERMINAL_RUN_STATUSES: tuple[str, ...] = (
+    "running", "planning", "clarifying", "waiting_for_user",
+    "generating", "analyzing", "revising",
+)
 
 # ── Human-in-the-loop: always ask clarifying questions ────────────────────────
 # (Migrated L6, 07-05) The former module-level always-clarify flag is GONE; the
@@ -863,6 +910,13 @@ class ExecutionEngine:
         # DORMANT, byte/event-identical resume (INV-3). Keyed on run_id (SC-001).
         #   _resume_output_persist_sink(run_id) -> awaitable
         self._resume_output_persist_sink: "ResumeOutputPersist | None" = None
+        # ── ISS-084: the per-run cooperative cancel Event lookup, injected app-side
+        # (app/main.py, the SAME wiring site as the hooks above) so a RESUMED run can be
+        # stopped at all. Resolved ONCE in _drive_resumed_stream — the single funnel every
+        # resume driver reaches the kernel through — and handed to _execute_impl, which
+        # threads it into KernelServices and thence into every cooperative boundary.
+        #   _resume_cancel_event(run_id) -> asyncio.Event | None
+        self._resume_cancel_event: "ResumeCancelEvent | None" = None
 
     async def _persist_budget_snapshot_if_active(
         self, ectx: ExecutionContext, *, force: bool = False
@@ -1032,7 +1086,20 @@ class ExecutionEngine:
                 data["event_id"] = event_id
                 # Durable sink (best-effort — see docstring). Persist the now-stamped
                 # event; a DB/FK failure must not break the live stream.
-                await sink.persist(seq, event_id, event.get("type", ""), data)
+                #
+                # FIX-240 (ISS-121): the row may land PAST the requested seq — the chat
+                # lane allocates from this same per-run space on every turn, so a live
+                # run's engine event can find its seq already taken. Re-stamp the seq the
+                # row actually got and advance the allocator past it: the SSE id: cursor
+                # is row.seq on replay but data["seq"] live, so a divergence corrupts
+                # Last-Event-ID resumption. Identical to the milestone-card re-sync below.
+                # ``None`` (unarmed sink / degraded write — the goldens) ⇒ no re-stamp, so
+                # the offline seq stays contiguous 1,2,3,… (SAFE-03 / INV-3).
+                actual_seq = await sink.persist(seq, event_id, event.get("type", ""), data)
+                if actual_seq is not None and actual_seq != seq:
+                    data["seq"] = actual_seq
+                    if actual_seq >= next_seq:
+                        next_seq = actual_seq + 1
                 yield event
                 # A.4 (Phase 43, DEF-43-03-1): project + persist a chat_reply milestone card for
                 # this event via the INJECTED narrator callback (self-filtering; DORMANT when
@@ -1242,14 +1309,20 @@ class ExecutionEngine:
                 logger.warning(
                     "live_ectx_register failed for run %s", pipeline_run_id, exc_info=True
                 )
-        # ISS-033 (43-04): run-usage accumulator for the DIRECT one-shot model calls
-        # that run OUTSIDE the per-agent stream — the SmartPlanner and the clarify
-        # question-generation call. Their tokens historically dropped on the floor
-        # (uncounted). Each call routes through the shared cached_invoke; this sink
-        # collects their usage dicts, folded into the run totals at pipeline_complete
-        # (below). Empty on the offline characterization goldens (the planner is
-        # neutralised and clarify.mode="off"), so the golden token totals — and thus
-        # the byte/event snapshots — are unchanged (INV-3).
+        # ISS-033: run-usage accumulator for the model calls that run OUTSIDE the
+        # per-agent stream and so never reach ``results``. Three sources feed it:
+        # the SmartPlanner and the clarify question-generation one-shots (43-04, via
+        # the shared cached_invoke), and the validation fix-loop's sub-agent (ISS-033-A
+        # / FIX-230, via the KernelServices ``aux_usage_sink``). All of their tokens
+        # historically dropped on the floor. Folded into the run totals at
+        # pipeline_complete (below).
+        #
+        # On the offline characterization goldens the two one-shots contribute nothing
+        # (the planner is neutralised, clarify.mode="off") but the FIX-LOOP DOES fire
+        # on both prototype goldens, so this list is non-empty there and the run token
+        # totals grow. That is golden-neutral only because the totals are normalized
+        # (_VOLATILE_REQUIRED_KEYS) and the cost/cache keys stripped
+        # (_VOLATILE_STRIP_KEYS) — verified by re-running the goldens, not assumed.
         aux_token_usage: list[dict] = []
         # KAN-73: wire the live WS queue onto ectx so KernelServices.emit_hook_event
         # can push hook_run events into the real-time stream. The queue is the same
@@ -1762,7 +1835,23 @@ class ExecutionEngine:
 
         if skip_planner:
             logger.info("Prototype pipeline (Approach 2+3): skipping planner + clarifier")
-            planning_context = self._default_planning_context(user_message)
+            # D2: a RESUME rehydrates its planning context from the durable rows instead
+            # of rebuilding the stub. The planner is still NOT re-invoked (TRAP 4 /
+            # BUG-R05 / quick 260719-hd5, guarded by
+            # test_offset0_gate_resume_does_not_replan_or_reclarify) — RESUME-04 hydration
+            # (:1406) already put the rows in the graph, so this is a pure read.
+            # Gated on ``_resuming`` ALONE. Clarify replay is deliberately excluded: on a
+            # replay the durable rows exist but the questions are about to be RE-ASKED, so
+            # injecting the previously-merged answers into that prompt is a behaviour
+            # change no source artifact analysed. The two flags cannot co-occur (the replay
+            # drive passes _is_resume=False; the resume drive passes _clarify_replay=None),
+            # so this is a clean narrowing that keeps BOTH the planner=="skip" path and the
+            # clarify-replay path byte-identical (INV-3).
+            planning_context = (
+                self._rehydrate_planning_context(ectx, user_message)
+                if _resuming
+                else self._default_planning_context(user_message)
+            )
             planning_context["pipeline_type"] = pipeline_type
             if _replaying_clarify:
                 # Force the clarify gate so Step 3 replays the durable open round. This
@@ -2064,6 +2153,10 @@ class ExecutionEngine:
             # named-worker allow-list onto the LIVE handle so run_fanout's
             # pre-spawn worker selection reads the real declaration.
             allowed_workers=list(getattr(compiled, "allowed_workers", None) or []),
+            # ISS-033-A: bind the run's aux usage accumulator onto the handle so the
+            # validation fix-loop's sub-agent tokens fold into the run totals below
+            # (the same sink the SmartPlanner + clarify one-shots already feed).
+            aux_usage_sink=aux_token_usage.append,
         )
 
         # ── KAN-73: persist attached behavioral hooks as audit records ───────────
@@ -2464,6 +2557,7 @@ class ExecutionEngine:
                 strategy = _registry.resolve("strategy", strategy_name)
                 # RESUME-02 (D-10): the SINGLE per-step retry/reuse wrapper. Dormant
                 # (byte/event-identical) unless the step declares retry.max_attempts > 0.
+                _terminated = False
                 async for event in self._dispatch_step_with_retry(step, ectx, strategy):
                     # F3 (13-06): observe agent_error events for the terminal
                     # semantics decision (no mutation — the event flows unchanged).
@@ -2471,7 +2565,32 @@ class ExecutionEngine:
                         _failed_id = event.get("data", {}).get("agent_id")
                         if _failed_id:
                             _failed_agent_ids.add(_failed_id)
+                    # ── ISS-091: a TERMINAL event arriving through the stream ends
+                    # the RUN, not just the step. The inline review gate's reject
+                    # handler (_run_agent :4458) cancels the run and returns — but a
+                    # generator ``return`` only ends THAT step, so without this the
+                    # loop advanced to step i+1 and the run terminated on
+                    # ``pipeline_complete``. The post-rejection steps bill nothing
+                    # (every _run_agent short-circuits on the :3329 terminal guard),
+                    # but fan-out still wrote ``subagent_runs='complete'`` /
+                    # ``wave_runs='completed'`` rows for work that never happened —
+                    # and wave_scheduler's resume skip trusts exactly those rows, so
+                    # a rejected run, once resumed, skipped every wave and could
+                    # never produce its deliverable again.
+                    # The sibling of the declared-gate handler at :2454-2479 (WR-03).
+                    # Keyed on the generic event type — no workflow name, no agent-id
+                    # literal, no strategy branch (SC-001/INV-1).
+                    elif event.get("type") == "pipeline_cancelled":
+                        _terminated = True
                     yield event
+                if _terminated:
+                    # Flag-then-return rather than breaking mid-generator: the
+                    # producer returns on its next statement, so the inner loop ends
+                    # on its own and every ``finally`` (notably run_agent's
+                    # build-scratch reset) still runs on its normal path. The event
+                    # is already emitted by the producer — do NOT emit a second one.
+                    await self._persist_budget_snapshot_if_active(ectx)
+                    return
 
                 # ── WR-02 (13 review fix): keep the review payload fresh ─────────
                 # Declared pre-step HITL gates source their review payload from
@@ -2739,11 +2858,11 @@ class ExecutionEngine:
         # cost math is unchanged and the goldens stay byte/event-identical).
         _cache_read = sum(r.get("cache_read_tokens", 0) or 0 for r in results)
         _cache_write = sum(r.get("cache_write_tokens", 0) or 0 for r in results)
-        # ISS-033 (43-04): fold in the DIRECT one-shot model calls that run OUTSIDE the
-        # per-agent stream (SmartPlanner + clarify question-generation) so their tokens
-        # are COUNTED in the run totals instead of being silently dropped. Empty on the
-        # goldens (planner neutralised, clarify.mode="off") → the totals and the
-        # byte/event snapshots are unchanged (INV-3).
+        # ISS-033: fold in every model call that ran OUTSIDE the per-agent stream —
+        # the SmartPlanner + clarify one-shots (43-04) and the validation fix-loop's
+        # sub-agent (ISS-033-A / FIX-230) — so their tokens are COUNTED in the run
+        # totals instead of being silently dropped. ONE fold, ONE accumulator: a new
+        # aux source registers by feeding this sink, never by adding a second sum.
         _tok_in += sum(u.get("input_tokens", 0) or 0 for u in aux_token_usage)
         _tok_out += sum(u.get("output_tokens", 0) or 0 for u in aux_token_usage)
         _cache_read += sum(u.get("cache_read_tokens", 0) or 0 for u in aux_token_usage)
@@ -2795,6 +2914,18 @@ class ExecutionEngine:
                 cache_read_tokens=_cache_read,
                 cache_write_tokens=_cache_write,
                 cache_ttl=_settings.BEDROCK_PROMPT_CACHE_TTL,
+            ),
+            # ISS-034: the as-if-UNCACHED counterfactual on the SAME token base —
+            # every input token at 1x, no cache tiers. ``full - estimated`` is the
+            # SIGNED effect of prompt caching on this run, and it is NEGATIVE
+            # whenever the run wrote cache entries it never re-read (cache_write_5m
+            # is 1.25x input). Same shared estimate_cost_usd (INV-12) — no second
+            # rate table. Additive + stripped by _VOLATILE_STRIP_KEYS, so the
+            # goldens stay byte/event-identical (INV-3).
+            "estimated_cost_full_usd": estimate_cost_usd(
+                model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID,
+                input_tokens=_tok_in,
+                output_tokens=_tok_out,
             ),
             "model_id": model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID,
         }
@@ -2940,6 +3071,155 @@ class ExecutionEngine:
             "domain_insights": [],
             "planner_timed_out": timed_out,
         }
+
+    def _rehydrate_planning_context(self, ectx: ExecutionContext, user_message: str) -> dict:
+        """Reconstruct a resumed run's planning context from the DURABLE rows.
+
+        BUGFIX-SPEC-REVISION-CONTEXT D2. A resume takes the planner-skip path and used to
+        rebuild the context from ``_default_planning_context`` — ``inferred_intent`` cut to
+        ``user_message[:200]`` and every list empty. Measured on the reported run: the
+        injected block collapsed 4,591 → 291 chars and 16 of the 18 dispatches ran on the
+        stub. The real content was never lost: RESUME-04 hydration (:1406) already adopts
+        EVERY durable kind into ``ectx.artifacts`` before this point, so both the
+        ``planning_context`` row and the ``clarifications`` rounds are in the graph and
+        this is a pure read — no new store call, no new write, no new storage.
+
+        The planner is NOT re-invoked. Re-running it regresses BUG-R05 (quick 260719-hd5),
+        which ``test_offset0_gate_resume_does_not_replan_or_reclarify`` guards.
+
+        Never raises into the run: a missing row, unparseable JSON, a malformed
+        clarifications shape, or a planner row whose ``explicit_constraints`` is not a
+        list of strings each degrade to the best context available.
+
+        KNOWN LOSSINESS. ``_persist_qa`` (clarify_engine.py:867-884) writes the raw
+        ``responses`` map BEFORE ``_merge_answers`` (:931-938) auto-fills a
+        ``recommended_answer`` for unanswered questions, and persists neither
+        ``recommended_answer`` nor ``ambiguity_category``. So: questions the user ANSWERED
+        reconstruct exactly; questions the user SKIPPED cannot have their auto-filled
+        constraints recovered, and ``clarified_topics`` comes back empty. The alternative —
+        persisting the merged context as a new ``planning_context`` version on the clarify
+        path — would close the gap at the cost of a write on that path, and is deliberately
+        not taken here.
+        """
+        base_ref = None
+        for ref in ectx.artifacts.tree(ectx.run_id):
+            if ref.kind == "planning_context" and (
+                base_ref is None or ref.version >= base_ref.version
+            ):
+                base_ref = ref
+        if base_ref is None:
+            # No durable planner row (planner == "skip", an offline test, or a run
+            # predating the persist) ⇒ exactly today's behaviour (INV-3 by construction).
+            return self._default_planning_context(user_message)
+
+        try:
+            base = json.loads(base_ref.content)
+            if not isinstance(base, dict):
+                raise ValueError(f"planning_context is {type(base).__name__}, not a dict")
+        except (ValueError, TypeError) as exc:
+            logger.warning(
+                "resume rehydrate: planning_context for run %s is unreadable (%s) — "
+                "falling back to the default stub",
+                ectx.run_id, exc,
+            )
+            return self._default_planning_context(user_message)
+
+        # The planner row is raw, UNVALIDATED LLM JSON (smart_planner.py persists whatever
+        # the model returned), so ``explicit_constraints`` can be a non-list or hold
+        # non-string members. The idempotency ``set()`` below and the summary log's
+        # ``len()`` would then raise TypeError straight OUT of this helper — breaking the
+        # "never raises into the run" contract above on a resumed run, a path that did not
+        # exist before D2 became the first reader of this row. Normalise ONCE, here, so
+        # every later use is total. A well-formed row is unchanged (INV-3 dormant).
+        _constraints = base.get("explicit_constraints")
+        if not isinstance(_constraints, list):
+            if _constraints:
+                logger.warning(
+                    "resume rehydrate: planning_context for run %s has explicit_constraints "
+                    "as %s, not a list — dropping it and merging onto an empty list",
+                    ectx.run_id, type(_constraints).__name__,
+                )
+            base["explicit_constraints"] = []
+        else:
+            _strs = [c for c in _constraints if isinstance(c, str)]
+            if len(_strs) != len(_constraints):
+                logger.warning(
+                    "resume rehydrate: planning_context for run %s carried %d non-string "
+                    "explicit_constraint(s) — dropped",
+                    ectx.run_id, len(_constraints) - len(_strs),
+                )
+            base["explicit_constraints"] = _strs
+
+        clar_refs = sorted(
+            (r for r in ectx.artifacts.tree(ectx.run_id) if r.kind == "clarifications"),
+            key=lambda r: r.version,
+        )
+        merger = _ClarifyEngineImpl()
+        rounds_merged = 0
+        for ref in clar_refs:
+            try:
+                pairs = json.loads(ref.content)
+            except (ValueError, TypeError):
+                logger.warning(
+                    "resume rehydrate: clarifications v%s for run %s is unreadable — skipped",
+                    ref.version, ectx.run_id, exc_info=True,
+                )
+                continue
+            if not isinstance(pairs, list):
+                logger.warning(
+                    "resume rehydrate: clarifications v%s for run %s is a %s, not a list "
+                    "of Q&A pairs — skipped",
+                    ref.version, ectx.run_id, type(pairs).__name__,
+                )
+                continue
+            # Idempotent: a pair whose rendered constraint is already present is dropped,
+            # so re-merging a base that already carries answers cannot double-count.
+            existing = set(base.get("explicit_constraints") or [])
+            questions, responses = [], []
+            for p in pairs:
+                # A row whose shape is wrong is skipped rather than crashing the resume:
+                # _merge_answers indexes q["question_text"] directly.
+                if not isinstance(p, dict) or not p.get("question_id") or not p.get("question_text"):
+                    continue
+                answer = p.get("answer")
+                if answer and f"{p['question_text']} → {answer}" in existing:
+                    continue
+                questions.append({
+                    "question_id": p["question_id"],
+                    "question_text": p["question_text"],
+                })
+                if answer:
+                    responses.append({"question_id": p["question_id"], "answer": answer})
+            if not questions:
+                continue
+            try:
+                # Reuse the ONE merge implementation (INV-12) — the engine must not
+                # re-derive the "{question} → {answer}" constraint format. The catch is
+                # narrow ON PURPOSE: it exists for a malformed durable row whose JSON
+                # parses but whose shape is wrong. A broad catch here would silently hand
+                # back a context with no clarification answers — the exact silent
+                # degradation this fix removes.
+                base = merger._merge_answers(base, questions, responses)
+                rounds_merged += 1
+            except (AttributeError, TypeError, KeyError):
+                logger.warning(
+                    "resume rehydrate: clarifications v%s for run %s has an unexpected "
+                    "shape — keeping the unmerged context for this round",
+                    ref.version, ectx.run_id, exc_info=True,
+                )
+
+        # A resumed run is mid-build: a stale CLARIFY_REQUIRED on the persisted row must
+        # not leak to a consumer. The caller's gate_verdict local is unaffected.
+        base["execution_gate"] = "PROCEED"
+
+        logger.info(
+            "resume rehydrate: run %s reconstructed planning context from durable rows — "
+            "%d clarification round(s) merged, %d explicit constraint(s), %d chars of "
+            "planner JSON (stub would have been %d chars of intent)",
+            ectx.run_id, rounds_merged, len(base.get("explicit_constraints") or []),
+            len(base_ref.content), len(user_message[:200]),
+        )
+        return base
 
     async def _emit_planner_events(
         self,
@@ -3113,12 +3393,19 @@ class ExecutionEngine:
         results: list[dict],
         cancel_event: asyncio.Event | None,
         ectx: ExecutionContext,
+        *,
+        invocation_gated: bool = True,
     ) -> AsyncGenerator[dict, None]:
         """Run a single domain agent, yielding WS events.
 
         ``ectx`` is the per-run ExecutionContext (D-03 explicit thread): the engine
         reads od_context / owner / completed-tasks / checkpointer from it instead of
         ``self`` (the kernel holds no per-run state — CTX-02).
+
+        ``invocation_gated`` (ISS-097) is the invocation-scope half of the inline
+        review-gate decision — see ``_should_gate``. It reaches all three inline gate
+        sites below (restart re-entry, revision re-open, live post-stream) so a
+        non-step invocation can never open one. Default ``True`` ⇒ dormant.
         """
         # Guard: if the run is already in a terminal state (e.g. user rejected
         # a review gate), stop immediately without running the agent.
@@ -3133,12 +3420,14 @@ class ExecutionEngine:
         # ── REDO-GATE redo loop (F2): unbounded human-paced redos are a FLAT
         # while-loop, NOT recursion — N redos = N iterations, O(1) stack, O(1) per
         # event. The loop body is the EXISTING single run + inline gate; only the
-        # loop framing + the _gate_redo branch are new. The redo directive +
-        # derived_from lineage are LOOP LOCALS (consume-once, F3): captured per
-        # iteration and reset BEFORE the model call, so an empty-output / errored /
-        # non-redo exit can never leak lineage or a REVISE block onto the next agent.
+        # loop framing + the _gate_redo branch are new. The redo directive, the
+        # derived_from lineage and the prior artifact are LOOP LOCALS (consume-once,
+        # F3): captured per iteration and reset BEFORE the model call, so an
+        # empty-output / errored / non-redo exit can never leak lineage, a REVISE
+        # block or a prior-artifact block onto the next agent.
         redo_directive = ""          # extra instructions for the NEXT re-run
         redo_derived_from = None     # rejected ref id the re-run supersedes
+        redo_prior_artifact = ""     # ISS-086: the rejected CONTENT the re-run amends
         redo_attempt = 0             # 0 = first run; N>0 = Nth redo → fresh checkpoint thread
         spec_revision_attempt = 0   # KAN-101: 0 = first run; N>0 = Nth spec revision cycle
         while True:
@@ -3169,7 +3458,7 @@ class ExecutionEngine:
                 redo_attempt, spec_revision_attempt = (
                     await self._seed_gate_reentry_attempts(ectx, spec)
                 )
-                if self._should_gate(spec, ectx):
+                if self._should_gate(spec, ectx, invocation_gated=invocation_gated):
                     # Re-open the gate directly — skip the model call entirely. The five-
                     # branch consumer below is the SAME logic as the post-stream inline
                     # gate (:3842-3999) so ALL FIVE actions behave IDENTICALLY to a live
@@ -3182,14 +3471,21 @@ class ExecutionEngine:
                     # sub-pipeline from a re-entered gate. The success criterion "update_specs
                     # sub-pipeline fires" requires the post-stream consumer.
                     _ek = self._artifact_kind_for(spec)
+                    # ISS-052: name WHICH firing this is. The analyze gate opened inside a
+                    # revision pass and the one re-opened after it returns share a gate_key
+                    # AND their output bytes, so without this the user (and any consumer
+                    # keyed on those two) cannot tell them apart.
+                    _rev_cycle, _rev_in_flight = self._revision_stamp(ectx)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
                         agent_name=spec.name,
                         output=output,
                         redoable=True,
-                        update_specs_eligible=_ek in self._UPDATE_SPECS_ELIGIBLE_KINDS,
+                        update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
+                        revision_cycle=_rev_cycle,
+                        revision_in_flight=_rev_in_flight,
                         cancel_event=cancel_event,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
@@ -3225,80 +3521,36 @@ class ExecutionEngine:
                             if results:
                                 results[-1] = {**results[-1], "output": edited}
                         elif gate_event.get("type") == "_gate_redo":
-                            redo_directive = gate_event.get("instructions") or ""
-                            _kind = self._artifact_kind_for(spec)
-                            _cands = [
-                                r for r in ectx.artifacts.list_by_kind(_kind)
-                                if r.producer_agent == spec.id
-                            ]
-                            redo_derived_from = (
-                                max(_cands, key=lambda r: r.version).id
-                                if _cands else None
+                            # RESUME-17 gate re-entry: identical to the live consumer, via
+                            # the ONE shared helper (INV-12).
+                            (redo_directive, redo_derived_from,
+                             redo_prior_artifact) = await self._consume_redo(
+                                gate_event=gate_event, spec=spec,
+                                results=results, ectx=ectx,
                             )
-                            if results and results[-1].get("agent_id") == spec.id:
-                                results.pop()
-                            _runner = getattr(ectx, "runner", None)
-                            if _runner is not None and hasattr(_runner, "record_gate_event"):
-                                try:
-                                    await _runner.record_gate_event(
-                                        spec.id, "human", "redo",
-                                        {"has_instructions": bool(redo_directive)},
-                                    )
-                                except Exception:  # noqa: BLE001 — audit never aborts a run
-                                    logger.debug(
-                                        "redo audit row failed for agent %s (ignored)",
-                                        spec.id, exc_info=True,
-                                    )
                             redo_attempt += 1
                             break
                         elif gate_event.get("type") == "_gate_update_specs":
-                            analysis_report = gate_event.get("analysis_report") or ""
+                            # RESUME-17 gate re-entry: identical to the live consumer, via
+                            # the ONE shared helper (INV-12). spec_revision_attempt was
+                            # seeded FAIL-SAFE HIGH from the durable gate_events above.
                             spec_revision_attempt += 1
-                            _us_runner = getattr(ectx, "runner", None)
-                            if _us_runner is not None and hasattr(_us_runner, "record_gate_event"):
-                                try:
-                                    await _us_runner.record_gate_event(
-                                        spec.id, "human", "update_specs",
-                                        {"has_report": bool(analysis_report)},
-                                    )
-                                except Exception:  # noqa: BLE001 — audit never aborts a run
-                                    logger.debug(
-                                        "update_specs audit row failed for agent %s (ignored)",
-                                        spec.id, exc_info=True,
-                                    )
-                            new_analysis_output = ""
-                            async for sub_event in self._run_spec_revision_sub_pipeline(
-                                spec=spec,
-                                index=index,
-                                ordered_agents=ordered_agents,
-                                user_message=user_message,
-                                sandbox=sandbox,
-                                pipeline_run_id=pipeline_run_id,
-                                pipeline_type=pipeline_type,
-                                planning_context=planning_context,
-                                attached_skills=attached_skills,
-                                attached_hooks=attached_hooks,
-                                model_id=model_id,
-                                results=results,
-                                cancel_event=cancel_event,
-                                ectx=ectx,
-                                analysis_report=analysis_report,
-                                revision_index=spec_revision_attempt,
+                            _us_cancelled = False
+                            async for _us_event in self._consume_update_specs(
+                                gate_event=gate_event, spec=spec, index=index,
+                                ordered_agents=ordered_agents, user_message=user_message,
+                                sandbox=sandbox, pipeline_run_id=pipeline_run_id,
+                                pipeline_type=pipeline_type, planning_context=planning_context,
+                                attached_skills=attached_skills, attached_hooks=attached_hooks,
+                                model_id=model_id, results=results, cancel_event=cancel_event,
+                                ectx=ectx, revision_index=spec_revision_attempt,
                             ):
-                                if sub_event.get("type") == "_revision_analyze_output":
-                                    new_analysis_output = sub_event.get("output", "")
-                                elif sub_event.get("type") == "_gate_rejected":
-                                    current = self._state_machine.get_state(pipeline_run_id)
-                                    if current not in ("cancelled", "failed"):
-                                        self._state_machine.transition(pipeline_run_id, "cancelled")
-                                    yield {"type": "pipeline_cancelled", "data": {
-                                        "pipeline_run_id": pipeline_run_id,
-                                        "reason": "Cancelled during spec revision sub-pipeline",
-                                    }}
-                                    return
+                                if _us_event.get("type") == "_update_specs_done":
+                                    _us_cancelled = bool(_us_event.get("cancelled"))
                                 else:
-                                    yield sub_event
-                            ectx.spec_revision_pending_output = new_analysis_output
+                                    yield _us_event
+                            if _us_cancelled:
+                                return
                             break
                         else:
                             yield gate_event
@@ -3322,18 +3574,25 @@ class ExecutionEngine:
                 if results and results[-1].get("agent_id") == spec.id:
                     results[-1] = {**results[-1], "output": output}
                 # Re-open the gate directly — skip the model call entirely.
-                if self._should_gate(spec, ectx):
+                if self._should_gate(spec, ectx, invocation_gated=invocation_gated):
                     # SC-001: derive the update-specs eligibility STRUCTURALLY from the
                     # artifact-kind (name-free), mirroring redoable's inline True.
                     _ek = self._artifact_kind_for(spec)
+                    # ISS-052: name WHICH firing this is. The analyze gate opened inside a
+                    # revision pass and the one re-opened after it returns share a gate_key
+                    # AND their output bytes, so without this the user (and any consumer
+                    # keyed on those two) cannot tell them apart.
+                    _rev_cycle, _rev_in_flight = self._revision_stamp(ectx)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
                         agent_name=spec.name,
                         output=output,
                         redoable=True,
-                        update_specs_eligible=_ek in self._UPDATE_SPECS_ELIGIBLE_KINDS,
+                        update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
+                        revision_cycle=_rev_cycle,
+                        revision_in_flight=_rev_in_flight,
                         cancel_event=cancel_event,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
@@ -3365,12 +3624,62 @@ class ExecutionEngine:
                             if results and results[-1].get("agent_id") == spec.id:
                                 results[-1] = {**results[-1], "output": edited}
                         elif gate_event.get("type") == "_gate_redo":
-                            redo_directive = gate_event.get("instructions") or ""
+                            # ── ISS-086 ──────────────────────────────────────────────
+                            # This branch was a THIN COPY: it set the directive and
+                            # nothing else, so a redo at the gate re-opened after a
+                            # revision pass lost its ``derived_from`` lineage, left a
+                            # DUPLICATE ``results`` entry (the re-run appends, and only
+                            # this branch never popped) and wrote no audit row — which
+                            # also under-seeded ``_seed_gate_reentry_attempts``, risking a
+                            # colliding ``:redo{N}`` after a restart. Driving the ONE
+                            # shared consumer closes all three for free (INV-12).
+                            (redo_directive, redo_derived_from,
+                             redo_prior_artifact) = await self._consume_redo(
+                                gate_event=gate_event, spec=spec,
+                                results=results, ectx=ectx,
+                            )
                             redo_attempt += 1
                             break
                         elif gate_event.get("type") == "_gate_update_specs":
-                            ectx.spec_revision_pending_output = gate_event.get("analysis_report") or ""
+                            # ── DEFECT B FIX (quick-260811-si4) ──────────────────────
+                            # This branch previously ONLY re-seeded
+                            # ``spec_revision_pending_output`` and broke. No sub-pipeline
+                            # call, no audit row, no log. So a SECOND "Update the Specs"
+                            # — at the gate the engine re-opens after a revision cycle —
+                            # closed the gate, instantly re-opened it on the IDENTICAL
+                            # content (the FE sends the analyzer's own output as the
+                            # report, InlineGateActions.tsx:163), ran nothing, and the
+                            # build then proceeded from the unrevised spec. A silent
+                            # no-op, invisible on screen, one wasted build.
+                            #
+                            # Driving the shared consumer here is a SIBLING call, NOT
+                            # recursion: _run_spec_revision_sub_pipeline's ``finally``
+                            # precedes its terminal ``_revision_analyze_output`` yield,
+                            # and the driving ``async for`` runs the generator to
+                            # exhaustion before breaking — so by the time control reaches
+                            # this re-opened gate the previous pass is fully unwound and
+                            # this call sits at the SAME stack depth as the live
+                            # consumer's. A flat cycle, the REDO-GATE F2 precedent
+                            # (asserted by test_reopened_gate_cycle_keeps_a_flat_stack).
+                            # The enclosing ``spec_revision_attempt`` local increments
+                            # across siblings, so cycle 2 naturally threads ``:rev2``.
                             spec_revision_attempt += 1
+                            _us_cancelled = False
+                            async for _us_event in self._consume_update_specs(
+                                gate_event=gate_event, spec=spec, index=index,
+                                ordered_agents=ordered_agents, user_message=user_message,
+                                sandbox=sandbox, pipeline_run_id=pipeline_run_id,
+                                pipeline_type=pipeline_type, planning_context=planning_context,
+                                attached_skills=attached_skills, attached_hooks=attached_hooks,
+                                model_id=model_id, results=results, cancel_event=cancel_event,
+                                ectx=ectx, revision_index=spec_revision_attempt,
+                            ):
+                                if _us_event.get("type") == "_update_specs_done":
+                                    _us_cancelled = bool(_us_event.get("cancelled"))
+                                else:
+                                    yield _us_event
+                            if _us_cancelled:
+                                return
                             break
                         else:
                             yield gate_event
@@ -3395,17 +3704,42 @@ class ExecutionEngine:
             # Publish the redo directive to ectx ONLY around this compose call, then
             # clear it UNCONDITIONALLY right after — so an empty-output / errored /
             # non-redo path can never carry a REVISE block onto the next agent. The
-            # derived_from lineage never touches ectx (it stays a loop local), and both
-            # locals are reset to empty here so a NON-redo exit cannot leak either.
+            # derived_from lineage never touches ectx (it stays a loop local), and all
+            # three locals are reset to empty here so a NON-redo exit cannot leak any.
+            #
+            # ── ISS-086: the re-run's SUBJECT rides the same seam ────────────────────
+            # "Request changes" asks the agent to AMEND, and an amendment needs the
+            # document. It is published on FIX-217's existing consume-once field and
+            # rendered by that field's existing block — one field, one renderer, two
+            # publishers (INV-12), not a parallel seam. SAVE/RESTORE rather than clear
+            # (the quick-260811-si4 defect-A shape): a redo can fire at a gate opened
+            # INSIDE a revision pass, and zeroing the field there would strip the outer
+            # pass's own subject mid-flight. At the outer level the saved value is "" so
+            # this is byte-equivalent to a clear, and the whole block is dormant on every
+            # non-redo dispatch (INV-3).
+            #
+            # The ``finally`` covers the one path that is NOT inside _run_agent's own
+            # try/except: ``_compose_context_message`` itself raising (it reads template /
+            # design-system files, so a missing one propagates). Without it a compose-time
+            # failure would strand BOTH published fields on the shared per-run ectx.
+            # On the success path this is byte-identical to the previous straight-line
+            # clear — the same two assignments, in the same order (INV-3).
+            _saved_prior_artifact = ectx.spec_revision_prior_artifact
             ectx.redo_directive = redo_directive
-            context_message = await self._compose_context_message(
-                spec, index, ordered_agents, user_message,
-                planning_context, ectx,
-            )
-            ectx.redo_directive = ""
+            if redo_prior_artifact:
+                ectx.spec_revision_prior_artifact = redo_prior_artifact
+            try:
+                context_message = await self._compose_context_message(
+                    spec, index, ordered_agents, user_message,
+                    planning_context, ectx,
+                )
+            finally:
+                ectx.redo_directive = ""
+                ectx.spec_revision_prior_artifact = _saved_prior_artifact
             _iter_derived = redo_derived_from   # lineage for THIS iteration's write
             redo_directive = ""
             redo_derived_from = None
+            redo_prior_artifact = ""
 
             # UPLD-02 residue (30-03): drain any per-turn images queued by the chat
             # ``POST /api/runs/{id}/messages`` path (via chat_router.apply_turn_images →
@@ -3538,6 +3872,16 @@ class ExecutionEngine:
                 # exact thread_id (INV-3 dormant).
                 if redo_attempt:
                     thread_id = f"{thread_id}:redo{redo_attempt}"
+                # Same class, same reason for a REVISION re-run: reusing the first pass's
+                # thread lets the checkpointer replay that turn, so the model "remembers"
+                # the pre-revision document and acknowledges it instead of rewriting it.
+                # This also closes a latent case — redo-then-update_specs previously
+                # revised the REJECTED draft (redo ran on :redo1, the revision re-ran on
+                # the base thread). Dormant when revision_attempt is 0, so every normal
+                # run and every characterization golden keeps its exact thread_id (INV-3).
+                _rev = getattr(ectx, "revision_attempt", 0) or 0
+                if _rev:
+                    thread_id = f"{thread_id}:rev{_rev}"
                 agent = create_runner(
                     spec.id,
                     ctx,
@@ -4166,18 +4510,25 @@ class ExecutionEngine:
                 # passes redoable=True (a structural path, name-free — SC-001) so the
                 # FE offers Redo on every LIVE human gate; the _gate_redo branch below
                 # re-runs THIS agent via the enclosing while-loop (flat stack, F2).
-                if self._should_gate(spec, ectx):
+                if self._should_gate(spec, ectx, invocation_gated=invocation_gated):
                     # SC-001: derive the update-specs eligibility STRUCTURALLY from the
                     # artifact-kind (name-free), mirroring redoable's inline True.
                     _ek = self._artifact_kind_for(spec)
+                    # ISS-052: name WHICH firing this is. The analyze gate opened inside a
+                    # revision pass and the one re-opened after it returns share a gate_key
+                    # AND their output bytes, so without this the user (and any consumer
+                    # keyed on those two) cannot tell them apart.
+                    _rev_cycle, _rev_in_flight = self._revision_stamp(ectx)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
                         agent_name=spec.name,
                         output=output,
                         redoable=True,
-                        update_specs_eligible=_ek in self._UPDATE_SPECS_ELIGIBLE_KINDS,
+                        update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
+                        revision_cycle=_rev_cycle,
+                        revision_in_flight=_rev_in_flight,
                         cancel_event=cancel_event,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
@@ -4225,126 +4576,47 @@ class ExecutionEngine:
                             # Set the LOOP LOCALS the next iteration consumes (F3) —
                             # the rejected output stays as a prior ArtifactRef version
                             # (decision #4); the re-run's write records derived_from
-                            # lineage to it. Keyed on the GENERIC event type (SC-001).
-                            redo_directive = gate_event.get("instructions") or ""
-                            _kind = self._artifact_kind_for(spec)
-                            _cands = [
-                                r for r in ectx.artifacts.list_by_kind(_kind)
-                                if r.producer_agent == spec.id
-                            ]
-                            redo_derived_from = (
-                                max(_cands, key=lambda r: r.version).id
-                                if _cands else None
+                            # lineage to it, and (ISS-086) the re-run's PROMPT carries
+                            # that same version as its subject. Keyed on the GENERIC
+                            # event type (SC-001); the body is the ONE shared consumer.
+                            (redo_directive, redo_derived_from,
+                             redo_prior_artifact) = await self._consume_redo(
+                                gate_event=gate_event, spec=spec,
+                                results=results, ectx=ectx,
                             )
-                            # Drop the rejected output's results entry (matching
-                            # agent_id) so the re-run appends a fresh one.
-                            if results and results[-1].get("agent_id") == spec.id:
-                                results.pop()
-                            # T7 (B8): best-effort, content-free redo audit row in the
-                            # INLINE consumer (NOT _run_review_gate, which has no ectx).
-                            # Dormant on goldens (they never redo). Never breaks the run.
-                            _runner = getattr(ectx, "runner", None)
-                            if _runner is not None and hasattr(_runner, "record_gate_event"):
-                                try:
-                                    await _runner.record_gate_event(
-                                        spec.id, "human", "redo",
-                                        {"has_instructions": bool(redo_directive)},
-                                    )
-                                except Exception:  # noqa: BLE001 — audit never aborts a run
-                                    logger.debug(
-                                        "redo audit row failed for agent %s (ignored)",
-                                        spec.id, exc_info=True,
-                                    )
                             redo_attempt += 1  # next re-run gets a FRESH checkpoint thread (:redo{N})
                             break  # leave the gate consumer; the while-loop re-runs
                         elif gate_event.get("type") == "_gate_update_specs":
                             # KAN-101: "Update the Specs" — run the spec revision
-                            # sub-pipeline (specify → plan → analyze) with the
-                            # analysis report as additional context, then re-open
-                            # this gate with the new analysis output. FLAT loop
-                            # (like _gate_redo) — no recursion (F2 precedent).
-                            # Keyed on GENERIC event type, no agent/workflow literal
-                            # (INV-1 / SC-001).
-                            analysis_report = gate_event.get("analysis_report") or ""
+                            # sub-pipeline (specify → plan → analyze) with the analysis
+                            # report as additional context, then re-open this gate with
+                            # the new analysis output. FLAT loop (like _gate_redo) — no
+                            # recursion (F2 precedent). Keyed on GENERIC event type, no
+                            # agent/workflow literal (INV-1 / SC-001).
+                            #
+                            # si4: the body is the ONE shared _consume_update_specs helper
+                            # (INV-12) — the re-entry and re-open branches drive the
+                            # identical code rather than holding their own copies. The
+                            # helper stores the new output on ectx scratch; breaking here
+                            # lets the while-loop's pending short-circuit re-open the gate
+                            # WITHOUT re-running this agent's model.
                             spec_revision_attempt += 1
-                            # A2 (RESUME-17): best-effort, content-free update_specs audit
-                            # row in the INLINE consumer — SYMMETRIC with the _gate_redo
-                            # audit above, so a post-restart spec_revision_attempt is
-                            # derivable from the durable gate_events (else the sub-pipeline
-                            # thread ids could collide, the P23 replay class). Dormant on
-                            # goldens (they never update_specs). Never aborts the run.
-                            _us_runner = getattr(ectx, "runner", None)
-                            if _us_runner is not None and hasattr(_us_runner, "record_gate_event"):
-                                try:
-                                    await _us_runner.record_gate_event(
-                                        spec.id, "human", "update_specs",
-                                        {"has_report": bool(analysis_report)},
-                                    )
-                                except Exception:  # noqa: BLE001 — audit never aborts a run
-                                    logger.debug(
-                                        "update_specs audit row failed for agent %s (ignored)",
-                                        spec.id, exc_info=True,
-                                    )
-                            logger.info(
-                                "Spec revision sub-pipeline: pipeline=%s attempt=%d",
-                                pipeline_run_id, spec_revision_attempt,
-                            )
-                            # Run specify → plan → analyze with the analysis report
-                            # injected as revision context, collecting the new
-                            # analyze output for the re-opened gate.
-                            new_analysis_output = ""
-                            async for sub_event in self._run_spec_revision_sub_pipeline(
-                                spec=spec,
-                                index=index,
-                                ordered_agents=ordered_agents,
-                                user_message=user_message,
-                                sandbox=sandbox,
-                                pipeline_run_id=pipeline_run_id,
-                                pipeline_type=pipeline_type,
-                                planning_context=planning_context,
-                                attached_skills=attached_skills,
-                                attached_hooks=attached_hooks,
-                                model_id=model_id,
-                                results=results,
-                                cancel_event=cancel_event,
-                                ectx=ectx,
-                                analysis_report=analysis_report,
-                                revision_index=spec_revision_attempt,
+                            _us_cancelled = False
+                            async for _us_event in self._consume_update_specs(
+                                gate_event=gate_event, spec=spec, index=index,
+                                ordered_agents=ordered_agents, user_message=user_message,
+                                sandbox=sandbox, pipeline_run_id=pipeline_run_id,
+                                pipeline_type=pipeline_type, planning_context=planning_context,
+                                attached_skills=attached_skills, attached_hooks=attached_hooks,
+                                model_id=model_id, results=results, cancel_event=cancel_event,
+                                ectx=ectx, revision_index=spec_revision_attempt,
                             ):
-                                if sub_event.get("type") == "_revision_analyze_output":
-                                    # Internal signal carrying the new analysis text
-                                    new_analysis_output = sub_event.get("output", "")
-                                elif sub_event.get("type") == "_gate_rejected":
-                                    # Stop button fired during the sub-pipeline
-                                    current = self._state_machine.get_state(pipeline_run_id)
-                                    if current not in ("cancelled", "failed"):
-                                        self._state_machine.transition(pipeline_run_id, "cancelled")
-                                    yield {"type": "pipeline_cancelled", "data": {
-                                        "pipeline_run_id": pipeline_run_id,
-                                        "reason": "Cancelled during spec revision sub-pipeline",
-                                    }}
-                                    return
+                                if _us_event.get("type") == "_update_specs_done":
+                                    _us_cancelled = bool(_us_event.get("cancelled"))
                                 else:
-                                    yield sub_event
-                            # Re-open the analyze gate with the new output so the
-                            # user can Accept or request another revision cycle.
-                            # The while-loop top will never re-run THIS agent (analyze)
-                            # in the outer while True: — instead we immediately re-open
-                            # the gate right here by re-calling _run_review_gate and
-                            # looping the gate consumer inline. We achieve this by
-                            # updating `output` (which becomes the new gate content)
-                            # and doing `continue` to restart the gate-consumer for
-                            # the outer while True: — but that would re-run the agent.
-                            # Correct approach: yield the gate events directly here
-                            # by breaking out and letting the outer while True: loop
-                            # re-enter _run_review_gate via a `continue`. We set
-                            # a flag so the next iteration skips the model run and
-                            # goes straight to the gate with new_analysis_output.
-                            # Simplest correct implementation: store the new output on
-                            # ectx scratch and break — the while True: re-enters and
-                            # a sentinel on ectx tells the top of the loop to skip
-                            # the model call and jump straight to the gate.
-                            ectx.spec_revision_pending_output = new_analysis_output
+                                    yield _us_event
+                            if _us_cancelled:
+                                return
                             break  # leave gate consumer; while-loop re-enters
                         else:
                             yield gate_event
@@ -4435,6 +4707,7 @@ class ExecutionEngine:
         label: str = "",
         checkpointer: object | None = None,
         require_render: bool | None = None,
+        aux_usage_sink: "Callable[[dict], None] | None" = None,
     ) -> None:
         """Both-validation + bounded INTERNAL fix-loop (Region C — build & revision).
 
@@ -4616,6 +4889,25 @@ class ExecutionEngine:
                     checkpointer=checkpointer,
                 )
                 async for _ev in fix_agent.astream_events(fix_message):
+                    # ISS-033-A: the fix sub-agent is REAL run spend (300k-600k input
+                    # tokens per call) that this drain used to discard wholesale. Route
+                    # its ``usage`` into the run's aux accounting — the SAME sink and
+                    # the SAME four keys the planner/clarify one-shots feed, so the
+                    # tokens land in the pipeline_complete totals with no second fold.
+                    # It must NOT reach ``results``: agents_completed = len(results),
+                    # so a fix attempt counted there would become a phantom agent.
+                    # ORDERING: capture BEFORE the cancel check — a token the model has
+                    # already reported was already paid for, and a cancel must not
+                    # erase it from the bill.
+                    if aux_usage_sink is not None and _ev.get("type") == "usage":
+                        aux_usage_sink(
+                            {
+                                "input_tokens": _ev.get("input_tokens", 0) or 0,
+                                "output_tokens": _ev.get("output_tokens", 0) or 0,
+                                "cache_read_tokens": _ev.get("cache_read_tokens", 0) or 0,
+                                "cache_write_tokens": _ev.get("cache_write_tokens", 0) or 0,
+                            }
+                        )
                     if cancel_event and cancel_event.is_set():
                         return
                     # INTERNAL: consume only — do NOT yield. The runner writes
@@ -4634,7 +4926,9 @@ class ExecutionEngine:
     # Gate selection — which agents pause for the inter-agent Human gate
     # ------------------------------------------------------------------
 
-    def _should_gate(self, spec, ectx: ExecutionContext) -> bool:
+    def _should_gate(
+        self, spec, ectx: ExecutionContext, *, invocation_gated: bool = True
+    ) -> bool:
         """Decide whether ``spec`` pauses for the inter-agent Human review gate.
 
         Effective set = the per-run ``gate_agent_ids`` passed to ``execute()``
@@ -4645,13 +4939,26 @@ class ExecutionEngine:
           AGENT.md frontmatter declares ``gate: Human_Gate`` — **exactly today's
           static rule**, so behavior is byte-identical unless a client opts in.
 
+        ``invocation_gated`` (ISS-097) narrows that agent-level selection to the
+        invocations it was written to describe. ``gate_agent_ids`` is a per-STEP
+        choice ("checked agents pause the pipeline after they finish"), but this
+        predicate reads ``spec.id``, which is per-INVOCATION. Those were the same
+        thing until a strategy started producing N invocations of one agent id for
+        one step, at which point a single tick armed N gates on the ONE gate_key.
+        A call site that creates an invocation which is NOT a step — a fan-out
+        worker, a bounded merge-agent attempt — passes ``False``. It defaults
+        ``True``, so every step-shaped invocation is byte-identical (INV-3).
+
         Only selects *which* agents trigger the gate; the gate itself
         (``_run_review_gate`` + its ``review_gate_*`` events) is unchanged.
         """
         gate_ids = ectx.gate_agent_ids
-        if gate_ids is not None:
-            return spec.id in set(gate_ids)
-        return getattr(spec, "gate", None) == "Human_Gate"
+        selected = (
+            spec.id in set(gate_ids)
+            if gate_ids is not None
+            else getattr(spec, "gate", None) == "Human_Gate"
+        )
+        return invocation_gated and selected
 
     # ------------------------------------------------------------------
     # Executable hook firing (08-07 / HOOK-01..04) — the D-09 lifecycle seam
@@ -5028,10 +5335,50 @@ class ExecutionEngine:
         so ``_compose_context_message`` can inject it. Cleared on exit (consume-
         once, matching the ``ecto.redo_directive`` pattern — F3 precedent).
 
+        The specify re-dispatch ALSO receives its own prior output on
+        ``ectx.spec_revision_prior_artifact`` — the report instructs it to preserve
+        unchanged sections, and with ``consumes: []`` + ``tools: []`` that field is its
+        only channel to the document (D1). The plan/analyze re-dispatches do NOT get it.
+
+        The whole sub-pipeline runs on ``:rev{N}`` checkpoint threads (via
+        ``ectx.revision_attempt``), so a revision never depends on the checkpointer
+        replaying the pre-revision turn (D3).
+
         The three agents to re-run are identified by looking BACKWARDS from the
         current (analyzer) position in ``ordered_agents`` to find the three agents
         immediately before it: prototype-specify → prototype-plan → this agent.
         This is STRUCTURAL (position-based), not name-based (INV-1 / SC-001).
+
+        RE-ENTRANCY (quick-260811-si4, BUGFIX-NESTED-REVISION defect A)
+        --------------------------------------------------------------
+        This method can RE-ENTER ITSELF. The analyze re-run below is a full ``_run_agent``,
+        so it opens its own human gate, and the gate ACTION is client-controlled.
+
+        Since ISS-053 that route is FENCED: ``_run_review_gate`` refuses an
+        ``update_specs`` whose firing published ``update_specs_eligible=False`` (which the
+        in-pass analyze gate always does) and keeps waiting, so a replayed or crafted POST
+        no longer nests. The safety below is therefore no longer the ONLY protection — but
+        it is kept, and kept tested, as defence in depth: it is what makes this method
+        correct at any depth if a future call site ever passes the flag wrongly.
+
+        * **Distinct ``:rev{N}`` at any depth.** ``revision_index`` arrives from the
+          caller's per-``_run_agent`` local, which restarts at 0 for every invocation, so
+          two nesting levels both computed 1. The effective index is instead derived from
+          ``ectx.revision_high_water`` — a MONOTONE per-run mark that is never restored —
+          so no two passes, sibling or nested, can mint the same checkpoint thread id.
+          MEASURED pre-fix: both levels published index 1 and the run minted three
+          duplicate ``:rev1`` ids, so the nested pass was served the outer pass's
+          LangGraph conversation replay (the P23 class).
+        * **An inner pass cannot strip the outer pass's state.** The ``finally`` below
+          RESTORES the three scratch fields to what they held at entry instead of clearing
+          them to zero/empty. MEASURED pre-fix: at the gate reached after the nested pass
+          returned — with the OUTER pass still on the stack — ``revision_attempt`` was 0
+          and ``spec_revision_context`` was empty, so the outer pass's remaining dispatches
+          silently lost both their ``:rev`` suffix and their analysis report.
+
+        At the OUTER nesting level the saved values are ``""`` / ``""`` / ``0``, so the
+        restore is byte-equivalent to the previous unconditional clear and a first cycle
+        still resolves to index 1 → ``:rev1``. Dormant on every non-revision run (INV-3).
         """
         # Identify the three agents to re-run: the two agents before this one
         # in ordered_agents (specify, plan) plus this agent (analyze).
@@ -5050,8 +5397,34 @@ class ExecutionEngine:
         plan_spec = ordered_agents[index - 1]
         analyze_spec = spec
 
+        # ── RE-ENTRANCY (si4) ────────────────────────────────────────────────────────
+        # Derive the EFFECTIVE index from the per-run high-water mark rather than trusting
+        # the caller's per-_run_agent local, which restarts at 0 on every invocation and so
+        # makes two nesting levels both publish 1. The mark is monotone and NEVER restored
+        # — that is the whole guarantee that no two passes mint the same :rev{N}.
+        # First cycle: high-water 0, revision_index 1 → 1 > 0 → 1 ⇒ :rev1 unchanged (INV-3).
+        _prev_high = getattr(ectx, "revision_high_water", 0)
+        effective_index = revision_index if revision_index > _prev_high else _prev_high + 1
+        ectx.revision_high_water = effective_index
+
+        # Capture the state THIS pass is about to overwrite, so the finally can restore it
+        # instead of zeroing an outer pass that is still on the stack.
+        _saved_attempt = ectx.revision_attempt
+        _saved_context = getattr(ectx, "spec_revision_context", "")
+        _saved_prior = ectx.spec_revision_prior_artifact
+
+        # Read the document under revision ONCE, before the loop — the max-version typed
+        # read (F5 discipline), so a rehydrated graph's arbitrary insertion order cannot
+        # serve a stale version. Read before the loop because the specify re-run itself
+        # mints a new version partway through (D1).
+        prior_artifact = self._latest_typed_content(ectx, specify_spec.id) or ""
+
         # Inject the analysis report as revision context onto ectx (consume-once).
         ectx.spec_revision_context = analysis_report
+        # Publish the thread index — this is what makes the previously-dead
+        # ``revision_index`` parameter live (D3). The EFFECTIVE index, not the caller's
+        # raw one, so a nested pass cannot re-publish the outer pass's number (si4).
+        ectx.revision_attempt = effective_index
 
         new_analyze_output = ""
 
@@ -5073,6 +5446,13 @@ class ExecutionEngine:
                 # Drop the previous result entry for this agent so the re-run appends
                 # a fresh one (same pattern as _gate_redo's results.pop()).
                 results[:] = [r for r in results if r.get("agent_id") != sub_spec.id]
+
+                # Publish the prior artifact for the SPECIFY dispatch only. Identity
+                # against the spec object, not an id string (INV-1) — this is the
+                # no-leak guarantee: plan and analyze compose without the block.
+                ectx.spec_revision_prior_artifact = (
+                    prior_artifact if sub_spec is specify_spec else ""
+                )
 
                 # Re-run the agent — reuses the FULL _run_agent path (INV-12).
                 async for event in self._run_agent(
@@ -5114,12 +5494,199 @@ class ExecutionEngine:
                             break
 
         finally:
-            # Always clear the revision context scratch field — consume-once (F3).
-            ectx.spec_revision_context = ""
+            # RESTORE, don't clear (si4). Consume-once still holds: this finally covers
+            # the cancel / error / early-return paths, so neither injection nor the
+            # :rev{N} thread suffix can outlive the pass. But an INNER pass must hand the
+            # outer pass back the index and report it was running with, not zero them
+            # while the outer pass is still on the stack. At the OUTER level the saved
+            # values are ""/""/0, so this is byte-equivalent to the previous
+            # unconditional clear (INV-3 dormancy).
+            # ``revision_high_water`` is deliberately NOT restored — that is the point.
+            ectx.spec_revision_context = _saved_context
+            ectx.spec_revision_prior_artifact = _saved_prior
+            ectx.revision_attempt = _saved_attempt
 
         # Emit internal signal carrying the new analysis text so the gate consumer
         # can re-open the gate with the correct output.
         yield {"type": "_revision_analyze_output", "output": new_analyze_output}
+
+    async def _consume_update_specs(
+        self,
+        *,
+        gate_event,
+        spec,
+        index: int,
+        ordered_agents: list,
+        user_message: str,
+        sandbox,
+        pipeline_run_id: str,
+        pipeline_type: str,
+        planning_context: dict,
+        attached_skills,
+        attached_hooks,
+        model_id,
+        results: list[dict],
+        cancel_event,
+        ectx,
+        revision_index: int,
+    ) -> AsyncGenerator[dict, None]:
+        """The ONE ``_gate_update_specs`` consumer, shared by all three gate branches.
+
+        There are three places a gate can hand back ``_gate_update_specs`` — the RESUME-17
+        restart-parked re-entry gate, the pending-re-open short-circuit, and the live
+        post-stream gate. They previously held two near-identical 50-line copies of this
+        logic (differing only in a ``logger.info``) and one broken stub. This is the single
+        implementation (INV-12): after si4 exactly ONE
+        ``_run_spec_revision_sub_pipeline`` call site exists in this file.
+
+        Writes the content-free audit row, drives the sub-pipeline, forwards its events
+        upstream, and finishes with ONE terminal ``_update_specs_done`` sentinel telling the
+        caller whether the pass was cancelled. That sentinel is INTERNAL — every call site
+        consumes it and it must never reach the wire.
+        """
+        analysis_report = gate_event.get("analysis_report") or ""
+
+        # A2 (RESUME-17): best-effort, content-free update_specs audit row — SYMMETRIC with
+        # the _gate_redo audit, so a post-restart spec_revision_attempt is derivable from
+        # the durable gate_events (else the sub-pipeline thread ids could collide, the P23
+        # replay class). Dormant on goldens (they never update_specs). Never aborts the run.
+        _us_runner = getattr(ectx, "runner", None)
+        if _us_runner is not None and hasattr(_us_runner, "record_gate_event"):
+            try:
+                await _us_runner.record_gate_event(
+                    spec.id, "human", "update_specs",
+                    {"has_report": bool(analysis_report)},
+                )
+            except Exception:  # noqa: BLE001 — audit never aborts a run
+                logger.debug(
+                    "update_specs audit row failed for agent %s (ignored)",
+                    spec.id, exc_info=True,
+                )
+        logger.info(
+            "Spec revision sub-pipeline: pipeline=%s attempt=%d",
+            pipeline_run_id, revision_index,
+        )
+
+        # Run specify → plan → analyze with the analysis report injected as revision
+        # context, collecting the new analyze output for the re-opened gate.
+        new_analysis_output = ""
+        async for sub_event in self._run_spec_revision_sub_pipeline(
+            spec=spec,
+            index=index,
+            ordered_agents=ordered_agents,
+            user_message=user_message,
+            sandbox=sandbox,
+            pipeline_run_id=pipeline_run_id,
+            pipeline_type=pipeline_type,
+            planning_context=planning_context,
+            attached_skills=attached_skills,
+            attached_hooks=attached_hooks,
+            model_id=model_id,
+            results=results,
+            cancel_event=cancel_event,
+            ectx=ectx,
+            analysis_report=analysis_report,
+            revision_index=revision_index,
+        ):
+            if sub_event.get("type") == "_revision_analyze_output":
+                # Internal signal carrying the new analysis text
+                new_analysis_output = sub_event.get("output", "")
+            elif sub_event.get("type") == "_gate_rejected":
+                # Stop button fired during the sub-pipeline
+                current = self._state_machine.get_state(pipeline_run_id)
+                if current not in ("cancelled", "failed"):
+                    self._state_machine.transition(pipeline_run_id, "cancelled")
+                yield {"type": "pipeline_cancelled", "data": {
+                    "pipeline_run_id": pipeline_run_id,
+                    "reason": "Cancelled during spec revision sub-pipeline",
+                }}
+                yield {"type": "_update_specs_done", "cancelled": True}
+                return
+            else:
+                yield sub_event
+
+        # Re-open the gate with the new output so the user can Accept or request another
+        # revision cycle. The while-loop must NOT re-run this agent, so the new output goes
+        # on ectx scratch and the caller breaks: the loop top's pending short-circuit sees
+        # the sentinel, skips the model call and jumps straight to the gate.
+        ectx.spec_revision_pending_output = new_analysis_output
+        yield {"type": "_update_specs_done", "cancelled": False}
+
+    async def _consume_redo(
+        self,
+        *,
+        gate_event: dict,
+        spec,
+        results: list[dict],
+        ectx,
+    ) -> tuple[str, str | None, str]:
+        """The ONE ``_gate_redo`` consumer, shared by all three gate branches.
+
+        Three places hand back ``_gate_redo`` — the RESUME-17 restart-parked re-entry
+        gate, the gate re-opened after a revision pass, and the live post-stream gate.
+        They held two near-identical copies and one THIN copy that set only the directive,
+        so a redo at the re-opened gate silently lost its ``derived_from`` lineage, left a
+        duplicate ``results`` entry and wrote no audit row. This is the single
+        implementation (INV-12), mirroring ``_consume_update_specs``.
+
+        Returns the three loop locals the while-loop consumes on its next iteration:
+        ``(directive, derived_from, prior_artifact)``. ``redo_attempt`` stays at the call
+        site — it is the caller's fresh-thread counter, exactly as
+        ``spec_revision_attempt`` is at the ``_consume_update_specs`` call sites.
+
+        **ISS-086.** ``prior_artifact`` is the re-run's SUBJECT: the very output the user
+        is asking to amend. It is read off the SAME kind-scoped max-version ref the
+        lineage stamp uses — no extra read, and kind-scoped by construction, which matters
+        because one producer can write two kinds (``prototype-build`` writes both
+        ``html_file`` and ``file_bundle``, so a producer-only lookup would serve the wrong
+        document). It is WITHHELD in two cases:
+
+          * **a blank redo** — the FE labels that "leave blank to just regenerate", and
+            regenerate-from-scratch is precisely the P23 semantics the ``:redo{N}`` fresh
+            thread exists to enforce. Only a non-blank instruction asks for an amendment;
+          * **a per-task build dispatch** (``build_task_number`` set) — that dispatch
+            already carries a COMPACTED view of the same document, so injecting the full
+            artifact on top would double-inject the deliverable.
+
+        Keyed on the generic gate vocabulary + generic scratch only — no agent id, no
+        workflow name (SC-001 / INV-1).
+        """
+        directive = gate_event.get("instructions") or ""
+        kind = self._artifact_kind_for(spec)
+        cands = [
+            r for r in ectx.artifacts.list_by_kind(kind)
+            if r.producer_agent == spec.id
+        ]
+        latest = max(cands, key=lambda r: r.version) if cands else None
+        derived_from = latest.id if latest is not None else None
+
+        prior_artifact = ""
+        if latest is not None and directive and not (ectx.build_task_number or ""):
+            prior_artifact = latest.content or ""
+
+        # Drop the rejected output's results entry (matching agent_id) so the re-run
+        # appends a fresh one.
+        if results and results[-1].get("agent_id") == spec.id:
+            results.pop()
+
+        # T7 (B8): best-effort, content-free redo audit row — written HERE and not in
+        # ``_run_review_gate``, which has no ectx. It is what makes a post-restart
+        # ``redo_attempt`` derivable from durable evidence (_seed_gate_reentry_attempts),
+        # so a re-entered gate cannot mint a colliding ``:redo{N}``. Dormant on the
+        # goldens (they never redo). Never aborts the run.
+        _runner = getattr(ectx, "runner", None)
+        if _runner is not None and hasattr(_runner, "record_gate_event"):
+            try:
+                await _runner.record_gate_event(
+                    spec.id, "human", "redo",
+                    {"has_instructions": bool(directive)},
+                )
+            except Exception:  # noqa: BLE001 — audit never aborts a run
+                logger.debug(
+                    "redo audit row failed for agent %s (ignored)",
+                    spec.id, exc_info=True,
+                )
+        return directive, derived_from, prior_artifact
 
     async def _run_review_gate(
         self,
@@ -5130,6 +5697,8 @@ class ExecutionEngine:
         redoable: bool = False,
         update_specs_eligible: bool = False,
         artifact_kind: str = "",
+        revision_cycle: int = 0,
+        revision_in_flight: bool = False,
         cancel_event: asyncio.Event | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Pause the pipeline for human review of an agent's output.
@@ -5158,6 +5727,16 @@ class ExecutionEngine:
         agent-id string. A declared/user gate defaults to
         ``update_specs_eligible=False`` (as ``redoable`` defaults False). Both keys
         are added to ``_VOLATILE_STRIP_KEYS`` so the goldens stay byte-identical.
+
+        ``revision_cycle`` / ``revision_in_flight`` (ISS-052) are the same pattern once
+        more: the per-FIRING discriminator. ``gate_key`` is ``f"{run_id}:{agent_id}"`` — it
+        names a gate SLOT, so the analyze gate re-run inside a revision pass and the gate
+        re-opened after that pass returns are indistinguishable on the wire (same key, same
+        output bytes, milliseconds apart). Publishing ``(cycle, in_flight)`` makes every
+        firing identifiable: ``(0, False)`` before any revision, ``(N, True)`` inside pass
+        N, ``(N, False)`` at pass N's re-opened gate. Both come from generic run scratch
+        (see ``_revision_stamp``) — no workflow or agent name — and both default to the
+        no-revision value on the declared/user gate path, exactly as ``redoable`` does.
         """
         gate_key = f"{pipeline_run_id}:{agent_id}"
 
@@ -5196,73 +5775,113 @@ class ExecutionEngine:
                 # stripped by _VOLATILE_STRIP_KEYS so the goldens stay byte-id.
                 "update_specs_eligible": update_specs_eligible,
                 "artifact_kind": artifact_kind,
+                # ISS-052: the per-FIRING discriminator. gate_key names a gate SLOT, so
+                # without these two the in-pass and re-opened analyze gates are identical
+                # on the wire while carrying opposite affordances. Also stripped by
+                # _VOLATILE_STRIP_KEYS (INV-3).
+                "revision_cycle": revision_cycle,
+                "revision_in_flight": revision_in_flight,
                 "timestamp": _now(),
             },
         }
 
-        # Wait for user response, but stop immediately if the pipeline is
-        # cancelled (Stop button). KAN-100: without this check, cancel_event.set()
-        # is observed at the next pre-agent step (engine.py:1842) but the gate
-        # stays blocked here indefinitely, allowing a subsequent Redo to unblock
-        # the cancelled pipeline and resume agent execution.
-        if cancel_event is not None:
-            # Race: gate event set by approve_review vs cancel event set by Stop.
-            gate_task = asyncio.ensure_future(event.wait())
-            cancel_task = asyncio.ensure_future(cancel_event.wait())
-            done, pending = await asyncio.wait(
-                {gate_task, cancel_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for p in pending:
-                p.cancel()
-            if cancel_task in done and gate_task not in done:
-                # Cancel fired before the user responded — bail out.
-                logger.info(
-                    "Review gate cancelled: pipeline=%s agent=%s — cancel_event set",
-                    pipeline_run_id, agent_id,
+        # Loop, because ONE gate firing may consume more than one response: an
+        # ineligible ``update_specs`` (ISS-053, below) is refused and the gate goes back
+        # to waiting. Every other action still resolves the gate on the first response.
+        while True:
+            # Wait for user response, but stop immediately if the pipeline is
+            # cancelled (Stop button). KAN-100: without this check, cancel_event.set()
+            # is observed at the next pre-agent step (engine.py:1842) but the gate
+            # stays blocked here indefinitely, allowing a subsequent Redo to unblock
+            # the cancelled pipeline and resume agent execution.
+            if cancel_event is not None:
+                # Race: gate event set by approve_review vs cancel event set by Stop.
+                gate_task = asyncio.ensure_future(event.wait())
+                cancel_task = asyncio.ensure_future(cancel_event.wait())
+                done, pending = await asyncio.wait(
+                    {gate_task, cancel_task},
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
-                yield {"type": "_gate_rejected"}
+                for p in pending:
+                    p.cancel()
+                if cancel_task in done and gate_task not in done:
+                    # Cancel fired before the user responded — bail out.
+                    logger.info(
+                        "Review gate cancelled: pipeline=%s agent=%s — cancel_event set",
+                        pipeline_run_id, agent_id,
+                    )
+                    yield {"type": "_gate_rejected"}
+                    return
+            else:
+                # No cancel_event available — plain wait (safe for declared-gate path
+                # which does not receive cancel_event from the dispatch loop).
+                await event.wait()
+
+            response = await self._store.get_review_response(gate_key)
+            approved = response.get("approved", True) if response else True
+            edited_content = response.get("edited_content") if response else None
+            action = response.get("action", "approve") if response else "approve"
+            instructions = response.get("instructions") if response else None
+
+            # REDO-GATE: a "redo" action re-runs the gated agent in place (a fresh model
+            # call), then re-pauses at the SAME gate. Keyed on the GENERIC ``action``
+            # discriminator (no workflow/agent literal — SC-001). Emit the internal
+            # ``_gate_redo`` signal (mirroring ``_gate_rejected``: consumed by the
+            # inline consumer, never forwarded to the wire) and return; the consumer's
+            # while-loop re-runs the agent. The declared-path consumers (human/approval
+            # gate) CONSUME this signal safely (T-human) — never PASS, never leak.
+            if action == "redo":
+                self._state_machine.transition(pipeline_run_id, "generating")
+                logger.info(
+                    "Review gate redo: pipeline=%s agent=%s has_instructions=%s",
+                    pipeline_run_id, agent_id, bool(instructions),
+                )
+                yield {"type": "_gate_redo", "instructions": instructions or ""}
                 return
-        else:
-            # No cancel_event available — plain wait (safe for declared-gate path
-            # which does not receive cancel_event from the dispatch loop).
-            await event.wait()
 
-        response = await self._store.get_review_response(gate_key)
-        approved = response.get("approved", True) if response else True
-        edited_content = response.get("edited_content") if response else None
-        action = response.get("action", "approve") if response else "approve"
-        instructions = response.get("instructions") if response else None
+            # KAN-101: "update_specs" action — trigger spec revision sub-pipeline that
+            # re-runs the preceding specify + plan + analyze agents with the analysis
+            # report as additional context, then re-opens this same gate with the new
+            # analysis output. Keyed on the GENERIC action discriminator (SC-001 / INV-1).
+            if action == "update_specs":
+                # ISS-053: the eligibility verdict this firing PUBLISHED on
+                # ``review_gate_ready`` is BINDING, not advisory. ``gate_key`` names a
+                # gate SLOT, not a firing (see above), so replaying a legitimate earlier
+                # click on the same agent lands on whichever firing is armed now — no
+                # crafting required. Unenforced, that ran the sub-pipeline at gates the
+                # rule excludes: positionally-chosen targets mean the same action means
+                # "re-run specify/plan/analyze" at one gate and "re-run
+                # plan/analyze/build" at the next, and below index 2 it revises NOTHING
+                # while still blanking the agent's output.
+                #
+                # The degrade is KEEP WAITING. Approving would be fail-open on a HITL
+                # gate — what the Phase-23 F1a redo defence exists to prevent, and
+                # against WR-07's fail-closed rule; rejecting would cancel the user's
+                # run, a semantic change nobody asked for. So the gate re-arms and every
+                # legitimate action stays available. This is the LAST line of defence:
+                # the ingresses reject it earlier with a 409
+                # (``run_engine._review_gate_advertises_update_specs``), but that check
+                # reads the durable log and abstains when the row is missing — it is
+                # allowed to abstain only because this one never does.
+                if not update_specs_eligible:
+                    logger.warning(
+                        "Review gate update_specs REFUSED: pipeline=%s agent=%s "
+                        "kind=%s — this firing published update_specs_eligible=False; "
+                        "gate stays open (ISS-053)",
+                        pipeline_run_id, agent_id, artifact_kind,
+                    )
+                    event.clear()
+                    continue
+                self._state_machine.transition(pipeline_run_id, "generating")
+                analysis_report = instructions or ""
+                logger.info(
+                    "Review gate update_specs: pipeline=%s agent=%s has_report=%s",
+                    pipeline_run_id, agent_id, bool(analysis_report),
+                )
+                yield {"type": "_gate_update_specs", "analysis_report": analysis_report}
+                return
 
-        # REDO-GATE: a "redo" action re-runs the gated agent in place (a fresh model
-        # call), then re-pauses at the SAME gate. Keyed on the GENERIC ``action``
-        # discriminator (no workflow/agent literal — SC-001). Emit the internal
-        # ``_gate_redo`` signal (mirroring ``_gate_rejected``: consumed by the
-        # inline consumer, never forwarded to the wire) and return; the consumer's
-        # while-loop re-runs the agent. The declared-path consumers (human/approval
-        # gate) CONSUME this signal safely (T-human) — never PASS, never leak.
-        if action == "redo":
-            self._state_machine.transition(pipeline_run_id, "generating")
-            logger.info(
-                "Review gate redo: pipeline=%s agent=%s has_instructions=%s",
-                pipeline_run_id, agent_id, bool(instructions),
-            )
-            yield {"type": "_gate_redo", "instructions": instructions or ""}
-            return
-
-        # KAN-101: "update_specs" action — trigger spec revision sub-pipeline that
-        # re-runs the preceding specify + plan + analyze agents with the analysis
-        # report as additional context, then re-opens this same gate with the new
-        # analysis output. Keyed on the GENERIC action discriminator (SC-001 / INV-1).
-        if action == "update_specs":
-            self._state_machine.transition(pipeline_run_id, "generating")
-            analysis_report = instructions or ""
-            logger.info(
-                "Review gate update_specs: pipeline=%s agent=%s has_report=%s",
-                pipeline_run_id, agent_id, bool(analysis_report),
-            )
-            yield {"type": "_gate_update_specs", "analysis_report": analysis_report}
-            return
+            break
 
         # Only transition back to generating if we're still in waiting_for_user.
         # If the user rejected (approved=False), we'll transition to cancelled below.
@@ -5313,16 +5932,11 @@ class ExecutionEngine:
             from app.models.database import SessionLocal
             from app.models.workflow import WorkflowRun
 
-            NON_TERMINAL = (
-                "running", "planning", "clarifying", "waiting_for_user",
-                "generating", "analyzing", "revising",
-            )
-
             db = SessionLocal()
             try:
                 stuck_runs = (
                     db.query(WorkflowRun)
-                    .filter(WorkflowRun.status.in_(NON_TERMINAL))
+                    .filter(WorkflowRun.status.in_(NON_TERMINAL_RUN_STATUSES))
                     .all()
                 )
                 restored = 0
@@ -6256,6 +6870,74 @@ class ExecutionEngine:
         """
         return self._AGENT_KIND_MAP.get(getattr(spec, "id", ""), "summary")
 
+    def _update_specs_eligible(self, artifact_kind: str, ectx) -> bool:
+        """Does THIS gate firing advertise the "Update the Specs" affordance?
+
+        Both conditions are STRUCTURAL — an artifact kind and a generic scratch field.
+        No workflow name and no agent id appears here or at any call site (INV-1 / SC-001).
+
+        1. ``artifact_kind`` is one of the eligible kinds (the analyze gate only — see
+           ``_UPDATE_SPECS_ELIGIBLE_KINDS``).
+        2. **No revision pass is currently in flight.** The sub-pipeline's PUBLISHED index
+           (``ectx.revision_attempt``) doubles as the in-flight signal — it is non-zero for
+           exactly the pass's duration — so this invents no parallel state (INV-12).
+
+        Condition 2 exists to keep revision cycles FLAT. The analyze re-run INSIDE a pass is
+        itself a full ``_run_agent`` and so opens its own gate; advertising "start another
+        revision" there is the one route that NESTS. Withholding it moves the single
+        supported entry point to the gate re-opened AFTER the pass returns, where the next
+        cycle is a SIBLING call at the same stack depth — the REDO-GATE F2 flat-loop
+        precedent (see the redo loop's comment at the top of ``_run_agent``). The user
+        reaches it with the same number of clicks, so no capability is withdrawn.
+
+        This verdict is BINDING, not merely an affordance (ISS-053). It is published on
+        ``review_gate_ready`` and then ENFORCED in two places, neither of which restates
+        the rule computed here — so there is exactly one rule and changing it changes both
+        layers (INV-3 / INV-12):
+
+          * ``_run_review_gate`` refuses an ineligible ``update_specs`` and keeps the gate
+            waiting (the unbypassable layer — it holds this verdict in memory);
+          * the three REST ingresses answer 409 ``update_specs_not_offered`` by reading the
+            published value back (``run_engine._review_gate_advertises_update_specs``).
+
+        Enforcement is what stops a replayed or crafted POST from nesting. The high-water
+        index + save/restore in ``_run_spec_revision_sub_pipeline`` (T-si4-01) remain as
+        defence in depth, so a nested pass would still be SAFE if it were ever reached.
+        """
+        return (
+            artifact_kind in self._UPDATE_SPECS_ELIGIBLE_KINDS
+            and not getattr(ectx, "revision_attempt", 0)
+        )
+
+    def _revision_stamp(self, ectx) -> tuple[int, bool]:
+        """Which spec-revision cycle is THIS gate firing part of, and is it inside it?
+
+        Returns ``(revision_cycle, revision_in_flight)``, published on every inline
+        ``review_gate_ready`` (ISS-052). Both values are read from generic per-run scratch
+        that already exists — this invents no counter and no state (INV-12):
+
+          * ``revision_high_water`` — the MONOTONE mark of the highest revision index ever
+            published in this run. Never cleared, never restored, so it still names the
+            cycle at the gate re-opened AFTER the pass has unwound.
+          * ``revision_attempt`` — non-zero for EXACTLY the duration of a pass (set at
+            entry, restored in the ``finally``), so it answers "is this gate inside the
+            revision, or after it".
+
+        The PAIR is what identifies a firing; neither half does it alone. Over one cycle
+        the three analyze-gate firings are ``(0, False)`` outer, ``(1, True)`` in-pass,
+        ``(1, False)`` re-opened — the in-pass and re-opened gates share a cycle and are
+        told apart by the in-flight flag alone. That matters downstream: they also share a
+        ``gate_key`` and their output bytes, so a consumer keyed on those two (the FE's
+        one-action latch) cannot see the second gate arrive without this.
+
+        Structural throughout — no workflow name, no agent id (INV-1 / SC-001). Default
+        ``(0, False)`` on a context that has never revised ⇒ dormant on every normal run.
+        """
+        return (
+            getattr(ectx, "revision_high_water", 0),
+            bool(getattr(ectx, "revision_attempt", 0)),
+        )
+
     async def _dual_write_artifact(
         self,
         ectx: ExecutionContext,
@@ -6376,7 +7058,7 @@ class ExecutionEngine:
 
         On a post-restart gate re-entry the loop locals reset to 0, but a redo /
         update_specs threads a checkpoint id off ``redo_attempt`` / ``spec_revision_attempt``
-        (``:redo{N}`` / ``revision_index``). Reusing a pre-restart id is the P23
+        (``:redo{N}`` / ``:rev{N}``). Reusing a pre-restart id is the P23
         checkpointer-replay bug (the model "remembers" its rejected output). Derive the
         prior counts from TWO durable signals and take the MAX so the next id is STRICTLY
         greater than any pre-restart id — over-estimating is a fresh unused thread id;
@@ -7614,6 +8296,23 @@ class ExecutionEngine:
                 "resume_run(%s): bridge cleanup failed: %s", run_id, _cl_exc
             )
 
+    def _resolve_resume_cancel_event(self, run_id: str) -> "asyncio.Event | None":
+        """Resolve this run's cooperative cancel Event via the injected hook (ISS-084).
+
+        Mirrors ``_fire_resume_cleanup``'s best-effort shape. ``None`` — the hook unset
+        (goldens / offline / any non-app driver) or a lookup failure — degrades to the
+        historical ``cancel_event=None``, i.e. a DORMANT signal, never a crashed resume.
+        """
+        if self._resume_cancel_event is None:
+            return None
+        try:
+            return self._resume_cancel_event(run_id)
+        except Exception as _ce_exc:  # noqa: BLE001 — a lookup failure must not abort
+            logger.warning(
+                "resume(%s): cancel-event lookup failed: %s", run_id, _ce_exc
+            )
+            return None
+
     async def resume_run(self, run_id: str) -> None:
         """Durably RESUME an interrupted in-flight run IN-PROCESS (RESUME-04 / D-06).
 
@@ -7844,12 +8543,23 @@ class ExecutionEngine:
         """
         sink = _RunEventSink(milestone_sink=self._resume_milestone_sink)
         next_seq = start_seq
+        # ── ISS-084: the cooperative STOP signal, resolved HERE because this is the ONE
+        # funnel every resume driver (resume_run branch (b), _rearm_gate_run branch (a),
+        # _replay_clarify_run, the user POST /resume wrapper) reaches _execute_impl
+        # through — so a future resume driver inherits the fix instead of re-opening the
+        # hole. Without it _execute_impl bound its None default and all twelve cooperative
+        # guards short-circuited: Stop, POST /cancel, SIGTERM and a restart were ALL no-ops
+        # for any run that had crossed a restart, and one measured run billed 7.5M tokens
+        # after the API answered `cancelled: true`. The hook returns the SAME Event object
+        # the REST endpoint sets; None (goldens / offline) ⇒ DORMANT, byte/event-identical.
+        cancel_event = self._resolve_resume_cancel_event(run_id)
         try:
             async for event in self._execute_impl(
                 agents=agents,
                 user_message=user_message,
                 pipeline_run_id=run_id,
                 pipeline_type=pipeline_type,
+                cancel_event=cancel_event,
                 user_id=user_id,
                 session_id=session_id,
                 parent_run_id=parent_run_id,
@@ -7877,7 +8587,16 @@ class ExecutionEngine:
                 event_id = str(uuid.uuid4())
                 data["seq"] = seq
                 data["event_id"] = event_id
-                await sink.persist(seq, event_id, event.get("type", ""), data)
+                # FIX-240 (ISS-121): re-stamp the seq the row ACTUALLY landed on and
+                # advance the allocator past it — a resumed run is exactly as exposed to
+                # the chat lane's concurrent seq allocation as a launched one, and the
+                # live push below carries data["seq"] onto the wire. Same contract as the
+                # execute() wrapper (engine.py:1065).
+                actual_seq = await sink.persist(seq, event_id, event.get("type", ""), data)
+                if actual_seq is not None and actual_seq != seq:
+                    data["seq"] = actual_seq
+                    if actual_seq >= next_seq:
+                        next_seq = actual_seq + 1
                 # 12-09 Gap 2a: ALSO push the resumed event onto the WS live
                 # queue (when the bridge is wired) so a connected/reconnecting
                 # client receives the resumed tail incl. pipeline_complete in
@@ -8352,6 +9071,37 @@ class ExecutionEngine:
             prev = next((s for s in ordered_agents if s.id == aid), None)
             label = f"{prev.name} ({prev.role})" if prev else aid
             parts.append(f"\n--- Output from {label} ---\n{output}")
+
+        # ── D1: the artifact UNDER revision — rendered BEFORE the instruction blocks ──
+        # SUBJECT FIRST, INSTRUCTIONS SECOND. Both blocks that follow — the REVISE
+        # directive and the analysis report — tell the agent to preserve what it was not
+        # asked to change, and that is unsatisfiable unless the document is in the prompt.
+        # This block is the agent's ONLY channel to its own prior output: it declares
+        # ``consumes: []`` + ``tools: []``, self-consumption is structurally impossible
+        # (_filter_consumed_outputs breaks on upstream.id == spec.id), and the re-run
+        # threads a FRESH checkpoint id so nothing is replayed.
+        #
+        # ORDERING IS LOAD-BEARING, not cosmetic (ISS-086): the REVISE block used to be
+        # appended ABOVE this one, so reusing the field for a redo without moving it would
+        # have read "instructions first, subject second" — the inverse of the rule FIX-217
+        # learned. The move is INV-3-safe: on the revision path ``redo_directive`` is empty,
+        # so the REVISE block renders nothing and PRIOR → REPORT keeps its relative order.
+        #
+        # Two publishers (FIX-217's revision pass, ISS-086's redo loop), one field, one
+        # block (INV-12). Keyed on the generic scratch field — no workflow/agent literal
+        # (SC-001) — and dormant on every non-revision, non-redo dispatch ⇒ the goldens
+        # stay byte-identical (INV-3). Costs one extra copy of the artifact per pass.
+        prior_artifact = getattr(ectx, "spec_revision_prior_artifact", "") or ""
+        if prior_artifact:
+            parts.append(
+                "\n=== PRIOR ARTIFACT UNDER REVISION ===\n"
+                "This is YOUR OWN previous output for this run. Revise THIS document in "
+                "place: reproduce verbatim every section you were not asked to change, and "
+                "change only what the instructions below identify. Do NOT regenerate from "
+                "scratch and do NOT drop sections you were not asked to change.\n\n"
+                f"{prior_artifact}\n"
+                "=== END PRIOR ARTIFACT UNDER REVISION ==="
+            )
 
         # ── REDO-GATE B6: the optional "redo with additional instructions" block ──
         # Appended IFF ectx.redo_directive is set for THIS re-run (set adjacently in
