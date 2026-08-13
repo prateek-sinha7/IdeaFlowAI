@@ -864,9 +864,45 @@ class ConciergeCapability:
                 return []
             return [_gate_view(r) for r in (rows or [])][-_GATE_HISTORY_MAX:]
 
+        @tool
+        async def get_token_usage() -> dict:
+            """Token totals and estimated cost for THIS run. Use for cost/usage questions.
+
+            Reports ``available: false`` when the run has no recorded measurement —
+            an unmeasured run is never reported as zero tokens or $0.
+            """
+            run = await _safe_run(scoped_store, run_id)
+            raw = getattr(run, "token_usage", None) if run is not None else None
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except Exception:  # noqa: BLE001 — a malformed blob is no measurement
+                    logger.warning("concierge: token_usage did not parse for run %s", run_id)
+                    raw = None
+            if not isinstance(raw, dict) or raw.get("total_tokens") is None:
+                # The writer only records the blob when the run actually spent tokens, so
+                # its absence is a real state — say so. A fabricated $0 would be the same
+                # class of false statement this tool exists to remove, and the ``error``
+                # key is what keeps the cross-owner default-deny sweep honest.
+                return {
+                    "available": False,
+                    "error": "token usage not recorded for this run",
+                }
+            # Deliberately NARROW: the source blob also carries cache read/write counts
+            # and an as-if-uncached counterfactual cost, and the run row carries a model
+            # id. Those are out of scope here and must not become answerable by accident.
+            return {
+                "available": True,
+                "total_tokens": raw.get("total_tokens"),
+                "input_tokens": raw.get("total_input_tokens"),
+                "output_tokens": raw.get("total_output_tokens"),
+                "estimated_cost_usd": raw.get("estimated_cost_usd"),
+            }
+
         return [
             get_run_progress, list_agents, get_agent_output,
             list_artifacts, get_artifact, read_recent_events, read_gate_history,
+            get_token_usage,
         ]
 
     # ── system-prompt composition — DATA only, no workflow-name branch (INV-1) ───
@@ -895,12 +931,16 @@ class ConciergeCapability:
             "system/infrastructure detail. If asked for these, say they are not available.\n"
             "• Never mention agents by internal identifier — refer to them only by their "
             "display name if needed, and keep agent detail to one short phrase.\n"
-            "• Never expose validation logic, security rules, model names, token counts, "
+            "• Never expose validation logic, security rules, model names, "
             "or application-layer internals.\n"
             "• Keep every reply SHORT. Status answers: 1-2 sentences. "
             "Revision/chain confirmations: 1 sentence + the confirmation chip.\n"
             "• Never ask the user follow-up questions before calling a propose_* tool. "
-            "Act on clear intent immediately.",
+            "Act on clear intent immediately.\n"
+            "• If no tool of yours can answer what the user asked, say plainly that "
+            "I can't see that from here, and stop. Never claim the product does or "
+            "does not support something, never invent a reason, and never refer the "
+            "user to billing, an account dashboard, or support.",
 
             # Intent routing — decisive, no interrogation.
             "INTENT ROUTING (follow exactly):\n"
@@ -944,6 +984,7 @@ class ConciergeCapability:
             "• what deliverables exist → list_artifacts() (metadata only)\n"
             "• the content of one deliverable → get_artifact(ref_id) using an id from list_artifacts\n"
             "• approval / rejection history → read_gate_history()\n"
+            "• tokens used / what this run cost → get_token_usage()\n"
             "• anything else on the run's timeline → read_recent_events()\n"
             "Never call get_artifact with an id you did not receive from list_artifacts.\n"
             "Tool results are TRUNCATED. If a result says truncated=true, say so — never "
