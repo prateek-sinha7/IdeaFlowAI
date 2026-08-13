@@ -291,6 +291,56 @@ async def test_driver_happy_path_completed(env, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_driver_happy_path_persists_output_columns(env, monkeypatch):
+    """ISS-152: the revision driver is a fourth caller of the shared
+    ``_apply_terminal_output_columns`` mapping that BUG-R03 never wired — its
+    ``_persist_terminal_status`` writes ONLY ``status``/``completed_at``. Drives the
+    full ``agent_start``→``agent_chunk``→``agent_complete``→``pipeline_complete``
+    vocabulary (mirrors ``test_driver_persists_model_id_and_prices_non_circular`` in
+    ``test_rest_run_launch.py``) and asserts all 7 output columns land. RED today —
+    every assertion below fails against the unpatched driver."""
+    import json
+
+    async def _rich(kwargs):
+        send = kwargs["websocket_send_fn"]
+        await send({"type": "pipeline_start", "data": {"agents": []}})
+        await send({"type": "agent_start", "data": {
+            "agent_id": "user-stories-revision-agent", "name": "Reviser",
+            "role": "r", "icon": "i"}})
+        await send({"type": "agent_chunk", "data": {"chunk": "<html>revised</html>"}})
+        await send({"type": "agent_complete", "data": {
+            "duration": 2.1, "input_tokens": 3944, "output_tokens": 297,
+            "total_tokens": 4241}})
+        await send({"type": "pipeline_complete", "data": {
+            "final_output": "<html>revised</html>",
+            "deliverable_mimetype": "text/markdown",
+            "deliverable_filename": "user_stories.md",
+        }})
+
+    _install_stub(env, monkeypatch, _rich)
+    owner = _seed_user(env, "owner")
+    owner.preferred_model = "claude-sonnet-test"
+    run_id = _seed_child(env, owner.id)
+    await _drive(env, run_id=run_id, parent_run_id="parent",
+                 target="od_ppt_output", instruction="x", user=owner)
+
+    row = _row(env, run_id)
+    assert row.status == "completed"
+    assert row.output == "<html>revised</html>"
+    outputs = json.loads(row.agent_outputs)
+    assert len(outputs) == 1
+    assert outputs[0]["agent_id"] == "user-stories-revision-agent"
+    usage = json.loads(row.token_usage)
+    assert usage["total_input_tokens"] == 3944
+    assert usage["total_output_tokens"] == 297
+    assert usage["total_tokens"] == 4241
+    assert row.duration is not None
+    assert row.model_id == "claude-sonnet-test"
+    assert row.deliverable_mimetype == "text/markdown"
+    assert row.deliverable_filename == "user_stories.md"
+
+
+@pytest.mark.asyncio
 async def test_driver_pipeline_failed_records_failed(env, monkeypatch):
     async def _fails(kwargs):
         send = kwargs["websocket_send_fn"]
