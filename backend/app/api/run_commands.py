@@ -596,6 +596,11 @@ class MessageCommand(BaseModel):
     ``responses``/``skip_clarification`` carry structured clarify answers;
     ``target_artifact_type`` the revision target. ``attachments`` are payload-transient
     refs (ND-10 — never persisted to sandbox/DB; a placeholder marks them on replay).
+    ``file_contents`` are FIX-218 pre-extracted file texts — [{name, text, error?}] —
+    sent by the FE after client-side text extraction (text formats) or a
+    /api/files/extract-text round-trip (binary: pdf/docx/pptx). Payload-transient
+    (ND-10): content rides the live Concierge ctx and ectx.steering_notes for the next
+    agent dispatch only — never persisted (the attachment ref row stays retained:false).
     """
 
     text: str = ""
@@ -613,6 +618,13 @@ class MessageCommand(BaseModel):
     # without disturbing the zero-model routing of any routable turn. Default False ⇒
     # dormant (byte-identical Phase-29 routing for every non-concierge turn, INV-12).
     concierge: bool = False
+    # file_contents: FIX-218 (KAN-170) — pre-extracted file text from chat attachments.
+    # Each entry: {name: str, text: str, error?: str}. Additive optional; default None
+    # ⇒ dormant (byte-identical routing, INV-3). The FE populates this AFTER extraction
+    # (client-side for text formats; /api/files/extract-text for binary) and sends it
+    # alongside body.attachments. Payload-transient (ND-10) — never persisted; the text
+    # is threaded to _ConciergeCtx.attached_files and apply_steering for the live ectx.
+    file_contents: list[dict] | None = None
     # confirm_proposal: the FE confirm round-trip (33-04). A concierge turn carrying a
     # previously-HELD consequential proposal to EXECUTE: {"channel": ..., "params": {...}}
     # reconstructed from the durable ``concierge_proposal`` row. Present ⇒ the held intent
@@ -713,11 +725,18 @@ async def _persist_chat_message(
     ``message_id``) on the additive ``run_events`` uniqueness constraints, so a race can
     never persist a duplicate ``seq`` (Last-Event-ID replay) or a duplicate row.
     """
-    # ND-10: attachments are payload-transient — persist a placeholder ref (kind + a
-    # "not retained" marker), NEVER the bytes (no sandbox/DB retention; the image does
-    # not survive replay/reopen).
+    # ND-10: attachment bytes are payload-transient — NEVER persisted.
+    # But metadata (kind, name, mimeType, sizeBytes) IS persisted as a ref so
+    # the transcript can show the filename on replay/reopen (FIX-218).
+    # The `retained: False` flag tells the FE the bytes are gone (honest placeholder).
     attachment_refs = [
-        {"kind": (a.get("kind") or a.get("type") or "attachment"), "retained": False}
+        {
+            "kind": (a.get("kind") or a.get("type") or "attachment"),
+            "name": str(a.get("name") or "").strip(),
+            "mimeType": a.get("mimeType") or a.get("mime_type") or None,
+            "sizeBytes": a.get("sizeBytes") or a.get("size_bytes") or None,
+            "retained": False,
+        }
         for a in (body.attachments or [])
     ]
     # ND-10/LOCK-E (30-03): per-turn images are ALSO payload-transient — stamp a
@@ -768,6 +787,43 @@ _CONSEQUENTIAL_PROPOSAL_CHANNELS = frozenset({"gate_action", "revision", "chain"
 # body is dropped mid-stream).
 _CONCIERGE_STREAM_TASKS: set = set()
 
+# FIX-218 (KAN-170): character cap for a single attached file's text in the Concierge
+# system prompt and the steering note. Keeps the combined prompt within reasonable
+# token bounds while still giving agents enough context. Mirrors the launch-composer
+# ATTACH_MAX_CHARS constant on the FE (6,000 chars).
+_ATTACHED_FILE_TEXT_CAP = 6_000
+
+
+def _build_attached_files_block(file_contents: list[dict] | None) -> str:
+    """FIX-218 (KAN-170): render pre-extracted file texts into a prompt block.
+
+    ``file_contents`` is the ``body.file_contents`` list — each entry:
+    ``{name: str, text: str, error?: str}``. Builds a multi-file block capped
+    per-file at ``_ATTACHED_FILE_TEXT_CAP`` chars. Returns ``""`` when the list is
+    absent or all entries have extraction errors (so the Concierge prompt is
+    byte-identical to the pre-fix behaviour — INV-3).
+
+    Payload-transient (ND-10): the block is used solely in the live Concierge ctx
+    and the ``ectx.steering_notes`` carry; it is NEVER persisted to the DB.
+    """
+    if not file_contents:
+        return ""
+    parts: list[str] = []
+    for entry in file_contents:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "attachment").strip()[:200]
+        error = entry.get("error")
+        text = str(entry.get("text") or "").strip()
+        if error:
+            # Extraction failed — include a diagnostic note so the Concierge can
+            # inform the user rather than silently omitting the file.
+            parts.append(f"=== ATTACHED FILE: {name} ===\n[Extraction error: {error}]\n=== END FILE ===")
+        elif text:
+            capped = text[:_ATTACHED_FILE_TEXT_CAP]
+            suffix = "\n[Content truncated — showing first portion]" if len(text) > _ATTACHED_FILE_TEXT_CAP else ""
+            parts.append(f"=== ATTACHED FILE: {name} ===\n{capped}{suffix}\n=== END FILE ===")
+    return "\n\n".join(parts)
 
 class _ConciergeCtx:
     """The minimal owner-scoped ctx handed to ``ConciergeCapability.converse``.
@@ -794,6 +850,7 @@ class _ConciergeCtx:
     def __init__(
         self, *, run_id, scoped_store, owner_id, workspace_id, compiled=None,
         chain_hints=None, run_summary=None, open_gate=None, run_status=None,
+        attached_files=None,
     ):
         self.run_id = run_id
         self.scoped_store = scoped_store
@@ -811,6 +868,12 @@ class _ConciergeCtx:
         # The run's persisted status (WorkflowRun.status) — used to distinguish a
         # live-building run from a completed one so the prompt label is accurate.
         self.run_status = run_status or ""
+        # FIX-218 (KAN-170): pre-extracted file text from chat attachments. A rendered
+        # text block injected into the system prompt so the Concierge can answer
+        # questions about the file and surface a propose_steering_note for injection.
+        # Payload-transient (ND-10) — never persisted. Format: formatted text block
+        # ready to inject into the system prompt, or "" when no files were attached.
+        self.attached_files = attached_files or ""
 
 
 def _resolve_concierge():
@@ -891,6 +954,7 @@ async def _dispose_concierge_proposal(
     gate_key: str | None,
     ectx,
     open_gate: str | None = None,
+    attached_files: str = "",
 ) -> dict:
     """Dispose ONE Concierge ``ProposalIntent`` through its matching Phase-29 seam (D-05).
 
@@ -1017,16 +1081,43 @@ async def _dispose_concierge_proposal(
         # Strip any trailing "_revision" suffix from wr_type to get the base artifact
         # family (e.g. "user_stories") before constructing the fallback target.
         base_type = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
-        # FIX-216b: od_prototype has no od_prototype_revision agents AND
-        # od_prototype_revision is excluded from the hexaware tier, so the
-        # revision fails with pipeline_not_entitled or zero agents.
-        # Map od_prototype → prototype (and od_ppt → ppt) so the fallback target
-        # becomes "prototype_output" → revision_pipeline_type "prototype_revision"
-        # which has agents AND is entitled for all tiers.
-        _OD_BASE_MAP = {"od_prototype": "prototype", "od_ppt": "ppt"}
-        base_type = _OD_BASE_MAP.get(base_type, base_type)
+        # FIX-216b (corrected): od_prototype_revision is excluded from hexaware tier
+        # and has no agents, so od_prototype on hexaware must fall back to prototype_revision.
+        # od_ppt ONLY uses od_ppt_revision — never ppt_revision. Remove od_ppt from the map.
+        # Only apply the OD→base fallback when the natural od_*_revision is not entitled.
+        _OD_FALLBACK_MAP = {"od_prototype": "prototype"}
+        if base_type in _OD_FALLBACK_MAP:
+            natural_revision = f"{base_type}_revision"
+            if not can_run_pipeline(current_user.tier, natural_revision)[0]:
+                base_type = _OD_FALLBACK_MAP[base_type]
         target = params.get("target") or f"{base_type}_output"
+        # Stale-proposal correction: a proposal created before FIX-216b may have
+        # stored target="ppt_output" for an od_ppt parent run. Remap to the correct
+        # od_ppt_output so the revision uses od_ppt_revision (1 agent), not ppt_revision.
+        # Only correct when wr_type is od_ppt (or od_ppt_revision) — never blindly remap.
+        _OD_TARGET_CORRECTIONS = {"od_ppt": "ppt_output→od_ppt_output"}
+        _base_for_correction = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
+        if _base_for_correction == "od_ppt" and target == "ppt_output":
+            target = "od_ppt_output"
         instruction = params.get("instruction", "")
+        # FIX-218: when files were attached on this Concierge turn, frame them as
+        # supplementary reference material. The user's chat instruction always takes
+        # precedence — if the file conflicts with or is unrelated to the request,
+        # agents must follow the user's instruction and ignore irrelevant file content.
+        if attached_files.strip():
+            user_instruction = instruction.strip()
+            file_section = (
+                "=== USER'S REVISION REQUEST (PRIMARY — always follow this) ===\n"
+                + (user_instruction if user_instruction else "(apply the reference material to improve the deliverable)")
+                + "\n=== END USER REQUEST ===\n\n"
+                "=== SUPPLEMENTARY REFERENCE MATERIAL (user-attached files) ===\n"
+                "Use this content ONLY where it is relevant and consistent with the user's request above.\n"
+                "If this content conflicts with or is unrelated to the user's request, IGNORE IT "
+                "and follow the user's request exactly.\n\n"
+                + attached_files.strip()
+                + "\n=== END REFERENCE MATERIAL ==="
+            )
+            instruction = file_section
         rdb = _get_db()
         try:
             child_run_id, _ = _mint_revision_row(
@@ -1234,6 +1325,13 @@ async def post_message(
             apply_steering(ectx, dispatch.note)
         if validated_turn_images:
             apply_turn_images(ectx, validated_turn_images)
+        # FIX-218 (KAN-170): when file contents are attached during a RUNNING phase,
+        # also inject them as a steering note for the next agent dispatch. Mirrors the
+        # steering path (INV-12 — same apply_steering seam, no new path). Payload-
+        # transient (ND-10). Degrade-safe: no-op when ectx is None or block is empty.
+        _steering_file_block = _build_attached_files_block(body.file_contents)
+        if _steering_file_block:
+            apply_steering(ectx, {"text": _steering_file_block, "sticky": False})
     elif dispatch.channel == CHANNEL_REVISION:
         # revision → mint + drive the shipped family child run (D-02), the exact seam
         # POST /{id}/revisions uses. A generic target derives from the run type when the
@@ -1305,6 +1403,7 @@ async def post_message(
                 run_id=run_id, message_id=body.message_id, current_user=current_user,
                 wr_status=wr_status, wr_type=wr_type, gate_key=resolved_gate_key,
                 ectx=ectx, open_gate=open_gate,
+                attached_files=_build_attached_files_block(body.file_contents),
             )
             # Mark the durable pending row RESOLVED (additive; namespaced event_id so a
             # replayed confirm is idempotent — the resolved row makes _load_pending_proposal
@@ -1359,7 +1458,21 @@ async def post_message(
             # Thread the run's persisted status so the prompt label is accurate
             # (building run vs completed run — avoids "produced" for in-flight runs).
             run_status=wr_status,
+            # FIX-218 (KAN-170): thread pre-extracted file text from chat attachments so
+            # the Concierge can answer questions about the file content and propose
+            # injection into the running pipeline. Payload-transient (ND-10) — never
+            # persisted. Absent ⇒ "" ⇒ dormant (byte-identical prompt, INV-3).
+            attached_files=_build_attached_files_block(body.file_contents),
         )
+        # FIX-218 (KAN-170): when file contents were attached AND a running pipeline
+        # exists (live ectx), also inject the file text as a sticky steering note so
+        # the NEXT agent dispatch receives it as a === USER GUIDANCE === block. This
+        # mirrors the existing CHANNEL_STEERING apply_steering path (INV-12) — we reuse
+        # the SAME seam rather than building a new one. Payload-transient (ND-10).
+        # Degrade-safe: if ectx is None (run not live in this process), no-op.
+        _attached_block = getattr(ctx, "attached_files", "") or ""
+        if _attached_block and ectx is not None:
+            apply_steering(ectx, {"text": _attached_block, "sticky": False})
         # ── Option B: STREAM the reply on the POST response body (text/event-stream). ──
         # The model's ordered text deltas ride the POST the FE already makes as TRANSIENT
         # ``chat_reply_chunk`` frames (never persisted → never replayed → never
@@ -1427,6 +1540,7 @@ async def post_message(
                         current_user=current_user, wr_status=wr_status,
                         wr_type=wr_type, gate_key=resolved_gate_key, ectx=ectx,
                         open_gate=open_gate,
+                        attached_files=_attached_block,
                     )
                     held.append(disposed)
                     logger.info(
