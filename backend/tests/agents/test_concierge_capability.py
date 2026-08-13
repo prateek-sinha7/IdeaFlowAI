@@ -261,6 +261,30 @@ def test_compose_system_prompt_injects_chain_hints_block() -> None:
     assert "chained into" not in no_hints and "follow-up" not in no_hints
 
 
+def test_response_rules_do_not_forbid_token_counts() -> None:
+    """The prompt must not teach the model to deny what it CAN now read.
+
+    Live evidence: asked what a run cost, the Concierge answered that the product
+    "does not expose billing or token usage metrics" and referred the user to support
+    — in a single model turn, no tool call — while the number was on screen. That was
+    recited from the RESPONSE RULES prohibition on "token counts". Removing it is half
+    the fix; the other half is a standing honesty rule for every gap that still has no
+    tool, so the model admits a blind spot instead of inventing a product limitation.
+    """
+    prompt = ConciergeCapability._compose_system_prompt(
+        SimpleNamespace(conversation_context=None, compiled=None)
+    )
+    assert "token counts" not in prompt, (
+        "the prompt still forbids the very thing the token tool now answers"
+    )
+    # Deliberately untouched here — an open product question, not this fix's call.
+    assert "model names" in prompt
+    # The honesty rule, asserted on the same literal the prompt carries.
+    assert "I can't see that from here" in prompt, (
+        "the prompt must instruct the model to admit a blind spot, not invent a reason"
+    )
+
+
 def test_concierge_impl_imports_no_raw_orm() -> None:
     """The read path is the scoped store alone — no ``app.models`` raw-ORM import."""
     from pathlib import Path
@@ -631,7 +655,25 @@ class _BigRunStore:
             # the worst real row. Only ``output`` may ever reach the model, truncated.
             {"agent_id": "build", "name": "Build Agent", "role": "Prototype",
              "input_prompt": "I" * 300_000, "output": "O" * 300_000, "duration": 47.2},
-        ]))
+        ]),
+            # The persisted blob in the REAL writer's shape (``run_commands`` writes all
+            # seven keys as a JSON STRING). The cache counters and the uncached
+            # counterfactual are here DELIBERATELY: they are what the token tool must
+            # NOT surface. Every number is distinct so a field mix-up cannot pass by
+            # coincidence.
+            token_usage=_json.dumps({
+                "total_input_tokens": 1234,
+                "total_output_tokens": 567,
+                "total_tokens": 1801,
+                "total_cache_read_tokens": 890,
+                "total_cache_write_tokens": 12,
+                "estimated_cost_usd": 0.0345,
+                "estimated_cost_full_usd": 0.0912,
+            }),
+            # A sibling COLUMN (not part of the blob) — present so the "no model name"
+            # assertion is load-bearing rather than vacuous.
+            model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        )
 
 
 def _args_for(tool, *, ref_id: str = "ref-1", agent_name: str = "build") -> dict:
@@ -683,6 +725,7 @@ def test_read_tools_expose_only_the_bounded_allow_list() -> None:
     assert names == {
         "get_run_progress", "list_agents", "get_agent_output",
         "list_artifacts", "get_artifact", "read_recent_events", "read_gate_history",
+        "get_token_usage",
     }, f"unexpected Concierge read surface: {sorted(names)}"
     assert {"read_events", "list_refs", "get_ref"} & names == set(), (
         "a superseded unbounded tool is still exposed (INV-12: replace, do not shadow)"
@@ -804,6 +847,91 @@ def test_get_run_progress_returns_counts_not_rows() -> None:
     assert out["agents_started"] == 1 and out["agents_completed"] == 1
     assert out["status"] == "completed"
     assert len(str(out)) < 1_000, "progress must be a summary, not a row dump"
+
+
+# ── token usage: the Concierge must be ABLE to answer, and honest when it cannot ──
+
+
+def test_get_token_usage_returns_the_narrow_run_totals() -> None:
+    """The run's own token totals are readable — the Concierge is no longer blind here.
+
+    Sourced from ``workflow_runs.token_usage`` through the SAME owner-scoped
+    ``get_run`` every other tool uses. ``input_tokens`` comes from
+    ``total_input_tokens`` and ``output_tokens`` from ``total_output_tokens``; the
+    fixture's numbers are mutually distinct, so a transposition fails here.
+    """
+    tools = ConciergeCapability._read_tools(_BigRunStore(), "run-1")
+    tool = next(t for t in tools if t.name == "get_token_usage")
+
+    out = _invoke(tool)
+    assert out["available"] is True
+    assert out["total_tokens"] == 1801
+    assert out["input_tokens"] == 1234
+    assert out["output_tokens"] == 567
+    assert out["estimated_cost_usd"] == 0.0345
+
+
+def test_get_token_usage_omits_cache_and_model_fields() -> None:
+    """Narrowness is an EXACT key-set, so a later widening fails CI rather than ships.
+
+    The source blob carries the cache counters and the uncached-counterfactual cost,
+    and the run row carries a model id — all OUT OF SCOPE for this tool. Asserted as
+    key-set EQUALITY (not a subset) plus an absent-substring sweep of the rendered
+    result the model would actually receive.
+    """
+    tools = ConciergeCapability._read_tools(_BigRunStore(), "run-1")
+    tool = next(t for t in tools if t.name == "get_token_usage")
+
+    out = _invoke(tool)
+    assert set(out) == {
+        "available", "total_tokens", "input_tokens", "output_tokens",
+        "estimated_cost_usd",
+    }, f"the token tool widened its shape: {sorted(out)}"
+
+    rendered = str(out)
+    for forbidden in ("total_cache_read_tokens", "total_cache_write_tokens",
+                      "cache_read_tokens", "cache_write_tokens", "model_id",
+                      "estimated_cost_full_usd"):
+        assert forbidden not in rendered, f"out-of-scope field leaked: {forbidden}"
+
+
+def test_get_token_usage_degrades_to_unavailable_not_zeros() -> None:
+    """Unmeasured is reported as unmeasured — never a fabricated ``$0``.
+
+    Both degrade paths: the column is NULL (the writer only writes it when
+    ``total_input + total_output > 0``, so a genuinely zero-token run has none), and
+    the blob does not parse. Each returns ``available: False`` plus a truthy human
+    ``error`` string — the latter is load-bearing, because the standing cross-owner
+    guard accepts a result only if it is falsy, ``{}``, carries an ``error``, or has
+    ``agents_started == 0``.
+    """
+
+    class _NoUsageStore:
+        async def get_run(self, run_id: str):
+            return SimpleNamespace(id="run-1", status="completed", token_usage=None)
+
+    class _MalformedUsageStore:
+        async def get_run(self, run_id: str):
+            return SimpleNamespace(id="run-1", status="completed", token_usage="{not json")
+
+    for store in (_NoUsageStore(), _MalformedUsageStore()):
+        tools = ConciergeCapability._read_tools(store, "run-1")
+        tool = next(t for t in tools if t.name == "get_token_usage")
+
+        out = _invoke(tool)  # degrade-not-crash: no exception reaches the model loop
+        assert out["available"] is False
+        assert isinstance(out.get("error"), str) and out["error"].strip(), (
+            "the unavailable shape must carry a human-readable error string"
+        )
+        assert "total_tokens" not in out, "an absent measurement must not be reported as 0"
+        numbers = [
+            v for v in out.values()
+            if isinstance(v, (int, float)) and not isinstance(v, bool)
+        ]
+        assert not numbers, (
+            f"the unavailable shape must carry no number the model could read as a "
+            f"real measurement: {out}"
+        )
 
 
 def test_no_tool_accepts_a_run_id_argument() -> None:
@@ -1004,7 +1132,7 @@ _TOOL_NAME_UNIVERSE = {
     "read_events", "list_refs", "get_ref", "read_gate_events",
     # current read surface
     "get_run_progress", "list_agents", "get_agent_output", "list_artifacts",
-    "get_artifact", "read_recent_events", "read_gate_history",
+    "get_artifact", "read_recent_events", "read_gate_history", "get_token_usage",
     # proposal surface
     "propose_steering_note", "propose_revision", "propose_chain", "propose_gate_action",
 }
@@ -1030,5 +1158,7 @@ def test_system_prompt_names_only_existing_tools() -> None:
     stale = (mentioned & _TOOL_NAME_UNIVERSE) - built
     assert not stale, f"the prompt names tools that do not exist: {sorted(stale)}"
 
-    missing = {"get_run_progress", "list_artifacts", "get_artifact"} - mentioned
+    missing = {
+        "get_run_progress", "list_artifacts", "get_artifact", "get_token_usage",
+    } - mentioned
     assert not missing, f"the prompt never tells the model about: {sorted(missing)}"
