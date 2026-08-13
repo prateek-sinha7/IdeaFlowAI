@@ -211,6 +211,13 @@ export interface RunStateStoreReturn {
   updatePipelineState: (runId: string, reducer: (prev: PipelineRunState) => PipelineRunState) => void;
 
   /**
+   * FIX-220: Update entry.pipelineState WITHOUT calling project()/setViewedState.
+   * Used by the page.tsx sync effect so it doesn't trigger a re-render feedback loop.
+   * The UI projection is already handled by handleFrame's project() on every SSE frame.
+   */
+  syncPipelineStateOnly: (runId: string, state: PipelineRunState) => void;
+
+  /**
    * Update waveGroups for a specific run using a reducer function.
    */
   updateWaveGroups: (runId: string, reducer: (prev: WaveGroup[]) => WaveGroup[]) => void;
@@ -437,6 +444,16 @@ export function useRunStateStore(): RunStateStoreReturn {
     }
   }, [getOrCreate, project]);
 
+  // FIX-220: update entry.pipelineState WITHOUT calling project() / setViewedState.
+  // Used by the page.tsx sync effect (FIX-201) so it doesn't trigger a re-render
+  // that feeds back into the effect loop. The UI projection is already handled by
+  // handleFrame's project() call on every SSE frame.
+  const syncPipelineStateOnly = useCallback((runId: string, state: PipelineRunState) => {
+    const entry = getOrCreate(runId);
+    entry.pipelineState = state;
+    // Intentionally NO project() call — avoids setViewedState → re-render loop.
+  }, [getOrCreate]);
+
   const updateWaveGroups = useCallback((
     runId: string,
     reducer: (prev: WaveGroup[]) => WaveGroup[],
@@ -484,6 +501,7 @@ export function useRunStateStore(): RunStateStoreReturn {
     handleFrame,
     update,
     updatePipelineState,
+    syncPipelineStateOnly,
     updateWaveGroups,
     switchViewTo,
     initRun,

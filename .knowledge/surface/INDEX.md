@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (219)
+## Fixes (220)
 
+FIX-220 2026-08-13 [frontend] Maximum update depth exceeded — useWorkflow.pipelineState sync effect fires 26× per SSE frame; coalesced via requestAnimationFrame (FIX-201 bridge)
 FIX-219 2026-08-13 [backend] od_ppt Concierge revision routes to ppt_revision (2 agents) instead of od_ppt_revision (1 agent) — FIX-216b regression; stale proposal correction added
 FIX-218 2026-08-13 [backend,frontend,chat,concierge] Chat file attachment injection — files in chat injected into pipeline agents; revision agents receive file as reference; filename on replay; chip cleared after send; copy bar fixed; file bubble; filename in Context Received panel (KAN-170)
 FIX-217 2026-08-12 [backend,frontend,workflow] Chain context missing from prototype/ppt revisions — ancestor walk only one level; stale chain context leaking; empty brief on wizard-chained launches (FIX-216c included)
