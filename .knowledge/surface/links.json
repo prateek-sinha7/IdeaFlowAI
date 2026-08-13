@@ -788,6 +788,7 @@
       "FIX-241",
       "FIX-242",
       "FIX-246",
+      "FIX-249",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -982,6 +983,7 @@
       "FIX-238",
       "FIX-242",
       "FIX-246",
+      "FIX-249",
       "ISS-001",
       "ISS-004",
       "ISS-011",
@@ -1088,6 +1090,7 @@
       "FIX-243",
       "FIX-246",
       "FIX-248",
+      "FIX-249",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -1264,6 +1267,7 @@
       "FIX-244",
       "FIX-246",
       "FIX-248",
+      "FIX-249",
       "ISS-033",
       "ISS-054",
       "ISS-055",
@@ -1817,6 +1821,7 @@
       "FIX-246",
       "FIX-247",
       "FIX-248",
+      "FIX-249",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -2074,6 +2079,7 @@
       "FIX-243",
       "FIX-245",
       "FIX-246",
+      "FIX-249",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -2484,6 +2490,7 @@
       "FIX-210",
       "FIX-213",
       "FIX-233",
+      "FIX-249",
       "ISS-054"
     ],
     "backend/app/agents/chat_narrator.py": [
@@ -2665,6 +2672,9 @@
     ],
     "backend/tests/agents/test_bedrock_cache_and_thinking.py": [
       "FIX-034"
+    ],
+    "backend/tests/agents/test_concierge_capability.py": [
+      "FIX-249"
     ],
     "backend/tests/agents/test_context_providers.py": [
       "FIX-031",

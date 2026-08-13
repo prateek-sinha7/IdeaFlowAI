@@ -1,5 +1,5 @@
 {
-  "count": 709,
+  "count": 710,
   "entries": [
     {
       "area": [
@@ -5787,6 +5787,27 @@
     },
     {
       "area": [
+        "backend",
+        "sse",
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "backend/app/agents/chat/concierge.py",
+        "backend/tests/agents/test_concierge_capability.py"
+      ],
+      "id": "FIX-249",
+      "path": ".knowledge/cards/FIX-249.md",
+      "source": ".planning/FIX-REGISTER.md#fix-249",
+      "status": "done",
+      "summary": "The Concierge told a user the product \"does not expose billing or token usage metrics\" and referred them to support, for a number rendered inches away in the same viewport (ISS-148)",
+      "type": "fix"
+    },
+    {
+      "area": [
         "agents",
         "artifacts",
         "product"
@@ -11449,10 +11470,10 @@
   ],
   "facets": {
     "area": {
-      "agents": 276,
-      "artifacts": 110,
-      "auth": 118,
-      "backend": 120,
+      "agents": 277,
+      "artifacts": 111,
+      "auth": 119,
+      "backend": 121,
       "cost": 1,
       "docs": 4,
       "engine": 14,
@@ -11464,15 +11485,15 @@
       "product": 30,
       "resume": 80,
       "runtime": 39,
-      "sse": 216,
+      "sse": 217,
       "test": 3,
       "test-infra": 16,
       "tooling": 4,
-      "workflow": 240
+      "workflow": 241
     },
     "status": {
       "accepted": 1,
-      "done": 625,
+      "done": 626,
       "open": 74,
       "shipped": 1
     },
@@ -11480,7 +11501,7 @@
       "bug": 28,
       "decision": 1,
       "doc": 65,
-      "fix": 245,
+      "fix": 246,
       "issue": 147,
       "phase": 23,
       "req": 40,
@@ -11499,5 +11520,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-13 03:59"
+  "generated": "2026-08-13 04:38"
 }

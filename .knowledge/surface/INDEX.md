@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-709 cards · rules 1 · fixes 245 · issues 147 · phases 23 · built 2026-08-13 03:59
+710 cards · rules 1 · fixes 246 · issues 147 · phases 23 · built 2026-08-13 04:38
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,8 +12,9 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (245)
+## Fixes (246)
 
+FIX-249 2026-08-13 [backend,sse,workflow,agents,auth,artifacts] The Concierge told a user the product "does not expose billing or token usage metrics" and referred them to support, for a number rendered inches away in the same viewport (ISS-148)
 FIX-248 2026-08-13 [backend,frontend,sse,auth] The narrator's "Delivered — open in Preview" milestone card rendered TWICE in the run chat lane after a mid-run SSE reconnect (ISS-146)
 FIX-247 2026-08-13 [frontend,sse,evals] Stop at the clarify gate cancelled the run, but the screen never repainted — the live terminal handler cleared only legacy React state, never the run store the lane actually reads (ISS-140)
 FIX-246 2026-08-12 [backend,sse,workflow,agents,auth,artifacts] The historical event loss was recorded as an unmeasured range with a half-wrong justification (ISS-123); it is now a read-only, re-runnable audit. Shipped backend/scripts/audit_lost_run_events.py — mode=ro, zero INSERT/UPDATE/DELETE/ALTER

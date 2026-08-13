@@ -2466,3 +2466,88 @@ Regression guards:
 
 **Live verification is a genuine follow-up, not a skipped step.** Unlike every other TEST entry in this register, this one does not carry a completed live-Bedrock pass. The blocker (AWS SSO refresh-token invalidity across both available profiles) was diagnosed with the same rigor as the code fix — read the actual backend traceback, cross-checked with a direct `aws sts`/`aws sso login` probe — rather than assumed or retried blindly. Do not treat FIX-248 as live-proven until this is closed out.
 
+### TEST-032 — FIX-249 (quick-260813-5qr): ISS-148 — the Concierge must be able to answer a token/cost question, and honest when it cannot
+
+```
+TEST COVERAGE — FIX-249
+Backend unit: 6 in backend/tests/agents/test_concierge_capability.py → ALL GREEN after the fix
+  (2 UPDATED, never weakened + 4 NEW):
+  - test_read_tools_expose_only_the_bounded_allow_list (updated: exact tool-name set now
+    includes "get_token_usage")
+  - test_system_prompt_names_only_existing_tools (strengthened: the prompt must actually
+    MENTION get_token_usage, not merely that it exists in the built tool surface — its
+    `missing = {...} - mentioned` set gained the new tool name)
+  - test_get_token_usage_returns_the_narrow_run_totals (NEW): populated-usage case, asserts
+    total_tokens/input_tokens/output_tokens/estimated_cost_usd against a fixture whose numbers
+    are mutually distinct, so a field transposition (input<->output) would fail
+  - test_get_token_usage_omits_cache_and_model_fields (NEW): asserts the returned key set is
+    EXACTLY {available, total_tokens, input_tokens, output_tokens, estimated_cost_usd} — key-set
+    EQUALITY, not a subset — plus an absent-substring sweep for total_cache_read_tokens /
+    total_cache_write_tokens / cache_read_tokens / cache_write_tokens / model_id /
+    estimated_cost_full_usd, all present in the source blob and deliberately excluded
+  - test_get_token_usage_degrades_to_unavailable_not_zeros (NEW): covers BOTH a None
+    token_usage column and a malformed-JSON blob; asserts available=False + a truthy error
+    string (load-bearing, see below) and no numeric field the model could mistake for a real
+    measurement
+  - test_response_rules_do_not_forbid_token_counts (NEW): asserts "token counts" is absent from
+    the composed system prompt, "model names" is still present (deliberately untouched — see
+    the surfaced-not-decided item below), and the new honesty literal ("I can't see that from
+    here") is present
+Whole file, isolated (python3.11 -m pytest tests/agents/test_concierge_capability.py -q):
+  baseline (HEAD before this fix, commit a9f95835) = 34 collected, 33 passed, 1 failed (1
+  PRE-EXISTING, see below — unrelated to this fix).
+  RED (Task 1: tests added, concierge.py byte-unchanged) = 38 collected, 31 passed, 7 failed
+  (the 6 above + the 1 pre-existing). The 3 tool tests failed via StopIteration (tool not found
+  in the built surface) — red for the right reason, not an incidental assertion mismatch.
+  GREEN (Task 2: concierge.py fixed) = 38 collected, 37 passed, 1 failed (same 1 pre-existing,
+  unchanged failure reason).
+  Independently re-run by the orchestrating agent after the executor's own report, at BOTH the
+  RED and GREEN stages — identical counts each time, not just trusted.
+Goldens: 10 passed / 0 failed (the 5 test_characterization_*.py files under tests/agents/ — the
+  bare tests/agents/characterization/ directory alone collects 0 items, the known ISS-145 trap:
+  "collected 0 items" with exit 0 reads as a false pass). git status --porcelain confirms zero
+  golden fixture files touched. Independently re-run by the orchestrating agent.
+lint-imports: 4 kept / 0 broken (run from backend/ — "Analyzed 215 files, 526 dependencies";
+  from any other cwd it prints "Could not read any configuration" and false-passes).
+  Independently re-run.
+Extra gates (not required by the plan, run for completeness by the orchestrating agent):
+  test_sc001_lane_router_concierge.py (9 passed) + test_banned_patterns.py (14 passed) = 23
+  passed. Confirms no workflow-name literal was introduced into concierge.py and INV-13 holds
+  (the new tool constructs no model/agent/runner).
+Regression guards:
+  - test_every_read_tool_denies_cross_owner: BYTE-UNCHANGED, stays GREEN. Its predicate
+    (`not out or out == {} or out.get("error") or out.get("agents_started") == 0`) is WHY the
+    unavailable shape must carry a truthy `error` key — a bare {"available": false} matches none
+    of those branches and would have turned this standing security guard red. Satisfied by
+    returning honest data, never by loosening the assertion.
+  - test_no_tool_accepts_a_run_id_argument: unaffected — get_token_usage takes zero parameters,
+    so run scoping stays a closure, never model-controlled input.
+  - test_no_tool_returns_unbounded_event_history (the ISS-092 bound, 25,000-char ceiling): sweeps
+    every tool _read_tools returns and automatically covers the new one — its result is a few
+    hundred bytes, trivially bounded, no new ceiling needed.
+```
+
+**The one pre-existing failure is a stale test, not a regression — filed separately (ISS-151),
+not fixed here.** `test_compose_system_prompt_injects_chain_hints_block` fails at
+`assert "chained into" not in no_hints and "follow-up" not in no_hints` because the BASE prompt
+(unrelated to chain hints) now unconditionally contains both literals — "Never ask the user
+**follow-up** questions..." (RESPONSE RULES) and "chain it into a **follow-up** workflow" /
+"**chained into**" (INTENT ROUTING). Reproduced independently, byte-identical, both BEFORE and
+AFTER this fix; the fix's own new honesty-rule sentence was confirmed to contain neither literal,
+so it neither caused nor worsened this. The test's positive half (`no_hints == empty_hints`)
+still passes and is unaffected.
+
+**The narrow return shape is a deliberate, tested scope decision, not an oversight.** The source
+`workflow_runs.token_usage` blob (`app/api/run_commands.py:2332-2354`) carries seven keys; the new
+tool surfaces four of the numeric ones plus `available`. Cache read/write, `model_id`, and the
+uncached-counterfactual cost are asserted ABSENT by `test_get_token_usage_omits_cache_and_model_fields`
+so a later widening fails CI instead of shipping silently — those three areas are real, separately
+tracked gaps (ISS-149), not accidental omissions. The original investigation's own recommended
+tool shape included cache read/write; the resolving orchestrator deliberately narrowed it so this
+fix does not silently close part of ISS-149 without that being a decision anyone made on purpose.
+
+**An ID collision was resolved before allocation.** The four-source sweep (register + card store +
+commit messages on this branch AND `origin/dev` + `git log --all`) confirmed FIX-248/TEST-031/
+ISS-147 are genuinely taken — by `quick-260813-3wo`'s SSE-replay fix, a different defect entirely —
+with no further collisions above that floor, landing this entry at TEST-032/FIX-249/ISS-148.
+
