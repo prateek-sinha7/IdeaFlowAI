@@ -163,6 +163,7 @@
       "ISS-054"
     ],
     "FIX-189": [
+      "FIX-216b",
       "ISS-055",
       "ISS-066"
     ],
@@ -189,6 +190,7 @@
     ],
     "FIX-201": [
       "FIX-206",
+      "FIX-220",
       "FIX-235",
       "ISS-080",
       "ISS-110",
@@ -198,14 +200,25 @@
     "FIX-202": [
       "FIX-203",
       "FIX-204",
-      "FIX-208"
+      "FIX-208",
+      "FIX-215"
     ],
     "FIX-203": [
       "FIX-204",
-      "FIX-205"
+      "FIX-205",
+      "FIX-215"
+    ],
+    "FIX-204": [
+      "FIX-215"
+    ],
+    "FIX-205": [
+      "FIX-215"
     ],
     "FIX-210": [
       "ISS-054"
+    ],
+    "FIX-212": [
+      "FIX-216b"
     ],
     "FIX-214": [
       "ISS-069"
@@ -213,8 +226,14 @@
     "FIX-215": [
       "ISS-069"
     ],
+    "FIX-216": [
+      "ISS-155"
+    ],
+    "FIX-216b": [
+      "FIX-219"
+    ],
     "FIX-217": [
-      "FIX-218",
+      "FIX-252",
       "ISS-063",
       "ISS-065",
       "ISS-086"
@@ -223,12 +242,18 @@
       "ISS-062",
       "ISS-064",
       "ISS-072",
-      "ISS-074"
+      "ISS-074",
+      "ISS-156",
+      "ISS-158"
+    ],
+    "FIX-219": [
+      "ISS-161"
     ],
     "FIX-220": [
       "ISS-072",
       "ISS-074",
-      "ISS-111"
+      "ISS-111",
+      "ISS-157"
     ],
     "FIX-221": [
       "FIX-222",
@@ -288,7 +313,8 @@
     ],
     "FIX-233": [
       "ISS-100",
-      "ISS-101"
+      "ISS-101",
+      "ISS-158"
     ],
     "FIX-234": [
       "ISS-103",
@@ -368,11 +394,17 @@
       "ISS-146"
     ],
     "FIX-249": [
-      "ISS-152"
+      "ISS-148",
+      "ISS-149",
+      "ISS-150",
+      "ISS-151",
+      "ISS-152",
+      "ISS-160"
     ],
     "FIX-250": [
       "ISS-152",
-      "ISS-154"
+      "ISS-154",
+      "ISS-160"
     ],
     "ISS-007": [
       "ISS-035"
@@ -431,21 +463,21 @@
       "ISS-048"
     ],
     "ISS-050": [
-      "FIX-218",
+      "FIX-252",
       "ISS-051",
       "ISS-055",
       "ISS-066"
     ],
     "ISS-051": [
-      "FIX-218"
+      "FIX-252"
     ],
     "ISS-052": [
-      "FIX-220",
+      "FIX-254",
       "ISS-072",
       "ISS-073"
     ],
     "ISS-053": [
-      "FIX-219",
+      "FIX-253",
       "ISS-071",
       "ISS-090"
     ],
@@ -461,12 +493,12 @@
       "ISS-066"
     ],
     "ISS-062": [
-      "FIX-220"
+      "FIX-254"
     ],
     "ISS-063": [
-      "FIX-220",
       "FIX-221",
       "FIX-222",
+      "FIX-254",
       "ISS-065",
       "ISS-075",
       "ISS-080",
@@ -505,14 +537,14 @@
       "ISS-079"
     ],
     "ISS-070": [
-      "FIX-219",
+      "FIX-253",
       "ISS-128"
     ],
     "ISS-071": [
-      "FIX-219"
+      "FIX-253"
     ],
     "ISS-072": [
-      "FIX-220"
+      "FIX-254"
     ],
     "ISS-074": [
       "ISS-094",
@@ -591,7 +623,8 @@
     "ISS-092": [
       "ISS-033",
       "ISS-034",
-      "ISS-100"
+      "ISS-100",
+      "ISS-158"
     ],
     "ISS-097": [
       "ISS-129",
@@ -660,7 +693,17 @@
       "ISS-126"
     ],
     "ISS-140": [
-      "ISS-139"
+      "ISS-139",
+      "ISS-148"
+    ],
+    "ISS-149": [
+      "ISS-148"
+    ],
+    "ISS-150": [
+      "ISS-149"
+    ],
+    "ISS-153": [
+      "ISS-161"
     ]
   },
   "by_area": {
@@ -762,6 +805,8 @@
       "FIX-170",
       "FIX-177",
       "FIX-182",
+      "FIX-183",
+      "FIX-184",
       "FIX-185",
       "FIX-187",
       "FIX-190",
@@ -770,10 +815,6 @@
       "FIX-206",
       "FIX-208",
       "FIX-213",
-      "FIX-217",
-      "FIX-218",
-      "FIX-219",
-      "FIX-220",
       "FIX-221",
       "FIX-222",
       "FIX-223",
@@ -797,6 +838,10 @@
       "FIX-246",
       "FIX-249",
       "FIX-250",
+      "FIX-251",
+      "FIX-252",
+      "FIX-253",
+      "FIX-254",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -879,8 +924,12 @@
       "ISS-137",
       "ISS-144",
       "ISS-145",
+      "ISS-148",
+      "ISS-151",
       "ISS-152",
       "ISS-154",
+      "ISS-156",
+      "ISS-158",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -982,7 +1031,6 @@
       "FIX-154",
       "FIX-167",
       "FIX-167b",
-      "FIX-217",
       "FIX-222",
       "FIX-226",
       "FIX-228",
@@ -995,6 +1043,7 @@
       "FIX-246",
       "FIX-249",
       "FIX-250",
+      "FIX-251",
       "ISS-001",
       "ISS-004",
       "ISS-011",
@@ -1024,8 +1073,11 @@
       "ISS-115",
       "ISS-123",
       "ISS-145",
+      "ISS-148",
+      "ISS-149",
       "ISS-152",
       "ISS-154",
+      "ISS-159",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -1087,6 +1139,8 @@
       "FIX-105",
       "FIX-133",
       "FIX-137",
+      "FIX-158",
+      "FIX-162",
       "FIX-207",
       "FIX-221",
       "FIX-223",
@@ -1148,8 +1202,15 @@
       "ISS-131",
       "ISS-145",
       "ISS-146",
+      "ISS-148",
+      "ISS-149",
+      "ISS-150",
+      "ISS-151",
       "ISS-152",
       "ISS-154",
+      "ISS-158",
+      "ISS-160",
+      "ISS-161",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -1264,10 +1325,9 @@
       "FIX-211",
       "FIX-212",
       "FIX-213",
+      "FIX-216b",
       "FIX-217",
-      "FIX-218",
       "FIX-219",
-      "FIX-220",
       "FIX-223",
       "FIX-224",
       "FIX-231",
@@ -1285,6 +1345,10 @@
       "FIX-248",
       "FIX-249",
       "FIX-250",
+      "FIX-251",
+      "FIX-252",
+      "FIX-253",
+      "FIX-254",
       "ISS-033",
       "ISS-054",
       "ISS-055",
@@ -1308,8 +1372,12 @@
       "ISS-123",
       "ISS-124",
       "ISS-144",
+      "ISS-150",
+      "ISS-151",
       "ISS-152",
       "ISS-153",
+      "ISS-156",
+      "ISS-158",
       "TEST-46"
     ],
     "cost": [
@@ -1525,6 +1593,9 @@
       "FIX-209",
       "FIX-210",
       "FIX-212",
+      "FIX-214",
+      "FIX-215",
+      "FIX-217",
       "FIX-220",
       "FIX-221",
       "FIX-222",
@@ -1537,6 +1608,7 @@
       "FIX-245",
       "FIX-247",
       "FIX-248",
+      "FIX-254",
       "ISS-022",
       "ISS-025",
       "ISS-054",
@@ -1571,6 +1643,8 @@
       "ISS-143",
       "ISS-147",
       "ISS-154",
+      "ISS-156",
+      "ISS-157",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -1639,8 +1713,6 @@
       "FIX-121",
       "FIX-125",
       "FIX-152",
-      "FIX-217",
-      "FIX-218",
       "FIX-221",
       "FIX-223",
       "FIX-225",
@@ -1656,6 +1728,8 @@
       "FIX-243",
       "FIX-244",
       "FIX-250",
+      "FIX-251",
+      "FIX-252",
       "ISS-048",
       "ISS-051",
       "ISS-063",
@@ -1808,6 +1882,7 @@
       "FIX-152",
       "FIX-156",
       "FIX-157",
+      "FIX-159",
       "FIX-170",
       "FIX-172",
       "FIX-173",
@@ -1818,7 +1893,6 @@
       "FIX-206",
       "FIX-207",
       "FIX-210",
-      "FIX-219",
       "FIX-221",
       "FIX-223",
       "FIX-225",
@@ -1844,6 +1918,7 @@
       "FIX-247",
       "FIX-248",
       "FIX-249",
+      "FIX-253",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -1921,7 +1996,11 @@
       "ISS-145",
       "ISS-146",
       "ISS-147",
+      "ISS-149",
+      "ISS-151",
       "ISS-154",
+      "ISS-156",
+      "ISS-159",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -1986,7 +2065,9 @@
       "ISS-094",
       "ISS-096",
       "ISS-114",
-      "ISS-145"
+      "ISS-145",
+      "ISS-151",
+      "ISS-156"
     ],
     "tooling": [
       "ISS-050",
@@ -2088,6 +2169,8 @@
       "FIX-202",
       "FIX-205",
       "FIX-212",
+      "FIX-215",
+      "FIX-217",
       "FIX-221",
       "FIX-222",
       "FIX-223",
@@ -2168,6 +2251,10 @@
       "ISS-142",
       "ISS-143",
       "ISS-145",
+      "ISS-148",
+      "ISS-149",
+      "ISS-150",
+      "ISS-151",
       "ISS-152",
       "ISS-154",
       "PH-04-manifest-compiler-1a",
@@ -2268,10 +2355,10 @@
       "BUG-009-sse"
     ],
     "backend/agents/capabilities/gates/approval.py": [
-      "FIX-219"
+      "FIX-253"
     ],
     "backend/agents/capabilities/gates/human.py": [
-      "FIX-219"
+      "FIX-253"
     ],
     "backend/agents/capabilities/hooks/__init__.py": [
       "FIX-007b"
@@ -2293,8 +2380,8 @@
       "FIX-190"
     ],
     "backend/agents/execution_engine/context.py": [
-      "FIX-217",
-      "FIX-218"
+      "FIX-251",
+      "FIX-252"
     ],
     "backend/agents/execution_engine/engine.py": [
       "FIX-016",
@@ -2312,14 +2399,14 @@
       "FIX-171",
       "FIX-175",
       "FIX-190",
-      "FIX-217",
-      "FIX-218",
-      "FIX-219",
-      "FIX-220",
       "FIX-232",
       "FIX-239",
       "FIX-240",
-      "FIX-242"
+      "FIX-242",
+      "FIX-251",
+      "FIX-252",
+      "FIX-253",
+      "FIX-254"
     ],
     "backend/agents/execution_engine/fanout.py": [
       "FIX-232"
@@ -2517,7 +2604,8 @@
       "FIX-213",
       "FIX-233",
       "FIX-249",
-      "ISS-054"
+      "ISS-054",
+      "ISS-158"
     ],
     "backend/app/agents/chat_narrator.py": [
       "FIX-083",
@@ -2575,12 +2663,14 @@
       "FIX-210",
       "FIX-212",
       "FIX-213",
+      "FIX-216b",
       "FIX-219",
       "FIX-233",
       "FIX-239",
       "FIX-241",
       "FIX-244",
       "FIX-250",
+      "FIX-253",
       "ISS-054",
       "ISS-055",
       "ISS-066",
@@ -2588,7 +2678,7 @@
     ],
     "backend/app/api/run_engine.py": [
       "FIX-152",
-      "FIX-219"
+      "FIX-253"
     ],
     "backend/app/api/run_shutdown.py": [
       "FIX-234",
@@ -2610,7 +2700,8 @@
       "FIX-145",
       "FIX-151",
       "FIX-173",
-      "FIX-179"
+      "FIX-179",
+      "FIX-217"
     ],
     "backend/app/api/websocket.py": [
       "FIX-012",
@@ -2676,9 +2767,9 @@
     ],
     "backend/tests/agents/characterization/_normalize.py": [
       "FIX-036",
-      "FIX-220",
       "FIX-223",
-      "FIX-239"
+      "FIX-239",
+      "FIX-254"
     ],
     "backend/tests/agents/characterization/golden/od_ppt.events.json": [
       "FIX-031"
@@ -2701,7 +2792,8 @@
       "FIX-034"
     ],
     "backend/tests/agents/test_concierge_capability.py": [
-      "FIX-249"
+      "FIX-249",
+      "ISS-151"
     ],
     "backend/tests/agents/test_context_providers.py": [
       "FIX-031",
@@ -2715,7 +2807,7 @@
       "FIX-232"
     ],
     "backend/tests/agents/test_gate_revision_discriminator.py": [
-      "FIX-220"
+      "FIX-254"
     ],
     "backend/tests/agents/test_gates.py": [
       "FIX-231"
@@ -2752,26 +2844,26 @@
       "ISS-079"
     ],
     "backend/tests/agents/test_redo_gate_safety.py": [
-      "FIX-218"
+      "FIX-252"
     ],
     "backend/tests/agents/test_restart_resume.py": [
       "FIX-175",
-      "FIX-217",
-      "FIX-220",
       "FIX-232",
       "FIX-242",
+      "FIX-251",
+      "FIX-254",
       "ISS-078"
     ],
     "backend/tests/agents/test_spec_revision_context.py": [
-      "FIX-217"
+      "FIX-251"
     ],
     "backend/tests/agents/test_spec_revision_cycles.py": [
-      "FIX-218",
-      "FIX-219",
-      "FIX-220"
+      "FIX-252",
+      "FIX-253",
+      "FIX-254"
     ],
     "backend/tests/agents/test_update_specs_enforcement.py": [
-      "FIX-219"
+      "FIX-253"
     ],
     "backend/tests/conftest.py": [
       "FIX-238",
@@ -2817,6 +2909,9 @@
     "backend/tests/unit/test_revision_intelligence.py": [
       "FIX-185"
     ],
+    "backend/tests/unit/test_run_commands_fix218.py": [
+      "ISS-156"
+    ],
     "backend/tests/unit/test_run_events.py": [
       "FIX-240"
     ],
@@ -2825,7 +2920,7 @@
       "FIX-248"
     ],
     "backend/tests/unit/test_update_specs_ingress_fence.py": [
-      "FIX-219"
+      "FIX-253"
     ],
     "docs/FLOWIN_HANDOFF.md": [
       "FIX-234"
@@ -2930,11 +3025,13 @@
       "FIX-206",
       "FIX-208",
       "FIX-210",
+      "FIX-217",
       "FIX-220",
       "FIX-221",
       "FIX-225",
       "FIX-245",
-      "FIX-247"
+      "FIX-247",
+      "FIX-254"
     ],
     "frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts": [
       "FIX-245",
@@ -2974,7 +3071,8 @@
     ],
     "frontend/src/components/chat/InlineClarifyActions.tsx": [
       "FIX-094",
-      "FIX-095"
+      "FIX-095",
+      "FIX-214"
     ],
     "frontend/src/components/chat/InlineGateActions.test.tsx": [
       "ISS-073"
@@ -2982,7 +3080,7 @@
     "frontend/src/components/chat/InlineGateActions.tsx": [
       "FIX-154",
       "FIX-163",
-      "FIX-220"
+      "FIX-254"
     ],
     "frontend/src/components/chat/ResultCard.test.tsx": [
       "FIX-128",
@@ -3017,7 +3115,7 @@
       "FIX-192",
       "FIX-193",
       "FIX-212",
-      "FIX-220",
+      "FIX-254",
       "ISS-054"
     ],
     "frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx": [
@@ -3103,7 +3201,9 @@
       "FIX-205",
       "FIX-208",
       "FIX-210",
-      "FIX-220",
+      "FIX-215",
+      "FIX-217",
+      "FIX-254",
       "ISS-054"
     ],
     "frontend/src/components/library/LibraryPage.tsx": [
@@ -3177,7 +3277,7 @@
       "FIX-154",
       "FIX-163",
       "FIX-206",
-      "FIX-220"
+      "FIX-254"
     ],
     "frontend/src/components/results/artifactPreview.tsx": [
       "FIX-237"
@@ -3278,6 +3378,9 @@
     "frontend/src/hooks/__tests__/terminalStatusReconcile.test.ts": [
       "FIX-245"
     ],
+    "frontend/src/hooks/useChatAttachments.test.ts": [
+      "ISS-156"
+    ],
     "frontend/src/hooks/useNotifications.fix202.test.tsx": [
       "FIX-202"
     ],
@@ -3285,7 +3388,8 @@
       "FIX-145",
       "FIX-148",
       "FIX-202",
-      "FIX-204"
+      "FIX-204",
+      "FIX-215"
     ],
     "frontend/src/hooks/useRunChat.test.ts": [
       "FIX-128"
@@ -3307,7 +3411,9 @@
       "FIX-201",
       "FIX-220",
       "FIX-221",
-      "FIX-225"
+      "FIX-225",
+      "FIX-254",
+      "ISS-157"
     ],
     "frontend/src/hooks/useRunStream.test.ts": [
       "FIX-129"
@@ -3382,9 +3488,9 @@
       "FIX-156",
       "FIX-166",
       "FIX-178",
-      "FIX-220",
       "FIX-221",
-      "FIX-225"
+      "FIX-225",
+      "FIX-254"
     ],
     "scripts/cutover_legacy_runs.py": [
       "ISS-089"
@@ -3516,21 +3622,21 @@
     "FIX-208": [
       "FIX-202"
     ],
-    "FIX-218": [
-      "FIX-217",
-      "ISS-050",
-      "ISS-051"
+    "FIX-215": [
+      "FIX-202",
+      "FIX-203",
+      "FIX-204",
+      "FIX-205"
+    ],
+    "FIX-216b": [
+      "FIX-189",
+      "FIX-212"
     ],
     "FIX-219": [
-      "ISS-053",
-      "ISS-070",
-      "ISS-071"
+      "FIX-216b"
     ],
     "FIX-220": [
-      "ISS-052",
-      "ISS-062",
-      "ISS-063",
-      "ISS-072"
+      "FIX-201"
     ],
     "FIX-221": [
       "FIX-222",
@@ -3546,6 +3652,22 @@
     ],
     "FIX-235": [
       "FIX-201"
+    ],
+    "FIX-252": [
+      "FIX-217",
+      "ISS-050",
+      "ISS-051"
+    ],
+    "FIX-253": [
+      "ISS-053",
+      "ISS-070",
+      "ISS-071"
+    ],
+    "FIX-254": [
+      "ISS-052",
+      "ISS-062",
+      "ISS-063",
+      "ISS-072"
     ],
     "ISS-012": [
       "ISS-014"
@@ -4031,12 +4153,49 @@
     "ISS-146": [
       "FIX-248"
     ],
+    "ISS-148": [
+      "FIX-249",
+      "ISS-140",
+      "ISS-149"
+    ],
+    "ISS-149": [
+      "FIX-249",
+      "ISS-150"
+    ],
+    "ISS-150": [
+      "FIX-249"
+    ],
+    "ISS-151": [
+      "FIX-249"
+    ],
     "ISS-152": [
       "FIX-249",
       "FIX-250"
     ],
     "ISS-154": [
       "FIX-250"
+    ],
+    "ISS-155": [
+      "FIX-216"
+    ],
+    "ISS-156": [
+      "FIX-218"
+    ],
+    "ISS-157": [
+      "FIX-220"
+    ],
+    "ISS-158": [
+      "FIX-218",
+      "FIX-233",
+      "ISS-092"
+    ],
+    "ISS-160": [
+      "FIX-249",
+      "FIX-250"
+    ],
+    "ISS-161": [
+      "FIX-219",
+      "ISS-153"
     ]
   },
   "rules_by_file": {

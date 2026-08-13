@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-714 cards · rules 1 · fixes 247 · issues 150 · phases 23 · built 2026-08-13 08:18
+738 cards · rules 1 · fixes 260 · issues 161 · phases 23 · built 2026-08-13 12:57
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -12,12 +12,16 @@ Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
 
 ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher, to achieve a quiet disconnect that cannot race the React render cycle, accepting that every new terminal frame type must be added to that branch by hand.
 
-## Fixes (247)
+## Fixes (260)
 
 FIX-250 2026-08-13 [backend,resume,workflow,agents,auth,artifacts] Every completed revision run silently lost 7 WorkflowRun output columns — the fourth caller BUG-R03 never wired, and the row it defeated (get_token_usage, FIX-249) had shipped the SAME session (ISS-152)
 FIX-249 2026-08-13 [backend,sse,workflow,agents,auth,artifacts] The Concierge told a user the product "does not expose billing or token usage metrics" and referred them to support, for a number rendered inches away in the same viewport (ISS-148)
 FIX-248 2026-08-13 [backend,frontend,sse,auth] The narrator's "Delivered — open in Preview" milestone card rendered TWICE in the run chat lane after a mid-run SSE reconnect (ISS-146)
 FIX-247 2026-08-13 [frontend,sse,evals] Stop at the clarify gate cancelled the run, but the screen never repainted — the live terminal handler cleared only legacy React state, never the run store the lane actually reads (ISS-140)
+FIX-220 2026-08-13 [frontend] Maximum update depth exceeded — useWorkflow.pipelineState sync effect fires 26× per SSE frame causing infinite re-render loop; coalesced via rAF
+FIX-219 2026-08-13 [backend] od_ppt Concierge revision routes to ppt_revision (2 agents) instead of od_ppt_revision (1 agent) — FIX-216b regression; stale proposal correction added
+FIX-254 2026-08-12 [backend,frontend,agents] One "Update the Specs" click opened the analyze gate THREE times and nothing on the wire told the firings apart — A modelling gap, not a mechanism: the sub-pipeline was DESIGNED headless
+FIX-253 2026-08-12 [backend,sse,agents] update_specs_eligible was advertised but never enforced — the review gate ran the spec-revision sub-pipeline at firings that had published the affordance as unavailable
 FIX-246 2026-08-12 [backend,sse,workflow,agents,auth,artifacts] The historical event loss was recorded as an unmeasured range with a half-wrong justification (ISS-123); it is now a read-only, re-runnable audit. Shipped backend/scripts/audit_lost_run_events.py — mode=ro, zero INSERT/UPDATE/DELETE/ALTER
 FIX-245 2026-08-12 [frontend,sse,workflow] A reopened TERMINAL run rendered as if it were still live — header "Awaiting approval", an armed Stop button, armed gate cards (ISS-126)
 FIX-244 2026-08-12 [backend,sse,resume] The two app-layer driver terminals wrote no durable row at all, so the owner's Stop was recorded as a FAILURE and fresh corrupted runs were still being minted (ISS-124)
@@ -44,10 +48,12 @@ FIX-224 2026-08-12 [backend,agents] The agents.capabilities must not import the 
 FIX-223 2026-08-12 [backend,sse,resume,workflow,agents,auth] The 5 characterization event goldens — the project's INV-3 parity oracle — had been red on dev for weeks, so INV-3 could only be checked by diffing failure counts against a hand-captured baseline
 FIX-222 2026-08-12 [frontend,workflow,agents,artifacts] No UI surfaced PER-ARTIFACT versions inside a run. artifact_refs durably stores every version and GET /api/runs/{id}/artifacts?kind=X&include=content already returns each one WITH its body
 FIX-221 2026-08-12 [frontend,sse,resume,workflow,agents,auth] The violet "Spec Revision Cycle N" banner was dead on every path for od_prototype, not merely absent on reload as ISS-063 filed it
-FIX-220 2026-08-12 [backend,frontend,agents] One "Update the Specs" click opened the analyze gate THREE times and nothing on the wire told the firings apart — A modelling gap, not a mechanism: the sub-pipeline was DESIGNED headless
-FIX-219 2026-08-12 [backend,sse,agents] update_specs_eligible was advertised but never enforced — the review gate ran the spec-revision sub-pipeline at firings that had published the affordance as unavailable
-FIX-218 2026-08-11 [backend,resume,agents] A second "Update the Specs" at the RE-OPENED analyze gate was a silent no-op — the gate closed, instantly re-opened on identical content, no revision ran, and the build proceeded from the unrevised spec (defect B)
-FIX-217 2026-08-11 [backend,resume,agents,artifacts] update_specs regenerated the spec from scratch instead of revising it, and every resumed run rebuilt its planning context from a 200-char stub — the degraded spec then drove the planner and the finished prototype, with no UI signal
+FIX-217 2026-08-12 [backend,frontend,workflow] Chain context missing when chaining from prototype/ppt revisions — ancestor walk only went one level; stale chain context leaking; empty brief on wizard-chained launches (FIX-216c included)
+FIX-252 2026-08-11 [backend,resume,agents] A second "Update the Specs" at the RE-OPENED analyze gate was a silent no-op — the gate closed, instantly re-opened on identical content, no revision ran, and the build proceeded from the unrevised spec (defect B)
+FIX-251 2026-08-11 [backend,resume,agents,artifacts] update_specs regenerated the spec from scratch instead of revising it, and every resumed run rebuilt its planning context from a 200-char stub — the degraded spec then drove the planner and the finished prototype, with no UI signal
+FIX-216b 2026-08-11 [backend] od_prototype/od_ppt revision maps to wrong pipeline type — od_prototype_revision has no registered agents and is excluded from hexaware tier, causing pipeline_not_entitled on Concierge-proposed revisions
+FIX-215 2026-08-11 [frontend,workflow] Notification click always opened latest run instead of clicked run — workflowRunId never stamped on completion; onViewResults fell through to type-based stale lookup
+FIX-214 2026-08-11 [frontend] Clarify action button labels updated — 'Submit answers & start the build' → 'Submit answers & proceed'; 'Skip questions & start the build' → 'Proceed with auto recommendation'
 FIX-213 2026-08-11 [backend,agents] Concierge system prompt overhaul — emojis, internals leakage, verbose agent detail, no proactive next-step, wrong run state label
 FIX-212 2026-08-11 [backend,frontend,workflow] "Start this workflow" chain chip persisted after clicking; revision pipeline_not_entitled; blank bubble on confirm; confirm button no feedback
 FIX-211 2026-08-11 [backend] chat_router auto-approved gate / auto-submitted clarify on plain chat text — PHASE_GATE_PAUSED: plain text with no gate action defaulted to action="approve" — any chat message during a review gate silently approved it
@@ -61,6 +67,8 @@ FIX-204 2026-08-07 [frontend] Duplicate notification entries in panel — 2× Pr
 FIX-203 2026-08-07 [frontend] Background concurrent run completion never marked on notification — User Stories completed but notification stayed "running"
 FIX-202 2026-08-07 [frontend,sse,workflow] Notification panel refactor: localStorage persistence, per-item dismiss, toast run navigation, duplicate/stale entry elimination
 FIX-201 2026-08-07 [frontend,workflow,sse] ISS-061 continued: concurrent run cross-contamination — agents/clarify questions/review gates from one run appearing in another; per-run state store (useRunStateStore) with viewport pattern; agent progress not showing after clarify submit / gate approval; infinite re-render loop (setCursor); duplicate toast keys
+FIX-162 2026-08-07 [auth] Part of the QA-guardrails / knowledge-cards / auth-atomicity batch. Exact FIX-162 scope is NOT recoverable — Not recorded
+FIX-158 2026-08-07 [auth] Part of the QA-guardrails / knowledge-cards / auth-atomicity batch. Exact FIX-158 scope is NOT recoverable — Not recorded
 FIX-195 2026-08-06 [frontend,workflow] ISS-061: Header badge/notification clicks navigate to wrong run; Steps panel shows two-run hybrid; notification row tap does nothing (KAN-166)
 FIX-194 2026-08-06 [frontend,workflow,agents] ISS-060: Completion notification/toast is not run-scoped — finishing run marks a DIFFERENT live run as "complete"; toast shows wrong label (KAN-166)
 FIX-193 2026-08-06 [frontend,agents] ISS-059: Concierge free-text ask during an active ("building") run silently no-ops — every message typed while agents are running returns HTTP 200 {"channel":"steering"} with no reply (KAN-165)
@@ -72,6 +80,8 @@ FIX-188 2026-08-06 [frontend] Concierge chain/gate_action/revision proposals nev
 FIX-187 2026-08-06 [backend,agents] Custom template upload silently discarded — both od_context.py loaders used custom_template_body as boolean flag only, never writing content into template_body; replaced catalog fallbacks with _synthesize_custom_template helper
 FIX-186 2026-08-06 [frontend] Custom design system body silently dropped — wire key mismatch custom_design_system_body vs custom_ds_body in DashboardLayout.tsx; 3 literals renamed to match backend LaunchCommand field
 FIX-185 2026-08-06 [backend,workflow,agents] CR-02 guard blocks prototype_revision and user_stories_revision via chat-lane revision channel — planner: run → skip in both manifests; user_stories_revision also requires clarify.mode: auto → skip (ATOMIC); two parity-test frozensets updated; rejection test retargeted; new succeed-path test added
+FIX-184 2026-08-05 [agents] One of three fixes shipped together: build-agent done badge, narrator crash, gate box in chat. Which of the three is FIX-184 is NOT recoverable — see FIX-183
+FIX-183 2026-08-05 [agents] One of three fixes shipped together: build-agent done badge, narrator crash, gate box in chat. Which of the three is FIX-183 is NOT recoverable — the commit writes them as the range FIX-182/183/184
 FIX-182 2026-08-05 [agents] Build agent shows DONE / checkmark in Steps spine and left-panel agent list during task-loop iterations — FIX-177 fixed constructionComplete in AgentThinkingTab (L2 task list) but StepsOverviewSpine agent rows, progress bar
 FIX-181 2026-08-05 [frontend] Remove text input area, 'Or start from a deliverable' label, and 'Create workflow' button from home dashboard — UI elements present but non-functional or no longer needed
 FIX-180 2026-08-05 [frontend] Duplicate 'Approved — build continues' clarify card shown in chat after gate approve — stale pre-FIX-178 narrator DB row replayed by getRunEvents; tombstone guard added in useRunChat handleFrame chat_reply case
@@ -93,6 +103,8 @@ FIX-166 2026-08-03 [frontend,workflow,agents] Build Agent task list shows all ta
 FIX-165 2026-08-03 [frontend] Analyze gate approve requires 2 clicks — first click disables button but does nothing visible
 FIX-164 2026-08-03 [frontend,agents] specRevisionCount over-counting — shows "Cycle 6" after 1 update_specs click
 FIX-163 2026-08-03 [frontend,agents] Restore spec revision cycle UX — violet "Spec Revision Cycle N" banner in Steps, elevate "Update the Specs" button out of Request changes, fix approveLabel on analyze gate
+FIX-159 2026-08-02 [sse] EC2 host-config heredocs live in reconcile-host-config.sh, NOT bootstrap-ec2.sh — corrected, and pinned by a test
+FIX-131 2026-07-xx [-] Safety net for run titles stored in the DB with === markers (with FIX-130, under KAN-116 Bug 3) — Titles persisted containing === separator markers leaked into the history list
 FIX-157 2026-07-31 [frontend,sse,agents] Running dropdown and notification panel: click doesn't open correct run page; progress shows 0/N; onViewResults status filter misses planning/generating
 FIX-156 2026-07-31 [frontend,sse,workflow] Running dropdown not showing user_stories (or any run) — runningPipelines undefined causing crash; recentRuns never passed to AppHeader
 FIX-155 2026-07-31 [frontend,workflow,agents] Header shows duplicate running workflow entries (7 instead of 3) — notifications for prototype/ppt not created when user_stories runs concurrently
@@ -235,6 +247,7 @@ FIX-024 2026-07-01 [backend] Clarify asks fixed irrelevant questions instead of 
 FIX-023 2026-06-30 [frontend,workflow] After prototype revision, chaining to user stories shows stale Specification Review gate — reviewGateData in dashboard/page.tsx is set on review_gate_ready and cleared on review_gate_approved/reject
 FIX-022 2026-06-30 [frontend,sse,agents,artifacts] Prototype Thinking tab hides full prompts, context sources, and agent-handoff artifacts — AgentThinkingTab routes prototype runs to PrototypePipelineView (Phase-card layout) which never renders InputPromptSection, ContextSourcesRow
 FIX-021b 2026-06-30 [frontend,auth] Token count dialog in left panel too large — reduce to single compact line
+FIX-020 2026-06-29 [-] Frontend UX polish batch — thinking tab, notification panel, scroll behaviour, and an XSS fix (KAN-71). Exact FIX-020 scope within that batch is NOT recoverable; the id survives only inside the commit body
 FIX-021 2026-06-25 [frontend,workflow,agents] Notification panel shows "0" text and wrong progress for running pipelines — React renders the number 0 as visible text "0" when n.agentsTotal && ... short-circuits to 0 (falsy number) in JSX
 FIX-019 2026-06-24 [frontend] Model picker shows only label in truncated 140px dropdown — no tier, context window, or description metadata visible
 FIX-018 2026-06-23 [backend,agents,runtime] hook_run WS events never reach the frontend Audit tab — ectx.event_queue never set + after_step never fired
@@ -262,11 +275,22 @@ FIX-002 2026-06-16 [backend,workflow,agents] Vellum template not applied — exa
 FIX-001b 2026-06-16 [backend,agents,artifacts] Harden od-ppt-validator output contract (remove checklist-as-preamble loophole) + fix od-ppt-composer filesystem tool calls on Windows
 FIX-004 2026-06-15 [backend,frontend,workflow,agents,artifacts] Delete pipeline from history does nothing — FK constraint on 9 child tables + silent frontend error
 
-## Issues (150)
+## Issues (161)
 
+ISS-161 - [auth] A pure question posted to a parent run over REST /messages was classified as a REVISION and minted a run. Asking "how many tokens did this run use?" produced "channel":"revision" and created run 0702ceaa
+ISS-160 - [auth] The Concierge is unreachable on a revision run. The same question, same user, same endpoint: the PARENT run answers correctly (exact token/cost figures)
+ISS-159 - [sse,artifacts] A chained run records NO lineage. Chaining passes context by INLINING the parent's context block into the child's input text; neither parent_run_id nor source_run_id is set on the child
+ISS-158 - [backend,agents,auth] dev's Concierge file-override prompt instructs the model to "NEVER call read_events" — a tool this branch DELETED in FIX-233 (ISS-092)
+ISS-157 - [frontend] syncPipelineStateOnly is added to the run store, exported on the interface, and never called — dev's FIX-220 register row says "for future use". The rAF fix it ships alongside still calls runStore.updatePipelineState
+ISS-156 - [backend,frontend,sse,agents,test-infra] dev shipped FIX-218 with five red tests, which the merge inherits. backend/tests/unit/test_run_commands_fix218.py asserts the Concierge prompt contains ## Attached files while dev's own code emits ## PRIORITY OVERRIDE
+ISS-155 - [-] The od_prototype / od_ppt staging guards no longer require a brief, and now DISAGREE with the consumption guards. dev's FIX-216c removed `\
 ISS-154 - [frontend,sse,workflow,agents,auth,artifacts] Switching the in-family version picker to an OLDER, non-latest revision whose .output is NULL shows a blank "Output will appear here" preview instead of the deliverable, or any explanatory message
 ISS-153 - [runtime,backend] A failed revision run shows the user no reason at all. _persist_terminal_status inside _drive_revision_to_queue (run_commands.py:2764, ~line 2803) has NO error parameter
 ISS-152 - [workflow,agents,auth,artifacts,backend] Every completed revision run silently lost 7 WorkflowRun output columns — the fourth caller BUG-R03 never wired
+ISS-151 - [backend,sse,workflow,agents,auth,test-infra] A test's negative assertion has gone stale and can no longer pass, for reasons unrelated to what it guards. backend/tests/agents/test_concierge_capability.py::test_compose_system_prompt_injects_chain_hints_block fails at its final line
+ISS-150 - [workflow,auth,backend] Two different numbers both answer "how long did this run take", and they disagree. pipeline_complete.total_duration is computed at app/api/run_commands.py as round(time.time() - total_start
+ISS-149 - [sse,workflow,auth,artifacts] Five more Concierge answer-gaps have no tool, mirroring the shape FIX-249 just fixed for tokens/cost. (1) Deliverable FILENAME
+ISS-148 - [workflow,agents,auth,artifacts] The Concierge confidently denied that token usage or cost data exists for a run, and referred the user to support — while the exact number was rendered in the same viewport
 ISS-147 - [frontend,sse] pipeline_complete is missing from useRunStream.ts's non-live-close terminal list, so a completed run's stream reconnects when it should settle quietly — ADR-0001's own predicted failure mode, realized
 ISS-146 - [tooling,sse,auth] The narrator's "Delivered — open in Preview" chat card rendered TWICE after a mid-run SSE reconnect. GET /api/runs/{id}/events (api.ts:583-590) merges a durable row's event_id/seq COLUMNS over payload_json
 ISS-145 - [sse,workflow,agents,auth,artifacts,test-infra] Frontend test-suite baselines recorded elsewhere in this repo are stale by roughly an order of magnitude — re-baseline before gating any future fix on suite colour

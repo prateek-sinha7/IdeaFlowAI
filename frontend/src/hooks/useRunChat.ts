@@ -166,6 +166,13 @@ export interface SendMessageOptions {
    * on the parent). Without this, the confirm POSTs to the wrong run → 404.
    */
   targetRunId?: string;
+  /**
+   * FIX-218 (KAN-170): pre-extracted file text entries from chat attachments.
+   * Each entry: {name, text, error?, truncated?}. Folded onto the payload as
+   * `file_contents` so the backend threads the content to the Concierge prompt
+   * and ectx.steering_notes. Absent/empty ⇒ NO `file_contents` key (dormant, INV-3).
+   */
+  file_contents?: { name: string; text: string; error?: string; truncated?: boolean }[];
 }
 
 export interface UseRunChatReturn {
@@ -609,10 +616,12 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
         attachments,
         runId: runId ?? undefined,
       };
-      // Optimistic render — skip when text is empty (e.g. confirm-proposal turns
-      // send text="" and should not add a blank bubble). Guarded so a re-invoke
-      // cannot double-append.
-      if (text.trim()) {
+      // Optimistic render — skip when BOTH text is empty AND no file attachments
+      // (e.g. confirm-proposal turns send text="" and should not add a blank bubble).
+      // FIX-218: a file-only send (text="" but attachments present) DOES render a
+      // bubble — the file chips inside the bubble are the user-visible content.
+      const hasFileAttachments = (attachments ?? []).some((a) => a.kind === "file");
+      if (text.trim() || hasFileAttachments) {
         setMessages((prev) =>
           prev.some((m) => m.id === messageId) ? prev : [...prev, optimistic],
         );
@@ -639,6 +648,11 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
       // array writes NO key (byte-identical dormant payload, INV-3).
       if (options?.chain_hints && options.chain_hints.length > 0) {
         payload.chain_hints = options.chain_hints;
+      }
+      // FIX-218 (KAN-170): fold pre-extracted file text ONLY when non-empty —
+      // absent/empty ⇒ NO `file_contents` key (byte-identical dormant payload, INV-3).
+      if (options?.file_contents && options.file_contents.length > 0) {
+        payload.file_contents = options.file_contents;
       }
       if (legacyWsSend) {
         // Flag-OFF legacy WS up-channel (LOCK-B): same transcript. The concierge

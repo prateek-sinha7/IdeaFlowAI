@@ -884,13 +884,19 @@ function FreeTextComposer({
   hint,
 }: {
   placeholder: string;
-  onSend: (text: string, attachments: ChatAttachment[]) => void;
+  onSend: (text: string, attachments: ChatAttachment[], fileContents?: import("@/hooks/useChatAttachments").FileContentEntry[]) => void;
   hint?: string;
 }) {
   const [value, setValue] = useState("");
   // Remounting ChatAttachments (via key) clears its internal intake after a send.
   const [attachKey, setAttachKey] = useState(0);
   const pendingRef = useRef<PendingAttachment[]>([]);
+  // FIX-218 (KAN-170): track extracted file text entries alongside attachments.
+  const fileContentsRef = useRef<import("@/hooks/useChatAttachments").FileContentEntry[]>([]);
+  // FIX-218: track extraction state so send is disabled while a file is being read.
+  const [isExtracting, setIsExtracting] = useState(false);
+  // Mirror pendingRef length as state so the send button re-renders when attachments change.
+  const [attachmentCount, setAttachmentCount] = useState(0);
   const attachOpenRef = useRef<(() => void) | null>(null);
   // c72 — the textarea element, driven imperatively for the auto-grow (no value
   // effect, so the send-reset stays deterministic + jsdom-testable).
@@ -932,14 +938,19 @@ function FreeTextComposer({
 
   const handleSend = useCallback(() => {
     const text = value.trim();
-    if (!text) return;
-    onSend(text, pendingRef.current);
+    const hasAttachments = pendingRef.current.length > 0;
+    // Allow send if there is text OR attachments (but never if extracting).
+    if (!text && !hasAttachments) return;
+    if (isExtracting) return;
+    onSend(text, pendingRef.current, fileContentsRef.current);
     setValue("");
     pendingRef.current = [];
+    fileContentsRef.current = [];
+    setAttachmentCount(0);
     setAttachKey((k) => k + 1);
     // c72 — collapse the grown box back to a single row after send.
     if (taRef.current) taRef.current.style.height = "auto";
-  }, [value, onSend]);
+  }, [value, onSend, isExtracting]);
 
   return (
     <div className="space-y-2">
@@ -950,6 +961,13 @@ function FreeTextComposer({
         openRef={attachOpenRef}
         onChange={(a) => {
           pendingRef.current = a;
+          setAttachmentCount(a.length);
+        }}
+        onFileContentsChange={(fc) => {
+          fileContentsRef.current = fc;
+        }}
+        onExtractingChange={(extracting) => {
+          setIsExtracting(extracting);
         }}
       />
       <div className="flex items-center gap-[5px] rounded-[var(--radius-menu)] border border-line-control bg-surface-white py-[7px] pl-[13px] pr-[7px]">
@@ -1015,8 +1033,9 @@ function FreeTextComposer({
           type="button"
           data-testid="chat-send"
           onClick={handleSend}
-          disabled={!value.trim()}
-          aria-label="Send message"
+          disabled={isExtracting || (!value.trim() && attachmentCount === 0)}
+          aria-label={isExtracting ? "Reading file…" : "Send message"}
+          title={isExtracting ? "Reading file — please wait" : undefined}
           className="grid h-8 w-8 flex-none place-items-center rounded-[9px] bg-brand text-white transition-colors hover:bg-brand-pressed disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
@@ -1202,85 +1221,68 @@ export function RunChatLane({
   // the classify-intent LLM call is in flight (~1–3s). When the result lands the
   // spinner clears and the revise/chain chip appears. Never a silent 10-second wait.
   const handleFreeText = useCallback(
-    (text: string, attachments: ChatAttachment[]) => {
+    (text: string, attachments: ChatAttachment[], fileContents?: import("@/hooks/useChatAttachments").FileContentEntry[]) => {
+      // FIX-218: when files are attached, the bubble renders the file chips from
+      // message.attachments (MessageBubble handles this). Pass empty string as text
+      // so the backend Concierge receives a clean turn — no synthetic text leaked.
+      const hasFiles = (fileContents && fileContents.length > 0) ||
+        attachments.some((a) => a.kind === "file");
+      const effectiveText = text.trim();
+      // Need at least one of text or files to send.
+      if (!effectiveText && !hasFiles) return;
+
       if (runState === "complete") {
         // Fast path: exact named-target chain (BUG-1 fix — no LLM round-trip needed).
-        const chainId = matchChainTarget(text, suggestions);
+        const chainId = matchChainTarget(effectiveText, suggestions);
         if (chainId && onSuggestion) {
           onSuggestion(chainId);
           return;
         }
 
-        // FIX-119: Echo the user's text as an optimistic bubble IMMEDIATELY,
-        // before the classify-intent LLM call. On a complete run, calling
-        // sendMessage() without { concierge: true } would route through
-        // CHANNEL_REVISION (mechanical router) and create a spurious revision run
-        // BEFORE the confirm chip appears — the double-version bug (FIX-118).
-        // addOptimisticMessage() adds a bubble to local state ONLY with no backend
-        // side-effect. The returned messageId is used to reconcile the bubble when
-        // the ask path later calls sendMessage with { existingMessageId }.
         const echoMessageId = addOptimisticMessage
-          ? addOptimisticMessage(text, attachments)
+          ? addOptimisticMessage(effectiveText, attachments)
           : undefined;
 
         const runId = viewedRunId ?? "";
         const chainHints = suggestions?.map((s) => ({ id: s.id, label: s.label }));
 
-        // FIX-210 (ISS-054): route all settled-run free-text through the Concierge.
-        // The Concierge handles chain/revise/ask classification itself via its tools
-        // (propose_chain, propose_revision, propose_steering_note, direct answers).
-        // The old classify-intent LLM pre-call is removed — it was a redundant round
-        // trip that also bypassed the proposal-chip flow for chain intents.
-        //
-        // Only exception: exact named-target chain (matchChainTarget fast-path above)
-        // — the user literally named a workflow, which is a confirmed intent equivalent
-        // to clicking the chip, so no Concierge round-trip is needed.
         setReplyPending(true);
-        sendMessage(text, attachments, {
+        sendMessage(effectiveText, attachments, {
           concierge: true,
           ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
           ...(chainHints ? { chain_hints: chainHints } : {}),
+          ...(fileContents && fileContents.length > 0 ? { file_contents: fileContents } : {}),
         });
         return;
       }
 
-      // FIX-210 (ISS-054): all "building" state chat routes through the Concierge.
-      // The old classify-intent pre-call (FIX-193) is removed — one Concierge call
-      // handles all intent types (questions, steering, status checks) without an
-      // extra round-trip. Behaviour is identical: the Concierge answers questions
-      // and issues steering notes; non-ask turns get a Concierge reply + no proposal.
-      // LOCKED: "gate"/"terminal" states are NOT touched (42-03).
       if (runState === "building") {
         const echoMessageId = addOptimisticMessage
-          ? addOptimisticMessage(text, attachments)
+          ? addOptimisticMessage(effectiveText, attachments)
           : undefined;
         setReplyPending(true);
-        sendMessage(text, attachments, {
+        sendMessage(effectiveText, attachments, {
           concierge: true,
           ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
+          ...(fileContents && fileContents.length > 0 ? { file_contents: fileContents } : {}),
         });
         return;
       }
 
-      // FIX-210 (ISS-054): "clarify" state — run is paused waiting for answers.
-      // The user may ask questions about the run while the clarify form is open.
-      // Route through the Concierge so it can answer status questions accurately.
-      // The backend's steering_note guard (run_commands.py) prevents the Concierge
-      // from accidentally unblocking the clarify gate via a steering note.
-      // LOCKED: "gate"/"terminal" states are NOT touched (42-03).
       if (runState === "clarify") {
         const echoMessageId = addOptimisticMessage
-          ? addOptimisticMessage(text, attachments)
+          ? addOptimisticMessage(effectiveText, attachments)
           : undefined;
         setReplyPending(true);
-        sendMessage(text, attachments, {
+        sendMessage(effectiveText, attachments, {
           concierge: true,
           ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
+          ...(fileContents && fileContents.length > 0 ? { file_contents: fileContents } : {}),
         });
         return;
       }
 
-      sendMessage(text, attachments);
+      sendMessage(effectiveText, attachments);
     },
     [runState, onRevise, sendMessage, addOptimisticMessage, suggestions, onSuggestion, viewedRunId],
   );
@@ -1972,18 +1974,22 @@ export function RunChatLane({
   const firstUserTurn = messages.find((m) => m.role === "user")?.content;
 
   // The run's input attachments — the mock's chip tray above the composer.
-  // Derived live from the transcript turns' attachments, deduped by name+kind
-  // (SC-001 / ND-D — never a seeded literal).
+  // Only shows attachments from the first user message that are `retained: true`
+  // (launch-brief images/files kept server-side). Mid-chat file sends (FIX-218)
+  // are always `retained: false` — excluded here so they never bleed into the tray.
   const runAttachments = (() => {
     const seen = new Set<string>();
     const out: ChatAttachment[] = [];
-    for (const m of messages) {
-      for (const a of m.attachments ?? []) {
-        const key = `${a.kind}:${a.name}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(a);
-      }
+    const firstUserMsg = messages.find((m) => m.role === "user");
+    if (!firstUserMsg) return out;
+    for (const a of firstUserMsg.attachments ?? []) {
+      // Only show retained attachments in the tray — non-retained refs are honest
+      // "not kept" placeholders and should not persist above the composer.
+      if (!a.retained) continue;
+      const key = `${a.kind}:${a.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(a);
     }
     return out;
   })();

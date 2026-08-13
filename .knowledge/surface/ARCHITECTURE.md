@@ -35,7 +35,7 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 
 | component | what it is | cards | on disk |
 |---|---|---:|---|
-| `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 56 | 27 files |
+| `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 59 | 27 files |
 | `backend/app/services` | application services | 2 | 5 files |
 | `backend/app/models` | persistence — additive migrations only | 1 | 23 files |
 | `backend/agents/execution_engine` | the execution kernel | 37 | 11 files |
@@ -44,9 +44,9 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 | `backend/agents/runtime` | runtime services | 0 | 2 files |
 | `backend/agents/artifact_store` | artifact persistence | 1 | 2 files |
 | `backend/agents/guardrails` | policy enforcement | 0 | 0 files |
-| `frontend/src/app` | Next.js routes | 61 | 24 files |
-| `frontend/src/components` | UI components | 210 | 192 files |
-| `frontend/src/hooks` | client state + stream handling | 40 | 27 files |
+| `frontend/src/app` | Next.js routes | 63 | 24 files |
+| `frontend/src/components` | UI components | 213 | 192 files |
+| `frontend/src/hooks` | client state + stream handling | 44 | 27 files |
 
 **18 workflows** registered — `app_builder`, `app_builder_revision`, `chat`, `custom`, `dotnet_to_azure`, `mulesoft_to_springboot`, `od_ppt`, `od_ppt_revision`, `ppt`, `ppt_revision`, `prototype`, `prototype_revision`, `reverse_engineer`, `sample_brownfield`, `sample_fanout`, `sample_wave`, `user_stories`, `user_stories_revision`
 
@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (280), `workflow` (244), `sse` (218), `frontend` (214), `backend` (124), `auth` (122), `artifacts` (114), `resume` (81).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (286), `workflow` (250), `sse` (223), `frontend` (220), `backend` (131), `auth` (131), `artifacts` (117), `resume` (81).
 
 ## Constraints that bind every phase
 
@@ -66,6 +66,6 @@ Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas c
 
 ## What this file does not know
 
-- Only 1 decision card exists against 275 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
+- Only 1 decision card exists against 288 fixes and bugs. Most rules this project actually follows are still implicit in fix prose — run `knowledge-consolidate` to promote them.
 - Runtime topology (what is deployed where) is not derived — see `docs/SIMPLE_AWS_DEPLOYMENT.md`.
 - The component table counts files and card hits. It does not verify that a component still does what its description says.

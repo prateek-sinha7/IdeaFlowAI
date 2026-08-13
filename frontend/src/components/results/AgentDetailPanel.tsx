@@ -756,7 +756,27 @@ export function AgentDetailPanel({
   const isDone = agent.status === "done";
   const isError = agent.status === "error";
   const reasoning = agent.thinkingText || agent.thinking || "";
-  const sources = agent.contextSources ?? [];
+
+  // FIX-218: extract attached filenames from the revision instruction block so
+  // they appear in the "Context received" panel. The instruction contains
+  // === ATTACHED FILE: {name} === markers when files were attached in chat.
+  // Parse them and add as synthetic run_input ContextSource entries.
+  const attachedFileSources: import("@/types/index").ContextSource[] = [];
+  const prompt = agent.inputPrompt || "";
+  if (prompt.includes("=== ATTACHED FILE:")) {
+    const filePattern = /===\s*ATTACHED FILE:\s*(.+?)\s*===/g;
+    let m: RegExpExecArray | null;
+    const seen = new Set<string>();
+    while ((m = filePattern.exec(prompt)) !== null) {
+      const fname = m[1].trim();
+      if (fname && !seen.has(fname)) {
+        seen.add(fname);
+        attachedFileSources.push({ type: "run_input", label: fname });
+      }
+    }
+  }
+
+  const sources = [...(agent.contextSources ?? []), ...attachedFileSources];
   // The revision diagnostics ("Revision request" + "Changes applied") are
   // revision-only — the mock's fresh-run detail has no such cards. Gate them on
   // the run carrying an actual revision marker (RevisionInstructionCard self-gates

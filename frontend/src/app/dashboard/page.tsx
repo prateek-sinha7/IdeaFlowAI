@@ -421,8 +421,9 @@ export default function DashboardPage() {
         agentIds?: string[];
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
-      // KAN-87: templateId is now optional (no-template mode). Only require designSystemId + brief.
-      if (!draft.designSystemId || !draft.brief) return;
+      // KAN-87: templateId is now optional (no-template mode). Only require designSystemId.
+      // FIX-216c: allow empty brief when chaining (wizard canContinue already validated it).
+      if (!draft.designSystemId) return;
       pendingOdProtoRef.current = {
         templateId: draft.templateId ?? "",  // empty string = no template
         designSystemId: draft.designSystemId,
@@ -457,7 +458,9 @@ export default function DashboardPage() {
         images?: { name: string; mime_type: string; data: string }[];
         agentIds?: string[];
       };
-      if (!draft.templateId || !draft.brief) return;
+      // FIX-216c: allow empty brief when chaining (the chain context block IS the
+      // brief; wizard canContinue guard already validated it). Only require templateId.
+      if (!draft.templateId) return;
       pendingOdPptRef.current = {
         templateId: draft.templateId,
         designSystemId: draft.designSystemId ?? null,
@@ -1642,18 +1645,32 @@ export default function DashboardPage() {
   //   2. activelyBuildingRunIdRef — the run this tab is actively building
   // If either doesn't match (different run's state leaked into useWorkflow, or
   // user is watching a different run than is building), skip the sync.
+  //
+  // FIX-220: coalesce rapid pipelineState changes via rAF to prevent the
+  // setViewedState→re-render→pipelineState-new-obj→effect→setViewedState loop.
+  // handleFrame's project() already updates the UI on every SSE frame. This sync
+  // only needs to fire once per animation frame, not 26× per SSE frame.
+  const syncRafRef = useRef<number | null>(null);
   useEffect(() => {
     const runId = pipelineState.pipelineRunId;
     if (!runId) return;
-    // Both guards: pipelineState must belong to exactly the run being viewed AND built
     if (runId !== activelyBuildingRunIdRef.current) return;
     if (runId !== runStore.viewedRunId) return;
-    // Push into store — project fires automatically since runId === viewedRunIdRef
-    runStore.updatePipelineState(runId, () => pipelineState);
+    // Cancel any pending rAF and schedule a new one with the latest snapshot.
+    if (syncRafRef.current !== null) cancelAnimationFrame(syncRafRef.current);
+    const snapshot = pipelineState;
+    syncRafRef.current = requestAnimationFrame(() => {
+      syncRafRef.current = null;
+      runStore.updatePipelineState(runId, () => snapshot);
+    });
+    return () => {
+      if (syncRafRef.current !== null) {
+        cancelAnimationFrame(syncRafRef.current);
+        syncRafRef.current = null;
+      }
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipelineState]);
-
-  // ─── Phase 31 (CHATUI-01/02/03) — live chat transcript + deep-link seam ──────
+  }, [pipelineState]);  // ─── Phase 31 (CHATUI-01/02/03) — live chat transcript + deep-link seam ──────
 
   // SSE is the LIVE pipeline down-channel. Feed the SAME handleWebSocketMessage
   // router (pipeline / wave / questionnaire / review-gate switch, which

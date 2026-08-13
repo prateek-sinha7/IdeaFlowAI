@@ -1336,21 +1336,27 @@ export function DashboardLayout({
     // page.tsx on pipeline_complete and on history-reopen, so it always points
     // at the run the user is CURRENTLY viewing. Fall back to the type-scan only
     // when contentSourceRunId is absent (e.g. initial state).
+    // FIX-216c: use chainFromType (effectiveReviseType) not workflowType for the
+    // type-scan fallback — workflowType is stale when viewing a history-reopened
+    // run of a different type (e.g. viewing od_prototype while workflowType is
+    // still "user_stories" from a previous run).
+    const effectiveSourceType = chainFromType || workflowType;
     const sourceRunId: string | undefined =
       contentSourceRunId ??
       recentRuns?.find(
-        r => baseWorkflowType(r.type as WorkflowType) === baseWorkflowType(workflowType) && r.status === "completed"
+        r => baseWorkflowType(r.type as WorkflowType) === baseWorkflowType(effectiveSourceType as WorkflowType) && r.status === "completed"
       )?.id;
 
     if (option?.requiresWizard && option.wizardPath) {
-      // Store the current brief so the wizard can pre-fill it
-      const cleanBrief = workflowInput.split("\n\n===")[0].trim();
-      sessionStorage.setItem(CHAIN_BRIEF_KEY, cleanBrief);
-      sessionStorage.setItem(CHAIN_FROM_KEY, workflowType);
+      // FIX-217: fetch context FIRST so we can use ctx.brief as fallback for
+      // the brief when workflowInput is stale/empty (history-reopened run or
+      // Concierge-chained run never sets workflowInput in DashboardLayout).
+      let ctxBriefFallback = "";
+      // Clear any stale context_block from a previous chain before writing new one.
+      sessionStorage.removeItem("chain.context_block");
+      sessionStorage.setItem(CHAIN_FROM_KEY, chainFromType || workflowType);
       if (sourceRunId) {
         sessionStorage.setItem(CHAIN_SOURCE_RUN_ID_KEY, sourceRunId);
-        // Also store the structured context so the wizard can pass it
-        // as part of the brief when the pipeline fires
         try {
           const token = getToken();
           if (token) {
@@ -1358,12 +1364,15 @@ export function DashboardLayout({
             if (ctx.context_block) {
               sessionStorage.setItem("chain.context_block", ctx.context_block);
             }
+            ctxBriefFallback = ctx.brief || "";
           }
         } catch { /* non-fatal */ }
       } else {
         sessionStorage.removeItem(CHAIN_SOURCE_RUN_ID_KEY);
-        sessionStorage.removeItem("chain.context_block");
       }
+      const rawBrief = workflowInput.split("\n\n===")[0].trim();
+      const cleanBrief = rawBrief || ctxBriefFallback;
+      sessionStorage.setItem(CHAIN_BRIEF_KEY, cleanBrief);
       router.push(option.wizardPath);
       return;
     }
@@ -1372,12 +1381,14 @@ export function DashboardLayout({
 
     // Fetch structured context from the source run
     let contextBlock = "";
+    let ctxBrief = "";
     if (sourceRunId) {
       try {
         const token = getToken();
         if (token) {
           const ctx = await getChainContext(token, sourceRunId);
           contextBlock = ctx.context_block;
+          ctxBrief = ctx.brief || "";
         }
       } catch {
         // Fallback: use the old approach
@@ -1393,12 +1404,22 @@ export function DashboardLayout({
     // plain brief -> its clean brief; for a revision blob (starts with ===) ->
     // the revision instruction (parseRunInput returns brief='' for a pure blob,
     // so the empty-string fallback is subsumed).
+    // FIX-217: when workflowInput is stale/empty (history-reopened or Concierge
+    // run — these never call handleRunPipeline which sets workflowInput), fall back
+    // to ctx.brief (the source run's stored input from the DB). Without this,
+    // chainBrief is "" → _display_title is "" → submittedBrief is "" →
+    // "Starting point" card is blank on the chained run.
     const parsedChain = parseRunInput(workflowInput);
-    const chainBrief = parsedChain.revisionInstruction ?? parsedChain.brief;
+    const parsedBrief = parsedChain.revisionInstruction ?? parsedChain.brief;
+    const chainBrief = parsedBrief || ctxBrief;
     const enrichedInput = contextBlock
       ? `${chainBrief}\n\n${contextBlock}`.trim()
       : chainBrief;
 
+    // FIX-150: switch to execution view synchronously before onResetPipeline /
+    // onStartPipeline so the execution panel is mounted before the first SSE
+    // frame arrives. Mirrors handleChainFromHistory.
+    setMainView("execution");
     if (onResetPipeline) onResetPipeline();
     setWorkflowInput(enrichedInput);
 
@@ -1429,8 +1450,6 @@ export function DashboardLayout({
   const handleChainFromHistory = useCallback(async (run: WorkflowRun, nextType: WorkflowType) => {
     const option = CHAIN_OPTIONS.find((o) => o.type === nextType);
     if (option?.requiresWizard && option.wizardPath) {
-      const cleanBrief = (run.input || "").split("\n\n===")[0].trim();
-      sessionStorage.setItem(CHAIN_BRIEF_KEY, cleanBrief);
       sessionStorage.setItem(CHAIN_FROM_KEY, run.type);
       if (run.id) {
         sessionStorage.setItem(CHAIN_SOURCE_RUN_ID_KEY, run.id);
@@ -1440,6 +1459,8 @@ export function DashboardLayout({
             const ctx = await getChainContext(token, run.id);
             if (ctx.context_block) {
               sessionStorage.setItem("chain.context_block", ctx.context_block);
+            } else {
+              sessionStorage.removeItem("chain.context_block");
             }
           }
         } catch { /* non-fatal */ }
@@ -1447,6 +1468,10 @@ export function DashboardLayout({
         sessionStorage.removeItem(CHAIN_SOURCE_RUN_ID_KEY);
         sessionStorage.removeItem("chain.context_block");
       }
+      // FIX-217: write chain.brief AFTER getChainContext awaits so both keys are
+      // settled in sessionStorage before router.push triggers wizard render.
+      const cleanBrief = (run.input || "").split("\n\n===")[0].trim();
+      sessionStorage.setItem(CHAIN_BRIEF_KEY, cleanBrief);
       router.push(option.wizardPath);
       return;
     }

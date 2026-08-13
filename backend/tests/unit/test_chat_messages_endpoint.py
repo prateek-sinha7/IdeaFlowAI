@@ -209,7 +209,17 @@ class TestPersist:
                      attachments=[{"kind": "image", "data": "BIGBASE64"}])
         assert resp.status_code == 200
         stored = _chat_rows(env, run_id)[0].payload_json["attachments"]
-        assert stored == [{"kind": "image", "retained": False}]  # bytes NOT persisted
+        # RECONCILED on the 2026-08-13 `dev` merge (was an exact-dict equality). dev's
+        # FIX-218 (KAN-170) additionally persists the attachment METADATA — name /
+        # mimeType / sizeBytes — so the transcript can show a filename on replay. That
+        # is a deliberate behaviour change, so the exact-equality form was over-strict.
+        # What ND-10 actually requires, and what this test now pins, is that the BYTES
+        # never reach the durable row. Asserting the invariant, not the dict shape.
+        assert len(stored) == 1
+        assert stored[0]["kind"] == "image"
+        assert stored[0]["retained"] is False
+        assert "data" not in stored[0]                     # the bytes NEVER persist
+        assert "BIGBASE64" not in json.dumps(stored)       # nor anywhere else in the row
 
     def test_cross_owner_is_404(self, env):
         owner = _seed_user(env, "owner")
