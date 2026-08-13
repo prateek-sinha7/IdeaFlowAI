@@ -222,6 +222,72 @@ class TestReplay:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# replay identity — the row's event_id/seq COLUMNS must reach the wire
+# ════════════════════════════════════════════════════════════════════════════
+class TestReplayIdentityProjection:
+    """A replayed row must be served WITH its durable identity columns.
+
+    The engine stamps ``seq`` + ``event_id`` INTO the payload at its single emit
+    boundary, so an engine-authored row carries its identity twice. But four
+    app-layer types are persisted by the app itself and embed NO identity in
+    ``payload_json`` — ``chat_reply`` / ``chat_message`` / ``chat_usage`` /
+    ``run_resuming``. For those rows the COLUMNS are the only identity that exists.
+
+    Concretely, ``app/agents/chat_narrator.py::persist_milestone_card`` persists a
+    narrator milestone card whose payload is exactly ``{pipeline_run_id, message_id,
+    card_kind, text, deep_link}`` and mints the durable ``event_id`` COLUMN as
+    ``chat_reply:{source_event_id}``. The frontend keys the assistant bubble on
+    ``data.event_id`` (``useRunChat.ts::upsertNarratorMessage``) and otherwise falls
+    back to ``chat-reply:{message_id}`` — a key the narrator's durable id can never
+    equal. So a replay that drops the columns renders the card a SECOND time once the
+    REST twin (``GET /api/runs/{id}/events``, which does merge the columns) backfills
+    it. This pins the projection at the source.
+    """
+
+    def test_replayed_identity_less_chat_reply_carries_its_row_identity(self, db_session):
+        _seed_run(db_session)
+        _seed_events(
+            db_session,
+            [
+                (1, "agent_start", {"seq": 1, "agent": "a"}),
+                (
+                    2,
+                    "chat_reply",
+                    {
+                        "pipeline_run_id": "run-1",
+                        "message_id": "m1",
+                        "card_kind": "deliverable",
+                        "text": "Delivered",
+                    },
+                ),
+            ],
+        )
+        # _seed_events mints a fresh uuid4 per row, so the expected value must be read
+        # back from the DB — a hardcoded literal would be wrong on every run.
+        row_event_id = db_session.query(RunEvent).filter_by(run_id="run-1", seq=2).one().event_id
+
+        frames = asyncio.run(
+            _collect(
+                _iter_sse_frames(
+                    run_id="run-1", store=_store(db_session), after_seq=1, live_queue=None
+                )
+            )
+        )
+        replay = [p for p in (_parse(f) for f in frames) if p["type"] != "stream_attached"]
+        assert [p["type"] for p in replay] == ["chat_reply"]
+
+        data = replay[0]["data"]
+        # The identity the payload never carried, taken from the row's COLUMNS.
+        assert data.get("event_id") == row_event_id
+        assert data.get("seq") == 2
+        # ...and the persisted payload keys survive the merge unchanged.
+        assert data["pipeline_run_id"] == "run-1"
+        assert data["message_id"] == "m1"
+        assert data["card_kind"] == "deliverable"
+        assert data["text"] == "Delivered"
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # attach — stream_attached handshake + live-queue drain
 # ════════════════════════════════════════════════════════════════════════════
 class TestAttach:
