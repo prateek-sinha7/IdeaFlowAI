@@ -114,18 +114,6 @@ const STREAM_LONGPOLL_MS = 120_000;
  *  isRunning-gated sync). */
 const TERMINAL_TYPES = new Set(["pipeline_complete", "pipeline_failed", "pipeline_cancelled"]);
 
-/** The four APP-LAYER event types the server persists with NO identity inside
- *  `payload_json` — for their durable rows the `event_id`/`seq` exist ONLY as
- *  table COLUMNS (e.g. `chat_narrator.persist_milestone_card` writes a payload of
- *  just `{pipeline_run_id, message_id, card_kind, text, deep_link}`). Every OTHER
- *  type is engine-authored and carries its identity inside the payload too. */
-const IDENTITY_LESS_TYPES = new Set([
-  "chat_reply",
-  "chat_message",
-  "chat_usage",
-  "run_resuming",
-]);
-
 export class MockSse implements SeqSource {
   private readonly page: Page;
   private readonly api: MockApi | null;
@@ -164,20 +152,6 @@ export class MockSse implements SeqSource {
    * mounted app must NOT open a competing stream.
    */
   autoAttach = true;
-
-  /**
-   * ── TEMPORARY (deleted by the fix commit of this same change) ────────────────
-   * When true, a REPLAY frame of an identity-less app-layer type is served with
-   * `event_id`/`seq` stripped from its inner `data`, modelling TODAY's PRE-FIX
-   * server (`run_stream.py` step 1 yields the row's `payload_json` RAW). It exists
-   * ONLY so the duplicate-narrator-card spec can be OBSERVED failing before the
-   * server fix is mirrored here.
-   *
-   * Default false because the existing TS-SSE-RESILIENCE-01/03/04 specs already
-   * assert `data.event_id` on replayed `chat_message`/`chat_reply` frames — i.e.
-   * they already encode the POST-fix wire — and must not be perturbed.
-   */
-  simulatePreFixReplay = false;
 
   /** The mock's live-run registry — surfaced (merged) on GET /api/runs so the
    *  provider boot/reattach query finds the active run and streams it. */
@@ -469,25 +443,24 @@ export class MockSse implements SeqSource {
       .catch(() => {});
   }
 
-  private serialize(frames: SseFrame[], replayed: ReadonlySet<SseFrame> = new Set()): string {
+  private serialize(frames: SseFrame[]): string {
     return frames
       .map((f) => {
         const extras: Record<string, unknown> = {};
         const top = f as unknown as Record<string, unknown>;
         if (top.chunk !== undefined) extras.chunk = top.chunk;
         if (top.section !== undefined) extras.section = top.section;
+        // INVARIANT (server-side guarantee, `backend/app/api/run_stream.py`): EVERY
+        // frame carries `event_id` + `seq` inside its `data` — including a DURABLE
+        // REPLAY frame, whose identity the server merges from the row's authoritative
+        // COLUMNS over `payload_json`. That matters for the four app-layer types
+        // (`chat_reply`/`chat_message`/`chat_usage`/`run_resuming`) which persist NO
+        // identity inside the payload: without the merge they arrive anonymous, the
+        // consumer re-keys them, and a narrator card that is ALSO delivered by the
+        // durable REST twin renders twice (TS-SSE-RESILIENCE-06). The mock's frames
+        // are identity-stamped at emit(), so serving `f.data` as-is models the fixed
+        // server exactly.
         const dataObj: Record<string, unknown> = { ...f.data, ...extras };
-        // ── TEMPORARY (removed by the fix commit of this same change) ──────────
-        // Model TODAY's PRE-FIX server: its durable-replay step yields the row's
-        // `payload_json` RAW (`run_stream.py` step 1), so a replayed app-layer row
-        // reaches the client with NO identity at all. The `id:` line is untouched —
-        // the real server always renders it from the `seq` COLUMN; only the inner
-        // payload lacked identity. This exists solely so the new duplicate-card
-        // spec can be OBSERVED failing; it is deleted once the mock mirrors the fix.
-        if (this.simulatePreFixReplay && replayed.has(f) && IDENTITY_LESS_TYPES.has(f.type)) {
-          delete dataObj.event_id;
-          delete dataObj.seq;
-        }
         // The REAL backend wire (sse-starlette): NO `event:` line — the frame's
         // type is nested inside the `data:` JSON as `{type, data}`, and frames are
         // CRLF-separated (`\r\n\r\n`). event_id/seq/chunk/section live INSIDE the
@@ -640,17 +613,9 @@ export class MockSse implements SeqSource {
     const cursor = lastEventId != null && lastEventId !== "" ? Number(lastEventId) : null;
     this.lastAttachCursor = cursor;
 
-    // Replay vs live (the real server's two sources): frames ALREADY pending when
-    // this response begins are what `_iter_sse_frames` step 1 serves off the
-    // DURABLE run_events tail; anything arriving later wakes the parked long-poll
-    // below and is the analogue of a step-4 LIVE-queue frame (which carries the
-    // identity its producer stamped on it). Captured by object identity so a frame
-    // cannot change category between here and serialize().
-    const replayed: ReadonlySet<SseFrame> = new Set(this.framesAfter(cursor));
-
     // Long-poll: if nothing new is on the tail, hold the response open until a
     // frame is emitted / the transport drops / a short timeout elapses.
-    if (replayed.size === 0) {
+    if (this.framesAfter(cursor).length === 0) {
       await new Promise<void>((resolve) => {
         const t = setTimeout(resolve, STREAM_LONGPOLL_MS);
         this.streamWaiters.push(() => { clearTimeout(t); resolve(); });
@@ -673,7 +638,7 @@ export class MockSse implements SeqSource {
     if (termIdx > 0) pending = pending.slice(0, termIdx);
     else if (termIdx === 0) pending = pending.slice(0, 1);
 
-    const body = this.serialize(pending, replayed);
+    const body = this.serialize(pending);
     try {
       await route.fulfill({
         status: 200,

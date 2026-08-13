@@ -306,11 +306,6 @@ test.describe("TS-SSE-RESILIENCE — sse-resilience transport (D-14)", () => {
     const MARKER = "3WO-DELIVERED-MARKER";
     const agents = AGENTS.user_stories;
 
-    // Model TODAY's PRE-FIX server: its durable replay yields payload_json RAW, so
-    // a replayed app-layer row arrives with no identity. (Removed once the mock
-    // mirrors the shipped run_stream.py projection.)
-    mockSse.simulatePreFixReplay = true;
-
     // Mount the real app on a live run (the launch→watch flow) — autoAttach stays
     // true so RunConnectionProvider/useRunStream/useRunChat are the real consumers.
     await dashboard.goto();
