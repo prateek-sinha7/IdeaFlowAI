@@ -51,6 +51,13 @@ terraform/modules/*/.terraform.lock.hcl
 !terraform/app/stage.tfvars
 !terraform/app/prod.tfvars
 
+# Standalone internal-ALB layer (fronts the existing, non-Terraform-managed
+# dev/stage/prod EC2 instances — one apply per environment via -var-file).
+# Same non-secret shape as the exceptions above.
+!terraform/velocityai-alb/dev.tfvars
+!terraform/velocityai-alb/stage.tfvars
+!terraform/velocityai-alb/prod.tfvars
+
 # Exception 3: the LocalStack fixture is hermetic — its values are canonical
 # (account 000000000000, stub AMI, dummy creds) and carry no secrets.
 !terraform/**/localstack.tfvars
