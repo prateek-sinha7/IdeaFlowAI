@@ -1081,15 +1081,24 @@ async def _dispose_concierge_proposal(
         # Strip any trailing "_revision" suffix from wr_type to get the base artifact
         # family (e.g. "user_stories") before constructing the fallback target.
         base_type = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
-        # FIX-216b: od_prototype has no od_prototype_revision agents AND
-        # od_prototype_revision is excluded from the hexaware tier, so the
-        # revision fails with pipeline_not_entitled or zero agents.
-        # Map od_prototype → prototype (and od_ppt → ppt) so the fallback target
-        # becomes "prototype_output" → revision_pipeline_type "prototype_revision"
-        # which has agents AND is entitled for all tiers.
-        _OD_BASE_MAP = {"od_prototype": "prototype", "od_ppt": "ppt"}
-        base_type = _OD_BASE_MAP.get(base_type, base_type)
+        # FIX-216b (corrected): od_prototype_revision is excluded from hexaware tier
+        # and has no agents, so od_prototype on hexaware must fall back to prototype_revision.
+        # od_ppt ONLY uses od_ppt_revision — never ppt_revision. Remove od_ppt from the map.
+        # Only apply the OD→base fallback when the natural od_*_revision is not entitled.
+        _OD_FALLBACK_MAP = {"od_prototype": "prototype"}
+        if base_type in _OD_FALLBACK_MAP:
+            natural_revision = f"{base_type}_revision"
+            if not can_run_pipeline(current_user.tier, natural_revision)[0]:
+                base_type = _OD_FALLBACK_MAP[base_type]
         target = params.get("target") or f"{base_type}_output"
+        # Stale-proposal correction: a proposal created before FIX-216b may have
+        # stored target="ppt_output" for an od_ppt parent run. Remap to the correct
+        # od_ppt_output so the revision uses od_ppt_revision (1 agent), not ppt_revision.
+        # Only correct when wr_type is od_ppt (or od_ppt_revision) — never blindly remap.
+        _OD_TARGET_CORRECTIONS = {"od_ppt": "ppt_output→od_ppt_output"}
+        _base_for_correction = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
+        if _base_for_correction == "od_ppt" and target == "ppt_output":
+            target = "od_ppt_output"
         instruction = params.get("instruction", "")
         # FIX-218: when files were attached on this Concierge turn, frame them as
         # supplementary reference material. The user's chat instruction always takes

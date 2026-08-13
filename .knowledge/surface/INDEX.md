@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-577 cards · rules 1 · fixes 219 · issues 49 · phases 23 · built 2026-08-13
+577 cards · rules 1 · fixes 220 · issues 49 · phases 23 · built 2026-08-13
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -14,6 +14,7 @@ ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on
 
 ## Fixes (219)
 
+FIX-219 2026-08-13 [backend] od_ppt Concierge revision routes to ppt_revision (2 agents) instead of od_ppt_revision (1 agent) — FIX-216b regression; stale proposal correction added
 FIX-218 2026-08-13 [backend,frontend,chat,concierge] Chat file attachment injection — files in chat injected into pipeline agents; revision agents receive file as reference; filename on replay; chip cleared after send; copy bar fixed; file bubble; filename in Context Received panel (KAN-170)
 FIX-217 2026-08-12 [backend,frontend,workflow] Chain context missing from prototype/ppt revisions — ancestor walk only one level; stale chain context leaking; empty brief on wizard-chained launches (FIX-216c included)
 FIX-216b 2026-08-11 [backend] od_prototype/od_ppt revision maps to wrong pipeline type — od_prototype_revision has no agents + excluded from hexaware tier
