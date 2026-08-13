@@ -141,19 +141,39 @@ fi
 # ── Gate C: fresh-provision prerequisite ─────────────────────────────────────
 # Name-only lookup — no --with-decryption — so the password value never
 # reaches this command's output or this log.
-if [ "$SKIP_DB_PASSWORD_CHECK" != "1" ]; then
-    if ! aws ssm get-parameter \
-            --name "${PARAM_PREFIX}/DATABASE_PASSWORD" \
-            --region "$REGION" \
-            --query 'Parameter.Name' --output text >/dev/null 2>&1; then
-        echo "[provision] FATAL: SSM parameter ${PARAM_PREFIX}/DATABASE_PASSWORD does not exist." >&2
-        echo "[provision]        bootstrap-ec2.sh needs it to create the postgres role on a fresh box." >&2
-        echo "[provision]        Create it (SecureString) before provisioning, e.g.:" >&2
-        echo "[provision]          aws ssm put-parameter --name ${PARAM_PREFIX}/DATABASE_PASSWORD --type SecureString --value '<random>' --region ${REGION}" >&2
-        echo "[provision]        If this box's Postgres data dir already exists (recovery mode), re-run with SKIP_DB_PASSWORD_CHECK=1." >&2
-        exit 1
+# This check cannot run unconditionally HERE: on a fresh box the aws CLI is
+# not installed until §2 below. The previous form swallowed stderr and judged
+# only the exit code, so a missing `aws` binary — or any API error — was
+# reported as "parameter does not exist", which sent diagnosis chasing a
+# phantom missing secret for a parameter that was present all along. So:
+# surface what aws actually said, and when the CLI is absent DEFER the check
+# to §2a rather than guessing.
+check_db_password_param() {
+    err="$(aws ssm get-parameter \
+             --name "${PARAM_PREFIX}/DATABASE_PASSWORD" \
+             --region "$REGION" \
+             --query 'Parameter.Name' --output text 2>&1 >/dev/null)" && rc=0 || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        echo "[provision] OK: ${PARAM_PREFIX}/DATABASE_PASSWORD exists (value not read)."
+        return 0
     fi
-    echo "[provision] OK: ${PARAM_PREFIX}/DATABASE_PASSWORD exists (value not read)."
+    echo "[provision] FATAL: could not verify ${PARAM_PREFIX}/DATABASE_PASSWORD." >&2
+    echo "[provision]        aws reported: ${err}" >&2
+    echo "[provision]        bootstrap-ec2.sh needs it to create the postgres role on a fresh box." >&2
+    echo "[provision]        If it is genuinely absent, create it (SecureString):" >&2
+    echo "[provision]          aws ssm put-parameter --name ${PARAM_PREFIX}/DATABASE_PASSWORD --type SecureString --value '<random>' --region ${REGION}" >&2
+    echo "[provision]        If this box's Postgres data dir already exists (recovery mode), re-run with SKIP_DB_PASSWORD_CHECK=1." >&2
+    return 1
+}
+
+DB_PASSWORD_CHECK_DEFERRED=0
+if [ "$SKIP_DB_PASSWORD_CHECK" != "1" ]; then
+    if command -v aws >/dev/null 2>&1; then
+        check_db_password_param || exit 1
+    else
+        DB_PASSWORD_CHECK_DEFERRED=1
+        echo "[provision] aws CLI not present yet — deferring the ${PARAM_PREFIX}/DATABASE_PASSWORD check until §2 installs it."
+    fi
 else
     echo "[provision] SKIP_DB_PASSWORD_CHECK=1 — not checking for ${PARAM_PREFIX}/DATABASE_PASSWORD."
 fi
@@ -248,6 +268,15 @@ if ! command -v aws >/dev/null 2>&1 \
     trap - EXIT
 fi
 echo "[provision] aws cli version: $(aws --version)"
+
+# ── 2a. Deferred Gate C ───────────────────────────────────────────────────────
+# Runs only when Gate C above could not: the aws CLI did not exist yet. Still
+# ahead of bootstrap-ec2.sh, so a genuinely absent parameter fails before any
+# Postgres role is created.
+if [ "$DB_PASSWORD_CHECK_DEFERRED" = "1" ]; then
+    echo "[provision] running the deferred ${PARAM_PREFIX}/DATABASE_PASSWORD check now that the aws CLI is available."
+    check_db_password_param || exit 1
+fi
 
 # ── 3. Install the first-boot self-heal unit (Terraform user_data.sh.tpl parity) ─
 # Guarded by the same ConditionPathExists as the Terraform path, so installing
