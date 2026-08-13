@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-709 cards · rules 1 · fixes 245 · issues 147 · phases 23 · built 2026-08-13 03:56
+709 cards · rules 1 · fixes 245 · issues 147 · phases 23 · built 2026-08-13 03:59
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.

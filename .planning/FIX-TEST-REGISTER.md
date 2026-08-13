@@ -2416,10 +2416,17 @@ Frontend e2e (mocked Playwright): 1 NEW test (TS-SSE-RESILIENCE-06, frontend/e2e
   (exactly 1 card) once the mock's replay path was corrected to mirror the shipped
   `run_stream.py:202` merge. Full file, isolated, both via `npx playwright test` and the project's own
   `npm run e2e -- ts-sse-resilience`: 5 passed (7.6s) — TS-SSE-RESILIENCE-01/02/03/04 unperturbed.
-Mocked e2e suite-wide impact of the new REST-twin mock endpoint (executor-measured, not independently
-  re-run end-to-end by the orchestrator): 34 failed/108 passed/43 skipped → 30 failed/112 passed/43
-  skipped. ZERO tests moved pass→fail; three pre-existing `ts-t.history` failures fixed as a side
-  effect (the endpoint they needed was simply absent before).
+Mocked e2e suite-wide impact of the new REST-twin mock endpoint: 34 failed/108 passed/43 skipped
+  (pre-change baseline) → 33 failed/110 passed/43 skipped (final, Task-6 state, the endpoint they
+  needed was simply absent before). ZERO tests moved pass→fail versus the baseline in either
+  measurement taken. **CORRECTED CLAIM, not the original one:** an interim measurement (taken while
+  the since-deleted `simulatePreFixReplay` stripping was still active) showed 30 failed/112 passed
+  with 3 `ts-t.history` rows (`:37`/`:65`/`:110`) flipped green; the commit message on `57498dd8`
+  reported this as "three pre-existing ts-t.history failures fixed" — that claim was WRONG. Those 3
+  rows are FLAKY under this suite's parallel workers, not durably fixed: they read red again in the
+  final (Task 6) measurement, and the orchestrating agent independently re-ran
+  `ts-t.history.spec.ts` alone afterward and observed 5 failed / 2 passed with `:37` among the
+  failures — confirming the correction, not the original claim.
 Goldens: 10 passed / 0 failed (5 characterization files, 2 tests each — `tests/agents/characterization/`
   ALONE collects 0 items and is NOT the right invocation, the exact ISS-145 collected-0/exit-0 trap;
   the right selection is the 5 `test_characterization_*.py` files under `tests/agents/`). Zero golden
