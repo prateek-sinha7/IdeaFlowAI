@@ -15,39 +15,13 @@ instance without re-reading the file.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from collections.abc import Iterator
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import frontmatter  # python-frontmatter
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Supported pipeline types (single source of truth — also used by registry)
-# ---------------------------------------------------------------------------
-
-SUPPORTED_PIPELINE_TYPES: frozenset[str] = frozenset(
-    {
-        "user_stories",
-        "user_stories_revision",
-        "ppt",
-        "ppt_revision",
-        "od_ppt",
-        "od_ppt_revision",
-        "prototype",
-        "prototype_revision",
-        "od_prototype",
-        "od_prototype_revision",
-        "app_builder",
-        "app_builder_revision",
-        "mulesoft_to_springboot",
-        "dotnet_to_azure",
-        "reverse_engineer",
-        "custom",
-        "spec_kit",
-        "chat",
-    }
-)
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -56,6 +30,11 @@ SUPPORTED_PIPELINE_TYPES: frozenset[str] = frozenset(
 # agents/ package root (this file lives in agents/)
 _AGENTS_DIR = Path(__file__).resolve().parent
 _PROMPTS_DIR = _AGENTS_DIR / "prompts"
+_WORKFLOWS_DIR = _AGENTS_DIR / "workflows"
+
+# NOTE: ``SUPPORTED_PIPELINE_TYPES`` is DERIVED from disk and is defined at the
+# BOTTOM of this module — it calls ``list_agent_ids``-adjacent helpers that must
+# already exist. See "Supported pipeline types" there.
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +88,18 @@ class AgentSpec:
     # catalog-membership validation is deferred to RESOLVE time in 06-03.
     model: str | None = None
 
+    # ── Template marker (spec 012, ADR-0005) ─────────────────────────────
+    # ``template: true`` means this folder exists to be INSTANTIATED, never to
+    # be a pipeline member: `custom-agent` is the blank agent a composed
+    # workflow clones N times, each clone getting the synthetic id
+    # ``<base>:<instance_id>`` minted by the compiler.
+    #
+    # This replaces the former hand-maintained template-id name list.
+    # A template still has to declare a `pipeline_type` (every AGENT.md does),
+    # but that declaration must NOT put it in a roster — before this flag the
+    # only way to express that was to hardcode the id in the loader.
+    template: bool = False
+
 
 class AgentSpecError(Exception):
     """Raised when an AGENT.md file has invalid or missing fields."""
@@ -139,6 +130,17 @@ def load_agent_spec(agent_id: str) -> AgentSpec:
     """
     if agent_id in _SPEC_CACHE:
         return _SPEC_CACHE[agent_id]
+
+    # ── Synthetic ids (custom-agent:<instance_id>) ──────────────────────────
+    # Resolve the base spec through the normal path, then overlay the full
+    # synthetic id. Display name / composed prompt are the factory's job
+    # (T11) — the loader only reads files.
+    if ":" in agent_id:
+        base, _, _instance = agent_id.partition(":")
+        base_spec = load_agent_spec(base)
+        spec = replace(base_spec, id=agent_id)
+        _SPEC_CACHE[agent_id] = spec
+        return spec
 
     agent_dir = _PROMPTS_DIR / agent_id
     agent_file = agent_dir / "AGENT.md"
@@ -211,6 +213,13 @@ def list_agent_ids(pipeline_type: str) -> list[str]:
             )
             continue
 
+        # ``template: true`` agents (e.g. custom-agent) exist to be
+        # INSTANTIATED, never to be pipeline members — see AgentSpec.template.
+        # This check must happen AFTER load_agent_spec: the flag lives in the
+        # parsed spec, not in the directory name.
+        if spec.template:
+            continue
+
         if spec.pipeline_type == pipeline_type:
             matching.append(spec)
 
@@ -227,6 +236,39 @@ def list_agent_ids(pipeline_type: str) -> list[str]:
     # Sort by order ascending and return IDs
     matching.sort(key=lambda s: s.order)
     return [s.id for s in matching]
+
+
+def iter_agent_specs() -> Iterator[AgentSpec]:
+    """Yield every loadable AgentSpec under agents/prompts/.
+
+    This is the single discovery scan behind SUPPORTED_PIPELINE_TYPES,
+    PIPELINE_AGENTS (registry) and the flat agent-library pool
+    (get_all_agents_flat) — those three all need "every AGENT.md on disk"
+    and previously each carried their own copy of this loop.
+
+    Same tolerance as list_agent_ids: a directory without an AGENT.md is
+    skipped, and a broken AGENT.md is skipped (never fatal) rather than
+    aborting the whole scan. Template agents (``template: true``) ARE
+    included — callers that only want pipeline members filter them out
+    themselves (see AgentSpec.template).
+    """
+    if not _PROMPTS_DIR.exists():
+        return
+
+    for agent_dir in _PROMPTS_DIR.iterdir():
+        if not agent_dir.is_dir():
+            continue
+        if not (agent_dir / "AGENT.md").exists():
+            continue
+        try:
+            yield load_agent_spec(agent_dir.name)
+        except (FileNotFoundError, PermissionError, AgentSpecError):
+            # Skip agents that can't be loaded when scanning
+            logger.warning(
+                "Skipping agent %s during iter_agent_specs scan (load failed)",
+                agent_dir.name,
+            )
+            continue
 
 
 # ---------------------------------------------------------------------------
@@ -251,13 +293,18 @@ def _build_spec(
     role = _require_nonempty_str(metadata, "role", file_path_str)
 
     # ── pipeline_type ─────────────────────────────────────────────────────
+    # Shape only (non-empty string). There is deliberately NO allow-list check
+    # here any more (ADR-0005): SUPPORTED_PIPELINE_TYPES is now DERIVED — partly
+    # FROM the values agents declare — so validating against it would be
+    # circular, and the frozenset it replaced was the thing that made adding a
+    # workflow a source-code edit (SC-001).
+    #
+    # TRADE-OFF (accepted, see the module footer): a typo'd `pipeline_type`
+    # used to raise here. It now creates its own empty bucket instead. A
+    # startup consistency check (every declared pipeline_type has a manifest,
+    # every manifest has agents or is deliberately empty) is the intended
+    # replacement and is NOT implemented yet.
     pipeline_type = _require_nonempty_str(metadata, "pipeline_type", file_path_str)
-    if pipeline_type not in SUPPORTED_PIPELINE_TYPES:
-        raise AgentSpecError(
-            f"Invalid field 'pipeline_type' in {file_path_str}: "
-            f"'{pipeline_type}' is not one of the supported pipeline types "
-            f"({sorted(SUPPORTED_PIPELINE_TYPES)})"
-        )
 
     # ── order ─────────────────────────────────────────────────────────────
     raw_order = metadata.get("order")
@@ -375,6 +422,18 @@ def _build_spec(
         )
     model: str | None = raw_model
 
+    # ── template (optional) ───────────────────────────────────────────────
+    # Strict bool: `template: "yes"` / `template: 1` must NOT be coerced —
+    # a folder silently failing to mark itself a template would rejoin the
+    # roster and break its pipeline's membership assertion.
+    raw_template = metadata.get("template", False)
+    if not isinstance(raw_template, bool):
+        raise AgentSpecError(
+            f"Invalid field 'template' in {file_path_str}: "
+            f"expected a bool, got {type(raw_template).__name__!r}"
+        )
+    template: bool = raw_template
+
     return AgentSpec(
         id=agent_id,
         name=name,
@@ -394,6 +453,7 @@ def _build_spec(
         gate=gate,
         injects=injects,
         model=model,
+        template=template,
     )
 
 
@@ -441,3 +501,75 @@ def _optional_list_of_str(
             )
         result.append(item)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Supported pipeline types (derived from disk — spec 012, ADR-0005)
+# ---------------------------------------------------------------------------
+#
+# Was a hand-maintained frozenset: a forgotten edit silently broke discovery for
+# a new pipeline. Now DERIVED at import from three disk-backed sources (ADR-0005,
+# SC-001 — launchability keyed on a declared flag, never a hardcoded name list):
+#
+#   (a) directories under agents/workflows/ containing a workflow.yaml;
+#   (b) every `pipeline_type` declared by an AGENT.md — keeps types with agents
+#       but no manifest yet, e.g. `spec_kit`, which owns the deep-planner every
+#       pipeline runs;
+#   (c) `_ID_ALIAS_TYPES` — run-label aliases with no manifest and no agents.
+#
+# CONSEQUENCE (ADR-0005): the set went 17 -> 21, gaining the sample_* fixtures.
+# Three cannot run; they are excluded by PROPERTY (does every step's agent load?),
+# never by name — tests/agents/test_compiled_plan_runs.py::_every_step_agent_loads.
+_ID_ALIAS_TYPES: frozenset[str] = frozenset({"od_prototype", "od_prototype_revision"})
+"""Run-label aliases with no manifest and no agents of their own.
+
+These are resolved to ``prototype`` (via the id-alias resolver) before any
+manifest lookup or agent-discovery happens — so there is no
+``agents/workflows/od_prototype/`` directory and no AGENT.md ever declares
+``pipeline_type: od_prototype``. That makes them genuinely NOT derivable from
+disk the way (a) and (b) above are; they exist purely so callers can pass the
+run-label string and have it recognized as a supported (if aliased) type.
+"""
+
+
+def _discover_supported_pipeline_types() -> frozenset[str]:
+    """Compute SUPPORTED_PIPELINE_TYPES from disk, once, at import time.
+
+    Unions the three sources described above. This function is called exactly
+    once (see the module-level assignment immediately below it) — callers
+    that need the set read the cached ``SUPPORTED_PIPELINE_TYPES`` constant,
+    they never call this function again.
+    """
+    types: set[str] = set()
+
+    # (a) authored workflow manifests
+    if _WORKFLOWS_DIR.exists():
+        for entry in _WORKFLOWS_DIR.iterdir():
+            if entry.is_dir() and (entry / "workflow.yaml").exists():
+                types.add(entry.name)
+
+    # (b) pipeline_type declared by any loadable AGENT.md
+    for spec in iter_agent_specs():
+        types.add(spec.pipeline_type)
+
+    # (c) pure run-label aliases — not derivable from disk, see docstring above
+    types |= _ID_ALIAS_TYPES
+
+    return frozenset(types)
+
+
+SUPPORTED_PIPELINE_TYPES: frozenset[str] = _discover_supported_pipeline_types()
+
+
+# ---------------------------------------------------------------------------
+# Template agent ids (derived from disk — spec 012)
+# ---------------------------------------------------------------------------
+#
+# Replaces the former hand-maintained template-id name list (see the
+# AgentSpec.template field docstring above for that history). Computed once
+# at import time (same caching rule as SUPPORTED_PIPELINE_TYPES
+# above) so callers like registry.get_all_agents_flat() read a constant
+# instead of re-scanning agents/prompts/ on every call.
+TEMPLATE_AGENT_IDS_BY_FLAG: frozenset[str] = frozenset(
+    spec.id for spec in iter_agent_specs() if spec.template
+)

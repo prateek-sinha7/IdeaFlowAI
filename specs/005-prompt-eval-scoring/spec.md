@@ -5,9 +5,12 @@
 **Reframed**: 2026-07-29 — retargeted from the frozen `evals/model_graded/` branch onto its
 replacement, `evals/grading/`. The original model-graded spec is archived under
 [`superseded-model-graded/`](superseded-model-graded/).
-**Status**: **Built, uncalibrated.** All modules implemented and wired into
-`./evals/grading/grade.sh`; 253 offline tests pass. No live run has been made, so the baseline
-is `NOT CALIBRATED`. Seven product decisions are open — see [`outstanding.md`](outstanding.md).
+**Status**: **OBSOLETE (2026-08-10).** Built and uncalibrated when work stopped; the
+package it built, `backend/evals/grading/`, was then deleted by
+[007-minimal-eval](../007-minimal-eval/spec.md), which replaced the whole 18k-line eval stack
+with `backend/evals/minimal/`. Nothing here is live code any more. The seven product decisions
+in [`outstanding.md`](outstanding.md) are moot with the package gone — retained as a record of
+what was asked, not as open work. Read for history only.
 **Stack**: python | fastapi | (no frontend surface)
 
 ---

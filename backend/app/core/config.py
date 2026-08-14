@@ -361,7 +361,11 @@ class Settings(BaseSettings):
     # in ENV=development (unchanged local-dev experience) and INFO everywhere
     # else. Override explicitly via env var if an environment genuinely needs
     # DEBUG temporarily for an investigation.
-    LOG_LEVEL_APP: str = ""  # "" = derive from ENV (see main.py)
+    # Accepted: DEBUG | INFO | WARNING | ERROR | CRITICAL. backend/.env sets
+    # DEBUG locally; production sets WARNING. An unrecognised value logs a
+    # warning and falls back to INFO rather than crashing at startup.
+    LOG_LEVEL_APP: str = ""  # "" = derive from ENV (see app/core/logging.py)
+    LOG_FORMAT: str = ""  # "" = auto (pretty in development, json elsewhere); "json" | "pretty"
     # JSON-formatted logs carry these two static fields on every line so a
     # CloudWatch Logs Insights query can filter/group by service+environment
     # without string-parsing the message. SERVICE_NAME defaults per-process;

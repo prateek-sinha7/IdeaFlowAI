@@ -1,4 +1,4 @@
-"""MAN-04 integration — the 13 dispatchable pipelines (+ od_prototype) run from
+"""MAN-04 integration — the 12 dispatchable pipelines (+ od_prototype) run from
 their CompiledWorkflow, with no legacy pipeline_type dispatch fallback.
 
 Reuses the offline end-to-end engine harness ``_drive`` (tests/agents/
@@ -12,31 +12,96 @@ assert:
     order (``compile_for_run(...).steps``) — proving the compiled-plan path
     executed and no legacy dispatch fallback reordered/replaced the sequence.
 
-The 13 dispatchable ids = the 15 PIPELINE_AGENTS keys minus ``chat`` (ChatRunner-
-driven, never engine-dispatched) and ``reverse_engineer`` (empty-plan stub). Plus
-the ``od_prototype`` alias, which must run the ``prototype`` plan (D-04).
+The 12 dispatchable ids = the 17 manifest-backed pipelines minus ``chat``
+(ChatRunner-driven, never engine-dispatched), ``reverse_engineer``
+(empty-plan stub), and the three agentless ``sample_*`` fixtures that cannot
+load. Plus the ``od_prototype`` alias, which must run the ``prototype`` plan
+(D-04).
+
+FIX-051 / ISS-035: scoped to manifest-backed pipelines (not raw
+``PIPELINE_AGENTS`` keys) — ``PIPELINE_AGENTS`` is now derived from a folder
+scan and can contain a pipeline_type with real agents but no manifest yet
+(e.g. ``spec_kit``), which cannot be dispatched/compiled.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from agents.execution_engine.engine import compile_for_run, resolve_alias
-from agents.registry import PIPELINE_AGENTS, get_pipeline_agents
+from agents.loader import SUPPORTED_PIPELINE_TYPES, load_agent_spec
+from agents.registry import get_pipeline_agents
 from tests.agents._scripted_model import _drive
 
-# 13 engine-dispatchable + the od_prototype alias = 14 parametrized ids.
-_DISPATCHABLE = sorted(set(PIPELINE_AGENTS) - {"chat", "reverse_engineer"})
+_MANIFEST_BASE = Path(__file__).resolve().parents[2] / "agents" / "workflows"
+
+
+def _every_step_agent_loads(pipeline_type: str) -> bool:
+    """True when this manifest's steps all resolve to a real, loadable agent.
+
+    ADR-0005: ``SUPPORTED_PIPELINE_TYPES`` is derived from disk, so a directory
+    dropped under ``agents/workflows/`` now joins this set automatically. Three
+    of them — ``sample_brownfield``, ``sample_fanout``, ``sample_wave`` — are
+    engine test fixtures that reference agent ids with NO ``AGENT.md`` on disk.
+    They cannot be dispatched: the roster build raises ``FileNotFoundError``
+    before the first agent starts.
+
+    Filtering on that PROPERTY rather than on a name prefix is deliberate
+    (SC-001: never a hardcoded name list). If someone adds the missing
+    ``AGENT.md`` files those fixtures become dispatchable and join this suite
+    on their own; if someone adds a new broken manifest it stays out, and the
+    count assertion below tells them the set moved.
+    """
+    try:
+        compiled = compile_for_run(pipeline_type)
+    except Exception:  # noqa: BLE001 - unparseable/absent manifest is "not dispatchable"
+        return False
+    for step in compiled.steps:
+        try:
+            load_agent_spec(step.agent_id)
+        except Exception:  # noqa: BLE001 - a missing AGENT.md is "not dispatchable"
+            return False
+    return True
+
+
+_MANIFEST_BACKED_IDS = {
+    pt
+    for pt in SUPPORTED_PIPELINE_TYPES
+    if (_MANIFEST_BASE / pt / "workflow.yaml").exists() and _every_step_agent_loads(pt)
+}
+
+# 12 engine-dispatchable + the od_prototype alias = 13 parametrized ids.
+_DISPATCHABLE = sorted(_MANIFEST_BACKED_IDS - {"chat", "reverse_engineer"})
 _PARAMS = _DISPATCHABLE + ["od_prototype"]
 
 
-def test_dispatchable_count_is_13() -> None:
-    """Exactly 13 engine-dispatchable pipelines (15 keys minus chat + reverse_engineer)."""
-    assert len(_DISPATCHABLE) == 13
+def test_dispatchable_count_is_12() -> None:
+    """Exactly 12 engine-dispatchable pipelines, minus chat + reverse_engineer.
+
+    ``sample_subagents_parallel`` is included: a real, manifest-backed,
+    fully-loadable workflow (its steps are ``custom-agent`` instances and
+    ``custom-agent/AGENT.md`` exists) that only became visible here once
+    ``SUPPORTED_PIPELINE_TYPES`` stopped being a hand-typed frozenset
+    (ADR-0005). It is the spec-012 proof workflow.
+
+    Its three siblings ``sample_brownfield`` / ``sample_fanout`` /
+    ``sample_wave`` are NOT here, and not by name: ``_every_step_agent_loads``
+    excludes them because they reference agent ids with no ``AGENT.md``. Give
+    them their agents and they join automatically.
+    """
+    assert len(_DISPATCHABLE) == 12
     assert "chat" not in _DISPATCHABLE
     assert "reverse_engineer" not in _DISPATCHABLE
-    # Parametrized coverage = 13 dispatchable + od_prototype alias.
-    assert len(_PARAMS) == 14
+    # The three agentless fixtures must stay out — they cannot be dispatched.
+    for broken in ("sample_brownfield", "sample_fanout", "sample_wave"):
+        assert broken not in _DISPATCHABLE, (
+            f"{broken} references agents with no AGENT.md and cannot run; "
+            "if it now has them, that is a real change — update this list"
+        )
+    # Parametrized coverage = 12 dispatchable + od_prototype alias.
+    assert len(_PARAMS) == 13
 
 
 @pytest.mark.asyncio
@@ -54,6 +119,13 @@ async def test_runs_from_compiled_plan(pipeline_type: str) -> None:
 
     # The compiled plan is the SOURCE of the agent sequence (no legacy fallback).
     compiled = compile_for_run(pipeline_type)
+    assert compiled.steps, f"{pipeline_type}: compiled plan has no steps"
+    # A `subagents: {mode: parallel}` child is dispatched by its PARENT through the
+    # kernel run_fanout spawn path, not by the engine's serial loop — but it now
+    # ALSO emits its own live top-level `agent_start`/`agent_complete` via the
+    # fan-out side-channel queue (per-child live streaming, merged into the normal
+    # event stream alongside `subagent_spawned`/`subagent_result`). So the full
+    # compiled membership (serial + fanout children) is what `started` must match.
     compiled_ids = [s.agent_id for s in compiled.steps]
     assert compiled_ids, f"{pipeline_type}: compiled plan has no steps"
 

@@ -1,0 +1,166 @@
+### COMPOSE STOP + RESUME — cancel a composed-workflow run mid-flight, then
+# resume it, and confirm it reaches pipeline_complete. Verified live
+# 2026-08-14: generating -> cancel -> cancelled -> resume -> generating ->
+# completed, on both an old-pipeline run and a composed/custom run.
+#
+# Run with: httpyac send --all -e local tools/api/runs/composed-workflow-signoff/run.compose_stop_resume.http
+# Or via the wrapper: ./run-http.sh compose_stop_resume
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	exports.jwt = response.parsedBody.token;
+	apiLine('POST /api/auth/login -> ' + response.statusCode + ' ' + response.parsedBody.user.email);
+}}
+
+### 2. Create a saved composed workflow to launch (same shape as
+# run.compose_build_and_run.http — kept inline here so this file is
+# runnable standalone).
+POST {{apiRoot}}/api/user-workflows
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"name": "Signoff Stop-Resume Test {{$timestamp}}",
+	"base_pipeline_type": "custom",
+	"agent_ids": ["custom-agent"],
+	"manifest": {
+		"steps": [
+			{
+				"agent": "custom-agent",
+				"instance_id": "signoff-root",
+				"name": "Signoff Root",
+				"prompt": "Pick a fun emoji for the topic and hand off to the next agent.",
+				"tools": { "read_files": true, "write_files": true, "exec": false, "spawn_subagents": false },
+				"gates": [],
+				"subagents": {
+					"mode": "sequential",
+					"max_parallel": 3,
+					"steps": [
+						{
+							"agent": "custom-agent",
+							"instance_id": "signoff-child-a",
+							"name": "Signoff Child A",
+							"prompt": "Write a two-sentence blurb about the emoji chosen upstream.",
+							"tools": { "read_files": true, "write_files": true, "exec": false },
+							"gates": [],
+							"strategy": "single_shot",
+							"depends_on": []
+						},
+						{
+							"agent": "custom-agent",
+							"instance_id": "signoff-child-b",
+							"name": "Signoff Child B",
+							"prompt": "Present the emoji and blurb together as a final one-line summary.",
+							"tools": { "read_files": true, "write_files": true, "exec": false },
+							"gates": [],
+							"strategy": "single_shot",
+							"depends_on": []
+						}
+					]
+				},
+				"depends_on": ["custom-agent:signoff-child-a", "custom-agent:signoff-child-b"]
+			}
+		],
+		"deliverable": { "strategy": "streamed_text", "name": "output.md" },
+		"planner": "skip",
+		"clarify": { "mode": "skip", "defaults": [] }
+	}
+}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	exports.userWorkflowId = response.parsedBody.id;
+	apiLine('created saved workflow ' + exports.userWorkflowId);
+}}
+
+### 3. Launch
+{{
+	exports.launchBody = JSON.stringify({
+		user_workflow_id: userWorkflowId,
+		pipeline_type: "custom",
+		message: process.env.RUN_MESSAGE || 'lighthouse',
+	});
+}}
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{{launchBody}}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	exports.runId = response.parsedBody.run_id;
+	apiLine('launched run=' + exports.runId);
+}}
+
+### 4. Let it start generating, then cancel mid-flight.
+{{
+	const apiLine = require('../lib/api-line.js');
+	await new Promise((r) => setTimeout(r, 4000));
+	apiLine('waited 4s, cancelling ' + runId + ' now');
+}}
+POST {{apiRoot}}/api/runs/{{runId}}/cancel
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	apiLine('POST .../cancel -> ' + response.statusCode + ' ' + JSON.stringify(response.parsedBody));
+}}
+
+### 5. Poll until the run actually reaches "cancelled" (cancel is async —
+# the agent needs to yield at a checkpoint first).
+{{
+	const apiLine = require('../lib/api-line.js');
+	let status = null;
+	for (let i = 0; i < 12; i++) {
+		await new Promise((r) => setTimeout(r, 5000));
+		const resp = await fetch(`${apiRoot}/api/runs/${runId}`, { headers: { Authorization: `Bearer ${jwt}` } });
+		const body = await resp.json();
+		status = body.status;
+		apiLine('poll ' + (i + 1) + ': status=' + status);
+		if (status !== 'generating' && status !== 'stopping') break;
+	}
+	if (status !== 'cancelled') {
+		apiLine('did not reach "cancelled" within the poll window -- got "' + status + '"', 'error');
+	}
+	exports.cancelledOk = status === 'cancelled';
+}}
+
+### 6. Resume.
+# @disabled !cancelledOk
+POST {{apiRoot}}/api/runs/{{runId}}/resume
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	apiLine('POST .../resume -> ' + response.statusCode + ' ' + JSON.stringify(response.parsedBody));
+}}
+
+### 7. Poll until it reaches a terminal state.
+# @disabled !cancelledOk
+{{
+	const apiLine = require('../lib/api-line.js');
+	let status = null;
+	for (let i = 0; i < 24; i++) {
+		await new Promise((r) => setTimeout(r, 5000));
+		const resp = await fetch(`${apiRoot}/api/runs/${runId}`, { headers: { Authorization: `Bearer ${jwt}` } });
+		const body = await resp.json();
+		status = body.status;
+		apiLine('poll ' + (i + 1) + ': status=' + status);
+		if (['completed', 'failed', 'cancelled'].includes(status)) break;
+	}
+	if (status === 'completed') {
+		apiLine('OK: resumed run reached completed', 'api');
+	} else {
+		apiLine('resumed run ended in "' + status + '", not "completed"', 'error');
+	}
+}}

@@ -95,10 +95,10 @@ def resolve_launch_od_context(
     # ── LOADER PROFILE (preserved compatibility shim) ─────────────────────────
     # FIXME(ISS-046 / D-15/C v1): generic loader-profile *declaration* is deferred
     # — tracked in .planning/ISSUES-REGISTER.md (ISS-046); see RESEARCH Open
-    # Question 2. Only prototype / od_ppt / od_ppt_revision declare
+    # Question 2. Only prototype / ppt / ppt_revision declare
     # opendesign today, so this base-family mapping is byte-preserving. The
     # per-family argument shaping reproduces the OLD name-branch verbatim
-    # (prototype: ``design_system_id or ""``; od_ppt-family: raw ``design_system_id``).
+    # (prototype: ``design_system_id or ""``; ppt-family: raw ``design_system_id``).
     try:
         if base_pipeline_type == "prototype":
             od_context = load_prototype_od_context(
@@ -107,7 +107,7 @@ def resolve_launch_od_context(
                 custom_ds_body=custom_ds_body,
                 custom_template_body=custom_template_body,
             )
-        else:  # od_ppt-family (od_ppt, od_ppt_revision)
+        else:  # ppt-family (ppt, ppt_revision)
             od_context = load_ppt_od_context(
                 template_id or "",
                 design_system_id,

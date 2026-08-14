@@ -140,6 +140,7 @@ export const AGENT_SCOPED_FRAME_TYPES: ReadonlySet<string> = new Set([
   "agent_complete",
   "agent_error",
   "agent_input",
+  "agent_skills",
   "tool_call",
   "tool_result",
   "task_progress",

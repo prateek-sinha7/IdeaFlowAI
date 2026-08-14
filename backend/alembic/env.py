@@ -49,8 +49,18 @@ import app.models  # noqa: E402, F401
 config = context.config
 
 # Set up Python logging from alembic.ini's [loggers] section.
+#
+# ``disable_existing_loggers=False`` because fileConfig defaults it to True, which
+# DISABLES every logger object that already exists rather than only reconfiguring
+# the ones alembic.ini names. That is harmless for `alembic` on the command line
+# (a fresh process with nothing else configured) but destructive whenever env.py is
+# imported into a host process that already logs: `app.*`/`agents.*` loggers created
+# before this line go permanently silent for the rest of that process.
+# It surfaced as a test-isolation failure — after tests/unit/test_alembic.py ran,
+# later tests in the same pytest worker saw an EMPTY caplog, and which tests those
+# were depended on xdist scheduling, so the failure set moved between runs.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # ---------------------------------------------------------------------------
 # Resolve the DB URL.

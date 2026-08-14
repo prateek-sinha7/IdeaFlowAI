@@ -1,0 +1,86 @@
+### CASE 1 — pure file pipeline, no saved workflow involved (hello_html)
+#
+# The baseline/control case for the launch_run() 3-way branch currently being
+# debugged (backend/app/api/run_commands.py, the "CUSTOM IMPLEMENTATION BILAL"
+# block right before `pipeline_type = body.pipeline_type`):
+#
+#   if body.user_workflow_id is not None:
+#       row = _owned(db, body.user_workflow_id, current_user)
+#       if row.manifest_json and "steps" in row.manifest_json:
+#           print("CASE 3")
+#       else:
+#           print("CASE 2")
+#   else:
+#       print("CASE 1")
+#
+# This request sends NO `user_workflow_id` at all -- exactly like launching a
+# built-in pipeline card fresh from /dashboard (never touched a saved
+# workflow). Watch the backend console: it must print "CASE 1", and the run
+# must complete exactly as it always has (no behavior change expected here --
+# this case is the existing, unmodified code path).
+#
+# TEMPLATE NOTE: this file (and its case2/case3 siblings) is a thin shell over
+# two shared modules -- lib/api-line.js (console line printer) and
+# lib/stream-subscribe.js (the full SSE transcript handler, identical across
+# all three). Only Step 2's payload differs per case; to add a CASE 4 later,
+# copy this file and change ONLY that block.
+#
+# Run with: httpyac send --all -e local --output none tools/api/runs/run.case1.http
+# Or via the wrapper (also saves logs/artifacts): ./run-http.sh case1
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	exports.jwt = response.parsedBody.token;
+	apiLine('POST /api/auth/login -> ' + response.statusCode + ' ' + response.parsedBody.user.email);
+}}
+
+### 2. Launch -- NO user_workflow_id key at all (deliberately absent, not null).
+# THIS BLOCK IS THE ONLY PART THAT DIFFERS BETWEEN CASE FILES.
+{{
+	const apiLine = require('./lib/api-line.js');
+	const payload = {
+		pipeline_type: "hello_html",
+		agent_ids: ["emoji-picker", "writer", "presenter"],
+		message: process.env.HELLO_WORD || 'lighthouse',
+	};
+	exports.launchBody = JSON.stringify(payload);
+}}
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{{launchBody}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	apiLine('POST /api/runs payload: ' + request.body);
+	apiLine('POST /api/runs -> ' + response.statusCode);
+	apiLine('CHECK THE BACKEND CONSOLE NOW -- it must have printed "CASE 1" for this request.');
+	if (response.statusCode >= 400) {
+		apiLine('FAILED: ' + JSON.stringify(response.parsedBody), 'error');
+	} else {
+		exports.runId = response.parsedBody.run_id;
+		apiLine('launched run=' + exports.runId);
+	}
+}}
+
+### 3. Stream events over SSE, wait for completion (skipped entirely when the launch above failed --
+# runId is undefined in that case, and {{runId}} in the URL below would throw before this request
+# even opens; @disabled skips the whole request/script block up front instead).
+# @disabled !runId
+SSE {{apiRoot}}/api/runs/{{runId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	await require('./lib/stream-subscribe.js')(runId, $requestClient);
+}}

@@ -35,6 +35,17 @@ def _write_agent(prompts_dir: Path, agent_id: str, **kwargs) -> Path:
     return create_agent_file(prompts_dir, agent_id, content)
 
 
+def _discover_agent_ids() -> list[str]:
+    """Return all agent IDs discoverable in the real agents/prompts/ directory."""
+    import agents.loader as _loader
+    prompts_dir = _loader._PROMPTS_DIR
+    ids = []
+    for entry in sorted(prompts_dir.iterdir()):
+        if entry.is_dir() and (entry / "AGENT.md").exists():
+            ids.append(entry.name)
+    return ids
+
+
 # ---------------------------------------------------------------------------
 # Happy-path: valid AGENT.md
 # ---------------------------------------------------------------------------
@@ -246,6 +257,52 @@ class TestLoadAgentSpecCaching:
 
 
 # ---------------------------------------------------------------------------
+# Synthetic ids (custom-agent:<instance_id>) — R-03a
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAgentSpecSyntheticId:
+    def test_synthetic_id_resolves_base_spec(self, tmp_agent_dir):
+        _write_agent(
+            tmp_agent_dir,
+            "custom-agent",
+            pipeline_type="custom",
+            order=10,
+        )
+        spec = load_agent_spec("custom-agent:research-a")
+        assert spec.id == "custom-agent:research-a"
+        assert spec.pipeline_type == load_agent_spec("custom-agent").pipeline_type
+
+    def test_two_instances_are_distinct_cached_objects(self, tmp_agent_dir):
+        _write_agent(
+            tmp_agent_dir,
+            "custom-agent",
+            pipeline_type="custom",
+            order=10,
+        )
+        a = load_agent_spec("custom-agent:a")
+        b = load_agent_spec("custom-agent:b")
+        assert a is not b and a.id != b.id
+
+    def test_base_spec_cache_entry_unaffected_by_replace(self, tmp_agent_dir):
+        _write_agent(
+            tmp_agent_dir,
+            "custom-agent",
+            pipeline_type="custom",
+            order=10,
+        )
+        base = load_agent_spec("custom-agent")
+        load_agent_spec("custom-agent:a")
+        assert load_agent_spec("custom-agent") is base
+        assert base.id == "custom-agent"
+
+    def test_unknown_base_raises_file_not_found_naming_base(self, tmp_agent_dir):
+        with pytest.raises(FileNotFoundError) as exc_info:
+            load_agent_spec("no-such-agent:x")
+        assert "no-such-agent" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
 # FileNotFoundError
 # ---------------------------------------------------------------------------
 
@@ -358,13 +415,18 @@ class TestLoadAgentSpecInvalidFields:
             load_agent_spec("empty-id")
         assert "id" in str(exc_info.value)
 
-    def test_invalid_pipeline_type_raises_spec_error(self, tmp_agent_dir):
+    def test_unknown_pipeline_type_loads_and_round_trips(self, tmp_agent_dir):
+        """An arbitrary/unknown `pipeline_type` is no longer an allow-list check —
+        that validation was deliberately removed from `_build_spec` because
+        SUPPORTED_PIPELINE_TYPES is partly DERIVED from agents' own declared
+        pipeline_type values, so validating against it would be circular. The
+        AGENT.md now loads successfully and the value round-trips onto the spec.
+        """
         content = make_agent_md(pipeline_type="not_a_real_pipeline")
         create_agent_file(tmp_agent_dir, "bad-pipeline", content)
 
-        with pytest.raises(AgentSpecError) as exc_info:
-            load_agent_spec("bad-pipeline")
-        assert "pipeline_type" in str(exc_info.value)
+        spec = load_agent_spec("bad-pipeline")
+        assert spec.pipeline_type == "not_a_real_pipeline"
 
     def test_order_zero_raises_spec_error(self, tmp_agent_dir):
         content = make_agent_md(order=0)
@@ -399,13 +461,30 @@ class TestLoadAgentSpecInvalidFields:
         assert "max_tokens" in str(exc_info.value)
 
     def test_error_message_includes_file_path(self, tmp_agent_dir):
-        content = make_agent_md(pipeline_type="invalid_type")
+        # pipeline_type is no longer validated (see
+        # test_unknown_pipeline_type_loads_and_round_trips); re-point at a
+        # validation that still exists — max_tokens out of range — to keep
+        # this test's real intent: error messages name the offending file.
+        content = make_agent_md(max_tokens=32769)
         create_agent_file(tmp_agent_dir, "path-check", content)
 
         with pytest.raises(AgentSpecError) as exc_info:
             load_agent_spec("path-check")
         # File path should appear in the error message
         assert "path-check" in str(exc_info.value)
+
+    def test_template_non_bool_raises(self, tmp_agent_dir):
+        """A string `template` (e.g. "yes") must NOT be coerced — strict bool only."""
+        content = make_agent_md(id="bad-template")
+        content = content.replace(
+            "estimated_duration: 3.0",
+            'estimated_duration: 3.0\ntemplate: "yes"',
+        )
+        create_agent_file(tmp_agent_dir, "bad-template", content)
+
+        with pytest.raises(AgentSpecError) as exc_info:
+            load_agent_spec("bad-template")
+        assert "template" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
@@ -479,13 +558,7 @@ class TestSchemaValidationAllAgents:
 
     def _discover_agent_ids(self) -> list[str]:
         """Return all agent IDs discoverable in the real agents/prompts/ directory."""
-        import agents.loader as _loader
-        prompts_dir = _loader._PROMPTS_DIR
-        ids = []
-        for entry in sorted(prompts_dir.iterdir()):
-            if entry.is_dir() and (entry / "AGENT.md").exists():
-                ids.append(entry.name)
-        return ids
+        return _discover_agent_ids()
 
     def test_all_agents_load_without_error(self):
         """Every AGENT.md in agents/prompts/ must parse without raising."""
@@ -520,19 +593,35 @@ class TestSchemaValidationAllAgents:
             assert spec.description, f"Agent {agent_id!r}: spec.description is empty"
 
     def test_all_agents_description_defaults_to_role(self):
-        """No real AGENT.md declares `description` today, so every spec.description
-        must equal spec.role (the loader fallback). Guards the no-backfill decision +
-        the description-is-always-present invariant the API endpoint relies on."""
+        """Most AGENT.md files have since had a real `description` authored in
+        (e.g. spec 011's analyze-agent, and a broad follow-on pass across the
+        app/dotnet/mulesoft/chat/prototype/ppt agents) — so the old blanket
+        "no agent declares description" assumption no longer holds. Check the
+        fallback per-agent against its own raw frontmatter instead of a
+        hand-maintained exempt list: an agent WITHOUT an explicit `description`
+        key must fall back to `role`; an agent WITH one must keep its own value
+        (and it must differ from role, or the frontmatter value is redundant)."""
+        import frontmatter as _frontmatter
+
+        import agents.loader as _loader
+
         agent_ids = self._discover_agent_ids()
         assert agent_ids, "No agent directories found"
 
         for agent_id in agent_ids:
             spec = load_agent_spec(agent_id)
-            assert spec.description == spec.role, (
-                f"Agent {agent_id!r}: spec.description={spec.description!r} "
-                f"!= spec.role={spec.role!r} (expected the role fallback — has a real "
-                f"AGENT.md added an explicit `description`? update this test if so)"
-            )
+            raw = _frontmatter.load(_loader._PROMPTS_DIR / agent_id / "AGENT.md")
+            if "description" in raw.metadata:
+                assert spec.description == raw.metadata["description"], (
+                    f"Agent {agent_id!r}: spec.description={spec.description!r} "
+                    f"!= its own frontmatter description={raw.metadata['description']!r}"
+                )
+            else:
+                assert spec.description == spec.role, (
+                    f"Agent {agent_id!r}: spec.description={spec.description!r} "
+                    f"!= spec.role={spec.role!r} (expected the role fallback for an "
+                    f"agent with no explicit `description` in frontmatter)"
+                )
 
     def test_all_agents_id_matches_directory_name(self):
         """Requirement 2.8: spec.id must equal the directory name for every agent."""
@@ -559,6 +648,80 @@ class TestSchemaValidationAllAgents:
                 f"is not in SUPPORTED_PIPELINE_TYPES"
             )
 
+
+class TestArchivedPromptsAreInvisible:
+    """Spec 007 R-10 — `AGENT.vN.md` archive files must not register as agents.
+
+    THIS IS A TRIPWIRE, not a nicety. `grade.sh apply-advice` archives the old
+    prompt body beside the live one as `AGENT.vN.md`. That is safe for exactly one
+    reason: both `load_agent_spec` and `list_agent_ids` test the literal filename
+    `AGENT.md` (loader.py) — they never glob.
+
+    Change either to `glob("AGENT*.md")` and every archive registers as a second
+    copy of its agent: `PIPELINE_AGENTS` doubles, and `list_agent_ids` raises
+    `AgentSpecError` on the duplicate `order`. The whole backward-compatibility
+    argument for prompt archiving rests on the literal match, so if this test
+    starts failing, do not "fix" it by updating the expectation — fix the scan.
+    """
+
+    def _archive(self, prompts_dir: Path, agent_id: str, number: int, body: str) -> Path:
+        path = prompts_dir / agent_id / f"AGENT.v{number}.md"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_agent_count_is_unchanged_by_archives(self, tmp_agent_dir):
+        _write_agent(tmp_agent_dir, "agent-a", order=1, pipeline_type="user_stories")
+        _write_agent(tmp_agent_dir, "agent-b", order=2, pipeline_type="user_stories")
+        before = list_agent_ids("user_stories")
+
+        self._archive(tmp_agent_dir, "agent-a", 1, "an older prompt body")
+        self._archive(tmp_agent_dir, "agent-a", 2, "an even older prompt body")
+        self._archive(tmp_agent_dir, "agent-b", 1, "another archived body")
+
+        assert list_agent_ids("user_stories") == before
+
+    def test_archives_never_trip_the_duplicate_order_check(self, tmp_agent_dir):
+        """A globbing scan would raise here, because an archive shares its agent's order."""
+        _write_agent(tmp_agent_dir, "agent-a", order=1, pipeline_type="user_stories")
+        self._archive(tmp_agent_dir, "agent-a", 1, "an older prompt body")
+
+        assert list_agent_ids("user_stories") == ["agent-a"]
+
+    def test_load_agent_spec_returns_the_live_body_not_an_archive(self, tmp_agent_dir):
+        _write_agent(tmp_agent_dir, "agent-a", order=1, pipeline_type="user_stories")
+        self._archive(tmp_agent_dir, "agent-a", 1, "ARCHIVED BODY — must never load")
+
+        spec = load_agent_spec("agent-a")
+
+        assert "ARCHIVED BODY" not in spec.prompt_body
+
+    def test_an_archive_alone_is_not_an_agent(self, tmp_agent_dir):
+        """A folder holding only archives has no live prompt and must not register."""
+        (tmp_agent_dir / "orphan-agent").mkdir(parents=True, exist_ok=True)
+        self._archive(tmp_agent_dir, "orphan-agent", 1, "body with no AGENT.md beside it")
+
+        assert list_agent_ids("user_stories") == []
+
+    def test_real_pipeline_membership_survives_archives_on_disk(self):
+        """The same property against the real prompts dir and the real registry."""
+        import agents.loader as _loader
+        import agents.registry as registry
+
+        prompts_dir = _loader._PROMPTS_DIR
+        target = prompts_dir / "prototype-build"
+        if not (target / "AGENT.md").is_file():
+            pytest.skip("prototype-build not present")
+
+        expected = {name: list(ids) for name, ids in registry.PIPELINE_AGENTS.items()}
+        archive = target / "AGENT.v99.md"
+        archive.write_text("a temporary archive body", encoding="utf-8")
+        try:
+            rebuilt = {
+                name: list_agent_ids(name) for name in expected if name in ("prototype",)
+            }
+            assert rebuilt["prototype"] == expected["prototype"]
+        finally:
+            archive.unlink()
     def test_all_agents_declare_an_explicit_icon(self):
         """TEST-008 / ISS-068 C2: every AGENT.md must DECLARE an explicit ``icon:``.
 
@@ -583,7 +746,7 @@ class TestSchemaValidationAllAgents:
         import frontmatter  # python-frontmatter — same parser agents/loader.py uses
         import agents.loader as _loader
 
-        agent_ids = self._discover_agent_ids()
+        agent_ids = _discover_agent_ids()
         assert agent_ids, "No agent directories found"
 
         missing: list[str] = []

@@ -40,6 +40,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("strategy", "task_loop"),
     ("strategy", "fanout_batch"),          # 11-01 / FANOUT-02
     ("strategy", "wave_scheduler"),        # 12-01 / WAVE-01 (user_allowed=True)
+    ("strategy", "parallel_group"),        # subagents.mode: parallel (user_allowed=True)
     ("merge", "copy_disjoint"),            # 11-03 / FANOUT-07 (user_allowed=True)
     ("merge", "git_3way"),                 # 11-03 / FANOUT-07 (user_allowed=True)
     ("merge", "json"),                     # 11-03 / FANOUT-07 (user_allowed=True)
@@ -105,11 +106,18 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("compaction", "chat_history"),        # 33 / D-08 — bound composed chat history
     ("context_provider", "conversation"),  # 33 / D-08 — compacted chat run_events as context
     ("chat", "concierge"),                 # 33 / D-05 — app-side per-run proposal-only Concierge
+    ("tool", "internet"),                  # spec 012 — internet-access tool
 ]
 
 
 @pytest.fixture()
 def registry() -> CapabilityRegistry:
+    # Ensure every impl module (and its @register side effects) has been
+    # imported before any is_registered()/_KNOWN assertion runs — is_registered
+    # is a pure _KNOWN membership check with no lazy-discover of its own, so
+    # without this the result depends on which impl modules another test (or
+    # worker) happened to import first.
+    registry_mod.discover()
     return CapabilityRegistry()
 
 
@@ -129,45 +137,16 @@ def test_unknown_kind_is_rejected(registry: CapabilityRegistry) -> None:
     assert registry.is_registered("bogus_kind", "single_shot") is False
 
 
-def test_registered_count_is_exactly_fifty() -> None:
-    # Drift guard: registering a 60th name (or dropping one) must trip this.
-    # 15 authoritative D-07 pairs + model_catalog (06-01) + post_step
-    # revision_validation (07-10 / CR-06) = 16, plus the two 08-02 gate names
-    # (approval/security) = 18, plus the four 08-03 tool-set names
-    # (workspace/prototype/prototype_emit_only/planning, F2) = 22, plus the three
-    # 08-04 Tier validators (spec_plan_coverage/task_done_when/design_quality) = 25,
-    # plus the one 08-05 runtime adapter (langchain_deepagents, F5) = 26, plus the
-    # six 08-05 prompt/skill/hook capabilities (prompt:default F1; skill:ui/disk/
-    # template/repo F3/SKILL-01; hook:behavioral F3) = 32, plus the two 08-07
-    # executable hooks (hook:secret_scan HOOK-01..04; hook:otel_tracing OBS-02) = 34,
-    # plus the one 09-01 runtime backend (runtime_env:local, RUNTIME-01) = 35, plus
-    # the four 09-03 repo-context capabilities (repo_index:tree_sitter REPO-02;
-    # repo_inventory:default REPO-01; context_pack:default + context_provider:repo
-    # REPO-03) = 39, plus the one 09-04 brownfield deliverable (deliverable:repo_diff
-    # REPO-04) = 40, plus the six 09-05 mcp_server catalog entries (github/gitlab/jira/
-    # slack user_allowed=True + filesystem/postgres user_allowed=False, MCP-02) = 46,
-    # plus the four 09-06 integration-provider bridges (github/gitlab/jira/slack
-    # user_allowed=True, INTEG-01) = 50, plus the three 10-04 code validators
-    # (validator:code_compile/code_test/code_lint, EXEC-02 — they reach exec only via
-    # the runner/workspace handle) = 53, plus the two 11-01 fan-out capabilities
-    # (strategy:fanout_batch user_allowed=True FANOUT-02; tool:spawn_subagents
-    # user_allowed=False FANOUT-01) = 55, plus the four 11-03 merge strategies
-    # (merge:copy_disjoint/git_3way/json/html_fragment user_allowed=True FANOUT-07) = 59,
-    # plus the two 12-01 wave capabilities (strategy:wave_scheduler user_allowed=True
-    # WAVE-01; task_parser:json_tasks WAVE-02) = 61, plus the two 19-02 capabilities
-    # (validator:api_prefix user_allowed=True + post_step:api_prefix_audit, ISS-005 —
-    # the event-free infra /api/v1 backstop) = 63, plus the pre-existing KAN-73
-    # hook:audit_logger (default lifecycle audit hook — present in _KNOWN since KAN-73
-    # but never reconciled into _EXPECTED_NAMES until now) = 64, plus the one 260707-edw
-    # input-image capability (input_provider:run_images, image-input Wave 1 — the DORMANT
-    # backend spine, user_allowed=True) = 65, plus the one 30-02 uploaded-doc capability
-    # (context_provider:uploaded_files, UPLD-03 — surfaces the run's .uploads sidecar text
-    # as sticky agent context) = 66, plus the two 33 D-08 bounded-chat-history capabilities
-    # (compaction:chat_history — summarize-beyond-budget/keep-recent-verbatim +
-    # context_provider:conversation — compacted chat run_events as sticky context; the
-    # concierge lands app-side in 33-02 with its own 68→69 bump) = 68, plus the one 33
-    # D-05 orchestrator (chat:concierge, per-run proposal-only Concierge) = 69.
-    assert len(_KNOWN) == 69
+def test_known_names_match_expected_exactly() -> None:
+    # Drift guard: registering a new name (or dropping one) must trip this.
+    # A size check on `_KNOWN` is order-dependent (parallel workers / suite subsets
+    # import different modules and populate `_KNOWN` via `@register` import side
+    # effects, so `len(_KNOWN)` varies run to run) — set-equality against the
+    # explicit `_EXPECTED_NAMES` list is order-independent and additionally names
+    # exactly which (kind, name) pair drifted when it fails. discover() first so
+    # `_KNOWN` is fully (and deterministically) populated regardless of which
+    # impl modules another test/worker happened to import already.
+    registry_mod.discover()
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 

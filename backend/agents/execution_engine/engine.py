@@ -95,11 +95,13 @@ from agents.execution_engine.budget import BudgetExceeded, BudgetManager, Budget
 from agents.execution_engine.clarify_engine import ClarifyEngine as _ClarifyEngineImpl
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
+from agents.execution_engine.run_log import RunLog
 from agents.execution_engine.state_machine import get_state_machine
 from agents.capabilities.model_catalog import ModelCatalog
 from agents.capabilities.model_pricing import estimate_cost_usd
 from agents.factory import AgentContext, create_runner
 from agents.model_policy import ModelResolver
+from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX, artifact_name, topic_slug
 from agents.workflows.compiler import WorkflowCompiler
 from agents.workflows.manifest import load_manifest
 from agents.workflows.plan import CompiledWorkflow
@@ -627,6 +629,28 @@ def compile_for_run(pipeline_type: str) -> CompiledWorkflow:
     return _WORKFLOW_COMPILER.compile(manifest, _CAPABILITY_REGISTRY)
 
 
+def _known_skill_ids() -> set[str]:
+    """The global skills catalog's ids (ADR-0010).
+
+    Used by ``_apply_selections`` to drop a USER-supplied per-step skill id that
+    no longer resolves, so a workflow saved when a skill existed keeps running
+    after that skill leaves the catalog instead of tripping the assert in
+    ``factory._resolve_step_skills``. Imported lazily, and inside a try, because
+    the catalog lives in the ``app`` layer: the kernel must not hard-depend on it
+    (INV-1), and a catalog that cannot be read must degrade to "drop nothing new"
+    rather than silently stripping every skill off the run.
+    """
+    try:
+        from app.agents.skills_catalog import list_global_skills
+
+        return {entry.id for entry in list_global_skills()}
+    except Exception:  # pragma: no cover - defensive
+        logger.warning(
+            "engine: skills catalog unreadable — skipping the unknown-skill-id filter"
+        )
+        return set()
+
+
 # ---------------------------------------------------------------------------
 # Validation fix-loop — pure, unit-testable issue selection (Phase 4 + 5)
 # ---------------------------------------------------------------------------
@@ -981,6 +1005,23 @@ class ExecutionEngine:
             return []
         return fragments
 
+    def _specs_from_plan(self, steps: list) -> list:
+        """Load each step's AgentSpec, overlaying the composer's display_name (FIX-266).
+
+        The single source for rebuilding ``agents`` from a compiled plan's steps —
+        used by execute() and both resume seams, which must agree or a resumed
+        composed run reports every step under its template's name ("Custom Agent").
+        """
+        import dataclasses
+
+        from agents.loader import load_agent_spec
+
+        return [
+            dataclasses.replace(load_agent_spec(s.agent_id), name=s.display_name)
+            if getattr(s, "display_name", "") else load_agent_spec(s.agent_id)
+            for s in steps
+        ]
+
     async def execute(
         self,
         agents: list,
@@ -1003,6 +1044,7 @@ class ExecutionEngine:
         milestone_sink: "MilestoneSink | None" = None,
         live_ectx_register: "LiveEctxRegister | None" = None,
         live_ectx_unregister: "LiveEctxUnregister | None" = None,
+        compiled_override: "CompiledWorkflow | None" = None,
     ) -> AsyncGenerator[dict, None]:
         """Public entry — the SINGLE outward emit boundary (PERSIST-03 / D-11).
 
@@ -1071,6 +1113,7 @@ class ExecutionEngine:
                 _sink=sink,
                 event_queue=event_queue,
                 live_ectx_register=live_ectx_register,
+                compiled_override=compiled_override,
             ):
                 # Stamp exactly once, at the boundary, so seq is contiguous across the
                 # nondeterministically-interleaved build loop. Events always carry a
@@ -1169,6 +1212,7 @@ class ExecutionEngine:
         _clarify_replay: dict | None = None,
         event_queue: "asyncio.Queue | None" = None,
         live_ectx_register: "LiveEctxRegister | None" = None,
+        compiled_override: "CompiledWorkflow | None" = None,
     ) -> AsyncGenerator[dict, None]:
         """Execute a workflow end-to-end, yielding WebSocket events.
 
@@ -1338,6 +1382,13 @@ class ExecutionEngine:
         # mid-wave worker filter (a completed wave/worker is not re-invoked). False for
         # every normal run (the mid-wave filter is dormant — byte/event-identical).
         ectx.is_resuming = _resume_from > 0
+        # T16 (R-12, R-14, R-20, F-06): the run's topic slug, computed ONCE here from
+        # the user's run input and reused by every step — never recomputed per step,
+        # or two steps (the preamble's filename vs. the artifact-guarantee check)
+        # could disagree. Threaded onto AgentContext.topic (T11's factory.py already
+        # consumes it) and read back off ``ectx.topic`` by the artifact-guarantee
+        # check and the roster builder in ``_run_agent`` (T16/T17).
+        ectx.topic = topic_slug(user_message)  # type: ignore[attr-defined]
         # Seed the validated per-agent override map (Phase 6 D-07/D-08, MODEL-03).
         # Already allow-list-validated at the WS ingress (websocket.py
         # _validate_model_overrides) — the engine trusts the carried map. Default
@@ -1533,7 +1584,22 @@ class ExecutionEngine:
         # the revision setup — so the in-place-edit revision behavior keys off the
         # DECLARED ``previous_run`` provider, NOT a ``pipeline_type`` name branch
         # (INV-1). No legacy `pipeline_type` dispatch fallback (INV-12).
-        compiled = compile_for_run(pipeline_type)
+        # compiled_override (spec: launch_run's USER_WORKFLOW_MANIFEST case): a
+        # DB-composed manifest already compiled with trust="db" at launch time.
+        # When set, skip the file-based compile entirely — there is no file.
+        compiled = (
+            compiled_override
+            if compiled_override is not None
+            else compile_for_run(pipeline_type)
+        )
+        # ── Roster seam (ADR-0003, refined by ADR-0008) ───────────────────────────
+        # The plan FILLS IN the roster; it never overrules a caller that has one.
+        # ``not agents`` is the load-bearing discriminator: rebuilding whenever the
+        # plan was non-empty discarded the composer's agent picks. Reached only by
+        # custom workflows, whose template steps have no AGENT.md for the caller
+        # to resolve.
+        if compiled.steps and not agents:
+            agents = self._specs_from_plan(compiled.steps)
         # ── EMP-01 (22-04): apply user-composed per-step selections onto the plan ──
         # A saved/custom workflow may carry a compact per-step selections map
         # (validators / gates / non-default model / retry) the user composed. It is
@@ -1742,7 +1808,50 @@ class ExecutionEngine:
             }
             return
 
-        ordered_agents = validation.dag or list(agents)
+        # ── Ordering seam (ADR-0004) ──────────────────────────────────────────────
+        # Declared order (`depends_on`) wins over the resolver's inferred DAG, but
+        # ONLY where the two actually disagree. Custom workflows are the case this
+        # exists for: their steps all load the same contract-free template, so the
+        # resolver has nothing to sort by and its DAG cannot satisfy the declared
+        # edges. Ordering only — satisfiability already ran and halted above.
+        #
+        # The former `any(depends_on)` test was a WHOLE-PLAN switch: one declared or
+        # compiler-derived `depends_on` anywhere (every `subagents:` group emits
+        # them) discarded the resolver's contract-derived ordering for every other
+        # step too, silently reverting app_builder / dotnet_to_azure /
+        # mulesoft_to_springboot to manifest order. Now the resolver's DAG is kept
+        # whenever it ALREADY satisfies every declared edge, so adding a
+        # `depends_on:` that the contracts imply anyway is a no-op.
+        _dag_order = validation.dag or list(agents)
+        _declared_edges = [
+            (s.agent_id, dep)
+            for s in compiled.steps
+            for dep in (getattr(s, "depends_on", None) or [])
+        ]
+        if not _declared_edges:
+            ordered_agents = _dag_order
+        else:
+            _pos = {
+                getattr(a, "id", None): i for i, a in enumerate(_dag_order)
+            }
+            # A declared edge is violated when the resolver placed the DEPENDENCY
+            # after the step that depends on it. Edges naming an agent the resolver
+            # never placed (a custom-agent template with no contracts) are skipped
+            # here and covered by the fallback below.
+            _violated = any(
+                dep in _pos and child in _pos and _pos[dep] > _pos[child]
+                for child, dep in _declared_edges
+            )
+            # An edge whose endpoints the resolver never ordered at all means the
+            # DAG is not a usable ordering for this plan — take the compiler's.
+            _unplaced = any(
+                dep not in _pos or child not in _pos
+                for child, dep in _declared_edges
+            )
+            if _violated or _unplaced:
+                ordered_agents = list(agents)  # already topo-sorted by the compiler
+            else:
+                ordered_agents = _dag_order
 
         # (The CompiledWorkflow was compiled at run entry above — before the revision
         # setup — so the in-place-edit revision behavior keys off the declared
@@ -1771,36 +1880,53 @@ class ExecutionEngine:
             catalog=ModelCatalog(),
         )
 
-        # (1) Agent sequence/ids — the compiled plan is the SOURCE of the agent
-        # MEMBERSHIP for this run. The manifests are authored in the registry's
-        # membership order (get_pipeline_agents / PIPELINE_AGENTS — coverage test
-        # in 04-03), which is the engine's canonical agent list. The actual
-        # EXECUTION order stays the resolver's topo-sorted DAG (validation.dag,
-        # unchanged below — byte-identical), which may reorder contract-coupled
-        # agents (e.g. the code-gen pipelines). So we assert the compiled plan's
-        # step set/order matches the registry MEMBERSHIP source, not validation.dag
-        # — any manifest/registry drift fails LOUDLY here rather than silently
-        # diverging from the agents the engine drives (RESEARCH Pitfall 3). `ppt`
-        # agents declare pipeline_type: od_ppt so get_pipeline_agents("ppt") is
-        # empty; fall back to PIPELINE_AGENTS[id] there (mirrors the coverage
-        # test). `reverse_engineer` (empty plan) / `chat` (ChatRunner) never reach
-        # execute(), so a populated compiled plan is expected for every run here.
-        from agents.registry import PIPELINE_AGENTS, get_pipeline_agents
+        # (1) Agent sequence/ids — the manifest-vs-registry membership assertion is
+        # DELETED (ADR-0003; roster rule in ADR-0008): a custom workflow can never
+        # satisfy it, since its template steps have no AGENT.md and the registry side
+        # is always [].
+        #
+        # REPLACEMENT (ADR-0003 "Confirmation"): a NON-BLOCKING drift warning. The
+        # assertion raised; this only logs, so a custom workflow — whose registry side
+        # is legitimately [] — is never affected, while a genuine manifest/registry
+        # divergence on a file-backed pipeline is still visible in the logs before the
+        # run gets far enough to fail inside load_agent_spec.
+        #
+        # Still outstanding (deliberately NOT fixed here — see ADR-0003): three
+        # consumers keep reporting registry membership rather than what actually ran —
+        # api/agents.py, run_commands.py `agent_count`, run_engine.py model allow-list.
+        try:
+            from agents.registry import PIPELINE_AGENTS, get_pipeline_agents
 
-        _compiled_agent_ids = [s.agent_id for s in compiled.steps]
-        _registry_specs = get_pipeline_agents(compiled.id)
-        _membership_ids = (
-            [a.id for a in _registry_specs]
-            if _registry_specs
-            else list(PIPELINE_AGENTS.get(compiled.id, []))
-        )
-        if _compiled_agent_ids and _compiled_agent_ids != _membership_ids:
-            raise RuntimeError(
-                "compiled plan step order does not match the registry agent "
-                f"membership for '{pipeline_type}' (manifest id "
-                f"'{compiled.id}'): plan={_compiled_agent_ids} "
-                f"registry={_membership_ids}"
+            _compiled_agent_ids = [s.agent_id for s in compiled.steps]
+            # Skip composed workflows entirely: a `custom-agent:<instance>` step has no
+            # AGENT.md, so the registry can never know it and a "drift" warning would
+            # fire on every composed run (SC-001 — no name branch, a property check).
+            _is_composed = any(
+                isinstance(a, str) and a.startswith(CUSTOM_AGENT_PREFIX)
+                for a in _compiled_agent_ids
             )
+            if _compiled_agent_ids and not _is_composed:
+                _registry_specs = get_pipeline_agents(compiled.id)
+                _membership_ids = (
+                    [a.id for a in _registry_specs]
+                    if _registry_specs
+                    else list(PIPELINE_AGENTS.get(compiled.id, []))
+                )
+                # An empty registry side is "no membership declared", not drift.
+                if _membership_ids and _compiled_agent_ids != _membership_ids:
+                    logger.warning(
+                        "manifest/registry drift for %r (manifest id %r): the run will "
+                        "execute the PLAN order %s, while api/agents.py, agent_count and "
+                        "the model allow-list report the REGISTRY order %s. Reconcile "
+                        "agents/workflows/%s/workflow.yaml with registry.PIPELINE_AGENTS.",
+                        pipeline_type,
+                        compiled.id,
+                        _compiled_agent_ids,
+                        _membership_ids,
+                        compiled.id,
+                    )
+        except Exception as _drift_exc:  # noqa: BLE001 — a warning must never break a run
+            logger.debug("drift check skipped (%s)", _drift_exc)
 
         # ── Step 2: Run the Deep_Planner_Agent (gate) ─────────────────────
         # RESUME-04 / BUG-R05: a resumed run (``_is_resume``) does NOT re-run the planner
@@ -1853,6 +1979,7 @@ class ExecutionEngine:
                 else self._default_planning_context(user_message)
             )
             planning_context["pipeline_type"] = pipeline_type
+            planning_context["planner_ran"] = False
             if _replaying_clarify:
                 # Force the clarify gate so Step 3 replays the durable open round. This
                 # is the ONLY thing the replay changes about the skip-planner path.
@@ -2132,6 +2259,13 @@ class ExecutionEngine:
         # names on the per-run context (same dynamic-attr thread) so the per-agent
         # _compose_input_blocks resolves them in declared order. Dormant — [] this wave.
         ectx.compiled_input_providers = list(compiled.input_providers or [])
+        # capabilities (spec 012 / R-25, T33/T35): carry the workflow-level
+        # ``CompiledWorkflow.capabilities`` dict (e.g. ``{"internet": bool}``) on the
+        # per-run context (same dynamic-attr thread as the two providers above) so
+        # ``_run_agent`` can pass it into every step's ``AgentContext.capabilities``.
+        # {} when the manifest declares none → AgentContext.capabilities stays {} →
+        # no internet tools bound (byte-identical for every existing manifest).
+        ectx.compiled_capabilities = dict(compiled.capabilities or {})
 
         from agents.execution_engine.kernel_services import KernelServices
 
@@ -2153,6 +2287,10 @@ class ExecutionEngine:
             # named-worker allow-list onto the LIVE handle so run_fanout's
             # pre-spawn worker selection reads the real declaration.
             allowed_workers=list(getattr(compiled, "allowed_workers", None) or []),
+            # The compiled steps, so run_worker can resolve a NAMED worker's own
+            # declared step (prompt, skills, instance_id) rather than synthesizing
+            # a bare one. Only heterogeneous fan-out reads this.
+            compiled_steps=list(getattr(compiled, "steps", None) or []),
             # ISS-033-A: bind the run's aux usage accumulator onto the handle so the
             # validation fix-loop's sub-agent tokens fold into the run totals below
             # (the same sink the SmartPlanner + clarify one-shots already feed).
@@ -2283,6 +2421,13 @@ class ExecutionEngine:
 
         _registry = _CapReg()
         _steps_by_agent = {s.agent_id: s for s in compiled.steps}
+        # T17 (R-15, D-05): the full agent_id -> compiled Step lookup, threaded onto
+        # ectx so ``_run_agent``'s roster builder can resolve a parent's
+        # ``depends_on`` child agent_ids to their ``display_name``/``instance_id`` —
+        # the SAME dict this loop already built, just readable from the per-agent
+        # call (which only carries ``ectx.current_step``, the ONE step, not the
+        # whole compiled plan).
+        ectx.steps_by_agent = _steps_by_agent  # type: ignore[attr-defined]
 
         # ── RESUME-09 per-task/per-worker SKIP CURSOR (kernel-computed, D-06) ────
         # On a durable resume, compute the completed-identity set per step from the
@@ -2415,6 +2560,21 @@ class ExecutionEngine:
                 # skips, so this is byte/event-identical for every non-resumed run.
                 if i < _resume_from:
                     continue
+                # ── Sibling-group parallelism (subagents.mode: parallel) ─────────
+                # A parallel group's children are dispatched by their parent via
+                # run_fanout; running them here too would run them twice. Removed from
+                # SERIAL dispatch only — they stay in compiled.steps. `dispatched_by` is
+                # compiler-derived and empty for every manifest not using the mode.
+                _step_for_dispatch = _steps_by_agent.get(spec.id)
+                if getattr(_step_for_dispatch, "dispatched_by", ""):
+                    continue
+                # ── Cooperative state-machine check at the STEP BOUNDARY ─────────
+                # A terminal event inside _run_agent only ends ITS generator; this loop
+                # would keep dispatching steps and then report "completed" at Step 5.
+                # Checked before cancel_event so a state-machine-only cancellation
+                # (no event set) is caught too.
+                if self._state_machine.get_state(pipeline_run_id) in ("cancelled", "failed"):
+                    return
                 if cancel_event and cancel_event.is_set():
                     # ── ISS-007 (16-02): pre-agent cooperative cancel ─────────
                     # The Stop button sets the cooperative cancel_event; the
@@ -2829,11 +2989,21 @@ class ExecutionEngine:
                 if _ref.content == final_output:
                     _deliverable_producer = _ref.producer_agent
                     break
+            # ArtifactRef.content is typed str (write_ref hashes it via
+            # hashlib.sha256(content.encode("utf-8"))) — a structured deliverable
+            # (e.g. repo_diff's dict payload) must be serialized before it reaches
+            # the typed graph. final_output itself stays a dict for the WS
+            # pipeline_complete event / FE consumption (untouched above).
+            _deliverable_content = (
+                final_output
+                if isinstance(final_output, str)
+                else json.dumps(final_output, sort_keys=True)
+            )
             await self._dual_write_artifact(
                 ectx,
                 producer_agent=_deliverable_producer,
                 producer_step="deliverable",
-                content=final_output,
+                content=_deliverable_content,
                 kind="deliverable",
                 location="artifact_refs/deliverable",
                 visibility="workspace",
@@ -2976,10 +3146,18 @@ class ExecutionEngine:
         if results and _unrecovered_agents:
             _pipeline_complete_data["status"] = "degraded"
             _pipeline_complete_data["agents_failed"] = sorted(_unrecovered_agents)
-        yield {
-            "type": "pipeline_complete",
-            "data": _pipeline_complete_data,
-        }
+        # Guard (mirrors the ``pipeline_failed`` guard above): a run parked/stopped
+        # at a re-entered gate (cancelled/failed BEFORE this terminal block, e.g. by
+        # the step-boundary state-machine check above) must never report
+        # ``pipeline_complete`` — that is what flips the persisted run status back
+        # to "completed" past a rejection (``_reconcile_terminal_status``). Its own
+        # terminal event (``pipeline_cancelled`` / ``pipeline_failed``) was already
+        # emitted at the point of cancellation/failure.
+        if current_state not in ("cancelled", "failed"):
+            yield {
+                "type": "pipeline_complete",
+                "data": _pipeline_complete_data,
+            }
 
     # ------------------------------------------------------------------
     # Deep Planner
@@ -3056,6 +3234,8 @@ class ExecutionEngine:
         return await planner.plan(user_message, pipeline_type, design_context=design_context)
 
     def _default_planning_context(self, user_message: str, timed_out: bool = False) -> dict:
+        # DO NOT add keys: this dict is serialized verbatim into the planner event and the
+        # characterization normalizer does not recurse into it, so a new key breaks INV-3.
         return {
             "inferred_intent": user_message[:200],
             "has_topic": len(user_message.split()) > 4,
@@ -3377,6 +3557,157 @@ class ExecutionEngine:
         except Exception:  # noqa: BLE001 — failure bookkeeping must never break the run
             pass
 
+    def _build_roster(self, ectx: ExecutionContext, topic: str, sandbox: RunSandbox) -> str:
+        """Build the parent's roster block from artifacts that ACTUALLY exist (R-15, D-05).
+
+        Reads the about-to-run step's ``depends_on`` (``ectx.current_step``) — the
+        compiler wires every direct child's ``agent_id`` there for a ``subagents``
+        group (T12/T13) — and, for each ``custom-agent:<instance_id>`` dependency,
+        resolves its ``display_name`` off the full step lookup (``ectx.steps_by_agent``,
+        stamped once per run) and its filename via the SAME ``artifact_name`` helper
+        the preamble uses (F-06). A dependency's line is included ONLY when its file
+        exists in the sandbox — a failed child never reaches T16's artifact guarantee
+        (that check runs after a SUCCESSFUL step completes), so its artifact is
+        naturally absent and its line is simply absent (R-21) — no separate
+        success/failure bookkeeping, no manifest lookup.
+
+        Never raises — a lookup/read failure degrades to "no roster" (fail-open,
+        mirroring RunLog's contract), never breaks the run.
+        """
+        try:
+            step = getattr(ectx, "current_step", None)
+            deps = list(getattr(step, "depends_on", None) or [])
+            if not deps:
+                return ""
+            steps_by_agent = getattr(ectx, "steps_by_agent", None) or {}
+            lines: list[str] = []
+            for dep_id in deps:
+                if not isinstance(dep_id, str) or not dep_id.startswith(CUSTOM_AGENT_PREFIX):
+                    continue
+                instance_id = dep_id.split(":", 1)[1]
+                dep_step = steps_by_agent.get(dep_id)
+                display = (getattr(dep_step, "display_name", "") or "") or instance_id
+                filename = artifact_name(instance_id, topic)
+                if sandbox.read(filename) is not None:
+                    lines.append(f"- {display} → {filename}")
+            if not lines:
+                return ""
+            return (
+                # Not "sub-agents": depends_on is now derived for sequential steps too, whose
+                # dependencies are peers, not children.
+                "Earlier steps produced:\n"
+                + "\n".join(lines)
+                + "\nRead the files you need before you start."
+            )
+        except Exception as exc:  # noqa: BLE001 — roster build must never break the run
+            logger.warning("_build_roster: failed to build roster (%s) — omitting it", exc)
+            return ""
+
+    @staticmethod
+    def _concurrent_skill_scope(ectx: ExecutionContext) -> list[str]:
+        """Skill ids of every step dispatched CONCURRENTLY with the current one (ADR-0006).
+
+        A ``subagents: {mode: parallel}`` group compiles its children with a shared
+        ``dispatched_by`` (the parent's agent id) and the parent hands them all to
+        ``run_fanout``, which runs them under one ``asyncio.gather`` against the SAME
+        ``RunSandbox`` whenever the run grants no exec workspace (the ``shared_read``
+        isolation path). Staging prunes every skill dir not attached to the calling
+        step, so without this the siblings delete each other's skills mid-run —
+        silently, since the prune is ``ignore_errors=True``.
+
+        Returns the UNION of the cohort's declared skill ids, which ``stage_skills``
+        uses as its KEEP set. ``[]`` for a serially-dispatched step (no
+        ``dispatched_by``) ⇒ the KEEP set stays that step's own attached ids ⇒
+        byte-identical to the pre-fix behaviour for every existing workflow.
+
+        Deliberately keyed on ``dispatched_by`` rather than on the calling step's
+        identity: every member of a cohort shares that value, so this returns the
+        same union no matter which sibling asks. Never raises — an unreadable plan
+        degrades to ``[]`` (the old, narrower KEEP set), never breaks the run.
+        """
+        try:
+            step = getattr(ectx, "current_step", None)
+            cohort = getattr(step, "dispatched_by", "") or ""
+            if not cohort:
+                return []
+            steps_by_agent = getattr(ectx, "steps_by_agent", None) or {}
+            scope: set[str] = set()
+            for sibling in steps_by_agent.values():
+                if (getattr(sibling, "dispatched_by", "") or "") == cohort:
+                    scope.update(getattr(sibling, "skills", None) or [])
+            return sorted(scope)
+        except Exception as exc:  # noqa: BLE001 — scope build must never break the run
+            logger.warning(
+                "_concurrent_skill_scope: failed (%s) — falling back to per-step prune",
+                exc,
+            )
+            return []
+
+    @staticmethod
+    def _deliverable_filename_override(
+        ectx: ExecutionContext, index: int, ordered_agents: list
+    ) -> str | None:
+        """The declared ``single_file`` deliverable name, for the FINAL step only.
+
+        One definition, two consumers: the ``AgentContext`` the factory composes the
+        prompt from, and the artifact guarantee below. They MUST agree — when they
+        disagreed, the prompt told the model to write ``page.html`` while the
+        guarantee looked for (and wrote) ``page-<topic>.md``, producing a duplicate
+        file on every successful run and, had the model skipped ``write_file``,
+        silently writing the deliverable to a name the single_file readback never
+        looks at.
+        """
+        if index != len(ordered_agents) - 1:
+            return None
+        deliverable = getattr(ectx, "deliverable", None)
+        if getattr(deliverable, "strategy", None) != "single_file":
+            return None
+        return getattr(deliverable, "name", None) or None
+
+    def _check_artifact_fallback(
+        self,
+        ectx: ExecutionContext,
+        spec_id: str,
+        output: str,
+        sandbox: RunSandbox,
+        user_message: str,
+        deliverable_filename: str | None = None,
+    ) -> str | None:
+        """The artifact guarantee for a custom-agent step (R-20, D-06, F-06).
+
+        The preamble TELLS a custom-agent step the exact filename to write to
+        (factory.py, T11) — but an instruction is not a guarantee, and the engine is
+        model-agnostic by decision (Q15): it cannot assume any model obeys it. This
+        verifies the file actually landed in the run sandbox and, if not, writes the
+        step's streamed ``output`` there itself — making R-20 true regardless of
+        model, and structurally killing the spec 011 D-02 defect (an agent that
+        streams instead of writing yielding a silently empty deliverable).
+
+        A no-op (returns ``None``) for every non-custom-agent step (R-16 parity) and
+        for a custom-agent step whose file already exists. Returns the filename ONLY
+        when it just wrote the fallback, so the caller can log/emit
+        ``artifact_fallback`` exactly once. Never raises — a guarantee that can crash
+        the run is not a guarantee either.
+        """
+        if not spec_id.startswith(CUSTOM_AGENT_PREFIX):
+            return None
+        try:
+            instance_id = spec_id.split(":", 1)[1]
+            topic = getattr(ectx, "topic", "") or topic_slug(user_message)
+            # Must match what the factory told the model to write (factory.py:559),
+            # or the guarantee checks the wrong file.
+            filename = deliverable_filename or artifact_name(instance_id, topic)
+            if sandbox.read(filename) is not None:
+                return None
+            sandbox.write(filename, output or "")
+            return filename
+        except Exception as exc:  # noqa: BLE001 — the guarantee must never break the run
+            logger.warning(
+                "artifact_fallback: could not guarantee an artifact for %s: %s",
+                spec_id, exc,
+            )
+            return None
+
     async def _run_agent(
         self,
         spec,
@@ -3475,7 +3806,7 @@ class ExecutionEngine:
                     # revision pass and the one re-opened after it returns share a gate_key
                     # AND their output bytes, so without this the user (and any consumer
                     # keyed on those two) cannot tell them apart.
-                    _rev_cycle, _rev_in_flight = self._revision_stamp(ectx)
+                    _rev_cycle, _rev_in_flight = self._stamp_revision_marks(ectx)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
@@ -3557,6 +3888,17 @@ class ExecutionEngine:
                     else:
                         return
                     continue
+                # Durably-open gate, but the current selection says this step should
+                # not gate: continue with the recorded output and drop any pending gate
+                # response. Migration 0031 fixed the known cause (per-run gate_agent_ids
+                # lost on resume, discarding redo instructions silently); the warning
+                # keeps any remaining path visible instead of looking like an approval.
+                logger.warning(
+                    "gate_reentry: %s has a durably-open gate but does not gate under "
+                    "the current selection — continuing with its recorded output; any "
+                    "pending gate response for this step is discarded",
+                    spec.id,
+                )
                 return
 
             # KAN-101: if a spec revision sub-pipeline just completed, skip re-running
@@ -3582,7 +3924,7 @@ class ExecutionEngine:
                     # revision pass and the one re-opened after it returns share a gate_key
                     # AND their output bytes, so without this the user (and any consumer
                     # keyed on those two) cannot tell them apart.
-                    _rev_cycle, _rev_in_flight = self._revision_stamp(ectx)
+                    _rev_cycle, _rev_in_flight = self._stamp_revision_marks(ectx)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
@@ -3694,6 +4036,7 @@ class ExecutionEngine:
                          "icon": spec.icon, "index": index, "total": len(ordered_agents)},
             }
             _log_event("agent_start", pipeline_run_id, agent_id=spec.id)
+            RunLog(getattr(sandbox, "root", None)).write("step_start", agent_id=spec.id)
 
             # Build context message via the GENERIC injector (INV-1) — OD/template blocks
             # come from the declared context_provider capabilities, the agnostic parts
@@ -3789,17 +4132,22 @@ class ExecutionEngine:
             }
 
             try:
-                # Merge disk-based skills into attached_skills for this agent.
-                # UI-attached skills take priority; disk skill is appended after.
+                # spec 011 / D6: run-attached skills are STAGED to <sandbox>/skills/ by
+                # create_runner and advertised by deepagents — their bodies never enter a
+                # prompt. The per-user DISK skill keeps its eager injection and therefore
+                # rides its OWN context field instead of being merged in here.
                 merged_skills: list[dict] = list(attached_skills or [])
-                disk_skills = ectx.disk_skills
-                if spec.id in disk_skills:
-                    merged_skills.append({"content": disk_skills[spec.id]})
+                disk_skill: str | None = ectx.disk_skills.get(spec.id)
+
+                # Every attached skill reaches every agent (spec 011 R-01) — there is no
+                # per-agent scoping left to apply, so the displayed set IS the attached set.
+                displayed_skills = merged_skills
 
                 ctx = AgentContext(
                     user_request=user_message,
                     agent_outputs=self._filter_consumed_outputs(spec, ordered_agents, ectx),
                     attached_skills=merged_skills,
+                    disk_skill=disk_skill,
                     attached_hooks=list(attached_hooks or []),
                     # MODEL-01/02/05: the effective model id by the D-02 precedence. With no
                     # overrides + no manifest model (today) this returns ``model_id or Haiku`` =
@@ -3835,7 +4183,51 @@ class ExecutionEngine:
                     step_injects=list(
                         getattr(getattr(ectx, "current_step", None), "injects", None) or []
                     ),
+                    # step_skills (spec 012 / R-01, D-03): the compiled Step.skills for
+                    # THIS step, read off ectx.current_step (the SAME seam step_injects
+                    # uses). [] for every step declaring no per-step skills: the factory
+                    # falls back to ctx.attached_skills unchanged, so behaviour stays
+                    # byte-identical (R-16) for the goldens, which declare no skills.
+                    step_skills=list(
+                        getattr(getattr(ectx, "current_step", None), "skills", None) or []
+                    ),
+                    # skills_prune_scope (ADR-0006 Consequences): the union of the
+                    # concurrently-dispatched cohort's skill ids, so a sibling running
+                    # under the same asyncio.gather against the shared sandbox does not
+                    # get its staged skill pruned away. [] for every serial step ⇒ the
+                    # factory passes an empty scope ⇒ stage_skills keeps its per-step
+                    # KEEP set ⇒ byte-identical for the goldens (R-16).
+                    skills_prune_scope=self._concurrent_skill_scope(ectx),
+                    # step_prompt (spec 012 / R-14, T11/T16): a custom-agent step's own
+                    # ``prompt`` text, read off ectx.current_step (the SAME seam
+                    # step_injects/step_skills use). "" for every non-custom-agent step
+                    # (they declare no ``prompt`` — R-06), so this is a no-op for every
+                    # existing agent (R-16 parity).
+                    step_prompt=str(
+                        getattr(getattr(ectx, "current_step", None), "prompt", None) or ""
+                    ),
+                    # topic (spec 012 / R-12, R-14, T11/T16): the run's topic slug,
+                    # computed ONCE at run entry (ectx.topic, above) and reused for
+                    # every step — never recomputed here (F-06).
+                    topic=getattr(ectx, "topic", "") or topic_slug(user_message),
+                    # capabilities (spec 012 / R-25, T33/T35): the compiled workflow's
+                    # capabilities dict, threaded off ectx.compiled_capabilities (set
+                    # once at run entry, above — the SAME seam step_injects/step_skills
+                    # use). {} for every manifest declaring none, so this is a no-op
+                    # for every existing agent (R-16 parity).
+                    capabilities=dict(getattr(ectx, "compiled_capabilities", None) or {}),
+                    # Only the FINAL step may be named by a single_file deliverable —
+                    # its declared name and the per-instance artifact convention are
+                    # mutually exclusive, and the readback looks for the declared name.
+                    # None elsewhere, so the factory falls back to artifact_name().
+                    deliverable_filename_override=self._deliverable_filename_override(
+                        ectx, index, ordered_agents,
+                    ),
                 )
+                # Roster block built from the artifacts the dependencies ACTUALLY wrote,
+                # never the manifest — a failed step's artifact is absent, so its line is
+                # simply absent (R-21). Consumed by factory.py `_compose_system_prompt`.
+                ctx.roster = self._build_roster(ectx, ctx.topic, sandbox)
 
                 # Capture the resolved primary model ID *now*, before create_runner — it is
                 # the string id the MODEL-02 fallback chain is armed on (set_chain below).
@@ -3893,6 +4285,44 @@ class ExecutionEngine:
                     # isolated. None for every non-worker invocation (parity).
                     run_sandbox=self._isolated_run_sandbox(ectx),
                 )
+
+                # spec 011 / D6: emitted AFTER create_runner returns (moved from before the
+                # call) — before construction this event only reported an INTENTION to
+                # attach skills; here it reports what create_runner's stage_skills actually
+                # DELIVERED (ctx.skills_delivery), so a silently-dropped/unparseable
+                # SKILL.md is surfaced instead of assumed.
+                _delivery = getattr(ctx, "skills_delivery", None)
+                yield {
+                    "type": "agent_skills",
+                    "data": {
+                        "agent_id": spec.id,
+                        "attached_skills": [
+                            {
+                                "name": s.get("name", ""),
+                                "source": s.get("source", ""),
+                                "content": s.get("content", ""),
+                            }
+                            for s in displayed_skills
+                        ],
+                        "attached_hooks": [
+                            {
+                                "name": h.get("name", ""),
+                                "event": h.get("event", ""),
+                                "trigger": h.get("trigger", ""),
+                                "description": h.get("description", ""),
+                            }
+                            for h in (attached_hooks or [])
+                        ],
+                        "skills_load_errors": list(getattr(_delivery, "errors", []) or []),
+                        "estimated_tokens": getattr(_delivery, "est_tokens", 0),
+                    },
+                }
+                # Advisory-only cost ceiling warning — never raises, never skips the agent.
+                if getattr(_delivery, "est_tokens", 0) > 8000:
+                    logger.warning(
+                        "agent=%s advertises %d skill(s) at ~%d tok/agent (ceiling 8000)",
+                        spec.id, len(getattr(_delivery, "staged", []) or []), _delivery.est_tokens,
+                    )
 
                 output_chunks: list[str] = []
 
@@ -4031,6 +4461,13 @@ class ExecutionEngine:
                                     _safe_chunk = _chunk_sanitizer.feed(event["chunk"])
                                     if _safe_chunk:
                                         yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": _safe_chunk}}
+                                elif etype == "thinking":
+                                    # Live model reasoning (extended-thinking providers) —
+                                    # mirrors the "chunk" -> agent_chunk mapping directly
+                                    # above. The FE already has a full agent_thinking
+                                    # handler + Thinking tab (useWorkflow.ts, AgentThinkingTab)
+                                    # waiting on this; only the emission was missing.
+                                    yield {"type": "agent_thinking", "data": {"agent_id": spec.id, "thinking": event["thinking"]}}
                                 elif etype == "usage":
                                     agent_input_tokens += event.get("input_tokens", 0)
                                     agent_output_tokens += event.get("output_tokens", 0)
@@ -4307,6 +4744,9 @@ class ExecutionEngine:
                     )
                     _log_event("agent_error", pipeline_run_id, agent_id=spec.id,
                                error=agent_error_message)
+                    RunLog(getattr(sandbox, "root", None)).write(
+                        "agent_error", agent_id=spec.id, error=agent_error_message,
+                    )
                     # ISS-028: record the (agent_id, task_number) failure pair. This arm
                     # RETURNS without a results.append, so the pair stays UNRECOVERED — a
                     # task_loop where an earlier task of this same agent_id completed no
@@ -4458,6 +4898,34 @@ class ExecutionEngine:
                             visibility="workspace",
                         )
 
+                # ── T16: the artifact guarantee (R-20, D-06, F-06) ──────────────────────
+                # The preamble TELLS a custom-agent step the filename it must write to
+                # (factory.py, T11) — but an instruction is not a guarantee, and the
+                # engine is model-agnostic by decision (Q15). Verify the file actually
+                # landed in the run sandbox; if not, write the step's streamed text there
+                # ourselves and emit ``artifact_fallback``. This is what makes R-20 true
+                # regardless of model, and structurally kills the spec 011 D-02 defect
+                # (an agent that streams instead of writing yielding a silently empty
+                # deliverable).
+                _fallback_filename = self._check_artifact_fallback(
+                    ectx, spec.id, output, sandbox, user_message,
+                    deliverable_filename=self._deliverable_filename_override(
+                        ectx, index, ordered_agents,
+                    ),
+                )
+                if _fallback_filename:
+                    _log_event(
+                        "artifact_fallback", pipeline_run_id,
+                        agent_id=spec.id, filename=_fallback_filename,
+                    )
+                    RunLog(getattr(sandbox, "root", None)).write(
+                        "artifact_fallback", agent_id=spec.id, filename=_fallback_filename,
+                    )
+                    yield {
+                        "type": "artifact_fallback",
+                        "data": {"agent_id": spec.id, "filename": _fallback_filename},
+                    }
+
                 duration = time.time() - agent_start
                 agent_total_tokens = agent_input_tokens + agent_output_tokens
                 results.append({
@@ -4480,6 +4948,10 @@ class ExecutionEngine:
                 })
                 _log_event("agent_complete", pipeline_run_id, agent_id=spec.id,
                            duration_ms=duration * 1000)
+                RunLog(getattr(sandbox, "root", None)).write(
+                    "step_end", agent_id=spec.id, model=_resolved_model_id,
+                    tokens_in=agent_input_tokens, tokens_out=agent_output_tokens,
+                )
                 yield {
                     "type": "agent_complete",
                     "data": {"agent_id": spec.id, "name": spec.name, "duration": round(duration, 2),
@@ -4518,7 +4990,7 @@ class ExecutionEngine:
                     # revision pass and the one re-opened after it returns share a gate_key
                     # AND their output bytes, so without this the user (and any consumer
                     # keyed on those two) cannot tell them apart.
-                    _rev_cycle, _rev_in_flight = self._revision_stamp(ectx)
+                    _rev_cycle, _rev_in_flight = self._stamp_revision_marks(ectx)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
@@ -4637,6 +5109,7 @@ class ExecutionEngine:
             except (FileNotFoundError, PermissionError) as exc:
                 # Missing AGENT.md or template — fatal
                 _log_event("agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc))
+                RunLog(getattr(sandbox, "root", None)).write("agent_error", agent_id=spec.id, error=str(exc))
                 # ISS-028: unrecovered (agent_id, task_number) failure — no results.append.
                 self._record_failed_invocation(ectx, spec.id)
                 yield {"type": "agent_error", "data": {"agent_id": spec.id, "error": str(exc), "recoverable": False}}
@@ -4655,6 +5128,7 @@ class ExecutionEngine:
                         return  # Stop the agent loop cleanly
                 logger.exception("Agent %s failed", spec.id)
                 _log_event("agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc))
+                RunLog(getattr(sandbox, "root", None)).write("agent_error", agent_id=spec.id, error=str(exc))
                 # ISS-028: unrecovered (agent_id, task_number) failure — this handler
                 # writes an [Error:…] placeholder but never appends to results.
                 self._record_failed_invocation(ectx, spec.id)
@@ -5735,7 +6209,7 @@ class ExecutionEngine:
         output bytes, milliseconds apart). Publishing ``(cycle, in_flight)`` makes every
         firing identifiable: ``(0, False)`` before any revision, ``(N, True)`` inside pass
         N, ``(N, False)`` at pass N's re-opened gate. Both come from generic run scratch
-        (see ``_revision_stamp``) — no workflow or agent name — and both default to the
+        (see ``_stamp_revision_marks``) — no workflow or agent name — and both default to the
         no-revision value on the declared/user gate path, exactly as ``redoable`` does.
         """
         gate_key = f"{pipeline_run_id}:{agent_id}"
@@ -6917,7 +7391,7 @@ class ExecutionEngine:
             and not getattr(ectx, "revision_attempt", 0)
         )
 
-    def _revision_stamp(self, ectx) -> tuple[int, bool]:
+    def _stamp_revision_marks(self, ectx) -> tuple[int, bool]:
         """Which spec-revision cycle is THIS gate firing part of, and is it inside it?
 
         Returns ``(revision_cycle, revision_in_flight)``, published on every inline
@@ -7235,6 +7709,41 @@ class ExecutionEngine:
                 patch["injects"] = list(
                     dict.fromkeys([*step.injects, *user_step.injects])
                 )
+            # ADR-0010 — per-agent skills selected in the composer. UNION with the
+            # step's manifest-declared skills, exactly like ``injects`` above: the
+            # composer's picker can only ADD to what the workflow author declared,
+            # never silently drop a skill the manifest requires. This is the ONLY
+            # route a composed run's skills take now that run-level
+            # ``attached_skills`` is retired — it lands on ``Step.skills``, which
+            # the dispatch loop reads as ``ectx.current_step.skills`` into
+            # ``ctx.step_skills``, which ``factory._resolve_step_skills`` turns into
+            # the staged skill payloads.
+            if sel.get("skills"):
+                # Unknown ids are DROPPED here rather than carried through.
+                # ``factory._resolve_step_skills`` asserts on an unresolvable id,
+                # and that assert is correct for a file-backed manifest (a typo
+                # there is an author bug worth failing loudly on) — but these ids
+                # are USER-supplied and may be stale: a workflow saved when skill
+                # "x" existed must not crash the run after "x" leaves the catalog.
+                # Note the assert's docstring claims the compiler validates these
+                # at compile time; it does not (`compiler.py` carries `skills`
+                # verbatim), so this filter is the only guard on the user path.
+                _known = _known_skill_ids()
+                _merged = list(dict.fromkeys([*step.skills, *user_step.skills]))
+                if not _known:
+                    # Catalog unreadable — filtering on an empty set would strip
+                    # EVERY skill, which is worse than the stale-id crash it is
+                    # meant to prevent. Carry the ids through untouched.
+                    patch["skills"] = _merged
+                else:
+                    _dropped = [s for s in _merged if s not in _known]
+                    if _dropped:
+                        logger.warning(
+                            "engine: dropping unknown per-step skill ids %s for agent "
+                            "%s (not in the global skills catalog)",
+                            _dropped, step.agent_id,
+                        )
+                    patch["skills"] = [s for s in _merged if s in _known]
             # Fan-out levers (D3, the crux) — each fires ONLY when the user selected
             # it, so the empty-selections path stays byte-identical (INV-3). No
             # ``tools`` overlay: the declarative fanout_batch path acquires no
@@ -8383,6 +8892,12 @@ class ExecutionEngine:
             # NULL for non-OD runs → od_context=None passed to _drive_resumed_stream
             # → _execute_impl → ectx.od_context = None (same as before — INV-3).
             od_context = getattr(wr, "od_context_json", None)
+            # Restore the launch-time per-run gate selection (migration 0031).
+            # NULL → None → _should_gate falls back to the static AGENT.md set,
+            # which is the correct default for every run that never overrode it.
+            # For a run that DID override it, this is the difference between the
+            # gate re-opening on resume and the pending redo being swallowed.
+            gate_agent_ids = getattr(wr, "gate_agent_ids_json", None)
         finally:
             db.close()
 
@@ -8398,6 +8913,22 @@ class ExecutionEngine:
             # WR-01: drop the task entry registered at the create_task site.
             self._fire_resume_cleanup(run_id)
             return
+        if not agents:
+            # ── Roster seam (twin of the execute() roster seam at ~line 1473): the
+            # compiled plan is the single source of the run's agent roster. For a
+            # composed workflow (steps are instances of an agent template, e.g.
+            # `custom-agent:facts`, with no AGENT.md on disk) the registry has no
+            # static membership and returns `[]` above — that alone doesn't mean
+            # there's nothing to resume, so fall back to the compiled plan before
+            # giving up.
+            try:
+                compiled = compile_for_run(pipeline_type)
+            except Exception as exc:  # noqa: BLE001 — cannot compile → cannot resume
+                logger.warning("resume_run(%s): cannot compile plan (%s)", run_id, exc)
+                self._fire_resume_cleanup(run_id)
+                return
+            if compiled.steps:
+                agents = self._specs_from_plan(compiled.steps)
         if not agents:
             logger.warning("resume_run(%s): empty agent list — nothing to resume", run_id)
             # WR-01: drop the task entry registered at the create_task site.
@@ -8510,6 +9041,7 @@ class ExecutionEngine:
             parent_run_id=parent_run_id,
             selections=selections,
             od_context=od_context,
+            gate_agent_ids=gate_agent_ids,
             start_seq=start,
             live_queue=live_queue,
             _resume_from=offset,
@@ -8528,6 +9060,7 @@ class ExecutionEngine:
         parent_run_id: str | None,
         selections: dict | None,
         od_context: dict | None = None,
+        gate_agent_ids: list[str] | None = None,
         start_seq: int,
         live_queue: "asyncio.Queue | None",
         _resume_from: int = 0,
@@ -8580,6 +9113,11 @@ class ExecutionEngine:
                 # (od-ppt-*, prototype-*) receive their template + DS context on
                 # resume. None for non-OD runs → ectx.od_context=None (INV-3).
                 od_context=od_context,
+                # Restore the launch-time gate selection so a gate that exists
+                # only via the per-run override still exists after a restart.
+                # None (every run that never overrode it) → the static AGENT.md
+                # set, unchanged (INV-3).
+                gate_agent_ids=gate_agent_ids,
                 _sink=sink,
                 _resume_from=_resume_from,
                 _is_resume=_is_resume,
@@ -8728,6 +9266,9 @@ class ExecutionEngine:
             session_id = wr.session_id
             parent_run_id = wr.parent_run_id
             selections = wr.selections_json
+            # Same restore as resume_run (migration 0031) — this driver re-enters
+            # the same dispatch loop, so it needs the same gate selection.
+            gate_agent_ids = getattr(wr, "gate_agent_ids_json", None)
             owner_id = wr.owner_id or wr.user_id or f"anon:{wr.session_id or run_id}"
             workspace_id = wr.workspace_id
         finally:
@@ -8829,6 +9370,7 @@ class ExecutionEngine:
             session_id=session_id,
             parent_run_id=parent_run_id,
             selections=selections,
+            gate_agent_ids=gate_agent_ids,
             start_seq=start,
             live_queue=live_queue,
             _resume_from=0,
@@ -8872,6 +9414,16 @@ class ExecutionEngine:
             # directly off the scoped store (the in-memory graph is empty on a fresh
             # process — completeness comes from the durable substrate).
             compiled = compile_for_run(pipeline_type)
+            # ── Roster seam (twin of the execute() roster seam at ~line 1473): the
+            # compiled plan is the single source of the run's agent roster. For a
+            # composed workflow (steps are instances of an agent template, e.g.
+            # `custom-agent:facts`, with no AGENT.md on disk) the registry-sourced
+            # `agents` passed in here is `[]`, so `self._resolver.validate(agents)`
+            # below would validate an empty roster and resume would die with "empty
+            # agent list — nothing to resume". Rebuild `agents` from the compiled
+            # plan exactly as execute() does, guarded the same way.
+            if compiled.steps:
+                agents = self._specs_from_plan(compiled.steps)
             from agents.execution_engine.resolver import WorkflowResolver  # noqa: F401
 
             validation = self._resolver.validate(agents)
@@ -8990,7 +9542,14 @@ class ExecutionEngine:
 
         parts = [f"=== ORIGINAL USER REQUEST ===\n{effective_message}\n=== END REQUEST ==="]
 
-        if planning_context and not planning_context.get("planner_timed_out"):
+        # A composed step carries its own authored prompt; when no planner actually ran the
+        # "Planning Context" block is a verbatim echo of the brief above, so suppress it.
+        # Registry agents declare no step prompt -> unchanged (R-16 parity, cf. :3814).
+        _own_prompt = getattr(getattr(ectx, "current_step", None), "prompt", "") or ""
+
+        if (planning_context
+                and not planning_context.get("planner_timed_out")
+                and (planning_context.get("planner_ran", True) or not _own_prompt)):
             intent = planning_context.get("inferred_intent", "")
             constraints = planning_context.get("explicit_constraints", [])
             implicit = planning_context.get("implicit_constraints", [])

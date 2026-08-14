@@ -54,6 +54,7 @@ import {
   Square,
   X,
 } from "lucide-react";
+import { getWorkflowIcon } from "@/lib/workflowIcons";
 
 import type {
   AgentEvent,
@@ -71,7 +72,10 @@ import {
 import type { ClarifyResponse } from "./InlineClarifyActions";
 import type { PendingAttachment } from "@/hooks/useChatAttachments";
 import type { ReplyStreamingState, SendMessageOptions } from "@/hooks/useRunChat";
+import { useWorkflowChaining, useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
+import { useAppSelector } from "@/store/hooks";
 import { formatDuration } from "@/lib/runStats";
+import { baseWorkflowType } from "@/lib/workflowChaining";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Badge } from "../ui/Badge";
@@ -123,8 +127,15 @@ export interface GateContext {
 /** A generic quick-reply suggestion chip (never a workflow-name literal). */
 export interface LaneSuggestion {
   id: string;
+  /** Heading: action text for this suggestion (e.g., "Ship the code") */
+  text?: string;
+  /** Subtitle: workflow name to chain into (e.g., "App Builder") */
   label: string;
   description?: string;
+  isBeta?: boolean;
+  display_name?: string;
+  short_name?: string;
+  icon?: string;
 }
 
 /**
@@ -1083,6 +1094,26 @@ export function RunChatLane({
   onSkipClarify,
   onCancelWorkflow,
 }: RunChatLaneProps) {
+  // Hooks at top level (required by React)
+  const chainInto = useWorkflowChaining();
+  const getWorkflowLabel = useWorkflowLabels();
+  const allWorkflows = useAppSelector((state) => state.global.workflows);
+
+  // Compute chain suggestions from the backend-owned chaining data (Plan 34-01).
+  // The hook inverts every workflow's chained_from into "what can I chain into",
+  // returning a stable resolver. We compute suggestions directly here instead of
+  // relying on the prop-drilled suggestions from the caller.
+  const computedSuggestions: LaneSuggestion[] = runType
+    ? chainInto(baseWorkflowType(runType)).map((o) => ({
+        ...o,
+        isBeta: o.beta,
+      }))
+    : [];
+  // Use computed suggestions if the prop-drilled suggestions are missing, then sort.
+  const effectiveSuggestions = (suggestions ?? computedSuggestions).sort(
+    (a, b) => (a.isBeta ? 1 : 0) - (b.isBeta ? 1 : 0)
+  );
+
   // isRunning keys off the GENERIC runState only (SC-001) — no workflow branch.
   const isRunning =
     runState === "building" || runState === "clarify" || runState === "gate";
@@ -1244,7 +1275,7 @@ export function RunChatLane({
           : undefined;
 
         const runId = viewedRunId ?? "";
-        const chainHints = suggestions?.map((s) => ({ id: s.id, label: s.label }));
+        const chainHints = effectiveSuggestions?.map((s) => ({ id: s.id, label: s.label }));
 
         setReplyPending(true);
         sendMessage(effectiveText, attachments, {
@@ -1284,7 +1315,7 @@ export function RunChatLane({
 
       sendMessage(effectiveText, attachments);
     },
-    [runState, onRevise, sendMessage, addOptimisticMessage, suggestions, onSuggestion, viewedRunId],
+    [runState, onRevise, sendMessage, addOptimisticMessage, effectiveSuggestions, onSuggestion, viewedRunId],
   );
 
   // Confirm the held refinement → launch the revision (the ONLY path that fires
@@ -1463,34 +1494,74 @@ export function RunChatLane({
 
   // c72 — the settled-run chain-suggestion chips, restored ABOVE the chat input.
   // The `suggestions`/`onSuggestion` props already reach the lane (DashboardLayout
-  // computes `laneSuggestions` off the static CHAIN_OPTIONS allow-list); Phase 39
+  // computes `laneSuggestions` from `chainInto()`, backend-owned via
+  // useWorkflowChaining, Plan 34-01); Phase 39
   // deleted only the RENDER for mock fidelity. Rendered ONLY on a COMPLETED run
   // with suggestions present; each chip is an actionable <button> in the DS Pill
   // idiom (rounded-[var(--radius-pill)], border-line-control, bg-surface-white)
   // that fires the existing `onSuggestion(id)` chain action. GENERIC (SC-001/INV-1)
   // — the chip label + id come straight off the prop, never a workflow-name literal.
   const renderChainSuggestions = () => {
-    if (runState !== "complete" || !suggestions || suggestions.length === 0) {
+    if (runState !== "complete" || !effectiveSuggestions || effectiveSuggestions.length === 0) {
       return null;
     }
+    const activeChains = effectiveSuggestions.filter((s) => !s.isBeta);
+    const betaChains = effectiveSuggestions.filter((s) => s.isBeta);
+    const allChains = [...activeChains, ...betaChains];
+
     return (
-      <div data-testid="chat-chain-suggestions" className="space-y-1.5">
+      <div data-testid="chat-chain-suggestions" className="space-y-2.5">
         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-brand">
-          Chain into
+          Take this further
         </p>
-        <div className="flex flex-wrap gap-1.5">
-          {suggestions.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              data-testid="chat-chain-suggestion-chip"
-              data-suggestion-id={s.id}
-              onClick={() => onSuggestion?.(s.id)}
-              className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-line-control bg-surface-white px-2.5 py-1 font-sans text-[11px] font-medium leading-none text-ink-700 transition-colors hover:border-brand hover:text-brand"
-            >
-              {s.label}
-            </button>
-          ))}
+        <div className="flex flex-col gap-2">
+          {allChains.map((s) => {
+            const isBeta = s.isBeta ?? false;
+            const workflowDisplayName = s.display_name || getWorkflowLabel(s.id);
+            const workflow = allWorkflows.find((w) => w.id === s.id);
+            const WorkflowIcon = getWorkflowIcon(workflow?.icon);
+            return (
+              <button
+                key={`${isBeta ? "beta" : "full"}-${s.id}`}
+                type="button"
+                data-testid={isBeta ? "chat-chain-suggestion-chip-beta" : "chat-chain-suggestion-chip"}
+                data-suggestion-id={s.id}
+                disabled={isBeta}
+                onClick={() => !isBeta && onSuggestion?.(s.id)}
+                className={`group relative w-full flex items-center justify-between rounded-[var(--radius-card)] border px-4 py-3 transition-all ${
+                  isBeta
+                    ? "border-line-border bg-surface-card text-ink-600 cursor-not-allowed"
+                    : "border-line-control bg-surface-white text-ink-700 cursor-pointer hover:border-brand hover:bg-brand/5 hover:shadow-md hover:-translate-y-0.5 shimmer-effect"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className={`grid h-8 w-8 place-items-center rounded-[6px] flex-shrink-0 ${
+                    isBeta ? "bg-surface-warm text-ink-400" : "bg-brand-fill text-brand"
+                  }`}>
+                    <WorkflowIcon className="h-4 w-4" />
+                  </span>
+                  <div className="flex flex-col text-left">
+                    <span className="text-[12px] font-semibold">{s.text || s.label}</span>
+                    <span className={`text-[10px] mt-0.5 ${isBeta ? "text-ink-400" : "text-ink-500"}`}>
+                      {s.display_name || s.label}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isBeta && (
+                    <span className="text-[9px] font-semibold text-ink-400 uppercase tracking-[0.05em] px-1.5 py-0.5 rounded border border-line-border bg-surface-white">
+                      Soon
+                    </span>
+                  )}
+                  <ArrowRight className={`h-4 w-4 transition-all flex-shrink-0 ${
+                    isBeta
+                      ? "text-ink-300"
+                      : "text-ink-400 group-hover:text-brand group-hover:translate-x-1"
+                  }`} />
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
     );
@@ -1502,7 +1573,7 @@ export function RunChatLane({
   // action, so the user explicitly picks the next workflow. GENERIC (SC-001/INV-1)
   // — chip ids/labels come from the suggestions prop, never a workflow-name literal.
   const renderChainPicker = () => {
-    if (!chainPickerOpen || runState !== "complete" || !suggestions || suggestions.length === 0) {
+    if (!chainPickerOpen || runState !== "complete" || !effectiveSuggestions || effectiveSuggestions.length === 0) {
       return null;
     }
     return (
@@ -1521,16 +1592,22 @@ export function RunChatLane({
           </button>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {suggestions.map((s) => (
+          {effectiveSuggestions.map((s) => (
             <button
               key={s.id}
               type="button"
               data-testid="chat-chain-picker-chip"
               data-suggestion-id={s.id}
-              onClick={() => { setChainPickerOpen(false); onSuggestion?.(s.id); }}
-              className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-brand bg-white px-3 py-1.5 font-sans text-[11.5px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
+              onClick={() => !s.isBeta && (setChainPickerOpen(false), onSuggestion?.(s.id))}
+              disabled={s.isBeta ?? false}
+              className={`inline-flex items-center gap-1 rounded-[var(--radius-pill)] border px-3 py-1.5 font-sans text-[11.5px] font-semibold transition-all ${
+                s.isBeta
+                  ? 'border-line-faint-row bg-surface-white text-ink-300 cursor-not-allowed opacity-50'
+                  : 'border-brand bg-white text-brand hover:bg-brand hover:text-white shadow-sm hover:shadow-md'
+              }`}
             >
               {s.label}
+              {s.isBeta && <span className="text-[9px]">Coming Soon</span>}
             </button>
           ))}
         </div>

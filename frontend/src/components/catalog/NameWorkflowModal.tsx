@@ -43,7 +43,7 @@ export function NameWorkflowModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/20 backdrop-blur-sm"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-scrim backdrop-blur-sm"
       onClick={onCancel}
     >
       <motion.div
@@ -52,21 +52,21 @@ export function NameWorkflowModal({
         exit={{ opacity: 0, scale: 0.96, y: 8 }}
         transition={{ duration: 0.15 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-2xl border border-gray-200 shadow-2xl p-6 max-w-[340px] w-full mx-4"
+        className="bg-surface-white rounded-2xl border border-line-control shadow-2xl p-6 max-w-[340px] w-full mx-4"
       >
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
-            <Save className="h-5 w-5 text-gray-600" />
+          <div className="w-10 h-10 rounded-xl bg-surface-warm flex items-center justify-center">
+            <Save className="h-5 w-5 text-ink-600" />
           </div>
           <div>
-            <h3 className="text-[13px] font-semibold text-gray-900">{title}</h3>
-            <p className="text-[11px] text-gray-400">Name it to find it later</p>
+            <h3 className="text-[13px] font-semibold text-ink-900">{title}</h3>
+            <p className="text-[11px] text-ink-400">Name it to find it later</p>
           </div>
         </div>
 
         {/* Workflow name — input analog AgentsPopup.tsx:374-381 */}
         <div className="mb-3">
-          <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide block mb-1">
+          <label className="text-[10px] font-semibold text-ink-500 uppercase tracking-wide block mb-1">
             Workflow name
           </label>
           <input
@@ -75,21 +75,21 @@ export function NameWorkflowModal({
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Competitive research"
             autoFocus
-            className="w-full px-3 py-2 text-[12px] bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 placeholder-gray-400 transition-colors"
+            className="w-full px-3 py-2 text-[12px] bg-surface-warm text-ink-900 border border-line-control rounded-lg focus:outline-none focus:border-ink-400 placeholder-ink-400 transition-colors"
           />
         </div>
 
         {/* Description — textarea analog AgentsPopup.tsx:387-393 */}
         <div className="mb-5">
-          <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide block mb-1">
-            Description <span className="text-gray-400 normal-case font-normal">(optional)</span>
+          <label className="text-[10px] font-semibold text-ink-500 uppercase tracking-wide block mb-1">
+            Description <span className="text-ink-400 normal-case font-normal">(optional)</span>
           </label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
             placeholder="What does this workflow produce?"
-            className="w-full px-3 py-2 text-[11px] bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 placeholder-gray-400 resize-none transition-colors"
+            className="w-full px-3 py-2 text-[11px] bg-surface-warm text-ink-900 border border-line-control rounded-lg focus:outline-none focus:border-ink-400 placeholder-ink-400 resize-none transition-colors"
           />
         </div>
 
@@ -97,14 +97,14 @@ export function NameWorkflowModal({
         <div className="flex gap-2">
           <button
             onClick={onCancel}
-            className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+            className="flex-1 rounded-xl border border-line-control px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={() => canSave && onSave(name.trim(), description.trim())}
             disabled={!canSave}
-            className="flex-1 rounded-xl bg-gray-900 px-4 py-2.5 text-[12px] font-medium text-white hover:bg-gray-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="flex-1 rounded-xl bg-brand px-4 py-2.5 text-[12px] font-medium text-surface-white hover:bg-brand-pressed transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             Save
           </button>

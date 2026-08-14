@@ -1,0 +1,9 @@
+{
+  "workflow": "speckit",
+  "specName": "013-reusable-custom-agents",
+  "branch": "fix/hardcoded-agents-registry",
+  "selectedAt": "2026-08-13T12:30:00.000Z",
+  "currentStep": "specify",
+  "status": "draft",
+  "history": []
+}

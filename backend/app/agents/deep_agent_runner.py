@@ -65,6 +65,14 @@ if TYPE_CHECKING:
     from app.agents.sandbox import RunSandbox
 
 logger = logging.getLogger("app.agents.deep_agent_runner")
+model_logger = logging.getLogger("app.agents.model_output")
+tool_logger = logging.getLogger("app.agents.tool_output")
+
+
+def _one_line(text: str, limit: int) -> str:
+    """Collapse whitespace and truncate — trace lines must stay one line."""
+    flat = " ".join(str(text).split())
+    return flat if len(flat) <= limit else flat[:limit] + "..."
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +301,10 @@ class DeepAgentRunner:
             the **Task #25 hook** for text-only (``tools == []``) agents. When
             ``False`` (default) only the ``task`` tool is excluded — library
             sub-agents are off but the file/todo tools remain available.
+        skills_sources: POSIX directory sources (e.g. ``["/skills"]``) handed to
+            deepagents' ``SkillsMiddleware`` as its ``sources``, resolved by the
+            ``FilesystemBackend`` against the run sandbox root. ``None`` (the
+            default) means no ``SkillsMiddleware`` is constructed at all.
     """
 
     def __init__(
@@ -307,6 +319,11 @@ class DeepAgentRunner:
         thread_id: str | None = None,
         interrupt_on: dict[str, Any] | None = None,
         exclude_builtin_tools: bool = False,
+        # ISS-004: None == derive it the pre-012 way (back-compat for the many
+        # tests that construct a runner directly). The factory passes it
+        # explicitly, keyed on the agent's DECLARED tools.
+        sanitize_fabricated_xml: bool | None = None,
+        skills_sources: list[str] | None = None,
     ) -> None:
         self.system_prompt = system_prompt
         self.tools = list(tools or [])
@@ -326,12 +343,36 @@ class DeepAgentRunner:
         # ── Tool exclusion: library sub-agents OFF (always), built-ins off
         #    for text-only agents (Task #25) ──────────────────────────────
         excluded = _BUILTIN_TOOLS if exclude_builtin_tools else frozenset({_LIBRARY_SUBAGENT_TOOL})
+        if skills_sources:
+            # A run with staged skills must leave the filesystem tools bound —
+            # the agent has to be able to CARRY OUT the skill's procedure, not
+            # merely read it — so only `task` (library sub-agents, always off)
+            # and `execute` are excluded. `execute` is excluded because the
+            # stock deepagents skills preamble advertises script execution that
+            # no agent here is given. `execute` is already a no-op under
+            # FilesystemBackend (not a sandbox backend), so this is
+            # forward-protection against a future sandbox backend, not a
+            # change in bound tools today.
+            excluded = frozenset({_LIBRARY_SUBAGENT_TOOL, "execute"})
 
-        # F4 (13-02): sanitize fabricated tool-call XML from the terminal done
-        # output ONLY for tool-less agents (mirror of the factory's no_tools
-        # derivation: exclude_builtin AND zero custom tools). Tool-using agents'
-        # legitimate output is never touched.
-        self._sanitize_fabricated_xml: bool = exclude_builtin_tools and not self.tools
+        # F4 (13-02) / ISS-004: sanitize fabricated tool-call XML from the
+        # streamed + terminal output ONLY for agents DECLARED text-only
+        # (``tools: []`` in AGENT.md). Tool-using agents' legitimate output is
+        # never touched.
+        #
+        # This used to be derived as ``exclude_builtin_tools and not self.tools``.
+        # Spec 012's universal-filesystem grant (D-07) made every text-only agent
+        # resolve ``exclude_builtin_tools=False``, which silently disabled the
+        # sanitizer for exactly the agents it protects — fabricated
+        # ``<function_calls>`` XML began leaking into the user-visible chunk
+        # stream. Post-grant a text-only agent and a ``workspace`` agent are
+        # indistinguishable here (both: no custom tools, builtins bound), so the
+        # caller must state the fact rather than the runner infer it.
+        self._sanitize_fabricated_xml: bool = (
+            sanitize_fabricated_xml
+            if sanitize_fabricated_xml is not None
+            else (exclude_builtin_tools and not self.tools)
+        )
 
         # ── Disk filesystem backend (per-run sandbox), when provided ──────
         backend = None
@@ -353,6 +394,7 @@ class DeepAgentRunner:
             backend=backend,
             checkpointer=checkpointer,
             interrupt_on=interrupt_on,
+            skills=skills_sources,
         )
 
         # Confirm hooks/override actually reached the model prompt
@@ -386,6 +428,15 @@ class DeepAgentRunner:
             "configurable": {"thread_id": thread_id},
             "recursion_limit": settings.AGENT_RECURSION_LIMIT,
         }
+
+        # No write-scope/target-file value is known at this layer (the runner
+        # only sees the tool list, never a single write target), so that field
+        # is omitted rather than invented.
+        logger.debug(
+            "create_deep_agent %s tools=+%d",
+            (thread_id or "").split(":")[-1] or "?",
+            len(self.tools),
+        )
 
         logger.debug(
             "DeepAgentRunner init: model_id=%s tools=%d excluded=%s sandbox=%s "
@@ -466,6 +517,10 @@ class DeepAgentRunner:
         # never silently empty — otherwise a Human review gate opens with nothing
         # to review and the live agent output is blank.
         turn_streamed_text = False
+        # ── Trace-only counters (DEBUG graph tracing) — no effect on control flow ──
+        agent_label = (self.thread_id or "").split(":")[-1] or "?"
+        turn_reasoning = ""
+        model_turn = 0
         try:
             # ``astream_events`` v2 fires for EVERY model/tool in the assembled
             # graph (including middleware-internal model calls). We deliberately
@@ -482,6 +537,9 @@ class DeepAgentRunner:
                 if etype == "on_chat_model_start":
                     # A new model turn begins — it has streamed no text yet.
                     turn_streamed_text = False
+                    turn_reasoning = ""
+                    model_turn += 1
+                    logger.debug("graph_model_call %s turn %d", agent_label, model_turn)
 
                 elif etype == "on_chat_model_stream":
                     # Assistant text token. A tool-call turn emits text AND tool
@@ -493,6 +551,22 @@ class DeepAgentRunner:
                         turn_streamed_text = True
                         full_output += text
                         yield {"type": "chunk", "chunk": text}
+                    # Live reasoning stream (e.g. langchain_ollama with
+                    # reasoning=True puts it in additional_kwargs["reasoning_content"]
+                    # on chunks where ``content`` is empty while reasoning streams).
+                    # Yielded live, same per-delta granularity as the ``chunk`` text
+                    # above — not buffered until turn-end. Also still accumulated
+                    # into ``turn_reasoning`` for the existing end-of-turn debug
+                    # trace line below. Never raises — a missing/oddly-shaped dict
+                    # just yields nothing.
+                    try:
+                        chunk_kwargs = getattr(event["data"]["chunk"], "additional_kwargs", {}) or {}
+                        chunk_reasoning = chunk_kwargs.get("reasoning_content")
+                        if chunk_reasoning:
+                            turn_reasoning += str(chunk_reasoning)
+                            yield {"type": "thinking", "thinking": str(chunk_reasoning)}
+                    except Exception:
+                        pass
 
                 elif etype == "on_chat_model_end":
                     # Token usage — read off the END event's output message.
@@ -526,15 +600,70 @@ class DeepAgentRunner:
                         if end_text:
                             full_output += end_text
                             yield {"type": "chunk", "chunk": end_text}
+                    tool_calls = getattr(msg, "tool_calls", None) or []
+                    logger.debug(
+                        "graph_model_done %s in=%s out=%s next=%s",
+                        agent_label,
+                        meta.get("input_tokens", 0) if meta else 0,
+                        meta.get("output_tokens", 0) if meta else 0,
+                        "tool" if tool_calls else "end",
+                    )
+                    # Trace-only: model thinking/output lines under the `model`
+                    # component. Prefer the accumulated stream reasoning; fall
+                    # back to the end message's own additional_kwargs (a
+                    # non-streaming path only populates it there). Guarded so a
+                    # missing/oddly-shaped additional_kwargs can never raise.
+                    try:
+                        reasoning = turn_reasoning
+                        if not reasoning:
+                            end_kwargs = getattr(msg, "additional_kwargs", {}) or {}
+                            reasoning = end_kwargs.get("reasoning_content") or ""
+                        if reasoning:
+                            model_logger.debug("thinking %s", _one_line(reasoning, 800))
+                    except Exception:
+                        pass
+                    try:
+                        end_msg_text = _extract_text(getattr(msg, "content", "") or "")
+                        if end_msg_text:
+                            model_logger.debug("output: %s", _one_line(end_msg_text, 400))
+                    except Exception:
+                        pass
 
                 elif etype == "on_tool_start":
                     # Tool invocation. ``event["name"]`` is the tool name and
                     # MUST pass through unchanged so the engine's
                     # ``report_task_complete`` sentinel still fires.
+                    tool_args = event["data"].get("input", {})
+                    # Skill activation signal: the model reading a staged skill's
+                    # SKILL.md is the moment a skill actually gets used (vs. merely
+                    # advertised in the prompt) — log it at INFO so it's visible
+                    # without turning on full DEBUG tracing.
+                    if event["name"] == "read_file":
+                        path_arg = tool_args.get("file_path") or tool_args.get("path") or ""
+                        skill_match = re.match(r'^\.?/?skills/([^/]+)/SKILL\.md$', path_arg)
+                        if skill_match:
+                            logger.info(
+                                "skill_used: agent read skill %s (%s)",
+                                skill_match.group(1), path_arg,
+                            )
+                            # No sandbox reference is held by this runner (only
+                            # used transiently in __init__ to build the
+                            # FilesystemBackend), so this cannot call
+                            # ``sandbox.audit_log`` without plumbing one through —
+                            # emit the same structured info as a plain debug line.
+                            logger.debug(
+                                "audit_log skill_used %s",
+                                {"agent": agent_label, "skill": skill_match.group(1), "file": path_arg},
+                            )
+                    logger.debug("graph_tool_node %s -> %s", agent_label, event["name"])
+                    tool_logger.debug(
+                        "tool_call: %s args=%.120s",
+                        event["name"], tool_args,
+                    )
                     yield {
                         "type": "tool_call",
                         "tool": event["name"],
-                        "args": event["data"].get("input", {}),
+                        "args": tool_args,
                     }
 
                 elif etype == "on_tool_end":
@@ -546,11 +675,18 @@ class DeepAgentRunner:
                     # engine forwards into the UI ``tool_result`` payload. ``getattr``
                     # falls back to the value itself if it is already a plain return.
                     output = event["data"].get("output", "")
+                    result_text = str(getattr(output, "content", output))
+                    tool_logger.debug("tool_result: %s -> %.120s", event["name"], result_text)
                     yield {
                         "type": "tool_result",
                         "tool": event["name"],
-                        "result": str(getattr(output, "content", output)),
+                        "result": result_text,
                     }
+
+            logger.debug(
+                "graph_done %s: %d model turn(s), %d chars of reply",
+                agent_label, model_turn, len(full_output),
+            )
 
             # ── End of the event stream — HITL interrupt detection (task #27) ──
             # ``astream_events`` does NOT surface interrupts as events: when HITL

@@ -2,13 +2,14 @@ export type Tier = "basic" | "pro" | "enterprise" | "hexaware";
 export type WorkflowType = string;
 
 export const TIER_PIPELINES: Record<Tier, Set<string>> = {
-  basic: new Set(["user_stories", "user_stories_revision", "ppt", "ppt_revision"]),
+  basic: new Set(["user_stories", "user_stories_revision", "ppt", "ppt_revision", "hello_html"]),
   pro: new Set([
     "user_stories", "user_stories_revision",
     "ppt", "ppt_revision",
     "prototype", "prototype_revision",
     "od_prototype",
     "app_builder", "app_builder_revision",
+    "hello_html",
   ]),
   enterprise: new Set([
     "user_stories", "user_stories_revision",
@@ -17,6 +18,7 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     "od_prototype",
     "app_builder", "app_builder_revision",
     "custom", "migration", "mulesoft_to_springboot", "dotnet_to_azure",
+    "hello_html",
   ]),
   hexaware: new Set([
     "user_stories", "user_stories_revision",

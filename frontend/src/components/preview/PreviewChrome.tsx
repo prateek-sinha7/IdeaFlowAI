@@ -51,7 +51,7 @@ export function RendersAsSwitch({
   return (
     <div
       data-testid="renders-as-switch"
-      className={`flex flex-none items-center gap-[6px] border-b border-line-faint-row bg-[#FBFAF6] px-[14px] py-[9px] ${
+      className={`flex flex-none items-center gap-[6px] border-b border-line-faint-row bg-surface-warm px-[14px] py-[9px] ${
         className ?? ""
       }`}
     >
@@ -69,7 +69,7 @@ export function RendersAsSwitch({
             onClick={() => onRendererChange?.(o.value === "auto" ? null : o.value)}
             className={`rounded-[7px] px-[10px] py-[5px] font-sans text-[11px] font-semibold leading-none transition-colors ${
               active
-                ? "bg-ink-900 text-white"
+                ? "bg-brand text-white"
                 : "border border-line-control bg-surface-white text-ink-500 hover:border-line-faint"
             }`}
           >
@@ -126,15 +126,15 @@ export function PreviewChrome({
         className="flex h-full flex-col overflow-hidden rounded-[14px] border border-line-divider bg-surface-white"
       >
         {/* Browser top bar — traffic-light dots · URL/file bar · zoom + open. */}
-        <div className="flex h-[46px] flex-none items-center gap-[14px] border-b border-line-faint-row bg-[#FBFAF6] px-[14px]">
+        <div className="flex h-[46px] flex-none items-center gap-[14px] border-b border-line-faint-row bg-surface-warm px-[14px]">
           <div className="flex gap-[7px]">
-            <span className="h-[11px] w-[11px] rounded-full bg-[#E4E1D8]" />
-            <span className="h-[11px] w-[11px] rounded-full bg-[#E4E1D8]" />
-            <span className="h-[11px] w-[11px] rounded-full bg-[#E4E1D8]" />
+            <span className="h-[11px] w-[11px] rounded-full bg-line-control" />
+            <span className="h-[11px] w-[11px] rounded-full bg-line-control" />
+            <span className="h-[11px] w-[11px] rounded-full bg-line-control" />
           </div>
 
           <div className="flex flex-1 justify-center">
-            <div className="flex h-[29px] w-full max-w-[520px] items-center gap-2 rounded-[8px] border border-[#E4E1D8] bg-surface-paper px-3">
+            <div className="flex h-[29px] w-full max-w-[520px] items-center gap-2 rounded-[8px] border border-line-control bg-surface-paper px-3">
               {!streaming && (
                 <Lock aria-hidden className="h-3 w-3 flex-none text-ink-200" strokeWidth={1.7} />
               )}
@@ -192,7 +192,7 @@ export function PreviewChrome({
             Streaming adds the indeterminate progress bar at the top (ND-F: no
             screenshot placeholder — the live renderer output or a calm building
             state fills the surface). */}
-        <div className="relative min-h-0 flex-1 overflow-auto bg-[#EEECE5] p-[22px]">
+        <div className="relative min-h-0 flex-1 overflow-auto bg-surface-warm p-[22px]">
           {streaming && (
             <>
               <style>{BAR_KEYFRAMES}</style>

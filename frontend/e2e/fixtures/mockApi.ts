@@ -150,6 +150,12 @@ export interface MockUserWorkflow {
   agent_ids: string[];
   model_overrides?: Record<string, string> | null;
   selections?: Record<string, Record<string, unknown>> | null;
+  // Spec 012 (R-27/R-29) — the full `{"steps": [...]}` manifest, sent instead
+  // of `selections` once a saved composition carries a per-node skill, custom
+  // prompt, or sub-agent tree (mutually exclusive with `selections`, mirroring
+  // the real `manifest_json` column split). Without echoing this back on GET,
+  // a saved-workflow round-trip test can never see its own sub-agent tree.
+  manifest?: { steps: unknown[]; capabilities?: Record<string, unknown> } | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -442,10 +448,63 @@ export interface MockApiOptions {
   pptTemplates?: MockPPTTemplate[];
 }
 
+/** Agent library served by GET /api/agents/library.
+ *
+ *  Mirrors the real endpoint's shape. The last entry is the reusable BLANK
+ *  TEMPLATE (`custom-agent`): the composer instantiates it into a fresh
+ *  `custom-agent:<instance_id>` node on every add, so it must remain addable an
+ *  unlimited number of times and must never be filtered out as "already added".
+ */
+const DEFAULT_AGENT_LIBRARY = {
+  agents: [
+    { id: "market-research-agent", name: "Market Research Agent", role: "Competitive & Industry Analysis", description: "Analyzes your market and competitors.", pipeline_type: "custom", order: 1, icon: "\u{1F4C8}", estimated_duration: 6, has_skill: true, gate: null },
+    { id: "swot-analyst", name: "Strategy Analysis Agent", role: "SWOT & Strategic Positioning", description: "Identifies strengths and weaknesses.", pipeline_type: "custom", order: 2, icon: "\u{1F3AF}", estimated_duration: 5, has_skill: true, gate: null },
+    { id: "roadmap-planner", name: "Roadmap Planning Agent", role: "Phased Delivery Strategy", description: "Builds a phased product roadmap.", pipeline_type: "custom", order: 3, icon: "\u{1F5D3}", estimated_duration: 6, has_skill: true, gate: null },
+    { id: "domain-analyst", name: "Domain Analyst", role: "Requirements Analysis", description: "Analyzes the problem domain.", pipeline_type: "user_stories", order: 1, icon: "\u{1F9E0}", estimated_duration: 5, has_skill: true, gate: null },
+    { id: "custom-agent", name: "Custom Agent", role: "Blank agent", description: "A blank agent you define with your own prompt.", pipeline_type: "custom", order: 99, icon: "\u{1F9E9}", estimated_duration: 60, has_skill: false, gate: null },
+  ],
+  total_count: 5,
+  pipelines: {},
+};
+
+/** GET /api/skills/library. `compatible_agents: []` means "compatible with
+ *  everything" (R-33), so these show for every agent in the picker. */
+const DEFAULT_SKILLS_LIBRARY = {
+  skills: [
+    { id: "emoji", name: "emoji", display_name: "Emoji", description: "Adds an emoji heading.", category: "workflow", content: "# Emoji", isBeta: false, compatible_agents: [], tags: [] },
+    { id: "joke", name: "joke", display_name: "Joke", description: "Adds a one-line joke.", category: "workflow", content: "# Joke", isBeta: false, compatible_agents: [], tags: [] },
+    { id: "html-page", name: "html-page", display_name: "HTML Page", description: "Emits a single HTML page.", category: "engineering", content: "# HTML", isBeta: false, compatible_agents: [], tags: [] },
+  ],
+  total_count: 3,
+  categories: [
+    { id: "all", label: "All" },
+    { id: "workflow", label: "Workflow" },
+    { id: "engineering", label: "Engineering" },
+  ],
+};
+
+/** GET /api/hooks/library. */
+const DEFAULT_HOOKS_LIBRARY = {
+  hooks: [
+    { id: "lint-on-write", name: "lint-on-write", display_name: "Lint on write", description: "Lints each written file.", event: "post_tool_use", trigger: "write_file", compatible_agents: [], tags: [] },
+  ],
+  total_count: 1,
+  events: [
+    { id: "all", label: "All" },
+    { id: "post_tool_use", label: "Post tool use" },
+  ],
+};
+
 export class MockApi {
   user: MockUser;
   runs: RawRun[];
   capabilities: { capabilities: unknown[]; model_catalog: unknown[] };
+  /** GET /api/agents/library payload (includes the reusable custom-agent template). */
+  agentLibrary: { agents: unknown[]; total_count: number; pipelines: Record<string, number> };
+  /** GET /api/skills/library — drives the per-agent AgentSkillsPicker. */
+  skillsLibrary: { skills: unknown[]; total_count: number; categories: unknown[] };
+  /** GET /api/hooks/library — drives the run-level HooksTab. */
+  hooksLibrary: { hooks: unknown[]; total_count: number; events: unknown[] };
   workflows: MockWorkflowRow[];
   /** Saved workflows the Catalogue reads (GET /api/user-workflows). */
   userWorkflows: MockUserWorkflow[];
@@ -477,6 +536,9 @@ export class MockApi {
       capabilities: CAPABILITIES as unknown as unknown[],
       model_catalog: MODEL_CATALOG as unknown as unknown[],
     };
+    this.agentLibrary = DEFAULT_AGENT_LIBRARY;
+    this.skillsLibrary = DEFAULT_SKILLS_LIBRARY;
+    this.hooksLibrary = DEFAULT_HOOKS_LIBRARY;
     this.workflows = opts.workflows ?? DEFAULT_WORKFLOWS;
     // Default EMPTY (not seeded) so existing specs are byte-unchanged; the
     // GET handler still returns an array, which fixes the Catalogue crash.
@@ -554,6 +616,14 @@ export class MockApi {
     if (path.endsWith("/api/auth/logout")) return json({ ok: true });
     if (path.endsWith("/api/auth/change-password")) return json({ message: "ok" });
 
+    // --- agent library (GET /api/agents/library) ---
+    // Without this the store stays empty and the Agent Library renders nothing,
+    // so no composer test can add an agent. Includes the reusable blank
+    // `custom-agent` TEMPLATE, which must stay addable N times.
+    if (path.endsWith("/api/agents/library")) return json(this.agentLibrary);
+    if (path.endsWith("/api/skills/library")) return json(this.skillsLibrary);
+    if (path.endsWith("/api/hooks/library")) return json(this.hooksLibrary);
+
     // --- capabilities (model picker) ---
     if (path.endsWith("/api/capabilities")) return json(this.capabilities);
 
@@ -613,6 +683,7 @@ export class MockApi {
           agent_ids: b.agent_ids ?? [],
           model_overrides: b.model_overrides ?? null,
           selections: b.selections ?? null,
+          manifest: b.manifest ?? null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };

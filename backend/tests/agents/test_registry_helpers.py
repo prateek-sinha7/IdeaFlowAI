@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 
-from agents.loader import AgentSpec
+from agents.loader import TEMPLATE_AGENT_IDS_BY_FLAG, AgentSpec
 from agents.registry import (
     _INTERNAL_PIPELINES,
     PIPELINE_AGENTS,
@@ -32,14 +32,43 @@ from agents.registry import (
 )
 
 
+def _tight_base_allow_list(pipeline_type: str) -> set[str]:
+    """What a base pipeline may run: its OWN agents plus the custom-utility pool.
+
+    Deliberately NOT the union of every base pipeline. ``allowed_custom_agent_ids``
+    is the ONLY gate on ``agent_ids`` for both the REST launch path
+    (``app/api/run_commands.py``) and the save-workflow path
+    (``app/api/user_workflows.py``) — whatever it returns is loaded and run, with
+    no per-agent check downstream. Meanwhile ``entitlements.can_run_pipeline``
+    takes only a ``pipeline_type``, so it cannot see which pipeline an individual
+    agent came from.
+
+    Union those two facts and a broad allow-list is a tier bypass: a ``basic``
+    user launching ``ppt`` (allowed at their tier) could pass ``app_builder``
+    agent ids (NOT allowed at their tier) and be accepted. That is exactly the
+    class ``tests/unit/test_run_pipeline_validation.py::TestCrossPipelineInjectionIsBlocked``
+    exists to prevent.
+
+    HISTORY — do not "reconcile" these tests to the code a third time.
+    ``b59e9ad2`` (KAN-75) broadened the branches to a full union for a composer
+    UI feature, without reconciling against the tier model. ``455eb8d5`` then
+    found these very tests failing and, per its own commit message, "reconcile[d]
+    the 5 stale test_registry_helpers allow-list tests to the actual union
+    contract" — i.e. rewrote the tests to match the insecure code. The
+    cross-injection tests in ``test_run_pipeline_validation.py`` were never
+    touched, so the suite has been asserting two contradictory policies for the
+    same function ever since. If cross-pipeline composition is wanted, it needs a
+    per-agent tier check at the call sites — not a wider allow-list.
+    """
+    return set(PIPELINE_AGENTS.get(pipeline_type, ())) | set(PIPELINE_AGENTS["custom"])
+
+
 def _all_non_revision_non_internal_agents() -> set[str]:
     """The union of every non-revision, non-internal pipeline's agents.
 
-    This is EXACTLY the set ``allowed_custom_agent_ids`` returns for a base
-    pipeline OR for ``"custom"`` — the two branches compute the identical union
-    (base = own ∪ custom ∪ all-other-base; custom = custom ∪ all-base; both
-    reduce to all-base ∪ custom). The only pools excluded are the tight
-    ``*_revision`` pipelines and the internal ``chat`` pipeline.
+    Retained only as the "everything" reference set for the negative assertions
+    below (proving the allow-list is a STRICT subset of it). It is no longer what
+    ``allowed_custom_agent_ids`` returns — see ``_tight_base_allow_list``.
     """
     out: set[str] = set()
     for pt, ids in PIPELINE_AGENTS.items():
@@ -75,9 +104,9 @@ class TestAllowListAgreeingPipelines:
     matches hard-coded expectations derived from the real registry."""
 
     @pytest.mark.parametrize("pipeline_type", _AGREEING_BASE_PIPELINES)
-    def test_base_allow_list_is_union_of_non_revision_pipelines(self, pipeline_type: str):
+    def test_base_allow_list_is_own_agents_plus_custom_pool(self, pipeline_type: str):
         real = allowed_custom_agent_ids(pipeline_type)
-        expected = _all_non_revision_non_internal_agents()
+        expected = _tight_base_allow_list(pipeline_type)
         assert real == expected, (
             f"allow-list mismatch for {pipeline_type!r}: "
             f"unexpected={real - expected}, missing={expected - real}"
@@ -86,6 +115,28 @@ class TestAllowListAgreeingPipelines:
         assert set(PIPELINE_AGENTS[pipeline_type]) <= real
         assert _CUSTOM_POOL <= real
         assert real, f"expected a non-empty allow-list for {pipeline_type!r}"
+
+    @pytest.mark.parametrize("pipeline_type", _AGREEING_BASE_PIPELINES)
+    def test_base_allow_list_excludes_other_pipelines_agents(self, pipeline_type: str):
+        """The security property, asserted directly rather than implied.
+
+        Another base pipeline's exclusive agents must NOT be runnable here. This
+        is the tier-bypass guard: `can_run_pipeline` gates by pipeline_type only,
+        so an agent borrowed from a higher-tier pipeline would otherwise ride in
+        on a lower-tier pipeline_type the user IS entitled to.
+        """
+        allowed = allowed_custom_agent_ids(pipeline_type)
+        for other, ids in PIPELINE_AGENTS.items():
+            if other == pipeline_type or other.endswith("_revision"):
+                continue
+            if other in _INTERNAL_PIPELINES or other == "custom":
+                continue
+            exclusive = set(ids) - _tight_base_allow_list(pipeline_type)
+            leaked = exclusive & allowed
+            assert not leaked, (
+                f"{other!r} agents are runnable under {pipeline_type!r}: {sorted(leaked)} "
+                "— cross-pipeline injection / tier bypass"
+            )
 
     @pytest.mark.parametrize("pipeline_type", _AGREEING_REVISION_PIPELINES)
     def test_revision_allow_list_is_own_agents_only(self, pipeline_type: str):
@@ -109,19 +160,22 @@ class TestAllowListAgreeingPipelines:
             )
 
     def test_base_pipelines_include_custom_pool(self):
-        """A base pipeline allow-list folds in its own agents AND the custom pool
-        (it is the union of every non-revision, non-internal pipeline)."""
+        """A base pipeline allow-list is its own agents AND the custom pool —
+        and nothing else. It is a STRICT subset of the all-pipelines union."""
         custom = set(PIPELINE_AGENTS["custom"])
-        expected = _all_non_revision_non_internal_agents()
+        everything = _all_non_revision_non_internal_agents()
         for base in ("user_stories", "app_builder"):
             allowed = allowed_custom_agent_ids(base)
-            assert allowed == expected
+            assert allowed == _tight_base_allow_list(base)
             assert set(PIPELINE_AGENTS[base]) <= allowed
             assert custom <= allowed
+            assert allowed < everything, (
+                f"{base!r} allow-list is the full union — the tier bypass is back"
+            )
 
 
 # ---------------------------------------------------------------------------
-# (b) Real prototype ids + the od_ppt bug fix
+# (b) Real prototype ids + the ppt/od_ppt bug fix
 # ---------------------------------------------------------------------------
 
 
@@ -149,37 +203,67 @@ class TestAllowListRealIdsAndOdFix:
             "prototype"
         )
 
-    def test_od_ppt_is_non_empty_bug_fix(self):
+    def test_ppt_is_non_empty_bug_fix(self):
         """The legacy ``od_ppt → ∅`` bug rejected every od_ppt custom run. The
-        fix treats od_ppt as a base pipeline: its allow-list is the union of every
-        non-revision, non-internal pipeline (own agents ∪ custom pool ∪ all other
-        base pipelines). (The legacy registry that returned ``∅`` here was deleted
-        in Phase 7a; the intended NON-empty result is pinned directly.)"""
-        allowed = allowed_custom_agent_ids("od_ppt")
-        assert allowed, "od_ppt allow-list must be non-empty (bug fix)"
-        assert allowed == _all_non_revision_non_internal_agents()
-        assert set(PIPELINE_AGENTS["od_ppt"]) <= allowed
+        od_ppt agent set now declares ``pipeline_type: ppt`` directly (WR-01
+        closed at the root — see agents/registry.py), so ``ppt``'s allow-list is
+        its own agents ∪ the custom pool, same as any other base pipeline."""
+        allowed = allowed_custom_agent_ids("ppt")
+        assert allowed, "ppt allow-list must be non-empty (bug fix)"
+        assert allowed == _tight_base_allow_list("ppt")
+        assert set(PIPELINE_AGENTS["ppt"]) <= allowed
         assert set(PIPELINE_AGENTS["custom"]) <= allowed
 
-    def test_od_ppt_revision_is_tight(self):
-        """od_ppt_revision is a revision (not in REVISION_BASE_MAP, caught by the
-        *_revision suffix): its own agents only, no custom pool."""
-        allowed = allowed_custom_agent_ids("od_ppt_revision")
-        assert allowed == set(PIPELINE_AGENTS["od_ppt_revision"])
-        assert allowed  # od_ppt_revision has one agent
+    def test_ppt_revision_is_tight(self):
+        """ppt_revision (formerly od_ppt_revision) is a revision pipeline: its
+        own agents only, no custom pool."""
+        allowed = allowed_custom_agent_ids("ppt_revision")
+        assert allowed == set(PIPELINE_AGENTS["ppt_revision"])
+        assert allowed  # ppt_revision has one agent
         assert not (allowed & set(PIPELINE_AGENTS["custom"]))
 
     def test_custom_is_the_union_of_base_pipelines(self):
-        """The ``custom`` allow-list unions the custom-utility pool with every
-        non-revision, non-internal base pipeline's agents (commit d1a338fd —
-        "custom workflow with prototype/ppt agents now runs correctly"), so a
-        composed custom workflow may include any base-pipeline agent. It equals
-        the base-pipeline union AND folds in the custom pool itself."""
+        """``custom`` is OPEN by design — every non-revision, non-internal agent.
+
+        Mixing agents from different pipelines into one runtime-composed
+        workflow is the custom workflow builder's entire purpose (spec 012), so
+        this branch is deliberately wide and must stay that way.
+
+        It is not an entitlement bypass the way the BASE-pipeline branch would
+        be: ``custom`` appears only in the ``enterprise`` tier
+        (``entitlements.TIER_PIPELINES``), and enterprise already holds every
+        pipeline unioned in here — so this branch grants nothing the caller
+        could not already reach directly.
+
+        That equivalence is load-bearing, and this test pins it: if ``custom``
+        is ever granted to a tier that does NOT hold every pipeline, the
+        assertion below fails and the branch must be narrowed to the custom pool
+        plus a per-agent origin-tier check.
+        """
+        from app.core.entitlements import TIER_PIPELINES
+
         allowed = allowed_custom_agent_ids("custom")
         assert allowed == _all_non_revision_non_internal_agents()
         assert set(PIPELINE_AGENTS["custom"]) <= allowed
         # The generic fan-out producer (Phase 51) surfaces in the custom pool.
         assert "task-list-planner" in allowed
+
+        # The safety equivalence: any tier holding "custom" must hold every
+        # pipeline whose agents this branch exposes.
+        exposed = {
+            pt for pt in PIPELINE_AGENTS
+            if not pt.endswith("_revision") and pt not in _INTERNAL_PIPELINES
+        }
+        for tier, pipelines in TIER_PIPELINES.items():
+            if "custom" not in pipelines:
+                continue
+            missing = {pt for pt in exposed if pt in TIER_PIPELINES["enterprise"]} - pipelines
+            assert not missing, (
+                f"tier {tier!r} may run 'custom' — which exposes every pipeline's "
+                f"agents — but is not entitled to {sorted(missing)}. That makes the "
+                "open custom branch a real entitlement bypass; narrow it to the "
+                "custom pool and add a per-agent origin-tier check."
+            )
 
     def test_unknown_and_empty_pipelines_return_empty(self):
         # Unknown type → security fallback.
@@ -233,7 +317,7 @@ class TestGetAllAgentsFlat:
         ids = [s.id for s in flat]
         assert len(ids) == len(set(ids)), "flat list contains duplicate ids"
         # The shared od-ppt ids appear exactly once each.
-        for shared in ("od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator"):
+        for shared in ("ppt-brief-analyst", "ppt-composer", "ppt-validator"):
             assert ids.count(shared) == 1
 
     def test_covers_loadable_pipeline_agents(self):
@@ -246,8 +330,16 @@ class TestGetAllAgentsFlat:
                 if get_agent_by_id(aid) is not None:  # loadable on disk
                     expected.add(aid)
         assert expected <= flat_ids, f"flat list missing ids: {expected - flat_ids}"
-        # And it introduces no ids that aren't declared in any pipeline.
+        # And it introduces no ids beyond those declared in a pipeline — EXCEPT
+        # declared template agents (spec 012). ``custom-agent`` is a blank
+        # template the compiler CLONES into ``custom-agent:<instance_id>`` steps;
+        # it is deliberately NOT a PIPELINE_AGENTS member, because the engine
+        # asserts compiled-steps == membership at run entry and a template is
+        # never a step (FINDING-07). It still belongs in the flat pool: that is
+        # the list the composer's agent picker reads, and a custom agent nobody
+        # can select is the feature not existing.
         all_declared = {aid for ids in PIPELINE_AGENTS.values() for aid in ids}
+        all_declared |= TEMPLATE_AGENT_IDS_BY_FLAG
         assert flat_ids <= all_declared, (
             f"flat list has undeclared ids: {flat_ids - all_declared}"
         )

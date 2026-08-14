@@ -1,6 +1,7 @@
 ---
 consumes: []
 context_from: []
+description: Makes precise, targeted edits to an existing app blueprint and codebase based on your revision request, without rewriting what already works.
 estimated_duration: 20.0
 guardrails: []
 icon: ✏️

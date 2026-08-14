@@ -42,6 +42,15 @@ class AgentContext:
     agent_outputs: dict[str, str] = field(default_factory=dict)
     attached_skills: list[dict] = field(default_factory=list)
     attached_hooks: list[dict] = field(default_factory=list)
+    # disk_skill (spec 011 / D6): the per-user per-agent disk SKILL.md
+    # (``ectx.disk_skills[agent_id]``), which stays EAGERLY injected. Run-attached
+    # skills (``attached_skills`` above) are STAGED to <sandbox>/skills/ and advertised
+    # by deepagents instead — their bodies never enter a system prompt.
+    disk_skill: str | None = None
+    # skills_delivery (spec 011 / R-15, R-16): what ``stage_skills`` actually staged for
+    # THIS invocation — written by create_runner, read by the engine to emit the
+    # ``agent_skills`` event. Typed ``object`` to keep the app-layer import lazy.
+    skills_delivery: object | None = None
     model: str | None = None                   # User-selected model ID (overrides system default)
     # od_context carries loaded template / design-system / craft content for
     # agents that declare an `injects` capability (od_prototype / od_ppt).
@@ -76,6 +85,71 @@ class AgentContext:
     # branch, SC-001). Empty for every step that declares no per-step ``injects:`` (all
     # 5 characterization goldens) → the merge is a provable no-op → byte-identical (INV-3).
     step_injects: list[str] = field(default_factory=list)
+    # step_skills (spec 012 / R-01, D-03): the compiled Step's per-step skill ids,
+    # threaded off ectx.current_step by the engine (the same seam step_injects
+    # uses). Resolved to {"id","name","content"} payloads and passed to
+    # stage_skills INSTEAD of ctx.attached_skills when non-empty. Empty for every
+    # step declaring no per-step skills: the no-skills path keeps using
+    # ctx.attached_skills unchanged, so the golden snapshots stay byte-identical
+    # (R-16).
+    step_skills: list = field(default_factory=list)
+    # skills_prune_scope (ADR-0006 Consequences): the union of every
+    # CONCURRENTLY-dispatched step's skill ids, threaded off ectx by the engine.
+    # Handed to stage_skills as the KEEP set so a sibling running under the same
+    # asyncio.gather (parallel_group, shared sandbox) does not have its staged
+    # skill pruned out from under it. Empty for every serially-dispatched step,
+    # where the KEEP set stays this step's own attached ids — byte-identical.
+    skills_prune_scope: list = field(default_factory=list)
+    # step_prompt (spec 012 / R-14, T11): a custom-agent step's own ``prompt``
+    # text, threaded off ectx.current_step by the engine (a later task — T16).
+    # Defaulted to "" so every non-custom-agent invocation is unaffected.
+    step_prompt: str = ""
+    # topic (spec 012 / R-12, R-14, T11): the run's topic slug, computed once
+    # per run and threaded in by the engine (a later task — T16). Defaulted to
+    # "" so every non-custom-agent invocation is unaffected.
+    topic: str = ""
+    # capabilities (spec 012 / R-25, T33): the compiled workflow's
+    # ``CompiledWorkflow.capabilities`` dict (e.g. ``{"internet": bool}``),
+    # threaded off ``compiled.capabilities`` by the engine (a later task). Read
+    # by ``_resolve_runner_tools`` to gate the ``tool/internet`` provider.
+    # Defaulted to ``{}`` so every invocation that doesn't thread it through
+    # yet stays inert (no internet tools bound).
+    capabilities: dict = field(default_factory=dict)
+    # roster (spec 012 / R-15, D-05, T17/T35): the parent's roster block —
+    # what a custom agent's children ACTUALLY produced (built by the engine's
+    # ``_build_roster`` off artifacts that exist on disk, never the manifest).
+    # Defaulted to "" so every invocation with no children (or that doesn't
+    # thread it through) stays inert.
+    roster: str = ""
+    # deliverable_filename_override: precomputed by the engine ONLY for the
+    # FINAL step of a compiled plan whose ``deliverable`` is
+    # ``{strategy: single_file, name: <n>}``. The per-instance
+    # ``<instance_id>-<topic>.md`` convention (R-12/R-20) and a declared
+    # ``single_file`` deliverable name are mutually exclusive for the step
+    # that produces the run's deliverable — the declared name wins for that
+    # one step, or the engine's single_file readback (which looks for that
+    # exact name on disk) can never find what the agent wrote. None for
+    # every other step/pipeline, so the custom-agent composition branch below
+    # falls back to ``artifact_name(instance_id, ctx.topic)`` unchanged.
+    deliverable_filename_override: str | None = None
+
+
+def _resolve_step_skills(ids: list[str]) -> list[dict]:
+    """Map per-step skill ids to the ``{"id", "name", "content"}`` payload shape
+    ``stage_skills`` expects, via the global skills catalog (spec 012 / R-01, D-03).
+
+    An unresolvable id is a compile-time error (validated by the compiler at
+    T4), so here it is an assertion, not a silent skip.
+    """
+    from app.agents.skills_catalog import list_global_skills
+
+    catalog = {entry.id: entry for entry in list_global_skills()}
+    resolved: list[dict] = []
+    for skill_id in ids:
+        entry = catalog.get(skill_id)
+        assert entry is not None, f"unresolvable step skill id: {skill_id}"
+        resolved.append({"id": entry.id, "name": entry.name, "content": entry.content})
+    return resolved
 
 
 class TemplateMissingError(Exception):
@@ -178,21 +252,12 @@ def create_runner(
     from agents.loader import load_agent_spec
     from app.agents.deep_agent_runner import DeepAgentRunner
     from app.agents.sandbox import RunSandbox
+    from app.agents.skill_staging import stage_skills
 
     spec = load_agent_spec(agent_id)
-    # Tools are resolved BEFORE prompt composition (13-02 / F4): the composed
-    # prompt needs to know whether the agent has literally zero callable tools
-    # so the anti-fabrication ``tool_availability`` preamble can be injected.
-    custom_tools, exclude_builtin_tools = _resolve_runner_tools(spec, ctx)
-    # ``no_tools`` is True ONLY for pure text-only agents (tools:[] with no
-    # MCP tools pre-warmed): exclude_builtin AND zero custom tools. Workspace/
-    # prototype agents flip exclude_builtin False; planning agents carry
-    # PLANNING_TOOLS; MCP-bound agents flip exclude_builtin False — none of
-    # those receive the preamble (their prompts stay byte-identical).
-    no_tools = exclude_builtin_tools and not custom_tools
-    # Compose the system prompt — guardrails/skills/hooks/constitution/injection/
-    # body, in the fixed injection order (see ``_compose_system_prompt``).
-    system_prompt = _compose_system_prompt(spec, ctx, no_tools=no_tools)
+
+    logger.info("==> %s (%s)", spec.id.upper(), spec.name.upper())
+    logger.debug("create_runner %s", agent_id)
 
     # Per-run on-disk sandbox: <RUNS_ROOT>/<user>/<run>/. SHARED across every
     # agent in the pipeline run, so files (prototype.html, code-gen outputs)
@@ -210,6 +275,51 @@ def create_runner(
     else:
         sandbox = RunSandbox(ctx.user_id or "anon", ctx.run_id or "adhoc")
     sandbox.ensure()
+
+    # Skills must be staged BEFORE tools/prompt are resolved: staging needs the
+    # sandbox, and the prompt/tool set below need to know whether anything was
+    # actually staged (spec 011).
+    _skills = _resolve_step_skills(ctx.step_skills) if ctx.step_skills else ctx.attached_skills
+    delivery = stage_skills(
+        sandbox,
+        _skills,
+        agent_id=agent_id,
+        # ADR-0006: keep every concurrently-dispatched sibling's skill dir alive.
+        # Empty for a serial step ⇒ stage_skills falls back to this step's own
+        # attached ids, exactly as before.
+        prune_scope=list(ctx.skills_prune_scope or []),
+    )
+    ctx.skills_delivery = delivery
+
+    # Tools are resolved BEFORE prompt composition (13-02 / F4): the composed
+    # prompt needs to know whether the agent has literally zero callable tools
+    # so the anti-fabrication ``tool_availability`` preamble can be injected.
+    custom_tools, exclude_builtin_tools = _resolve_runner_tools(spec, ctx)
+    if delivery.staged:
+        # A run with staged skills needs the full filesystem tool set (read AND
+        # write) on every agent so it can actually carry out a skill's
+        # procedure rather than merely read it — confined to the run sandbox by
+        # the backend's virtual_mode. This deliberately makes ``no_tools``
+        # False below, suppressing the anti-fabrication ``_NO_TOOLS_PREAMBLE``:
+        # a prompt must never tell an agent it has no tools while handing it
+        # write_file.
+        exclude_builtin_tools = False
+    logger.debug(
+        "resolve_tools %s: %s exclude_builtin=%s%s",
+        agent_id,
+        [getattr(t, "name", repr(t)) for t in custom_tools],
+        exclude_builtin_tools,
+        " (skills staged)" if delivery.staged else "",
+    )
+    # ``no_tools`` is True ONLY for pure text-only agents (tools:[] with no
+    # MCP tools pre-warmed): exclude_builtin AND zero custom tools. Workspace/
+    # prototype agents flip exclude_builtin False; planning agents carry
+    # PLANNING_TOOLS; MCP-bound agents flip exclude_builtin False — none of
+    # those receive the preamble (their prompts stay byte-identical).
+    no_tools = exclude_builtin_tools and not custom_tools
+    # Compose the system prompt — guardrails/skills/hooks/constitution/injection/
+    # body, in the fixed injection order (see ``_compose_system_prompt``).
+    system_prompt = _compose_system_prompt(spec, ctx, no_tools=no_tools)
 
     # ``max_tokens`` is intentionally NOT passed: the runner's ``build_model``
     # already defaults to ``settings.MAX_OUTPUT_TOKENS``, so leaving it unset
@@ -237,6 +347,13 @@ def create_runner(
             thread_id=(thread_id or ctx.run_id),
             interrupt_on=interrupt_on,
             exclude_builtin_tools=exclude_builtin_tools,
+            # ISS-004: keyed on the DECLARED tool set, not on the resolved
+            # exclude_builtin flag. Spec 012 (D-07) grants filesystem tools to
+            # every agent, so the resolved flag no longer distinguishes a
+            # text-only agent from a workspace one — but an agent that declares
+            # `tools: []` still must not emit fabricated tool XML to the UI.
+            sanitize_fabricated_xml=not spec.tools,
+            skills_sources=(delivery.sources or None),
         )
 
     return _select_runtime(agent_id, _build_deepagents_runner)
@@ -304,6 +421,7 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
     from agents.capabilities.hooks.behavioral import render_behavioral_block
     from agents.capabilities.registry import CapabilityRegistry, discover
     from agents.capabilities.skills.providers import extract_ui_skill_blocks
+    from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX, artifact_name
 
     blocks: dict[str, object] = {}
 
@@ -313,6 +431,17 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
     # agents never carry the key, so their composition stays byte-identical.
     if no_tools:
         blocks["tool_availability"] = _NO_TOOLS_PREAMBLE
+
+    # -1b. NO skill directive. Spec 012 R-13 had the factory prepend "Skills
+    # available at /skills/<id>/SKILL.md: <names>" whenever a step declared
+    # skills. That block was redundant and strictly worse than what deepagents
+    # already emits: its SKILLS_SYSTEM_PROMPT (middleware/skills.py) lists every
+    # staged skill with its description AND the exact literal path to read
+    # ("-> Read /skills/joke/SKILL.md for full instructions"), where ours printed
+    # an "<id>" pattern the model had to substitute into. Two instructions about
+    # the same files, the earlier one vaguer, is worse than one clear instruction.
+    # The staging itself is unchanged — stage_skills still writes the files and
+    # sets sources=["/skills"], which is what makes the library's block appear.
 
     # 0. Injection content (od_prototype / od_ppt agents)
     # WIRE-03 / D-16: merge the AGENT.md-derived spec.injects (the live source) with
@@ -359,10 +488,28 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
 
     # 2. Skills — via the ``ui`` skill_provider (versioned blocks; SKILL-01). The
     # factory consumes the versioned blocks' ``content`` for the prompt slot.
-    skill_blocks = extract_ui_skill_blocks(ctx.attached_skills)
-    skill_contents = [b.content for b in skill_blocks if b.content]
-    if skill_contents:
-        blocks["skills"] = skill_contents
+    # Rendered as one structured block per skill under a shared ``=== SKILLS ===``
+    # header — id/when have no data source today (SkillBlock carries content/
+    # version/name/source only) so they're left empty rather than guessed.
+    #
+    # spec 011 R-03: run-attached skill BODIES are no longer injected — they are staged
+    # to <sandbox>/skills/ and advertised by deepagents (the model reads one on demand).
+    # The per-user DISK skill (ctx.disk_skill / D6) keeps its eager block and is the ONLY
+    # input to the unchanged render below.
+    disk_skill = getattr(ctx, "disk_skill", None)
+    skill_blocks = extract_ui_skill_blocks([{"content": disk_skill}] if disk_skill else [])
+    skill_entries = [b for b in skill_blocks if b.content]
+    if skill_entries:
+        rendered_skills = [
+            f"--- SKILL {b.name.upper() or 'UNKNOWN'} ---\n"
+            f"id: \n"
+            f"name: {b.name}\n"
+            f"when: \n"
+            f"prompt: {b.content}"
+            f"--- END SKILL {b.name.upper() or 'UNKNOWN'} ---\n"
+            for b in skill_entries
+        ]
+        blocks["skills"] = "=== SKILLS ===\n\n" + "\n\n".join(rendered_skills) + "=== END SKILLS ==="
 
     # 3. Hooks — via the ``behavioral`` hook_provider (the legacy prompt-only hook
     # survives as a non-executable sub-type; the ## Active Behavioral Hooks block render).
@@ -407,11 +554,54 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
                 "_compose_system_prompt: prompt override lookup failed for agent=%s: %s — using base prompt",
                 spec.id, exc,
             )
+    # 6. Custom-agent composition (spec 012 / R-14, F-06, T11): a synthetic
+    # ``custom-agent:<instance_id>`` spec's prompt_body is the baked preamble
+    # (above) followed by the instance's own prompt, followed by an artifact
+    # instruction naming the exact filename. The filename MUST come from
+    # ``artifact_name`` — never a locally-formatted string (F-06) — and it is
+    # keyed on instance_id, never the colon-bearing synthetic id (F-02).
+    # Non-custom-agent specs are entirely untouched (R-16 parity).
+    # `isinstance` first, deliberately: `spec.id.startswith(...)` on a test
+    # double returns a truthy Mock, which took this branch for every mocked
+    # spec and handed a Mock to `artifact_name`'s regex (20 failures in
+    # tests/test_skills_hooks.py). A non-str id is never a custom agent.
+    if isinstance(spec.id, str) and spec.id.startswith(CUSTOM_AGENT_PREFIX):
+        instance_id = spec.id.split(":", 1)[1]
+        # The declared single_file deliverable name wins for the FINAL step
+        # that produces it (deliverable_filename_override, set by the engine
+        # only in that case) — otherwise the usual per-instance convention.
+        filename = ctx.deliverable_filename_override or artifact_name(instance_id, ctx.topic)
+        parts = [prompt_body]
+        if ctx.step_prompt:
+            parts.append(ctx.step_prompt)
+        if ctx.roster:
+            parts.append(ctx.roster)
+        # Under its own heading, not as a bare trailing sentence. As a bare
+        # sentence it is the LAST line of the prompt, immediately after the
+        # step's own "output only the joke, no commentary" — and a model that
+        # reads the final imperative as the thing to say echoes it back as its
+        # entire output (observed on Bedrock Haiku: joke-<topic>.md contained
+        # the instruction, not a joke). A headed block reads as a directive.
+        parts.append(
+            f"## How to deliver\n\nCall `write_file` with path `{filename}`. "
+            "Its content is your answer — never this instruction."
+        )
+        prompt_body = "\n\n".join(parts)
+
     blocks["prompt_body"] = prompt_body
 
     discover()  # ensure the prompt policy is bound (idempotent)
     policy = CapabilityRegistry().resolve("prompt", "default")
-    return policy.assemble(blocks, ctx)
+    composed = policy.assemble(blocks, ctx)
+    # Trace only — count and size, never the prompt body itself (it can be
+    # large and carries user content). Logged AFTER assembly so it reports
+    # the composed result without altering it (test_skill_prompt_baseline.py
+    # pins this function's return value byte-for-byte).
+    logger.debug(
+        "compose_prompt %s: %d slots -> ~%d chars",
+        spec.id, len(blocks), len(composed),
+    )
+    return composed
 
 
 def _inject_constitution(ctx: AgentContext) -> str:
@@ -758,6 +948,7 @@ def _resolve_custom_tool_keys(keys: list[str]) -> list:
         ValueError: if a key has no concrete resolver (a provider/factory drift).
     """
     # Lazy imports keep the factory import light (the heavy stack loads only on bind).
+    from agents.capabilities.tools.internet import web_fetch, web_search
     from agents.planner.tools import PLANNING_TOOLS
     from app.agents.tools.runner_tools import report_task_complete, spawn_subagents
 
@@ -768,6 +959,14 @@ def _resolve_custom_tool_keys(keys: list[str]) -> list:
                 resolved.append(report_task_complete)
         elif key == "planning":
             resolved.extend(PLANNING_TOOLS)
+        elif key == "web_search":
+            # spec 012 / R-25, T33: bound only when the workflow declares
+            # capabilities.internet (see _resolve_runner_tools' union below).
+            if web_search not in resolved:
+                resolved.append(web_search)
+        elif key == "web_fetch":
+            if web_fetch not in resolved:
+                resolved.append(web_fetch)
         elif key == "spawn_subagents":
             # Phase 11 / FANOUT-01: the store-free / spawn-free fan-out request emitter.
             # Only binds when the step DECLARES the spawn_subagents tool set (user_allowed
@@ -826,13 +1025,11 @@ def _resolve_runner_tools(spec, ctx: AgentContext) -> tuple[list, bool]:
     # registered tool_provider keys). Empty ⇒ no MCP scope active (graceful no-op).
     mcp_tools = list(getattr(ctx, "prewarmed_mcp_tools", None) or [])
 
-    # Empty tool set ⇒ pure-text agent EXCEPT when MCP tools are pre-warmed: those
-    # must still bind (and they need the native tool surface available, so the agent
-    # can actually call them — flip exclude_builtin off when any MCP tool is bound).
-    if not spec.tools:
-        if mcp_tools:
-            return (mcp_tools, False)
-        return ([], True)
+    # Empty tool set (spec 012 / R-22, D-07): filesystem read+write is bound for
+    # EVERY agent regardless of the declared tool set, so a previously text-only
+    # agent (``tools: []``) now gets the native fs tools too (``exclude_builtin=
+    # False``) instead of losing them entirely. ``exec`` is not part of this
+    # grant — no custom tool is added here, only the native fs surface.
 
     discover()  # ensure the tool_provider impls are bound (idempotent)
     registry = CapabilityRegistry()
@@ -850,6 +1047,24 @@ def _resolve_runner_tools(spec, ctx: AgentContext) -> tuple[list, bool]:
         # exclude=False (native fs); planning leaves it True. The union excludes the
         # builtin tools only if EVERY granted set excludes them (AND).
         exclude = exclude and set_exclude
+
+    # spec 012 / R-25, T33: union in the tool/internet provider's keys whenever the
+    # workflow declares ``capabilities: {internet: true}`` — independent of the
+    # agent's own declared tool set, same pattern as the tool-set loop above. The
+    # flag lives on ``ctx.capabilities`` (threaded off ``CompiledWorkflow.capabilities``
+    # by the engine); absent/false ⇒ no keys, no exclude change (byte-identical).
+    if ctx.capabilities.get("internet"):
+        internet_provider = registry.resolve("tool", "internet")
+        internet_keys, internet_exclude = internet_provider.provide(spec, ctx)
+        for key in internet_keys:
+            if key not in custom_keys:
+                custom_keys.append(key)
+        exclude = exclude and internet_exclude
+
+    if not spec.tools and not custom_keys:
+        if mcp_tools:
+            return (mcp_tools, False)
+        return ([], False)
 
     resolved = _resolve_custom_tool_keys(custom_keys)
     # Union the pre-warmed MCP tools after the registered keys (a pre-bound MCP tool

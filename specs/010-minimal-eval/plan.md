@@ -1,7 +1,11 @@
 # Implementation Plan: The Minimal Eval System
 
 **Created**: 2026-07-30
-**Status**: Proposed — not started
+**Status**: **OBSOLETE (2026-08-10).** This is the earlier draft of the same system.
+It was never executed under this number; the work shipped as
+[007-minimal-eval](../007-minimal-eval/spec.md), which is built and live at
+`backend/evals/minimal/`. Kept for the reasoning in §1, which the shipped spec does not repeat.
+Do not execute this plan.
 **Replaces**: `evals/grading/` (13,538 LOC), `evals/hybrid/` (2,481), `evals/model_graded/` (2,033)
 **Budget**: **7 files · 1,500 lines · 5 commands.** Exceeding it is a bug, not a feature.
 

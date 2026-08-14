@@ -5,6 +5,7 @@ consumes:
 context_from:
 - mulesoft-inventory
 - mulesoft-springboot-scaffold
+description: Translates DataWeave scripts into MapStruct or hand-written Java mappers with unit tests.
 estimated_duration: 10.0
 guardrails:
 - mulesoft

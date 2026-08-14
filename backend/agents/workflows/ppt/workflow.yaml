@@ -1,18 +1,20 @@
-# ppt — 3-agent PPT brief→compose→validate pipeline.
-# NOTE: the ppt agents physically declare pipeline_type: od_ppt (shared agents),
-# so get_pipeline_agents("ppt") is empty; the canonical membership/order is
-# PIPELINE_AGENTS["ppt"]. Step order below == PIPELINE_AGENTS["ppt"].
-# deliverable: ppt (streamed_text + carousel sanitize live behaviorally).
-# clarify.defaults verbatim from engine._pipeline_defaults["ppt"] (engine.py:754).
 id: ppt
 version: 1
-# Catalog (Plan 20-01): declared launchability + wizard launch surface — inert.
-# display_name (UXFIX-01/22-07): authored friendly catalog label — presentation
-# only, never read by the compiler/kernel (INV-3 parity preserved).
 user_launchable: true
-display_name: "Pitch an idea"
-description: "Executive-grade deck with charts, data, and a clear narrative."
-launch_surface: "wizard"
+is_beta: false
+name: PPT
+display_name: Pitch an idea
+short_name: PPT
+icon: Presentation
+description: Executive-grade deck with charts, data, and a clear narrative.
+launch_surface: wizard
+chained_from:
+- id: prototype
+  beta: false
+  text: Sell this design
+- id: user_stories
+  beta: false
+  text: Pitch the requirements
 planner: run
 clarify:
   mode: auto
@@ -24,15 +26,16 @@ clarify:
 deliverable:
   strategy: ppt
   name: presentation.pptx
-context_providers: []
+context_providers:
+- opendesign
 seed_files: {}
 steps:
-  - agent: od-ppt-brief-analyst
-    strategy: single_shot
-    gates: []
-  - agent: od-ppt-composer
-    strategy: single_shot
-    gates: []
-  - agent: od-ppt-validator
-    strategy: single_shot
-    gates: []
+- agent: ppt-brief-analyst
+  strategy: single_shot
+  gates: []
+- agent: ppt-composer
+  strategy: single_shot
+  gates: []
+- agent: ppt-validator
+  strategy: single_shot
+  gates: []

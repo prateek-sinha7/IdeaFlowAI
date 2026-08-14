@@ -47,7 +47,6 @@ out/
 
 # Spec Kit — local AI tooling, not tracked in version control
 .specify/
-.claude/
 CLAUDE.md
 
 # OS
@@ -83,6 +82,44 @@ backend/evals/minimal/report.html
 
 # Local issues / grounded-context files (personal, not for team use)
 /issues/
+# Kiro IDE files (personal, not for team use)
+.kiro/
+.kiro/*
+!.kiro/steering/
+!.kiro/skills/
+.run
+
+# Generated output from tools/api/runs/*.run.http integration tests — decks,
+# prototypes, and WS/HTTP transcripts. Local-only, never committed.
+/tools/api/runs/artifacts/
+/tools/api/runs/logs/
+tools/api/runs/.logs
+tools/api/runs/.artifacts
+
+# Eval run output — full real-model transcripts, prompts and replies. Large,
+# regenerated on every run, and local-only: never committed.
+#
+# One rule, matched at any depth, so every eval package uses the same
+# convention: backend/evals/hybrid/.runs/, backend/evals/grading/.runs/, and
+# anything added later. (grading/ also carries its own nested .gitignore so the
+# rule survives that folder being moved or vendored on its own.)
+.runs/
+
+# backend/evals/minimal/'s report.html lives at the package root (not under
+# .runs/) so it survives .runs/ being wiped between runs — but it's still
+# generated output (report.py regenerates it from stored JSON), not source.
+backend/evals/minimal/report.html
+
+# The frozen model_graded package records its runs under logs/ instead — it
+# predates the .runs/ convention and is not being changed, but its transcripts
+# are just as local-only.
+/backend/evals/model_graded/logs/
+TODO.md
+.understand-anything
+.apex
+**/apex**
+.claude/settings.json
+**/PythonImportHelper-v2-Completion.json
 
 # Stale local run output — the live RUNS_ROOT is /tmp/flowin-runs, nothing references this
 backend/.runs-local/

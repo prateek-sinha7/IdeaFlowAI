@@ -1,12 +1,13 @@
 ---
 consumes: []
 context_from: []
+description: Analyzes your requirements and designs the complete application architecture.
 estimated_duration: 6.0
 guardrails: []
 icon: "\U0001F4CB"
 id: material-analyzer
 max_tokens: 6000
-name: Architecture Agent
+name: Architecture Agent X
 order: 1
 pipeline_type: app_builder
 produces:

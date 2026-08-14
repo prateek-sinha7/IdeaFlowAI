@@ -6,38 +6,23 @@ import {
   Search, Clock, Puzzle, Webhook, X, Copy, Check,
   Tag, Zap, BookOpen, ChevronRight,
 } from "lucide-react";
-import { LIBRARY_AGENTS, CUSTOM_AGENTS } from "@/components/workflow/AgentLibraryData";
 import { AgentCapabilitiesModal, type SelectionsMap } from "@/components/workflow/AgentsPopup";
-import { SKILLS, SKILL_CATEGORIES, type SkillDef } from "@/data/skills";
-import { HOOKS, HOOK_EVENTS, type HookDef } from "@/data/hooks";
+import type { HookDef } from "@/store/api/hooks";
+import type { SkillDef } from "@/store/api/skills";
+import { useAgentLibrary } from "@/hooks/useAgentLibrary";
+import { useSkillsCatalog } from "@/hooks/useSkillsCatalog";
+import { useHooksCatalog } from "@/hooks/useHooksCatalog";
+import { useAppSelector } from "@/store/hooks";
+import { getSkillCategoryIcon } from "@/lib/skillIcons";
+import { getWorkflowTypeIcon } from "@/lib/workflowIcons";
 import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import type { AgentDef } from "@/types/index";
 
-const ALL_AGENTS_COMBINED = [...LIBRARY_AGENTS, ...CUSTOM_AGENTS];
-
 type CategoryEntry = { id: string; label: string; section?: boolean };
 
-const CATEGORIES: CategoryEntry[] = [
-  { id: "all", label: "All" },
-  { id: "user_stories", label: "User Stories" },
-  { id: "ppt", label: "Presentation" },
-  { id: "prototype", label: "Prototype" },
-  { id: "app_builder", label: "App Builder" },
-  { id: "migration", label: "Platform", section: true },
-  { id: "mulesoft_to_springboot", label: "Mulesoft → Spring Boot" },
-  { id: "dotnet_to_azure", label: ".NET → Azure" },
-  { id: "custom", label: "Custom" },
-];
-
-const MIGRATION_TYPES = new Set(["mulesoft_to_springboot", "dotnet_to_azure"]);
-
-const PIPELINE_LABEL: Record<string, string> = {
-  user_stories: "User Stories", ppt: "Presentation", prototype: "Prototype",
-  app_builder: "App Builder", custom: "Custom",
-  mulesoft_to_springboot: "Mulesoft → Spring Boot", dotnet_to_azure: ".NET → Azure",
-};
+const BETA_WORKFLOWS = new Set(["user_stories_revision", "ppt_revision", "prototype_revision", "app_builder_revision", "mulesoft_to_springboot", "dotnet_to_azure", "sample_brownfield", "sample_fanout", "sample_wave", "od_prototype", "reverse_engineer"]);
 
 // Token-based avatar tints (was a retired-hex array) — cycle brand/warm
 // surfaces + ink/brand text so every agent chip stays on the Phase-32 palette.
@@ -54,6 +39,96 @@ function getInitials(name: string): string {
   const words = name.replace(/\s+agent$/i, "").split(" ");
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+// ─── Loading Skeletons ───────────────────────────────────────────────────────
+
+function AgentCardSkeleton() {
+  return (
+    <Card className="flex flex-col p-[17px] min-h-[180px] shimmer-effect">
+      <div className="relative overflow-hidden">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-[10px] bg-surface-warm" />
+          <div className="flex-1 space-y-2">
+            <div className="h-4 bg-surface-warm rounded w-3/4" />
+            <div className="h-3 bg-surface-warm rounded w-1/2" />
+          </div>
+        </div>
+        <div className="space-y-2 mb-4">
+          <div className="h-3 bg-surface-warm rounded w-full" />
+          <div className="h-3 bg-surface-warm rounded w-5/6" />
+          <div className="h-3 bg-surface-warm rounded w-4/6" />
+        </div>
+        <div className="h-[1px] bg-line-divider my-3" />
+        <div className="flex items-center gap-2">
+          <div className="h-3 bg-surface-warm rounded w-16" />
+          <div className="flex-1" />
+          <div className="h-3 bg-surface-warm rounded w-20" />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function SkillCardSkeleton() {
+  return (
+    <Card className="p-4 shimmer-effect">
+      <div className="relative overflow-hidden">
+        <div className="flex items-center gap-2.5 mb-2.5">
+          <div className="w-[30px] h-[30px] flex-shrink-0 rounded-lg bg-surface-warm" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3 bg-surface-warm rounded w-3/4" />
+            <div className="h-2.5 bg-surface-warm rounded w-1/2" />
+          </div>
+        </div>
+        <div className="space-y-2 mb-2.5">
+          <div className="h-3 bg-surface-warm rounded w-full" />
+          <div className="h-3 bg-surface-warm rounded w-5/6" />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="h-5 bg-surface-warm rounded w-12" />
+          <div className="h-5 bg-surface-warm rounded w-16" />
+          <div className="flex-1" />
+          <div className="h-3 bg-surface-warm rounded w-12" />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function HookCardSkeleton() {
+  return (
+    <Card className="p-4 shimmer-effect">
+      <div className="relative overflow-hidden">
+        <div className="flex items-center gap-2.5 mb-2">
+          <div className="flex-1 space-y-2">
+            <div className="h-3 bg-surface-warm rounded w-3/4" />
+            <div className="h-2.5 bg-surface-warm rounded w-1/3" />
+          </div>
+          <div className="h-5 bg-surface-warm rounded w-16 flex-shrink-0" />
+        </div>
+        <div className="h-3 bg-surface-warm rounded w-1/2 mb-2 italic" />
+        <div className="space-y-2 mb-2.5">
+          <div className="h-3 bg-surface-warm rounded w-full" />
+          <div className="h-3 bg-surface-warm rounded w-5/6" />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="h-5 bg-surface-warm rounded w-12" />
+          <div className="h-5 bg-surface-warm rounded w-16" />
+          <div className="flex-1" />
+          <div className="h-3 bg-surface-warm rounded w-12" />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function CategoryChipSkeleton() {
+  return (
+    <div className="relative overflow-hidden inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line-border bg-surface-card shimmer-effect">
+      <div className="h-3.5 bg-surface-warm rounded w-20" />
+    </div>
+  );
 }
 
 // ─── Skill Detail Modal ───────────────────────────────────────────────────────
@@ -113,7 +188,7 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
                 onClick={handleCopy}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${
                   copied
-                    ? "bg-ink-900 text-white border-ink-900"
+                    ? "bg-status-done text-white border-status-done"
                     : "bg-surface-white text-ink-600 border-line-control hover:bg-surface-warm hover:border-ink-300"
                 }`}
               >
@@ -190,18 +265,6 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
                 <Pill key={tag} className="text-ink-500">{tag}</Pill>
               ))}
             </div>
-            {/* Compatible agents */}
-            <div>
-              <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5">Compatible with</p>
-              <div className="flex flex-wrap gap-1.5">
-                {skill.compatible_agents.slice(0, 6).map(id => (
-                  <span key={id} className="text-[10px] px-2 py-0.5 rounded bg-surface-warm border border-line-border text-ink-600 font-medium">{id}</span>
-                ))}
-                {skill.compatible_agents.length > 6 && (
-                  <span className="text-[10px] text-ink-400">+{skill.compatible_agents.length - 6} more</span>
-                )}
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -252,7 +315,7 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
               <div>
                 <h2 className="font-sans text-[16px] font-bold text-ink-900 leading-tight">{hook.name}</h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <Pill className="bg-ink-900 text-white border-transparent">{hook.event}</Pill>
+                  <Pill className="bg-brand text-white border-transparent">{hook.event}</Pill>
                 </div>
               </div>
             </div>
@@ -261,7 +324,7 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
                 onClick={handleCopy}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${
                   copied
-                    ? "bg-ink-900 text-white border-ink-900"
+                    ? "bg-status-done text-white border-status-done"
                     : "bg-surface-white text-ink-600 border-line-control hover:bg-surface-warm hover:border-ink-300"
                 }`}
               >
@@ -343,6 +406,28 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
 // ─── LibraryPage ─────────────────────────────────────────────────────────────
 
 export function LibraryPage() {
+  const { allAgents: ALL_AGENTS_COMBINED } = useAgentLibrary();
+  const { skills: SKILLS, categories: SKILL_CATEGORIES } = useSkillsCatalog();
+  const { hooks: HOOKS, events: HOOK_EVENTS } = useHooksCatalog();
+
+  // Load status from Redux for skeleton rendering
+  const agentsStatus = useAppSelector((state) => state.agents.status);
+  const skillsStatus = useAppSelector((state) => state.skills.status);
+  const hooksStatus = useAppSelector((state) => state.hooks.status);
+
+  // Build agent categories from user_launchable, non-beta workflows in Redux
+  const workflows = useAppSelector((state) => state.global.workflows);
+  const CATEGORIES: CategoryEntry[] = [
+    { id: "all", label: "All" },
+    ...workflows
+      .filter((w) => w.user_launchable && !w.is_beta && !["custom"].includes(w.id))
+      .map((w) => ({
+        id: w.id,
+        label: w.name || w.display_name || w.id,
+      })),
+    { id: "custom", label: "Custom" },
+  ];
+
   const [activeCategory, setActiveCategory] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedAgent, setSelectedAgent] = useState<{ agent: AgentDef; index: number } | null>(null);
@@ -358,9 +443,16 @@ export function LibraryPage() {
   // Keyed by agent.id → the SelectionsMap for that agent. A useRef keeps the
   // map stable (no re-render on save) while surviving the drawer unmount.
   const savedSelectionsRef = useRef<Record<string, SelectionsMap>>({});
+  // Spec 012 — the Skills-tab selection lives in its OWN ref, deliberately NOT
+  // inside savedSelectionsRef: the Config-tab Save writes a fresh SelectionsMap
+  // into that ref and would clobber any skills stored there. A catalog agent has
+  // no step to carry skills, but persisting them here restores the ticked set on
+  // reopen — the same drawer contract as the Config levers, not live checkboxes
+  // that silently discard.
+  const savedSkillsRef = useRef<Record<string, string[]>>({});
 
   const MAIN_TABS: TabItem[] = [
-    { id: "agents", label: `Agents  ${ALL_AGENTS_COMBINED.length}` },
+    { id: "agents", label: `Agents  ${ALL_AGENTS_COMBINED.length}`, icon: <Zap className="h-3.5 w-3.5" /> },
     { id: "skills", label: `Skills  ${SKILLS.length}`, icon: <Puzzle className="h-3.5 w-3.5" /> },
     { id: "hooks", label: `Hooks  ${HOOKS.length}`, icon: <Webhook className="h-3.5 w-3.5" /> },
   ];
@@ -368,14 +460,19 @@ export function LibraryPage() {
   const filteredAgents = ALL_AGENTS_COMBINED.filter(agent => {
     const matchesCategory =
       activeCategory === "all" ||
-      (activeCategory === "migration" && MIGRATION_TYPES.has(agent.pipeline_type)) ||
       agent.pipeline_type === activeCategory;
     const matchesSearch = !searchQuery ||
       agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       agent.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       agent.role.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
-  }).sort((a, b) => a.pipeline_type.localeCompare(b.pipeline_type) || a.order - b.order);
+  }).sort((a, b) => {
+    // Sort beta workflows to the end
+    const aBeta = BETA_WORKFLOWS.has(a.pipeline_type) ? 1 : 0;
+    const bBeta = BETA_WORKFLOWS.has(b.pipeline_type) ? 1 : 0;
+    if (aBeta !== bBeta) return aBeta - bBeta;
+    return a.pipeline_type.localeCompare(b.pipeline_type) || a.order - b.order;
+  });
 
   const filteredSkills = SKILLS.filter(s => {
     const matchCat = skillCategory === "all" || s.category === skillCategory;
@@ -384,6 +481,9 @@ export function LibraryPage() {
       s.description.toLowerCase().includes(skillSearch.toLowerCase());
     return matchCat && matchSearch;
   });
+
+  const activeSkills = filteredSkills.filter(s => !s.isBeta);
+  const betaSkills = filteredSkills.filter(s => s.isBeta);
 
   const filteredHooks = HOOKS.filter(h => {
     const matchEvent = hookEvent === "all" || h.event === hookEvent;
@@ -439,43 +539,62 @@ export function LibraryPage() {
             <div className="flex flex-wrap gap-[7px] mb-5">
               {CATEGORIES.map(cat => {
                 const count = cat.id === "all" ? ALL_AGENTS_COMBINED.length
-                  : cat.id === "migration" ? ALL_AGENTS_COMBINED.filter(a => MIGRATION_TYPES.has(a.pipeline_type)).length
                   : ALL_AGENTS_COMBINED.filter(a => a.pipeline_type === cat.id).length;
                 const isActive = activeCategory === cat.id;
+                const showIcon = cat.id !== "all" && cat.id !== "custom";
+                const IconComponent = showIcon ? getWorkflowTypeIcon(cat.id) : null;
                 return (
                   <button key={cat.id} onClick={() => setActiveCategory(cat.id)}
-                    className={`${chipBase} ${isActive ? chipActive : chipIdle}`}>
+                    className={`${chipBase} ${isActive ? chipActive : chipIdle} flex items-center gap-1.5`}>
+                    {IconComponent && <IconComponent className="h-3.5 w-3.5" />}
                     {cat.label}<span className="opacity-50">{count}</span>
                   </button>
                 );
               })}
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(288px,1fr))] gap-[13px]">
-              {filteredAgents.map((agent, idx) => (
-                <Card key={`${agent.pipeline_type}-${agent.id}`}
-                  onClick={() => setSelectedAgent({ agent, index: idx })}
-                  className="flex flex-col p-[17px] min-h-[180px] hover:border-line-control transition-colors cursor-pointer group"
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className={`w-10 h-10 rounded-[10px] flex items-center justify-center flex-shrink-0 text-[12px] font-bold ${ICON_TINTS[idx % ICON_TINTS.length]}`}>
-                      {getInitials(agent.name)}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-sans text-[14px] font-semibold text-ink-900 leading-tight group-hover:text-brand transition-colors">{agent.name}</p>
-                      <p className="text-[9px] text-ink-200 mt-1 uppercase tracking-[0.11em] font-semibold">{PIPELINE_LABEL[agent.pipeline_type] ?? agent.pipeline_type}</p>
-                    </div>
-                  </div>
-                  <p className="text-[12px] font-semibold text-ink-700 mb-1.5">{agent.role}</p>
-                  <p className="text-[12px] text-ink-400 leading-relaxed line-clamp-3">{agent.description}</p>
-                  <span className="flex-1" />
-                  <div className="flex items-center gap-2 mt-3.5 pt-3 border-t border-line-divider">
-                    <Clock className="h-[13px] w-[13px] text-ink-200" />
-                    <span className="text-[11.5px] text-ink-300">~{agent.estimated_duration}s</span>
+              {agentsStatus === "loading" ? (
+                Array.from({ length: 6 }).map((_, i) => <AgentCardSkeleton key={i} />)
+              ) : (
+                filteredAgents.map((agent) => {
+                  const WorkflowIconComponent = getWorkflowTypeIcon(agent.pipeline_type);
+                  const workflow = workflows.find(w => w.id === agent.pipeline_type);
+                  const workflowLabel = workflow?.name || workflow?.display_name || agent.pipeline_type;
+                  return (
+                    <Card key={`${agent.pipeline_type}-${agent.id}`}
+                      onClick={() => !BETA_WORKFLOWS.has(agent.pipeline_type) && setSelectedAgent({ agent, index: filteredAgents.indexOf(agent) })}
+                      className={`flex flex-col p-[17px] min-h-[180px] transition-colors group ${
+                        BETA_WORKFLOWS.has(agent.pipeline_type)
+                          ? "opacity-60 cursor-not-allowed"
+                          : "hover:border-line-control cursor-pointer"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-[10px] flex items-center justify-center flex-shrink-0 bg-brand-fill text-brand">
+                          <WorkflowIconComponent className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-sans text-[14px] font-semibold text-ink-900 leading-tight group-hover:text-brand transition-colors">{agent.name}</p>
+                          <p className="text-[9px] text-ink-200 mt-1 uppercase tracking-[0.11em] font-semibold">{workflowLabel}</p>
+                        </div>
+                      </div>
+                    <p className={`text-[12px] font-semibold mb-1.5 ${BETA_WORKFLOWS.has(agent.pipeline_type) ? 'text-ink-400' : 'text-ink-700'}`}>{agent.role}</p>
+                    <p className={`text-[12px] leading-relaxed line-clamp-3 ${BETA_WORKFLOWS.has(agent.pipeline_type) ? 'text-ink-300' : 'text-ink-400'}`}>{agent.description}</p>
                     <span className="flex-1" />
-                    <span className="text-[11.5px] font-medium text-brand">Configure →</span>
-                  </div>
-                </Card>
-              ))}
+                    <div className="flex items-center gap-2 mt-3.5 pt-3 border-t border-line-divider">
+                      <Clock className="h-[13px] w-[13px] text-ink-200" />
+                      <span className="text-[11.5px] text-ink-300">~{agent.estimated_duration}s</span>
+                      <span className="flex-1" />
+                      {BETA_WORKFLOWS.has(agent.pipeline_type) ? (
+                        <span className="text-[11.5px] font-medium text-ink-400">Coming Soon</span>
+                      ) : (
+                        <span className="text-[11.5px] font-medium text-brand">Configure →</span>
+                      )}
+                    </div>
+                  </Card>
+                  );
+                })
+              )}
             </div>
           </>
         )}
@@ -484,42 +603,93 @@ export function LibraryPage() {
         {mainTab === "skills" && (
           <>
             <div className="flex flex-wrap gap-[7px] mb-5">
-              {SKILL_CATEGORIES.map(cat => {
-                const isActive = skillCategory === cat.id;
-                return (
-                  <button key={cat.id} onClick={() => setSkillCategory(cat.id)}
-                    className={`${chipBase} ${isActive ? chipActive : chipIdle}`}>
-                    {cat.label}
-                  </button>
-                );
-              })}
+              {skillsStatus === "loading" ? (
+                Array.from({ length: 6 }).map((_, i) => <CategoryChipSkeleton key={i} />)
+              ) : (
+                SKILL_CATEGORIES.map(cat => {
+                  const isActive = skillCategory === cat.id;
+                  const IconComponent = cat.icon ? getSkillCategoryIcon(cat.id) : null;
+                  return (
+                    <button key={cat.id} onClick={() => setSkillCategory(cat.id)}
+                      className={`${chipBase} ${isActive ? chipActive : chipIdle} flex items-center gap-1.5`}>
+                      {IconComponent && <IconComponent className="h-3.5 w-3.5" />}
+                      {cat.label}
+                    </button>
+                  );
+                })
+              )}
             </div>
+
+            {/* Active skills grid */}
             <div className="grid grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">
-              {filteredSkills.map((skill) => (
-                <Card key={skill.id}
-                  onClick={() => setSelectedSkill(skill)}
-                  className="p-4 hover:border-line-control transition-colors cursor-pointer group"
-                >
-                  <div className="flex items-center gap-2.5 mb-2.5">
-                    <span className="w-[30px] h-[30px] flex-shrink-0 rounded-lg bg-brand-fill grid place-items-center text-brand">
-                      <Puzzle className="h-[15px] w-[15px]" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="font-sans text-[13.5px] font-semibold text-ink-900 leading-tight group-hover:text-brand transition-colors">{skill.name}</p>
-                      <p className="text-[8.5px] text-ink-200 mt-0.5 uppercase tracking-[0.1em] font-semibold capitalize">{skill.category}</p>
+              {skillsStatus === "loading" ? (
+                Array.from({ length: 6 }).map((_, i) => <SkillCardSkeleton key={i} />)
+              ) : (
+              activeSkills.map((skill) => {
+                const IconComponent = getSkillCategoryIcon(skill.category);
+                return (
+                  <Card key={skill.id}
+                    onClick={() => setSelectedSkill(skill)}
+                    className="p-4 hover:border-line-control transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2.5 mb-2.5">
+                      <span className="w-[30px] h-[30px] flex-shrink-0 rounded-lg bg-brand-fill grid place-items-center text-brand">
+                        <IconComponent className="h-[15px] w-[15px]" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-sans text-[13.5px] font-semibold text-ink-900 leading-tight group-hover:text-brand transition-colors">{skill.name}</p>
+                        <p className="text-[8.5px] text-ink-200 mt-0.5 uppercase tracking-[0.1em] font-semibold capitalize">{skill.category}</p>
+                      </div>
                     </div>
-                  </div>
-                  <p className="text-[12px] text-ink-400 leading-relaxed mb-2.5 line-clamp-2">{skill.description}</p>
-                  <div className="flex items-center flex-wrap gap-1.5">
-                    {skill.tags.slice(0, 3).map(tag => (
-                      <span key={tag} className="text-[10px] px-2 py-1 rounded-[5px] bg-surface-paper border border-line-border text-ink-500 font-medium">{tag}</span>
-                    ))}
-                    <span className="flex-1" />
-                    <span className="text-[11px] font-medium text-brand self-center group-hover:opacity-80 transition-opacity">View →</span>
-                  </div>
-                </Card>
-              ))}
+                    <p className="text-[12px] text-ink-400 leading-relaxed mb-2.5 line-clamp-2">{skill.description}</p>
+                    <div className="flex items-center flex-wrap gap-1.5">
+                      {skill.tags.slice(0, 3).map(tag => (
+                        <span key={tag} className="text-[10px] px-2 py-1 rounded-[5px] bg-surface-paper border border-line-border text-ink-500 font-medium">{tag}</span>
+                      ))}
+                      <span className="flex-1" />
+                      <span className="text-[11px] font-medium text-brand self-center group-hover:opacity-80 transition-opacity">View →</span>
+                    </div>
+                  </Card>
+                );
+              })
+              )}
             </div>
+
+            {/* Coming Soon section */}
+            {skillsStatus !== "loading" && betaSkills.length > 0 && (
+              <>
+                <div className="mt-10 mb-3.5 flex items-center gap-2">
+                  <h3 className="text-[13px] font-semibold text-ink-500">Coming Soon</h3>
+                  <span className="text-[11px] text-ink-400">Beta skills not yet available</span>
+                </div>
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">
+                  {betaSkills.map((skill) => {
+                    const IconComponent = getSkillCategoryIcon(skill.category);
+                    return (
+                      <Card key={skill.id}
+                        className="p-4 opacity-60 cursor-not-allowed"
+                      >
+                        <div className="flex items-center gap-2.5 mb-2.5">
+                          <span className="w-[30px] h-[30px] flex-shrink-0 rounded-lg bg-surface-warm grid place-items-center text-ink-400">
+                            <IconComponent className="h-[15px] w-[15px]" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="font-sans text-[13.5px] font-semibold text-ink-400 leading-tight">{skill.name}</p>
+                            <p className="text-[8.5px] text-ink-200 mt-0.5 uppercase tracking-[0.1em] font-semibold capitalize">{skill.category}</p>
+                          </div>
+                        </div>
+                        <p className="text-[12px] text-ink-400 leading-relaxed mb-2.5 line-clamp-2">{skill.description}</p>
+                        <div className="flex items-center flex-wrap gap-1.5">
+                          <span className="text-[10px] px-2 py-1 rounded-[5px] bg-surface-paper border border-line-border text-ink-500 font-medium">
+                            Coming Soon
+                          </span>
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </>
         )}
 
@@ -527,18 +697,25 @@ export function LibraryPage() {
         {mainTab === "hooks" && (
           <>
             <div className="flex flex-wrap gap-[7px] mb-5">
-              {HOOK_EVENTS.map(ev => {
-                const isActive = hookEvent === ev.id;
-                return (
-                  <button key={ev.id} onClick={() => setHookEvent(ev.id)}
-                    className={`${chipBase} ${isActive ? chipActive : chipIdle}`}>
-                    {ev.label}
-                  </button>
-                );
-              })}
+              {hooksStatus === "loading" ? (
+                Array.from({ length: 5 }).map((_, i) => <CategoryChipSkeleton key={i} />)
+              ) : (
+                HOOK_EVENTS.map(ev => {
+                  const isActive = hookEvent === ev.id;
+                  return (
+                    <button key={ev.id} onClick={() => setHookEvent(ev.id)}
+                      className={`${chipBase} ${isActive ? chipActive : chipIdle}`}>
+                      {ev.label}
+                    </button>
+                  );
+                })
+              )}
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">
-              {filteredHooks.map((hook) => (
+              {hooksStatus === "loading" ? (
+                Array.from({ length: 6 }).map((_, i) => <HookCardSkeleton key={i} />)
+              ) : (
+              filteredHooks.map((hook) => (
                 <Card key={hook.id}
                   onClick={() => setSelectedHook(hook)}
                   className="p-4 hover:border-line-control transition-colors cursor-pointer group"
@@ -558,7 +735,8 @@ export function LibraryPage() {
                     <span className="text-[11px] font-medium text-brand self-center group-hover:opacity-80 transition-opacity">View →</span>
                   </div>
                 </Card>
-              ))}
+              ))
+              )}
             </div>
           </>
         )}
@@ -568,7 +746,13 @@ export function LibraryPage() {
       <AnimatePresence>
         {selectedAgent && (
           <AgentCapabilitiesModal
-            agent={selectedAgent.agent}
+            // Seed the Skills tab from the persisted set so a reopen restores it.
+            agent={{
+              ...selectedAgent.agent,
+              skills:
+                savedSkillsRef.current[selectedAgent.agent.id] ??
+                selectedAgent.agent.skills,
+            }}
             agentIndex={selectedAgent.index}
             onClose={() => setSelectedAgent(null)}
             asDrawer
@@ -576,6 +760,12 @@ export function LibraryPage() {
             onSelectionsChange={(next) => {
               // Persist the selections for this agent so reopening restores them.
               savedSelectionsRef.current[selectedAgent.agent.id] = next;
+            }}
+            // Spec 012 — live the Skills tab; the selection persists in its own
+            // ref so the drawer restores it on reopen (separate from Config
+            // selections, whose Save writes a fresh SelectionsMap).
+            onSkillsChange={(agentId, skills) => {
+              savedSkillsRef.current[agentId] = skills;
             }}
           />
         )}

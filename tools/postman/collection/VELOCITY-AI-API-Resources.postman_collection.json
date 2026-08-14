@@ -1,0 +1,1705 @@
+{
+  "info": {
+    "_postman_id": "cf38ad77-399b-432e-bc65-8f0787cb20eb",
+    "name": "VELOCITY-AI — API Resources",
+    "description": "Full backend API surface organized strictly by resource — one folder per API resource, one request per route (plus the Hello HTML (E2E) folder driving the local hello_html test workflow end to end). Generated 1:1 from backend/app/api (93 REST routes + /ws/handoff WebSocket, documented as a placeholder request since collection v2.1 cannot express WS). Import the environment at tools/api/postman/VELOCITY-AI-Local.postman_environment.json (or the copy next to this file) and run Auth > POST /api/auth/login first — its test script captures {{jwt}} for the collection-level Bearer auth.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/health",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "POST /api/auth/register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/auth/register",
+            "description": "Creates a new user (basic tier by default). Not idempotent — re-running with the same email 409s once the user exists; that's expected.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/auth/login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/auth/login",
+            "description": "Captures {{jwt}} into a collection variable (shared collection-wide via the collection-level Bearer auth) — safe to re-run from any folder.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('jwt', body.token);",
+                  "    console.log('logged in as', body.user.email);",
+                  "} else {",
+                  "    console.error('login failed', pm.response.code, pm.response.text());",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/auth/me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/auth/me",
+            "description": "Returns the authenticated user's profile (id/email/tier/is_admin) for the {{jwt}} bearer token."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/auth/logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{apiRoot}}/api/auth/logout",
+            "description": "Revokes the current {{jwt}}. Run last — subsequent authenticated requests in this collection will 401 until you log in again."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/auth/change-password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/auth/change-password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_password\": \"{{loginPassword}}\",\n  \"new_password\": \"{{loginPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "GET /api/admin/users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/admin/users",
+            "description": "Requires an admin-tier {{jwt}} — log in as an admin account first."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/admin/users",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/admin/users",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"new-user@example.com\",\n  \"password\": \"changeme123\",\n  \"tier\": \"basic\",\n  \"is_admin\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH /api/admin/users/{{adminUserId}}/tier",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/admin/users/{{adminUserId}}/tier",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tier\": \"pro\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/admin/users/{{adminUserId}}",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{apiRoot}}/api/admin/users/{{adminUserId}}"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Agents",
+      "item": [
+        {
+          "name": "GET /api/agents/pipelines/{{pipelineType}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/pipelines/{{pipelineType}}",
+            "description": "Same route as the concrete `Pipelines — <name>` requests above (`/api/agents/pipelines/{pipeline_type}`), parametrized so any current or future `pipeline_type` value can be exercised without adding a new request."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/agents/library",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/library"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/agents/skills",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/skills",
+            "description": "Lists the CALLING USER's own saved per-agent skill overrides only — not a global catalog."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/agents/skills/{{agentId}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/skills/{{agentId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/agents/skills",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/agents/skills",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agent_id\": \"{{agentId}}\",\n  \"content\": \"# Extra instructions for this agent\\n\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/agents/skills/{{agentId}}",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/skills/{{agentId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/agents/{{agentId}}/prompt",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/{{agentId}}/prompt"
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/agents/{{agentId}}/prompt",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/agents/{{agentId}}/prompt",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Full replacement AGENT.md prompt body...\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/agents/{{agentId}}/prompt",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/{{agentId}}/prompt"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "item": [
+        {
+          "name": "GET /api/analytics/summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/analytics/summary"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Capabilities",
+      "item": [
+        {
+          "name": "GET /api/capabilities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/capabilities"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Chats",
+      "item": [
+        {
+          "name": "POST /api/chats",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/chats",
+            "description": "Response id can be captured into {{chatId}} via a test script, same pattern as Login → {{jwt}}.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"New chat\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/chats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/chats"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/chats/{{chatId}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/chats/{{chatId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/chats/{{chatId}}",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{apiRoot}}/api/chats/{{chatId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/chats/{{chatId}}/messages",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/chats/{{chatId}}/messages",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"user\",\n  \"content\": \"Hello\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Files",
+      "item": [
+        {
+          "name": "POST /api/files/extract-text",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{apiRoot}}/api/files/extract-text",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Handoff",
+      "item": [
+        {
+          "name": "POST /api/handoff/receive",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/handoff/receive",
+            "description": "Called by the flowin-handoff CLI installer/script, not typically by the FE. Captures a token you can put in {{handoffToken}} for the two requests below.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task\": \"Investigate failing test X\",\n  \"repo_url\": \"https://github.com/org/repo\",\n  \"source_client\": \"claude-code\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/handoff/{{handoffToken}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/handoff/{{handoffToken}}",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/handoff/{{handoffToken}}/start",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{apiRoot}}/api/handoff/{{handoffToken}}/start",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "WS /ws/handoff/{{handoffToken}} (WebSocket — manual)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/ws/handoff/{{handoffToken}}",
+            "description": "WebSocket route, not REST — this placeholder only documents it. Connect with Postman's 'New > WebSocket Request' to ws://<apiRoot host>/ws/handoff/{{handoffToken}}. Do not send this as an HTTP request."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Hooks",
+      "item": [
+        {
+          "name": "GET /api/hooks/library",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/hooks/library",
+            "description": "Lists the hook library available to the authenticated user."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Install",
+      "item": [
+        {
+          "name": "GET /install/flowin-handoff",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/install/flowin-handoff",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /install/flowin-handoff/command",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/install/flowin-handoff/command",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /install/flowin-handoff/script",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/install/flowin-handoff/script",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "MCP",
+      "item": [
+        {
+          "name": "POST /mcp/handoff",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/mcp/handoff",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /mcp/handoff",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/mcp/handoff"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "PPT Templates",
+      "item": [
+        {
+          "name": "GET /api/ppt/templates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/ppt/templates",
+            "description": "od-ppt-brief-analyst / od-ppt-composer declare template injection -- the Launch step below needs a real template_id (chosen from this list) or it fails immediately with \"missing_template_context\". This is the theme-selection step."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/ppt/templates/{{pptTemplateId}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/ppt/templates/{{pptTemplateId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/ppt/templates/{{pptTemplateId}}/preview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/ppt/templates/{{pptTemplateId}}/preview"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/ppt/templates/{{pptTemplateId}}/thumbnail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/ppt/templates/{{pptTemplateId}}/thumbnail"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Prototype",
+      "item": [
+        {
+          "name": "GET /api/prototype/templates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/prototype/templates"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/prototype/templates/{{templateId}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/prototype/templates/{{templateId}}",
+            "description": "Same route as 'Template detail — saas-landing' above, parametrized."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/prototype/templates/{{templateId}}/preview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/prototype/templates/{{templateId}}/preview"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/prototype/templates/{{templateId}}/thumbnail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/prototype/templates/{{templateId}}/thumbnail"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/prototype/templates/{{templateId}}/assets/{{assetPath}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/prototype/templates/{{templateId}}/assets/{{assetPath}}"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/prototype/design-systems",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/prototype/design-systems",
+            "description": "Note: \"linear\" (used elsewhere in this repo) is stale -- the real id is \"linear-app\". This is the theme-selection step."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/prototype/design-systems/{{dsId}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/prototype/design-systems/{{dsId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/prototype/design-systems/{{dsId}}/preview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/prototype/design-systems/{{dsId}}/preview"
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/prototype/run",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/prototype/run",
+            "description": "Distinct from the Runs > Prototype (od_prototype) pipeline flow above — this is the standalone synchronous prototype-generation endpoint.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"template_id\": \"saas-landing\",\n  \"design_system_id\": \"{{dsId}}\",\n  \"brief\": \"A landing page for a SaaS product\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/prototype/fetch-url",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/prototype/fetch-url?url=https://example.com"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Runs",
+      "item": [
+        {
+          "name": "POST /api/runs",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/runs",
+            "description": "agent_ids must keep the full dependency chain intact -- dropping nfr-specialist/backlog-reviewer 422s with \"workflow_unsatisfiable\" since backlog-compiler consumes their outputs (found via live testing).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pipeline_type\": \"user_stories\",\n  \"message\": \"Build a backlog for a personal finance budgeting app, informed by a quick competitive scan first.\",\n  \"agent_ids\": [\n    \"domain-analyst\",\n    \"market-research-agent\",\n    \"epic-architect\",\n    \"story-estimator\",\n    \"nfr-specialist\",\n    \"backlog-reviewer\",\n    \"backlog-compiler\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('runId', body.run_id);",
+                  "    console.log('launched -> run_id', body.run_id);",
+                  "} else {",
+                  "    console.error('launch failed', pm.response.code, pm.response.text());",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/runs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs?limit=20&offset=0"
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/runs/user_message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/runs/user_message",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Hello\",\n  \"chat_session_id\": \"{{chatId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/runs/export-pptx",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/runs/export-pptx",
+            "description": "Always fails with \"Could not find PptxGenJS code\" for od_ppt runs -- export-pptx only works for pipelines with a ppt-code-generator agent, which od_ppt does not have.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workflow_id\": \"{{runId}}\",\n  \"title\": \"Exported Deck\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/runs/{{runId}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}",
+            "description": "Set {{runId}} to the run you want to inspect."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/runs/{{runId}}",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}",
+            "description": "Run LAST if you use this — deletes whatever {{runId}} currently points at."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/runs/{{runId}}/chain-context",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/chain-context"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/runs/{{runId}}/artifacts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/artifacts?include=content"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/runs/{{runId}}/events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/events?after=0",
+            "description": "Distinct from the live SSE stream above — a plain GET returning the durable event log so far. Useful to confirm what actually happened even if a Watch request above timed out."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/runs/{{runId}}/events/stream",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/events/stream",
+            "description": "Attaches to the live stream right after launch. Every pipeline here has clarify.mode: auto, so it ALWAYS pauses at questionnaire_ready (after workflow_validated -> planner_start -> planner_complete -> gate_status) before any agent runs. This request stays open/blocked until you stop it -- verified live that answering too early (before this pause is actually armed) is silently dropped, so you must let this request reach questionnaire_ready first. In the Postman app: watch it arrive, then cancel this request and move to the next one. Running via Newman: pass --timeout-request 10000 (or similar) so it's aborted automatically once the pause has had time to arm -- that's expected, not a bug."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/runs/{{runId}}/family",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/family"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/runs/{{runId}}/summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/summary"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/runs/{{runId}}/hook-runs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/hook-runs"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/runs/{{runId}}/gate-events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/gate-events"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/runs/{{runId}}/validation-results",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/validation-results"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/runs/{{runId}}/exec-runs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/exec-runs"
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/runs/{{runId}}/gate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/gate",
+            "description": "Only send this if part 2's stream paused on a review_gate_ready event (Human_Gate agents) instead of reaching a terminal event.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"gate_key\": \"<gate_key from the review_gate_ready event>\",\n  \"action\": \"approve\",\n  \"approved\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/runs/{{runId}}/answers",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/answers",
+            "description": "Send this only AFTER questionnaire_ready has actually arrived on the stream above (or after that request's timeout, which gives it enough time to arm) -- answering earlier is silently dropped, verified live.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"responses\": [],\n  \"skip_clarification\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/runs/{{runId}}/cancel",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/cancel",
+            "description": "Uses {{runId}} — set it to the run you want to inspect."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/runs/{{runId}}/resume",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/resume"
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/runs/{{runId}}/messages",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/messages",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Follow-up instruction for the running pipeline\",\n  \"message_id\": \"{{$guid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "One up-channel chat turn to a LIVE run. message_id is the idempotency key ({{$guid}} generates a fresh one per send — resending the same id is a no-op)."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/runs/{{runId}}/classify-intent",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/classify-intent",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Add a login page\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/runs/{{runId}}/revisions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/revisions",
+            "description": "Chains a child revision run off {{runId}} — send this AFTER the run above has completed.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"target_artifact_type\": \"user_stories\",\n  \"instruction\": \"Add a story for recurring/repeating tasks.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/runs/{{runId}}/files",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/files",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "files",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "item": [
+        {
+          "name": "PUT /api/settings/github-pat",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/settings/github-pat",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pat\": \"ghp_xxxxxxxxxxxxxxxxxxxx\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/settings/github-pat",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/settings/github-pat"
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/settings/github-pat",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{apiRoot}}/api/settings/github-pat"
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/settings/api-keys",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/settings/api-keys",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Default\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/settings/api-keys",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/settings/api-keys"
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/settings/api-keys/{{apiKeyId}}",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{apiRoot}}/api/settings/api-keys/{{apiKeyId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/settings/preferences",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/settings/preferences"
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/settings/preferences",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/settings/preferences",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"preferred_model\": \"claude-sonnet-5\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/settings/constitution",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/settings/constitution"
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/settings/constitution",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/settings/constitution",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Always write tests for new endpoints.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/settings/constitution",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{apiRoot}}/api/settings/constitution"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Skills",
+      "item": [
+        {
+          "name": "GET /api/skills/library",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/skills/library",
+            "description": "Lists the skill library available to the authenticated user."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "User Workflows",
+      "item": [
+        {
+          "name": "POST /api/user-workflows",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/user-workflows",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Competitive SWOT + roadmap\",\n  \"base_pipeline_type\": \"custom\",\n  \"agent_ids\": [\n    \"market-research-agent\",\n    \"swot-analyst\",\n    \"roadmap-planner\"\n  ],\n  \"model_overrides\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    pm.collectionVariables.set('userWorkflowId', pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/user-workflows",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/user-workflows"
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/user-workflows/{{userWorkflowId}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/user-workflows/{{userWorkflowId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH /api/user-workflows/{{userWorkflowId}}",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/user-workflows/{{userWorkflowId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Renamed composition\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/user-workflows/{{userWorkflowId}}",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{apiRoot}}/api/user-workflows/{{userWorkflowId}}"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Workflows",
+      "item": [
+        {
+          "name": "GET /api/workflows",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/workflows",
+            "description": "Dynamic, manifest-driven catalog (FIX-051/ISS-035) — every launchable pipeline with its id/name/step_count/steps."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/workflows/{{workflowDefId}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/workflows/{{workflowDefId}}",
+            "description": "Full compiled step detail (planner, clarify_mode, deliverable, per-step strategy/gates/validators) for one workflow id."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Hello HTML (E2E)",
+      "item": [
+        {
+          "name": "1. Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/auth/login",
+            "description": "Captures {{jwt}} into a collection variable (shared collection-wide via the collection-level Bearer auth) — safe to re-run from any folder.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('jwt', body.token);",
+                  "    console.log('logged in as', body.user.email);",
+                  "} else {",
+                  "    console.error('login failed', pm.response.code, pm.response.text());",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Workflow definition — GET /api/workflows/hello_html",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/workflows/hello_html",
+            "description": "Sanity-check the compiled hello_html definition: 3 steps (emoji-picker → writer[human gate] → presenter[html_static validator]), deliverable page.html."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Pipeline agents — GET /api/agents/pipelines/hello_html",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/agents/pipelines/hello_html",
+            "description": "The three discovered agents with their orders and the writer's Human_Gate."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Launch — POST /api/runs",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/runs",
+            "description": "Launches hello_html. The word for the run comes from the emoji-picker's random_word tool call (watch for it in the stream's tool_call events); the message is just the brief. The test script captures {{runId}}.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pipeline_type\": \"hello_html\",\n  \"message\": \"lighthouse\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('runId', body.run_id);",
+                  "    console.log('hello_html launched -> run_id', body.run_id);",
+                  "} else {",
+                  "    console.error('launch failed', pm.response.code, pm.response.text());",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Stream — watch until questionnaire_ready",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/events/stream",
+            "description": "SSE leg: keep it open and watch the event stream until `questionnaire_ready` arrives, then cancel this request and continue with the next step. Acting before the event has actually arrived is silently dropped."
+          },
+          "response": []
+        },
+        {
+          "name": "6. Answer clarify — POST /api/runs/{{runId}}/answers",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/answers",
+            "description": "Send this only AFTER questionnaire_ready has actually arrived on the stream above (or after that request's timeout, which gives it enough time to arm) -- answering earlier is silently dropped, verified live.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"responses\": [],\n  \"skip_clarification\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "7. Chat mid-run — POST /api/runs/{{runId}}/messages",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/messages",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Keep the page minimal — just the emoji and the text, nothing extra.\",\n  \"message_id\": \"{{$guid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Chat with the run while it executes — one up-channel turn; message_id ({{$guid}}) is the idempotency key. Watch the stream leg for the reply."
+          },
+          "response": []
+        },
+        {
+          "name": "8. Stream — watch until review_gate_ready",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/events/stream",
+            "description": "SSE leg: keep it open and watch the event stream until `review_gate_ready` arrives, then cancel this request and continue with the next step. Acting before the event has actually arrived is silently dropped."
+          },
+          "response": []
+        },
+        {
+          "name": "9. Approve writer gate — POST /api/runs/{{runId}}/gate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/gate",
+            "description": "Resolves the writer step's human gate. Paste the gate_key from the review_gate_ready event seen on the stream leg above. Use action reject/redo to exercise the other paths.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"gate_key\": \"<gate_key from the review_gate_ready event>\",\n  \"action\": \"approve\",\n  \"approved\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "10. Stream — watch until run completion (workflow_complete)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/events/stream",
+            "description": "SSE leg: keep it open and watch the event stream until `run completion (workflow_complete)` arrives, then cancel this request and continue with the next step. Acting before the event has actually arrived is silently dropped."
+          },
+          "response": []
+        },
+        {
+          "name": "11. Run status — GET /api/runs/{{runId}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}",
+            "description": "Set {{runId}} to the run you want to inspect."
+          },
+          "response": []
+        },
+        {
+          "name": "12. Events — GET /api/runs/{{runId}}/events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/events?after=0",
+            "description": "Distinct from the live SSE stream above — a plain GET returning the durable event log so far. Useful to confirm what actually happened even if a Watch request above timed out."
+          },
+          "response": []
+        },
+        {
+          "name": "13. Artifacts (page.html) — GET /api/runs/{{runId}}/artifacts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/artifacts?include=content"
+          },
+          "response": []
+        },
+        {
+          "name": "14. Summary — GET /api/runs/{{runId}}/summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{apiRoot}}/api/runs/{{runId}}/summary"
+          },
+          "response": []
+        }
+      ],
+      "description": "End-to-end test flow for the LOCAL hello_html workflow (copy of deep_agents hello-html: emoji-picker → writer → presenter, deliverable page.html). Run top to bottom: launch with one word, answer the clarify questionnaire after questionnaire_ready, chat with the run mid-flight, approve the writer's human gate after review_gate_ready, then inspect status/events/artifacts. Requires the backend restarted with the hello_html manifest + agents on disk (uncommitted local test files)."
+    }
+  ],
+  "variable": [
+    {
+      "key": "jwt",
+      "value": ""
+    }
+  ]
+}

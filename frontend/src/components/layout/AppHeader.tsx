@@ -13,10 +13,13 @@ import {
   BarChart2,
   CreditCard,
   LayoutGrid,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { NotificationPanel } from "@/components/ui/NotificationPanel";
 import type { PipelineNotification } from "@/hooks/useNotifications";
-import { getWorkflowLabel } from "@/hooks/useNotifications";
+import { useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
+import { useTheme } from "@/hooks/useTheme";
 import type { Tier } from "@/lib/entitlements";
 import { TIER_LABELS } from "@/lib/entitlements";
 import type { WorkflowRun } from "@/types/index";
@@ -104,7 +107,9 @@ export function AppHeader({
   onDismissOneNotification,
   onViewResults,
 }: AppHeaderProps) {
+  const getWorkflowLabel = useWorkflowLabels();
   const [profileOpen, setProfileOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
   // KAN-132: dropdown state for the multi-pipeline running badge
   const [runningDropdownOpen, setRunningDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -533,6 +538,34 @@ export function AppHeader({
                   >
                     <History className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
                     Run History
+                  </button>
+                </div>
+
+                <div className="border-t border-line-divider py-0.5">
+                  <button
+                    role="menuitem"
+                    onClick={() => toggleTheme()}
+                    className="w-full flex items-center justify-between gap-2.5 px-3.5 py-2 text-[12px] text-ink-700 hover:bg-surface-warm transition-colors text-left"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      {theme === "dark" ? (
+                        <Moon className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
+                      ) : (
+                        <Sun className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
+                      )}
+                      Dark mode
+                    </span>
+                    <span
+                      className={`relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-[var(--radius-pill)] transition-colors ${
+                        theme === "dark" ? "bg-brand" : "bg-line-control"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-3 w-3 transform rounded-[var(--radius-pill)] bg-surface-white transition-transform ${
+                          theme === "dark" ? "translate-x-3.5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </span>
                   </button>
                 </div>
 

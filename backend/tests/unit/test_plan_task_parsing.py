@@ -22,6 +22,7 @@ is configured plan-only (``tools: []`` + a preamble forbidding tool calls / HTML
 from __future__ import annotations
 
 from agents.loader import load_agent_spec
+from app.core.config import settings
 
 
 # ---------------------------------------------------------------------------
@@ -34,12 +35,16 @@ def test_prototype_plan_agent_is_configured_plan_only():
 
     # No tools → a pure-text planner; nothing to build with.
     assert spec.tools == []
-    # The documented planner ceiling — NOT the 32768 build ceiling.
-    assert spec.max_tokens <= 8000
+    # KAN-65 raised this to the runtime's global output ceiling (8000 was too
+    # small for a full multi-page spec on Haiku 4.5 and produced empty output
+    # at the review gate) — assert against that ceiling, not the old 8000.
+    assert spec.max_tokens <= settings.MAX_OUTPUT_TOKENS
 
     body = spec.prompt_body.lower()
-    # The plan-only preamble that stops it from BUILDING:
-    assert "planning mode" in body
+    # The plan-only preamble that stops it from BUILDING (KAN-65 reworded this
+    # from "You are in PLANNING mode ONLY" to "OUTPUT MODE — READ THIS FIRST",
+    # but the plan-only contract itself is unchanged):
+    assert "output mode" in body
     assert "no need to browse" in body
     # It must instruct the ## Task N: output format the parser reads:
     assert "## task" in body

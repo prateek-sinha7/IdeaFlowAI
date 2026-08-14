@@ -29,9 +29,10 @@ import {
 } from "lucide-react";
 import { PipelineGraph } from "./PipelineGraph";
 import { AgentLibrary } from "./AgentLibrary";
-import { LIBRARY_AGENTS } from "./AgentLibraryData";
+import { useAgentLibrary } from "@/hooks/useAgentLibrary";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import type { AgentDef, PipelineRunState } from "@/types/index";
+import { collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflows";
 
 interface WorkflowViewProps {
   pipelineType: "user_stories" | "ppt" | "prototype";
@@ -90,6 +91,7 @@ export function WorkflowView({
   onResetPipeline,
   onViewResults,
 }: WorkflowViewProps) {
+  const { libraryAgents } = useAgentLibrary();
   const [step, setStep] = useState<WorkflowStep>("build");
   const [selectedType, setSelectedType] = useState<string>(initialType);
   const [ideaInput, setIdeaInput] = useState(externalMessage || "");
@@ -120,9 +122,9 @@ export function WorkflowView({
   // Update agents when type changes
   useEffect(() => {
     setPipelineAgents(
-      LIBRARY_AGENTS.filter((a) => a.pipeline_type === selectedType).sort((a, b) => a.order - b.order)
+      libraryAgents.filter((a) => a.pipeline_type === selectedType).sort((a, b) => a.order - b.order)
     );
-  }, [selectedType]);
+  }, [libraryAgents, selectedType]);
 
   // External pipeline state
   const pipelineState = externalPipelineState || {
@@ -171,8 +173,10 @@ export function WorkflowView({
 
   const handleAddAgent = useCallback((agent: AgentDef) => {
     setPipelineAgents((prev) => {
-      if (prev.find((a) => a.id === agent.id)) return prev;
-      return [...prev, { ...agent, order: prev.length + 1 }];
+      // Reusable blank template — mint a fresh instance id per add (R-03).
+      const node = instantiateIfTemplate(agent, collectAgentIds(prev));
+      if (prev.find((a) => a.id === node.id)) return prev;
+      return [...prev, { ...node, order: prev.length + 1 }];
     });
   }, []);
 

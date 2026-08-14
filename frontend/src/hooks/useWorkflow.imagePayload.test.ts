@@ -61,7 +61,6 @@ describe("useWorkflow — image payload merge (Wave 2)", () => {
         "brief",
         ["a"],
         undefined,
-        undefined,
         { images },
       );
     });

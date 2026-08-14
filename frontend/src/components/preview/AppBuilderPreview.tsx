@@ -31,17 +31,17 @@ interface OpenTab {
   name: string;
 }
 
-// ─── Color palette (matches project light theme) ──────────────────────────────
-// Background:   #f5f5f0  (app bg)
-// Sidebar:      #FFFFFF  (white)
-// Active row:   #F0F4FF  (light navy tint)
-// Border:       #E5E7EB
-// Text primary: #111827
-// Text muted:   #6B7280
-// Text dim:     #9CA3AF
-// Accent:       #1B2A4A  (navy)
-// Code bg:      #FAFAFA
-// Line nums:    #D1D5DB
+// ─── Color palette — theme tokens (see globals.css), not literal hex ──────────
+// Background:   bg-surface-warm
+// Sidebar:      bg-surface-white
+// Active row:   bg-brand-fill
+// Border:       border-line-control / border-line-divider
+// Text primary: text-ink-900
+// Text muted:   text-ink-500
+// Text dim:     text-ink-300
+// Accent:       text-brand / bg-brand
+// Code bg:      bg-surface-card
+// Line nums:    text-ink-300
 
 // ─── Language map (used by parseAppBuilderFilesForIDE in PreviewPanel) ───────
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -171,16 +171,16 @@ function FileTreeNode({
       <div>
         <button
           onClick={() => onToggle(node.path)}
-          className="w-full flex items-center gap-1 py-[3px] text-left hover:bg-gray-50 transition-colors"
+          className="w-full flex items-center gap-1 py-[3px] text-left hover:bg-surface-warm transition-colors"
           style={{ paddingLeft: `${10 + indent}px`, paddingRight: "8px" }}
         >
-          <span className="text-gray-400 flex-shrink-0 w-3">
+          <span className="text-ink-400 flex-shrink-0 w-3">
             {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           </span>
-          <span className="text-gray-400 flex-shrink-0">
+          <span className="text-ink-400 flex-shrink-0">
             {isExpanded ? <FolderOpen className="h-3.5 w-3.5" /> : <Folder className="h-3.5 w-3.5" />}
           </span>
-          <span className="text-[11px] font-medium text-gray-700 truncate ml-1">{node.name}</span>
+          <span className="text-[11px] font-medium text-ink-700 truncate ml-1">{node.name}</span>
         </button>
         {isExpanded && node.children?.map(child => (
           <FileTreeNode
@@ -207,13 +207,13 @@ function FileTreeNode({
       onClick={() => node.file && onSelect(node.file)}
       className={`w-full flex items-center gap-1.5 py-[3px] text-left transition-colors border-l-2 ${
         isActive
-          ? "bg-[#F0F4FF] border-l-[#1B2A4A]"
-          : "border-l-transparent hover:bg-gray-50"
+          ? "bg-brand-fill border-l-brand"
+          : "border-l-transparent hover:bg-surface-warm"
       }`}
       style={{ paddingLeft: `${10 + indent}px`, paddingRight: "8px" }}
     >
-      <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? "text-[#1B2A4A]" : "text-gray-400"}`} />
-      <span className={`text-[11px] truncate ${isActive ? "text-[#1B2A4A] font-medium" : "text-gray-600"}`}>
+      <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${isActive ? "text-brand" : "text-ink-400"}`} />
+      <span className={`text-[11px] truncate ${isActive ? "text-brand font-medium" : "text-ink-600"}`}>
         {node.name}
       </span>
     </button>
@@ -258,10 +258,10 @@ function CodeViewer({ file }: { file: ParsedFile | null }) {
 
   if (!file) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-[#FAFAFA]">
-        <Code2 className="h-10 w-10 text-gray-200 mb-3" />
-        <p className="text-[12px] text-gray-400 font-medium">Select a file to view its contents</p>
-        <p className="text-[11px] text-gray-300 mt-1">Click any file in the explorer</p>
+      <div className="flex-1 flex flex-col items-center justify-center bg-surface-card">
+        <Code2 className="h-10 w-10 text-ink-200 mb-3" />
+        <p className="text-[12px] text-ink-400 font-medium">Select a file to view its contents</p>
+        <p className="text-[11px] text-ink-300 mt-1">Click any file in the explorer</p>
       </div>
     );
   }
@@ -269,27 +269,27 @@ function CodeViewer({ file }: { file: ParsedFile | null }) {
   const lines = file.content.split("\n");
 
   return (
-    <div className="flex-1 flex flex-col bg-white min-w-0 overflow-hidden">
+    <div className="flex-1 flex flex-col bg-surface-white min-w-0 overflow-hidden">
       {/* File header bar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 bg-white flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-line-divider bg-surface-white flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[11px] text-gray-500 truncate font-mono">{file.path}</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-semibold uppercase flex-shrink-0">
+          <span className="text-[11px] text-ink-500 truncate font-mono">{file.path}</span>
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-line-faint-row text-ink-500 font-semibold uppercase flex-shrink-0">
             {file.ext || "txt"}
           </span>
-          <span className="text-[9px] text-gray-400 flex-shrink-0">{lines.length} lines</span>
+          <span className="text-[9px] text-ink-400 flex-shrink-0">{lines.length} lines</span>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100 border border-gray-200 transition-all"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium text-ink-500 hover:text-ink-800 hover:bg-line-faint-row border border-line-control transition-all"
           >
-            {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+            {copied ? <Check className="h-3 w-3 text-status-done" /> : <Copy className="h-3 w-3" />}
             {copied ? "Copied" : "Copy"}
           </button>
           <button
             onClick={handleDownload}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100 border border-gray-200 transition-all"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium text-ink-500 hover:text-ink-800 hover:bg-line-faint-row border border-line-control transition-all"
           >
             <Download className="h-3 w-3" />
             Download
@@ -298,11 +298,11 @@ function CodeViewer({ file }: { file: ParsedFile | null }) {
       </div>
 
       {/* Code area */}
-      <div className="flex-1 overflow-auto bg-[#FAFAFA]">
+      <div className="flex-1 overflow-auto bg-surface-card">
         <div className="flex min-w-max">
           {/* Line numbers */}
           <div
-            className="select-none text-right pr-4 pl-4 py-4 text-[11px] font-mono leading-[1.65] text-gray-300 bg-white border-r border-gray-100 flex-shrink-0"
+            className="select-none text-right pr-4 pl-4 py-4 text-[11px] font-mono leading-[1.65] text-ink-300 bg-surface-white border-r border-line-divider flex-shrink-0"
             style={{ minWidth: `${String(lines.length).length * 8 + 32}px` }}
           >
             {lines.map((_, i) => (
@@ -311,7 +311,7 @@ function CodeViewer({ file }: { file: ParsedFile | null }) {
           </div>
           {/* Highlighted code */}
           <pre
-            className="flex-1 py-4 pl-5 pr-8 text-[12px] font-mono leading-[1.65] bg-[#FAFAFA] overflow-visible"
+            className="flex-1 py-4 pl-5 pr-8 text-[12px] font-mono leading-[1.65] bg-surface-card overflow-visible"
             style={{ margin: 0, whiteSpace: "pre" }}
             dangerouslySetInnerHTML={{ __html: highlighted || escapeHtml(file.content) }}
           />
@@ -454,28 +454,28 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
 
   if (files.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full bg-[#f5f5f0]">
+      <div className="flex items-center justify-center h-full bg-surface-warm">
         <div className="text-center">
-          <Code2 className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-          <p className="text-[12px] text-gray-400">No files generated yet</p>
+          <Code2 className="h-10 w-10 text-ink-300 mx-auto mb-3" />
+          <p className="text-[12px] text-ink-400">No files generated yet</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#f5f5f0] overflow-hidden">
+    <div className="flex flex-col h-full bg-surface-warm overflow-hidden">
       {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200 bg-white flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-line-control bg-surface-white flex-shrink-0">
         <div className="flex items-center gap-2">
-          <Code2 className="h-4 w-4 text-[#1B2A4A]" />
-          <span className="text-[12px] font-semibold text-gray-900">{projectName}</span>
-          <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded font-medium">{files.length} files</span>
+          <Code2 className="h-4 w-4 text-brand" />
+          <span className="text-[12px] font-semibold text-ink-900">{projectName}</span>
+          <span className="text-[10px] text-ink-400 bg-line-faint-row px-1.5 py-0.5 rounded font-medium">{files.length} files</span>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={handleFullscreen}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-gray-50 border border-gray-200 text-[11px] font-medium text-gray-600 hover:text-gray-900 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-white hover:bg-surface-warm border border-line-control text-[11px] font-medium text-ink-600 hover:text-ink-900 transition-colors"
             title="Open in full screen (new tab)"
           >
             <Maximize2 className="h-3.5 w-3.5" />
@@ -484,7 +484,7 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
           <button
             onClick={handleDownloadZip}
             disabled={isZipping}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1B2A4A] hover:bg-[#243656] text-[11px] font-semibold text-white transition-colors disabled:opacity-50 shadow-sm"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand hover:bg-brand-pressed text-[11px] font-semibold text-white transition-colors disabled:opacity-50 shadow-sm"
           >
             {isZipping
               ? <><span className="h-3 w-3 border border-white/40 border-t-white rounded-full animate-spin" />Zipping...</>
@@ -498,25 +498,25 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Sidebar */}
         <div
-          className="flex flex-col bg-white border-r border-gray-200 flex-shrink-0 overflow-hidden"
+          className="flex flex-col bg-surface-white border-r border-line-control flex-shrink-0 overflow-hidden"
           style={{ width: `${sidebarWidth}px` }}
         >
           {/* Search */}
-          <div className="px-3 py-2 border-b border-gray-100">
+          <div className="px-3 py-2 border-b border-line-divider">
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-ink-400" />
               <input
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 placeholder="Search files..."
-                className="w-full pl-7 pr-2 py-1.5 text-[11px] bg-gray-50 border border-gray-200 rounded-lg text-gray-700 placeholder-gray-400 focus:outline-none focus:border-[#1B2A4A] transition-colors"
+                className="w-full pl-7 pr-2 py-1.5 text-[11px] bg-surface-warm border border-line-control rounded-lg text-ink-700 placeholder-ink-400 focus:outline-none focus:border-brand transition-colors"
               />
             </div>
           </div>
 
           {/* Explorer header */}
-          <div className="px-3 py-2 flex items-center justify-between border-b border-gray-100">
-            <span className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">Explorer</span>
+          <div className="px-3 py-2 flex items-center justify-between border-b border-line-divider">
+            <span className="text-[9px] font-semibold text-ink-400 uppercase tracking-wider">Explorer</span>
             <button
               onClick={() => {
                 const allPaths = new Set<string>();
@@ -526,7 +526,7 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
                 });
                 setExpandedPaths(prev => prev.size === allPaths.size ? new Set() : allPaths);
               }}
-              className="text-[9px] text-gray-400 hover:text-gray-600 transition-colors font-medium"
+              className="text-[9px] text-ink-400 hover:text-ink-600 transition-colors font-medium"
             >
               {expandedPaths.size > 0 ? "Collapse all" : "Expand all"}
             </button>
@@ -549,8 +549,8 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
           </div>
 
           {/* Footer stats */}
-          <div className="px-3 py-2 border-t border-gray-100 bg-gray-50">
-            <p className="text-[9px] text-gray-400">
+          <div className="px-3 py-2 border-t border-line-divider bg-surface-warm">
+            <p className="text-[9px] text-ink-400">
               {files.length} files · {(files.reduce((s, f) => s + f.content.length, 0) / 1024).toFixed(1)} KB total
             </p>
           </div>
@@ -559,14 +559,14 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
         {/* Resize handle */}
         <div
           onMouseDown={handleMouseDown}
-          className="w-[3px] bg-gray-200 hover:bg-[#1B2A4A] cursor-col-resize flex-shrink-0 transition-colors"
+          className="w-[3px] bg-line-control hover:bg-brand cursor-col-resize flex-shrink-0 transition-colors"
         />
 
         {/* Editor area */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-surface-white">
           {/* Tab bar */}
           {openTabs.length > 0 && (
-            <div className="flex items-end bg-gray-50 border-b border-gray-200 overflow-x-auto flex-shrink-0" style={{ scrollbarWidth: "none" }}>
+            <div className="flex items-end bg-surface-warm border-b border-line-control overflow-x-auto flex-shrink-0" style={{ scrollbarWidth: "none" }}>
               {openTabs.map(tab => {
                 const isActive = activeFile?.path === tab.path;
                 const file = files.find(f => f.path === tab.path);
@@ -575,17 +575,17 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
                   <button
                     key={tab.path}
                     onClick={() => { const f = files.find(f => f.path === tab.path); if (f) setActiveFile(f); }}
-                    className={`flex items-center gap-1.5 px-3 py-2 text-[11px] border-r border-gray-200 flex-shrink-0 group transition-all ${
+                    className={`flex items-center gap-1.5 px-3 py-2 text-[11px] border-r border-line-control flex-shrink-0 group transition-all ${
                       isActive
-                        ? "bg-white text-gray-900 font-medium border-t-2 border-t-[#1B2A4A] -mb-px"
-                        : "bg-gray-50 text-gray-500 hover:text-gray-700 border-t-2 border-t-transparent"
+                        ? "bg-surface-white text-ink-900 font-medium border-t-2 border-t-brand -mb-px"
+                        : "bg-surface-warm text-ink-500 hover:text-ink-700 border-t-2 border-t-transparent"
                     }`}
                   >
-                    <Icon className={`h-3 w-3 flex-shrink-0 ${isActive ? "text-[#1B2A4A]" : "text-gray-400"}`} />
+                    <Icon className={`h-3 w-3 flex-shrink-0 ${isActive ? "text-brand" : "text-ink-400"}`} />
                     <span className="max-w-[120px] truncate">{tab.name}</span>
                     <span
                       onClick={e => handleCloseTab(tab.path, e)}
-                      className="ml-1 opacity-0 group-hover:opacity-100 hover:text-gray-900 transition-opacity cursor-pointer"
+                      className="ml-1 opacity-0 group-hover:opacity-100 hover:text-ink-900 transition-opacity cursor-pointer"
                     >
                       <X className="h-2.5 w-2.5" />
                     </span>
@@ -602,7 +602,7 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
 
       {/* Revision bar */}
       {onRevise && (
-        <div className="flex-shrink-0 border-t border-gray-200 bg-white px-4 py-3 flex items-center gap-3">
+        <div className="flex-shrink-0 border-t border-line-control bg-surface-white px-4 py-3 flex items-center gap-3">
           <input
             type="text"
             value={revisionText}
@@ -614,12 +614,12 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
               }
             }}
             placeholder='Request changes, e.g. "Add authentication middleware" or "Switch to PostgreSQL"'
-            className="flex-1 text-[12px] bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-700 placeholder-gray-400 focus:outline-none focus:border-[#1B2A4A] transition-colors"
+            className="flex-1 text-[12px] bg-surface-warm border border-line-control rounded-lg px-3 py-2 text-ink-700 placeholder-ink-400 focus:outline-none focus:border-brand transition-colors"
           />
           <button
             onClick={() => { if (revisionText.trim()) { onRevise(revisionText.trim()); setRevisionText(""); } }}
             disabled={!revisionText.trim()}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#1B2A4A] hover:bg-[#243656] text-[11px] font-semibold text-white transition-colors disabled:opacity-40 flex-shrink-0"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand hover:bg-brand-pressed text-[11px] font-semibold text-white transition-colors disabled:opacity-40 flex-shrink-0"
           >
             <RefreshCw className="h-3.5 w-3.5" /> Revise
           </button>

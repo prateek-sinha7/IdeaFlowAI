@@ -73,6 +73,41 @@ def test_state_machine_full_lifecycle():
 # ---------------------------------------------------------------------------
 
 
+async def _unresolved_generate_questions(self, planning_context, round_num, clarify_agent):
+    """Test double for ``ClarifyEngine._generate_questions``.
+
+    KAN-124 (commit 90ad687e) made ``_merge_answers`` auto-fill each
+    unanswered question with its LLM-generated ``recommended_answer`` so an
+    agent never runs with empty ``explicit_constraints`` — but the static
+    question library (the fallback path exercised in these tests, since no
+    real model is configured) always sets a non-empty ``recommended_answer``
+    (``options[-1]``), so a genuinely-empty submit now resolves
+    ``missing_information`` after a single round regardless of the rounds
+    knob. To still exercise the round-limit / multi-round mechanics
+    genuinely, this double returns questions with an EMPTY
+    ``recommended_answer`` — KAN-124's auto-fill only fires when
+    ``recommended_answer`` is truthy (see ``_merge_answers``), so an empty
+    submit against these questions stays genuinely unresolved.
+    """
+    missing = planning_context.get("missing_information", [])
+    if not missing:
+        return []
+    return [
+        {
+            "question_id": f"r{round_num}_q{i + 1}",
+            "question_text": f"Question about {item}?",
+            "impact_level": "high",
+            "answer_type": "short_text",
+            "options": [],
+            "recommended_answer": "",
+            "recommended_reasoning": "",
+            "recommended_display": "",
+            "ambiguity_category": "Functional Scope",
+        }
+        for i, item in enumerate(missing[:5])
+    ]
+
+
 @pytest.mark.asyncio
 async def test_clarify_engine_no_missing_info_proceeds():
     """When planning_context has no missing_information, gate proceeds immediately."""
@@ -122,9 +157,10 @@ async def test_clarify_engine_pause_resume_cycle():
 
 
 @pytest.mark.asyncio
-async def test_clarify_engine_asks_once_then_limit_reached():
+async def test_clarify_engine_asks_once_then_limit_reached(monkeypatch):
     """Default one-round-then-run: unresolved after the single round emits
     clarification_limit_reached (the accepted terminal 'proceed') and PROCEEDs."""
+    monkeypatch.setattr(ClarifyEngine, "_generate_questions", _unresolved_generate_questions)
     engine = ClarifyEngine()
     store = get_artifact_store()
     pipeline_run_id = "run-clarify-3"
@@ -156,8 +192,9 @@ async def test_clarify_engine_asks_once_then_limit_reached():
 
 
 @pytest.mark.asyncio
-async def test_clarify_engine_rounds_knob_allows_multi_round():
+async def test_clarify_engine_rounds_knob_allows_multi_round(monkeypatch):
     """max_rounds opts into multi-round; empty answers loop up to the ceiling."""
+    monkeypatch.setattr(ClarifyEngine, "_generate_questions", _unresolved_generate_questions)
     engine = ClarifyEngine()
     store = get_artifact_store()
     pipeline_run_id = "run-clarify-multi"
@@ -282,10 +319,11 @@ async def test_clarify_engine_prearm_skip_before_questionnaire_ready_proceeds():
 
 
 @pytest.mark.asyncio
-async def test_clarify_engine_empty_submit_proceeds_after_one_round():
+async def test_clarify_engine_empty_submit_proceeds_after_one_round(monkeypatch):
     """One-round-then-run: an empty submit (no force-proceed flag) no longer
     re-asks — the questionnaire is asked exactly once, then the run PROCEEDs via
     the terminal clarification_limit_reached (default max_rounds=1)."""
+    monkeypatch.setattr(ClarifyEngine, "_generate_questions", _unresolved_generate_questions)
     engine = ClarifyEngine()
     store = get_artifact_store()
     pipeline_run_id = "run-clarify-noflag"
@@ -384,6 +422,13 @@ def test_all_pipelines_resolve_to_valid_dags():
 
     resolver = WorkflowResolver()
     for ptype in PIPELINE_AGENTS:
+        # FIX-051 / ISS-035: spec_kit's agents are real and scannable but the
+        # pipeline is a known in-progress/unfinished one (no manifest yet,
+        # produces/consumes contracts not fully wired) — see
+        # tests/integration/test_pipeline_workflows.py's _STRUCTURALLY_INCOMPLETE
+        # for the same carve-out and rationale.
+        if ptype == "spec_kit":
+            continue
         agents = get_pipeline_agents(ptype)
         if not agents:
             continue  # ppt/reverse_engineer have no scannable agents

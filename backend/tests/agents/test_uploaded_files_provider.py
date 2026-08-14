@@ -196,9 +196,20 @@ def test_uploaded_files_is_registered_and_resolves() -> None:
     assert getattr(impl, "name", None) == "uploaded_files"
 
 
-def test_known_count_is_sixty_nine() -> None:
-    # 33 / D-05: the app-side chat:concierge bumps the drift-guard 68 -> 69.
-    assert len(_KNOWN) == 69
+def test_known_names_match_expected() -> None:
+    # Drift guard: registering a new name (or dropping one) must trip this.
+    # A size check on `_KNOWN` is order-dependent (parallel workers / suite
+    # subsets import different modules and populate `_KNOWN` via `@register`
+    # import side effects, so `len(_KNOWN)` varies run to run) — set-equality
+    # against the authoritative `_EXPECTED_NAMES` list (single source, kept in
+    # test_registry_capabilities.py) is order-independent and names exactly
+    # which (kind, name) pair drifted when it fails. discover() first so
+    # `_KNOWN` is fully (and deterministically) populated regardless of what
+    # this worker happened to import already.
+    from tests.agents.test_registry_capabilities import _EXPECTED_NAMES
+
+    registry_mod.discover()
+    assert set(_KNOWN) == set(_EXPECTED_NAMES)
     assert ("context_provider", "uploaded_files") in _KNOWN
 
 

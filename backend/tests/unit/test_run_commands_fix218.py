@@ -154,7 +154,7 @@ class TestConciergeComposeSystemPromptAttachedFiles:
         """FIX-218 happy path: attached_files block is injected into system prompt."""
         block = "=== ATTACHED FILE: blockchain.txt ===\nBlockchain content\n=== END FILE ==="
         prompt = self._compose(attached_files=block)
-        assert "## Attached files" in prompt
+        assert "PRIORITY OVERRIDE — File attached this turn" in prompt
         assert "blockchain.txt" in prompt
         assert "Blockchain content" in prompt
 
@@ -162,7 +162,7 @@ class TestConciergeComposeSystemPromptAttachedFiles:
         """FIX-218 error surfacing: extraction error propagates to Concierge prompt."""
         block = "=== ATTACHED FILE: bad.pdf ===\n[Extraction error: encrypted PDF]\n=== END FILE ==="
         prompt = self._compose(attached_files=block)
-        assert "## Attached files" in prompt
+        assert "PRIORITY OVERRIDE — File attached this turn" in prompt
         assert "Extraction error" in prompt
 
     def test_fix218_injection_guidance_present(self):

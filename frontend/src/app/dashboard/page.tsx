@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getWorkflowDefinitions, getRunFamily } from "@/lib/api";
 import type { WorkflowSummary } from "@/lib/api";
+import { useAppDispatch } from "@/store/hooks";
+import { signedIn, userLoaded, signedOut } from "@/store/slices/authSlice";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { RunConnectionPhase } from "@/hooks/useRunStream";
 import { applyTerminalStatus, useWorkflow } from "@/hooks/useWorkflow";
@@ -70,6 +72,7 @@ const REOPEN_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "d
  */
 export default function DashboardPage() {
   const router = useRouter();
+  const dispatch = useAppDispatch();
   // Keep initial state false/null to match SSR — avoids hydration mismatch.
   // `mounted` flips to true after the first client render so we never show
   // the black loading screen; instead we show nothing until hydration is done.
@@ -398,13 +401,20 @@ export default function DashboardPage() {
     }
     setToken(storedToken);
     setIsAuthenticated(true);
+    // Signals the Redux store that the user is signed in — the agents
+    // slice's listener middleware reacts to this by fetching the agent
+    // library from GET /api/agents/library exactly once (store/listenerMiddleware.ts).
+    dispatch(signedIn({ token: storedToken }));
     // Fetch user profile (includes tier)
     getMe(storedToken)
-      .then((u) => setUser(u))
+      .then((u) => {
+        setUser(u);
+        dispatch(userLoaded(u));
+      })
       .catch(() => {
         // Non-fatal — tier defaults to "basic" if fetch fails
       });
-  }, [router]);
+  }, [router, dispatch]);
 
   // Stage an od_prototype run into a ref as soon as we're authenticated.
   // NOTE: We do NOT remove od_prototype.pending here — we remove it only
@@ -453,7 +463,7 @@ export default function DashboardPage() {
   // makes the flow resilient to backend restarts between auth and connect.
   useEffect(() => {
     if (!isAuthenticated) return;
-    const pending = sessionStorage.getItem("od_ppt.pending");
+    const pending = sessionStorage.getItem("ppt.pending");
     if (!pending) return;
     try {
       const draft = JSON.parse(sessionStorage.getItem("ppt.draft") ?? "{}") as {
@@ -690,7 +700,7 @@ export default function DashboardPage() {
       // Phase 3 (T043/T044) — Thinking tab: agent_input carries inputPrompt +
       // contextSources; tool_call/tool_result carry tool execution data;
       // workflow_validated carries DAG edges for the dependency graph.
-      "agent_input", "tool_call", "tool_result", "workflow_validated",
+      "agent_input", "agent_skills", "tool_call", "tool_result", "workflow_validated",
       // task_progress — prototype build agent reports per-task completion
       "task_progress",
       // task_loop_progress — engine-level build loop iteration counter
@@ -1035,7 +1045,7 @@ export default function DashboardPage() {
         if (finalOutput && pipelineType) {
           if (pipelineType === "user_stories" || pipelineType === "user_stories_revision" || pipelineType === "app_builder" || pipelineType === "app_builder_revision") {
             setUserStoryContent(finalOutput);
-          } else if (pipelineType === "ppt" || pipelineType === "ppt_revision" || pipelineType === "od_ppt" || pipelineType === "od_ppt_revision") {
+          } else if (pipelineType === "ppt" || pipelineType === "ppt_revision") {
             setPptContent(finalOutput);
           } else if (pipelineType === "prototype" || pipelineType === "prototype_revision" || pipelineType === "od_prototype") {
             setPrototypeContent(finalOutput);
@@ -1885,7 +1895,7 @@ export default function DashboardPage() {
     // Try ref first, then fall back to sessionStorage (handles reconnects)
     let pending = pendingOdPptRef.current;
     if (!pending) {
-      const flag = sessionStorage.getItem("od_ppt.pending");
+      const flag = sessionStorage.getItem("ppt.pending");
       if (!flag) return;
       try {
         const draft = JSON.parse(sessionStorage.getItem("ppt.draft") ?? "{}") as {
@@ -1918,7 +1928,7 @@ export default function DashboardPage() {
 
     // Consume — clear both ref and sessionStorage key
     pendingOdPptRef.current = null;
-    sessionStorage.removeItem("od_ppt.pending");
+    sessionStorage.removeItem("ppt.pending");
     sessionStorage.removeItem("ppt.draft");          // FIX-005: clear stale draft so next fresh wizard open starts empty
 
     setUserStoryContent("");
@@ -2459,7 +2469,7 @@ export default function DashboardPage() {
         if (fullRun.output && isContentTerminal) {
           if (fullRun.type === "user_stories" || fullRun.type === "user_stories_revision") {
             setUserStoryContent(fullRun.output);
-          } else if (fullRun.type === "ppt" || fullRun.type === "ppt_revision" || fullRun.type === "od_ppt" || fullRun.type === "od_ppt_revision") {
+          } else if (fullRun.type === "ppt" || fullRun.type === "ppt_revision") {
             setPptContent(fullRun.output);
           } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision" || fullRun.type === "od_prototype") {
             setPrototypeContent(fullRun.output);
@@ -2571,8 +2581,9 @@ export default function DashboardPage() {
   // if the backend is unreachable.
   const handleLogout = useCallback(async () => {
     await logout(getToken() ?? "");
+    dispatch(signedOut());
     router.replace("/login");
-  }, [router]);
+  }, [router, dispatch]);
 
   if (!mounted || !isAuthenticated) {
     // Return null (not a loading screen) until the client has hydrated and
@@ -2647,7 +2658,7 @@ export default function DashboardPage() {
       onRevisionLaunched={handleRevisionLaunched}
       onRequestOpenTab={runTabDeepLink.requestOpenTab}
       deepLinkTarget={runTabDeepLink.pending}
-      onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {
+      onStartPipeline={(type, message, agentIds, attachedHooks, extraParams) => {
         const isRevision = type.endsWith("_revision");
         // Workstream C1 (POR §1 gap-2): capture the run's input on every launch
         // (revision or fresh — it is the run's input either way), reset per run.
@@ -2724,7 +2735,7 @@ export default function DashboardPage() {
         launchCounterRef.current += 1;
         const thisLaunchSeq = launchCounterRef.current;
         void Promise.resolve(
-          startPipeline(type, message, agentIds, attachedSkills, attachedHooks, extraParams),
+          startPipeline(type, message, agentIds, attachedHooks, extraParams),
         ).then((launchedRunId) => {
           if (launchedRunId) {
             runConnection.attachRun(launchedRunId);

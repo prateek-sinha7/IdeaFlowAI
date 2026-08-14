@@ -1,23 +1,19 @@
-# prototype — the SC-001 parity manifest (Spec-Kit Approach 2+3).
-# 5 agents: specify -> plan -> analyze -> build -> validate. The build step is the only one
-# that uses strategy: task_loop (per-task sub-agent build loop) with a
-# heading_tasks task parser, html_static + html_render validators, and the
-# html_skeleton compaction. specify/plan/analyze declare gates: [human] (their AGENT.md
-# gate: Human_Gate). deliverable: single_file (prototype.html).
-# planner: run — SKIP_PLANNER_FOR_PROTOTYPE=False today (agents/prototype/
-# pipeline.py:63), so prototype runs the planner like every other pipeline (NOT
-# planner: skip, despite §10's illustrative YAML — parity trap #1).
-# context_providers: [opendesign] (OD flavor declared; injection stays behavioral
-# until Phase 7). clarify.defaults verbatim from
-# engine._pipeline_defaults["prototype"] (engine.py:756).
 id: prototype
 version: 1
-# Catalog (Plan 20-01): declared launchability + wizard launch surface — inert
-# metadata read by GET /api/workflows, never by the compiler/kernel (INV-3 parity).
 user_launchable: true
-display_name: "Build an interactive prototype"
-description: "Navigable, high-fidelity HTML prototype from a brief or story set."
-launch_surface: "wizard"
+is_beta: false
+display_name: Build an interactive prototype
+short_name: Prototype
+icon: Layout
+chained_from:
+- id: user_stories
+  beta: false
+  text: Mockup these stories
+- id: ppt
+  beta: false
+  text: Build the interactive demo
+description: Navigable, high-fidelity HTML prototype from a brief or story set.
+launch_surface: wizard
 planner: run
 clarify:
   # KAN-74: Changed from skip to auto so the prototype pipeline asks clarifying
@@ -29,49 +25,51 @@ clarify:
   # from the 8 (skipped early if nothing is left; never forced on a skip).
   rounds: 2
   mode: auto
-  defaults: [target_audience, scope, priority, style, user_journeys, key_screens, interactions, personas]
+  defaults:
+  - target_audience
+  - scope
+  - priority
+  - style
+  - user_journeys
+  - key_screens
+  - interactions
+  - personas
 deliverable:
   strategy: single_file
   name: prototype.html
-context_providers: [opendesign]
-# quick-260707-gvq (image-input Wave 3): opt the prototype workflow into the
-# registered run_images input_provider (Wave-1 backend spine). This is a DATA-ONLY
-# opt-in (SC-001) — the top-level key is already in manifest._ALLOWED_TOP_KEYS →
-# parses → compiles → CompiledWorkflow.input_providers → ectx.compiled_input_providers.
-# Dormant-when-empty: with no image on the run carrier run_images.load returns [] →
-# _compose_input_blocks returns [] → bare-str dispatch (goldens byte/event-identical).
-input_providers: [run_images]
+context_providers:
+- opendesign
+input_providers:
+- run_images
 seed_files: {}
 steps:
-  - agent: prototype-specify
-    strategy: single_shot
-    gates: [human]
-  - agent: prototype-plan
-    strategy: single_shot
-    gates: [human]
-  - agent: prototype-analyze
-    strategy: single_shot
-    gates: [human]
-  - agent: prototype-build
-    strategy: task_loop
-    gates: []
-    task_source:
-      kind: parsed
-      parser: heading_tasks
-      target: tasks.md
-      source_step: prototype-plan
-      spec_step: prototype-specify
-    validators: [html_static, html_render]
-    # require_render (quick-260701-erg / REQUIRE-RENDER-LOADBEARING): the build step
-    # has gates:[], and its internal _run_validation_fix_loop never hard-blocks on a
-    # render skip (no :fix thread, no raise) while TaskLoopStrategy discards html_render's
-    # returned Issues — so require_render:true here is behavior-neutral (byte/event-
-    # identical with Chromium present AND browserless): it RECORDS a distinct
-    # validator_skipped audit row + declares render-required intent. The GENUINE fail-
-    # closed is the prototype_revision gate. (Adding a validation gate to this build step
-    # would emit a gate event → break the event golden → deliberately out of scope.)
-    require_render: true
-    compaction: html_skeleton
-  - agent: prototype-validate
-    strategy: single_shot
-    gates: []
+- agent: prototype-specify
+  strategy: single_shot
+  gates:
+  - human
+- agent: prototype-plan
+  strategy: single_shot
+  gates:
+  - human
+- agent: prototype-analyze
+  strategy: single_shot
+  gates:
+  - human
+- agent: prototype-build
+  strategy: task_loop
+  gates: []
+  task_source:
+    kind: parsed
+    parser: heading_tasks
+    target: tasks.md
+    source_step: prototype-plan
+    spec_step: prototype-specify
+  validators:
+  - html_static
+  - html_render
+  require_render: true
+  compaction: html_skeleton
+- agent: prototype-validate
+  strategy: single_shot
+  gates: []
+name: Prototype

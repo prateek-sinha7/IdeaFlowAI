@@ -1,0 +1,45 @@
+# VelocityAI API collection index
+#
+# This folder is split by resource so each file stays focused and manageable.
+# Shared variables are centralized in:
+#   /.vscode/settings.json (environments: local, dev)
+#
+# Built for httpyac (not the REST Client extension — see
+# .vscode/extensions.json). Every request below has a post-response {{ }}
+# assertion script; run a file with `httpyac send --all -e local <file>` (or
+# the "Send All" CodeLens in VS Code) to execute every request + assertion in
+# order and read the pass/fail log in the output channel.
+#
+# Open one of the files below to run requests:
+# - health.http
+# - auth.http
+# - chats.http
+# - agents.http
+# - workflows.http
+# - capabilities.http
+# - runs.http
+# - user-workflows.http
+# - settings.http
+# - admin.http
+# - handoff.http
+# - mcp.http
+# - install.http
+# - files.http
+# - prototype.http
+# - ppt.http
+# - websocket.http
+
+### Health - quick smoke test
+GET {{apiRoot}}/health
+Accept: application/json
+
+{{
+	const body = response.parsedBody;
+	if (response.statusCode !== 200) {
+		console.error('FAIL: expected 200, got', response.statusCode, body);
+	} else if (typeof body.status !== 'string') {
+		console.error('FAIL: expected a {status} shape, got', body);
+	} else {
+		console.log('OK: status =', body.status);
+	}
+}}

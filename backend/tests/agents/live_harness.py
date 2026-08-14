@@ -676,7 +676,7 @@ async def drive_engine_pipeline(
     #    discriminators. The four named parameters stay named — the body reads two of them.
     async def _auto_resume_review_gate(pipeline_run_id, agent_id, agent_name, output, **kwargs):
         async for _gev in _orig_review_gate(
-            pipeline_run_id, agent_id, agent_name, output, **kwargs
+            pipeline_run_id, agent_id, agent_name, output, **kwargs,
         ):
             if auto_resume_gates and _gev.get("type") == "review_gate_ready":
                 result.gated = True

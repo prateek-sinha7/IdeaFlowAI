@@ -211,7 +211,7 @@ export function InlineClarifyActions({
                   type="button"
                   onClick={() => useRecommended(q)}
                   disabled={submitted}
-                  className="flex-none text-[10px] font-semibold text-brand hover:text-brand-pressed border border-brand/30 bg-white rounded-md px-2 py-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-none text-[10px] font-semibold text-brand hover:text-brand-pressed border border-brand/30 bg-surface-white rounded-md px-2 py-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Use recommended
                 </button>
@@ -239,7 +239,7 @@ export function InlineClarifyActions({
                     disabled={submitted}
                     className={`rounded-full px-3 py-1.5 text-[11px] font-medium border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                       active
-                        ? "border-brand bg-brand text-white"
+                        ? "border-brand bg-brand text-surface-white"
                         : "border-line-border bg-surface-warm text-ink-700 hover:border-brand/30 hover:bg-surface-white"
                     }`}
                   >
@@ -262,7 +262,7 @@ export function InlineClarifyActions({
         data-testid="chat-clarify-submit"
         onClick={handleSubmit}
         disabled={submitted}
-        className="w-full flex items-center justify-center gap-2 rounded-xl bg-brand text-white px-4 py-2.5 text-[12px] font-semibold hover:bg-brand-pressed transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full flex items-center justify-center gap-2 rounded-xl bg-brand text-surface-white px-4 py-2.5 text-[12px] font-semibold hover:bg-brand-pressed transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <ArrowRight className="h-3.5 w-3.5" />
         {answeredCount > 0

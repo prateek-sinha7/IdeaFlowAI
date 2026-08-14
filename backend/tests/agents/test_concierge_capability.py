@@ -246,8 +246,9 @@ def test_compose_system_prompt_injects_chain_hints_block() -> None:
     # The labels are reflected as inert data …
     assert "Presentation" in prompt
     assert "Prototype" in prompt
-    # … under a generic chain/follow-up phrasing (no workflow-name branch).
-    assert "chained into" in prompt or "follow-up" in prompt
+    # … under the chain_hints block's generic heading (no workflow-name branch).
+    assert "## Available follow-up workflows (chain_hints)" in prompt
+    assert "chained into" in prompt
 
     # Byte-identity of the no-hints path: absent vs empty-list == the same prompt,
     # with NO chain block appended.
@@ -258,7 +259,8 @@ def test_compose_system_prompt_injects_chain_hints_block() -> None:
         SimpleNamespace(conversation_context=None, compiled=None, chain_hints=[])
     )
     assert no_hints == empty_hints
-    assert "chained into" not in no_hints and "follow-up" not in no_hints
+    assert "## Available follow-up workflows (chain_hints)" not in no_hints
+    assert "chained into" not in no_hints
 
 
 def test_response_rules_do_not_forbid_token_counts() -> None:

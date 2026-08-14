@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { AgentRunState, PipelineRunState, AttachedSkill, AttachedHook, ClarifyRound } from "@/types/index";
+import type { AgentRunState, PipelineRunState, AttachedHook, ClarifyRound } from "@/types/index";
 // Commands are sent up-channel over REST through the RunConnectionProvider (the
 // SSE transport). SSE + REST is the sole transport (44-06 hard cutoff). The
 // shared handlePipelineMessage reducer is transport-agnostic and untouched.
@@ -13,7 +13,13 @@ export interface UseWorkflowReturn {
   // Returns the POST /api/runs promise resolving to the created run_id (so the
   // caller can attachRun it for launch->attach, R4). SSE + REST is the sole
   // transport (44-06).
-  startPipeline: (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>) => Promise<string | null>;
+  /**
+   * ADR-0010 — the `attachedSkills` positional argument is GONE (it used to sit
+   * between `agentIds` and `attachedHooks`). Skills are per-agent now: they ride
+   * the composed manifest as `Step.skills`, not as a run-level bag applied to
+   * every agent alike. Hooks keep their slot — they are still run-level.
+   */
+  startPipeline: (type: string, message: string, agentIds?: string[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>) => Promise<string | null>;
   resetPipeline: () => void;
   isRunning: boolean;
   handleMessage: (msg: { type: string; [key: string]: unknown }) => boolean;
@@ -56,7 +62,7 @@ export function useWorkflow(): UseWorkflowReturn {
   const runConnection = useRunConnection();
 
   const startPipeline = useCallback(
-    (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>): Promise<string | null> => {
+    (type: string, message: string, agentIds?: string[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>): Promise<string | null> => {
       startTimeRef.current = Date.now();
       agentStartTimesRef.current = {};
 
@@ -81,17 +87,6 @@ export function useWorkflow(): UseWorkflowReturn {
 
       if (agentIds && agentIds.length > 0) {
         payload.agent_ids = agentIds;
-      }
-
-      // Pass attached skills content — backend injects into agent system prompts
-      if (attachedSkills && attachedSkills.length > 0) {
-        payload.attached_skills = attachedSkills.map(s => ({
-          id: s.id,
-          name: s.name,
-          content: s.content,
-          source: s.sourceLabel,
-          compatible_agents: [], // all agents get it unless filtered
-        }));
       }
 
       // Pass attached hooks as behavioral guidelines
@@ -623,8 +618,11 @@ export function handlePipelineMessage(
           ...updated[agentIdx],
           status: "thinking",
           thinking,
-          // Phase 3 (T043): accumulate into thinkingText for Thinking tab
-          thinkingText: (updated[agentIdx].thinkingText || "") + (thinking ? thinking + "\n" : ""),
+          // Phase 3 (T043): accumulate into thinkingText for Thinking tab.
+          // Plain concatenation, no separator — thinking now streams live as
+          // small deltas (same granularity as agent_chunk/output), and each
+          // delta already carries its own spacing from the model.
+          thinkingText: (updated[agentIdx].thinkingText || "") + thinking,
         };
 
         return { ...prev, agents: updated };
@@ -946,6 +944,33 @@ export function handlePipelineMessage(
       return true;
     }
 
+    case "agent_skills": {
+      // The skills/hooks the backend ACTUALLY injected into this agent's system
+      // prompt — not just what the run attached overall. Renders in
+      // AgentDetailPanel next to the tool calls.
+      const agentId = msg.agent_id as string;
+      const attachedSkills =
+        (msg.attached_skills as import("@/types/index").AttachedSkillEntry[]) || [];
+      const attachedHooks =
+        (msg.attached_hooks as import("@/types/index").AttachedHookEntry[]) || [];
+      const skillsLoadErrors = (msg.skills_load_errors as string[]) || [];
+      const estimatedTokens = msg.estimated_tokens as number | undefined;
+      setPipelineState((prev) => {
+        const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+        if (agentIdx === -1) return prev;
+        const updated = [...prev.agents];
+        updated[agentIdx] = {
+          ...updated[agentIdx],
+          attachedSkills,
+          attachedHooks,
+          skillsLoadErrors,
+          estimatedTokens,
+        };
+        return { ...prev, agents: updated };
+      });
+      return true;
+    }
+
     case "tool_call": {
       const agentId = msg.agent_id as string;
       const entry: import("@/types/index").ToolCallEntry = {
@@ -1131,6 +1156,12 @@ export function handlePipelineMessage(
           // Use Math.max so the total never decreases (handles event redelivery).
           protoTotalTasks: totalTasksFromLoop > currentTotal ? totalTasksFromLoop : currentTotal,
           protoPlannedTasks: plannedTasks,
+          // Keep the in-flight task number and WHICH agent is running it. Both
+          // are already on the event; the agent id was being discarded, which is
+          // why the per-agent row could only ever say "Thinking…" during a build
+          // loop instead of naming the task it is on.
+          protoCurrentTask: taskNumber > 0 ? taskNumber : prev.protoCurrentTask,
+          protoTaskAgentId: (msg.agent_id as string) || prev.protoTaskAgentId,
         };
       });
       return true;

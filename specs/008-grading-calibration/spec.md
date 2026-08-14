@@ -2,7 +2,10 @@
 
 **Spec ID**: 008-grading-calibration
 **Created**: 2026-07-30
-**Status**: Clarified — see [clarifications.md](clarifications.md) (C1–C4 resolved, 2 deferred)
+**Status**: **OBSOLETE (2026-08-10).** All 127 tasks were completed against
+`backend/evals/grading/`, which was subsequently deleted by
+[007-minimal-eval](../007-minimal-eval/spec.md). No open work; no live code. Read for history
+only. (Original: Clarified — see [clarifications.md](clarifications.md), C1–C4 resolved, 2 deferred.)
 **Stack**: Python 3.11 · pytest · Pydantic · LangChain (`evals/grading/`)
 
 ---

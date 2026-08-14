@@ -321,7 +321,12 @@ def test_emp01_retry_activates_under_injected_transient_fault(monkeypatch):
     async def _drive():
         return [ev async for ev in engine._dispatch_step_with_retry(step, ctx, strategy)]
 
-    events = asyncio.get_event_loop().run_until_complete(_drive())
+    # asyncio.run, not get_event_loop().run_until_complete: since 3.10
+    # get_event_loop() only returns a loop if one is already set for this
+    # thread, so once another test has closed the implicit loop this raises
+    # "There is no current event loop in thread 'MainThread'". That made the
+    # test pass alone and fail under -n auto purely on ordering.
+    events = asyncio.run(_drive())
     types = [e["type"] for e in events]
     assert "step_retry" in types          # retry ACTIVATED (would be absent if dormant)
     assert "step_completed" in types       # recovered after the transient fault

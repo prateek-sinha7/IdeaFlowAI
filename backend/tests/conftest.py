@@ -11,6 +11,22 @@ ISS-102 — this module also carries the **offline live-model-client guard**: an
 autouse fixture that makes constructing a real provider client (ChatAnthropic /
 ChatBedrockConverse / ChatMistralAI) a loud test failure unless the test is
 explicitly allowed. See ``_forbid_live_model_clients`` at the bottom of the file.
+
+------------------------------------------------------------------------------
+HERMETIC DATABASE (see ``_pin_database_url`` below)
+------------------------------------------------------------------------------
+The test suite must never touch a real database. Before this block existed it
+did: ``app/models/database.py`` builds its engine at IMPORT time from
+``settings.DATABASE_URL``, and ``backend/.env`` points that at the developer's
+live ``flowin_local`` Postgres. Any test using ``SessionLocal`` / ``get_db``
+without overriding the dependency therefore read and wrote a real database —
+and only appeared to work because that database already had a migrated schema.
+
+The symptom was a wall of
+``psycopg2.errors.ForeignKeyViolation ... is not present in table "workflow_runs"``
+on every run: the engine's best-effort persistence (PERSIST-02/03) writing run
+events for runs whose parent row it never created. Those writes are swallowed,
+so nothing failed — the suite was silently dependent on an external service.
 """
 
 from __future__ import annotations
@@ -22,6 +38,137 @@ import os
 import pytest
 
 import app.models  # noqa: F401 — importing the package registers every model on Base.metadata
+import os
+import tempfile
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# This MUST run before ``app.core.config`` / ``app.models.database`` are
+# imported, because the engine is constructed at module import time. conftest.py
+# is imported before any test module, so top-of-file is the only hook early
+# enough — an autouse fixture would run long after the engine already exists.
+# ---------------------------------------------------------------------------
+
+# One database FILE per xdist worker. Two deliberate choices:
+#
+#   * A FILE, not ``sqlite:///:memory:``. SQLAlchemy gives an in-memory SQLite
+#     engine a SingletonThreadPool, so each THREAD gets its own empty database.
+#     FastAPI's TestClient runs endpoints on a threadpool, so a table created on
+#     the test thread would be invisible to the request thread. A file is shared
+#     across threads and behaves like the real thing.
+#   * PER WORKER. Under ``-n auto`` every worker is a separate process; one
+#     shared file would mean concurrent writers, SQLite lock contention, and
+#     cross-test interference that looks like flakiness.
+#
+# ``PYTEST_DATABASE_URL`` is an explicit escape hatch for the suites that
+# genuinely need Postgres (they start their own container and pass an explicit
+# env to subprocesses — see ``test_phase8_resume.py``).
+#   * PER PROCESS, not merely per worker. The worker id (`gw0`, `gw1`, …)
+#     restarts from zero for every pytest invocation, so two suites running at
+#     once — a developer's run alongside a CI run or a background one — both map
+#     to `gw0` and share a file. One then deletes and recreates it under the
+#     other, which surfaces as `sqlite3.DatabaseError: malformed database schema`
+#     in whichever run lost the race. The pid makes each invocation's file its
+#     own; it is stable for the life of the process, so sessionfinish removes
+#     exactly the file sessionstart created.
+_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "main")
+_DB_DIR = Path(tempfile.gettempdir()) / "velocity-pytest-db"
+_DB_DIR.mkdir(parents=True, exist_ok=True)
+_DB_PATH = _DB_DIR / f"test-{_WORKER}-{os.getpid()}.db"
+
+# Start each worker from a clean database — a file left behind by a previous
+# run would make results depend on run history.
+if _DB_PATH.exists():
+    _DB_PATH.unlink()
+
+os.environ["DATABASE_URL"] = os.environ.get(
+    "PYTEST_DATABASE_URL", f"sqlite:///{_DB_PATH}"
+)
+
+import pytest  # noqa: E402 — must follow the env pin above
+
+import app.models  # noqa: F401,E402 — importing the package registers every model on Base.metadata
+
+
+def pytest_sessionstart(session):  # noqa: ARG001
+    """Create the schema in this worker's database.
+
+    Tests that use the app's global ``SessionLocal`` previously inherited a
+    schema from the developer's already-migrated Postgres. With a fresh file
+    per worker there is nothing to inherit, so the tables have to be created —
+    ``import app.models`` above has registered every model on ``Base.metadata``
+    by the time this runs.
+
+    ``create_all`` (not Alembic) on purpose: this is the CURRENT model schema,
+    which is what these tests assert against. The migration chain has its own
+    dedicated suites (``test_alembic.py`` / ``test_migrations.py``), and running
+    it here would couple every test to migration health.
+    """
+    from app.models.database import Base, engine
+
+    Base.metadata.create_all(bind=engine)
+
+
+def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001
+    """Drop this worker's database file — created per run, removed after."""
+    try:
+        if _DB_PATH.exists():
+            _DB_PATH.unlink()
+    except OSError:
+        pass  # a leftover temp file must never fail a run
+
+
+@pytest.fixture(autouse=True)
+def _reset_checkpointer_shutdown_latch():
+    """Release the checkpointer's one-way ``_closed`` latch between tests.
+
+    ``close_checkpointer()`` sets a module-global ``_closed = True`` that is
+    deliberately ONE-WAY (D7 / KAN-139): in production a process hosts exactly one
+    app lifetime, and a straggler task calling ``get_checkpointer()`` after shutdown
+    must get a ``RuntimeError`` rather than silently open a pool nothing will close.
+
+    A pytest worker hosts MANY app lifetimes. Any test that runs the real lifespan —
+    ``with TestClient(app)`` in ``tests/integration/test_handoff_api.py``, which
+    triggers the shutdown hook at ``app/main.py:224`` — latches the flag for the rest
+    of that worker's life, and every later test that reaches ``get_checkpointer()``
+    dies with ``RuntimeError: ... called after close_checkpointer()``.
+
+    That made the suite nondeterministic rather than merely broken: which tests share
+    a worker with the latching test depends on xdist's scheduling, so the failure set
+    moved between runs and vanished entirely when a file was run on its own.
+
+    Resetting ONLY the latch restores the intended per-lifetime semantics without
+    changing the cached-singleton behaviour tests already rely on (``close_checkpointer``
+    nulls ``_checkpointer``/``_pool`` itself, so the next call rebuilds cleanly).
+    """
+    import app.agents.checkpointer as _cp
+
+    _cp._closed = False
+    yield
+    _cp._closed = False
+
+
+@pytest.fixture(autouse=True)
+def _no_live_model_from_a_unit_test(request, monkeypatch):
+    """Fail loudly if a grading unit test tries to build a REAL judge model.
+
+    A test that forgets to fake `judge.grade` does not fail — it reaches the
+    provider, hangs on the network and spends real tokens. That happened while
+    writing these tests. Blowing up on the attempt turns a silent bill into an
+    immediate, obvious error naming the missing fixture.
+    """
+    if "grading" not in request.node.nodeid:
+        return
+    import app.agents.model_factory
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError(
+            "a unit test tried to build a REAL model — add the `judgements` fixture, "
+            "or patch build_model yourself if that is what you are testing"
+        )
+
+    # Applied first, so a test that deliberately patches build_model still wins.
+    monkeypatch.setattr(app.agents.model_factory, "build_model", refuse)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ISS-102 — offline live-model-client construction guard

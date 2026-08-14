@@ -1,14 +1,11 @@
-# dotnet_to_azure — 13-agent .NET -> Azure modernization pipeline.
-# Step order == PIPELINE_AGENTS["dotnet_to_azure"]. deliverable:
-# serialized_sandbox. clarify.defaults verbatim from
-# engine._pipeline_defaults["dotnet_to_azure"] (engine.py:760).
 id: dotnet_to_azure
 version: 1
-# Catalog (Plan 20-01): declared launchability — inert metadata.
-# display_name (UXFIX-01/22-07): authored friendly catalog label — presentation only.
-user_launchable: false
-display_name: ".NET to Azure"
-description: "Modernise a .NET estate to Azure with AI-augmented migration."
+user_launchable: true
+is_beta: true
+display_name: .NET to Azure
+short_name: .NET to Azure
+icon: GitBranch
+description: Modernise a .NET estate to Azure with AI-augmented migration.
 planner: run
 clarify:
   mode: auto
@@ -24,42 +21,43 @@ deliverable:
 context_providers: []
 seed_files: {}
 steps:
-  - agent: dotnet-inventory
-    strategy: single_shot
-    gates: []
-  - agent: dotnet-user-stories
-    strategy: single_shot
-    gates: []
-  - agent: dotnet-azure-target-mapping
-    strategy: single_shot
-    gates: []
-  - agent: dotnet-security-architecture
-    strategy: single_shot
-    gates: []
-  - agent: dotnet-modernization
-    strategy: single_shot
-    gates: []
-  - agent: dotnet-feature-coding
-    strategy: single_shot
-    gates: []
-  - agent: dotnet-azure-bicep
-    strategy: single_shot
-    gates: []
-  - agent: dotnet-azure-ai
-    strategy: single_shot
-    gates: []
-  - agent: dotnet-code-compliance
-    strategy: single_shot
-    gates: []
-  - agent: dotnet-test-implementation
-    strategy: single_shot
-    gates: []
-  - agent: dotnet-test-compliance
-    strategy: single_shot
-    gates: []
-  - agent: dotnet-validation
-    strategy: single_shot
-    gates: []
-  - agent: dotnet-sdlc-governance
-    strategy: single_shot
-    gates: []
+- agent: dotnet-inventory
+  strategy: single_shot
+  gates: []
+- agent: dotnet-user-stories
+  strategy: single_shot
+  gates: []
+- agent: dotnet-azure-target-mapping
+  strategy: single_shot
+  gates: []
+- agent: dotnet-security-architecture
+  strategy: single_shot
+  gates: []
+- agent: dotnet-modernization
+  strategy: single_shot
+  gates: []
+- agent: dotnet-feature-coding
+  strategy: single_shot
+  gates: []
+- agent: dotnet-azure-bicep
+  strategy: single_shot
+  gates: []
+- agent: dotnet-azure-ai
+  strategy: single_shot
+  gates: []
+- agent: dotnet-code-compliance
+  strategy: single_shot
+  gates: []
+- agent: dotnet-test-implementation
+  strategy: single_shot
+  gates: []
+- agent: dotnet-test-compliance
+  strategy: single_shot
+  gates: []
+- agent: dotnet-validation
+  strategy: single_shot
+  gates: []
+- agent: dotnet-sdlc-governance
+  strategy: single_shot
+  gates: []
+name: .NET to Azure

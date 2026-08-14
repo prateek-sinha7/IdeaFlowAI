@@ -578,7 +578,7 @@ async def test_opendesign_example_gate_is_builder_or_template_example_inject():
     builder (prototype_emit_only/prototype) OR explicitly declares the ``template_example``
     inject — NEVER merely because it holds the ``workspace`` tool set. A revert to the
     ``"workspace" in spec_tools`` gate re-leaks example.html into the planner-shaped
-    od-ppt-brief-analyst and FAILS case (3)."""
+    ppt-brief-analyst and FAILS case (3)."""
     runner = _FakeRunner(od_context=_OD,
         injection_parts=["=== TEMPLATE SEED ===\nseed"], example="<html>example</html>")
     EX_KEY = "TEMPLATE EXAMPLE (example.html): web-prototype"
@@ -597,7 +597,7 @@ async def test_opendesign_example_gate_is_builder_or_template_example_inject():
 
 @pytest.mark.asyncio
 async def test_opendesign_composer_example_not_truncated():
-    """v7a regression pin: the composer (od-ppt-composer) receives the FULL example.html.
+    """v7a regression pin: the composer (ppt-composer) receives the FULL example.html.
 
     A real deck template's example.html is 25k-94k chars; the SKILL.md orders the composer
     to "clone example.html / copy the nav script verbatim." A single-point cap now lives in
@@ -628,9 +628,9 @@ async def test_opendesign_composer_example_not_truncated():
 
 
 def test_od_ppt_agents_template_example_inject_wiring():
-    """Frontmatter half of the fix: od-ppt-composer declares ``template_example``; brief-analyst does not."""
+    """Frontmatter half of the fix: ppt-composer declares ``template_example``; brief-analyst does not."""
     from agents.loader import load_agent_spec
-    composer = load_agent_spec("od-ppt-composer")
-    analyst = load_agent_spec("od-ppt-brief-analyst")
+    composer = load_agent_spec("ppt-composer")
+    analyst = load_agent_spec("ppt-brief-analyst")
     assert "template_example" in composer.injects and "template" in composer.injects
     assert "template_example" not in analyst.injects and "template" in analyst.injects

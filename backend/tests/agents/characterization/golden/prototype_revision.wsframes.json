@@ -2,7 +2,7 @@
   {
     "chunk": null,
     "data": {
-      "agent_count": 1,
+      "agent_count": 2,
       "agents": [
         {
           "icon": "✏️",
@@ -10,9 +10,17 @@
           "name": "Revision Specialist Agent",
           "order": 1,
           "role": "Targeted UI Refinement"
+        },
+        {
+          "icon": "✅",
+          "id": "prototype-revision-validate",
+          "name": "Revision Validation Agent",
+          "order": 2,
+          "role": "Structural Validation & Delivery"
         }
       ],
-      "pipeline_type": "prototype_revision"
+      "pipeline_type": "prototype_revision",
+      "resume_offset": 0
     },
     "section": "prototype_revision",
     "type": "pipeline_start"
@@ -29,6 +37,18 @@
     },
     "section": "prototype_revision",
     "type": "tool_call"
+  },
+  {
+    "chunk": null,
+    "data": {
+      "agent_id": "prototype-revision-agent",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "section": "prototype_revision",
+    "type": "agent_skills"
   },
   {
     "chunk": null,
@@ -68,7 +88,7 @@
       "name": "Revision Specialist Agent",
       "output_length": 28,
       "output_tokens": "<normalized>",
-      "total": 1,
+      "total": 2,
       "total_tokens": "<normalized>"
     },
     "section": "prototype_revision",
@@ -82,7 +102,7 @@
       "index": 0,
       "name": "Revision Specialist Agent",
       "role": "Targeted UI Refinement",
-      "total": 1
+      "total": 2
     },
     "section": "prototype_revision",
     "type": "agent_start"
@@ -100,8 +120,68 @@
   {
     "chunk": null,
     "data": {
-      "agents_completed": 1,
-      "agents_total": 1,
+      "agent_id": "prototype-revision-validate",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "section": "prototype_revision",
+    "type": "agent_skills"
+  },
+  {
+    "chunk": null,
+    "data": {
+      "agent_id": "prototype-revision-validate",
+      "chunk": "<normalized>"
+    },
+    "section": "prototype_revision",
+    "type": "agent_chunk"
+  },
+  {
+    "chunk": null,
+    "data": {
+      "agent_id": "prototype-revision-validate",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Revision Specialist Agent (Targeted UI Refinement) ---\nRevising. Revision complete.",
+      "tool_calls": []
+    },
+    "section": "prototype_revision",
+    "type": "agent_input"
+  },
+  {
+    "chunk": null,
+    "data": {
+      "agent_id": "prototype-revision-validate",
+      "duration": "<normalized>",
+      "index": 1,
+      "input_tokens": "<normalized>",
+      "name": "Revision Validation Agent",
+      "output_length": 44,
+      "output_tokens": "<normalized>",
+      "total": 2,
+      "total_tokens": "<normalized>"
+    },
+    "section": "prototype_revision",
+    "type": "agent_complete"
+  },
+  {
+    "chunk": null,
+    "data": {
+      "agent_id": "prototype-revision-validate",
+      "icon": "✅",
+      "index": 1,
+      "name": "Revision Validation Agent",
+      "role": "Structural Validation & Delivery",
+      "total": 2
+    },
+    "section": "prototype_revision",
+    "type": "agent_start"
+  },
+  {
+    "chunk": null,
+    "data": {
+      "agents_completed": 2,
+      "agents_total": 2,
       "final_output": "<!doctype html><html><body>revised</body></html>",
       "pipeline_type": "prototype_revision",
       "total_input_tokens": "<normalized>",
@@ -114,50 +194,17 @@
   {
     "chunk": null,
     "data": {
-      "dag_edges": [],
+      "dag_edges": [
+        {
+          "artifact_type": "prototype-revision-agent",
+          "from": "prototype-revision-agent",
+          "to": "prototype-revision-validate"
+        }
+      ],
       "satisfiable": true,
       "unresolved_edges": []
     },
     "section": "prototype_revision",
     "type": "workflow_validated"
-  },
-  {
-    "chunk": null,
-    "data": {
-      "execution_gate": "PROCEED",
-      "planning_context": {
-        "domain_insights": [],
-        "execution_gate": "PROCEED",
-        "execution_strategy": "sequential",
-        "explicit_constraints": [],
-        "has_topic": true,
-        "implicit_constraints": [],
-        "inferred_intent": "Build me a thing for managing tasks.",
-        "inferred_nfrs": [],
-        "inferred_personas": [],
-        "missing_information": [],
-        "planner_timed_out": false,
-        "quality_targets": [],
-        "topic": null
-      }
-    },
-    "section": "prototype_revision",
-    "type": "planner_complete"
-  },
-  {
-    "chunk": null,
-    "data": {
-      "pipeline_type": "prototype_revision"
-    },
-    "section": "prototype_revision",
-    "type": "planner_start"
-  },
-  {
-    "chunk": null,
-    "data": {
-      "verdict": "PROCEED"
-    },
-    "section": "prototype_revision",
-    "type": "gate_status"
   }
 ]
