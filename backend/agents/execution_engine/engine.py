@@ -6844,6 +6844,12 @@ class ExecutionEngine:
     _AGENT_KIND_MAP: dict[str, str] = {
         "prototype-specify": "spec",
         "prototype-plan": "task_list",
+        # FIX-223: add prototype-analyze explicitly with a dedicated "analysis" kind.
+        # Previously it was absent → fell back to "summary" → _UPDATE_SPECS_ELIGIBLE_KINDS
+        # matched "summary" → any unmapped gated agent also showed "Update the Specs".
+        # The dedicated kind breaks the accidental fallback dependency (SC-001/INV-1 safe —
+        # no agent-id literal in the eligibility check, only the kind string).
+        "prototype-analyze": "analysis",
         "prototype-build": "html_file",
         "prototype-validate": "validation_report",
     }
@@ -6851,14 +6857,16 @@ class ExecutionEngine:
     # SC-001 / KAN-101 / MD-01: the ARTIFACT KIND whose LIVE human gate offers the
     # generic "Update the Specs" affordance — the ANALYZE gate only. Keyed on the
     # structural artifact-kind from _artifact_kind_for — NEVER a workflow/agent-id
-    # literal (name-free path). ``summary`` is the analyze gate's kind: analyze is the
-    # sole gated agent unmapped in _AGENT_KIND_MAP, so it alone falls back to the valid
-    # ``summary`` kind (D-01). The spec/plan authoring gates (spec / task_list) and the
-    # build/validation gates (html_file / validation_report) are deliberately excluded,
-    # so a custom workflow gating on any of them gets NO update-specs affordance.
+    # literal (name-free path). FIX-223: changed from {"summary"} to {"analysis"} —
+    # prototype-analyze is now explicitly mapped to "analysis" in _AGENT_KIND_MAP,
+    # so it alone produces this kind. Unmapped agents fall back to "summary" which is
+    # NOT in the eligible set, so no other gated agent shows "Update the Specs".
+    # The spec/plan authoring gates (spec / task_list) and the build/validation gates
+    # (html_file / validation_report) are deliberately excluded, so a custom workflow
+    # gating on any of them gets NO update-specs affordance.
     # A declared/user gate that never passes the flag defaults update_specs_eligible
     # to False regardless (mirroring redoable) — see _run_review_gate.
-    _UPDATE_SPECS_ELIGIBLE_KINDS: frozenset[str] = frozenset({"summary"})
+    _UPDATE_SPECS_ELIGIBLE_KINDS: frozenset[str] = frozenset({"analysis"})
 
     def _artifact_kind_for(self, spec) -> str:
         """Resolve the ARTIFACT_KINDS value for ``spec``'s produced artifact (D-01).

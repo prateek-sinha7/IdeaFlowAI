@@ -5336,29 +5336,21 @@
     },
     {
       "area": [
-        "frontend",
-        "workflow",
-        "agents",
-        "artifacts"
+        "frontend"
       ],
-      "date": "2026-08-12",
+      "date": "2026-08-14",
       "files": [
-        "frontend/src/components/results/ArtifactVersionPicker.tsx",
-        "frontend/src/components/results/AgentDetailPanel.tsx",
-        "frontend/src/components/results/AgentThinkingTab.tsx",
-        "frontend/src/components/results/ArtifactVersionPicker.test.tsx",
-        "frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx"
+        "frontend/src/hooks/useWorkflow.ts",
+        "frontend/src/hooks/useWorkflow.fix222.test.ts"
       ],
       "id": "FIX-222",
       "path": ".knowledge/cards/FIX-222.md",
       "relates": [
-        "ISS-065",
-        "FIX-221",
         "ISS-063"
       ],
-      "source": ".planning/FIX-REGISTER.md#fix-222",
+      "source": "",
       "status": "done",
-      "summary": "No UI surfaced PER-ARTIFACT versions inside a run. artifact_refs durably stores every version and GET /api/runs/{id}/artifacts?kind=X&include=content already returns each one WITH its body",
+      "summary": "Spec Revision Cycle 1 shown incorrectly after Run Again on cancelled run \u2014 agentStartEventIds carried from terminal state into resume, causing spurious spec revision cycle banner",
       "type": "fix"
     },
     {
@@ -12030,8 +12022,8 @@
   ],
   "facets": {
     "area": {
-      "agents": 287,
-      "artifacts": 117,
+      "agents": 286,
+      "artifacts": 116,
       "auth": 132,
       "backend": 134,
       "cost": 1,
@@ -12049,7 +12041,7 @@
       "test": 3,
       "test-infra": 18,
       "tooling": 4,
-      "workflow": 250
+      "workflow": 249
     },
     "status": {
       "accepted": 1,
@@ -12080,5 +12072,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-14 17:02"
+  "generated": "2026-08-14 17:26"
 }

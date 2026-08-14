@@ -262,7 +262,6 @@
       "ISS-157"
     ],
     "FIX-221": [
-      "FIX-222",
       "ISS-065",
       "ISS-075",
       "ISS-076",
@@ -518,7 +517,6 @@
       "ISS-072"
     ],
     "ISS-065": [
-      "FIX-222",
       "ISS-063",
       "ISS-075",
       "ISS-085"
@@ -822,7 +820,6 @@
       "FIX-208",
       "FIX-213",
       "FIX-218",
-      "FIX-222",
       "FIX-223",
       "FIX-224",
       "FIX-225",
@@ -1038,7 +1035,6 @@
       "FIX-154",
       "FIX-167",
       "FIX-167b",
-      "FIX-222",
       "FIX-226",
       "FIX-228",
       "FIX-229",
@@ -2183,7 +2179,6 @@
       "FIX-212",
       "FIX-215",
       "FIX-217",
-      "FIX-222",
       "FIX-223",
       "FIX-225",
       "FIX-229",
@@ -3256,27 +3251,18 @@
       "FIX-062"
     ],
     "frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx": [
-      "FIX-222",
       "FIX-226"
     ],
     "frontend/src/components/results/AgentDetailPanel.tsx": [
       "FIX-049b",
-      "FIX-218",
-      "FIX-222"
+      "FIX-218"
     ],
     "frontend/src/components/results/AgentThinkingTab.tsx": [
       "FIX-022",
       "FIX-029",
       "FIX-163",
       "FIX-166",
-      "FIX-177",
-      "FIX-222"
-    ],
-    "frontend/src/components/results/ArtifactVersionPicker.test.tsx": [
-      "FIX-222"
-    ],
-    "frontend/src/components/results/ArtifactVersionPicker.tsx": [
-      "FIX-222"
+      "FIX-177"
     ],
     "frontend/src/components/results/AuditTab.tsx": [
       "FIX-124"
@@ -3460,6 +3446,9 @@
     "frontend/src/hooks/useSmoothText.ts": [
       "FIX-209"
     ],
+    "frontend/src/hooks/useWorkflow.fix222.test.ts": [
+      "FIX-222"
+    ],
     "frontend/src/hooks/useWorkflow.specRevisionCount.test.ts": [
       "FIX-225"
     ],
@@ -3468,6 +3457,7 @@
       "FIX-107",
       "FIX-120",
       "FIX-166",
+      "FIX-222",
       "FIX-225",
       "FIX-245"
     ],
@@ -3670,9 +3660,7 @@
       "FIX-219"
     ],
     "FIX-222": [
-      "FIX-221",
-      "ISS-063",
-      "ISS-065"
+      "ISS-063"
     ],
     "FIX-235": [
       "FIX-201"

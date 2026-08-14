@@ -1,5 +1,5 @@
 {
-  "built_at": "2026-08-14 17:02",
+  "built_at": "2026-08-14 17:26",
   "card_count": 742,
   "counts": {
     "bug": 28,
@@ -12,7 +12,7 @@
     "task": 111,
     "test": 49
   },
-  "frontmatter_sha1": "700d3653e2ccec3d6da694b8177918f78cf177f8",
+  "frontmatter_sha1": "2a4b36a415408b38b2b022c6202be59e6ef4f24e",
   "pack_version": 1,
   "sources": {
     "content_ref": "ui-2-dev-fixes",
