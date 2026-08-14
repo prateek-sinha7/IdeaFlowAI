@@ -285,6 +285,14 @@ export function useRunStateStore(): RunStateStoreReturn {
     makeInitialRunState("__initial__")
   );
 
+  // FIX-224: track the last pipelineState reference that was projected so we can
+  // skip project() when the fakeSetState result is unchanged. Without this, the
+  // bail-out in project() never fires because handleFrame always spreads entry into
+  // a new outer object (`{ ...entry }`), making prev !== state at the outer level
+  // even when pipelineState itself didn't change. This caused setViewedState to fire
+  // on every SSE frame → rapid re-renders → flickering agent circles and L2 views.
+  const lastProjectedPipelineStateRef = useRef<object | null>(null);
+
   // ── Internal helpers ─────────────────────────────────────────────────────────
 
   const getOrCreate = useCallback((runId: string): PerRunState => {
@@ -424,8 +432,14 @@ export function useRunStateStore(): RunStateStoreReturn {
     entry.specRevisionCount = deriveSpecRevisionCount(entry.pipelineState);
 
     // Always project after any frame for the viewed run.
+    // FIX-224: skip project() when pipelineState reference is unchanged — the
+    // reducer returned prev unchanged (idempotent re-delivery). This stops the
+    // rapid re-renders that caused flickering agent circles and L2 agent views.
     if (runId === viewedRunIdRef.current) {
-      project({ ...entry });
+      if (entry.pipelineState !== lastProjectedPipelineStateRef.current) {
+        lastProjectedPipelineStateRef.current = entry.pipelineState;
+        project({ ...entry });
+      }
     }
   }, [getOrCreate, getAgentStartTimes, project]);
 
@@ -471,6 +485,9 @@ export function useRunStateStore(): RunStateStoreReturn {
 
   const switchViewTo = useCallback((runId: string) => {
     viewedRunIdRef.current = runId;
+    // FIX-224: reset the projection guard when switching views so the new run's
+    // pipelineState is always projected fresh (not gated on the old run's ref).
+    lastProjectedPipelineStateRef.current = null;
     const entry = getOrCreate(runId);
     project({ ...entry });
   }, [getOrCreate, project]);

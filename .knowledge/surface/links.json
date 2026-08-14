@@ -708,6 +708,9 @@
     ],
     "ISS-157": [
       "FIX-256"
+    ],
+    "KAN-101": [
+      "FIX-223"
     ]
   },
   "by_area": {
@@ -1145,7 +1148,6 @@
       "FIX-158",
       "FIX-162",
       "FIX-207",
-      "FIX-223",
       "FIX-227",
       "FIX-228",
       "FIX-230",
@@ -1721,7 +1723,6 @@
       "FIX-121",
       "FIX-125",
       "FIX-152",
-      "FIX-223",
       "FIX-225",
       "FIX-227",
       "FIX-228",
@@ -1901,7 +1902,6 @@
       "FIX-206",
       "FIX-207",
       "FIX-210",
-      "FIX-223",
       "FIX-225",
       "FIX-226",
       "FIX-227",
@@ -2179,7 +2179,6 @@
       "FIX-212",
       "FIX-215",
       "FIX-217",
-      "FIX-223",
       "FIX-225",
       "FIX-229",
       "FIX-232",
@@ -2406,6 +2405,7 @@
       "FIX-171",
       "FIX-175",
       "FIX-190",
+      "FIX-223",
       "FIX-232",
       "FIX-239",
       "FIX-240",
@@ -2495,8 +2495,7 @@
     "backend/agents/prompts/prototype-build/AGENT.md": [
       "FIX-009",
       "FIX-127",
-      "FIX-190",
-      "FIX-223"
+      "FIX-190"
     ],
     "backend/agents/prompts/prototype-plan/AGENT.md": [
       "FIX-006",
@@ -2779,7 +2778,6 @@
     ],
     "backend/tests/agents/characterization/_normalize.py": [
       "FIX-036",
-      "FIX-223",
       "FIX-239",
       "FIX-254"
     ],
@@ -2787,8 +2785,7 @@
       "FIX-031"
     ],
     "backend/tests/agents/characterization/golden/prototype_revision.events.json": [
-      "FIX-049",
-      "FIX-223"
+      "FIX-049"
     ],
     "backend/tests/agents/characterization/golden/prototype_revision.html": [
       "FIX-049"
@@ -2835,9 +2832,6 @@
     ],
     "backend/tests/agents/test_live_harness.py": [
       "FIX-231"
-    ],
-    "backend/tests/agents/test_loader.py": [
-      "FIX-223"
     ],
     "backend/tests/agents/test_manifest_parity.py": [
       "FIX-185"
@@ -3661,6 +3655,9 @@
     ],
     "FIX-222": [
       "ISS-063"
+    ],
+    "FIX-223": [
+      "KAN-101"
     ],
     "FIX-235": [
       "FIX-201"

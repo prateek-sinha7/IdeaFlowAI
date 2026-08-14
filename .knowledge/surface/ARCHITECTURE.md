@@ -38,7 +38,7 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 | `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 61 | 27 files |
 | `backend/app/services` | application services | 2 | 5 files |
 | `backend/app/models` | persistence — additive migrations only | 1 | 23 files |
-| `backend/agents/execution_engine` | the execution kernel | 37 | 11 files |
+| `backend/agents/execution_engine` | the execution kernel | 38 | 11 files |
 | `backend/agents/workflows` | workflow manifests — data, not code paths | 23 | 5 files |
 | `backend/agents/capabilities` | capability adapters | 14 | 82 files |
 | `backend/agents/runtime` | runtime services | 0 | 2 files |
@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (286), `workflow` (249), `sse` (223), `frontend` (221), `backend` (134), `auth` (132), `artifacts` (116), `resume` (80).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (286), `workflow` (248), `sse` (222), `frontend` (221), `backend` (134), `auth` (131), `artifacts` (116), `resume` (79).
 
 ## Constraints that bind every phase
 

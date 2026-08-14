@@ -5356,24 +5356,20 @@
     {
       "area": [
         "backend",
-        "sse",
-        "resume",
-        "workflow",
-        "agents",
-        "auth"
+        "agents"
       ],
-      "date": "2026-08-12",
+      "date": "2026-08-14",
       "files": [
-        "backend/tests/agents/characterization/_normalize.py",
-        "backend/agents/prompts/prototype-build/AGENT.md",
-        "backend/tests/agents/test_loader.py",
-        "backend/tests/agents/characterization/golden/prototype_revision.events.json"
+        "backend/agents/execution_engine/engine.py"
       ],
       "id": "FIX-223",
       "path": ".knowledge/cards/FIX-223.md",
-      "source": ".planning/FIX-REGISTER.md#fix-223",
+      "relates": [
+        "KAN-101"
+      ],
+      "source": "",
       "status": "done",
-      "summary": "The 5 characterization event goldens \u2014 the project's INV-3 parity oracle \u2014 had been red on dev for weeks, so INV-3 could only be checked by diffing failure counts against a hand-captured baseline",
+      "summary": "Update the Specs button shows on ALL review gates \u2014 _AGENT_KIND_MAP missing prototype-analyze entry caused all unmapped gated agents to match _UPDATE_SPECS_ELIGIBLE_KINDS via \"summary\" fallback",
       "type": "fix"
     },
     {
@@ -12024,7 +12020,7 @@
     "area": {
       "agents": 286,
       "artifacts": 116,
-      "auth": 132,
+      "auth": 131,
       "backend": 134,
       "cost": 1,
       "docs": 4,
@@ -12035,13 +12031,13 @@
       "infra": 5,
       "perf": 1,
       "product": 30,
-      "resume": 80,
+      "resume": 79,
       "runtime": 41,
-      "sse": 223,
+      "sse": 222,
       "test": 3,
       "test-infra": 18,
       "tooling": 4,
-      "workflow": 249
+      "workflow": 248
     },
     "status": {
       "accepted": 1,
@@ -12072,5 +12068,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-14 17:26"
+  "generated": "2026-08-14 18:39"
 }
