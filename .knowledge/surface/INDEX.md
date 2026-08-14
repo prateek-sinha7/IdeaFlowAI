@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-742 cards · rules 1 · fixes 264 · issues 161 · phases 23 · built 2026-08-13 14:38
+742 cards · rules 1 · fixes 264 · issues 161 · phases 23 · built 2026-08-14 18:39
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -14,6 +14,10 @@ ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on
 
 ## Fixes (264)
 
+FIX-224 2026-08-14 [frontend] Agent progress circles and L2 agent view flicker — setViewedState fires on every SSE frame; project() bail-out never fired; fix: lastProjectedPipelineStateRef
+FIX-223 2026-08-14 [backend,agents] Update the Specs button shows on ALL review gates — _AGENT_KIND_MAP missing prototype-analyze entry caused all unmapped gated agents to match _UPDATE_SPECS_ELIGIBLE_KINDS via "summary" fallback
+FIX-222 2026-08-14 [frontend] Spec Revision Cycle 1 shown incorrectly after Run Again on cancelled run — agentStartEventIds carried from terminal state into resume, causing spurious spec revision cycle banner
+FIX-221 2026-08-14 [backend] Prototype revision fails silently — od_prototype_output maps to od_prototype_revision (no agents); revision WorkflowRun minted without workspace_id causing NOT NULL constraint on first event write
 FIX-257 2026-08-13 [backend,agents,auth] The Concierge's file-attachment prompt forbade a tool that no longer exists, and converted questions into steering notes
 FIX-256 2026-08-13 [frontend,sse,workflow] The FIX-201 legacy→store bridge could resurrect a stood-down run, and dev shipped a second never-called mechanism beside it. Closes ISS-138 (open since 2026-08-12) and ISS-157
 FIX-255 2026-08-13 [auth] A run with no brief could be launched, and the pipeline it could launch is the 5-21M-token one. LaunchCommand.message was a bare str and launch_run never checked it
@@ -49,9 +53,6 @@ FIX-227 2026-08-12 [sse,resume,auth] There was NO way for anyone — user or ope
 FIX-226 2026-08-12 [frontend,sse,agents,artifacts] The ISS-065 artifact-version picker only moved the raw output — the prominent artifact CARD kept rendering the LATEST version, so the owner selected v1, saw v3's page grid, and reported "while changing the version there
 FIX-225 2026-08-12 [frontend,sse,resume,workflow,agents] Three defects on one reopen-replay path, two of them in the same expression — the "Spec Revision Cycle N" banner read 5 for a run with 2 revisions, and the reopened run's trace repainted as "0 / 5 agents" with every Steps row disabled
 FIX-224 2026-08-12 [backend,agents] The agents.capabilities must not import the execution kernel or the web layer import-linter contract had been BROKEN since 2026-07-20, so Ports & Adapters was at 3 kept / 1 broken against a documented intended state of 4/0
-FIX-223 2026-08-12 [backend,sse,resume,workflow,agents,auth] The 5 characterization event goldens — the project's INV-3 parity oracle — had been red on dev for weeks, so INV-3 could only be checked by diffing failure counts against a hand-captured baseline
-FIX-222 2026-08-12 [frontend,workflow,agents,artifacts] No UI surfaced PER-ARTIFACT versions inside a run. artifact_refs durably stores every version and GET /api/runs/{id}/artifacts?kind=X&include=content already returns each one WITH its body
-FIX-221 2026-08-12 [frontend,sse,resume,workflow,agents,auth] The violet "Spec Revision Cycle N" banner was dead on every path for od_prototype, not merely absent on reload as ISS-063 filed it
 FIX-217 2026-08-12 [backend,frontend,workflow] Chain context missing when chaining from prototype/ppt revisions — ancestor walk only went one level; stale chain context leaking; empty brief on wizard-chained launches (FIX-216c included)
 FIX-252 2026-08-11 [backend,resume,agents] A second "Update the Specs" at the RE-OPENED analyze gate was a silent no-op — the gate closed, instantly re-opened on identical content, no revision ran, and the build proceeded from the unrevised spec (defect B)
 FIX-251 2026-08-11 [backend,resume,agents,artifacts] update_specs regenerated the spec from scratch instead of revising it, and every resumed run rebuilt its planning context from a 200-char stub — the degraded spec then drove the planner and the finished prototype, with no UI signal

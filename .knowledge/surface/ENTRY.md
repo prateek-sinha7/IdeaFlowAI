@@ -2,7 +2,7 @@
 
 # Project knowledge — entry point
 
-You were redirected here because you asked to read a `.planning/` register whole. All 18.3 MB of `.planning/` is carried as **742 cards** in `.knowledge/cards/`; the registers themselves are unchanged on disk.
+You were redirected here because you asked to read a `.planning/` register whole. All 18.5 MB of `.planning/` is carried as **742 cards** in `.knowledge/cards/`; the registers themselves are unchanged on disk.
 
 This is not a failure. Query below — do not retry the original path.
 
@@ -35,7 +35,7 @@ python3 scripts/knowledge/ctx.py --show <ID>             # one card, full prose
 | `doc` | 65 | pointers to planning documents | `ctx.py --type doc "roadmap"` |
 | `task` | 111 | pointers to quick/ and phases/ work folders | `ctx.py --type task "resume"` |
 
-**Areas:** `agents` (288), `workflow` (251), `sse` (224), `frontend` (222), `backend` (133), `auth` (133), `artifacts` (117), `resume` (81), `runtime` (41), `product` (30)
+**Areas:** `agents` (286), `workflow` (248), `sse` (222), `frontend` (221), `backend` (134), `auth` (131), `artifacts` (116), `resume` (79), `runtime` (41), `product` (30)
 
 ## Full lists
 

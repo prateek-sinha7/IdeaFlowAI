@@ -230,7 +230,8 @@
       "FIX-255"
     ],
     "FIX-216b": [
-      "FIX-219"
+      "FIX-219",
+      "FIX-221"
     ],
     "FIX-217": [
       "FIX-252",
@@ -250,6 +251,7 @@
       "ISS-158"
     ],
     "FIX-219": [
+      "FIX-221",
       "ISS-161"
     ],
     "FIX-220": [
@@ -260,7 +262,6 @@
       "ISS-157"
     ],
     "FIX-221": [
-      "FIX-222",
       "ISS-065",
       "ISS-075",
       "ISS-076",
@@ -268,7 +269,6 @@
       "ISS-111"
     ],
     "FIX-222": [
-      "FIX-221",
       "ISS-063",
       "ISS-075",
       "ISS-085"
@@ -500,7 +500,6 @@
       "FIX-254"
     ],
     "ISS-063": [
-      "FIX-221",
       "FIX-222",
       "FIX-254",
       "ISS-065",
@@ -518,8 +517,6 @@
       "ISS-072"
     ],
     "ISS-065": [
-      "FIX-221",
-      "FIX-222",
       "ISS-063",
       "ISS-075",
       "ISS-085"
@@ -556,12 +553,10 @@
       "ISS-095"
     ],
     "ISS-075": [
-      "FIX-221",
       "ISS-080",
       "ISS-081"
     ],
     "ISS-076": [
-      "FIX-221",
       "ISS-114"
     ],
     "ISS-078": [
@@ -713,6 +708,9 @@
     ],
     "ISS-157": [
       "FIX-256"
+    ],
+    "KAN-101": [
+      "FIX-223"
     ]
   },
   "by_area": {
@@ -825,8 +823,6 @@
       "FIX-208",
       "FIX-213",
       "FIX-218",
-      "FIX-221",
-      "FIX-222",
       "FIX-223",
       "FIX-224",
       "FIX-225",
@@ -1042,7 +1038,6 @@
       "FIX-154",
       "FIX-167",
       "FIX-167b",
-      "FIX-222",
       "FIX-226",
       "FIX-228",
       "FIX-229",
@@ -1153,8 +1148,6 @@
       "FIX-158",
       "FIX-162",
       "FIX-207",
-      "FIX-221",
-      "FIX-223",
       "FIX-227",
       "FIX-228",
       "FIX-230",
@@ -1342,6 +1335,7 @@
       "FIX-217",
       "FIX-218",
       "FIX-219",
+      "FIX-221",
       "FIX-223",
       "FIX-224",
       "FIX-231",
@@ -1613,7 +1607,6 @@
       "FIX-217",
       "FIX-218",
       "FIX-220",
-      "FIX-221",
       "FIX-222",
       "FIX-225",
       "FIX-226",
@@ -1730,8 +1723,6 @@
       "FIX-121",
       "FIX-125",
       "FIX-152",
-      "FIX-221",
-      "FIX-223",
       "FIX-225",
       "FIX-227",
       "FIX-228",
@@ -1911,8 +1902,6 @@
       "FIX-206",
       "FIX-207",
       "FIX-210",
-      "FIX-221",
-      "FIX-223",
       "FIX-225",
       "FIX-226",
       "FIX-227",
@@ -2190,9 +2179,6 @@
       "FIX-212",
       "FIX-215",
       "FIX-217",
-      "FIX-221",
-      "FIX-222",
-      "FIX-223",
       "FIX-225",
       "FIX-229",
       "FIX-232",
@@ -2419,6 +2405,7 @@
       "FIX-171",
       "FIX-175",
       "FIX-190",
+      "FIX-223",
       "FIX-232",
       "FIX-239",
       "FIX-240",
@@ -2508,8 +2495,7 @@
     "backend/agents/prompts/prototype-build/AGENT.md": [
       "FIX-009",
       "FIX-127",
-      "FIX-190",
-      "FIX-223"
+      "FIX-190"
     ],
     "backend/agents/prompts/prototype-plan/AGENT.md": [
       "FIX-006",
@@ -2688,6 +2674,7 @@
       "FIX-216b",
       "FIX-218",
       "FIX-219",
+      "FIX-221",
       "FIX-233",
       "FIX-239",
       "FIX-241",
@@ -2791,7 +2778,6 @@
     ],
     "backend/tests/agents/characterization/_normalize.py": [
       "FIX-036",
-      "FIX-223",
       "FIX-239",
       "FIX-254"
     ],
@@ -2799,8 +2785,7 @@
       "FIX-031"
     ],
     "backend/tests/agents/characterization/golden/prototype_revision.events.json": [
-      "FIX-049",
-      "FIX-223"
+      "FIX-049"
     ],
     "backend/tests/agents/characterization/golden/prototype_revision.html": [
       "FIX-049"
@@ -2847,9 +2832,6 @@
     ],
     "backend/tests/agents/test_live_harness.py": [
       "FIX-231"
-    ],
-    "backend/tests/agents/test_loader.py": [
-      "FIX-223"
     ],
     "backend/tests/agents/test_manifest_parity.py": [
       "FIX-185"
@@ -2998,9 +2980,6 @@
     "frontend/src/app/dashboard/bridgeTerminality.source.test.ts": [
       "FIX-256"
     ],
-    "frontend/src/app/dashboard/deadRevisionRefs.source.test.ts": [
-      "FIX-221"
-    ],
     "frontend/src/app/dashboard/freshLaunchTranscriptReset.source.test.ts": [
       "FIX-201"
     ],
@@ -3055,7 +3034,6 @@
       "FIX-210",
       "FIX-217",
       "FIX-220",
-      "FIX-221",
       "FIX-225",
       "FIX-245",
       "FIX-247",
@@ -3267,27 +3245,18 @@
       "FIX-062"
     ],
     "frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx": [
-      "FIX-222",
       "FIX-226"
     ],
     "frontend/src/components/results/AgentDetailPanel.tsx": [
       "FIX-049b",
-      "FIX-218",
-      "FIX-222"
+      "FIX-218"
     ],
     "frontend/src/components/results/AgentThinkingTab.tsx": [
       "FIX-022",
       "FIX-029",
       "FIX-163",
       "FIX-166",
-      "FIX-177",
-      "FIX-222"
-    ],
-    "frontend/src/components/results/ArtifactVersionPicker.test.tsx": [
-      "FIX-222"
-    ],
-    "frontend/src/components/results/ArtifactVersionPicker.tsx": [
-      "FIX-222"
+      "FIX-177"
     ],
     "frontend/src/components/results/AuditTab.tsx": [
       "FIX-124"
@@ -3451,7 +3420,6 @@
     "frontend/src/hooks/useRunStateStore.ts": [
       "FIX-201",
       "FIX-220",
-      "FIX-221",
       "FIX-225",
       "FIX-254",
       "FIX-256",
@@ -3472,8 +3440,10 @@
     "frontend/src/hooks/useSmoothText.ts": [
       "FIX-209"
     ],
+    "frontend/src/hooks/useWorkflow.fix222.test.ts": [
+      "FIX-222"
+    ],
     "frontend/src/hooks/useWorkflow.specRevisionCount.test.ts": [
-      "FIX-221",
       "FIX-225"
     ],
     "frontend/src/hooks/useWorkflow.ts": [
@@ -3481,7 +3451,7 @@
       "FIX-107",
       "FIX-120",
       "FIX-166",
-      "FIX-221",
+      "FIX-222",
       "FIX-225",
       "FIX-245"
     ],
@@ -3530,7 +3500,6 @@
       "FIX-156",
       "FIX-166",
       "FIX-178",
-      "FIX-221",
       "FIX-225",
       "FIX-254"
     ],
@@ -3681,16 +3650,14 @@
       "FIX-201"
     ],
     "FIX-221": [
-      "FIX-222",
-      "ISS-063",
-      "ISS-065",
-      "ISS-075",
-      "ISS-076"
+      "FIX-216b",
+      "FIX-219"
     ],
     "FIX-222": [
-      "FIX-221",
-      "ISS-063",
-      "ISS-065"
+      "ISS-063"
+    ],
+    "FIX-223": [
+      "KAN-101"
     ],
     "FIX-235": [
       "FIX-201"

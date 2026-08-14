@@ -5317,84 +5317,59 @@
     },
     {
       "area": [
-        "frontend",
-        "sse",
-        "resume",
-        "workflow",
-        "agents",
-        "auth"
+        "backend"
       ],
-      "date": "2026-08-12",
+      "date": "2026-08-14",
       "files": [
-        "frontend/src/types/index.ts",
-        "frontend/src/hooks/useWorkflow.ts",
-        "frontend/src/hooks/useRunStateStore.ts",
-        "frontend/src/app/dashboard/page.tsx",
-        "frontend/src/hooks/useWorkflow.specRevisionCount.test.ts",
-        "frontend/src/app/dashboard/deadRevisionRefs.source.test.ts"
+        "backend/app/api/run_commands.py"
       ],
       "id": "FIX-221",
       "path": ".knowledge/cards/FIX-221.md",
       "relates": [
-        "ISS-063",
-        "FIX-222",
-        "ISS-065",
-        "ISS-075",
-        "ISS-076"
+        "FIX-219",
+        "FIX-216b"
       ],
-      "source": ".planning/FIX-REGISTER.md#fix-221",
+      "source": "",
       "status": "done",
-      "summary": "The violet \"Spec Revision Cycle N\" banner was dead on every path for od_prototype, not merely absent on reload as ISS-063 filed it",
+      "summary": "Prototype revision fails silently \u2014 od_prototype_output maps to od_prototype_revision (no agents); revision WorkflowRun minted without workspace_id causing NOT NULL constraint on first event write",
       "type": "fix"
     },
     {
       "area": [
-        "frontend",
-        "workflow",
-        "agents",
-        "artifacts"
+        "frontend"
       ],
-      "date": "2026-08-12",
+      "date": "2026-08-14",
       "files": [
-        "frontend/src/components/results/ArtifactVersionPicker.tsx",
-        "frontend/src/components/results/AgentDetailPanel.tsx",
-        "frontend/src/components/results/AgentThinkingTab.tsx",
-        "frontend/src/components/results/ArtifactVersionPicker.test.tsx",
-        "frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx"
+        "frontend/src/hooks/useWorkflow.ts",
+        "frontend/src/hooks/useWorkflow.fix222.test.ts"
       ],
       "id": "FIX-222",
       "path": ".knowledge/cards/FIX-222.md",
       "relates": [
-        "ISS-065",
-        "FIX-221",
         "ISS-063"
       ],
-      "source": ".planning/FIX-REGISTER.md#fix-222",
+      "source": "",
       "status": "done",
-      "summary": "No UI surfaced PER-ARTIFACT versions inside a run. artifact_refs durably stores every version and GET /api/runs/{id}/artifacts?kind=X&include=content already returns each one WITH its body",
+      "summary": "Spec Revision Cycle 1 shown incorrectly after Run Again on cancelled run \u2014 agentStartEventIds carried from terminal state into resume, causing spurious spec revision cycle banner",
       "type": "fix"
     },
     {
       "area": [
         "backend",
-        "sse",
-        "resume",
-        "workflow",
-        "agents",
-        "auth"
+        "agents"
       ],
-      "date": "2026-08-12",
+      "date": "2026-08-14",
       "files": [
-        "backend/tests/agents/characterization/_normalize.py",
-        "backend/agents/prompts/prototype-build/AGENT.md",
-        "backend/tests/agents/test_loader.py",
-        "backend/tests/agents/characterization/golden/prototype_revision.events.json"
+        "backend/agents/execution_engine/engine.py"
       ],
       "id": "FIX-223",
       "path": ".knowledge/cards/FIX-223.md",
-      "source": ".planning/FIX-REGISTER.md#fix-223",
+      "relates": [
+        "KAN-101"
+      ],
+      "source": "",
       "status": "done",
-      "summary": "The 5 characterization event goldens \u2014 the project's INV-3 parity oracle \u2014 had been red on dev for weeks, so INV-3 could only be checked by diffing failure counts against a hand-captured baseline",
+      "summary": "Update the Specs button shows on ALL review gates \u2014 _AGENT_KIND_MAP missing prototype-analyze entry caused all unmapped gated agents to match _UPDATE_SPECS_ELIGIBLE_KINDS via \"summary\" fallback",
       "type": "fix"
     },
     {
@@ -12043,26 +12018,26 @@
   ],
   "facets": {
     "area": {
-      "agents": 288,
-      "artifacts": 117,
-      "auth": 133,
-      "backend": 133,
+      "agents": 286,
+      "artifacts": 116,
+      "auth": 131,
+      "backend": 134,
       "cost": 1,
       "docs": 4,
       "engine": 14,
       "evals": 19,
-      "frontend": 222,
+      "frontend": 221,
       "harness": 2,
       "infra": 5,
       "perf": 1,
       "product": 30,
-      "resume": 81,
+      "resume": 79,
       "runtime": 41,
-      "sse": 224,
+      "sse": 222,
       "test": 3,
       "test-infra": 18,
       "tooling": 4,
-      "workflow": 251
+      "workflow": 248
     },
     "status": {
       "accepted": 1,
@@ -12093,5 +12068,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-13 14:38"
+  "generated": "2026-08-14 18:39"
 }

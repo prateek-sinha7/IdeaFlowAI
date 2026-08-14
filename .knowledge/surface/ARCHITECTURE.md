@@ -35,20 +35,20 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 
 | component | what it is | cards | on disk |
 |---|---|---:|---|
-| `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 60 | 27 files |
+| `backend/app/api` | HTTP + SSE surface — the only caller of the kernel | 61 | 27 files |
 | `backend/app/services` | application services | 2 | 5 files |
 | `backend/app/models` | persistence — additive migrations only | 1 | 23 files |
-| `backend/agents/execution_engine` | the execution kernel | 37 | 11 files |
+| `backend/agents/execution_engine` | the execution kernel | 38 | 11 files |
 | `backend/agents/workflows` | workflow manifests — data, not code paths | 23 | 5 files |
 | `backend/agents/capabilities` | capability adapters | 14 | 82 files |
 | `backend/agents/runtime` | runtime services | 0 | 2 files |
 | `backend/agents/artifact_store` | artifact persistence | 1 | 2 files |
 | `backend/agents/guardrails` | policy enforcement | 0 | 0 files |
-| `frontend/src/app` | Next.js routes | 65 | 25 files |
-| `frontend/src/components` | UI components | 217 | 192 files |
-| `frontend/src/hooks` | client state + stream handling | 47 | 27 files |
+| `frontend/src/app` | Next.js routes | 63 | 25 files |
+| `frontend/src/components` | UI components | 212 | 192 files |
+| `frontend/src/hooks` | client state + stream handling | 46 | 27 files |
 
-**18 workflows** registered — `app_builder`, `app_builder_revision`, `chat`, `custom`, `dotnet_to_azure`, `mulesoft_to_springboot`, `od_ppt`, `od_ppt_revision`, `ppt`, `ppt_revision`, `prototype`, `prototype_revision`, `reverse_engineer`, `sample_brownfield`, `sample_fanout`, `sample_wave`, `user_stories`, `user_stories_revision`
+**19 workflows** registered — `app_builder`, `app_builder_revision`, `chat`, `custom`, `custom_prototype`, `dotnet_to_azure`, `mulesoft_to_springboot`, `od_ppt`, `od_ppt_revision`, `ppt`, `ppt_revision`, `prototype`, `prototype_revision`, `reverse_engineer`, `sample_brownfield`, `sample_fanout`, `sample_wave`, `user_stories`, `user_stories_revision`
 
 Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with no engine edit and no new pipeline name.
 
@@ -58,7 +58,7 @@ Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with 
 |---|---|---|---|
 | `ADR-0001` | accepted | sse, frontend | In the context of SSE streams that the backend closes on purpose, facing a spurious "Reconnecting" banner on every stop, we decided that terminal… |
 
-Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (288), `workflow` (251), `sse` (224), `frontend` (222), `backend` (133), `auth` (133), `artifacts` (117), `resume` (81).
+Full text: `ctx.py --show <ID>`. Rules by area: `ctx.py --rules <area>`. Areas carrying history: `agents` (286), `workflow` (248), `sse` (222), `frontend` (221), `backend` (134), `auth` (131), `artifacts` (116), `resume` (79).
 
 ## Constraints that bind every phase
 
