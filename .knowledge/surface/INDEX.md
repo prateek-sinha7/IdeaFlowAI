@@ -3,7 +3,7 @@
 
 # Knowledge Index
 
-742 cards · rules 1 · fixes 264 · issues 161 · phases 23 · built 2026-08-14 14:33
+742 cards · rules 1 · fixes 264 · issues 161 · phases 23 · built 2026-08-14 17:02
 
 This index is the *only* thing that needs loading. Never read a register whole.
 Fetch a card body with `ctx.py --show <ID>`; search with `ctx.py "<terms>"`.
@@ -14,6 +14,8 @@ ADR-0001 [sse,frontend] In the context of SSE streams that the backend closes on
 
 ## Fixes (264)
 
+FIX-222 2026-08-14 [frontend] Spec Revision Cycle 1 shown incorrectly after Run Again on cancelled run — agentStartEventIds carried from terminal state; fix: only carry when prev.isRunning=true
+FIX-221 2026-08-14 [backend] Prototype revision fails silently — od_prototype_output maps to od_prototype_revision (no agents); revision WorkflowRun minted without workspace_id causing NOT NULL constraint on first event write
 FIX-257 2026-08-13 [backend,agents,auth] The Concierge's file-attachment prompt forbade a tool that no longer exists, and converted questions into steering notes
 FIX-256 2026-08-13 [frontend,sse,workflow] The FIX-201 legacy→store bridge could resurrect a stood-down run, and dev shipped a second never-called mechanism beside it. Closes ISS-138 (open since 2026-08-12) and ISS-157
 FIX-255 2026-08-13 [auth] A run with no brief could be launched, and the pipeline it could launch is the 5-21M-token one. LaunchCommand.message was a bare str and launch_run never checked it
@@ -51,7 +53,6 @@ FIX-225 2026-08-12 [frontend,sse,resume,workflow,agents] Three defects on one re
 FIX-224 2026-08-12 [backend,agents] The agents.capabilities must not import the execution kernel or the web layer import-linter contract had been BROKEN since 2026-07-20, so Ports & Adapters was at 3 kept / 1 broken against a documented intended state of 4/0
 FIX-223 2026-08-12 [backend,sse,resume,workflow,agents,auth] The 5 characterization event goldens — the project's INV-3 parity oracle — had been red on dev for weeks, so INV-3 could only be checked by diffing failure counts against a hand-captured baseline
 FIX-222 2026-08-12 [frontend,workflow,agents,artifacts] No UI surfaced PER-ARTIFACT versions inside a run. artifact_refs durably stores every version and GET /api/runs/{id}/artifacts?kind=X&include=content already returns each one WITH its body
-FIX-221 2026-08-12 [frontend,sse,resume,workflow,agents,auth] The violet "Spec Revision Cycle N" banner was dead on every path for od_prototype, not merely absent on reload as ISS-063 filed it
 FIX-217 2026-08-12 [backend,frontend,workflow] Chain context missing when chaining from prototype/ppt revisions — ancestor walk only went one level; stale chain context leaking; empty brief on wizard-chained launches (FIX-216c included)
 FIX-252 2026-08-11 [backend,resume,agents] A second "Update the Specs" at the RE-OPENED analyze gate was a silent no-op — the gate closed, instantly re-opened on identical content, no revision ran, and the build proceeded from the unrevised spec (defect B)
 FIX-251 2026-08-11 [backend,resume,agents,artifacts] update_specs regenerated the spec from scratch instead of revising it, and every resumed run rebuilt its planning context from a 200-char stub — the degraded spec then drove the planner and the finished prototype, with no UI signal

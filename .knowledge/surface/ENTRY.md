@@ -35,7 +35,7 @@ python3 scripts/knowledge/ctx.py --show <ID>             # one card, full prose
 | `doc` | 65 | pointers to planning documents | `ctx.py --type doc "roadmap"` |
 | `task` | 111 | pointers to quick/ and phases/ work folders | `ctx.py --type task "resume"` |
 
-**Areas:** `agents` (288), `workflow` (251), `sse` (224), `frontend` (222), `backend` (133), `auth` (133), `artifacts` (117), `resume` (81), `runtime` (41), `product` (30)
+**Areas:** `agents` (286), `workflow` (249), `sse` (223), `frontend` (221), `backend` (134), `auth` (132), `artifacts` (116), `resume` (80), `runtime` (41), `product` (30)
 
 ## Full lists
 

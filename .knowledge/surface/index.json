@@ -5317,34 +5317,21 @@
     },
     {
       "area": [
-        "frontend",
-        "sse",
-        "resume",
-        "workflow",
-        "agents",
-        "auth"
+        "backend"
       ],
-      "date": "2026-08-12",
+      "date": "2026-08-14",
       "files": [
-        "frontend/src/types/index.ts",
-        "frontend/src/hooks/useWorkflow.ts",
-        "frontend/src/hooks/useRunStateStore.ts",
-        "frontend/src/app/dashboard/page.tsx",
-        "frontend/src/hooks/useWorkflow.specRevisionCount.test.ts",
-        "frontend/src/app/dashboard/deadRevisionRefs.source.test.ts"
+        "backend/app/api/run_commands.py"
       ],
       "id": "FIX-221",
       "path": ".knowledge/cards/FIX-221.md",
       "relates": [
-        "ISS-063",
-        "FIX-222",
-        "ISS-065",
-        "ISS-075",
-        "ISS-076"
+        "FIX-219",
+        "FIX-216b"
       ],
-      "source": ".planning/FIX-REGISTER.md#fix-221",
+      "source": "",
       "status": "done",
-      "summary": "The violet \"Spec Revision Cycle N\" banner was dead on every path for od_prototype, not merely absent on reload as ISS-063 filed it",
+      "summary": "Prototype revision fails silently \u2014 od_prototype_output maps to od_prototype_revision (no agents); revision WorkflowRun minted without workspace_id causing NOT NULL constraint on first event write",
       "type": "fix"
     },
     {
@@ -12043,26 +12030,26 @@
   ],
   "facets": {
     "area": {
-      "agents": 288,
+      "agents": 287,
       "artifacts": 117,
-      "auth": 133,
-      "backend": 133,
+      "auth": 132,
+      "backend": 134,
       "cost": 1,
       "docs": 4,
       "engine": 14,
       "evals": 19,
-      "frontend": 222,
+      "frontend": 221,
       "harness": 2,
       "infra": 5,
       "perf": 1,
       "product": 30,
-      "resume": 81,
+      "resume": 80,
       "runtime": 41,
-      "sse": 224,
+      "sse": 223,
       "test": 3,
       "test-infra": 18,
       "tooling": 4,
-      "workflow": 251
+      "workflow": 250
     },
     "status": {
       "accepted": 1,
@@ -12093,5 +12080,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-14 14:33"
+  "generated": "2026-08-14 17:02"
 }

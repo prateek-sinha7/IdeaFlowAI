@@ -517,7 +517,14 @@ export function handlePipelineMessage(
           // happened, so carry it. Only a genuinely different run clears it. Without
           // this the trailing resume frame lands last on every replay and zeroes the
           // revision count the user is meant to be reading.
-          agentStartEventIds: isSameRunReannounce ? (prev.agentStartEventIds ?? {}) : {},
+          //
+          // FIX-222: do NOT carry agentStartEventIds when resuming from a terminal
+          // state (cancelled/failed). "Run Again" on a cancelled run re-uses the same
+          // run_id → isSameRunReannounce=true → BUT prev.isRunning=false (it was
+          // cancelled). The existing ids cause deriveSpecRevisionCount to return 1
+          // immediately on the first agent_start, showing a spurious "Spec Revision
+          // Cycle 1" banner. Only carry ids on a LIVE reconnect (prev.isRunning=true).
+          agentStartEventIds: (isSameRunReannounce && prev.isRunning) ? (prev.agentStartEventIds ?? {}) : {},
           // ISS-082: the frame-identity cursor's per-run boundary, on the SAME predicate.
           // A re-announcement continues this run, so its high-water mark must survive or
           // the replay it introduces would be applied a second time; a genuinely different

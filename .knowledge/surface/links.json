@@ -230,7 +230,8 @@
       "FIX-255"
     ],
     "FIX-216b": [
-      "FIX-219"
+      "FIX-219",
+      "FIX-221"
     ],
     "FIX-217": [
       "FIX-252",
@@ -250,6 +251,7 @@
       "ISS-158"
     ],
     "FIX-219": [
+      "FIX-221",
       "ISS-161"
     ],
     "FIX-220": [
@@ -268,7 +270,6 @@
       "ISS-111"
     ],
     "FIX-222": [
-      "FIX-221",
       "ISS-063",
       "ISS-075",
       "ISS-085"
@@ -500,7 +501,6 @@
       "FIX-254"
     ],
     "ISS-063": [
-      "FIX-221",
       "FIX-222",
       "FIX-254",
       "ISS-065",
@@ -518,7 +518,6 @@
       "ISS-072"
     ],
     "ISS-065": [
-      "FIX-221",
       "FIX-222",
       "ISS-063",
       "ISS-075",
@@ -556,12 +555,10 @@
       "ISS-095"
     ],
     "ISS-075": [
-      "FIX-221",
       "ISS-080",
       "ISS-081"
     ],
     "ISS-076": [
-      "FIX-221",
       "ISS-114"
     ],
     "ISS-078": [
@@ -825,7 +822,6 @@
       "FIX-208",
       "FIX-213",
       "FIX-218",
-      "FIX-221",
       "FIX-222",
       "FIX-223",
       "FIX-224",
@@ -1153,7 +1149,6 @@
       "FIX-158",
       "FIX-162",
       "FIX-207",
-      "FIX-221",
       "FIX-223",
       "FIX-227",
       "FIX-228",
@@ -1342,6 +1337,7 @@
       "FIX-217",
       "FIX-218",
       "FIX-219",
+      "FIX-221",
       "FIX-223",
       "FIX-224",
       "FIX-231",
@@ -1613,7 +1609,6 @@
       "FIX-217",
       "FIX-218",
       "FIX-220",
-      "FIX-221",
       "FIX-222",
       "FIX-225",
       "FIX-226",
@@ -1730,7 +1725,6 @@
       "FIX-121",
       "FIX-125",
       "FIX-152",
-      "FIX-221",
       "FIX-223",
       "FIX-225",
       "FIX-227",
@@ -1911,7 +1905,6 @@
       "FIX-206",
       "FIX-207",
       "FIX-210",
-      "FIX-221",
       "FIX-223",
       "FIX-225",
       "FIX-226",
@@ -2190,7 +2183,6 @@
       "FIX-212",
       "FIX-215",
       "FIX-217",
-      "FIX-221",
       "FIX-222",
       "FIX-223",
       "FIX-225",
@@ -2688,6 +2680,7 @@
       "FIX-216b",
       "FIX-218",
       "FIX-219",
+      "FIX-221",
       "FIX-233",
       "FIX-239",
       "FIX-241",
@@ -2998,9 +2991,6 @@
     "frontend/src/app/dashboard/bridgeTerminality.source.test.ts": [
       "FIX-256"
     ],
-    "frontend/src/app/dashboard/deadRevisionRefs.source.test.ts": [
-      "FIX-221"
-    ],
     "frontend/src/app/dashboard/freshLaunchTranscriptReset.source.test.ts": [
       "FIX-201"
     ],
@@ -3055,7 +3045,6 @@
       "FIX-210",
       "FIX-217",
       "FIX-220",
-      "FIX-221",
       "FIX-225",
       "FIX-245",
       "FIX-247",
@@ -3451,7 +3440,6 @@
     "frontend/src/hooks/useRunStateStore.ts": [
       "FIX-201",
       "FIX-220",
-      "FIX-221",
       "FIX-225",
       "FIX-254",
       "FIX-256",
@@ -3473,7 +3461,6 @@
       "FIX-209"
     ],
     "frontend/src/hooks/useWorkflow.specRevisionCount.test.ts": [
-      "FIX-221",
       "FIX-225"
     ],
     "frontend/src/hooks/useWorkflow.ts": [
@@ -3481,7 +3468,6 @@
       "FIX-107",
       "FIX-120",
       "FIX-166",
-      "FIX-221",
       "FIX-225",
       "FIX-245"
     ],
@@ -3530,7 +3516,6 @@
       "FIX-156",
       "FIX-166",
       "FIX-178",
-      "FIX-221",
       "FIX-225",
       "FIX-254"
     ],
@@ -3681,11 +3666,8 @@
       "FIX-201"
     ],
     "FIX-221": [
-      "FIX-222",
-      "ISS-063",
-      "ISS-065",
-      "ISS-075",
-      "ISS-076"
+      "FIX-216b",
+      "FIX-219"
     ],
     "FIX-222": [
       "FIX-221",
