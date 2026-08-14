@@ -261,14 +261,22 @@ def _select_isolation_scope(base_workspace: Any) -> str:
     return _ISOLATION_WORKTREE if getattr(base_workspace, "has_git", False) else _ISOLATION_SUB_SANDBOX
 
 
-async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncIterator[dict]:
+async def run_fanout(requests: list[dict], ctx: Any, *, step: Any,
+                     event_queue: asyncio.Queue | None = None) -> AsyncIterator[dict]:
     """Spawn the fan-out children — the ONLY spawn path (FANOUT-02).
 
     An async generator yielding lifecycle-only events (``subagent_spawned`` /
     ``subagent_result``) and finally returning. The per-worker status is collected into
     the ``subagent_result`` events (the status-only structured summary this plan
     produces — typed artifact refs are 11-03 / FANOUT-06).
+    
+    ``event_queue`` (optional, default None): when a caller supplies a queue, each
+    worker's own per-agent events (agent_start/agent_chunk/tool_call/tool_result/
+    agent_complete — normally discarded here) are ALSO pushed onto it as a side
+    channel, for a caller that wants to forward live per-worker streaming (e.g.
+    ``parallel_group``). None (every other caller today) is a no-op — byte-identical.
     """
+
     runner = ctx.runner
     run_id = getattr(runner, "run_id", "")
     step_id = getattr(step, "agent_id", "fanout")
@@ -427,6 +435,13 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
                     worker_tokens += int(
                         (_child_event.get("data") or {}).get("total_tokens") or 0
                     )
+
+                # Optional side channel (additive, default-off): a caller that
+                # supplied event_queue gets this worker's raw per-agent event too.
+                # None for every existing caller — dead branch, zero behavior change.
+                if event_queue is not None:
+                    event_queue.put_nowait(_child_event)
+
         except asyncio.CancelledError:
             # This worker's task was cancelled (the run was stopped mid-flight). Flip
             # the row terminal ``cancelled`` (FANOUT-11) and re-raise so asyncio.gather

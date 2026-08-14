@@ -31,8 +31,9 @@ from sqlalchemy.pool import StaticPool
 
 
 class _FakeUser:
-    def __init__(self, id: str):
+    def __init__(self, id: str, tier: str = "enterprise"):
         self.id = id
+        self.tier = tier
 
 
 @pytest.fixture
@@ -270,19 +271,22 @@ class TestRouting:
         fake = _StreamingConcierge()
         monkeypatch.setattr(rc_module, "_resolve_concierge", lambda: fake)
 
-    def test_clarify_waiting_routes_to_answers_seam(self, env):
+    def test_clarify_waiting_plain_text_routes_to_concierge(self, env):
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="waiting_for_user")
         _seed_events(env, run_id, [(1, "questionnaire_ready", {})], owner_id=owner.id)
         env["state"]["user"] = owner
 
+        # SAFETY: plain text (no structured responses from clarify form) routes to Concierge,
+        # not auto-submitted as freeform answer. Prevents user questions from answering the gate.
+        # A Concierge-routed turn streams as text/event-stream (BE-2), not a plain JSON body.
         resp = _post(env, run_id, text="dark mode please", message_id="m-c")
         assert resp.status_code == 200, resp.text
-        assert resp.json()["channel"] == "answers"
-        recorded = env["store"]._questionnaire_responses.get(run_id)
-        assert recorded == [{"question_id": "freeform", "answer": "dark mode please"}]
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        terminals = [f for f in _parse_sse_frames(resp.text) if f["type"] == "chat_reply"]
+        assert len(terminals) == 1
 
-    def test_gate_paused_routes_to_gate_seam_approve(self, env):
+    def test_gate_paused_plain_text_routes_to_concierge(self, env):
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="waiting_for_user")
         gate_key = f"{run_id}:prototype-specify"
@@ -291,10 +295,14 @@ class TestRouting:
         _arm_review(env, gate_key)
         env["state"]["user"] = owner
 
-        resp = _post(env, run_id, message_id="m-g1")  # default action approve
-        assert resp.json()["channel"] == "gate"
-        recorded = env["store"]._questionnaire_responses.get(f"review:{gate_key}")
-        assert recorded and recorded[0]["approved"] is True
+        # KAN-100: plain text (no explicit gate action) routes to Concierge, not auto-approve.
+        # Prevents silent approval if user types a question during a gate pause.
+        # A Concierge-routed turn streams as text/event-stream (BE-2), not a plain JSON body.
+        resp = _post(env, run_id, message_id="m-g1")
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        terminals = [f for f in _parse_sse_frames(resp.text) if f["type"] == "chat_reply"]
+        assert len(terminals) == 1
 
     def test_gate_update_specs_routes_to_kan101(self, env):
         owner = _seed_user(env, "owner")

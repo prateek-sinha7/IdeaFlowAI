@@ -2,6 +2,7 @@
 consumes: []
 context_from:
 - $previous
+description: Reviews your product for security risks and provides a prioritized action plan.
 estimated_duration: 5.0
 guardrails: []
 icon: "\U0001F6E1️"

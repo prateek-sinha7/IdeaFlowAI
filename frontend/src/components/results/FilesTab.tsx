@@ -312,14 +312,10 @@ export function deriveDeliverableFilename(
     return fallback || "custom-output.md";
   }
 
-  // ── PPT / od_ppt ──────────────────────────────────────────────────────────
-  // All PPT runs in this codebase use the od_ppt/HTML-deck path (od_ppt,
-  // od_ppt_revision). The normalised "ppt"/"ppt_revision" types are aliases
-  // set by DashboardLayout when pipeline_type is "od_ppt". All produce HTML.
-  if (
-    workflowType === "ppt" || workflowType === "ppt_revision" ||
-    workflowType === "od_ppt" || workflowType === "od_ppt_revision"
-  ) {
+  // ── PPT ────────────────────────────────────────────────────────────────────
+  // Every ppt run is the HTML-deck pipeline (formerly od_ppt/od_ppt_revision —
+  // see backend/agents/registry.py). All produce HTML.
+  if (workflowType === "ppt" || workflowType === "ppt_revision") {
     const ext = "html"; // always HTML — PptxGenJS (.pptx) path is not used
     if (content) {
       const t = content.match(/<title>([^<]+)<\/title>/i);
@@ -388,9 +384,8 @@ function deriveDeliverableFiles(
   }
 
   // ── PPT ───────────────────────────────────────────────────────────────────
-  // All PPT runs produce HTML decks (od_ppt / od_ppt_revision). The normalised
-  // "ppt"/"ppt_revision" aliases also produce HTML — never a .pptx binary.
-  if ((workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt" || workflowType === "od_ppt_revision") && pptContent) {
+  // Every ppt run produces an HTML deck — never a .pptx binary.
+  if ((workflowType === "ppt" || workflowType === "ppt_revision") && pptContent) {
     let name = "presentation";
     const t = pptContent.match(/<title>([^<]+)<\/title>/i);
     const h1 = pptContent.match(/<h1[^>]*>([^<]+)<\/h1>/i);

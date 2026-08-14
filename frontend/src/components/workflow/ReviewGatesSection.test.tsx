@@ -1,27 +1,15 @@
 /**
- * Phase 6 (T6 verify gate) — frontend gate-toggle + LIBRARY_AGENTS data integrity.
+ * ReviewGatesSection component behavior — HITL gate toggle for prototype pipeline.
  *
- * Two layers, both durable:
+ * Tests the component's rendering and state management:
+ *   - renders one checkbox per agent
+ *   - agents with gate === "Human_Gate" start CHECKED
+ *   - toggling fires onChange with the updated gate set
+ *   - unchecking ALL gates yields onChange([], touched=true)
  *
- *  1. DATA INTEGRITY of the regenerated `LIBRARY_AGENTS` (`AgentLibraryData.ts`):
- *     the prototype block is exactly the real spec-kit ids; the ppt block is the
- *     real od-ppt ids; NO stale/retired ids survive anywhere; every entry carries
- *     a `gate` field; and the ONLY `gate === "Human_Gate"` entries are
- *     `prototype-specify` + `prototype-plan`. These are the front/back-drift
- *     regressions the reconciliation closed — if `AgentLibraryData.ts` is edited
- *     out of sync, these fail.
- *
- *  2. `ReviewGatesSection` COMPONENT behavior (jsdom + @testing-library/react,
- *     the same stack `AgentProgressPanel.test.tsx` uses):
- *       - renders one checkbox per agent;
- *       - `prototype-specify` / `prototype-plan` start CHECKED, the others
- *         unchecked — i.e. the pre-check set == the `gate === "Human_Gate"` set;
- *       - the first `onChange` is `(humanGateIds, touched=false)` → the caller
- *         omits `gate_agent_ids` (backend static default, byte-identical);
- *       - toggling a checkbox fires `onChange(..., touched=true)` with the
- *         updated id set, in pipeline order;
- *       - unchecking ALL gates yields `onChange([], true)` — the "touched, no
- *         gates" payload (`gate_agent_ids: []`).
+ * Data integrity validation (against the API-populated agent registry) is now
+ * the backend's responsibility — see backend test suite for agent discovery
+ * and contract validation (agents/registry, agents/loader).
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -29,135 +17,73 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { ReviewGatesSection } from "./ReviewGatesSection";
-import {
-  LIBRARY_AGENTS,
-  CUSTOM_AGENTS,
-  ALL_LIBRARY_AGENTS,
-  PIPELINE_CATEGORIES,
-} from "./AgentLibraryData";
 import type { AgentDef } from "@/types/index";
 
 // ───────────────────────────────────────────────────────────────────────────
-// Shared fixtures
+// Shared fixtures — test data for the component behavior
 // ───────────────────────────────────────────────────────────────────────────
 
-const REAL_PROTOTYPE_IDS = [
-  "prototype-specify",
-  "prototype-plan",
-  "prototype-analyze",
-  "prototype-build",
-  "prototype-validate",
-];
-const REAL_PPT_IDS = ["od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator"];
-
-// Ids that MUST NOT survive the regeneration (retired prototype_v1 + the old
-// pre-od PPT pipeline). Checked across the whole agent pool.
-const STALE_IDS = [
-  "requirements-analyst",
-  "html-prototype-builder",
-  "prototype-polisher",
-  "prototype-finalizer",
-  "ppt-content-strategist",
-  "ppt-visual-designer",
-  "ppt-data-storyteller",
-  "ppt-deck-builder",
+// Mock prototype pipeline agents for component testing
+const MOCK_PROTOTYPE_AGENTS: AgentDef[] = [
+  { id: "prototype-specify", name: "Spec Writer Agent", role: "Specification & Architecture", description: "Writes the specification", pipeline_type: "prototype", order: 1, icon: "📋", estimated_duration: 25, has_skill: true, gate: "Human_Gate" },
+  { id: "prototype-plan", name: "Task Planner Agent", role: "Build Planning & Task Decomposition", description: "Decomposes the spec into build plan", pipeline_type: "prototype", order: 2, icon: "🗂️", estimated_duration: 15, has_skill: true, gate: "Human_Gate" },
+  { id: "prototype-analyze", name: "Spec Kit Analyzer", role: "Cross-Artifact Quality Analysis", description: "Analyzes spec and task list", pipeline_type: "prototype", order: 3, icon: "🔍", estimated_duration: 20, has_skill: false, gate: "Human_Gate" },
+  { id: "prototype-build", name: "Build Agent", role: "Incremental HTML Construction", description: "Builds the interactive prototype", pipeline_type: "prototype", order: 4, icon: "🏗️", estimated_duration: 60, has_skill: true, gate: null },
+  { id: "prototype-validate", name: "Validation Agent", role: "Structural Validation & Delivery", description: "Validates the final prototype", pipeline_type: "prototype", order: 5, icon: "✅", estimated_duration: 60, has_skill: true, gate: null },
 ];
 
-const byPipeline = (type: string): AgentDef[] =>
-  LIBRARY_AGENTS.filter((a) => a.pipeline_type === type).sort(
-    (a, b) => a.order - b.order,
-  );
+const MOCK_PPT_AGENTS: AgentDef[] = [
+  { id: "ppt-brief-analyst", name: "Presentation Strategist Agent", role: "Slide Plan & Content Architecture", description: "Analyzes brief and architects slide plan", pipeline_type: "ppt", order: 1, icon: "📋", estimated_duration: 8, has_skill: true, gate: null },
+  { id: "ppt-composer", name: "Deck Engineer Agent", role: "HTML Deck Construction", description: "Builds the complete HTML presentation", pipeline_type: "ppt", order: 2, icon: "🖥️", estimated_duration: 30, has_skill: true, gate: null },
+  { id: "ppt-validator", name: "Deck QA Agent", role: "Structural Validation & Delivery", description: "Validates the deck for structural integrity", pipeline_type: "ppt", order: 3, icon: "📦", estimated_duration: 10, has_skill: true, gate: null },
+];
 
-// The pure pre-check predicate the component encodes (mirrors `isDefaultGated`).
+// The pure pre-check predicate the component encodes
 const isHumanGate = (a: AgentDef): boolean => a.gate === "Human_Gate";
 
 // ───────────────────────────────────────────────────────────────────────────
-// 1. LIBRARY_AGENTS data integrity
+// Data validation: mock agent shapes
 // ───────────────────────────────────────────────────────────────────────────
 
-describe("LIBRARY_AGENTS data integrity (reconciliation)", () => {
-  it("prototype block is exactly the real spec-kit ids, in order", () => {
-    expect(byPipeline("prototype").map((a) => a.id)).toEqual(REAL_PROTOTYPE_IDS);
+describe("Mock agent data validation", () => {
+  it("prototype agents are correctly ordered", () => {
+    const ids = MOCK_PROTOTYPE_AGENTS.map((a) => a.id);
+    expect(ids).toEqual([
+      "prototype-specify",
+      "prototype-plan",
+      "prototype-analyze",
+      "prototype-build",
+      "prototype-validate",
+    ]);
   });
 
-  it("ppt block is exactly the real od-ppt ids, in order", () => {
-    expect(byPipeline("ppt").map((a) => a.id)).toEqual(REAL_PPT_IDS);
+  it("prototype agents have correct gate assignments", () => {
+    const humanGateIds = MOCK_PROTOTYPE_AGENTS.filter(isHumanGate).map((a) => a.id);
+    expect(humanGateIds).toEqual([
+      "prototype-specify",
+      "prototype-plan",
+      "prototype-analyze",
+    ]);
   });
 
-  it("contains no stale / retired ids anywhere in the agent pool", () => {
-    const allIds = new Set(ALL_LIBRARY_AGENTS.map((a) => a.id));
-    const leaked = STALE_IDS.filter((id) => allIds.has(id));
-    expect(leaked).toEqual([]);
-  });
-
-  it("every agent entry carries a `gate` field (string or null)", () => {
-    for (const a of ALL_LIBRARY_AGENTS) {
-      // The key must be present; value is "Human_Gate" | "Validation_Gate" | null.
+  it("all agents carry required fields", () => {
+    const allAgents = [...MOCK_PROTOTYPE_AGENTS, ...MOCK_PPT_AGENTS];
+    for (const a of allAgents) {
+      expect(a.id).toBeDefined();
+      expect(a.name).toBeDefined();
+      expect(a.pipeline_type).toBeDefined();
+      expect(a.order).toBeDefined();
       expect(Object.prototype.hasOwnProperty.call(a, "gate")).toBe(true);
-      expect(a.gate === null || typeof a.gate === "string").toBe(true);
-    }
-  });
-
-  it("the ONLY Human_Gate agents are prototype-specify + prototype-plan + prototype-analyze", () => {
-    const humanGateIds = ALL_LIBRARY_AGENTS.filter(isHumanGate)
-      .map((a) => a.id)
-      .sort();
-    expect(humanGateIds).toEqual(["prototype-analyze", "prototype-plan", "prototype-specify"]);
-  });
-
-  it("prototype build/validate are ungated (gate === null)", () => {
-    const gateById = Object.fromEntries(
-      byPipeline("prototype").map((a) => [a.id, a.gate]),
-    );
-    expect(gateById["prototype-specify"]).toBe("Human_Gate");
-    expect(gateById["prototype-plan"]).toBe("Human_Gate");
-    expect(gateById["prototype-analyze"]).toBe("Human_Gate");
-    expect(gateById["prototype-build"]).toBeNull();
-    expect(gateById["prototype-validate"]).toBeNull();
-  });
-
-  it("PIPELINE_CATEGORIES counts are reconciled (ppt=3, prototype=5, all=55)", () => {
-    const counts = Object.fromEntries(
-      PIPELINE_CATEGORIES.map((c) => [c.key, c.count]),
-    );
-    expect(counts.ppt).toBe(3);
-    expect(counts.prototype).toBe(5);
-    // `all` counts the LIBRARY_AGENTS pool (CUSTOM_AGENTS is a separate array).
-    expect(counts.all).toBe(LIBRARY_AGENTS.length);
-    expect(counts.all).toBe(55);
-    expect(counts.custom).toBe(CUSTOM_AGENTS.length);
-  });
-
-  it("each non-custom category count matches the LIBRARY_AGENTS membership", () => {
-    for (const c of PIPELINE_CATEGORIES) {
-      if (c.key === "all" || c.key === "custom") continue;
-      expect(byPipeline(c.key).length).toBe(c.count);
     }
   });
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// 2. The pure pre-check predicate (data-level, no DOM)
-// ───────────────────────────────────────────────────────────────────────────
-
-describe("pre-check predicate (gate === Human_Gate)", () => {
-  it("selects exactly the default-gated agents for the prototype pipeline", () => {
-    const prototypeAgents = byPipeline("prototype");
-    const preChecked = prototypeAgents.filter(isHumanGate).map((a) => a.id);
-    expect(preChecked).toEqual(["prototype-specify", "prototype-plan", "prototype-analyze"]);
-  });
-
-  it("selects nothing for the ppt pipeline (no default gates)", () => {
-    expect(byPipeline("ppt").filter(isHumanGate)).toEqual([]);
-  });
-});
-
-// ───────────────────────────────────────────────────────────────────────────
-// 3. ReviewGatesSection component behavior (jsdom)
+// ReviewGatesSection component behavior (jsdom)
 // ───────────────────────────────────────────────────────────────────────────
 
 describe("ReviewGatesSection — prototype pipeline", () => {
-  const prototypeAgents = byPipeline("prototype");
+  const prototypeAgents = MOCK_PROTOTYPE_AGENTS;
 
   /** Render with the body expanded so the checkboxes are in the DOM. */
   async function renderExpanded(onChange = vi.fn()) {
@@ -262,7 +188,7 @@ describe("ReviewGatesSection — edge cases", () => {
 
   it("ppt pipeline starts with zero pre-checked gates", () => {
     const onChange = vi.fn();
-    render(<ReviewGatesSection agents={byPipeline("ppt")} onChange={onChange} />);
+    render(<ReviewGatesSection agents={MOCK_PPT_AGENTS} onChange={onChange} />);
     const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
     expect(ids).toEqual([]);
     expect(touched).toBe(false);

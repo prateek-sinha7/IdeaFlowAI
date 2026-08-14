@@ -67,11 +67,19 @@ def _read_cost_site(path: Path) -> str:
             Pricing(1e-6, 5e-6, 0.1e-6, 1.25e-6, 2e-6),
         ),
         (
+            "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+            Pricing(0.8e-6, 4e-6, 0.08e-6, 1e-6, 1.6e-6),
+        ),
+        (
             "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
             Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
         ),
         (
             "eu.anthropic.claude-sonnet-4-6",
+            Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
+        ),
+        (
+            "eu.anthropic.claude-sonnet-4-20250514-v1:0",
             Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
         ),
         (
@@ -90,9 +98,9 @@ def test_catalog_carries_base_rates(model_id: str, expected: Pricing) -> None:
     assert entry.pricing == expected
 
 
-def test_pricing_covers_exactly_five_models() -> None:
+def test_pricing_covers_every_catalog_model() -> None:
     entries = ModelCatalog().list()
-    assert len(entries) == 5
+    assert len(entries) == 7
     for entry in entries:
         assert isinstance(entry.pricing, Pricing)
 

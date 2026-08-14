@@ -383,6 +383,61 @@ class Step:
     # dropped (D-17). Pure data (INV-5) — the compiler only RECORDS the edges.
     depends_on: list[str] = field(default_factory=list)
 
+    # ── Per-instance identity + scoping (spec 012) ────────────────────────
+    # instance_id: stable, immutable per-node slug; drives the artifact name and the
+    # synthetic agent id (R-03/R-03a). Empty for every built-in step (parity).
+    instance_id: str = ""
+    display_name: str = ""        # user-editable label; never affects instance_id
+    prompt: str = ""              # per-instance purpose text; custom-agent steps only
+    skills: list[str] = field(default_factory=list)   # per-step skill ids (R-01)
+
+    # ── Wave-scheduling surface (step-level concurrency) ──────────────────
+    # COMPILER-DERIVED, never authored: absent from `_ALLOWED_STEP_KEYS`, so INV-5
+    # ("no DSL") is untouched.
+    #
+    # They let `build_waves` partition STEPS the way it already partitions TASKS:
+    # it reads only `id`, `depends_on`, `conflict_keys`, `targets`, and `Step` had
+    # just `depends_on` — these two fields make it run against Steps unmodified.
+    #
+    # `conflict_keys`: two steps sharing a key must not co-schedule — they'd write
+    # the same file in the shared sandbox. For a custom-agent step the key is
+    # `instance_id`, the same thing `artifact_name` already keys the filename on.
+    #
+    # Empty on every existing step, and "no keys" means "no conflict" — inert until
+    # a wave dispatcher exists.
+    conflict_keys: list[str] = field(default_factory=list)
+    # Declared write targets. Present only so build_waves' documented fallback
+    # (`set(t.conflict_keys) or set(t.targets)`) does not AttributeError on a
+    # Step whose conflict_keys are empty. Nothing populates it today.
+    targets: list[str] = field(default_factory=list)
+
+    # ── Sibling-group parallelism (subagents.mode: parallel) ──────────────
+    # COMPILER-DERIVED, never authored (deliberately absent from
+    # `_ALLOWED_STEP_KEYS`, like the two fields above — INV-5 stays intact).
+    #
+    # Set to the PARENT's agent_id on every direct child of a
+    # `subagents: {mode: parallel}` group. It means: this step is dispatched by
+    # that parent through the kernel `run_fanout` spawn path, so the engine's
+    # main dispatch loop must SKIP it — otherwise the step runs twice, once
+    # serially in the loop and once as a spawned worker.
+    #
+    # The child still appears in `compiled.steps` (and therefore in the roster,
+    # the artifact graph, and `agent_exists`) — it is only removed from the
+    # SERIAL dispatch, not from the plan. Empty on every existing step, so the
+    # skip below is dead code for every workflow that does not use the mode.
+    dispatched_by: str = ""
+
+    @property
+    def id(self) -> str:
+        """Alias for ``agent_id`` — the identity attribute ``build_waves`` reads.
+
+        A property, not a field: adding a real `id` field would duplicate
+        `agent_id` in every `asdict()`, every manifest round-trip and every
+        equality check, and the two could then disagree. This is read-only and
+        cannot drift.
+        """
+        return self.agent_id
+
 
 # ---------------------------------------------------------------------------
 # Compiled workflow (the kernel's execution target)
@@ -421,6 +476,8 @@ class CompiledWorkflow:
     # spawn (the run_fanout pre-spawn guard). Pure data (INV-5); self×N fan-out needs no
     # entry (it reuses the step's own agent).
     allowed_workers: list[str] = field(default_factory=list)
+
+    capabilities: dict = field(default_factory=dict)   # {"internet": bool} (R-07)
 
     # chat: the workflow's optional chat/concierge DATA block (Plan 33-05 / INV-5).
     # Carried verbatim from ``WorkflowManifest.chat`` by the compiler — the run

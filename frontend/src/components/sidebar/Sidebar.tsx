@@ -41,8 +41,6 @@ const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; 
   user_stories_revision: { icon: FileText, color: "text-blue-400", label: "User Stories (revision)" },
   ppt: { icon: Presentation, color: "text-amber-400", label: "Presentation" },
   ppt_revision: { icon: Presentation, color: "text-amber-400", label: "Presentation (revision)" },
-  od_ppt: { icon: Presentation, color: "text-amber-400", label: "Presentation" },
-  od_ppt_revision: { icon: Presentation, color: "text-amber-400", label: "Presentation (revision)" },
   prototype: { icon: Layout, color: "text-emerald-400", label: "Prototype" },
   prototype_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype (revision)" },
   od_prototype: { icon: Layout, color: "text-emerald-400", label: "Prototype" },
@@ -52,6 +50,7 @@ const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; 
   migration: { icon: GitBranch, color: "text-teal-400", label: "Platform" },
   mulesoft_to_springboot: { icon: GitBranch, color: "text-teal-400", label: "Mulesoft → Spring Boot" },
   dotnet_to_azure: { icon: GitBranch, color: "text-indigo-400", label: ".NET → Azure" },
+  hello_html: { icon: Sparkles, color: "text-pink-400", label: "Hello HTML" },
 };
 
 const STATUS_ICON: Record<WorkflowStatus, typeof Loader2> = {

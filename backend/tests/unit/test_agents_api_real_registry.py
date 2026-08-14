@@ -13,8 +13,9 @@ the two latent bugs the repoint fixes:
   ``prototype-validate`` ids (with their real ``gate`` frontmatter), so the
   frontend's now-real ids pass validation and the engine loads the real agents.
 * **Bug 2** — ``allowed_custom_agent_ids("od_ppt")`` used to return ``∅``,
-  rejecting every od_ppt run that supplied ``agent_ids``. It must now be
-  non-empty.
+  rejecting every od_ppt run that supplied ``agent_ids`` (od_ppt's agent set
+  now declares pipeline_type: ppt directly — the check is pinned as
+  ``allowed_custom_agent_ids("ppt")``). It must be non-empty.
 
 The endpoint tests use a FastAPI ``TestClient`` with ``get_current_user``
 overridden (the same pattern as ``test_skill_content_guard.py``); the
@@ -88,6 +89,9 @@ class TestPrototypePipelineEndpointReturnsRealRegistry:
         assert ids == [
             "prototype-specify",
             "prototype-plan",
+            # KAN-86 (ff94f7c1) added the Spec Kit analyze step between plan and
+            # build. This list pinned the pre-KAN-86 shape.
+            "prototype-analyze",
             "prototype-build",
             "prototype-validate",
         ], f"endpoint did not return the REAL prototype ids: {ids}"
@@ -142,6 +146,9 @@ class TestPrototypePipelineEndpointReturnsRealRegistry:
             "estimated_duration",
             "has_skill",
             "gate",
+            # The route serialises the spec's prompt body too; this set pinned
+            # the pre-`prompt_body` shape.
+            "prompt_body",
         }
         for a in resp.json()["agents"]:
             assert set(a.keys()) == expected_keys, (
@@ -240,19 +247,20 @@ class TestRealAllowedCustomAgentIds:
     ``test_run_pipeline_validation.py``; we intentionally don't touch that.)
     """
 
-    def test_od_ppt_allow_list_is_non_empty(self):
+    def test_ppt_allow_list_is_non_empty(self):
         """Bug 2: legacy returned ``∅`` for od_ppt, rejecting every od_ppt run
-        that supplied agent_ids. The real helper must return a non-empty set
-        that includes the od-ppt agents.
+        that supplied agent_ids. od_ppt's agent set now declares
+        pipeline_type: ppt directly (WR-01 closed at the root); the real
+        helper must return a non-empty set that includes the od-ppt agents.
         """
         from agents.registry import allowed_custom_agent_ids
 
-        allowed = allowed_custom_agent_ids("od_ppt")
-        assert allowed, "od_ppt allow-list is empty — bug 2 not fixed"
+        allowed = allowed_custom_agent_ids("ppt")
+        assert allowed, "ppt allow-list is empty — bug 2 not fixed"
         assert {
-            "od-ppt-brief-analyst",
-            "od-ppt-composer",
-            "od-ppt-validator",
+            "ppt-brief-analyst",
+            "ppt-composer",
+            "ppt-validator",
         } <= allowed
 
     def test_prototype_allow_list_contains_real_specify(self):
@@ -295,5 +303,17 @@ class TestRealAllowedCustomAgentIds:
         assert real_helper("ppt") == set(PIPELINE_AGENTS["ppt"]) | custom_pool
         # prototype → real Spec-Kit agents ∪ custom pool.
         assert real_helper("prototype") == set(PIPELINE_AGENTS["prototype"]) | custom_pool
-        # custom → the tight utility pool only (NOT the legacy union-of-all).
-        assert real_helper("custom") == custom_pool
+        # custom → OPEN: every non-revision, non-internal pipeline's agents.
+        # Cross-pipeline composition is the custom workflow builder's purpose
+        # (spec 012), so this branch is deliberately wide. Safe because `custom`
+        # is enterprise-only and enterprise already holds every pipeline exposed
+        # — see agents/registry.py::allowed_custom_agent_ids, and the equivalence
+        # pinned in tests/agents/test_registry_helpers.py.
+        expected_custom = {
+            aid
+            for pt, ids in PIPELINE_AGENTS.items()
+            if not pt.endswith("_revision") and pt != "chat"
+            for aid in ids
+        }
+        assert real_helper("custom") == expected_custom
+        assert custom_pool <= real_helper("custom")

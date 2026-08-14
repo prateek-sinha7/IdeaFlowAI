@@ -29,6 +29,7 @@ strategies call it with.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from dataclasses import dataclass, field
@@ -128,7 +129,9 @@ class DeliverableContext:
                 if p.is_file():
                     self._content = p.read_text(encoding="utf-8")
                     return self._content
-        except OSError as exc:  # noqa: BLE001 — a read failure degrades to empty content
+        except (
+            OSError
+        ) as exc:  # noqa: BLE001 — a read failure degrades to empty content
             logger.debug("DeliverableContext.content read failed (%s)", exc)
         return self._content or ""
 
@@ -178,6 +181,7 @@ class KernelServices:
         results: list[dict],
         cancel_event: Any,
         allowed_workers: list[str] | None = None,
+        compiled_steps: list | None = None,
         aux_usage_sink: Any = None,
     ) -> None:
         self._engine = engine
@@ -211,6 +215,18 @@ class KernelServices:
         # not an attribute that only test fakes fabricate. Threaded from
         # ``compiled.allowed_workers`` at handle construction in ``_execute_impl``.
         self.allowed_workers = list(allowed_workers or [])
+        # The compiled plan's steps, keyed by agent id, so ``run_worker`` can find
+        # the DECLARED step for a named worker instead of synthesizing a bare one.
+        # A self×N fan-out never needs this (the parent's own step is the worker's
+        # step); a heterogeneous fan-out does, because each worker is a distinct
+        # manifest step carrying its own prompt and skills. Empty for any caller
+        # that does not pass it — run_worker then falls back to the old synthesized
+        # view, so no existing path changes shape.
+        self._steps_by_agent = {
+            s.agent_id: s
+            for s in (compiled_steps or [])
+            if getattr(s, "agent_id", None)
+        }
 
     # ── Run-scoped passthroughs (attributes the capabilities read) ────────────
     @property
@@ -283,7 +299,9 @@ class KernelServices:
                 from app.agents.render_check import render_check
 
                 _rres0 = await render_check(_orig_path)
-            except Exception as _render_exc:  # noqa: BLE001 — render unavailable ⇒ no baseline
+            except (
+                Exception
+            ) as _render_exc:  # noqa: BLE001 — render unavailable ⇒ no baseline
                 logger.warning(
                     "revision baseline render_check raised (%s) — treating as "
                     "unavailable (no console baseline)",
@@ -292,7 +310,8 @@ class KernelServices:
                 from app.agents.render_check import RenderResult
 
                 _rres0 = RenderResult(
-                    ok=True, available=False,
+                    ok=True,
+                    available=False,
                     note=f"render_check error: {_render_exc}",
                 )
             baseline_console = _console_sigs(_rres0)
@@ -322,7 +341,10 @@ class KernelServices:
         except Exception as exc:  # noqa: BLE001 — audit write must never abort a gate
             logger.warning(
                 "record_gate_event(step=%s gate=%s outcome=%s) failed: %s",
-                step, gate, outcome, exc,
+                step,
+                gate,
+                outcome,
+                exc,
             )
             return None
 
@@ -358,10 +380,14 @@ class KernelServices:
                 attempt=attempt,
                 issues=issues,
             )
-        except Exception as exc:  # noqa: BLE001 — audit write must never abort a validator
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — audit write must never abort a validator
             logger.warning(
                 "record_validation_result(step=%s validator=%s) failed: %s",
-                step, validator, exc,
+                step,
+                validator,
+                exc,
             )
             return None
 
@@ -389,7 +415,10 @@ class KernelServices:
         except Exception as exc:  # noqa: BLE001 — audit write must never abort a hook
             logger.warning(
                 "record_hook_run(hook=%s event=%s outcome=%s) failed: %s",
-                hook, event, outcome, exc,
+                hook,
+                event,
+                outcome,
+                exc,
             )
             return None
 
@@ -407,7 +436,7 @@ class KernelServices:
             return
         try:
             data = dict(detail) if detail else {}
-            # ISS-082 — the frame's ONLY identity. This is the one event pushed straight
+                # ISS-082 — the frame's ONLY identity. This is the one event pushed straight
             # onto the live queue instead of being yielded, so it never reaches execute()'s
             # seq/event_id stamping chokepoint and carries no ``seq`` and has no run_events
             # row. Without an id every consumer's dedup is a no-op for it by design
@@ -417,7 +446,8 @@ class KernelServices:
             # stream — a golden event-multiset change (INV-3) that _VOLATILE_STRIP_KEYS
             # strips seq/event_id from but cannot strip a whole row away.
             data.setdefault("event_id", str(_uuid4()))
-            queue.put_nowait({"type": "hook_run", "data": data})
+            queue.put_nowait({"type": "hook_run", "data": data}
+            )
         except Exception:  # noqa: BLE001 — emit must never abort a hook
             pass
 
@@ -461,7 +491,9 @@ class KernelServices:
         except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
             logger.warning(
                 "record_exec_run(step=%s outcome=%s) failed: %s",
-                step, outcome, exc,
+                step,
+                outcome,
+                exc,
             )
             return None
 
@@ -507,7 +539,9 @@ class KernelServices:
         except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
             logger.warning(
                 "record_subagent_run(step=%s worker=%s) failed: %s",
-                parent_step, worker_agent, exc,
+                parent_step,
+                worker_agent,
+                exc,
             )
             return None
 
@@ -524,7 +558,9 @@ class KernelServices:
         if store is None or row_id is None:
             return
         try:
-            await store.update_subagent_run(row_id, status=status, tokens=tokens, cost=cost)
+            await store.update_subagent_run(
+                row_id, status=status, tokens=tokens, cost=cost
+            )
         except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
             logger.warning("update_subagent_run(row=%s) failed: %s", row_id, exc)
 
@@ -561,7 +597,9 @@ class KernelServices:
         except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
             logger.warning(
                 "record_wave_run(step=%s wave=%s) failed: %s",
-                step, wave_index, exc,
+                step,
+                wave_index,
+                exc,
             )
             return None
 
@@ -590,7 +628,9 @@ class KernelServices:
             return []
         try:
             return await store.read_wave_runs(self.run_id)
-        except Exception as exc:  # noqa: BLE001 — a resume read must never abort the run
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — a resume read must never abort the run
             logger.warning("read_wave_runs failed: %s", exc)
             return []
 
@@ -608,7 +648,9 @@ class KernelServices:
             return []
         try:
             return await store.read_subagent_runs(self.run_id)
-        except Exception as exc:  # noqa: BLE001 — a resume read must never abort the run
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — a resume read must never abort the run
             logger.warning("read_subagent_runs failed: %s", exc)
             return []
 
@@ -631,7 +673,9 @@ class KernelServices:
             return await store.workspace_budget_spent(
                 getattr(self._ectx, "workspace_id", None)
             )
-        except Exception as exc:  # noqa: BLE001 — a ceiling read must never abort the run
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — a ceiling read must never abort the run
             logger.warning("workspace_budget_spent read failed: %s", exc)
             return {"subagents": 0, "tokens": 0}
 
@@ -656,7 +700,9 @@ class KernelServices:
         }
         try:
             await store.persist_budget_snapshot(self.run_id, payload)
-        except Exception as exc:  # noqa: BLE001 — snapshot persist must NEVER abort the run
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — snapshot persist must NEVER abort the run
             logger.warning("persist_budget_snapshot failed: %s", exc)
 
     # ── Isolated-workspace alloc/reclaim handle (Phase 11 / FANOUT-05) ─────────
@@ -704,7 +750,9 @@ class KernelServices:
             return {"conflicts": [], "snippet": ""}
         return merge_fn(branch, base_commit)
 
-    async def reclaim_isolated_workspace(self, base_workspace: Any, worker_ws: Any) -> None:
+    async def reclaim_isolated_workspace(
+        self, base_workspace: Any, worker_ws: Any
+    ) -> None:
         """Reclaim a per-worker isolated workspace (worktree remove / child rmtree).
 
         A ``worktree`` workspace is removed via the base workspace's ``remove_worktree``
@@ -718,7 +766,9 @@ class KernelServices:
             return
         if getattr(worker_ws, "_worktree_branch", None) is not None:
             base = base_workspace if base_workspace is not None else self.workspace
-            remove = getattr(base, "remove_worktree", None) if base is not None else None
+            remove = (
+                getattr(base, "remove_worktree", None) if base is not None else None
+            )
             if remove is not None:
                 remove(worker_ws)
         else:
@@ -726,7 +776,9 @@ class KernelServices:
             if teardown is not None:
                 teardown()
 
-    async def teardown_isolated_workspace(self, base_workspace: Any, worker_ws: Any) -> None:
+    async def teardown_isolated_workspace(
+        self, base_workspace: Any, worker_ws: Any
+    ) -> None:
         """Tear down ONE allocated isolated workspace on the cancel/finally path (11-05).
 
         The cancel-path teardown entry point the kernel ``run_fanout`` ``finally`` block
@@ -781,10 +833,15 @@ class KernelServices:
                 task_id=str(worker_index),
                 visibility="workspace",
             )
-        except Exception as exc:  # noqa: BLE001 — fragment persist must never abort the merge
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — fragment persist must never abort the merge
             logger.warning(
                 "write_fragment_artifact(step=%s worker=%s idx=%s) failed: %s",
-                producer_step, worker_agent, worker_index, exc,
+                producer_step,
+                worker_agent,
+                worker_index,
+                exc,
             )
             return None
         # Return the id of the just-written ref (the latest of its kind for this run).
@@ -792,7 +849,8 @@ class KernelServices:
             return None
         try:
             refs = [
-                r for r in graph.tree(self.run_id)
+                r
+                for r in graph.tree(self.run_id)
                 if r.producer_step == producer_step and r.task_id == str(worker_index)
             ]
             return refs[-1].id if refs else None
@@ -820,7 +878,8 @@ class KernelServices:
 
         body = _json.dumps(
             payload if payload is not None else {"conflicts": conflicts},
-            default=str, sort_keys=True,
+            default=str,
+            sort_keys=True,
         )
         graph = getattr(ectx, "artifacts", None)
         try:
@@ -833,7 +892,9 @@ class KernelServices:
                 location=f"merge_conflict/{producer_step}.json",
                 visibility="private",  # owner-scoped: a conflict is not workspace-shared
             )
-        except Exception as exc:  # noqa: BLE001 — audit must never abort the conflict flow
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — audit must never abort the conflict flow
             logger.warning(
                 "write_merge_conflict_artifact(step=%s) failed: %s", producer_step, exc
             )
@@ -841,9 +902,7 @@ class KernelServices:
         if graph is None:
             return None
         try:
-            refs = [
-                r for r in graph.tree(self.run_id) if r.kind == "merge_conflict"
-            ]
+            refs = [r for r in graph.tree(self.run_id) if r.kind == "merge_conflict"]
             return refs[-1].id if refs else None
         except Exception:  # noqa: BLE001
             return None
@@ -918,7 +977,9 @@ class KernelServices:
         except Exception as exc:  # noqa: BLE001 — a failed attempt counts, never aborts
             logger.warning(
                 "run_merge_agent(worker=%s attempt=%s) failed: %s",
-                merge_worker, attempt, exc,
+                merge_worker,
+                attempt,
+                exc,
             )
             return False
 
@@ -946,7 +1007,12 @@ class KernelServices:
 
     # ── Fan-out spawn handle (Phase 11 / FANOUT-02) ────────────────────────────
     async def run_fanout(
-        self, requests: list, ctx: Any, *, step: Any
+        self,
+        requests: list,
+        ctx: Any,
+        *,
+        step: Any,
+        event_queue: asyncio.Queue | None = None,
     ) -> AsyncIterator[dict]:
         """Re-yield the kernel ``run_fanout`` spawn-path events (FANOUT-02).
 
@@ -955,10 +1021,18 @@ class KernelServices:
         kernel-private ``run_fanout`` coroutine (the only spawn path). Lifecycle-only
         events (``subagent_spawned`` / ``subagent_result``) flow back through the
         engine's single emit boundary.
+
+        ``event_queue`` (optional): forwarded straight through to the kernel
+        ``run_fanout`` so a caller like ``parallel_group`` can receive each
+        worker's live per-agent events as a side channel. None for every other
+        caller today (fanout_batch, wave_scheduler, the engine tool-result
+        path) — unchanged, byte-identical.
         """
         from agents.execution_engine.fanout import run_fanout as _kernel_run_fanout
 
-        async for event in _kernel_run_fanout(requests, ctx, step=step):
+        async for event in _kernel_run_fanout(
+            requests, ctx, step=step, event_queue=event_queue
+        ):
             yield event
 
     async def run_worker(
@@ -996,7 +1070,19 @@ class KernelServices:
         if getattr(step, "agent_id", None) == agent_id and workspace is None:
             worker_step = step
         else:
-            worker_step = SimpleNamespace(
+            # Start from the worker's OWN declared step when the plan has one.
+            #
+            # This matters only for a heterogeneous fan-out, where each worker is a
+            # distinct manifest step. Synthesizing a bare view dropped everything the
+            # author wrote on that step — `prompt`, `skills`, `instance_id`, `injects`,
+            # `model` — so a declared child ran with no instructions at all. Observed
+            # live: three "write one short line" workers each burned 25k-35k input
+            # tokens wandering through ls/glob/read_file, and one wrote the wrong
+            # subject entirely. Invisible until now because every previous fan-out was
+            # self×N, where the branch above already returns the correct step.
+            _declared = self._steps_by_agent.get(agent_id)
+            _base = dict(vars(_declared)) if _declared is not None else {}
+            _base.update(
                 agent_id=agent_id,
                 # WR-05: a worker IS a plain single agent run — the parent's
                 # fanout_batch strategy name would be misleading metadata on the
@@ -1006,10 +1092,17 @@ class KernelServices:
                 hooks=[],
                 task_source=None,
                 post_step=None,
+                # The parent's tool grant, not the child's: the fan-out decides what a
+                # worker may touch. Preserved from the pre-fix behavior deliberately —
+                # widening a worker's tools from its own declaration would be a
+                # privilege change, and this fix is about restoring its INSTRUCTIONS.
                 tools=getattr(step, "tools", None),
+                # Never inherit a fan-out spec: a worker that re-fans is a spawn loop.
                 fanout=None,
+                dispatched_by="",
                 isolated_workspace=workspace,
             )
+            worker_step = SimpleNamespace(**_base)
 
         # FANOUT-04: thread the worker's per-worker input through the existing CURRENT
         # TASK injection path so the worker sees ITS assigned slice (not just the shared
@@ -1033,17 +1126,18 @@ class KernelServices:
         async for event in self.run_agent(
             worker_step,
             ctx,
-            task_number=worker_index + 1,
-            total_tasks=total_workers or (worker_index + 1),
+            # A worker with no assigned task text is a fully-specified step, not a
+            # slice of a task list — numbering it emits a CURRENT TASK block pointing
+            # at a list that does not exist (parallel_group sends input="" by design).
+            task_number=(worker_index + 1) if input else None,
+            total_tasks=total_workers or (worker_index + 1),            
             task_block=input,
             invocation_gated=False,
         ):
             yield event
 
     # ── Hook firing passthrough (08-07 / HOOK-01..04 / D-09) ───────────────────
-    async def fire_hooks(
-        self, event_name: str, step: Any, *, payload: str = ""
-    ) -> str:
+    async def fire_hooks(self, event_name: str, step: Any, *, payload: str = "") -> str:
         """Fire the executable hooks bound to ``event_name`` (delegates to the engine).
 
         The SINGLE seam a runner write/tool-call event (``before_write``) or a
@@ -1184,7 +1278,9 @@ class KernelServices:
             return await store.read_gate_events(run_id)
         except Exception as exc:  # noqa: BLE001 — read must never abort the run
             logger.warning(
-                "read_gate_events(run_id=%s) failed: %s", run_id, exc,
+                "read_gate_events(run_id=%s) failed: %s",
+                run_id,
+                exc,
             )
             return []
 
@@ -1548,7 +1644,9 @@ class KernelServices:
                     "per-task sibling capture persist failed for run %s "
                     "location %s (%s) — durable write degraded (offline harness / "
                     "schema unavailable); task unaffected (RESUME-07 best-effort)",
-                    self._ectx.run_id, relpath, exc,
+                    self._ectx.run_id,
+                    relpath,
+                    exc,
                 )
 
     # ── Internal: resolve the AgentSpec + its index for a compiled Step ───────

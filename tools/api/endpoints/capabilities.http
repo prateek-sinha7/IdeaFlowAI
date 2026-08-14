@@ -1,0 +1,27 @@
+### Capabilities - List palette and model catalog
+GET {{apiRoot}}/api/capabilities
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	if (response.statusCode === 401 || response.statusCode === 403) {
+		console.log('SKIP: not authenticated (status', response.statusCode + ') — set a real {{jwt}} to exercise this assertion');
+	} else if (response.statusCode !== 200) {
+		console.error('FAIL: expected 200, got', response.statusCode, body);
+	} else if (!Array.isArray(body.capabilities) || !Array.isArray(body.model_catalog)) {
+		console.error('FAIL: expected {capabilities: [], model_catalog: []} shape, got', body);
+	} else {
+		console.log('OK:', body.capabilities.length, 'capabilities,', body.model_catalog.length, 'models');
+	}
+}}
+
+### Capabilities - List (no Authorization header, expect 403)
+GET {{apiRoot}}/api/capabilities
+
+{{
+	if (response.statusCode !== 403) {
+		console.error('FAIL: expected 403 for a missing Authorization header, got', response.statusCode, response.parsedBody);
+	} else {
+		console.log('OK: missing auth header correctly rejected (403)');
+	}
+}}

@@ -5,6 +5,7 @@ consumes:
 context_from:
 - mulesoft-user-stories
 - mulesoft-springboot-scaffold
+description: Implements the user stories' business logic in the Spring Boot services — controllers, services, persistence, integrations.
 estimated_duration: 14.0
 guardrails:
 - mulesoft

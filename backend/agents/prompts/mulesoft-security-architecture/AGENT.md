@@ -5,6 +5,7 @@ consumes:
 context_from:
 - mulesoft-inventory
 - mulesoft-decomposition
+description: STRIDE threat model, IAM/access design, encryption, secrets, WAF, and security gates for the target AWS architecture.
 estimated_duration: 9.0
 guardrails:
 - mulesoft

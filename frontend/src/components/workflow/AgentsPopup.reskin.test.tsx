@@ -2,7 +2,7 @@
  * Phase 37-03 — Composer (AgentsPopup) RESKIN contract test.
  *
  * This is a LOOK change only: the capability palette + AdvancedExpander +
- * SkillsHooksTab + AgentLibrary are reskinned onto the Phase-32 `@theme` token
+ * HooksTab + AgentLibrary are reskinned onto the Phase-32 `@theme` token
  * layer. The dominant risk is regression-by-face-value-rebuild, so this file
  * PINS the shipped P22 reuse contracts the mock would drop:
  *

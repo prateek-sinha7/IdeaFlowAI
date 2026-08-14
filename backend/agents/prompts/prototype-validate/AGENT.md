@@ -3,6 +3,7 @@ consumes:
 - prototype-build
 context_from:
 - $previous
+description: Validates the final prototype for structural integrity, navigation correctness, and delivery readiness.
 estimated_duration: 60.0
 guardrails:
 - html-prototype

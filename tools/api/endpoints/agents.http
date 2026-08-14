@@ -1,0 +1,235 @@
+### Agents - Pipeline
+GET {{apiRoot}}/api/agents/pipelines/prototype
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ') — set a real {{jwt}} to exercise this assertion');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (body.pipeline_type !== 'prototype' || !Array.isArray(body.agents)) {
+		console.error('FAIL: expected {pipeline_type, agents: [], total_estimated_duration} shape, got', body);
+	} else {
+		console.log('OK:', body.agents.length, 'agent(s) in prototype pipeline');
+	}
+}}
+
+### Agents - Pipeline (unknown pipeline_type, expect 200 with empty agents)
+# get_pipeline_agents() returns an empty list for an unrecognized pipeline
+# type rather than 404ing (backend/agents/registry.py) — this is an
+# edge-case assertion, not an error case.
+GET {{apiRoot}}/api/agents/pipelines/not-a-real-pipeline-type
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (!Array.isArray(body.agents) || body.agents.length !== 0) {
+		console.error('FAIL: expected an empty agents array for an unknown pipeline_type, got', body);
+	} else {
+		console.log('OK: unknown pipeline_type correctly returns 200 with an empty agents array');
+	}
+}}
+
+### Agents - Library
+GET {{apiRoot}}/api/agents/library
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (!Array.isArray(body.agents) || typeof body.total_count !== 'number') {
+		console.error('FAIL: expected an {agents, total_count, pipelines} shape, got', body);
+	} else {
+		console.log('OK:', body.total_count, 'agent(s) across', Object.keys(body.pipelines || {}).length, 'pipelines');
+	}
+}}
+
+### Agents - List skills
+GET {{apiRoot}}/api/agents/skills
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (!Array.isArray(body.skills) || typeof body.total_count !== 'number') {
+		console.error('FAIL: expected {skills: [], total_count} shape, got', body);
+	} else {
+		console.log('OK:', body.total_count, 'custom skill(s) saved for this user');
+	}
+}}
+
+### Agents - Get skill
+# Returns 200 with content: "" when the user has no custom skill for this
+# agent yet — there is no 404 path here (see agents.py get_skill docstring),
+# so "not saved yet" is itself a valid, assertable outcome.
+GET {{apiRoot}}/api/agents/skills/{{agentId}}
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (body.agent_id !== '{{agentId}}' || typeof body.content !== 'string') {
+		console.error('FAIL: expected {agent_id, content} shape, got', body);
+	} else {
+		console.log('OK: skill for', body.agent_id, 'is', body.content ? (body.content.length + ' bytes') : '(none saved yet)');
+	}
+}}
+
+### Agents - Save skill
+POST {{apiRoot}}/api/agents/skills
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"agent_id": "code-reviewer",
+	"content": "Review for bugs first, then style."
+}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (body.status !== 'saved' || body.agent_id !== 'code-reviewer') {
+		console.error('FAIL: expected {status: "saved", agent_id, path}, got', body);
+	} else {
+		console.log('OK: skill saved for', body.agent_id);
+	}
+}}
+
+### Agents - Save skill (unknown agent_id, expect 400)
+POST {{apiRoot}}/api/agents/skills
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"agent_id": "not-a-real-agent-id",
+	"content": "This should be rejected."
+}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 400) {
+		console.error('FAIL: expected 400 for an unknown agent_id, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: unknown agent_id correctly rejected (400)');
+	}
+}}
+
+### Agents - Delete skill
+# Idempotent by design — always 200, {status: "deleted"} or {status:
+# "not_found"} depending on whether a custom skill existed, never a 404.
+DELETE {{apiRoot}}/api/agents/skills/{{agentId}}
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (!['deleted', 'not_found'].includes(body.status)) {
+		console.error('FAIL: expected {status: "deleted"|"not_found", agent_id}, got', body);
+	} else {
+		console.log('OK: delete skill returned status =', body.status);
+	}
+}}
+
+### Agents - Get prompt override
+GET {{apiRoot}}/api/agents/{{agentId}}/prompt
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (typeof body.prompt_body !== 'string' || typeof body.has_override !== 'boolean') {
+		console.error('FAIL: expected {agent_id, prompt_body, override, has_override} shape, got', body);
+	} else {
+		console.log('OK:', body.agent_id, 'has_override =', body.has_override);
+	}
+}}
+
+### Agents - Get prompt override (unknown agent_id, expect 404)
+GET {{apiRoot}}/api/agents/not-a-real-agent-id/prompt
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 404) {
+		console.error('FAIL: expected 404 for an unknown agent_id, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: unknown agent_id correctly 404s');
+	}
+}}
+
+### Agents - Save prompt override
+PUT {{apiRoot}}/api/agents/{{agentId}}/prompt
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"content": "Always include concrete remediation steps."
+}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (body.status !== 'saved') {
+		console.error('FAIL: expected {status: "saved", agent_id, path}, got', body);
+	} else {
+		console.log('OK: prompt override saved for', body.agent_id);
+	}
+}}
+
+### Agents - Delete prompt override
+# Idempotent by design, same as Delete skill above — always 200.
+DELETE {{apiRoot}}/api/agents/{{agentId}}/prompt
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (!['deleted', 'not_found'].includes(body.status)) {
+		console.error('FAIL: expected {status: "deleted"|"not_found", agent_id}, got', body);
+	} else {
+		console.log('OK: delete prompt override returned status =', body.status);
+	}
+}}

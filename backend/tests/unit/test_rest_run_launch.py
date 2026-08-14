@@ -170,11 +170,18 @@ def test_unknown_agent_id_rejected(env):
 
     (The stricter cross-*base*-pipeline rejection is asserted by the registry-level
     suite; on this branch the "custom" pool has widened — see deferred-items.md —
-    so this REST pin uses a genuinely-unknown id, which no widening can admit.)"""
+    so this REST pin uses a genuinely-unknown id, which no widening can admit.)
+
+    Uses ``pipeline_type="user_stories"`` rather than ``"ppt"``: since the
+    od_ppt/ppt id collapse, plain ``ppt`` declares ``opendesign`` and fatally
+    requires a template (D-15/C — it opts in "by its own name", the same as
+    ``od_prototype`` always did), so it would 400 on ``template_not_found``
+    before ever reaching the agent_ids check this test targets.
+    """
     user = _seed_user(env)
     env["state"]["user"] = user
     resp = _post_launch(
-        env, message="deck", pipeline_type="ppt",
+        env, message="deck", pipeline_type="user_stories",
         agent_ids=["totally-nonexistent-agent-xyz"],
     )
     assert resp.status_code == 400
@@ -264,14 +271,23 @@ def test_unknown_model_override_rejected_pre_mint(env):
 
 def test_unsatisfiable_custom_composition_rejected_pre_mint(env):
     """CWF-001 D1: a custom ``agent_ids`` composition that can never satisfy its
-    produces/consumes contracts (swot-analyst alone consumes market-research-agent,
+    produces/consumes contracts (ppt-composer alone consumes ppt-brief-analyst,
     which no selected agent produces) is rejected PRE-MINT — 422 with code
     ``workflow_unsatisfiable``, no WorkflowRun row, no execute. Mirrors the shape of
-    ``test_unsupported_pipeline_type_rejected_pre_mint``."""
+    ``test_unsupported_pipeline_type_rejected_pre_mint``.
+
+    Uses ppt-composer/ppt-brief-analyst rather than the historical
+    swot-analyst/market-research-agent pair: KAN-112 deliberately cleared
+    ``consumes``/``produces`` on the custom-utility pool so any subset of it
+    composes freely (custom composition is open by design), so that pair can no
+    longer repro an unsatisfiable DAG. ppt-composer/ppt-brief-analyst still carry
+    a real produces/consumes edge and are drawable into a ``custom`` composition
+    (the custom pool is open by design across pipelines, per ``allowed_custom_agent_ids``).
+    """
     user = _seed_user(env)
     env["state"]["user"] = user
     resp = _post_launch(
-        env, message="x", pipeline_type="user_stories", agent_ids=["swot-analyst"],
+        env, message="x", pipeline_type="custom", agent_ids=["ppt-composer"],
     )
     assert resp.status_code == 422, resp.text
     assert resp.json()["detail"]["code"] == "workflow_unsatisfiable"
@@ -611,9 +627,11 @@ async def test_driver_pipeline_failed_records_failed(env, monkeypatch):
 # seam cases are the Task-2 gate (RED until the seam exists).
 #
 # AUDIT (Task-1 finding, contradicts RESEARCH A1 "two"): EXACTLY THREE manifests
-# declare ``context_providers: [opendesign]`` — prototype, od_ppt, od_ppt_revision.
-# The seam therefore preserves od_ppt_revision's per-boundary behavior: REST → None
-# (this file), WS → non-fatal ppt loader (the seam ``fatal=False`` cases below).
+# declare ``context_providers: [opendesign]`` — prototype, ppt, ppt_revision
+# (formerly named od_ppt/od_ppt_revision — collapsed onto the ppt/ppt_revision
+# ids, see agents/registry.py). The seam therefore preserves ppt_revision's
+# per-boundary behavior: REST → None (this file), WS → non-fatal ppt loader
+# (the seam ``fatal=False`` cases below).
 # ────────────────────────────────────────────────────────────────────────────
 
 # Offline-resolvable ids (present under skills/opendesign/design-templates).
@@ -647,18 +665,18 @@ def test_od_prototype_launch_od_context_parity():
     assert od_context == expected
 
 
-def test_od_ppt_launch_od_context_parity():
-    """od_ppt resolves base 'od_ppt' AND builds the SAME od_context dict
+def test_ppt_launch_od_context_parity():
+    """ppt resolves base 'ppt' AND builds the SAME od_context dict
     ``load_ppt_od_context`` produces directly (declared-signal == name-branch)."""
     from agents.execution_engine.od_context import load_ppt_od_context
 
     from app.api.run_commands import _resolve_launch_agents
 
-    body = _launch_body(pipeline_type="od_ppt", template_id=_PPT_TEMPLATE)
+    body = _launch_body(pipeline_type="ppt", template_id=_PPT_TEMPLATE)
     base, od_context = _resolve_launch_agents(body)
     expected = load_ppt_od_context(
         _PPT_TEMPLATE, None, custom_ds_body=None, custom_template_body=None)
-    assert base == "od_ppt"
+    assert base == "ppt"
     assert od_context == expected
 
 
@@ -687,15 +705,15 @@ def test_unknown_pipeline_type_rejected_in_resolver():
     assert ei.value.detail["code"] == "invalid_pipeline_type"
 
 
-def test_od_ppt_revision_rest_keeps_none():
-    """REST parity: od_ppt_revision (declares opendesign) does NOT load od_context
+def test_ppt_revision_rest_keeps_none():
+    """REST parity: ppt_revision (declares opendesign) does NOT load od_context
     on the REST boundary — preserved as None, matching today's fall-through
     (websocket.py loads it NON-FATALLY; the REST twin never did)."""
     from app.api.run_commands import _resolve_launch_agents
 
-    body = _launch_body(pipeline_type="od_ppt_revision", template_id=_PPT_TEMPLATE)
+    body = _launch_body(pipeline_type="ppt_revision", template_id=_PPT_TEMPLATE)
     base, od_context = _resolve_launch_agents(body)
-    assert base == "od_ppt_revision"
+    assert base == "ppt_revision"
     assert od_context is None
 
 
@@ -737,35 +755,35 @@ def test_seam_fatal_propagates_lookup_error():
 
     with pytest.raises(LookupError):
         resolve_launch_od_context(
-            "od_ppt", _BAD_TEMPLATE, None,
+            "ppt", _BAD_TEMPLATE, None,
             custom_ds_body=None, custom_template_body=None, fatal=True)
 
 
-def test_seam_od_ppt_revision_non_fatal_swallows_lookup_error():
-    """WS arm parity: od_ppt_revision loads NON-FATALLY — a failing template lookup
+def test_seam_ppt_revision_non_fatal_swallows_lookup_error():
+    """WS arm parity: ppt_revision loads NON-FATALLY — a failing template lookup
     returns od_context None instead of raising (reproduces websocket.py:1741-1753)."""
     from app.api.launch_context import resolve_launch_od_context
 
     base, od_context = resolve_launch_od_context(
-        "od_ppt_revision", _BAD_TEMPLATE, None,
+        "ppt_revision", _BAD_TEMPLATE, None,
         custom_ds_body=None, custom_template_body=None, fatal=False)
-    assert base == "od_ppt_revision"
+    assert base == "ppt_revision"
     assert od_context is None
 
 
-def test_seam_od_ppt_revision_non_fatal_loads_when_resolvable():
+def test_seam_ppt_revision_non_fatal_loads_when_resolvable():
     """The non-fatal arm still LOADS the SAME od_context dict when the template
-    resolves (od_ppt-family loader profile)."""
+    resolves (ppt-family loader profile)."""
     from agents.execution_engine.od_context import load_ppt_od_context
 
     from app.api.launch_context import resolve_launch_od_context
 
     base, od_context = resolve_launch_od_context(
-        "od_ppt_revision", _PPT_TEMPLATE, None,
+        "ppt_revision", _PPT_TEMPLATE, None,
         custom_ds_body=None, custom_template_body=None, fatal=False)
     expected = load_ppt_od_context(
         _PPT_TEMPLATE, None, custom_ds_body=None, custom_template_body=None)
-    assert base == "od_ppt_revision"
+    assert base == "ppt_revision"
     assert od_context == expected
 
 
@@ -803,13 +821,20 @@ def _seed_run_owned_by(env, owner_id: str) -> str:
 
 def test_owned_source_links_the_child(env):
     """An owned ``source_workflow_run_id`` is persisted as the child's
-    ``parent_run_id`` (family lineage intact)."""
+    ``parent_run_id`` (family lineage intact).
+
+    KAN-116 (Bug 2, ``run_commands.py``): parent linkage is now ONLY set for
+    REVISION pipelines (``pipeline_type`` ending ``_revision``) — a chained,
+    different-base-type launch must NOT inherit ``parent_run_id`` (it is not a
+    revision of the source). This test exercises the revision arm, which is the
+    one this guard still links.
+    """
     user = _seed_user(env)
     parent_id = _seed_run_owned_by(env, user.id)
     env["state"]["user"] = user
 
     resp = _post_launch(
-        env, message="continue from prior", pipeline_type="user_stories",
+        env, message="continue from prior", pipeline_type="user_stories_revision",
         source_workflow_run_id=parent_id,
     )
     assert resp.status_code == 200, resp.text

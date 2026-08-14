@@ -318,6 +318,41 @@ def test_custom_exclude_set(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 8b. .logs/ prefix exclusion (R-24, AC-13, F-09) — the engine's run trace
+# ---------------------------------------------------------------------------
+
+
+def test_logs_only_sandbox_claims_no_deliverable(tmp_path: Path) -> None:
+    # A sandbox holding only the engine's run trace has zero deliverables —
+    # both the count and the serialisation must agree (AC-13).
+    _write_to_disk(tmp_path, {".logs/run-logs.jsonl": '{"event": "step_start"}\n'})
+    assert count_sandbox_deliverables(tmp_path) == 0
+    assert serialize_sandbox_deliverable(tmp_path) == "(no files written)"
+
+
+def test_logs_excluded_alongside_real_deliverable(tmp_path: Path) -> None:
+    pairs = {
+        "page.html": "<html></html>\n",
+        ".logs/run-logs.jsonl": '{"event": "step_end"}\n',
+    }
+    _write_to_disk(tmp_path, pairs)
+    out = serialize_sandbox_deliverable(tmp_path)
+    assert out == "```filename: page.html\n<html></html>\n\n```"
+    assert count_sandbox_deliverables(tmp_path) == 1
+
+
+def test_file_named_dot_logs_like_but_not_the_directory_is_kept(tmp_path: Path) -> None:
+    # Prefix match only — a file merely named "logs.txt"/"mylogs.md" at root is
+    # NOT under the .logs/ directory and must still be delivered.
+    pairs = {"logs.txt": "not the trace\n", "mylogs.md": "also not the trace\n"}
+    _write_to_disk(tmp_path, pairs)
+    out = serialize_sandbox_deliverable(tmp_path)
+    assert "logs.txt" in out
+    assert "mylogs.md" in out
+    assert count_sandbox_deliverables(tmp_path) == 2
+
+
+# ---------------------------------------------------------------------------
 # 9. Property-based: byte-identical for any realistic (path, content) set
 # ---------------------------------------------------------------------------
 

@@ -9,6 +9,7 @@ context_from:
 - story-estimator
 - nfr-specialist
 - backlog-reviewer
+description: Compiles all stories into a clean, structured document ready for your team.
 estimated_duration: 6.0
 guardrails:
 - agile

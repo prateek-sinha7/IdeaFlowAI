@@ -5,6 +5,7 @@ consumes:
 context_from:
 - dotnet-inventory
 - dotnet-azure-target-mapping
+description: Translates legacy .NET Framework projects to .NET 8 with breaking-change fixes and async-by-default.
 estimated_duration: 14.0
 guardrails:
 - dotnet

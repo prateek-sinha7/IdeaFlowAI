@@ -47,7 +47,7 @@ _CHAT_EVENT_TYPES = frozenset(
 _GOLDEN_PIPELINES = (
     "prototype",
     "od_prototype",
-    "od_ppt",
+    "ppt",
     "prototype_revision",
     "app_builder",
 )

@@ -5,6 +5,7 @@ consumes:
 context_from:
 - material-analyzer
 - app-code-generator
+description: Sets up deployment configuration, tests, and infrastructure for your app.
 estimated_duration: 8.0
 guardrails: []
 icon: "\U0001F680"

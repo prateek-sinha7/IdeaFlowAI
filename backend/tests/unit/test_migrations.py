@@ -160,16 +160,24 @@ async def test_gate_event_write_is_owner_workspace_scoped(db_session) -> None:
 
 
 def test_migration_0016_down_revision_is_0015() -> None:
-    """0016's down_revision is exactly "0015" — the head chain is unbroken."""
+    """0016's down_revision is exactly "0015" — the head chain is unbroken.
+
+    NOTE: this only asserts 0016's own link to 0015. It does NOT assert 0016
+    is the current head — later migrations (up to 0031 as of this writing)
+    have since landed on top of it, which is expected and not a break in the
+    chain. Asserting a specific head here would make this test stale on every
+    subsequent migration.
+    """
     script = ScriptDirectory.from_config(_make_config("sqlite://"))
     rev = script.get_revision("0016")
     assert rev is not None, "revision 0016 not found in the migration ledger"
     assert rev.down_revision == "0015", (
         f"0016 down_revision is {rev.down_revision!r}, expected '0015'"
     )
-    # And 0016 is the new head.
+    # The chain must still resolve to a SINGLE head (no branch point), even if
+    # that head has moved past 0016.
     heads = list(script.get_heads())
-    assert heads == ["0016"], f"expected single head 0016, got {heads}"
+    assert len(heads) == 1, f"expected a single head, got {heads}"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -178,16 +186,24 @@ def test_migration_0016_down_revision_is_0015() -> None:
 
 
 def test_migration_0023_down_revision_is_0022() -> None:
-    """0023's down_revision is exactly "0022" and 0023 is the SINGLE head — the
-    head chain is unbroken (WR-02)."""
+    """0023's down_revision is exactly "0022" — the head chain is unbroken
+    (WR-02).
+
+    NOTE: this only asserts 0023's own link to 0022, not that 0023 is the
+    current head — later migrations (up to 0031 as of this writing) have
+    since landed on top of it. Asserting a specific head would make this test
+    stale on every subsequent migration.
+    """
     script = ScriptDirectory.from_config(_make_config("sqlite://"))
     rev = script.get_revision("0023")
     assert rev is not None, "revision 0023 not found in the migration ledger"
     assert rev.down_revision == "0022", (
         f"0023 down_revision is {rev.down_revision!r}, expected '0022'"
     )
+    # The chain must still resolve to a SINGLE head (no branch point), even if
+    # that head has moved past 0023.
     heads = list(script.get_heads())
-    assert heads == ["0023"], f"expected single head 0023, got {heads}"
+    assert len(heads) == 1, f"expected a single head, got {heads}"
 
 
 def test_migration_0023_is_additive_only() -> None:

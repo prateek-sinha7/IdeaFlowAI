@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { CheckCircle2, XCircle, X, ArrowRight } from "lucide-react";
-import { getWorkflowLabel } from "@/hooks/useNotifications";
+import { useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
 import type { WorkflowType } from "@/types/index";
 
 export interface ToastItem {
@@ -37,6 +37,7 @@ function SingleToast({
     return () => clearTimeout(t);
   }, [onDismiss]);
 
+  const getWorkflowLabel = useWorkflowLabels();
   const isSuccess = toast.status === "completed";
 
   return (

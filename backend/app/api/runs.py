@@ -675,9 +675,9 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
                 return m.group(1)[:2000]
         return ""
 
-    if pipeline_type in ("od_ppt", "ppt", "od_ppt_revision", "ppt_revision"):
+    if pipeline_type in ("ppt", "ppt_revision"):
         # Extract slide spec from brief-analyst
-        analyst_output = get_agent_output("od-ppt-brief-analyst")
+        analyst_output = get_agent_output("ppt-brief-analyst")
         spec_text = extract_spec(analyst_output)
         if spec_text:
             structured_summary = f"Presentation Slide Plan:\n{spec_text}"
@@ -1183,8 +1183,8 @@ def _owned_family_members(
     # SC-001 / INV-1: keyed ONLY on generic suffixes/prefixes — no literal
     # pipeline-name branch. We strip the ``_revision`` suffix THEN the ``od_``
     # variant prefix so that ``od_prototype`` and ``prototype_revision`` both
-    # normalise to ``"prototype"``, ``od_ppt`` and ``od_ppt_revision`` both
-    # normalise to ``"ppt"``, etc. — preventing cross-type contamination without
+    # normalise to ``"prototype"``, and ``ppt_revision`` normalises to ``"ppt"``,
+    # etc. — preventing cross-type contamination without
     # naming any workflow. Without the ``od_`` strip, an ``od_prototype`` root's
     # children (type ``prototype_revision``) were incorrectly excluded by the
     # guard because ``"prototype" != "od_prototype"`` (FIX-179).

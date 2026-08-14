@@ -103,6 +103,21 @@ def matrix(monkeypatch):
 
     monkeypatch.setattr(ws_module, "_get_db", lambda: TestingSession())
 
+    # BUG-004: ``stream_run_events`` backs its streaming generator with a SESSION-LESS
+    # ``ScopedStore`` that opens ``app.models.database.SessionLocal`` per read (so the
+    # request connection isn't held/leaked for the life of the stream). In production
+    # ``SessionLocal`` and ``get_db`` share one engine; this harness overrides ``get_db``
+    # onto this test's own in-memory engine, so ``SessionLocal`` must be redirected onto
+    # the SAME engine or the generator reads an empty, unrelated DB instead of the seeded
+    # rows (see ``tests/unit/test_sse_stream.py``'s identical ``api`` fixture patch).
+    import app.models.database as _db_mod
+
+    monkeypatch.setattr(
+        _db_mod,
+        "SessionLocal",
+        sessionmaker(bind=engine, autocommit=False, autoflush=False, expire_on_commit=False),
+    )
+
     # Fresh per-test artifact-store singleton (the per-process gate-arm registry).
     import agents.artifact_store.store as store_mod
 

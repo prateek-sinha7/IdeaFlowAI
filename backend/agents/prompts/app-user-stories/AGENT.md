@@ -3,6 +3,7 @@ consumes:
 - material-analyzer
 context_from:
 - material-analyzer
+description: Translates the architecture into epics, user stories, and Gherkin acceptance criteria the team can pick up as deliverable work.
 estimated_duration: 9.0
 guardrails: []
 icon: "\U0001F4DD"

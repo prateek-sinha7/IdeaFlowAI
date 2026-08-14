@@ -27,7 +27,10 @@ imports the kernel (``agents.execution_engine``) or the web layer.
 
 from __future__ import annotations
 
+import re
+
 from agents.capabilities.registry import CapabilityRegistry
+from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX
 from agents.workflows.manifest import WorkflowManifest
 from agents.workflows.plan import (
     ClarifySpec,
@@ -86,8 +89,40 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "retry",
         "injects",
         "depends_on",
+        # spec 012 / per-agent-skills-custom-agents: per-instance identity + scoping.
+        "instance_id",  # stable, immutable node slug (R-02/R-03)
+        "name",         # user-editable display label; never affects instance_id (R-02)
+        "prompt",       # per-instance purpose text; custom-agent steps only (R-02/R-06)
+        "skills",       # per-step skill ids (R-01)
+        "subagents",    # declarative child-step group (R-02/R-04)
     }
 )
+
+# EXACTLY the keys a step ``subagents:`` dict may declare (D-08 at the nested level /
+# spec 012 R-04). Mirrors ``_ALLOWED_TASK_SOURCE_KEYS`` / ``_ALLOWED_FANOUT_KEYS``: the
+# key set is closed so a control-flow/DSL field smuggled into a subagents block is
+# rejected by name rather than silently accepted (INV-5). The compiler VALIDATES this
+# block (mode/task_source/steps) but does not yet expand it into child Steps — that
+# expansion is a later task (T8/T12); here it is pure data, carried through validation
+# only.
+_ALLOWED_SUBAGENTS_KEYS: frozenset[str] = frozenset(
+    {"mode", "max_parallel", "task_source", "steps"}
+)
+
+# EXACTLY the subagents.mode values a step may declare (spec 012 R-04). The kernel's
+# child-group execution strategy (parallel/sequential/fanout) is selected by this NAME
+# — never by a workflow-name/pipeline-id branch (INV-1) — and an unregistered mode is
+# rejected at compile time (fail-loud) rather than silently defaulting.
+_ALLOWED_SUBAGENT_MODES: frozenset[str] = frozenset({"parallel", "sequential", "fanout"})
+
+# instance_id shape (spec 012 R-03): a lowercase-kebab slug, immutable once assigned.
+_INSTANCE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+# EXACTLY two levels of subagents nesting are legal (spec 012 R-05 / F-03): a top-level
+# step's subagents.steps (level 1 = "child") may themselves declare subagents.steps
+# (level 2 = "grandchild"); a third level ("great-grandchild") is rejected naming the
+# field. Counted as the depth of subagents BLOCKS, not step levels.
+_MAX_SUBAGENTS_DEPTH = 2
 
 # EXACTLY the keys a task_source dict may declare (D-08 at the nested level).
 # ``source_step`` / ``spec_step`` are the DECLARED upstream producer step ids the
@@ -198,10 +233,16 @@ class WorkflowCompiler:
                 ``(kind, name)``); or the Step DAG has a duplicate agent id / cycle.
         """
         trusted = trust in _TRUSTED_SOURCES
-        steps = [
-            self._compile_step(raw, registry, trusted, trust)
-            for raw in manifest.steps
-        ]
+
+        # ── instance_id / prompt / subagents validation over the FLATTENED tree ──
+        # (spec 012 R-02/R-03/R-05/R-06/R-09/F-03/F-11). Runs BEFORE per-step
+        # compilation so a bad nested step is rejected before any Step is built.
+        self._validate_step_identity_tree(manifest.steps, 0, set())
+
+        steps: list[Step] = []
+        for raw in manifest.steps:
+            flat, _own = self._expand_step(raw, registry, trusted, trust)
+            steps.extend(flat)
 
         # ── Workflow-level reference validation ──────────────────────────────
         where = f"workflow '{manifest.id}'"
@@ -263,7 +304,7 @@ class WorkflowCompiler:
             # Phase 11 / FANOUT-03: the workflow-level named-worker allow-list, pure data
             # (INV-5). run_fanout validates a named worker against this list + the agent
             # registry BEFORE any spawn — a disallowed worker is rejected pre-spawn.
-            allowed_workers=list(getattr(manifest, "allowed_workers", []) or []),
+            allowed_workers=self._allowed_workers(manifest, steps),
             deliverable=deliverable,
             planner=manifest.planner,
             clarify=clarify,
@@ -355,6 +396,326 @@ class WorkflowCompiler:
                 f"— a user/db manifest may not reference it (CAP-03)"
             )
 
+    # ── instance_id / prompt / subagents validation (spec 012) ──────────────
+
+    @staticmethod
+    def _step_where(raw: dict) -> str:
+        """Build the ``where`` label for an error message, mirroring ``_compile_step``."""
+        agent_id = raw.get("agent")
+        if isinstance(agent_id, str) and agent_id.strip():
+            return f"step '{agent_id}'"
+        instance_id = raw.get("instance_id")
+        if isinstance(instance_id, str) and instance_id.strip():
+            return f"step '{instance_id}'"
+        return "step '<unknown>'"
+
+    def _validate_step_identity_tree(
+        self,
+        raw_steps: list,
+        subagents_depth: int,
+        seen_instance_ids: set[str],
+    ) -> None:
+        """Recursively validate ``instance_id``/``prompt``/``subagents`` over the tree.
+
+        Walks ``raw_steps`` (a top-level ``manifest.steps`` list or a nested
+        ``subagents.steps`` list) and, for every raw step dict:
+
+          * rejects an unknown step key (INV-5 — applies at every nesting level, not
+            just the top);
+          * validates ``instance_id`` shape (R-03) and uniqueness across the
+            FLATTENED tree — ``seen_instance_ids`` is a single set threaded through
+            the whole recursion, so a grandchild sharing a top-level id is caught
+            (F-03), not just siblings at the same level;
+          * rejects a non-empty ``prompt`` on a step whose ``agent`` is not
+            ``"custom-agent"`` (R-06);
+          * validates a declared ``subagents`` block (mode/task_source/steps, R-04),
+            rejects nesting deeper than two levels (R-05/F-03), and recurses into
+            ``subagents.steps`` with ``subagents_depth + 1``.
+
+        Every error NAMES the offending field and the step it appeared in (R-09).
+        This pass only VALIDATES — it never expands ``subagents`` into child Steps
+        (that is a later task) and never mints synthetic agent ids.
+        """
+        for raw in raw_steps:
+            where = self._step_where(raw)
+
+            extra = set(raw) - _ALLOWED_STEP_KEYS
+            if extra:
+                raise CompilerError(
+                    f"unknown step key(s) {sorted(extra)} in {where} — manifests "
+                    f"are pure data; a control-flow/DSL field has nowhere to live "
+                    f"(INV-5)"
+                )
+
+            instance_id = raw.get("instance_id")
+            if instance_id is not None:
+                if not isinstance(instance_id, str) or not _INSTANCE_ID_RE.match(
+                    instance_id
+                ):
+                    raise CompilerError(
+                        f"invalid instance_id {instance_id!r} in {where} — must "
+                        f"match ^[a-z0-9][a-z0-9-]*$ (R-03)"
+                    )
+                if instance_id in seen_instance_ids:
+                    raise CompilerError(
+                        f"duplicate instance_id {instance_id!r} in {where} — "
+                        f"instance_id must be unique across the whole workflow, "
+                        f"including nested subagents.steps (R-03/F-03)"
+                    )
+                seen_instance_ids.add(instance_id)
+
+            prompt = raw.get("prompt")
+            agent_id = raw.get("agent")
+            if prompt and agent_id != "custom-agent":
+                raise CompilerError(
+                    f"step 'prompt' in {where} is only valid on a 'custom-agent' "
+                    f"step — built-in agents keep the existing prompt-override "
+                    f"mechanism (app/agents/prompt_overrides.py) (R-06)"
+                )
+
+            raw_subagents = raw.get("subagents")
+            if raw_subagents is None:
+                continue
+            if not isinstance(raw_subagents, dict):
+                raise CompilerError(
+                    f"step 'subagents' must be a mapping in {where}; "
+                    f"got {type(raw_subagents).__name__}"
+                )
+            extra_sub = set(raw_subagents) - _ALLOWED_SUBAGENTS_KEYS
+            if extra_sub:
+                raise CompilerError(
+                    f"unknown subagents key(s) {sorted(extra_sub)} in {where} — "
+                    f"manifests are pure data; a control-flow/DSL field has "
+                    f"nowhere to live (INV-5)"
+                )
+
+            mode = raw_subagents.get("mode")
+            if mode not in _ALLOWED_SUBAGENT_MODES:
+                raise CompilerError(
+                    f"unknown subagents.mode {mode!r} in {where} — must be one "
+                    f"of {sorted(_ALLOWED_SUBAGENT_MODES)} (R-04)"
+                )
+            task_source = raw_subagents.get("task_source")
+            if mode == "fanout" and not task_source:
+                raise CompilerError(
+                    f"subagents.task_source is required in {where} when "
+                    f"subagents.mode is 'fanout' (R-04)"
+                )
+            if mode != "fanout" and task_source is not None:
+                raise CompilerError(
+                    f"subagents.task_source in {where} is only valid when "
+                    f"subagents.mode is 'fanout' (R-04)"
+                )
+
+            # T34 used to reject max_parallel on a 'parallel' group because nothing
+            # honored it — the siblings ran serially regardless, so accepting a bound
+            # would have made the manifest read as if it constrained something real.
+            # It now binds: the group compiles to a parallel_group step whose
+            # FanoutSpec.max_parallel is the kernel's concurrency cap (clamped to
+            # DEFAULT_MAX_CONCURRENCY, as everywhere else). Validate the value here
+            # so a nonsensical bound fails at compile time rather than silently
+            # falling back to the default at run time.
+            _mp = raw_subagents.get("max_parallel")
+            if mode == "parallel" and _mp is not None:
+                if not isinstance(_mp, int) or isinstance(_mp, bool) or _mp < 1:
+                    raise CompilerError(
+                        f"subagents.max_parallel in {where} must be an integer >= 1; "
+                        f"got {_mp!r}"
+                    )
+
+            child_steps = raw_subagents.get("steps")
+            if not isinstance(child_steps, list) or not child_steps:
+                raise CompilerError(
+                    f"subagents.steps in {where} must be a non-empty list (F-11)"
+                )
+            if mode == "fanout" and len(child_steps) > 1:
+                raise CompilerError(
+                    f"subagents.steps in {where} has {len(child_steps)} entries "
+                    f"when subagents.mode is 'fanout' — a fan-out clones ONE "
+                    f"worker template; declare exactly one child (R-04)"
+                )
+
+            if subagents_depth + 1 > _MAX_SUBAGENTS_DEPTH:
+                raise CompilerError(
+                    f"subagents in {where} nests deeper than "
+                    f"{_MAX_SUBAGENTS_DEPTH} levels — a fourth-level "
+                    f"(great-grandchild) subagents group is rejected (R-05)"
+                )
+
+            self._validate_step_identity_tree(
+                child_steps, subagents_depth + 1, seen_instance_ids
+            )
+
+    # ── subagents expansion (spec 012 R-17/R-18/R-19 / D-02 / T12-T13) ──────
+
+    def _expand_step(
+        self, raw: dict, registry: CapabilityRegistry, trusted: bool, trust: str
+    ) -> tuple[list[Step], Step]:
+        """Compile ``raw`` into its own ``Step`` plus, for a declared ``subagents``
+        group, the flattened list of every step it expands to (D-02).
+
+        Returns ``(flat, own)`` where ``flat`` is the ordered list of ALL compiled
+        steps this raw step expands to (children/grandchildren first, ``own``
+        last) and ``own`` is the compiled ``Step`` for ``raw`` itself — the caller
+        needs ``own`` (not just its position in ``flat``) to wire sibling/parent
+        edges by ``agent_id``.
+
+        No new scheduler, no runtime branch (D-02): this purely emits ordinary
+        ``Step``s plus ``depends_on`` edges. The existing Kahn topo-sort in
+        ``_validate_dag`` is what turns those edges into children-before-parent —
+        this method never orders anything itself beyond building ``flat`` in the
+        depth-first child-before-parent sequence the DAG sort will also produce.
+
+        ``subagents.mode``:
+          * ``parallel``/``sequential`` (R-17/R-18/R-19, T12/T13): children are
+            expanded depth-first (grandchildren before their own child, R-19) and
+            emitted BEFORE the parent; the parent's ``depends_on`` gains every
+            DIRECT child's ``agent_id`` (merged with any ``depends_on`` the parent
+            already declares — not clobbered), so children always run to
+            completion before the parent starts (R-17). ``sequential`` additionally
+            chains sibling ``depends_on`` (child *i* depends on child *i-1*, R-18);
+            ``parallel`` adds NO edges between siblings, so the DAG leaves them
+            free to run concurrently (bounded by ``max_parallel`` — R-18). Step has
+            no existing concurrency-hint field distinct from ``FanoutSpec.max_parallel``
+            (a different mechanism: multiplying ONE worker template, not bounding N
+            already-distinct sibling steps), so the declared ``max_parallel`` is
+            NOT carried onto the child Steps here — reported to the caller as a gap
+            rather than inventing a new ``Step`` field.
+          * ``fanout`` (T14, R-18/AC-08/F-05/F-10): an ADAPTER over the existing
+            ``FanoutSpec``/``run_fanout`` machinery — NO new fan-out code path.
+            The group's single child (validated to be exactly one entry —
+            ``_validate_step_identity_tree`` rejects more, a fan-out clones one
+            template) is compiled and then augmented in place: ``strategy`` is
+            set to ``"fanout_batch"`` (the strategy that reads ``task_source``/
+            ``fanout`` and calls ``ctx.runner.run_fanout`` — ``fanout_batch.py``),
+            ``task_source`` becomes the GROUP's (already-validated) task_source,
+            and ``fanout`` becomes ``FanoutSpec(mode="parallel", max_parallel=
+            <group's declared value or None>, agent="self")`` — the exact shape
+            ``sample_fanout/workflow.yaml`` hand-authors today. The parent
+            (``raw`` itself) is compiled normally and gains a ``depends_on`` edge
+            on the fanned-out child, same as ``parallel``/``sequential`` (R-17).
+            ``run_fanout`` and the budget ceiling (``max_subagents=8``,
+            ``max_depth=2``) apply completely unchanged.
+          * absent: no expansion, ``raw`` compiles to exactly one ``Step``.
+        """
+        flat: list[Step] = []
+        extra_depends_on: list[str] = []
+        direct_children: list[Step] = []
+        parallel_group_children: list[str] = []
+
+        raw_subagents = raw.get("subagents")
+        if isinstance(raw_subagents, dict) and raw_subagents.get("mode") == "fanout":
+            # T14: adapter over the existing FanoutSpec/run_fanout machinery
+            # (D-02). Exactly one child (enforced by
+            # _validate_step_identity_tree) is compiled and then materialized
+            # with the group's task_source + a FanoutSpec — no new spawn/
+            # scheduling logic lives here, only field wiring onto the SAME
+            # Step shape the fanout_batch strategy already reads.
+            where = self._step_where(raw)
+            child_raws = raw_subagents.get("steps") or []
+            child_flat, child_own = self._expand_step(
+                child_raws[0], registry, trusted, trust
+            )
+            flat.extend(child_flat)
+
+            child_own.task_source = self._compile_task_source(
+                raw_subagents.get("task_source"), where, registry, trusted
+            )
+            child_own.fanout = FanoutSpec(
+                mode="parallel",
+                max_parallel=raw_subagents.get("max_parallel"),
+                agent="self",
+            )
+            child_own.strategy = "fanout_batch"
+
+            extra_depends_on = [child_own.agent_id]
+        elif isinstance(raw_subagents, dict) and raw_subagents.get("mode") in (
+            "parallel",
+            "sequential",
+        ):
+            mode = raw_subagents["mode"]
+            child_raws = raw_subagents.get("steps") or []
+            for child_raw in child_raws:
+                child_flat, child_own = self._expand_step(
+                    child_raw, registry, trusted, trust
+                )
+                flat.extend(child_flat)
+                direct_children.append(child_own)
+
+            if mode == "sequential":
+                for i in range(1, len(direct_children)):
+                    prev_id = direct_children[i - 1].agent_id
+                    if prev_id not in direct_children[i].depends_on:
+                        direct_children[i].depends_on = list(
+                            direct_children[i].depends_on
+                        ) + [prev_id]
+
+            extra_depends_on = [c.agent_id for c in direct_children]
+
+            if mode == "parallel":
+                # Removing the sibling edges is not enough to get concurrency: the
+                # engine's dispatch loop walks the compiler's flat topological order
+                # one step at a time, so edge-free siblings still ran strictly
+                # serially (measured: 13ms gap, zero overlap). Wire them to the
+                # kernel fan-out instead — the one place in this engine that
+                # actually runs agents concurrently (INV-12).
+                #
+                # The children stay in `flat`, so they remain in `compiled.steps`,
+                # the roster, the artifact graph and `agent_exists`. They are marked
+                # `dispatched_by` so the SERIAL loop skips them; the parent spawns
+                # them through run_fanout instead.
+                parallel_group_children = [c.agent_id for c in direct_children]
+
+        own = self._compile_step(raw, registry, trusted, trust)
+
+        if parallel_group_children:
+            # The children stay in `flat`, so they remain in `compiled.steps`, the
+            # roster, the artifact graph and `agent_exists`. Marking them
+            # `dispatched_by` removes them from the SERIAL loop only — the parent
+            # spawns them through run_fanout instead.
+            for child in direct_children:
+                child.dispatched_by = own.agent_id
+            own.strategy = "parallel_group"
+            own.fanout = FanoutSpec(
+                mode="parallel",
+                max_parallel=raw_subagents.get("max_parallel"),
+                # Heterogeneous fan-out: request i → workers[i]. An existing
+                # run_fanout field, not a new mechanism.
+                workers=parallel_group_children,
+                count=len(parallel_group_children),
+            )
+        if extra_depends_on:
+            merged = list(own.depends_on)
+            for dep in extra_depends_on:
+                if dep not in merged:
+                    merged.append(dep)
+            own.depends_on = merged
+        flat.append(own)
+        return flat, own
+
+    @staticmethod
+    def _allowed_workers(manifest: object, steps: list[Step]) -> list[str]:
+        """The manifest's declared worker allow-list, plus every parallel-group child.
+
+        ``run_fanout`` rejects any NAMED worker absent from this list before it
+        spawns (FANOUT-03). A ``subagents: {mode: parallel}`` child is named in the
+        very manifest being compiled, so adding it here restates what the author
+        already wrote rather than widening anything — a worker the author did NOT
+        declare as a child still cannot reach the spawn path. Without this, using
+        the mode would mean also hand-maintaining a parallel copy of every child id
+        under ``allowed_workers``, and forgetting one is a run-time ``FanoutError``.
+
+        Declared order is preserved and children are appended in plan order, so the
+        list is deterministic. A manifest with no parallel group returns exactly the
+        declared list (parity).
+        """
+        declared = list(getattr(manifest, "allowed_workers", []) or [])
+        out = list(declared)
+        for step in steps:
+            if getattr(step, "dispatched_by", "") and step.agent_id not in out:
+                out.append(step.agent_id)
+        return out
+
     # ── Step compilation ─────────────────────────────────────────────────────
 
     def _compile_step(
@@ -436,28 +797,9 @@ class WorkflowCompiler:
         if post_step is not None:
             self._check_trust(registry, "post_step", post_step, trusted, where)
 
-        task_source = None
-        raw_ts = raw.get("task_source")
-        if raw_ts is not None:
-            extra_ts = set(raw_ts) - _ALLOWED_TASK_SOURCE_KEYS
-            if extra_ts:
-                raise CompilerError(
-                    f"unknown task_source key(s) {sorted(extra_ts)} in {where} "
-                    f"— manifests are pure data; a control-flow/DSL field has "
-                    f"nowhere to live (INV-5)"
-                )
-            parser = raw_ts.get("parser")
-            if parser is not None and not registry.is_registered("task_parser", parser):
-                raise CompilerError(f"unknown task_parser '{parser}' in {where}")
-            if parser is not None:
-                self._check_trust(registry, "task_parser", parser, trusted, where)
-            task_source = TaskSource(
-                kind=raw_ts.get("kind", "none"),
-                parser=parser,
-                target=raw_ts.get("target"),
-                source_step=raw_ts.get("source_step"),
-                spec_step=raw_ts.get("spec_step"),
-            )
+        task_source = self._compile_task_source(
+            raw.get("task_source"), where, registry, trusted
+        )
 
         # ── Effective ToolPermissions (D-07 / INV-9) ─────────────────────────
         # Parse the step's declared ``tools:`` grant (default least-privilege when
@@ -572,6 +914,26 @@ class WorkflowCompiler:
             None if raw_require_render is None else bool(raw_require_render)
         )
 
+        # ── Per-instance identity + scoping (spec 012 R-01/R-02) ──────────────
+        # instance_id/prompt/subagents were already validated (shape, uniqueness,
+        # nesting depth, prompt/agent gating) by ``_validate_step_identity_tree``
+        # before this method ran. Here we only MATERIALIZE the already-validated
+        # values onto the Step — a step omitting any of these keeps the dataclass
+        # default ("" / []), so every existing manifest is byte-identical (parity).
+        # ``subagents`` itself is NOT carried — Step has no field for it yet; it is
+        # validated and then dropped (expansion into child Steps is a later task).
+        instance_id = str(raw.get("instance_id") or "")
+        display_name = str(raw.get("name") or "")
+        prompt = str(raw.get("prompt") or "")
+        skills = list(raw.get("skills") or [])
+
+        # ── Synthetic agent id for custom-agent instances (spec 012 R-03a/D-01) ──
+        # The engine keys every step by agent_id, and the DAG check rejects
+        # duplicate agent ids — so N reuses of the one blank custom-agent must
+        # carry N distinct ids. A non-custom step's agent_id is untouched.
+        if agent_id == "custom-agent" and instance_id:
+            agent_id = f"{CUSTOM_AGENT_PREFIX}{instance_id}"
+
         return Step(
             agent_id=agent_id,
             strategy=strategy,
@@ -590,6 +952,55 @@ class WorkflowCompiler:
             injects=injects,
             fix=fix,
             depends_on=depends_on,
+            instance_id=instance_id,
+            display_name=display_name,
+            prompt=prompt,
+            skills=skills,
+            # Wave-scheduling conflict key — DERIVED, never authored, so
+            # `_ALLOWED_STEP_KEYS` stays closed (INV-5). Semantics on
+            # `Step.conflict_keys` in workflows/plan.py.
+            #
+            # Only custom-agent instances get one; a built-in step's write targets
+            # are invisible to the compiler, and build_waves reads "no keys" as "no
+            # conflict". Give built-ins real keys before enabling wave concurrency,
+            # or two steps writing prototype.html could co-schedule.
+            conflict_keys=[instance_id] if instance_id else [],
+        )
+
+    def _compile_task_source(
+        self,
+        raw_ts: object,
+        where: str,
+        registry: CapabilityRegistry,
+        trusted: bool,
+    ) -> "TaskSource | None":
+        """Map a ``task_source:`` dict → a typed ``TaskSource``.
+
+        Factored out of ``_compile_step`` so T14's fanout-group adapter can
+        compile the group's ``subagents.task_source`` through the SAME
+        validated path a step-level ``task_source:`` uses (no second copy of
+        the strict-key / parser-registry-lookup logic).
+        """
+        if raw_ts is None:
+            return None
+        extra_ts = set(raw_ts) - _ALLOWED_TASK_SOURCE_KEYS
+        if extra_ts:
+            raise CompilerError(
+                f"unknown task_source key(s) {sorted(extra_ts)} in {where} "
+                f"— manifests are pure data; a control-flow/DSL field has "
+                f"nowhere to live (INV-5)"
+            )
+        parser = raw_ts.get("parser")
+        if parser is not None and not registry.is_registered("task_parser", parser):
+            raise CompilerError(f"unknown task_parser '{parser}' in {where}")
+        if parser is not None:
+            self._check_trust(registry, "task_parser", parser, trusted, where)
+        return TaskSource(
+            kind=raw_ts.get("kind", "none"),
+            parser=parser,
+            target=raw_ts.get("target"),
+            source_step=raw_ts.get("source_step"),
+            spec_step=raw_ts.get("spec_step"),
         )
 
     @staticmethod

@@ -7,6 +7,7 @@ context_from:
 - material-analyzer
 - app-user-stories
 - app-system-design
+description: Information architecture, wireframes, design tokens, component library, accessibility plan, and error/loading states.
 estimated_duration: 9.0
 guardrails: []
 icon: "\U0001F3A8"

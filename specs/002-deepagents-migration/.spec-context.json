@@ -1,0 +1,9 @@
+{
+  "workflow": "speckit",
+  "specName": "002-deepagents-migration",
+  "branch": "002-deepagents-migration",
+  "selectedAt": "2026-08-10T18:01:42.275Z",
+  "currentStep": "specify",
+  "status": "draft",
+  "history": []
+}

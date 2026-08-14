@@ -15,8 +15,12 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from agents.registry import get_pipeline_agents, get_all_agents_flat, get_agent_by_id
+from app.models.database import get_db
+from app.models.user_agent import UserAgent
 from app.agents.skills import (
     MAX_SKILL_BYTES,
     delete_custom_skill,
@@ -143,9 +147,67 @@ def get_pipeline(
 @router.get("/library")
 def get_agent_library(
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """Get all available agents across all pipelines."""
+    """Get all available agents across all pipelines, plus the caller's saved ones."""
     all_agents = get_all_agents_flat()
+
+    # ── The caller's saved custom agents (0031 / app/api/user_agents.py) ──────
+    # Queried per request, not folded into `get_all_agents_flat()`: that walks
+    # disk-derived tables built once at import, and `_SPEC_CACHE` has no eviction,
+    # so a row created or edited after start-up would never be seen.
+    #
+    # LIBRARY ENTRIES, not runnable ids. The `user-agent:` prefix cannot collide
+    # with an agent folder, so mistaking one for a loadable id fails at
+    # load_agent_spec rather than silently resolving something else. The composer
+    # copies a saved agent as a template — nothing resolves an agent THROUGH this
+    # table (see app/api/user_agents.py for why launch-by-reference wasn't built).
+    #
+    # FAIL SOFT, DELIBERATELY: saved agents are additive, so a read failure must
+    # degrade to "no saved agents" rather than 500 the built-in roster away.
+    # Written for code-ahead-of-database deploys, where a missing `user_agents`
+    # table surfaced in the browser as an unrelated CORS error (a 500 from the
+    # exception middleware carries no CORS headers). `db.rollback()` matters:
+    # without it every later query on the failed session raises PendingRollbackError.
+    try:
+        saved_rows = (
+            db.query(UserAgent)
+            .filter(UserAgent.user_id == current_user.id)
+            .order_by(UserAgent.created_at.desc())
+            .all()
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        logger.warning(
+            "agents/library: could not read saved agents (is migration 0031 "
+            "applied?) — serving the filesystem roster only",
+            exc_info=True,
+        )
+        saved_rows = []
+    saved_agents = [
+        {
+            "id": f"user-agent:{r.id}",
+            "name": r.name,
+            "role": "Custom agent",
+            "description": r.description or "",
+            # Surfaces in the same bucket the composer already treats as
+            # user-composable (useAgentLibrary splits on pipeline_type ==
+            # "custom"), so no frontend routing change is needed to show it.
+            "pipeline_type": "custom",
+            "order": 0,
+            "icon": r.icon or "🧩",
+            "estimated_duration": 0.0,
+            "has_skill": bool(r.skills),
+            "gate": None,
+            "prompt_body": r.prompt,
+            # Extra fields, absent on filesystem agents — the composer reads
+            # these to pre-fill a new node. Additive, so existing consumers that
+            # do not know about them are unaffected.
+            "is_user_agent": True,
+            "skills": list(r.skills or []),
+        }
+        for r in saved_rows
+    ]
 
     return {
         "agents": [
@@ -163,8 +225,9 @@ def get_agent_library(
                 "prompt_body": a.prompt_body,
             }
             for a in all_agents
-        ],
-        "total_count": len(all_agents),
+        ]
+        + saved_agents,
+        "total_count": len(all_agents) + len(saved_agents),
         "pipelines": {
             "user_stories": len(get_pipeline_agents("user_stories")),
             "ppt": len(get_pipeline_agents("ppt")),

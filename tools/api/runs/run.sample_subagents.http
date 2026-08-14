@@ -1,0 +1,312 @@
+### Sub-agent tree — a parent custom agent over two children and one grandchild (sample_subagents)
+# All four nodes are instances of the `custom-agent` template (spec 012), nesting two blocks
+# deep, the maximum R-05 allows:
+#
+#   summary            (parent)
+#   ├── facts          (child)
+#   │   └── topic      (grandchild)
+#   └── risks          (child)
+#
+# Grandchildren run to completion before their own child (R-19); children run to completion
+# before their parent (R-17). Compiled execution order is therefore:
+#   custom-agent:topic     (grandchild)
+#   custom-agent:facts     (child, depends on topic)
+#   custom-agent:risks     (child, depends on facts)
+#   custom-agent:summary   (parent, depends on facts + risks)
+#
+# planner: skip, clarify: {mode: skip} -- like hello_html, it runs straight through to
+# completion, unattended, with no clarify round and no human gate.
+# Run with: httpyac send --all -e local --output none tools/api/runs/run.sample_subagents.http
+# Or via the wrapper (also saves logs/artifacts): ./run-http.sh sample_subagents
+#
+# Topic comes from the SUBAGENTS_TOPIC env var (default "tidal energy"):
+#   SUBAGENTS_TOPIC=urban beekeeping ./run-http.sh sample_subagents
+# Verbose: dump every raw SSE event on its own line (nothing hidden):
+#   RUN_VERBOSE=1 ./run-http.sh sample_subagents
+#
+# NOTE: all logging below goes through process.stdout.write (never console.log) --
+# httpyac buffers/defers console.log output from inside script blocks and flushes
+# it late, out of chronological order relative to raw streamed writes. Using one
+# write channel everywhere keeps the transcript in true time order.
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	const NO_COLOR = !!process.env.NO_COLOR;
+	const RESET = NO_COLOR ? '' : '\x1b[0m';
+	const BOLD = NO_COLOR ? '' : '\x1b[1m';
+	const API = NO_COLOR ? '' : '\x1b[38;2;37;99;235m';
+	const ts = () => new Date().toTimeString().slice(0, 8);
+	const pad = (s) => (s + '          ').slice(0, 10);
+	const line = (comp, color, msg) => process.stdout.write(ts() + '  ' + BOLD + color + pad(comp) + RESET + '  ' + msg + RESET + '\n');
+	exports.jwt = response.parsedBody.token;
+	line('api', API, 'POST /api/auth/login -> ' + response.statusCode + ' ' + response.parsedBody.user.email);
+}}
+
+### 2. Launch — the topic goes in the message. Subscribe to the stream immediately after.
+{{
+	// No agent_ids here, deliberately: the launch endpoint validates any supplied agent_ids
+	// against allowed_custom_agent_ids(), which does not know the synthetic
+	// `custom-agent:<instance_id>` ids this workflow compiles to and would reject them.
+	// Omitting the key makes the backend source the roster from the compiled plan instead
+	// (see backend/app/api/run_commands.py). Do not "helpfully" add agent_ids back.
+	const payload = {
+		pipeline_type: "sample_subagents",
+		message: process.env.SUBAGENTS_TOPIC || 'tidal energy',
+	};
+	exports.launchBody = JSON.stringify(payload);
+}}
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{{launchBody}}
+
+{{
+	const NO_COLOR = !!process.env.NO_COLOR;
+	const RESET = NO_COLOR ? '' : '\x1b[0m';
+	const BOLD = NO_COLOR ? '' : '\x1b[1m';
+	const DIM = NO_COLOR ? '' : '\x1b[2m';
+	const API = NO_COLOR ? '' : '\x1b[38;2;37;99;235m';
+	const ts = () => new Date().toTimeString().slice(0, 8);
+	const pad = (s) => (s + '          ').slice(0, 10);
+	const line = (comp, color, msg) => process.stdout.write(ts() + '  ' + BOLD + color + pad(comp) + RESET + '  ' + msg + RESET + '\n');
+	exports.runId = response.parsedBody.run_id;
+	line('api', API, 'POST /api/runs payload (' + request.body.length + ' chars):');
+	process.stdout.write(DIM + request.body.replace(/^/gm, '    ') + RESET + '\n');
+	line('api', API, 'POST /api/runs -> ' + response.statusCode + ' run=' + exports.runId);
+}}
+
+### 3. Stream events over SSE, wait for completion (no gate to answer -- runs end to end)
+SSE {{apiRoot}}/api/runs/{{runId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	const NO_COLOR = !!process.env.NO_COLOR;
+	const RESET = NO_COLOR ? '' : '\x1b[0m';
+	const BOLD = NO_COLOR ? '' : '\x1b[1m';
+	const DIM = NO_COLOR ? '' : '\x1b[2m';
+	const C = NO_COLOR ? {
+		api: '', engine: '', agent: '', tool: '', skill: '', hook: '', stream: '', chat: '', model: '', warn: '', error: '',
+	} : {
+		api: '\x1b[38;2;37;99;235m',
+		engine: '\x1b[38;2;15;118;110m',
+		agent: '\x1b[38;2;109;40;217m',
+		tool: '\x1b[38;2;180;83;9m',
+		skill: '\x1b[38;2;245;217;168m',
+		hook: '\x1b[38;2;36;89;143m',
+		stream: '\x1b[38;2;100;116;139m',
+		chat: '\x1b[38;2;203;213;225m',
+		model: '\x1b[38;2;185;212;244m',
+		warn: '\x1b[38;2;180;83;9m',
+		error: '\x1b[38;2;185;28;28m',
+	};
+	// Matches a staged skill's SKILL.md path, e.g. '/skills/poet/SKILL.md', 'skills/poet/SKILL.md',
+	// or '/.skills/poet/SKILL.md' -- extracts the skill id ('poet').
+	const SKILL_PATH_RE = /(?:^|\/)\.?skills\/([^\/]+)\/SKILL\.md$/;
+	const VERBOSE = !!process.env.RUN_VERBOSE;
+	const out = (s) => process.stdout.write(s);
+	const ts = () => new Date().toTimeString().slice(0, 8);
+	const pad = (s) => (s + '          ').slice(0, 10);
+	const line = (comp, color, msg) => out(ts() + '  ' + BOLD + color + pad(comp) + RESET + '  ' + msg + RESET + '\n');
+	line('api', C.api, 'SSE /api/runs/' + runId + '/events/stream -> connected');
+
+	let lineOpen = false;
+	let currentAgent = null;
+	let promptedAgent = null;
+	let skilledAgent = null;
+	// ADD 2/3: skill activation tracking -- one entry per staged SKILL.md a model actually read.
+	const skillReads = [];
+	let advertisedSkills = [];
+	let estimatedTokens = 0;
+	let toolCalls = 0;
+	let outputHeaderShown = false;
+
+	function printSkillSummary() {
+		line('skill', C.skill, 'summary:');
+		line('skill', C.skill, 'advertised: ' + (advertisedSkills.length ? advertisedSkills.join(', ') : '(none)'));
+		if (skillReads.length) {
+			for (const r of skillReads) {
+				line('skill', C.skill, 'activated: ' + r.agent + " read '" + r.skill + "'");
+			}
+		} else {
+			line('skill', C.skill, 'activated: (none -- no agent opened a skill)');
+		}
+		line('skill', C.skill, 'est cost: ' + (estimatedTokens ? '~' + estimatedTokens + ' tok/agent' : '(n/a)'));
+	}
+
+	function closeLine() { if (lineOpen) { out(RESET + '\n'); lineOpen = false; } }
+	function short(v, n) {
+		const s = typeof v === 'string' ? v : JSON.stringify(v);
+		const flat = s.split('\n').join(' ');
+		return flat.length > n ? flat.slice(0, n) + '...' : flat;
+	}
+
+	await new Promise((resolve) => {
+		let done = false;
+		const finish = () => { if (!done) { done = true; closeLine(); resolve(); } };
+		$requestClient.addEventListener('message', (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') { if (!done) { closeLine(); line('stream', C.stream, C.error + 'SSE error ' + short(msg && msg.body, 120) + RESET); } finish(); return; }
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
+			if (!data) return;
+			if (VERBOSE) { closeLine(); line('stream', C.stream, DIM + 'raw ' + short(data, 300) + RESET); }
+			const type = data.type;
+			const d = data.data || {};
+
+			if (type === 'agent_start') {
+				if (d.agent_id === currentAgent) return;
+				currentAgent = d.agent_id;
+				toolCalls = 0;
+				outputHeaderShown = false;
+				closeLine();
+				out('\n');
+				line('agent', C.agent, BOLD + '==> ' + String(d.agent_id).toUpperCase() + (d.name ? ' (' + String(d.name).toUpperCase() + ')' : '') + RESET);
+			} else if (type === 'agent_input') {
+				if (d.agent_id === promptedAgent) return;
+				promptedAgent = d.agent_id;
+				closeLine();
+				const prompt = (d.context_message || '').trim();
+				line('agent', C.agent, d.agent_id + ' prompt (' + prompt.length + ' chars):');
+				out(DIM + prompt.replace(/^/gm, '    ') + RESET + '\n');
+			} else if (type === 'agent_skills') {
+				if (d.agent_id === skilledAgent) return;
+				skilledAgent = d.agent_id;
+				closeLine();
+				const skillNames = (d.attached_skills || []).map(s => s.name || '(unnamed)');
+				const skills = skillNames.join(', ') || '(none)';
+				const hooks = (d.attached_hooks || []).join(', ') || '(none)';
+				const tokens = d.estimated_tokens || 0;
+				if (skillNames.length && !advertisedSkills.length) advertisedSkills = skillNames.map(n => n.toLowerCase());
+				if (tokens) estimatedTokens = tokens;
+				line('skill', C.skill, 'advertised: ' + skills + (tokens ? ' (~' + tokens + ' tok/agent)' : ''));
+				line('skill', C.skill, 'hooks: ' + hooks);
+				const loadErrors = d.skills_load_errors || [];
+				if (loadErrors.length) {
+					line('skill', C.skill, C.error + 'SKILL LOAD ERRORS: ' + loadErrors.join('; ') + RESET);
+				}
+			} else if (type === 'tool_call') {
+				closeLine();
+				toolCalls++;
+				let skillId = null;
+				if (d.tool === 'read_file' && d.args) {
+					const candidates = [d.args.file_path, d.args.path, ...Object.values(d.args).filter(v => typeof v === 'string')];
+					for (const c of candidates) {
+						const m = c && String(c).match(SKILL_PATH_RE);
+						if (m) { skillId = m[1]; break; }
+					}
+				}
+				if (skillId) {
+					skillReads.push({ agent: currentAgent, skill: skillId });
+					line('skill', C.skill, 'USED ' + currentAgent + " read '" + skillId + "'");
+				} else {
+					line('tool', C.tool, d.tool + ' input=' + short(d.args, 80));
+				}
+			} else if (type === 'tool_result') {
+				closeLine();
+				line('tool', C.tool, d.tool + ' output=' + short(d.result, 80));
+			} else if (type === 'agent_chunk') {
+				if (!outputHeaderShown) {
+					closeLine();
+					line('model', C.model, 'output:');
+					outputHeaderShown = true;
+				}
+				if (!lineOpen) { out('    '); lineOpen = true; }
+				out(d.chunk || '');
+			} else if (type === 'agent_complete') {
+				closeLine();
+				const toolNote = toolCalls === 0
+					? C.warn + 'NO TOOL CALLS' + RESET
+					: toolCalls + ' tool call' + (toolCalls === 1 ? '' : 's');
+				line('agent', C.agent, (d.agent_id || currentAgent) + ' complete ' + (d.duration || '?') + 's ' + (d.total_tokens || '?') + ' tok ' + toolNote);
+			} else if (type === 'gate_blocked') {
+				closeLine();
+				const issues = (data.issues || d.issues || []).map(i => i.severity + ' ' + i.validator + ': ' + i.message).join('; ');
+				line('engine', C.engine, C.warn + 'WARN gate ' + (data.gate || d.gate) + ' blocked -- ' + short(issues, 120) + RESET);
+			} else if (type === 'pipeline_complete') {
+				closeLine();
+				line('engine', C.engine, 'pipeline complete');
+				printSkillSummary();
+				finish();
+			} else if (['pipeline_failed', 'pipeline_cancelled', 'budget_aborted', 'error'].includes(type)) {
+				closeLine();
+				line('engine', C.engine, C.error + type + RESET);
+				finish();
+			} else if (type === 'pipeline_start') {
+				closeLine();
+				line('engine', C.engine, 'pipeline start' + (d.pipeline_type ? ' ' + d.pipeline_type : ''));
+			} else if (type === 'agent_error') {
+				closeLine();
+				line('agent', C.agent, C.error + (d.agent_id || '?') + ' error: ' + short(d.error, 160) + RESET);
+			} else if (type === 'task_progress') {
+				closeLine();
+				const tasks = d.completed_tasks || [];
+				const last = tasks[tasks.length - 1];
+				line('engine', C.engine, 'task ' + (d.completed_count || tasks.length) + (last && last.title ? ': ' + last.title : ''));
+			} else if (type === 'hook_run') {
+				closeLine();
+				const sev = (d.severity || '').toLowerCase();
+				const msgColor = sev === 'error' ? C.error : (sev === 'warn' || sev === 'warning') ? C.warn : '';
+				const msg = (d.event || '?') + ' [' + (d.hook_type || '?') + '] -> ' + (d.outcome || '?') + (d.summary ? ': ' + d.summary : '');
+				line('hook', C.hook, msgColor + msg + RESET);
+			} else if (type === 'workflow_validated') {
+				closeLine();
+				line('engine', C.engine, 'workflow validated: ' + ((d.dag_edges || []).length) + ' dag edges' + (typeof d.satisfiable === 'boolean' ? ' satisfiable=' + d.satisfiable : ''));
+			} else if (type === 'stream_attached') {
+				closeLine();
+				line('stream', C.stream, 'attached live=' + d.live + ' replayed_through_seq=' + (d.replayed_through_seq || 0));
+			} else if (type === 'chat_reply') {
+				closeLine();
+				line('chat', C.chat, 'chat card' + (d.card_kind ? ' (' + d.card_kind + ')' : ''));
+			} else if (type) {
+				closeLine();
+				line('stream', C.stream, DIM + type + ' ' + short(d && Object.keys(d).length ? d : data, 100) + RESET);
+			}
+		});
+		$requestClient.addEventListener('disconnect', finish);
+		setTimeout(finish, 5 * 60 * 1000);
+	});
+}}
+
+### 4. Stream ended — fetch artifacts and show the serialized deliverable content verbatim
+GET {{apiRoot}}/api/runs/{{runId}}/artifacts?include=content
+Authorization: Bearer {{jwt}}
+
+{{
+	const NO_COLOR = !!process.env.NO_COLOR;
+	const RESET = NO_COLOR ? '' : '\x1b[0m';
+	const BOLD = NO_COLOR ? '' : '\x1b[1m';
+	const API = NO_COLOR ? '' : '\x1b[38;2;37;99;235m';
+	const ts = () => new Date().toTimeString().slice(0, 8);
+	const pad = (s) => (s + '          ').slice(0, 10);
+	const line = (comp, color, msg) => process.stdout.write(ts() + '  ' + BOLD + color + pad(comp) + RESET + '  ' + msg + RESET + '\n');
+	const body = response.parsedBody;
+	const deliverable = (body.artifacts || []).find(a => a.kind === 'deliverable');
+	if (!deliverable) {
+		line('api', API, 'GET /api/runs/' + runId + '/artifacts -> ' + response.statusCode + ' no deliverable artifact yet');
+	} else {
+		const fs = require('fs');
+		const path = require('path');
+		const outDir = path.join(path.dirname(httpFile.fileName), 'artifacts', 'sample_subagents');
+		fs.mkdirSync(outDir, { recursive: true });
+		const outPath = path.join(outDir, `${runId}.html`);
+		fs.writeFileSync(outPath, deliverable.content, 'utf-8');
+		line('api', API, 'GET /api/runs/' + runId + '/artifacts -> ' + response.statusCode + ' saved ' + outPath + ' (' + deliverable.content.length + ' bytes)');
+
+		// single_file deliverable (page.html): the parent instance assembles the emoji,
+		// the fact and the joke into one page. Show its <body> like hello_html does,
+		// falling back to the whole document if the model omitted the tag.
+		const m = deliverable.content.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+		const shown = (m ? m[1] : deliverable.content).trim();
+		line('api', API, 'page.html body:');
+		process.stdout.write(shown + '\n');
+	}
+}}

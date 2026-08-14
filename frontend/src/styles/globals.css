@@ -174,10 +174,92 @@
   --theme-sidebar-bg: var(--surface-near-black);
   --theme-hover: rgba(0, 0, 0, 0.04);
   --theme-card: var(--surface-card);
+  /* Brand tint swept across .shimmer-effect. Kept as a literal rgba (not
+     var(--brand) + alpha) because the sweep needs a TRANSPARENT stop at each
+     end, which a hex token cannot express. Paired with the dark value below. */
+  --shimmer-tint: rgba(60, 44, 218, 0.08);
+}
+
+/* ============================================
+   DARK THEME — overrides the same custom-property
+   names above; every semantic alias (--background,
+   --foreground, --card, etc.) resolves live off these,
+   so no consumer or component needs a dark: variant.
+   Applied via [data-theme="dark"] on <html>, toggled
+   from the account dropdown (see useTheme).
+   ============================================ */
+:root[data-theme="dark"] {
+  /* Carbon — true-black surfaces, max-contrast text (picked from the
+     palette-lineup comparison over the original near-black "Midnight"). */
+  --brand: #9089EA;
+  --brand-pressed: #7B73D8;
+  --brand-fill: #201E33;
+  --brand-border: #34305A;
+  --brand-violet-tint: #17162A;
+  --brand-on-dark: #9089EA;
+
+  --ink-900: #F5F5F5;
+  --ink-800: #DCDCDC;
+  --ink-700: #C2C2C2;
+  --ink-600: #A8A8A8;
+  --ink-500: #8F8F8F;
+  --ink-400: #767676;
+  --ink-300: #5C5C5C;
+  --ink-200: #454545;
+
+  --surface-paper: #0D0D0D;
+  --surface-warm: #121212;
+  --surface-card: #1A1A1A;
+  --surface-white: #222222;
+  --surface-near-black: #060606;
+  --surface-ink-black: #000000;
+
+  --line-border: #303030;
+  --line-divider: #2A2A2A;
+  --line-control: #363636;
+  --line-faint-row: #242424;
+  --line-faint: #404040;
+
+  --status-running: #9089EA;
+  --status-running-fill: #201E33;
+  --status-running-border: #34305A;
+  --status-done: #4CAF7D;
+  --status-done-fill: #182018;
+  --status-done-border: #24382C;
+  --status-failed: #E0645A;
+  --status-failed-strong: #C94E44;
+  --status-failed-fill: #2A1A18;
+  --status-failed-border: #452622;
+  --status-amber: #D9A94A;
+  --status-amber-fill: #282218;
+  --status-amber-border: #423420;
+  --status-queued: #8F8F8F;
+  --status-queued-fill: #242424;
+  --status-queued-border: #303030;
+
+  --severity-low: #A8A8A8;
+  --severity-medium: #D9A94A;
+  --severity-high: #E0834A;
+  --severity-critical: #E0645A;
+
+  --elevation-raised: 0 1px 2px rgba(0, 0, 0, .5);
+  --elevation-menu: 0 12px 32px rgba(0, 0, 0, .6);
+  --elevation-notif: 0 16px 40px rgba(0, 0, 0, .65);
+  --elevation-modal: 0 30px 80px rgba(0, 0, 0, .7);
+
+  --scrim: rgba(0, 0, 0, .7);
+  --theme-hover: rgba(255, 255, 255, 0.08);
+  /* The dark brand (#9089EA) at a higher alpha than light — the same reason
+     --theme-hover doubles here: a tint reads weaker against a dark surface. */
+  --shimmer-tint: rgba(144, 137, 234, 0.14);
 }
 
 html {
   color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 body {
@@ -224,6 +306,11 @@ body {
   50% { opacity: 0.7; }
 }
 
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 /* ============================================
    UTILITY CLASSES
    ============================================ */
@@ -244,8 +331,48 @@ body {
 .typing-dot:nth-child(2) { animation-delay: 0.2s; }
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 
+.slide-in-right {
+  animation: slide-in-right 0.35s ease-out;
+}
+
 .fade-in { animation: fade-in 0.3s ease-out forwards; }
 .fade-in-up { animation: fade-in-up 0.3s ease-out forwards; }
+
+/* Sweeps a brand tint across the element. Deliberately sets NO background-color:
+   this is a plain class declared after the Tailwind utilities, so the
+   `background-color: white` it used to carry silently beat whatever `bg-*` token
+   the consumer asked for — forcing every shimmering card light in dark mode.
+   Only `background-image` is set, which composites over the consumer's own
+   background-color, so each caller keeps its token (surface-white here,
+   surface-card for the loading skeletons). */
+.shimmer-effect {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--shimmer-tint) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 4s infinite;
+}
+
+/* "Claude effect" — a brighter band sweeping left-to-right through the text
+   itself (text-clip gradient), reusing the existing @keyframes shimmer. */
+.shimmer-text {
+  background-image: linear-gradient(
+    90deg,
+    var(--ink-400) 0%,
+    var(--ink-400) 35%,
+    var(--brand) 50%,
+    var(--ink-400) 65%,
+    var(--ink-400) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 5s linear infinite;
+}
 
 /* Input focus ring */
 .input-focus:focus-within {
@@ -278,6 +405,18 @@ body {
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+[data-theme="dark"] * {
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
 }
 
 /* ============================================

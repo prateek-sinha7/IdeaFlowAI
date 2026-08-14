@@ -154,7 +154,7 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
 
     const g = golden("ppt · base (ds required)");
     expect(sessionStorage.getItem("ppt.draft")).toBe(g.draftJson);
-    expect(sessionStorage.getItem("od_ppt.pending")).toBe("true");
+    expect(sessionStorage.getItem("ppt.pending")).toBe("true");
   });
 
   it("ppt template not requiring a design system writes designSystemId:null", async () => {
@@ -180,7 +180,7 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
 
     const g = golden("ppt · custom template (customTemplateBody + designSystemId null)");
     expect(sessionStorage.getItem("ppt.draft")).toBe(g.draftJson);
-    expect(sessionStorage.getItem("od_ppt.pending")).toBe("true");
+    expect(sessionStorage.getItem("ppt.pending")).toBe("true");
   });
 });
 
@@ -200,7 +200,7 @@ describe("LaunchWizard — SC-001 Web/Deck deliverable-mode toggle", () => {
 
     // Launch wrote the ppt contract, not prototype.
     expect(sessionStorage.getItem("ppt.draft")).toBe(golden("ppt · base (ds required)").draftJson);
-    expect(sessionStorage.getItem("od_ppt.pending")).toBe("true");
+    expect(sessionStorage.getItem("ppt.pending")).toBe("true");
     expect(sessionStorage.getItem("prototype.draft")).toBeNull();
   });
 

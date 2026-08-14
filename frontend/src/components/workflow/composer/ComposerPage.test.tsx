@@ -3,7 +3,7 @@
  *
  * The Composer is an ADDITIVE full-page authoring surface (mainView='composer').
  * It REUSES the AgentsPopup exported sub-components (AdvancedExpander /
- * CapabilityPaletteSection / SkillsHooksTab / AgentPromptSection) and the shared
+ * CapabilityPaletteSection / HooksTab / AgentPromptSection) and the shared
  * data model (pipelineAgents order + SelectionsMap). The AgentsPopup MODAL wrapper
  * is RETAINED for the wizard/input inline-edit flow — the Composer is NOT a dual
  * implementation (INV-3: shared sub-components, distinct entry/purpose).
@@ -283,7 +283,8 @@ describe("ComposerPage — additive, reuses the modal sub-components (INV-3)", (
     const src = read("workflow/composer/ComposerPage.tsx") + read("workflow/composer/AgentRow.tsx");
     expect(src).toMatch(/AdvancedExpander/);
     expect(src).toMatch(/CapabilityPaletteSection/);
-    expect(src).toMatch(/SkillsHooksTab/);
+    // ADR-0010: SkillsHooksTab became HooksTab (skills half retired).
+    expect(src).toMatch(/HooksTab/);
     expect(src).toMatch(/AgentPromptSection/);
   });
 });

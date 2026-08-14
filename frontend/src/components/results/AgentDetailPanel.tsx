@@ -19,8 +19,9 @@ import {
   Brain, Wrench, ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, XCircle,
   Clock, Cpu, FileText, Copy, Check, Eye, EyeOff, AlertTriangle, Pencil,
   Layers, Zap, FileCode, BookText, GitBranch, ArrowDown, CheckCircle2 as CheckBadge,
+  Sparkles,
 } from "lucide-react";
-import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup } from "@/types/index";
+import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup, AttachedSkillEntry, AttachedHookEntry } from "@/types/index";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
 import { discriminateArtifact, AnalysisPreview, parseSpecSections, parseSpecOverview, parseTasks } from "./artifactPreview";
 import { ArtifactVersionPicker } from "./ArtifactVersionPicker";
@@ -172,25 +173,187 @@ function ReasoningCard({ text, live, label = "Reasoning" }: { text: string; live
     if (live && open && bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
   }, [text, live, open]);
   return (
-    <div className="rounded-[11px] border border-[#E4E0F5] bg-[#F4F2FB] overflow-hidden">
+    <div className="rounded-[11px] border border-brand-border bg-brand-violet-tint overflow-hidden">
       <button
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}
         className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left"
       >
         <span className="w-[22px] h-[22px] flex-none rounded-md bg-brand-fill grid place-items-center">
-          <Brain className="h-3 w-3 text-[#6E5EDA]" />
+          <Brain className="h-3 w-3 text-brand" />
         </span>
-        <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#5A4FC0]">
+        <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-brand">
           {live ? `${label} (live)` : label}
         </span>
-        <ChevronDown className={`h-3.5 w-3.5 text-[#9A93C8] transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown className={`h-3.5 w-3.5 text-brand/60 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <p ref={bodyRef} className="m-0 px-11 pb-3 text-[13px] leading-[1.6] text-[#4A4680] font-[Heebo] whitespace-pre-wrap max-h-[340px] overflow-y-auto">
+        <p ref={bodyRef} className="m-0 px-11 pb-3 text-[13px] leading-[1.6] text-ink-700 font-[Heebo] whitespace-pre-wrap max-h-[340px] overflow-y-auto">
           {text}
           {live && <span className="animate-pulse">▌</span>}
         </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Attached skills (card, collapsed — mirrors ToolCallsSection's row layout) ─
+// From the `agent_skills` SSE event (engine.py). Skills are now ADVERTISED, not
+// injected: only a name + description (~66 tokens) was announced to the model
+// for each skill below — the model reads a skill's full body via read_file only
+// if it decides it needs it. The body shown in the expanded row below is what
+// WOULD be read, for a human inspecting the run; there is no guarantee the
+// model actually read it. `loadErrors` (skills that failed to stage or were
+// clamped) render as an always-visible banner — never buried behind the
+// collapsed toggle, since a silent staging failure is the main failure mode of
+// this design.
+export function AttachedSkillsSection({
+  skills,
+  loadErrors,
+  estimatedTokens,
+}: {
+  skills: AttachedSkillEntry[];
+  loadErrors?: string[];
+  estimatedTokens?: number;
+}) {
+  const [sectionOpen, setSectionOpen] = useState(skills.length <= 5);
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const hasLoadErrors = !!loadErrors && loadErrors.length > 0;
+  return (
+    <div className="mt-3 bg-surface-card border border-line-border rounded-[11px] overflow-hidden">
+      <button
+        onClick={() => setSectionOpen(v => !v)}
+        aria-expanded={sectionOpen}
+        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left"
+      >
+        <span className="w-[22px] h-[22px] flex-none rounded-md bg-[#EFEDE6] grid place-items-center">
+          <Sparkles className="h-3 w-3 text-ink-500" />
+        </span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-500">Advertised skills</span>
+        <span className="text-[10.5px] text-ink-200 font-mono">{skills.length}</span>
+        {estimatedTokens != null && (
+          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-surface-warm text-ink-400 border border-line-faint-row">
+            ~{estimatedTokens} tok
+          </span>
+        )}
+        <span className="flex-1" />
+        <ChevronDown className={`h-3.5 w-3.5 text-ink-300 transition-transform ${sectionOpen ? "rotate-180" : ""}`} />
+      </button>
+      {hasLoadErrors && (
+        <div className="mx-3.5 mb-2.5 rounded-lg border border-status-amber-border bg-status-amber-fill px-2.5 py-1.5">
+          <div className="flex items-center gap-1.5 mb-1">
+            <AlertTriangle className="h-3 w-3 text-status-amber flex-none" />
+            <span className="text-[9px] font-bold uppercase tracking-widest text-status-amber">
+              {loadErrors!.length} skill{loadErrors!.length !== 1 ? "s" : ""} failed to attach
+            </span>
+          </div>
+          <div className="space-y-0.5">
+            {loadErrors!.map((err, i) => (
+              <p key={i} className="text-[10px] text-status-amber leading-snug">{err}</p>
+            ))}
+          </div>
+        </div>
+      )}
+      {sectionOpen && (
+        <div className="px-3 pb-2.5 space-y-1.5">
+          {skills.map((s, i) => (
+            <div key={`skill-${i}`} className="rounded-[9px] border border-line-faint-row overflow-hidden bg-surface-white">
+              <button
+                onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-left"
+              >
+                <span className="w-5 h-5 flex-none rounded-[5px] border border-line-control bg-surface-warm grid place-items-center">
+                  <ChevronRight className={`h-2.5 w-2.5 text-ink-500 transition-transform ${expandedIdx === i ? "rotate-90" : ""}`} />
+                </span>
+                <span className="text-[12.5px] font-medium text-ink-800">{s.name || "(unnamed skill)"}</span>
+                {s.source && (
+                  <span className="text-[9px] font-mono text-ink-300 truncate flex-1 min-w-0">{s.source}</span>
+                )}
+              </button>
+              {expandedIdx === i && (
+                <div className="border-t border-line-faint-row bg-surface-warm/60 px-3 py-2">
+                  {s.content ? (
+                    <>
+                      <p className="text-[9px] font-semibold text-ink-400 uppercase tracking-wider mb-1">Skill content (available on demand — not automatically in context)</p>
+                      <pre className="text-[9px] text-ink-600 font-mono whitespace-pre-wrap leading-relaxed max-h-[240px] overflow-y-auto">{s.content}</pre>
+                    </>
+                  ) : (
+                    <p className="text-[9px] text-ink-400">No content available.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Attached hooks (card, collapsed — mirrors ToolCallsSection's row layout) ──
+// Same source event as AttachedSkillsSection.
+export function AttachedHooksSection({ hooks }: { hooks: AttachedHookEntry[] }) {
+  const [sectionOpen, setSectionOpen] = useState(hooks.length <= 5);
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  return (
+    <div className="mt-3 bg-surface-card border border-line-border rounded-[11px] overflow-hidden">
+      <button
+        onClick={() => setSectionOpen(v => !v)}
+        aria-expanded={sectionOpen}
+        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left"
+      >
+        <span className="w-[22px] h-[22px] flex-none rounded-md bg-[#EFEDE6] grid place-items-center">
+          <Zap className="h-3 w-3 text-ink-500" />
+        </span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-500">Attached hooks</span>
+        <span className="text-[10.5px] text-ink-200 font-mono">{hooks.length}</span>
+        <span className="flex-1" />
+        <ChevronDown className={`h-3.5 w-3.5 text-ink-300 transition-transform ${sectionOpen ? "rotate-180" : ""}`} />
+      </button>
+      {sectionOpen && (
+        <div className="px-3 pb-2.5 space-y-1.5">
+          {hooks.map((h, i) => (
+            <div key={`hook-${i}`} className="rounded-[9px] border border-line-faint-row overflow-hidden bg-surface-white">
+              <button
+                onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-left"
+              >
+                <span className="w-5 h-5 flex-none rounded-[5px] border border-line-control bg-surface-warm grid place-items-center">
+                  <ChevronRight className={`h-2.5 w-2.5 text-ink-500 transition-transform ${expandedIdx === i ? "rotate-90" : ""}`} />
+                </span>
+                <span className="text-[12.5px] font-medium text-ink-800">{h.name || "(unnamed hook)"}</span>
+                {h.event && (
+                  <span className="text-[9px] font-mono text-ink-300 truncate flex-1 min-w-0">{h.event}</span>
+                )}
+              </button>
+              {expandedIdx === i && (
+                <div className="border-t border-line-faint-row bg-surface-warm/60 px-3 py-2 space-y-1.5">
+                  {h.event && (
+                    <div>
+                      <p className="text-[9px] font-semibold text-ink-400 uppercase tracking-wider mb-0.5">Event</p>
+                      <p className="text-[10.5px] text-ink-600">{h.event}</p>
+                    </div>
+                  )}
+                  {h.trigger && (
+                    <div>
+                      <p className="text-[9px] font-semibold text-ink-400 uppercase tracking-wider mb-0.5">Trigger</p>
+                      <p className="text-[10.5px] text-ink-600">{h.trigger}</p>
+                    </div>
+                  )}
+                  {h.description && (
+                    <div>
+                      <p className="text-[9px] font-semibold text-ink-400 uppercase tracking-wider mb-0.5">Description</p>
+                      <p className="text-[10.5px] text-ink-600 leading-relaxed">{h.description}</p>
+                    </div>
+                  )}
+                  {!h.event && !h.trigger && !h.description && (
+                    <p className="text-[9px] text-ink-400">No details available.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -299,17 +462,17 @@ export function OutputPreviewSection({ output }: { output: string }) {
   const isHtml = /<!DOCTYPE|<html/i.test(output) || output.includes("<artifact>");
   const preview = isHtml ? "[HTML artifact — click to expand]" : output.slice(0, 160) + (output.length > 160 ? "…" : "");
   return (
-    <div className="mt-2.5 bg-[#F4F2FB] border border-[#E4E0F5] rounded-[11px] overflow-hidden">
+    <div className="mt-2.5 bg-brand-violet-tint border border-brand-border rounded-[11px] overflow-hidden">
       <button onClick={() => setOpen(v => !v)} aria-expanded={open} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
         <span className="w-[22px] h-[22px] flex-none rounded-md bg-brand-fill grid place-items-center">
-          {open ? <EyeOff className="h-3 w-3 text-[#5A4FC0]" /> : <Eye className="h-3 w-3 text-[#5A4FC0]" />}
+          {open ? <EyeOff className="h-3 w-3 text-brand" /> : <Eye className="h-3 w-3 text-brand" />}
         </span>
-        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#5A4FC0]">Agent output</span>
-        <span className="text-[10.5px] text-[#9A93C8] font-mono">{(output.length / 1000).toFixed(1)}k chars</span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-brand">Agent output</span>
+        <span className="text-[10.5px] text-brand/60 font-mono">{(output.length / 1000).toFixed(1)}k chars</span>
         <span className="flex-1" />
-        <ChevronDown className={`h-3.5 w-3.5 text-[#9A93C8] transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown className={`h-3.5 w-3.5 text-brand/60 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
-      <p className={`m-0 px-11 pb-3 text-[12px] leading-[1.6] text-[#4A4680] whitespace-pre-wrap font-[Heebo] ${open ? "max-h-[500px] overflow-y-auto" : "line-clamp-2"}`}>
+      <p className={`m-0 px-11 pb-3 text-[12px] leading-[1.6] text-ink-700 whitespace-pre-wrap font-[Heebo] ${open ? "max-h-[500px] overflow-y-auto" : "line-clamp-2"}`}>
         {open ? output : preview}
       </p>
     </div>
@@ -886,6 +1049,20 @@ export function AgentDetailPanel({
                     tasks={construction.tasks}
                     onOpenTask={onOpenTask}
                   />
+                )}
+
+                {/* advertised skills */}
+                {agent.attachedSkills && agent.attachedSkills.length > 0 && (
+                  <AttachedSkillsSection
+                    skills={agent.attachedSkills}
+                    loadErrors={agent.skillsLoadErrors}
+                    estimatedTokens={agent.estimatedTokens}
+                  />
+                )}
+
+                {/* attached hooks */}
+                {agent.attachedHooks && agent.attachedHooks.length > 0 && (
+                  <AttachedHooksSection hooks={agent.attachedHooks} />
                 )}
 
                 {/* tool calls */}

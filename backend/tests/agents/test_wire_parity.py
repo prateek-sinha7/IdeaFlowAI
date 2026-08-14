@@ -49,7 +49,7 @@ from tests.agents.characterization._sse_projection import (
 _PIPELINES = [
     "prototype",
     "od_prototype",
-    "od_ppt",
+    "ppt",
     "prototype_revision",
     "app_builder",
 ]

@@ -36,6 +36,16 @@
   {
     "data": {
       "agent_id": "prototype-revision-agent",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-agent",
       "chunk": "<normalized>"
     },
     "type": "agent_chunk"
@@ -87,6 +97,16 @@
       "tool": "write_file"
     },
     "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-validate",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
   },
   {
     "data": {

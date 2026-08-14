@@ -83,6 +83,23 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         vision=True,
     ),
     ModelEntry(
+        # Deprecated (not retired) per AWS's Bedrock lifecycle table — still
+        # invocable, but no `eu.`/`global.` inference profile exists for it,
+        # only `us.` (unlike every other entry in this catalog). Included
+        # since it's the only remaining Haiku generation below 4.5 that AWS
+        # still serves.
+        id="us.anthropic.claude-3-5-haiku-20241022-v1:0",
+        label="Claude Haiku 3.5",
+        description="Prior-generation fast model. Deprecated — prefer Haiku 4.5.",
+        tier="fast",
+        cost_class="cheap",
+        provider="bedrock",
+        context_window=200000,
+        user_allowed=True,
+        pricing=Pricing(0.8e-6, 4e-6, 0.08e-6, 1e-6, 1.6e-6),
+        vision=True,
+    ),
+    ModelEntry(
         id="eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
         label="Claude Sonnet 4.5",
         description="Balanced speed and intelligence. Ideal for most pipelines.",
@@ -106,6 +123,22 @@ _ENTRIES: tuple[ModelEntry, ...] = (
         # NOTE: Opus 4.6 / Sonnet 4.6 Bedrock $ are DERIVED — operator confirm on
         # the live AWS pricing page (they mirror the 4.5 tier pending published
         # Bedrock rates).
+        pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
+        vision=True,
+    ),
+    ModelEntry(
+        # Deprecated (not retired) per AWS's Bedrock lifecycle table — prefer
+        # Sonnet 4.5/4.6. Kept `eu.`-prefixed for parity with the rest of
+        # this catalog (unlike Haiku 3.5 above, an `eu.` inference profile
+        # exists for this one).
+        id="eu.anthropic.claude-sonnet-4-20250514-v1:0",
+        label="Claude Sonnet 4",
+        description="Prior-generation balanced model. Deprecated — prefer Sonnet 4.5.",
+        tier="balanced",
+        cost_class="standard",
+        provider="bedrock",
+        context_window=200000,
+        user_allowed=True,
         pricing=Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
         vision=True,
     ),

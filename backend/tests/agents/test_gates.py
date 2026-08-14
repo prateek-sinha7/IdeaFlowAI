@@ -126,10 +126,16 @@ class _Workspace:
 
 
 class _Ctx:
-    """Minimal ExecutionContext stand-in — gates read .runner only."""
+    """Minimal ExecutionContext stand-in — gates read .runner only.
 
-    def __init__(self, runner) -> None:
+    ``gate_agent_ids`` is also read by ``_evaluate_gates``' declared-``human``
+    dedupe (WR-02): ``None`` ⇒ "use the static AGENT.md defaults" — the same
+    default the real ``ExecutionContext`` field carries.
+    """
+
+    def __init__(self, runner, *, gate_agent_ids=None) -> None:
         self.runner = runner
+        self.gate_agent_ids = gate_agent_ids
 
 
 class _Step:
@@ -866,12 +872,16 @@ async def test_apply_declared_gate_edit_rewrites_upstream_artifact_and_result(mo
 
     monkeypatch.setattr(engine, "_dual_write_artifact", _record_dual_write)
 
+    from agents.artifacts.graph import ArtifactGraph
+
     class _Spec:
         id = "agent-a"
         name = "Agent A"
 
     class _Ectx:
         last_streamed = "ORIGINAL"
+        run_id = "run-x"
+        artifacts = ArtifactGraph()
 
     results = [{"agent_id": "agent-a", "output": "ORIGINAL"}]
     ectx = _Ectx()

@@ -5,6 +5,7 @@ consumes:
 context_from:
 - dotnet-user-stories
 - dotnet-modernization
+description: Implements the user stories' business logic in the modernised .NET 8 services — controllers, services, persistence, integrations.
 estimated_duration: 14.0
 guardrails:
 - dotnet

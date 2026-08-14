@@ -2,7 +2,12 @@
 
 **Spec ID**: 007-minimal-eval
 **Created**: 2026-07-31
-**Status**: Specified — greenfield
+**Status**: **Built and live — but over budget (audited 2026-08-10).** All 8 modules ship at
+`backend/evals/minimal/` and the old 18k-line stack (`evals/grading`, `evals/hybrid`,
+`evals/model_graded`) is deleted. T1–T8 and T10 are verified done. **T9 (the budget test) was
+never written, and the budget is blown**: 8 files / 3,733 lines / 10 CLI commands against a
+stated 7 / 1,500 / 5. T11 (prove the loop) is an operator run and has not been made. See
+[`tasks.md`](tasks.md) §T9 for the per-file numbers and the open decision.
 **Root**: `backend/evals/minimal/`
 **Budget**: 7 files · 1,500 lines · 5 commands
 

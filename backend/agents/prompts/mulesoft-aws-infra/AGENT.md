@@ -5,6 +5,7 @@ consumes:
 context_from:
 - mulesoft-decomposition
 - mulesoft-security-architecture
+description: Generates Terraform for ECS Fargate, RDS, SQS/SNS, ALB, and per-service IAM roles.
 estimated_duration: 12.0
 guardrails:
 - mulesoft

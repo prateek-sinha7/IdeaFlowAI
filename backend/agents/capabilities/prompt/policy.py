@@ -42,6 +42,12 @@ from agents.capabilities.registry import register
 # must frame everything that follows. The factory emits the block ONLY for agents
 # resolved to zero callable tools, so every tool-having agent's composition is
 # byte-identical (its blocks dict never contains the key).
+#
+# ``skill_directive`` (spec 012 / R-13) used to sit alongside it. It is GONE: the
+# deepagents SKILLS_SYSTEM_PROMPT already names every staged skill and its exact
+# read path, so the factory block was a second, vaguer instruction about the same
+# files. Removed from the order rather than left as an unused slot, so nothing can
+# quietly start emitting it again.
 DEFAULT_ORDER: tuple[str, ...] = (
     "tool_availability",
     "injects",

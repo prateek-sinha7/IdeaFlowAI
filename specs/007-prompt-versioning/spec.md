@@ -6,7 +6,11 @@
 versions, an `ab` command, loader and factory changes). That was more than the job needs. This
 version does one thing: **apply the advisor's suggested edits to a prompt, keeping the old one.**
 See [`clarifications.md`](clarifications.md).
-**Status**: Specified — not implemented.
+**Status**: **OBSOLETE (2026-08-10).** The status line above previously read "Specified — not
+implemented", which was stale: all 68 tasks were in fact completed (see
+[`build-summary.md`](build-summary.md)). They were completed against `backend/evals/grading/`,
+which was then deleted by [007-minimal-eval](../007-minimal-eval/spec.md), so no live code
+remains. Read for history only.
 **Stack**: python 3.11 | no runtime changes | no frontend surface
 **Depends on**: [005-prompt-eval-scoring](../005-prompt-eval-scoring/spec.md) (`evals/grading/`, built)
 

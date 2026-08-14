@@ -10,23 +10,25 @@
  * We do NOT run first (the Advanced button only lives on IdeaInputPage); for
  * TS-F-05 we Save the popup, then Run from the same idea page.
  *
- * Names are read from the data files (not guessed):
- *   - FIRST skill in src/data/skills.ts → "Brainstorming Ideas Into Designs"
- *     (id superpowers-brainstorming, category `planning`).
+ * Names are read from the live catalogs the UI actually renders (not guessed).
+ * Skills come from GET /api/skills/library and hooks from GET /api/hooks/library,
+ * both folder-scans of backend/skills/global/<id>/SKILL.md and
+ * backend/hooks/global/<id>/HOOK.md — so a rename there is what moves these:
+ *   - FIRST skill (id superpowers-brainstorming, category `planning`)
+ *     → "Brainstorming Ideas Into Designs".
  *   - FIRST testing-category skill → "Dispatching Parallel Agents".
- *   - FIRST hook in src/data/hooks.ts → "Quality Gate"
- *     (id ecc-post-quality-gate, event PostToolUse).
+ *   - FIRST hook (id ecc-post-quality-gate, event PostToolUse) → "Quality Gate".
  */
 import { test, expect } from "../fixtures/test";
 
 const WORKFLOW = "Generate product requirements"; // TYPE_CONFIG.user_stories.tag
 const IDEA = "Generate epics for a refunds workflow";
 
-// First entry in src/data/skills.ts (category: planning).
+// First entry in the skills catalog (category: planning).
 const SKILL_NAME = "Brainstorming Ideas Into Designs";
-// First category:"testing" entry in src/data/skills.ts.
+// First category:"testing" entry in the skills catalog.
 const TESTING_SKILL_NAME = "Dispatching Parallel Agents";
-// First entry in src/data/hooks.ts (event: PostToolUse).
+// First entry in the hooks catalog (event: PostToolUse).
 const HOOK_NAME = "Quality Gate";
 
 /** Open the AgentsPopup from the idea page and switch to the Skills & Hooks tab. */
@@ -144,7 +146,7 @@ test.describe("TS-F — Skills & Hooks", () => {
     await page.getByRole("button", { name: /Add hook/ }).click();
     await expect(page.getByPlaceholder("Search hooks...")).toBeVisible();
 
-    // The 8 hooks include these named ones (read from src/data/hooks.ts).
+    // The 8 hooks include these named ones (read from the hooks catalog).
     for (const name of ["Quality Gate", "Config Protection", "Format + Typecheck on Stop"]) {
       await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
     }

@@ -43,6 +43,17 @@ vi.mock("@/lib/api", () => ({
   deleteAgentPromptOverride: vi.fn(),
 }));
 
+// CanvasConfigRail's skills picker (T29/R-36) reads the global Skills catalog
+// via `useSkillsCatalog` (Redux-backed). Mocked here (same idiom as the
+// `@/lib/api` mock above) so these tests don't need a live `<Provider>`.
+const SKILL_FIXTURES = [
+  { id: "market-research", name: "Market Research", description: "", category: "research" as const, content: "", tags: [], compatible_agents: ["alpha"] },
+  { id: "any-skill", name: "Any Skill", description: "", category: "workflow" as const, content: "", tags: [] },
+];
+vi.mock("@/hooks/useSkillsCatalog", () => ({
+  useSkillsCatalog: () => ({ skills: SKILL_FIXTURES, categories: [] }),
+}));
+
 import { CanvasView } from "./CanvasView";
 
 const PALETTE: CapabilitiesPalette = {
@@ -291,5 +302,99 @@ describe("CanvasView — hand-rolled, no graph library, reuses the shared levers
     expect(src).toMatch(/useAgentCapabilities/);
     expect(src).toMatch(/AgentPromptSection/);
     expect(src).toMatch(/SelectionsMap/);
+  });
+});
+
+// ── Spec 012 (R-35/T28) — tree rendering: children, add-sub-agent, rename ────
+describe("CanvasView — canvas tree (R-35)", () => {
+  it("renders a node's children below it, and clicking a child selects it via the config rail", async () => {
+    const withChild: AgentDef[] = [
+      { ...AGENTS[0] },
+      {
+        ...AGENTS[1],
+        children: [
+          {
+            id: "agent-1",
+            name: "Sub Agent",
+            role: "Custom agent",
+            description: "",
+            pipeline_type: "custom",
+            order: 0,
+            icon: "",
+            estimated_duration: 60,
+            has_skill: false,
+            isCustom: true,
+            instance_id: "agent-1",
+          },
+        ],
+      },
+      { ...AGENTS[2] },
+    ];
+    renderCanvas({ pipelineAgents: withChild });
+    expect(screen.getByTestId("canvas-children-bravo")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-agent-1")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-connector-agent-1")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("canvas-node-agent-1"));
+    expect(screen.getByTestId("canvas-node-agent-1")).toHaveAttribute(
+      "data-selected",
+      "true",
+    );
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Sub Agent" }),
+    ).toBeInTheDocument();
+  });
+
+  it("the '+ Sub-agent' affordance calls onTreeChange with a new custom-agent child (a fresh, valid instance_id)", async () => {
+    const onTreeChange = vi.fn();
+    renderCanvas({ onTreeChange });
+    await userEvent.click(
+      screen.getByRole("button", { name: /Add sub-agent to Alpha Agent/i }),
+    );
+    expect(onTreeChange).toHaveBeenCalled();
+    const next = onTreeChange.mock.calls.at(-1)?.[0] as AgentDef[];
+    const alpha = next.find((a) => a.id === "alpha")!;
+    expect(alpha.children).toHaveLength(1);
+    const child = alpha.children![0];
+    expect(child.isCustom).toBe(true);
+    expect(child.instance_id).toBe(child.id);
+    expect(child.instance_id).toMatch(/^[a-z0-9][a-z0-9-]*$/);
+  });
+
+  it("inline rename edits `name` ONLY — `instance_id` never changes (R-03)", async () => {
+    const onTreeChange = vi.fn();
+    const withChild: AgentDef[] = [
+      {
+        ...AGENTS[0],
+        children: [
+          {
+            id: "agent-1",
+            name: "Sub Agent",
+            role: "Custom agent",
+            description: "",
+            pipeline_type: "custom",
+            order: 0,
+            icon: "",
+            estimated_duration: 60,
+            has_skill: false,
+            isCustom: true,
+            instance_id: "agent-1",
+          },
+        ],
+      },
+    ];
+    renderCanvas({ pipelineAgents: withChild, onTreeChange });
+    await userEvent.click(screen.getByRole("button", { name: /^Rename Sub Agent$/i }));
+    const input = screen.getByLabelText(/^Rename Sub Agent$/i);
+    await userEvent.clear(input);
+    await userEvent.type(input, "Renamed Sub-agent");
+    await userEvent.click(screen.getByRole("button", { name: /Confirm rename/i }));
+
+    expect(onTreeChange).toHaveBeenCalled();
+    const next = onTreeChange.mock.calls.at(-1)?.[0] as AgentDef[];
+    const child = next[0].children![0];
+    expect(child.name).toBe("Renamed Sub-agent");
+    expect(child.instance_id).toBe("agent-1");
+    expect(child.id).toBe("agent-1");
   });
 });

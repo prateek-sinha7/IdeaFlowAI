@@ -39,12 +39,15 @@ import logging
 import time
 import uuid as _uuid
 from datetime import datetime, timezone
+from enum import Enum
+from types import SimpleNamespace
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from agents.artifact_store.store import get_artifact_store
+from agents.workflows.plan import CompiledWorkflow
 from agents.capabilities.model_pricing import estimate_cost_usd
 from app.agents.chat_runner import ChatRunner
 from app.agents.modes import get_mode_prompt
@@ -1350,7 +1353,6 @@ async def _dispose_concierge_proposal(
         base_type = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
         # FIX-216b (corrected): od_prototype_revision is excluded from hexaware tier
         # and has no agents, so od_prototype on hexaware must fall back to prototype_revision.
-        # od_ppt ONLY uses od_ppt_revision — never ppt_revision. Remove od_ppt from the map.
         # Only apply the OD→base fallback when the natural od_*_revision is not entitled.
         _OD_FALLBACK_MAP = {"od_prototype": "prototype"}
         if base_type in _OD_FALLBACK_MAP:
@@ -1988,6 +1990,36 @@ async def post_message(
 # coupled, so it is not importable — the de-dup is the deferred follow-up).
 
 
+class LaunchSource(str, Enum):
+    """Which of the three launch shapes a ``POST /api/runs`` request is using.
+
+    Detected once, near the top of ``launch_run``, from ``body.user_workflow_id``
+    + the referenced row's ``manifest_json`` shape — see ``_detect_launch_source``.
+    Every branch below eventually reconverges at the SAME mint + execute call
+    (marked ``# JOIN POINT`` further down) — this enum only decides how
+    ``pipeline_type`` / ``agents`` (or, for MANIFEST, a compiled plan) get
+    populated before that point, not how the run actually executes.
+    """
+
+    # Case 1 — no user_workflow_id at all. A fresh built-in pipeline launch,
+    # or an ad-hoc `pipeline_type: "custom"` + agent_ids picked straight from
+    # the library with no saved row behind it. UNCHANGED existing behavior.
+    FILE_PIPELINE = "file_pipeline"
+
+    # Case 2 — user_workflow_id present, row.manifest_json is null/absent.
+    # A saved workflow that's still just a flat list of real, file-backed
+    # agents (e.g. "Hello Poet": hello_html + attached_hooks/skills on the
+    # row). Composition is still agent_ids-shaped; only the SOURCE of
+    # pipeline_type/agent_ids/hooks/skills changes (row, not client body).
+    USER_WORKFLOW_FLAT = "user_workflow_flat"
+
+    # Case 3 — user_workflow_id present, row.manifest_json has a "steps" key.
+    # A workflow built entirely in the Composer (spec 012) — the manifest
+    # tree IS the composition. No file behind base_pipeline_type. The
+    # agent_ids allow-list does not apply here (nothing to check it against).
+    USER_WORKFLOW_MANIFEST = "user_workflow_manifest"
+
+
 class LaunchCommand(BaseModel):
     """Body for ``POST /api/runs`` — the full run-launch payload (D-13 / POR §6).
 
@@ -2010,6 +2042,17 @@ class LaunchCommand(BaseModel):
     custom_template_body: str | None = None
     source_workflow_run_id: str | None = None
     images: list | None = None
+    user_workflow_id: str | None = None
+    # Composer Run-settings (deliverable/planner/clarify/internet) — the
+    # run-time values from the Composer's Workflow-tab rail. Only consumed by
+    # the USER_WORKFLOW_MANIFEST branch below, where they take precedence over
+    # both the saved row's manifest_json and the hardcoded setdefault fallback,
+    # so a user who changes these post-save doesn't have to re-save to have
+    # Run once respect the change.
+    deliverable: dict | None = None
+    planner: str | None = None
+    clarify: dict | None = None
+    capabilities: dict | None = None
 
 
 def _reject(code: str, error: str, *, http_status: int = status.HTTP_400_BAD_REQUEST,
@@ -2032,9 +2075,9 @@ def _resolve_launch_agents(body: "LaunchCommand"):
     The SUPPORTED_PIPELINE_TYPES gate is preserved.
 
     Per-boundary parity: the REST launch twin never loaded od_context for the
-    ``od_ppt_revision`` arm (websocket.py loads it NON-FATALLY; the REST path fell
+    ``ppt_revision`` arm (websocket.py loads it NON-FATALLY; the REST path fell
     through to ``None``). That exact behavior is preserved here — REST keeps
-    ``od_ppt_revision`` od_context ``None`` — while prototype/od_ppt load fatally
+    ``ppt_revision`` od_context ``None`` — while prototype/ppt load fatally
     through the seam so a bad template rejects pre-mint (V5).
     """
     from agents.loader import SUPPORTED_PIPELINE_TYPES
@@ -2042,11 +2085,11 @@ def _resolve_launch_agents(body: "LaunchCommand"):
     from app.api.launch_context import resolve_launch_od_context
 
     pipeline_type = body.pipeline_type
-    if pipeline_type == "od_ppt_revision":
+    if pipeline_type == "ppt_revision":
         # REST parity: revisions seed from previous_run, not a launch-time template;
         # the REST twin never resolved od_context for this arm (WS owns the
         # non-fatal template load). Preserve od_context=None per boundary.
-        base_pipeline_type, od_context = "od_ppt_revision", None
+        base_pipeline_type, od_context = "ppt_revision", None
     else:
         try:
             base_pipeline_type, od_context = resolve_launch_od_context(
@@ -2166,6 +2209,112 @@ async def launch_run(
         allowed_custom_agent_ids,
         get_pipeline_agents,
     )
+    from app.api.user_workflows import _owned
+
+    # ── Detect which of the 3 launch shapes this request is (see LaunchSource) ─
+    launch_source = LaunchSource.FILE_PIPELINE
+    user_workflow_row = None
+    compiled = None  # set only in the USER_WORKFLOW_MANIFEST branch (TODO #3)
+    if body.user_workflow_id is not None:
+        # Row is the sole source of truth from here on — any client-sent
+        # agent_ids/pipeline_type gets overwritten below (TODO #2/#3), never merged.
+        #
+        # SNAPSHOT the columns we need while the session is still open, rather than
+        # reading them off the ORM instance afterwards: `close()` detaches the
+        # instance, and while plain already-loaded columns survive that today, adding
+        # a `deferred=True` column or a relationship to WorkflowDefinition would turn
+        # every read below into a DetachedInstanceError at run-launch time. A plain
+        # namespace of values has no such coupling.
+        launch_db = _get_db()
+        try:
+            _row = _owned(launch_db, body.user_workflow_id, current_user)
+            user_workflow_row = SimpleNamespace(
+                id=_row.id,
+                base_pipeline_type=_row.base_pipeline_type,
+                agents=_row.agents,
+                manifest_json=_row.manifest_json,
+                attached_hooks=_row.attached_hooks,
+                attached_skills=_row.attached_skills,
+                model_overrides=_row.model_overrides,
+            )
+        finally:
+            launch_db.close()
+        if user_workflow_row.manifest_json and "steps" in user_workflow_row.manifest_json:
+            launch_source = LaunchSource.USER_WORKFLOW_MANIFEST
+        else:
+            launch_source = LaunchSource.USER_WORKFLOW_FLAT
+
+    if launch_source is LaunchSource.FILE_PIPELINE:
+        # Case 1 — unchanged, nothing to do here.
+        pass
+
+    elif launch_source is LaunchSource.USER_WORKFLOW_FLAT:
+        # Case 2 — still agent_ids-shaped, just sourced from the row instead
+        # of the client body. Falls through into the UNCHANGED allow-list
+        # block below, which now reads these overwritten body.* values.
+        body.pipeline_type = user_workflow_row.base_pipeline_type
+        body.agent_ids = (
+            json.loads(user_workflow_row.agents) if user_workflow_row.agents else []
+        )
+        if user_workflow_row.attached_hooks:
+            body.attached_hooks = user_workflow_row.attached_hooks
+        if user_workflow_row.attached_skills:
+            body.attached_skills = user_workflow_row.attached_skills
+        if user_workflow_row.model_overrides:
+            body.model_overrides = user_workflow_row.model_overrides
+
+    elif launch_source is LaunchSource.USER_WORKFLOW_MANIFEST:
+        # Case 3 — the manifest tree IS the composition; no flat agent_ids
+        # list, no allow-list check. Synthesize the top-level fields
+        # build_manifest_from_dict requires but a DB-composed manifest_json
+        # never carries (its docstring in user_workflows.py._validated_manifest
+        # says this is the intended synthesis point), then compile with
+        # trust="db" — the compiler's own less-privileged, step-by-step
+        # capability checks are the real security boundary for this shape.
+        from agents.execution_engine.engine import (
+            _CAPABILITY_REGISTRY,
+            _WORKFLOW_COMPILER,
+        )
+        from agents.workflows.manifest import (
+            ManifestValidationError,
+            build_manifest_from_dict,
+        )
+        from agents.workflows.compiler import CompilerError
+
+        raw_manifest = dict(user_workflow_row.manifest_json)
+        raw_manifest.setdefault("id", f"user-workflow-{user_workflow_row.id}")
+        # Request body (this run's live Composer settings) wins over the row's
+        # last-saved manifest_json, which in turn wins over the hardcoded
+        # fallback — so Run once reflects whatever the Workflow-tab rail shows
+        # right now, not a stale save or a silently-hardcoded default.
+        raw_manifest["deliverable"] = (
+            body.deliverable
+            or raw_manifest.get("deliverable")
+            or {"strategy": "streamed_text", "name": "output.md"}
+        )
+        raw_manifest["planner"] = body.planner or raw_manifest.get("planner") or "skip"
+        raw_manifest["clarify"] = (
+            body.clarify or raw_manifest.get("clarify") or {"mode": "skip", "defaults": []}
+        )
+        raw_manifest["capabilities"] = (
+            body.capabilities or raw_manifest.get("capabilities") or {}
+        )
+
+        try:
+            parsed_manifest = build_manifest_from_dict(
+                raw_manifest, f"workflow:{user_workflow_row.id}"
+            )
+            compiled = _WORKFLOW_COMPILER.compile(
+                parsed_manifest, _CAPABILITY_REGISTRY, trust="db"
+            )
+        except (ManifestValidationError, CompilerError) as exc:
+            raise _reject(
+                "invalid_workflow_manifest",
+                str(exc),
+                http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        body.pipeline_type = user_workflow_row.base_pipeline_type
 
     pipeline_type = body.pipeline_type
     content = body.message
@@ -2205,43 +2354,67 @@ async def launch_run(
         raise _reject("pipeline_not_entitled", _reason, http_status=status.HTTP_403_FORBIDDEN)
 
     # ── Resolve + allow-list the agents (invalid_agent_ids) ────────────────────
+    # RUNS for: FILE_PIPELINE, USER_WORKFLOW_FLAT (both are agent_ids-shaped —
+    # the inner `if agent_ids: / else:` below is UNCHANGED, untouched logic).
+    # SKIPPED for: USER_WORKFLOW_MANIFEST — no flat list to check against.
     agent_ids = body.agent_ids
-    if agent_ids:
-        allowed_ids = allowed_custom_agent_ids(base_pipeline_type)
-        rejected = [aid for aid in agent_ids if aid not in allowed_ids]
-        if rejected:
-            raise _reject(
-                "invalid_agent_ids",
-                f"Invalid agent_ids for {pipeline_type!r}: {rejected}",
-                rejected_agent_ids=rejected,
+    agents = None
+    if launch_source is not LaunchSource.USER_WORKFLOW_MANIFEST:
+        if agent_ids:
+            allowed_ids = allowed_custom_agent_ids(base_pipeline_type)
+            rejected = [aid for aid in agent_ids if aid not in allowed_ids]
+            if rejected:
+                raise _reject(
+                    "invalid_agent_ids",
+                    f"Invalid agent_ids for {pipeline_type!r}: {rejected}",
+                    rejected_agent_ids=rejected,
+                )
+            agents = [load_agent_spec(aid) for aid in agent_ids]
+            # CWF-001 D1: producer-first pre-sort (defense-in-depth + legacy repair).
+            # A custom composition sent/saved consumer-before-producer is reordered to a
+            # runnable producer-first order BEFORE the mint; a genuinely-unsatisfiable set
+            # (a consumed non-exempt type no selected agent produces, or a real cycle) is
+            # rejected pre-mint (no WorkflowRun row). ONLY the custom `agent_ids` branch —
+            # file-backed built-in manifests (the `else`) are already producer-first and
+            # MUST NOT be re-sorted (scope fence).
+            from app.api.composition_order import (
+                UnsatisfiableComposition,
+                presort_specs,
             )
-        agents = [load_agent_spec(aid) for aid in agent_ids]
-        # CWF-001 D1: producer-first pre-sort (defense-in-depth + legacy repair).
-        # A custom composition sent/saved consumer-before-producer is reordered to a
-        # runnable producer-first order BEFORE the mint; a genuinely-unsatisfiable set
-        # (a consumed non-exempt type no selected agent produces, or a real cycle) is
-        # rejected pre-mint (no WorkflowRun row). ONLY the custom `agent_ids` branch —
-        # file-backed built-in manifests (the `else`) are already producer-first and
-        # MUST NOT be re-sorted (scope fence).
-        from app.api.composition_order import (
-            UnsatisfiableComposition,
-            presort_specs,
-        )
 
-        try:
-            agents = presort_specs(agents)
-        except UnsatisfiableComposition as exc:
-            raise _reject(
-                "workflow_unsatisfiable",
-                str(exc),
-                http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
+            try:
+                agents = presort_specs(agents)
+            except UnsatisfiableComposition as exc:
+                raise _reject(
+                    "workflow_unsatisfiable",
+                    str(exc),
+                    http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
+        else:
+            agents = get_pipeline_agents(base_pipeline_type)
+            if not agents and base_pipeline_type == "ppt":
+                agents = [load_agent_spec(aid) for aid in PIPELINE_AGENTS.get("ppt", [])]
+            # Composed workflows (nodes are INSTANCES of an agent template, e.g.
+            # "custom-agent:facts") have no AGENT.md on disk, so the registry
+            # legitimately returns [] for them. Fall back to the compiled plan —
+            # the same single source of roster truth the engine now uses — before
+            # rejecting as no_agents.
+            if not agents:
+                from agents.execution_engine.engine import compile_for_run
+
+                try:
+                    _plan = compile_for_run(base_pipeline_type)
+                except Exception:
+                    _plan = None
+                if _plan is not None and _plan.steps:
+                    agents = [load_agent_spec(s.agent_id) for s in _plan.steps]
     else:
-        agents = get_pipeline_agents(base_pipeline_type)
-        if not agents and base_pipeline_type == "ppt":
-            agents = [load_agent_spec(aid) for aid in PIPELINE_AGENTS.get("ppt", [])]
+        # `agents` stays None on purpose — Case 3 has no flat agent list.
+        # `compiled` (set above) carries the roster instead; it reaches
+        # `_drive_launch_to_queue` via `compiled_override`.
+        pass
 
-    if not agents:
+    if launch_source is not LaunchSource.USER_WORKFLOW_MANIFEST and not agents:
         raise _reject(
             "no_agents",
             f"No agents found for pipeline_type {pipeline_type!r}",
@@ -2257,10 +2430,14 @@ async def launch_run(
     # od_* runs with a loaded template pass unchanged; custom workflows that
     # merely include a template-injecting agent skip this (factory _compose_injection
     # degrades gracefully when od_context is empty).
+    # `agents or []`: Case 3 (USER_WORKFLOW_MANIFEST) leaves `agents` as None —
+    # harmless here since its pipeline_type is always "custom", never one of
+    # the template-requiring types below, so `_needs_template` is always False
+    # for it regardless of this list's contents.
     _template_injecting = [
-        spec.id for spec in agents if "template" in (getattr(spec, "injects", None) or [])
+        spec.id for spec in (agents or []) if "template" in (getattr(spec, "injects", None) or [])
     ]
-    _needs_template = pipeline_type in ("prototype", "ppt", "od_prototype", "od_ppt")
+    _needs_template = pipeline_type in ("prototype", "ppt", "od_prototype")
     if (
         _template_injecting
         and _needs_template
@@ -2275,19 +2452,24 @@ async def launch_run(
         )
 
     # ── model_overrides ingress validation (D-07, MODEL-03) ────────────────────
+    # SKIPPED for Case 3 (USER_WORKFLOW_MANIFEST): both checks below are
+    # agent_ids-specific re-validations against a flat roster. Case 3's
+    # manifest already went through the compiler's own trust="db" step-by-step
+    # checks (TODO #3) — a stricter, per-step equivalent, not a gap.
     model_overrides = body.model_overrides or {}
-    _override_error = _validate_model_overrides(
-        model_overrides, {spec.id for spec in agents}
-    )
-    if _override_error is not None:
-        raise _reject("invalid_model_override", _override_error)
+    if launch_source is not LaunchSource.USER_WORKFLOW_MANIFEST:
+        _override_error = _validate_model_overrides(
+            model_overrides, {spec.id for spec in agents}
+        )
+        if _override_error is not None:
+            raise _reject("invalid_model_override", _override_error)
 
-    # ── EMP-02 launch-side trust=user re-validation of persisted selections ────
-    _selection_error = _revalidate_selections_trust_user(
-        base_pipeline_type, [spec.id for spec in agents], body.selections
-    )
-    if _selection_error is not None:
-        raise _reject("invalid_selection", _selection_error)
+        # ── EMP-02 launch-side trust=user re-validation of persisted selections ─
+        _selection_error = _revalidate_selections_trust_user(
+            base_pipeline_type, [spec.id for spec in agents], body.selections
+        )
+        if _selection_error is not None:
+            raise _reject("invalid_selection", _selection_error)
 
     # ── image-input ingress gate (IMAGE-INPUT §3 Layer 1/5) ────────────────────
     # Identical caps to the WS path: mime allow-list, ~3.75MB/image, ≤20, ~8MB
@@ -2309,6 +2491,13 @@ async def launch_run(
         validated_images = images
 
     # ── Mint the WorkflowRun (mirror websocket.py:1912-1966) ───────────────────
+    # ═══ JOIN POINT ═════════════════════════════════════════════════════════
+    # All 3 LaunchSource branches reconverge HERE.
+    # `compiled` is only non-None for Case 3 (set in the USER_WORKFLOW_MANIFEST
+    # branch, TODO #3) — CompiledWorkflow.steps is already FLAT (the compiler
+    # flattens the tree; parent/child is encoded per-step via `dispatched_by`,
+    # not nesting), so counting it needs no recursion.
+    agent_count = len(compiled.steps) if compiled is not None else len(agents)
     pipeline_run_id = str(_uuid.uuid4())
     cancel_event = asyncio.Event()
     _CANCEL_EVENTS[pipeline_run_id] = cancel_event
@@ -2333,7 +2522,7 @@ async def launch_run(
             type=pipeline_type,
             status="running",
             input=content or f"Run {pipeline_type} pipeline",
-            agent_count=len(agents),
+            agent_count=agent_count,
             session_id=current_user.id,
             parent_run_id=parent_run_id,
             selections_json=body.selections,
@@ -2343,6 +2532,12 @@ async def launch_run(
             # but requires storing template_id separately). od_context is None
             # for non-OD runs → od_context_json stays NULL (INV-3 parity).
             od_context_json=od_context,
+            # Persist the per-run gate selection (migration 0031) for the same
+            # reason as the two above: resume_run rebuilds the context from this
+            # row. Without it a gate that exists only via this override vanishes
+            # on restart and a pending redo is silently dropped. None (the
+            # "use static AGENT.md gates" default) stays NULL.
+            gate_agent_ids_json=body.gate_agent_ids,
         )
         db.add(workflow_run)
         db.commit()
@@ -2364,6 +2559,7 @@ async def launch_run(
             user=current_user,
             attached_skills=body.attached_skills or [],
             attached_hooks=body.attached_hooks or [],
+            compiled_override=compiled,
             od_context=od_context,
             validated_images=validated_images,
             gate_agent_ids=body.gate_agent_ids,
@@ -2434,7 +2630,14 @@ def _apply_terminal_output_columns(
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
         elif utype == "tool_result":
-            for tc in reversed(current_agent.get("tool_calls", [])):
+            # FIFO, not LIFO. The tool_call event carries no call id, so the only
+            # thing to pair on is the tool NAME — and results come back in call
+            # order. Walking newest-first handed result #1 to the LAST outstanding
+            # call and shifted every result after it by one, so any step with two
+            # same-named calls (a composed agent reading three artifacts) recorded
+            # a wrong audit trail. Matching oldest-unresolved-first is correct for
+            # in-order results and no worse than LIFO for out-of-order ones.
+            for tc in current_agent.get("tool_calls", []):
                 if tc.get("tool") == data.get("tool") and tc.get("result") is None:
                     tc["result"] = data.get("result")
                     break
@@ -2607,6 +2810,7 @@ async def _drive_launch_to_queue(
     model_overrides: dict,
     selections: dict | None,
     event_queue: asyncio.Queue,
+    compiled_override: "CompiledWorkflow | None" = None,
 ) -> None:
     """Run the engine and push every event into the per-run queue. Never touches a
     socket — the SSE stream drains the same queue (and the engine's durable
@@ -2652,6 +2856,7 @@ async def _drive_launch_to_queue(
             model_id=getattr(user, "preferred_model", None) or None,
             od_context=od_context,
             images=validated_images,
+            compiled_override=compiled_override,
             gate_agent_ids=gate_agent_ids,
             parent_run_id=parent_run_id,
             model_overrides=model_overrides,

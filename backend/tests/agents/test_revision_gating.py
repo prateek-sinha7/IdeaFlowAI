@@ -9,11 +9,11 @@ workflow-name branch (INV-1).
 This locks three properties:
 
 1. WR-04 — ONLY ``prototype_revision`` is classified as an in-place revision. The
-   FOUR other workflows that declare the ``previous_run`` context provider
-   (``ppt_revision`` / ``user_stories_revision`` / ``app_builder_revision`` /
-   ``od_ppt_revision``) are NOT in-place revisions (they regenerate the whole
-   artifact), even though they declare ``previous_run`` — the proxy
-   misclassification is closed.
+   THREE other workflows that declare the ``previous_run`` context provider
+   (``ppt_revision`` / ``user_stories_revision`` / ``app_builder_revision``)
+   are NOT in-place revisions (they regenerate the whole artifact), even
+   though they declare ``previous_run`` — the proxy misclassification is
+   closed.
 
 2. WR-06 — the ``previous_run`` provider seed + ``assert_owns`` fire ONLY when
    the run DECLARES revision-intent (``ctx.is_revision_workflow``), NOT on a stray
@@ -36,13 +36,12 @@ import pytest
 from agents.capabilities.context_providers.previous_run import PreviousRunProvider
 from agents.execution_engine.engine import compile_for_run
 
-# The five workflows that DECLARE the ``previous_run`` context provider.
+# The four workflows that DECLARE the ``previous_run`` context provider.
 _PREVIOUS_RUN_WORKFLOWS = (
     "prototype_revision",
     "ppt_revision",
     "user_stories_revision",
     "app_builder_revision",
-    "od_ppt_revision",
 )
 
 
@@ -51,8 +50,8 @@ _PREVIOUS_RUN_WORKFLOWS = (
 # ════════════════════════════════════════════════════════════════════════════
 
 
-def test_all_five_declare_the_previous_run_provider() -> None:
-    """Sanity: all five workflows DO declare ``previous_run`` (the proxy's input)."""
+def test_all_four_declare_the_previous_run_provider() -> None:
+    """Sanity: all four workflows DO declare ``previous_run`` (the proxy's input)."""
     for wf in _PREVIOUS_RUN_WORKFLOWS:
         compiled = compile_for_run(wf)
         assert "previous_run" in (compiled.context_providers or []), (
@@ -63,7 +62,7 @@ def test_all_five_declare_the_previous_run_provider() -> None:
 def test_only_prototype_revision_is_an_in_place_revision() -> None:
     """WR-04: ONLY prototype_revision declares ``revises_existing`` (in-place edit).
 
-    The other four previous_run-declaring workflows regenerate the whole artifact
+    The other three previous_run-declaring workflows regenerate the whole artifact
     and MUST NOT be classified as in-place revisions — closing the proxy
     misclassification that was masked only by the secondary
     ``prototype.html.is_file()`` guard.
@@ -87,7 +86,7 @@ def test_only_prototype_revision_is_an_in_place_revision() -> None:
 def test_revision_intent_is_independent_of_provider_presence() -> None:
     """The classification keys off the DECLARED flag, never provider presence.
 
-    All five declare previous_run; only one is an in-place revision — so the
+    All four declare previous_run; only one is an in-place revision — so the
     classification cannot be a function of ``"previous_run" in context_providers``.
     """
     classified = {

@@ -5,6 +5,7 @@ consumes:
 context_from:
 - dotnet-user-stories
 - dotnet-feature-coding
+description: Writes the xUnit + FluentAssertions + Testcontainers + Pact test code that proves the acceptance criteria.
 estimated_duration: 12.0
 guardrails:
 - dotnet

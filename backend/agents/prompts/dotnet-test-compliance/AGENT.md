@@ -5,6 +5,7 @@ consumes:
 context_from:
 - dotnet-security-architecture
 - dotnet-test-implementation
+description: Test pyramid, coverage gates, compliance test mapping (PCI/GDPR/SOC 2), perf & chaos plans.
 estimated_duration: 8.0
 guardrails:
 - dotnet

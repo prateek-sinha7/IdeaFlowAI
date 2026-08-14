@@ -10,6 +10,7 @@ import type {
   FamilyMember,
   RunFamily,
   User,
+  WorkflowManifest,
   WorkflowRun,
   WorkflowType,
 } from "@/types/index";
@@ -1062,6 +1063,8 @@ export interface WorkflowStepDetail {
   compaction?: string | null;
   task_source?: { kind: string; parser?: string | null; target?: string | null } | null;
   declared_gate?: string | null;
+  /** Per-step skill ids (spec 012, R-01). */
+  skills?: string[];
 }
 
 /** The compiled deliverable spec for a workflow (BE `WorkflowDeliverable`). */
@@ -1133,6 +1136,17 @@ export interface UserWorkflowSummary {
   // For PPT/Prototype saved workflows a special `_wizard` key is embedded inside
   // selections carrying { templateId, designSystemId, brief, gateAgentIds, ... }.
   selections?: Record<string, Record<string, unknown>> | null;
+  // Spec 012 (R-27/R-29) — the full `{"steps": [...]}` manifest, present once
+  // the composition uses a per-node skill, custom prompt, or sub-agent tree.
+  // Mutually exclusive with `selections` (the backend `_project` splits the
+  // reused `manifest_json` column across these two fields). ComposerPage's
+  // `initialManifestSteps` reads `manifest?.steps` from this on reload.
+  manifest?: WorkflowManifest | null;
+  // Persisted UI-attached skills/hooks — same shape sent to the launch path
+  // (`attached_skills`/`attached_hooks` in useWorkflow.ts's startPipeline
+  // payload). NULL/absent ⇒ none attached.
+  attached_skills?: Array<Record<string, unknown>> | null;
+  attached_hooks?: Array<Record<string, unknown>> | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -1175,10 +1189,42 @@ export async function createUserWorkflow(
      * before persisting (the authoritative CAP-03 backstop).
      */
     selections?: Record<string, Record<string, unknown>>;
+    // Same shape as useWorkflow.ts's startPipeline `attached_skills`/
+    // `attached_hooks` payload. Omitted when empty (payload stays byte-identical
+    // for saves with no skills/hooks attached — INV-3).
+    attached_skills?: Array<Record<string, unknown>>;
+    attached_hooks?: Array<Record<string, unknown>>;
   }
 ): Promise<UserWorkflowSummary> {
   return request<UserWorkflowSummary>("/api/user-workflows", {
     method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Update an existing saved workflow in place (PATCH analog of
+ * `createUserWorkflow`). Every field is optional — an absent field leaves the
+ * stored value untouched. `agent_ids`/`base_pipeline_type` are NOT accepted
+ * (composition is immutable after creation — see backend
+ * `UpdateUserWorkflowRequest`); this only renames/updates description,
+ * model_overrides, selections, and attached skills/hooks on the existing row.
+ */
+export async function updateUserWorkflow(
+  token: string,
+  workflowId: string,
+  body: {
+    name?: string;
+    description?: string;
+    model_overrides?: Record<string, string>;
+    selections?: Record<string, Record<string, unknown>>;
+    attached_skills?: Array<Record<string, unknown>>;
+    attached_hooks?: Array<Record<string, unknown>>;
+  }
+): Promise<UserWorkflowSummary> {
+  return request<UserWorkflowSummary>(`/api/user-workflows/${workflowId}`, {
+    method: "PATCH",
     headers: authHeaders(token),
     body: JSON.stringify(body),
   });

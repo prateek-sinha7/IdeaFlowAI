@@ -58,11 +58,14 @@ class TestPhaseDerivation:
 # clarify_waiting → answers
 # ════════════════════════════════════════════════════════════════════════════
 class TestClarifyRouting:
-    def test_freetext_maps_to_freeform_answer(self):
+    def test_freetext_maps_to_concierge_not_freeform_answer(self):
+        # SAFETY: plain text during clarify (no structured responses from the form)
+        # routes to Concierge instead of auto-submitting as a freeform answer.
+        # This prevents users typing a question from accidentally answering the form.
         d = route_chat_turn(RunState(status="waiting_for_user", open_gate="questionnaire"),
                             ChatTurn(text="use dark mode"))
-        assert d.channel == CHANNEL_ANSWERS
-        assert d.responses == [{"question_id": "freeform", "answer": "use dark mode"}]
+        assert d.channel == "concierge"
+        assert d.instruction == "use dark mode"
 
     def test_structured_responses_ride_verbatim(self):
         turn = ChatTurn(responses=[{"question_id": "q1", "answer": "A"}], skip_clarification=True)
@@ -79,12 +82,12 @@ class TestGateRouting:
     def _rs(self):
         return RunState(status="waiting_for_user", open_gate="review", gate_key="run-1:agent")
 
-    def test_default_action_is_approve(self):
+    def test_default_action_routes_to_concierge_not_auto_approve(self):
         d = route_chat_turn(self._rs(), ChatTurn())
-        assert d.channel == CHANNEL_GATE
-        assert d.action == "approve"
-        assert d.gate_key == "run-1:agent"
-        assert d.fenced is False
+        # KAN-100: a plain text turn with no explicit gate action routes to Concierge,
+        # not auto-approved. This prevents silent approval if the user types a question.
+        assert d.channel == "concierge"
+        assert d.instruction == ""
 
     def test_reject_and_redo_and_approve(self):
         for action in ("approve", "reject", "redo"):
@@ -104,9 +107,12 @@ class TestGateRouting:
         assert d.action == "update_specs"
         assert d.instructions == "REPORT-BODY"
 
-    def test_unknown_action_falls_back_to_approve(self):
+    def test_unknown_action_routes_to_concierge(self):
+        # KAN-100: an unknown/invalid action is not a gate action, so it routes
+        # to Concierge instead of being silently treated as approve.
         d = route_chat_turn(self._rs(), ChatTurn(action="bogus"))
-        assert d.action == "approve"
+        assert d.channel == "concierge"
+        assert d.action is None
 
 
 # ════════════════════════════════════════════════════════════════════════════

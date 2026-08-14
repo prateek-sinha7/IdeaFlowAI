@@ -443,13 +443,9 @@ class ClarifyEngine:
                 "Priority: user roles/personas, key journeys, business rules, scope (MVP vs full), "
                 "acceptance criteria style, compliance requirements."
             ),
-            "od_ppt": (
+            "ppt": (
                 "Priority: presentation purpose (inform/persuade/report), target audience, "
                 "content depth, number of slides, visual style, key sections/chapters."
-            ),
-            "ppt": (
-                "Priority: presentation purpose, target audience, content depth, "
-                "slide count, visual style, key sections."
             ),
             "app_builder": (
                 "Priority: tech stack, core features, data model, integrations needed, "
@@ -651,10 +647,6 @@ prose before or after. Your response MUST start with `[` and end with `]`."""
             content_hint = content_hint[:117] + "..."
 
         TOPIC_BY_PIPELINE: dict[str, tuple[str, list[str]]] = {
-            "od_ppt": (
-                "What is the main topic or subject of this presentation?",
-                ["Product / service overview", "Market research & competitive analysis", "Business strategy & roadmap", "Technical deep-dive", "Sales pitch / proposal", "Training & education"],
-            ),
             "ppt": (
                 "What is the main topic or subject of this presentation?",
                 ["Product / service overview", "Market research & competitive analysis", "Business strategy & roadmap", "Technical deep-dive", "Sales pitch / proposal", "Training & education"],

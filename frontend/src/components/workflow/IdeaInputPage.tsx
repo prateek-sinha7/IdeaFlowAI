@@ -9,10 +9,11 @@ import {
 } from "lucide-react";
 import { AgentsPopup } from "./AgentsPopup";
 import { ReviewGatesSection } from "./ReviewGatesSection";
-import { LIBRARY_AGENTS, CUSTOM_AGENTS, ALL_LIBRARY_AGENTS } from "./AgentLibraryData";
+import { useAgentLibrary } from "@/hooks/useAgentLibrary";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
+import { collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflows";
 import { createUserWorkflow, getToken, getWorkflowDetail, extractFileText } from "@/lib/api";
 import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import { resizeImage } from "@/lib/resizeImage";
@@ -48,7 +49,7 @@ const COMPANION_GROUPS: { ids: string[]; label: string; description: string }[] 
     description: "Add the full prototype pipeline — Spec Writer → Task Planner → Analyzer → Builder → Validator — to generate a navigable HTML prototype.",
   },
   {
-    ids: ["od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator"],
+    ids: ["ppt-brief-analyst", "ppt-composer", "ppt-validator"],
     label: "Complete Presentation Pipeline",
     description: "Add all 3 presentation agents — Strategist → Deck Engineer → QA — to generate a full HTML deck.",
   },
@@ -174,7 +175,7 @@ const INTENT_MAP: Intent[] = [
       "board presentation",
       "stakeholder presentation",
     ],
-    agentIds: ["od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator"],
+    agentIds: ["ppt-brief-analyst", "ppt-composer", "ppt-validator"],
   },
 
   // ── Market Research / Competitive Analysis ────────────────────────────
@@ -349,7 +350,7 @@ const INTENT_MAP: Intent[] = [
  * same priority tier, the order follows INTENT_MAP definition order.
  * Already-present agents are excluded from the returned list.
  */
-function getAgentRecommendations(brief: string, currentAgentIds: Set<string>): AgentDef[] {
+function getAgentRecommendations(allAgents: AgentDef[], brief: string, currentAgentIds: Set<string>): AgentDef[] {
   if (!brief || brief.trim().length < 10) return [];
   const lower = brief.toLowerCase();
 
@@ -393,7 +394,7 @@ function getAgentRecommendations(brief: string, currentAgentIds: Set<string>): A
 
   // Resolve to AgentDef objects
   return Array.from(recommended)
-    .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
+    .map((id) => allAgents.find((a) => a.id === id))
     .filter(Boolean) as AgentDef[];
 }
 
@@ -434,9 +435,9 @@ const AGENT_DELIVERABLE_MAP: { agents: string[]; deliverable: Record<string, str
     // PPT agents → single_file HTML output (no template — creative free-form).
     // Uses single_file strategy (reads from sandbox file) instead of ppt strategy
     // (reads from last_streamed) to avoid tool-call noise polluting the output.
-    // The od-ppt-brief-analyst/composer AGENT.md handle theme_choice="custom"
+    // The ppt-brief-analyst/composer AGENT.md handle theme_choice="custom"
     // (no ACTIVE TEMPLATE injected) and build the deck from visual_style in the spec.
-    agents: ["od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator"],
+    agents: ["ppt-brief-analyst", "ppt-composer", "ppt-validator"],
     deliverable: { strategy: "single_file", name: "presentation.html", mimetype: "text/html" },
   },
 ];
@@ -461,6 +462,221 @@ function resolveDispatchType(
 
 /** Export for ComposerPage (INV-12 — single source, no duplication). */
 export { getAgentRecommendations, COMPANION_GROUPS, resolveDispatchType, AGENT_DELIVERABLE_MAP };
+
+/**
+ * Shared attachment state for the Brief input box (KAN-91 / Image-input Wave 2).
+ * Extracted so BOTH IdeaInputPage and ComposerPage's Simple view mount the SAME
+ * attach/extract logic (INV-3, no forked implementation) — file/image attach,
+ * client-side image downscale (resizeImage), and PDF/docx/pptx text extraction
+ * (extractFileText) all live here once.
+ */
+export function useBriefAttachments() {
+  const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
+  // KAN-91: file content stored separately so the textarea stays clean —
+  // composed into the run message at send time via `fileBlocks` below.
+  const [attachedFileContents, setAttachedFileContents] = useState<{ name: string; content: string }[]>([]);
+  // Image-input Wave 2: images ride OUT-OF-BAND as the `images` payload field
+  // (D3) — NEVER inlined into the brief text (base64 would blow past
+  // ATTACH_MAX_CHARS almost immediately).
+  const [attachedImages, setAttachedImages] = useState<{ name: string; mime_type: string; data: string }[]>([]);
+
+  const handleFiles = useCallback((files: FileList) => {
+    Array.from(files).forEach((f) => {
+      const isImageFile =
+        ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(f.type) ||
+        /\.(png|jpe?g|webp|gif)$/i.test(f.name);
+      if (isImageFile) {
+        // UPLD-04: downscale oversized images client-side BEFORE base64 —
+        // aspect-preserving, no-upscale, degrade-not-block.
+        resizeImage(f).then((resized) => {
+          setAttachedImages((p) => [
+            ...p,
+            { name: f.name, mime_type: resized.mime_type, data: resized.data },
+          ]);
+        });
+        return;
+      }
+      const meta = {
+        name: f.name,
+        size:
+          f.size < 1024
+            ? `${f.size}B`
+            : f.size < 1048576
+              ? `${(f.size / 1024).toFixed(1)}KB`
+              : `${(f.size / 1048576).toFixed(1)}MB`,
+      };
+      setAttachedFiles((p) => [...p, meta]);
+      const isTextFile = /\.(txt|md|json|csv)$/i.test(f.name);
+      const isBinaryFile = /\.(pdf|docx|pptx)$/i.test(f.name);
+      if (isTextFile) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const content = (ev.target?.result as string) ?? "";
+          setAttachedFileContents((p) => [
+            ...p,
+            { name: f.name, content: content.slice(0, ATTACH_MAX_CHARS) },
+          ]);
+        };
+        reader.readAsText(f);
+      } else if (isBinaryFile) {
+        const jwt = getToken();
+        if (jwt) {
+          extractFileText(jwt, f)
+            .then((res) => {
+              const truncNote = res.truncated
+                ? `\n[Content truncated to ${ATTACH_MAX_CHARS.toLocaleString()} chars]`
+                : "";
+              setAttachedFileContents((p) => [
+                ...p,
+                { name: res.filename, content: `${res.text}${truncNote}` },
+              ]);
+            })
+            .catch(() => {
+              setAttachedFileContents((p) => [
+                ...p,
+                { name: f.name, content: "[could not extract text]" },
+              ]);
+            });
+        } else {
+          setAttachedFileContents((p) => [...p, { name: f.name, content: "" }]);
+        }
+      }
+      // For other file types: chip shows but no content is sent (no text to extract).
+    });
+  }, []);
+
+  const removeFile = useCallback((idx: number) => {
+    setAttachedFiles((p) => {
+      const removedName = p[idx]?.name;
+      if (removedName) {
+        setAttachedFileContents((c) => c.filter((f) => f.name !== removedName));
+      }
+      return p.filter((_, i) => i !== idx);
+    });
+  }, []);
+
+  const removeImage = useCallback((idx: number) => {
+    setAttachedImages((p) => p.filter((_, i) => i !== idx));
+  }, []);
+
+  // KAN-91: the exact block format the run payload has always used — compose
+  // at send time, not attach time, so the textarea itself stays clean.
+  const fileBlocks = attachedFileContents
+    .map((f) => `\n\n=== Attached: ${f.name} ===\n${f.content}\n=== End: ${f.name} ===`)
+    .join("");
+
+  return { attachedFiles, attachedFileContents, attachedImages, handleFiles, removeFile, removeImage, fileBlocks };
+}
+
+export type BriefAttachments = ReturnType<typeof useBriefAttachments>;
+
+/**
+ * Shared Brief textarea + file/image attach UI (KAN-91 / Image-input Wave 2).
+ * Reused verbatim by ComposerPage's Simple view (INV-3) — same textarea,
+ * attach button, PDF/docx/pptx extraction, and chip list IdeaInputPage has
+ * always had. Renders ONLY the inner content (no outer card border) so each
+ * page keeps its own surrounding card and can add page-specific siblings
+ * (Save/Run, save-error text, a save modal) around it without this component
+ * needing to know about them. `leftExtra`/`rightSlot` place page-specific
+ * controls (mic, Save/Run) in the same toolbar row without forking it.
+ */
+export function BriefAttachBox({
+  value,
+  onChange,
+  placeholder,
+  attachments,
+  textareaRef,
+  onSubmitShortcut,
+  rows = 5,
+  leftExtra,
+  rightSlot,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  attachments: BriefAttachments;
+  textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
+  /** Cmd/Ctrl+Enter while focused in the textarea. */
+  onSubmitShortcut?: () => void;
+  rows?: number;
+  leftExtra?: React.ReactNode;
+  rightSlot?: React.ReactNode;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { attachedFiles, attachedImages, handleFiles, removeFile, removeImage } = attachments;
+
+  return (
+    <>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full resize-none bg-transparent text-[14px] text-ink-900 placeholder-ink-400 px-5 pt-5 pb-3 focus:outline-none min-h-[130px] max-h-[260px] leading-relaxed"
+        rows={rows}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmitShortcut?.();
+        }}
+      />
+
+      {attachedFiles.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-5 pb-2">
+          {attachedFiles.map((file, idx) => (
+            <span
+              key={`${file.name}-${idx}`}
+              className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600"
+            >
+              <File className="h-2.5 w-2.5" /> {file.name}
+              <button onClick={() => removeFile(idx)} className="ml-1 text-ink-400 hover:text-status-failed">
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {attachedImages.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-5 pb-2">
+          {attachedImages.map((img, idx) => (
+            <span
+              key={`${img.name}-${idx}`}
+              className="inline-flex items-center gap-1 rounded-lg bg-surface-warm px-2.5 py-1 text-[10px] text-ink-600"
+            >
+              <ImageIcon className="h-2.5 w-2.5" /> {img.name}
+              <button onClick={() => removeImage(idx)} className="ml-1 text-ink-400 hover:text-status-failed">
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between px-4 py-3 border-t border-line-divider">
+        <div className="flex items-center gap-1">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".pdf,.doc,.docx,.pptx,.txt,.md,.json,.csv,image/png,image/jpeg,image/webp,image/gif"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files) handleFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-all border border-transparent hover:border-line-control"
+          >
+            <Paperclip className="h-3.5 w-3.5" /> + Attach file
+          </button>
+          {leftExtra}
+        </div>
+        {rightSlot && <div className="flex items-center gap-2">{rightSlot}</div>}
+      </div>
+    </>
+  );
+}
 
 interface IdeaInputPageProps {
   workflowType: WorkflowType;
@@ -518,20 +734,6 @@ const TYPE_CONFIG: Record<WorkflowType, {
     subtitle: "Apply targeted edits to an existing backlog without rewriting what already works.",
     placeholder: "e.g. Add acceptance criteria for the multi-currency refund flow and split epic E2 into two.",
     icon: FileText,
-  },
-  od_ppt: {
-    tag: "Build an executive presentation",
-    heading: "Specify the topic",
-    subtitle: "Shape a topic into an enterprise-grade pitch deck with charts, data tables, and executive-ready visuals.",
-    placeholder: "e.g. Blockchain technology — enterprise adoption trends and ROI analysis for 2025.",
-    icon: Presentation,
-  },
-  od_ppt_revision: {
-    tag: "Refine an existing presentation",
-    heading: "What should change?",
-    subtitle: "Apply precise, scoped edits to an existing deck — every other slide stays untouched.",
-    placeholder: "e.g. Tighten the ROI section to 3 slides and add a competitive-landscape slide before the conclusion.",
-    icon: Presentation,
   },
   prototype: {
     tag: "Build an interactive prototype",
@@ -603,6 +805,13 @@ const TYPE_CONFIG: Record<WorkflowType, {
     placeholder: "e.g. Migrate three Mulesoft 4 apps powering our orders + claims platform onto AWS, splitting into Spring Boot microservices with Aurora Postgres and SQS messaging.",
     icon: GitBranch,
   },
+  hello_html: {
+    tag: "Hello page from one word",
+    heading: "Give one word",
+    subtitle: "One word in, one page out — an emoji, a line of text, and a single HTML page. Local test workflow.",
+    placeholder: "e.g. lighthouse",
+    icon: Sparkles,
+  },
   dotnet_to_azure: {
     tag: ".NET → Azure (AI-augmented)",
     heading: "Modernise .NET onto Azure",
@@ -613,19 +822,13 @@ const TYPE_CONFIG: Record<WorkflowType, {
 };
 
 export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides, initialSelections, initialInput, initialGateIds, workflowId }: IdeaInputPageProps) {
+  const { libraryAgents: LIBRARY_AGENTS, customAgents: CUSTOM_AGENTS, allAgents: ALL_LIBRARY_AGENTS } = useAgentLibrary();
   const [ideaInput, setIdeaInput] = useState(initialInput ?? "");
   const [showAgents, setShowAgents] = useState(false);
-  const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
-  // KAN-91: file content stored separately so textarea stays clean.
-  // Composed into the pipeline message at send time, not at attach time.
-  const [attachedFileContents, setAttachedFileContents] = useState<{ name: string; content: string }[]>([]);
-  // Image-input Wave 2: captured images ride OUT-OF-BAND as the `images` payload
-  // field (Phase 25 D3) — a SEPARATE state from attachedFileContents (which is
-  // inlined into the brief text). base64 must NEVER enter the brief: one ~340KB
-  // image ≈ the whole ATTACH_MAX_CHARS cap.
-  const [attachedImages, setAttachedImages] = useState<{ name: string; mime_type: string; data: string }[]>([]);
+  // KAN-91 / Image-input Wave 2 — shared with ComposerPage's Simple-view Brief
+  // card (INV-3, no forked attach/extract logic).
+  const briefAttachments = useBriefAttachments();
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const preSpeechTextRef = useRef("");
   const { isListening, transcript, startListening, stopListening, isSupported: speechSupported } = useSpeechRecognition();
 
@@ -665,7 +868,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     return LIBRARY_AGENTS.filter((a) => a.pipeline_type === type).sort((a, b) => a.order - b.order);
   });
 
-  const { attachedSkills, attachedHooks } = useSkillsHooks();
+  const { attachedHooks } = useSkillsHooks();
 
   // Per-run Human-review gate selection, surfaced by <ReviewGatesSection>.
   // Held in a ref so the section reporting its state doesn't re-render this page
@@ -770,7 +973,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     } else {
       setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order));
     }
-  }, [effectiveType, initialAgentIds]);
+  }, [LIBRARY_AGENTS, effectiveType, initialAgentIds]);
 
   // Reset the sub-choice when the parent switches us off the migration meta-type.
   useEffect(() => {
@@ -791,10 +994,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     if (isMigrationMeta && !migrationChoice) return;
     // KAN-91: compose file content blocks into the message at send time,
     // keeping the textarea clean. ATTACH_MAX_CHARS already applied at attach time.
-    const fileBlocks = attachedFileContents
-      .map((f) => `\n\n=== Attached: ${f.name} ===\n${f.content}\n=== End: ${f.name} ===`)
-      .join("");
-    const finalMessage = fileBlocks ? `${ideaInput.trim()}${fileBlocks}` : ideaInput.trim();
+    const finalMessage = `${ideaInput.trim()}${briefAttachments.fileBlocks}`;
     // Only attach gate_agent_ids when the user actually touched the Review-gates
     // section; otherwise omit it entirely so the backend keeps its static default
     // (the run_pipeline payload is byte-identical to before this feature).
@@ -814,7 +1014,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // Image-input Wave 2: ship captured images OUT-OF-BAND as `images` (D3 —
     // NEVER inlined into finalMessage). Include only when ≥1 image is attached
     // so an image-less run emits a byte-identical payload (INV-3).
-    const hasImages = attachedImages.length > 0;
+    const hasImages = briefAttachments.attachedImages.length > 0;
     // KAN-112 Option B: for custom pipelines, resolve the actual dispatch type and
     // optional deliverable override from the chosen agent set. Prototype agents inject
     // __deliverable__ into selections so engine._apply_selections swaps the compiled
@@ -833,7 +1033,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
             ...(touched ? { gate_agent_ids: ids } : {}),
             ...(hasOverrides ? { model_overrides: overrides } : {}),
             ...(hasMergedSelections ? { selections: mergedSelections } : {}),
-            ...(hasImages ? { images: attachedImages } : {}),
+            ...(hasImages ? { images: briefAttachments.attachedImages } : {}),
           }
         : undefined;
     onRun(finalMessage, pipelineAgents.map((a) => a.id), dispatchType, finalExtraParams);
@@ -898,7 +1098,9 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
 
   const handleAddAgent = useCallback((agent: AgentDef) => {
     setPipelineAgents((prev) => {
-      if (prev.find((a) => a.id === agent.id)) return prev;
+      // Reusable blank template — mint a fresh instance id per add (R-03).
+      const node = instantiateIfTemplate(agent, collectAgentIds(prev));
+      if (prev.find((a) => a.id === node.id)) return prev;
       // KAN-112: custom has no locked defaults — every agent counts as optional.
       const currentDefaults = new Set(
         effectiveType === "custom"
@@ -910,10 +1112,10 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       if (currentOptional >= limit) return prev;
       const insertIdx = effectiveType === "custom" ? prev.length : (prev.length > 0 ? prev.length - 1 : 0);
       const updated = [...prev];
-      updated.splice(insertIdx, 0, { ...agent, order: insertIdx + 1 });
+      updated.splice(insertIdx, 0, { ...node, order: insertIdx + 1 });
       return updated;
     });
-  }, [effectiveType]);
+  }, [LIBRARY_AGENTS, effectiveType]);
 
   const handleRemoveAgent = useCallback((agentId: string) => {
     setPipelineAgents((prev) => prev.filter((a) => a.id !== agentId));
@@ -928,7 +1130,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   // has enough content to infer intent (≥15 chars).
   const [dismissedRecommendations, setDismissedRecommendations] = useState<Set<string>>(new Set());
   const recommendations = effectiveType === "custom"
-    ? getAgentRecommendations(ideaInput, new Set(pipelineAgents.map((a) => a.id)))
+    ? getAgentRecommendations(ALL_LIBRARY_AGENTS, ideaInput, new Set(pipelineAgents.map((a) => a.id)))
         .filter((a) => !dismissedRecommendations.has(a.id))
         .slice(0, 6)
     : [];
@@ -951,7 +1153,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const totalEstimatedTime = Math.round(pipelineAgents.reduce((s, a) => s + a.estimated_duration, 0));
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto" style={{ background: "#f5f5f0" }}>
+    <div className="flex h-full flex-col overflow-y-auto bg-surface-paper">
       <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-10 max-w-2xl mx-auto w-full">
 
         {/* Back */}
@@ -962,7 +1164,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         >
           <button
             onClick={onBack}
-            className="flex items-center gap-1.5 text-[12px] text-gray-500 hover:text-gray-900 transition-colors"
+            className="flex items-center gap-1.5 text-[12px] text-ink-500 hover:text-ink-900 transition-colors"
           >
             <ArrowLeft className="h-3.5 w-3.5" /> Back
           </button>
@@ -975,16 +1177,16 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
           transition={{ duration: 0.35 }}
           className="w-full mb-6"
         >
-          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.15em] mb-3">
+          <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-[0.15em] mb-3">
             {config.tag}
           </p>
           <h1
-            className="text-[32px] font-normal italic text-gray-900 leading-tight tracking-tight mb-2"
+            className="text-[32px] font-normal italic text-ink-900 leading-tight tracking-tight mb-2"
             style={{ fontFamily: "var(--font-fraunces)" }}
           >
             {config.heading}
           </h1>
-          <p className="text-[13px] text-gray-500 leading-relaxed max-w-xl">
+          <p className="text-[13px] text-ink-500 leading-relaxed max-w-xl">
             {config.subtitle}
           </p>
         </motion.div>
@@ -996,192 +1198,64 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
           transition={{ duration: 0.35, delay: 0.08 }}
           className="w-full"
         >
-          <div className="rounded-2xl bg-white shadow-sm border border-gray-200/80 overflow-hidden">
-            {/* Textarea */}
-            <textarea
-              ref={inputRef}
+          <div className="rounded-2xl bg-surface-white shadow-sm border border-line-control/80 overflow-hidden">
+            <BriefAttachBox
               value={ideaInput}
-              onChange={(e) => setIdeaInput(e.target.value)}
+              onChange={setIdeaInput}
               placeholder={isListening ? "Listening... speak your idea" : config.placeholder}
-              className="w-full resize-none bg-transparent text-[14px] text-gray-900 placeholder-gray-400 px-5 pt-5 pb-3 focus:outline-none min-h-[130px] max-h-[260px] leading-relaxed"
-              rows={5}
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleRun(); }}
-            />
-
-            {/* Attached files */}
-            {attachedFiles.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 px-5 pb-2">
-                {attachedFiles.map((file, idx) => (
-                  <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[10px] text-gray-600">
-                    <File className="h-2.5 w-2.5" /> {file.name}
-                    <button onClick={() => {
-                      setAttachedFiles((p) => p.filter((_, i) => i !== idx));
-                      // KAN-91: also remove stored content so it's not sent
-                      const removedName = attachedFiles[idx]?.name;
-                      if (removedName) {
-                        setAttachedFileContents((p) => p.filter((c) => c.name !== removedName));
-                      }
-                    }} className="ml-1 text-gray-400 hover:text-red-500">
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Attached images (Wave 2) — chips only; base64 never inlined (D3) */}
-            {attachedImages.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 px-5 pb-2">
-                {attachedImages.map((img, idx) => (
-                  <span key={`${img.name}-${idx}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[10px] text-gray-600">
-                    <ImageIcon className="h-2.5 w-2.5" /> {img.name}
-                    <button onClick={() => {
-                      setAttachedImages((p) => p.filter((_, i) => i !== idx));
-                    }} className="ml-1 text-gray-400 hover:text-red-500">
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Bottom toolbar */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-              <div className="flex items-center gap-1">
-                {/* Hidden file input */}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept=".pdf,.doc,.docx,.pptx,.txt,.md,.json,.csv,image/png,image/jpeg,image/webp,image/gif"
-                  className="hidden"
-                  onChange={(e) => {
-                    const files = e.target.files;
-                    if (files) {
-                      Array.from(files).forEach((f) => {
-                        // Image-input Wave 2: images ride OUT-OF-BAND (D3) — they
-                        // are captured into attachedImages, NEVER into
-                        // attachedFileContents (which is inlined into the brief).
-                        const isImageFile =
-                          ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(f.type) ||
-                          /\.(png|jpe?g|webp|gif)$/i.test(f.name);
-                        if (isImageFile) {
-                          // UPLD-04: downscale oversized images client-side BEFORE
-                          // base64. resizeImage is aspect-preserving, no-upscale, and
-                          // degrade-not-block (it resolves to the original file's
-                          // base64 on any failure — never throws). The resulting
-                          // base64 still rides OUT-OF-BAND as the `images` payload
-                          // (D3); it NEVER enters the brief. Server caps stay
-                          // authoritative (this is a client optimization only).
-                          resizeImage(f).then((resized) => {
-                            setAttachedImages((p) => [
-                              ...p,
-                              { name: f.name, mime_type: resized.mime_type, data: resized.data },
-                            ]);
-                          });
-                          return;
-                        }
-                        const meta = {
-                          name: f.name,
-                          size: f.size < 1024 ? `${f.size}B` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)}KB` : `${(f.size / 1048576).toFixed(1)}MB`,
-                        };
-                        setAttachedFiles((p) => [...p, meta]);
-                        const isTextFile = /\.(txt|md|json|csv)$/i.test(f.name);
-                        const isBinaryFile = /\.(pdf|docx|pptx)$/i.test(f.name);
-                        if (isTextFile) {
-                          const reader = new FileReader();
-                          reader.onload = (ev) => {
-                            const content = (ev.target?.result as string) ?? "";
-                            // KAN-91: store content separately, not in textarea
-                            setAttachedFileContents((p) => [
-                              ...p,
-                              { name: f.name, content: content.slice(0, ATTACH_MAX_CHARS) },
-                            ]);
-                          };
-                          reader.readAsText(f);
-                        } else if (isBinaryFile) {
-                          const jwt = getToken();
-                          if (jwt) {
-                            extractFileText(jwt, f)
-                              .then((res) => {
-                                // KAN-91: store extracted content separately
-                                const truncNote = res.truncated ? `\n[Content truncated to ${ATTACH_MAX_CHARS.toLocaleString()} chars]` : "";
-                                setAttachedFileContents((p) => [
-                                  ...p,
-                                  { name: res.filename, content: `${res.text}${truncNote}` },
-                                ]);
-                              })
-                              .catch(() => {
-                                // Extraction failed — store a placeholder so the agent knows the file was attached
-                                setAttachedFileContents((p) => [
-                                  ...p,
-                                  { name: f.name, content: "[could not extract text]" },
-                                ]);
-                              });
-                          } else {
-                            setAttachedFileContents((p) => [...p, { name: f.name, content: "" }]);
-                          }
-                        }
-                        // For other file types: chip shows but no content is sent (no text to extract)
-                      });
-                    }
-                    e.target.value = "";
-                  }}
-                />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all border border-transparent hover:border-gray-200"
-                >
-                  <Paperclip className="h-3.5 w-3.5" /> + Attach file
-                </button>
-                {speechSupported && (
+              attachments={briefAttachments}
+              textareaRef={inputRef}
+              onSubmitShortcut={handleRun}
+              leftExtra={
+                speechSupported && (
                   <button
                     onClick={() => { if (isListening) stopListening(); else { preSpeechTextRef.current = ideaInput; startListening(); } }}
                     className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] transition-all border border-transparent ${
                       isListening
-                        ? "text-red-500 bg-red-50 border-red-100 animate-pulse"
-                        : "text-gray-400 hover:text-gray-700 hover:bg-gray-100 hover:border-gray-200"
+                        ? "text-status-failed bg-status-failed-fill border-status-failed-border animate-pulse"
+                        : "text-ink-400 hover:text-ink-700 hover:bg-surface-warm hover:border-line-control"
                     }`}
                   >
                     {isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
                     {isListening ? "Stop" : "Voice"}
                   </button>
-                )}
-              </div>
+                )
+              }
+              rightSlot={
+                <>
+                  {/* Save workflow — SAVE-FROM-BOTH composer entry (Phase 21).
+                      Persists the composer triple. */}
+                  {savedConfirm ? (
+                    <span className="flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-[12px] font-semibold text-status-done bg-status-done-fill border border-status-done-border">
+                      <Check className="h-3.5 w-3.5" /> Saved
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => { setSaveError(null); setShowSaveModal(true); }}
+                      disabled={pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+                      className="flex items-center gap-1.5 rounded-xl border border-line-control px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Save this composition as a reusable workflow"
+                    >
+                      <Save className="h-3.5 w-3.5" /> Save workflow
+                    </button>
+                  )}
 
-              <div className="flex items-center gap-2">
-                {/* Save workflow — SAVE-FROM-BOTH composer entry (Phase 21).
-                    Reuses the gray-900 pill style; persists the composer triple. */}
-                {savedConfirm ? (
-                  <span className="flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-[12px] font-semibold text-green-600 bg-green-50 border border-green-100">
-                    <Check className="h-3.5 w-3.5" /> Saved
-                  </span>
-                ) : (
+                  {/* Run button */}
                   <button
-                    onClick={() => { setSaveError(null); setShowSaveModal(true); }}
-                    disabled={pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
-                    className="flex items-center gap-1.5 rounded-xl border border-gray-200 px-4 py-2.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                    title="Save this composition as a reusable workflow"
+                    onClick={handleRun}
+                    disabled={!ideaInput.trim() || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+                    className="flex items-center gap-2 rounded-xl bg-brand text-surface-white px-5 py-2.5 text-[13px] font-semibold hover:bg-brand-pressed transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   >
-                    <Save className="h-3.5 w-3.5" /> Save workflow
+                    {pipelineAgents.length === 0
+                      ? "Add agents first"
+                      : isMigrationMeta && !migrationChoice
+                      ? "Pick a migration path"
+                      : "Run workflow"}
+                    <ArrowRight className="h-4 w-4" />
                   </button>
-                )}
-
-                {/* Run button */}
-                <button
-                  onClick={handleRun}
-                  disabled={!ideaInput.trim() || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
-                  className="flex items-center gap-2 rounded-xl bg-gray-900 text-white px-5 py-2.5 text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  {pipelineAgents.length === 0
-                    ? "Add agents first"
-                    : isMigrationMeta && !migrationChoice
-                    ? "Pick a migration path"
-                    : "Run workflow"}
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
+                </>
+              }
+            />
 
             {saveError && (
               <div className="px-4 pb-3 -mt-1 text-[11px] text-red-600">{saveError}</div>
@@ -1210,10 +1284,10 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
             transition={{ duration: 0.25 }}
             className="w-full mt-3"
           >
-            <div className="rounded-xl border border-[#1B2A4A]/15 bg-[#F1F4FB] px-4 py-3">
+            <div className="rounded-xl border border-brand/15 bg-brand/[0.04] px-4 py-3">
               <div className="flex items-center gap-1.5 mb-2.5">
-                <Sparkles className="h-3.5 w-3.5 text-[#1B2A4A]" />
-                <p className="text-[10px] font-semibold text-[#1B2A4A] uppercase tracking-wide">
+                <Sparkles className="h-3.5 w-3.5 text-brand" />
+                <p className="text-[10px] font-semibold text-brand uppercase tracking-wide">
                   Suggested agents for your brief
                 </p>
               </div>
@@ -1222,7 +1296,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                   <button
                     key={agent.id}
                     onClick={() => handleAddAgent(agent)}
-                    className="flex items-center gap-1.5 rounded-full border border-[#1B2A4A]/20 bg-white px-2.5 py-1 text-[11px] font-medium text-[#1B2A4A] hover:bg-[#1B2A4A] hover:text-white transition-colors group"
+                    className="flex items-center gap-1.5 rounded-full border border-brand/20 bg-surface-white px-2.5 py-1 text-[11px] font-medium text-brand hover:bg-brand hover:text-surface-white transition-colors group"
                     title={agent.description}
                   >
                     {agent.name.replace(/ Agent$/, "")}
@@ -1231,7 +1305,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                 ))}
                 <button
                   onClick={() => setDismissedRecommendations(new Set(recommendations.map((a) => a.id)))}
-                  className="text-[10px] text-gray-400 hover:text-gray-600 px-1 self-center"
+                  className="text-[10px] text-ink-400 hover:text-ink-600 px-1 self-center"
                   title="Dismiss suggestions"
                 >
                   Dismiss
@@ -1250,13 +1324,13 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
             transition={{ duration: 0.25 }}
             className="w-full mt-2"
           >
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <div className="rounded-xl border border-status-amber-border bg-status-amber-fill px-4 py-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] font-semibold text-amber-800 mb-0.5">
+                  <p className="text-[11px] font-semibold text-status-amber mb-0.5">
                     {companionSuggestion.group.label}
                   </p>
-                  <p className="text-[10px] text-amber-700 leading-relaxed">
+                  <p className="text-[10px] text-status-amber leading-relaxed">
                     {companionSuggestion.group.description}
                   </p>
                 </div>
@@ -1273,7 +1347,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                       .filter(Boolean) as AgentDef[];
                     setPipelineAgents([...fullGroupAgents, ...nonGroupAgents]);
                   }}
-                  className="flex-shrink-0 flex items-center gap-1 text-[11px] font-semibold text-amber-800 hover:text-amber-900 bg-amber-100 hover:bg-amber-200 px-2.5 py-1 rounded-lg transition-colors"
+                  className="flex-shrink-0 flex items-center gap-1 text-[11px] font-semibold text-status-amber bg-status-amber-fill border border-status-amber-border hover:brightness-95 px-2.5 py-1 rounded-lg transition-colors"
                 >
                   <Plus className="h-3 w-3" />
                   Add {companionSuggestion.missing.length} missing
@@ -1293,7 +1367,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
             transition={{ duration: 0.3, delay: 0.12 }}
             className="w-full mt-5"
           >
-            <p className="text-[10px] font-semibold text-[#1B2A4A] uppercase tracking-[0.14em] mb-2.5">
+            <p className="text-[10px] font-semibold text-brand uppercase tracking-[0.14em] mb-2.5">
               Choose your migration path
             </p>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -1305,17 +1379,17 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                     onClick={() => setMigrationChoice(opt.type)}
                     className={`group text-left rounded-2xl border-2 px-4 py-3.5 transition-all ${
                       isSelected
-                        ? "border-[#1B2A4A] bg-[#1B2A4A] shadow-md"
-                        : "border-gray-200 bg-white hover:border-[#1B2A4A]/40 hover:bg-[#F1F4FB]"
+                        ? "border-brand bg-brand shadow-md"
+                        : "border-line-control bg-surface-white hover:border-brand/40 hover:bg-brand/[0.04]"
                     }`}
                   >
                     <div className="flex items-start gap-2.5">
-                      <GitBranch className={`h-4 w-4 mt-0.5 flex-shrink-0 ${isSelected ? "text-white" : "text-[#1B2A4A]"}`} />
+                      <GitBranch className={`h-4 w-4 mt-0.5 flex-shrink-0 ${isSelected ? "text-white" : "text-brand"}`} />
                       <div className="min-w-0">
-                        <p className={`text-[12px] font-semibold leading-snug ${isSelected ? "text-white" : "text-gray-900"}`}>
+                        <p className={`text-[12px] font-semibold leading-snug ${isSelected ? "text-white" : "text-ink-900"}`}>
                           {opt.label}
                         </p>
-                        <p className={`text-[10px] mt-1 leading-relaxed ${isSelected ? "text-white/85" : "text-gray-500"}`}>
+                        <p className={`text-[10px] mt-1 leading-relaxed ${isSelected ? "text-white/85" : "text-ink-500"}`}>
                           {opt.tagline}
                         </p>
                       </div>
@@ -1336,14 +1410,14 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         >
           <button
             onClick={() => setShowAgents(true)}
-            className="flex items-center gap-2 text-[12px] text-gray-400 hover:text-gray-700 transition-colors"
+            className="flex items-center gap-2 text-[12px] text-ink-400 hover:text-ink-700 transition-colors"
           >
             <Settings2 className="h-3.5 w-3.5" />
-            <span className="font-medium text-gray-600">Advanced</span>
-            <span className="text-gray-400">
+            <span className="font-medium text-ink-600">Advanced</span>
+            <span className="text-ink-400">
               {pipelineAgents.length} agent{pipelineAgents.length !== 1 ? "s" : ""}
               {totalEstimatedTime > 0 && ` · ~${totalEstimatedTime < 60 ? `${totalEstimatedTime}s` : `${Math.round(totalEstimatedTime / 60)}m`}`}
-              {(attachedSkills.length + attachedHooks.length) > 0 && ` · ${attachedSkills.length + attachedHooks.length} skill${attachedSkills.length + attachedHooks.length !== 1 ? "s/hooks" : "/hook"}`}
+              {attachedHooks.length > 0 && ` · ${attachedHooks.length} hook${attachedHooks.length !== 1 ? "s" : ""}`}
             </span>
           </button>
         </motion.div>

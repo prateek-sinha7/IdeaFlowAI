@@ -2,6 +2,7 @@
 consumes: []
 context_from:
 - $previous
+description: Builds a phased product roadmap with milestones, priorities, and timelines.
 estimated_duration: 6.0
 guardrails: []
 icon: "\U0001F5D3️"

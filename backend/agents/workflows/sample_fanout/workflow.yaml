@@ -1,36 +1,13 @@
-# sample_fanout — the SC-001 FAN-OUT PROOF manifest (11-05).
-#
-# A BRAND-NEW, NON-prototype FAN-OUT workflow defined by manifest + AGENT.md ONLY,
-# using ONLY already-registered capabilities (strategy: fanout_batch, merge:
-# copy_disjoint, tool: spawn_subagents, task_source.parser: heading_tasks,
-# deliverable: serialized_sandbox) — proving
-# that a custom fanning workflow runs end-to-end with ZERO edits to
-# backend/agents/execution_engine/ (SC-001: the kernel knows no workflow by name;
-# all power lives in the registered capabilities). The 09-04 sample_brownfield /
-# 07-11 sc001_task_loop real-manifest-home precedent: compile_for_run loads this dir
-# with zero engine edit.
-#
-# 2 agents: sample-fanout-plan -> sample-fanout-worker (the fan-out step).
-#   * sample-fanout-plan emits a 3-task `## Task N:` plan (one task per worker), each
-#     task instructing the worker to write a distinct file (part_1.txt/2/3);
-#   * the fan-out step (strategy: fanout_batch) sources that plan from the DECLARED
-#     source_step (sample-fanout-plan) via the heading_tasks parser, fans 3 SELF
-#     copies (fanout.agent: self, count: 3) in mode: parallel, each writing its
-#     assigned distinct file in its OWN isolated workspace; the engine-selected
-#     copy_disjoint merge integrates the 3 disjoint files into the base with NO
-#     conflict (deterministic).
-#
-# deliverable: serialized_sandbox — the workers write disjoint part_*.txt files,
-# copy_disjoint merges them into the run-sandbox base, and serialized_sandbox bundles
-# that merged base into the filename:-block deliverable. The declared deliverable
-# therefore resolves from files the workflow ACTUALLY PRODUCES (no single_file
-# fallback-to-streamed-output warning — UAT Gap 6 / F6, 13-04).
-#
-# tools.spawn_subagents is GRANTED at the fan-out step — the manifest is FILE-trusted
-# (compile trust='file'), so the privileged user_allowed=False grant is allowed (a
-# user/db manifest referencing spawn_subagents would be rejected by CAP-03; this is
-# the engineer-authored sample). No step grants exec/network/secrets (default OFF).
 id: sample_fanout
+# NOT launchable: `sample-fanout-plan` / `sample-fanout-worker` have no AGENT.md
+# on disk, so a launch raises FileNotFoundError building the roster. Declared as
+# DATA rather than hidden by a name list (SC-001 / ADR-0005).
+user_launchable: false
+is_beta: true
+display_name: Fan-out task batch
+short_name: Fan-out Batch
+description: Split a task list across parallel workers and merge the results.
+icon: Network
 version: 1
 planner: run
 clarify:
@@ -40,35 +17,33 @@ deliverable:
   strategy: serialized_sandbox
 context_providers: []
 seed_files: {}
-# The workflow-level named-worker allow-list (FANOUT-03). self×N needs no named
-# worker, but the allow-list is declared (pure data) so a heterogeneous fan-out
-# could name sample-fanout-worker explicitly.
 allowed_workers:
-  - sample-fanout-worker
+- sample-fanout-worker
 steps:
-  - agent: sample-fanout-plan
-    strategy: single_shot
-    gates: []
-    tools:
-      read_files: true
-      write_files: true
-      exec: false
-  - agent: sample-fanout-worker
-    strategy: fanout_batch
-    gates: []
-    on_conflict: human_gate
-    task_source:
-      kind: parsed
-      parser: heading_tasks
-      target: tasks.md
-      source_step: sample-fanout-plan
-    fanout:
-      mode: parallel
-      max_parallel: 3
-      agent: self
-      count: 3
-    tools:
-      read_files: true
-      write_files: true
-      exec: false
-      spawn_subagents: true
+- agent: sample-fanout-plan
+  strategy: single_shot
+  gates: []
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+- agent: sample-fanout-worker
+  strategy: fanout_batch
+  gates: []
+  on_conflict: human_gate
+  task_source:
+    kind: parsed
+    parser: heading_tasks
+    target: tasks.md
+    source_step: sample-fanout-plan
+  fanout:
+    mode: parallel
+    max_parallel: 3
+    agent: self
+    count: 3
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    spawn_subagents: true
+name: Fan-out Batch

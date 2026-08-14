@@ -12,7 +12,7 @@ Schema source: specs/003-workflow-engine-decoupling/plan.md §18.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, String
+from sqlalchemy import Column, DateTime, ForeignKey, String
 
 from app.models.database import Base
 
@@ -29,7 +29,12 @@ class Workspace(Base):
     workspace_id = Column(String, nullable=False)    # AUTHZ-01
     kind = Column(String, nullable=False, default="sandbox", server_default="sandbox")
     runtime = Column(String, nullable=False, default="local", server_default="local")
-    repo_id = Column(String, nullable=True)          # Phase 9 (repositories)
+    # Phase 9 (repositories): FK wired additively in migration 0017.
+    repo_id = Column(
+        String,
+        ForeignKey("repositories.id", name="fk_workspaces_repo_id_repositories"),
+        nullable=True,
+    )
     ttl = Column(String, nullable=True, default="run_ttl", server_default="run_ttl")
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False

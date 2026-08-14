@@ -457,11 +457,26 @@ class TestOptInAndCost:
 
 class TestClarifyAutoAnswerOffline:
     @pytest.mark.asyncio
-    async def test_planner_clarify_required_is_auto_answered(self) -> None:
+    async def test_planner_clarify_required_is_auto_answered(self, monkeypatch) -> None:
         """A forced CLARIFY_REQUIRED planner verdict is auto-answered → the run
         proceeds to completion instead of blocking on ClarifyEngine's resume
         event (deterministic, scripted model, zero Bedrock)."""
         from agents.execution_engine.engine import ExecutionEngine
+
+        # ClarifyEngine's question generation tries an LLM call first (real
+        # content-aware questions) and falls back to its static library on any
+        # Exception (agents/execution_engine/clarify_engine.py's own documented
+        # behavior). Force that fallback here rather than reaching a real
+        # provider — this test is about the auto-answer plumbing, not question
+        # content, and the offline guard (ISS-102) deliberately raises a
+        # BaseException so a real client construction can't be swallowed by
+        # that broad except.
+        async def _no_llm(*args, **kwargs):
+            raise RuntimeError("offline test: no LLM clarify generation")
+
+        monkeypatch.setattr(
+            "app.agents.cached_invoke.cached_invoke", _no_llm
+        )
 
         ctx = ExecutionEngine()._default_planning_context(
             "Build user stories for a task-management web app."

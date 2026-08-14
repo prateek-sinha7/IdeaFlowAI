@@ -83,6 +83,30 @@ _DISPOSITIONS: dict[str, tuple[object, object]] = {
         lambda s, c: s.fanout is not None and s.fanout.mode == "parallel",
     ),
     "on_conflict": ("abort", lambda s, c: s.on_conflict == "abort"),
+    # ── quick-260701-bob: per-step render fail-closed knob ────────────────────
+    # Was in _ALLOWED_STEP_KEYS with NO disposition — a pre-existing gap in this
+    # guard, not introduced by spec 012. Registered here so the coverage assertion
+    # can be green again.
+    "require_render": (True, lambda s, c: s.require_render is True),
+    # ── spec 012: per-instance identity + per-step scoping ────────────────────
+    "instance_id": ("inst-a", lambda s, c: s.instance_id == "inst-a"),
+    # `name` is carried onto Step.display_name (the field is renamed to avoid
+    # colliding with the workflow-level `name`).
+    "name": ("Display Name", lambda s, c: s.display_name == "Display Name"),
+    # `prompt` is REJECT-ONLY on a non-custom-agent step (R-06): built-ins keep the
+    # existing prompt-override mechanism, so exactly one way to override survives.
+    # The harness always uses agent "step-x", so this raises CompilerError — the
+    # consumed-OR-raises guard accepts that branch. The predicate documents what
+    # consumption WOULD look like on a custom-agent step.
+    "prompt": ("do the thing", lambda s, c: s.prompt == "do the thing"),
+    "skills": (["poet"], lambda s, c: s.skills == ["poet"]),
+    # `subagents` is EXPANDED at compile time into child steps + depends_on edges
+    # (D-02) rather than materialized as a Step field — so it is asserted on the
+    # compiled WORKFLOW, not on steps[0] (which is the CHILD after expansion).
+    "subagents": (
+        {"mode": "parallel", "steps": [{"agent": "step-y", "instance_id": "c1"}]},
+        lambda s, c: len(c.steps) == 2 and "step-y" in c.steps[-1].depends_on,
+    ),
     # WIRE-02: per-step retry: → Step.retry (coerced RetryPolicy)
     "retry": (
         {"max_attempts": 2},

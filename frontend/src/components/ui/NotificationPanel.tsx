@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Bell, CheckCircle2, XCircle, Loader2, ArrowRight, Trash2, PauseCircle, X } from "lucide-react";
 import type { PipelineNotification } from "@/hooks/useNotifications";
-import { getWorkflowLabel } from "@/hooks/useNotifications";
+import { useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
 import { Badge } from "@/components/ui/Badge";
 import { Pill } from "@/components/ui/Pill";
 import { parseRunInput } from "@/lib/runInput";
@@ -74,6 +74,7 @@ function NotifRow({
   onDismiss?: () => void;
   recentRuns?: WorkflowRun[];
 }) {
+  const getWorkflowLabel = useWorkflowLabels();
   const isLive = n.status === "running" || n.status === "gate";
 
   // Resolve detailed status from server run when available.
@@ -204,6 +205,7 @@ export function NotificationPanel({
   liveRuns = [],
   recentRuns = [],
 }: NotificationPanelProps) {
+  const getWorkflowLabel = useWorkflowLabels();
   // Defensive: only show terminal notifications here — live runs come via liveRuns.
   // This prevents duplicates if a caller accidentally passes running notifications.
   const notifications = notificationsProp.filter(
