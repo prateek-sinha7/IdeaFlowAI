@@ -1358,11 +1358,16 @@ async def _dispose_concierge_proposal(
             if not can_run_pipeline(current_user.tier, natural_revision)[0]:
                 base_type = _OD_FALLBACK_MAP[base_type]
         target = params.get("target") or f"{base_type}_output"
+        # OD target remapping: od_prototype_output → prototype_output unconditionally.
+        # od_prototype_revision has no registered agents so it can never be dispatched.
+        # This applies whether the Concierge stored the target explicitly or the fallback
+        # derived it — both paths must produce a dispatchable revision pipeline type.
+        # od_ppt_output stays as-is (od_ppt_revision has agents and is entitled).
+        _OD_TARGET_REMAP = {"od_prototype_output": "prototype_output"}
+        target = _OD_TARGET_REMAP.get(target, target)
         # Stale-proposal correction: a proposal created before FIX-216b may have
         # stored target="ppt_output" for an od_ppt parent run. Remap to the correct
         # od_ppt_output so the revision uses od_ppt_revision (1 agent), not ppt_revision.
-        # Only correct when wr_type is od_ppt (or od_ppt_revision) — never blindly remap.
-        _OD_TARGET_CORRECTIONS = {"od_ppt": "ppt_output→od_ppt_output"}
         _base_for_correction = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
         if _base_for_correction == "od_ppt" and target == "ppt_output":
             target = "od_ppt_output"
@@ -2831,10 +2836,15 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
         raise _reject("pipeline_not_entitled", _rev_reason, http_status=status.HTTP_403_FORBIDDEN)
 
     _rev_agents = get_pipeline_agents(revision_pipeline_type)
+    # Inherit workspace_id from the parent run (required — run_events.workspace_id
+    # is NOT NULL; a revision row without it fails on the first event write).
+    parent_wr = db.query(WorkflowRun).filter(WorkflowRun.id == parent_run_id).first()
+    parent_workspace_id = getattr(parent_wr, "workspace_id", None) if parent_wr else None
     wr = WorkflowRun(
         id=pipeline_run_id,
         user_id=user.id,
         owner_id=user.id,
+        workspace_id=parent_workspace_id,
         parent_run_id=parent_run_id,
         title=f"Revision: {instruction[:50]}",
         type=revision_pipeline_type,

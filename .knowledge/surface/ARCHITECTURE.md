@@ -48,7 +48,7 @@ These are checked by `import-linter` in CI, which makes them the only architectu
 | `frontend/src/components` | UI components | 217 | 192 files |
 | `frontend/src/hooks` | client state + stream handling | 47 | 27 files |
 
-**18 workflows** registered — `app_builder`, `app_builder_revision`, `chat`, `custom`, `dotnet_to_azure`, `mulesoft_to_springboot`, `od_ppt`, `od_ppt_revision`, `ppt`, `ppt_revision`, `prototype`, `prototype_revision`, `reverse_engineer`, `sample_brownfield`, `sample_fanout`, `sample_wave`, `user_stories`, `user_stories_revision`
+**19 workflows** registered — `app_builder`, `app_builder_revision`, `chat`, `custom`, `custom_prototype`, `dotnet_to_azure`, `mulesoft_to_springboot`, `od_ppt`, `od_ppt_revision`, `ppt`, `ppt_revision`, `prototype`, `prototype_revision`, `reverse_engineer`, `sample_brownfield`, `sample_fanout`, `sample_wave`, `user_stories`, `user_stories_revision`
 
 Per SC-001 these are pure data: adding one is a manifest plus an AGENT.md, with no engine edit and no new pipeline name.
 
