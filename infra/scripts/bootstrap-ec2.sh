@@ -752,9 +752,23 @@ REGION="${VELOCITYAI_REGION:-eu-central-1}"
 PREFIX="${VELOCITYAI_PARAM_PREFIX:-/velocityai/prod}"
 DOMAIN="${VELOCITYAI_FQDN:-}"
 
-# Preserve CI-managed image-tag pins + the operator-defined ENV.
+# Preserve CI-managed image-tag pins + the operator-defined ENV, PLUS the two
+# lines bootstrap-ec2.sh §11 writes that docker-compose.prod.yml's `awslogs`
+# logging driver requires (VELOCITYAI_ENVIRONMENT, VELOCITYAI_CW_LOG_GROUP).
+#
+# This loader is invoked as velocityai-app.service's ExecStartPre on EVERY
+# start — not just from a deploy or a fresh bootstrap, but also a bare
+# `systemctl restart velocityai-app.service` (which the velocityai-deploy
+# sudoers entry explicitly permits) and every reboot. Previously this preserve
+# list omitted the CW_LOG_GROUP/ENVIRONMENT lines, so each such start rewrote
+# app.env WITHOUT them; Compose then defaulted VELOCITYAI_CW_LOG_GROUP to a
+# blank string and `docker compose up` failed with "must specify a value for
+# log opt 'awslogs-group'", crash-looping the unit. remote-deploy.sh papers
+# over this for its own callpath by re-asserting the lines after invoking the
+# loader (see its §7 comment) — but that only protects a deploy, not a plain
+# restart/reboot. Fixing the preserve list here fixes it for every caller.
 if [[ -f "$OUT" ]]; then
-    grep -E '^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV)=' "$OUT" >> "$TMP" || true
+    grep -E '^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV|VELOCITYAI_ENVIRONMENT|VELOCITYAI_CW_LOG_GROUP)=' "$OUT" >> "$TMP" || true
 fi
 
 emit() {
@@ -772,7 +786,19 @@ emit() {
 
 CORS_SET=0
 PUBLIC_BASE_URL_SET=0
-while IFS=$'\t' read -r name value; do
+# Parsed as one compact-JSON object per line (`jq -c`), NOT
+# `--output text` + `IFS=$'\t' read`. A parameter whose Value is itself
+# multi-line (e.g. a JSON blob like cloudwatch-agent/config) renders with
+# literal embedded newlines under `--output text`, so each of ITS lines
+# became its own tab-less "row" here, none of which matched `name<TAB>value`
+# — every fragment fell through to the WARN case below (one warning per
+# line of that value, on every single app start). `jq -c` escapes embedded
+# newlines as the two characters `\n` inside the JSON string, so one
+# parameter is always exactly one line here, no matter what its value
+# contains.
+while IFS= read -r param_json; do
+    name="$(jq -r '.Name' <<<"$param_json")"
+    value="$(jq -r '.Value' <<<"$param_json")"
     rel="${name#${PREFIX}/}"
     case "$rel" in
         CORS_ORIGINS)
@@ -811,6 +837,15 @@ while IFS=$'\t' read -r name value; do
             # from the preserve list above. Skipped silently rather than falling
             # through to the WARN below, which would fire on every app start.
             ;;
+        cloudwatch-agent/*)
+            # The CloudWatch agent reads its OWN config from
+            # /opt/aws/amazon-cloudwatch-agent/etc/ (written by bootstrap-ec2.sh
+            # §13/14 and applied via `amazon-cloudwatch-agent-ctl -a fetch-config`)
+            # — this loader never feeds it anything, so this parameter (whose
+            # Value is a multi-line JSON blob) is expected and not misconfig.
+            # Skipped explicitly, same as deploy/* and bootstrap/* above, rather
+            # than falling through to the WARN below on every app start.
+            ;;
         bootstrap/*)
             # One-shot initial-administrator credentials
             # (bootstrap/admin-email, bootstrap/admin-password), consumed by
@@ -838,7 +873,8 @@ while IFS=$'\t' read -r name value; do
 done < <(aws ssm get-parameters-by-path \
             --path "$PREFIX" --recursive --with-decryption \
             --region "$REGION" \
-            --query 'Parameters[].[Name,Value]' --output text)
+            --query 'Parameters[].{Name:Name,Value:Value}' --output json \
+            | jq -c '.[]')
 
 # Fallback: if SSM didn't supply a non-empty CORS_ORIGINS, default to a
 # single-origin list containing the FQDN we're serving from. Matches the
