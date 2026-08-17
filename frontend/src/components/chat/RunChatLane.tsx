@@ -295,6 +295,9 @@ export interface RunChatLaneProps {
 
   // ── Plan-05 clarify quick-actions ─────────────────────────────────────────
   clarifyQuestions?: ClarifyQuestion[];
+  /** FIX-225: true while answers were submitted and we're waiting for the next
+   *  round of questions from the backend (between submit and questionnaire_ready). */
+  clarifyPreparing?: boolean;
   onSubmitAnswers?: (responses: ClarifyResponse[]) => void;
   onSkipClarify?: () => void;
   /** Cancel the active pipeline from the inline clarify (Phase 42-02 §A2 re-home). */
@@ -1091,6 +1094,7 @@ export function RunChatLane({
   onRedo,
   onUpdateSpecs,
   clarifyQuestions,
+  clarifyPreparing,
   onSubmitAnswers,
   onSkipClarify,
   onCancelWorkflow,
@@ -1897,6 +1901,29 @@ export function RunChatLane({
     // Live — clarify: status card only (the questions live in the composer + Steps).
     if (runState === "clarify") {
       const n = clarifyQuestions?.length ?? 0;
+
+      // FIX-225: answers were just submitted — show "Preparing your questions…"
+      // animated indicator while waiting for the next questionnaire_ready event.
+      // Same three-dot brand animation used for the first-round "preparing" state
+      // in the building branch above (INV-12 — one animation pattern).
+      if (clarifyPreparing) {
+        return (
+          <div className="ml-[31px] flex items-center gap-[9px] font-sans text-[11.5px] font-medium text-ink-500">
+            <span className="flex items-center gap-[3px]">
+              {[0, 1, 2].map((i) => (
+                <motion.span
+                  key={i}
+                  className="h-[5px] w-[5px] rounded-full bg-brand"
+                  animate={{ opacity: [0.3, 0.9, 0.3] }}
+                  transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.15, ease: "easeInOut" }}
+                />
+              ))}
+            </span>
+            Preparing your questions…
+          </div>
+        );
+      }
+
       return (
         <AwaitingCard
           testid="lane-clarify-status"
