@@ -1,0 +1,111 @@
+### Handoff - Receive (API key auth)
+# Creates a HandoffSession row and returns a one-time URL — this does NOT
+# start the pipeline (that's the separate /start call below, which is
+# excluded from assertions here since it triggers a real agent/LLM run).
+POST {{apiRoot}}/api/handoff/receive
+X-Flowin-API-Key: {{flowinApiKey}}
+Content-Type: application/json
+
+{
+	"task": "Add regression test for login flow",
+	"transcript": "Short IDE transcript excerpt",
+	"repo_url": "https://github.com/acme/example-repo",
+	"mode": "auto",
+	"source_branch": "main",
+	"source_client": "claude-code"
+}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401) {
+		console.log('SKIP: not authenticated (401) — set a real {{flowinApiKey}} (Settings - Create API key) to exercise this assertion');
+	} else if (sc !== 201) {
+		console.error('FAIL: expected 201, got', sc, body);
+	} else if (typeof body.token !== 'string' || typeof body.url !== 'string') {
+		console.error('FAIL: expected {handoff_id, token, url, expires_at, status} shape, got', body);
+	} else {
+		console.log('OK: handoff created, token =', body.token, '| status =', body.status);
+	}
+}}
+
+### Handoff - Receive (invalid mode, expect 422)
+POST {{apiRoot}}/api/handoff/receive
+X-Flowin-API-Key: {{flowinApiKey}}
+Content-Type: application/json
+
+{
+	"task": "Add regression test for login flow",
+	"repo_url": "https://github.com/acme/example-repo",
+	"mode": "not-a-real-mode"
+}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401) {
+		console.log('SKIP: not authenticated (401)');
+	} else if (sc !== 422) {
+		console.error('FAIL: expected 422 for an invalid mode, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: invalid mode correctly rejected (422)');
+	}
+}}
+
+### Handoff - Receive (missing API key, expect 401)
+POST {{apiRoot}}/api/handoff/receive
+Content-Type: application/json
+
+{
+	"task": "Should be rejected before validation",
+	"repo_url": "https://github.com/acme/example-repo"
+}
+
+{{
+	if (response.statusCode !== 401) {
+		console.error('FAIL: expected 401 for a missing X-Flowin-API-Key header, got', response.statusCode, response.parsedBody);
+	} else {
+		console.log('OK: missing API key correctly rejected (401)');
+	}
+}}
+
+### Handoff - Get by token
+GET {{apiRoot}}/api/handoff/{{handoffToken}}
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{handoffToken}} does not exist (404) — set a real token (from Receive above) to exercise the 200 path');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200 or 404, got', sc, body);
+	} else if (typeof body.id !== 'string' || typeof body.status !== 'string') {
+		console.error('FAIL: expected a HandoffSessionView shape, got', body);
+	} else {
+		console.log('OK: handoff', body.id, 'status =', body.status);
+	}
+}}
+
+### Handoff - Get by token (nonexistent token, expect 404)
+GET {{apiRoot}}/api/handoff/not-a-real-token-abc123
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 404) {
+		console.error('FAIL: expected 404 for a nonexistent handoff token, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: nonexistent handoff token correctly 404s');
+	}
+}}
+
+### Handoff - Start pipeline
+# EXCLUDED from assertions: this kicks off a real agent/LLM pipeline run
+# (app.services.handoff_pipeline.run_handoff_pipeline) — out of scope for
+# this REST-only test suite. Left here for manual/exploratory use only.
+POST {{apiRoot}}/api/handoff/{{handoffToken}}/start
+Authorization: Bearer {{jwt}}

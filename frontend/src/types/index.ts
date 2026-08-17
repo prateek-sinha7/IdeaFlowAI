@@ -104,7 +104,7 @@ export interface StreamMessage {
   // lifecycle events (statuses only, D-14). They flow through the same generic
   // backend WS forward and AgentDetailPanel's inline construction/wave tree reads
   // them; no existing event was renamed or removed.
-  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update" | "planner_start" | "planner_complete" | "planner_timeout" | "planner_error" | "gate_status" | "questionnaire_ready" | "questionnaire_complete" | "clarification_limit_reached" | "agent_input" | "tool_call" | "tool_result" | "task_progress" | "task_loop_progress" | "review_gate_ready" | "review_gate_approved" | "pipeline_heartbeat" | "pong" | "workflow_validated" | "validator_result" | "validation_warning" | "gate_started" | "gate_passed" | "gate_blocked" | "wave_started" | "wave_completed" | "wave_failed" | "subagent_spawned" | "subagent_result" | "pipeline_failed";
+  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update" | "planner_start" | "planner_complete" | "planner_timeout" | "planner_error" | "gate_status" | "questionnaire_ready" | "questionnaire_complete" | "clarification_limit_reached" | "agent_input" | "agent_skills" | "tool_call" | "tool_result" | "task_progress" | "task_loop_progress" | "review_gate_ready" | "review_gate_approved" | "pipeline_heartbeat" | "pong" | "workflow_validated" | "validator_result" | "validation_warning" | "gate_started" | "gate_passed" | "gate_blocked" | "wave_started" | "wave_completed" | "wave_failed" | "subagent_spawned" | "subagent_result" | "pipeline_failed";
   chunk?: string;
   section?: string;
   data?: FinalOutput | ErrorDetail | ProcessStep | Record<string, unknown>;
@@ -132,6 +132,18 @@ export interface ReviewGateReadyData {
   // Optional/additive; absent on gates that do not carry them.
   update_specs_eligible?: boolean;
   artifact_kind?: string;
+  /**
+   * ISS-052 — the per-FIRING discriminator. `gate_key` is `{run_id}:{agent_id}`, so it
+   * names a gate SLOT: the analyze gate opened INSIDE a spec-revision pass and the one
+   * re-opened after that pass returns arrive with the same key AND the same `output`
+   * bytes, milliseconds apart, while carrying opposite affordances. `revision_cycle`
+   * says which cycle the firing belongs to (0 = no revision has run) and
+   * `revision_in_flight` says whether the pass is still on the stack. The PAIR is what
+   * identifies a firing — cycle alone cannot separate the in-pass gate from the
+   * re-opened one. Optional/additive; absent ⇒ treated as (0, false).
+   */
+  revision_cycle?: number;
+  revision_in_flight?: boolean;
 }
 
 /** One worker leaf under a wave group — an agent + its lifecycle status. */
@@ -327,7 +339,7 @@ export interface Story {
 // WORKFLOW / PIPELINE TYPES
 // ============================================================
 
-export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_revision" | "od_ppt" | "od_ppt_revision" | "prototype" | "prototype_revision" | "od_prototype" | "app_builder" | "app_builder_revision" | "custom" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
+export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_revision" | "prototype" | "prototype_revision" | "od_prototype" | "app_builder" | "app_builder_revision" | "custom" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure" | "hello_html";
 
 // Phase 16 (WR-01): ISS-016 newly persists "degraded" for a partially-failed
 // run (websocket.py), and the revision drainer can persist "revising". The raw
@@ -495,6 +507,92 @@ export function resolveReopenMimetype(
   return deriveDeliverableMimetype(output);
 }
 
+// ─── Spec 012 (per-agent skills / composable custom agents) — canvas tree ─────
+// A `subagents` child group's run strategy (R-04). `fanout` clones one child
+// template per task from a `task_source`; `parallel`/`sequential` run the
+// declared children as-is.
+export type SubagentStrategy = "parallel" | "sequential" | "fanout";
+
+/** Per-step tool grants (mirrors the compiler's `ToolPermissions`). */
+export interface AgentToolGrants {
+  read_files?: boolean;
+  write_files?: boolean;
+  exec?: boolean;
+  spawn_subagents?: boolean;
+}
+
+/** Top-level manifest capability switches (R-07). Only `internet` exists today
+ *  (R-25: the switch/field/UI land, the real provider does not). */
+export interface WorkflowCapabilities {
+  internet?: boolean;
+}
+
+/** One step of the full `{"steps": [...]}` manifest shape the backend
+ *  `_project` sniffs apart from the compact EMP-03 selections map (spec 012,
+ *  `backend/app/api/user_workflows.py::_project`). Mirrors
+ *  `agents/workflows/manifest.py`'s step schema (R-01..R-05). A built-in step
+ *  carries `agent_id`; a custom-agent instance carries `agent: "custom-agent"`
+ *  plus its own `instance_id`/`name`/`prompt` (R-02/R-03/R-03a). */
+export interface ManifestStep {
+  agent_id?: string;
+  agent?: "custom-agent";
+  /** Generated once at node creation; matches `^[a-z0-9][a-z0-9-]*$`; never
+   *  regenerated on rename (R-03). Custom-agent steps only. */
+  instance_id?: string;
+  /** Freely editable display name; never affects `instance_id` (R-03). */
+  name?: string;
+  /** Custom-agent-only prompt override (R-02/R-06). */
+  prompt?: string;
+  /** Per-step staged skill ids (R-01/R-13). */
+  skills?: string[];
+  /** Per-step tool grants. Absent means the compiler's least-privilege
+   *  defaults apply (read_files on, everything else off). */
+  tools?: AgentToolGrants;
+  /** Per-step HITL review gates. Always emitted explicitly (even `[]`) so a
+   *  saved manifest never relies on an implicit default. */
+  gates?: string[];
+  /** Leaf-step execution strategy — always `"single_shot"` for a step with
+   *  no children. Parent steps (with `subagents`) never carry this; their
+   *  strategy lives at `subagents.mode` instead. */
+  strategy?: string;
+  /** Upstream data dependencies, as backend agent ids (`custom-agent:<instance_id>`
+   *  for composed steps). DERIVED from position at serialise time — never stored
+   *  per-node, so reordering/deleting can never leave it stale. The engine reads
+   *  it to build each step's roster block (`_build_roster`), which is what tells a
+   *  step where its upstream inputs actually live. */
+  depends_on?: string[];
+  subagents?: {
+    mode: SubagentStrategy;
+    max_parallel?: number;
+    task_source?: { kind: string; parser?: string | null; source_step?: string };
+    steps: ManifestStep[];
+  };
+}
+
+/** The full per-step manifest persisted into `workflows.manifest_json`
+ *  (R-01..R-09, R-27) once a workflow declares any per-node skill, custom
+ *  prompt, or sub-agent tree — as opposed to the flat EMP-03 selections map
+ *  a from-scratch built-in-only composition still persists. */
+/** Workflow-level run settings (deliverable/planner/clarify) — the fields the
+ *  backend previously had to synthesize with hardcoded defaults at launch
+ *  time (`raw_manifest.setdefault(...)` in run_commands.py's Case 3 branch)
+ *  because a Composer-saved manifest never carried them. Now UI-editable;
+ *  the backend's setdefault calls remain as a fallback for any manifest
+ *  saved before this existed. */
+export interface WorkflowRunConfig {
+  deliverable?: { strategy: string; name: string };
+  planner?: "skip" | "run";
+  clarify?: { mode: "skip" | "auto"; defaults: string[] };
+}
+
+export interface WorkflowManifest {
+  steps: ManifestStep[];
+  capabilities?: WorkflowCapabilities;
+  deliverable?: { strategy: string; name: string };
+  planner?: "skip" | "run";
+  clarify?: { mode: "skip" | "auto"; defaults: string[] };
+}
+
 export interface AgentDef {
   id: string;
   name: string;
@@ -514,6 +612,32 @@ export interface AgentDef {
    *  /api/agents/pipelines/{type} endpoint (KAN-76). May be absent on
    *  static AgentLibraryData entries that have not been refreshed from the API. */
   prompt_body?: string;
+
+  // ─── Spec 012 — Canvas tree (R-02/R-35/R-36) ────────────────────────────
+  /** True for a blank custom-agent instance (vs. a built-in library agent).
+   *  Gates the unrestricted-skills rule (R-34), the prompt editor (R-06), and
+   *  which `ManifestStep` shape this node compiles to. */
+  isCustom?: boolean;
+  /** Stable identity for a custom-agent instance (R-03): generated once at
+   *  node creation, matches `^[a-z0-9][a-z0-9-]*$`, and NEVER changes —
+   *  renaming edits `name` only. Present only on `isCustom` nodes. */
+  instance_id?: string;
+  /** Custom-agent-only prompt override (R-02/R-06). */
+  prompt?: string;
+  /** Per-node staged skill ids (R-01/R-13/R-36). Unrestricted for custom
+   *  agents (R-34); filtered by each skill's `compatible_agents` for
+   *  built-ins (R-38). */
+  skills?: string[];
+  /** Per-node tool grants (R-01 tools block). Absent means the compiler's
+   *  least-privilege defaults apply. */
+  tools?: AgentToolGrants;
+  /** Child sub-agent nodes rendered below this node on the canvas (R-35). */
+  children?: AgentDef[];
+  /** The child group's run strategy (R-04/R-36). Present only when
+   *  `children` is non-empty. */
+  strategy?: SubagentStrategy;
+  /** Bounds `parallel`/`fanout` concurrency (R-04); defaults to 3. */
+  maxParallel?: number;
 }
 
 export interface PipelineConfig {
@@ -525,8 +649,6 @@ export interface PipelineConfig {
 export interface AttachedSkill {
   id: string;
   name: string;
-  source: "ecc" | "superpowers" | "gsd";
-  sourceLabel: string;
   category: string;
   content: string;
 }
@@ -534,8 +656,6 @@ export interface AttachedSkill {
 export interface AttachedHook {
   id: string;
   name: string;
-  source: "ecc" | "superpowers" | "gsd";
-  sourceLabel: string;
   event: string;
   trigger: string;
   description?: string;
@@ -566,6 +686,17 @@ export interface AgentRunState {
   // KAN-81 — validation result from post_step: revision_validation
   validationIssues?: ValidationIssue[];
   validationPassed?: boolean;
+  // From the `agent_skills` SSE event — the skills/hooks actually injected into
+  // THIS agent's system prompt.
+  attachedSkills?: AttachedSkillEntry[];
+  attachedHooks?: AttachedHookEntry[];
+  // Skills are now ADVERTISED (name + description staged to the sandbox), not
+  // injected in full — the model loads a body on demand via read_file. These
+  // two fields (also from the `agent_skills` SSE event) surface that contract:
+  // reasons a skill failed to stage/was clamped, and the per-agent prompt cost
+  // of advertising them (464 + 66 × count, advisory).
+  skillsLoadErrors?: string[];
+  estimatedTokens?: number;
 }
 
 /** A source of context for an agent — either a summarized prior-agent output,
@@ -595,6 +726,28 @@ export interface ToolCallEntry {
   args: Record<string, unknown>;
   result: string | null;
   timestamp: string;
+}
+
+/** A skill/hook the backend actually injected into THIS agent's system prompt,
+ *  from the `agent_skills` SSE event (engine.py). This reflects what the agent
+ *  really received, not just what the run attached. Distinct from
+ *  `AttachedSkill`/`AttachedHook` (the pre-run composer-selection shape in
+ *  SkillsHooksContext). */
+export interface AttachedSkillEntry {
+  name: string;
+  source: string;
+  content: string;
+}
+
+/** A hook the backend actually injected into THIS agent's system prompt, from
+ *  the `agent_skills` SSE event's `attached_hooks` — mirrors the fields
+ *  `render_behavioral_block` (agents/capabilities/hooks/behavioral.py) uses to
+ *  synthesize the "Active Behavioral Hooks" prompt block. */
+export interface AttachedHookEntry {
+  name: string;
+  event: string;
+  trigger: string;
+  description: string;
 }
 
 /** A single clarify question surfaced to the user during a run's clarify pause.
@@ -667,6 +820,13 @@ export interface PipelineRunState {
   // ConstructionBlock can show "Task 1 · HTML Shell & Navigation" upfront.
   // Optional; falls back to "Task N" placeholder when absent.
   protoPlannedTasks?: Array<{ number: number; title: string }>;
+  // The 1-based task the loop most recently STARTED, and the agent running it —
+  // both straight off `task_loop_progress` (task_loop.py:319-329), whose
+  // `agent_id` the handler previously dropped on the floor. Without the agent id
+  // the counters are pipeline-global and cannot be attributed to a row, so an
+  // agent row had no way to say which of its tasks is in flight.
+  protoCurrentTask?: number;
+  protoTaskAgentId?: string;
   // Phase 13
   degraded?: boolean;
   degradedFailedAgents?: string[];
@@ -695,6 +855,40 @@ export interface PipelineRunState {
   // so the lane header can render a relative age ("23h ago") for a settled run.
   // ADDITIVE optional.
   createdAt?: string;
+  // ISS-063/ISS-080 — the restart history of this run: per agent id, the durable
+  // IDENTITIES (`event_id`, else `seq`) of the `agent_start` events seen so far. An
+  // update_specs pass re-runs a contiguous head of the pipeline, so the number of
+  // starts of the pipeline HEAD names the current spec-revision cycle (see
+  // `deriveSpecRevisionCount`). Accumulated in the `agent_start` reducer and CARRIED
+  // ACROSS a same-run `pipeline_start`: a resume or a replay-from-zero re-delivers
+  // that frame after the revisions, and rebuilding the map there would erase the
+  // history the banner is reporting.
+  // A SET of identities, never a tally: a history reopen delivers every durable event
+  // TWICE (the REST replay and the SSE replay), so anything shaped `+= 1` counts
+  // deliveries instead of events and doubles. ADDITIVE optional.
+  agentStartEventIds?: Record<string, string[]>;
+  // ISS-082 — this run's frame-identity cursor, the reducer's OWN protection for the
+  // fields that GROW out of their previous value (output, thinkingText, toolCalls,
+  // validationIssues, hookRuns, agentStartEventIds). Until ISS-082 their correctness was
+  // a property of the CALLERS' dedup, which is exactly what ISS-080 died of.
+  //
+  // `lastAppliedSeq` is the highest per-run `seq` already folded in. One cursor decides
+  // every persisted frame in O(1), which is the whole point: `agent_chunk` is the
+  // highest-volume frame in the system (~25k on one real run), so a per-frame id SET
+  // copied immutably would be O(n^2) on replay. Sound because `seq` comes from ONE
+  // monotonic per-run allocator (engine.execute), both transports carry it (live SSE
+  // stamps data.seq; getRunEvents merges the authoritative column), and both replay
+  // passes are seq-ordered.
+  //
+  // `appliedUnsequencedIds` is the fallback for frames the engine never stamps with a
+  // `seq` — today only `hook_run`, which is pushed straight onto the live queue and so
+  // never reaches the stamping chokepoint. Small by construction, because only unstamped
+  // types can reach it.
+  //
+  // Both are ADDITIVE optional and reset on a pipeline_start that is NOT a same-run
+  // re-announcement, so they never carry one run's high-water mark into the next (INV-2).
+  lastAppliedSeq?: number;
+  appliedUnsequencedIds?: string[];
 }
 
 /** One audit entry from a hook_run WS event or persisted hook_runs DB row (KAN-73). */

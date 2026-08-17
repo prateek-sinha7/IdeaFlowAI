@@ -93,3 +93,47 @@ test.describe("TS-R — cancel", () => {
     test.fixme(true, "revision-cancel persistence is backend-gated (Phase 14)");
   });
 });
+
+/**
+ * TS-R (cancel at clarify) — the OTHER starting state. The describe above opens on
+ * a BUILDING run (mockSse.start + agentStart); this one stops the run while it is
+ * still PAUSED AT THE CLARIFY GATE, which is the state ISS-139/ISS-140 break.
+ *
+ * `laneClarifyOpen` (DashboardLayout.tsx:1862) is the one lane branch NOT AND-ed
+ * with isRunning — clarify legitimately precedes pipeline_start — and it is ranked
+ * ABOVE terminal in the runLaneState ternary. So a store `questionnaireData` that
+ * survives the terminal frame outranks the terminal markers the frame already
+ * applied correctly, and the lane stays on "Clarifying" with Stop armed on a run
+ * that is already dead. No mockSse.start() here on purpose: the store entries are
+ * seeded from INITIAL_PIPELINE_STATE and the pipeline_cancelled reducer arm applies
+ * terminalMarkers("cancelled") without needing a prior pipeline_start.
+ */
+test.describe("TS-R — cancel at clarify", () => {
+  test.beforeEach(async ({ dashboard }) => {
+    await dashboard.goto();
+    await dashboard.runWith({ workflow: "Generate product requirements", idea: "Generate epics for a refunds workflow" });
+  });
+
+  test("TS-R-05 cancel while paused at clarify repaints to Cancelled (ISS-139/ISS-140)", async ({ dashboard, mockSse }) => {
+    mockSse.questionnaireReady([
+      { id: "q1", text: "Who is the audience?", options: ["Executives", "Developers"] },
+      { id: "q2", text: "Tone?", options: ["Formal", "Casual"] },
+      { id: "q3", text: "Scope?", options: ["MVP", "Full"] },
+    ]);
+
+    await expect(dashboard.page.getByTestId("lane-clarify-status")).toBeVisible();
+    await expect(dashboard.page.getByTestId("lane-run-status")).toHaveText(/Clarifying/);
+    await dashboard.thinkingTab().click();
+    await expect(dashboard.page.getByTestId("chat-clarify-submit")).toBeVisible();
+
+    await dashboard.stopButton().click();
+    await mockSse.waitForClientFrame("cancel_pipeline");
+    mockSse.cancelled({ duration: 8 });
+
+    await expect(dashboard.page.getByTestId("lane-run-status")).toHaveText(/Cancelled/);
+    await expect(dashboard.page.getByTestId("chat-stop")).toHaveCount(0);
+    await expect(dashboard.page.getByTestId("chat-clarify-submit")).toHaveCount(0);
+    await expect(dashboard.page.getByTestId("lane-clarify-status")).toHaveCount(0);
+    await expect(dashboard.page.getByTestId("chat-terminal-cancelled")).toBeVisible();
+  });
+});

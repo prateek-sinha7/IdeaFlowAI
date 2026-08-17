@@ -376,8 +376,9 @@ def env(monkeypatch):
 
 
 class _FakeUser:
-    def __init__(self, id):
+    def __init__(self, id, tier: str = "enterprise"):
         self.id = id
+        self.tier = tier
 
 
 def _seed_user(env, tag):

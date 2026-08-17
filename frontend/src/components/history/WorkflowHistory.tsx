@@ -22,7 +22,7 @@ import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AuditTab } from "@/components/results/AuditTab";
 import type { WorkflowRun, WorkflowType, AgentRunState, RunFamily, ClarifyRound } from "@/types/index";
 import { resolveReopenMimetype } from "@/types/index";
-import { availableChainTargets } from "@/lib/workflowChaining";
+import { useWorkflowChaining } from "@/hooks/useWorkflowMetadata";
 // Revision Families (B2 / D3): client-side grouping by rootRunId + the family
 // root card (REUSE-FIRST — WORKSTREAM-B-UI-SPEC.md Surface 1).
 import { groupRunsByFamily, FamilyGroupCard, baseWorkflowType, bucketAndSortFamilies, type HistorySortKey } from "./RevisionFamilyView";
@@ -143,6 +143,7 @@ function cleanDisplayTitle(
 }
 
 export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline, onOpenRun }: WorkflowHistoryProps) {
+  const chainInto = useWorkflowChaining();
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [totalRuns, setTotalRuns] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -444,7 +445,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const revisionParentVersion = reopenParentIdx >= 0 ? reopenParentIdx + 1 : undefined;
     const isUserStory = workflowType === "user_stories" || workflowType === "user_stories_revision";
     const isAppBuilder = detailIsAppBuilder;
-    const isPpt = workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt" || workflowType === "od_ppt_revision";
+    const isPpt = workflowType === "ppt" || workflowType === "ppt_revision";
     const isPrototype = workflowType === "prototype" || workflowType === "prototype_revision" || workflowType === "od_prototype";
     // ─── ISS-021 (18-03) — 2nd facet: the reopen generic fallback ─────────────
     // The OLD `isMarkdown = isCustom` swallowed HTML deliverables into
@@ -518,7 +519,8 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               Lets the user chain the historical output into another pipeline
               without having to re-run from the home page. Excludes the
               already-completed pipeline (incl. its `_revision` form) via
-              the shared availableChainTargets() rule. */}
+              the shared chainInto() rule (backend-owned via useWorkflowChaining,
+              Plan 34-01). */}
           {selectedRun.status === "completed" &&
            (() => {
              // Determine which revise callback applies to this run type
@@ -531,7 +533,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                return undefined;
              })();
              const reviseLabel = isPrototype ? "Revise Prototype" : isPpt ? "Revise Presentation" : isUserStory ? "Revise User Stories" : isAppBuilder ? "Revise App Blueprint" : "Revise";
-             const chainOptions = onChainPipeline ? availableChainTargets(selectedRun.type as WorkflowType) : [];
+             const chainOptions = onChainPipeline ? chainInto(baseWorkflowType(selectedRun.type)) : [];
              if (!reviseCallback && chainOptions.length === 0) return null;
              return (
                <div className="border-t border-line-divider px-3 py-3 bg-surface-warm flex-shrink-0">
@@ -601,15 +603,22 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                    )}
                    {onChainPipeline && chainOptions.map((opt) => (
                      <button
-                       key={opt.type}
-                       onClick={() => onChainPipeline(selectedRun, opt.type)}
-                       className="group w-full flex items-center justify-between rounded-xl border border-brand/20 bg-surface-white hover:border-brand hover:bg-brand hover:shadow-md px-3 py-2 text-left transition-all"
+                       key={opt.id}
+                       onClick={() => { if (!opt.beta) onChainPipeline(selectedRun, opt.id as WorkflowType); }}
+                       disabled={opt.beta}
+                       className={`group w-full flex items-center justify-between rounded-xl border px-3 py-2 text-left transition-all ${
+                         opt.beta
+                           ? "cursor-not-allowed border-line-border bg-surface-white opacity-60"
+                           : "border-brand/20 bg-surface-white hover:border-brand hover:bg-brand hover:shadow-md"
+                       }`}
                      >
                        <div className="min-w-0">
-                         <p className="text-[11px] font-semibold text-ink-900 group-hover:text-white transition-colors">{opt.label}</p>
-                         <p className="text-[9px] text-ink-500 group-hover:text-white/80 transition-colors leading-snug">{opt.description}</p>
+                         <p className={`text-[11px] font-semibold transition-colors ${opt.beta ? "text-ink-400" : "text-ink-900 group-hover:text-white"}`}>{opt.label}</p>
+                         <p className={`text-[9px] leading-snug transition-colors ${opt.beta ? "text-ink-400" : "text-ink-500 group-hover:text-white/80"}`}>
+                           {opt.beta ? "Coming Soon" : `Chain this run into ${opt.label}`}
+                         </p>
                        </div>
-                       <ArrowRight className="h-3 w-3 text-brand group-hover:text-white group-hover:translate-x-0.5 transition-all flex-shrink-0 ml-2" />
+                       <ArrowRight className={`h-3 w-3 flex-shrink-0 ml-2 transition-all ${opt.beta ? "text-ink-300" : "text-brand group-hover:text-white group-hover:translate-x-0.5"}`} />
                      </button>
                    ))}
                  </div>
@@ -892,7 +901,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                   onClick={() => setFilterType(type)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0 ${
                     filterType === type
-                      ? "bg-ink-900 text-white"
+                      ? "bg-brand text-white"
                       : "text-ink-500 hover:bg-surface-warm hover:text-ink-700"
                   }`}
                 >

@@ -1,26 +1,28 @@
-# ppt_revision — 2-agent PPT revision (revise + reassemble).
-# clarify.defaults fall to engine._pipeline_defaults["custom"] (revisions absent
-# from the dict — parity trap #2). context_providers: [previous_run].
-# Phase 14 planner flip (run -> skip): this manifest is dispatched via the FE
-# run_revision frame; clarify-auto would pause INDEFINITELY at event.wait()
-# (clarify_engine) waiting for a questionnaire the revision panel never sends.
-# The skip value routes the engine's skip branch (gate_verdict=PROCEED, no
-# planner events, clarify never reached). clarify block stays (required key).
 id: ppt_revision
+user_launchable: false
+is_beta: true
+display_name: Revise presentation
+short_name: Presentation Revision
+description: Apply a revision instruction to a prior presentation deck.
+icon: Presentation
 version: 1
 planner: skip
 clarify:
   mode: auto
-  defaults: [target_audience, key_objectives, scope, priority]
+  defaults:
+  - target_audience
+  - key_objectives
+  - scope
+  - priority
 deliverable:
   strategy: ppt
   name: presentation.pptx
-context_providers: [previous_run]
+context_providers:
+- opendesign
+- previous_run
 seed_files: {}
 steps:
-  - agent: ppt-revision-agent
-    strategy: single_shot
-    gates: []
-  - agent: ppt-revision-assembler
-    strategy: single_shot
-    gates: []
+- agent: ppt-revision-agent
+  strategy: single_shot
+  gates: []
+name: Presentation Revision

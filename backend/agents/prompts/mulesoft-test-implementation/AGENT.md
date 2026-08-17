@@ -5,6 +5,7 @@ consumes:
 context_from:
 - mulesoft-user-stories
 - mulesoft-feature-coding
+description: Writes the JUnit 5 + Testcontainers + Spring Cloud Contract test code that proves the acceptance criteria.
 estimated_duration: 12.0
 guardrails:
 - mulesoft

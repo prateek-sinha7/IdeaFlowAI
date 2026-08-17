@@ -9,7 +9,6 @@ TIER_PIPELINES: dict[str, set[str]] = {
     "basic": {
         "user_stories", "user_stories_revision",
         "ppt", "ppt_revision",
-        "od_ppt", "od_ppt_revision",
     },
     # KAN-161 / ISS-055: scoped tier for deployments that need prototype +
     # user_stories only (e.g. Hexaware internal tooling). Deliberately excludes
@@ -22,7 +21,6 @@ TIER_PIPELINES: dict[str, set[str]] = {
     "pro": {
         "user_stories", "user_stories_revision",
         "ppt", "ppt_revision",
-        "od_ppt", "od_ppt_revision",
         "prototype", "prototype_revision",
         "od_prototype", "od_prototype_revision",
         "app_builder", "app_builder_revision",
@@ -30,11 +28,10 @@ TIER_PIPELINES: dict[str, set[str]] = {
     "enterprise": {
         "user_stories", "user_stories_revision",
         "ppt", "ppt_revision",
-        "od_ppt", "od_ppt_revision",
         "prototype", "prototype_revision",
         "od_prototype", "od_prototype_revision",
         "app_builder", "app_builder_revision",
-        "custom",
+        "custom", "custom_revision",
         "migration",
         "mulesoft_to_springboot",
         "dotnet_to_azure",

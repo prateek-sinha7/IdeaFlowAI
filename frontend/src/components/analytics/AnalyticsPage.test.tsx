@@ -75,6 +75,10 @@ function summary(overrides: Partial<AnalyticsSummary>): AnalyticsSummary {
       { model_id: "eu.anthropic.claude-haiku-4-5-20251001-v1:0", count: 5, total_tokens: 500, cost: 0.5 },
     ],
     spend: 1.23,
+    // ISS-034 default: spend_full === spend → a ZERO delta, so the prompt-cache
+    // line renders nothing and the pre-existing cases stay untouched.
+    spend_full: 1.23,
+    metered_runs: 0,
     token_totals: { input: 300, output: 130, cache_read: 0, cache_write: 0, total: 430 },
     type_avg_duration_sec: { prototype: 12 },
     ...overrides,
@@ -174,5 +178,87 @@ describe("AnalyticsPage — Avg / Run KPI math (MD-2)", () => {
     } finally {
       rafSpy.mockRestore();
     }
+  });
+});
+
+/**
+ * ISS-034 — the SIGNED prompt-cache delta.
+ *
+ * The renderer must never say "saved" unconditionally: 6 of the 11 runs measured
+ * when this shipped were net-NEGATIVE (a run that writes cache entries it never
+ * re-reads pays the 1.25x cache_write premium for nothing). The sign is the
+ * product of the data. A zero delta — including a window of only pre-ISS-034
+ * rows, which the backend folds to zero rather than a fabricated $0 baseline —
+ * renders NOTHING, because a "0%" would imply caching ran and broke even.
+ */
+describe("AnalyticsPage — signed prompt-cache delta (ISS-034)", () => {
+  beforeEach(() => {
+    mockGetAnalyticsSummary.mockReset();
+  });
+
+  async function renderWith(over: Partial<AnalyticsSummary>) {
+    mockGetAnalyticsSummary.mockResolvedValue(summary(over));
+    render(<AnalyticsPage onBack={() => {}} />);
+    await waitFor(() =>
+      expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
+    );
+  }
+
+  it("says SAVED with the percentage primary when caching paid off", async () => {
+    // Observed run 6e38b9a7: $7.07 paid vs $42.20 uncached → +83%.
+    await renderWith({ spend: 7.06875, spend_full: 42.196866, metered_runs: 1 });
+
+    const row = await screen.findByTestId("cache-delta");
+    expect(within(row).getByText("Prompt caching saved")).toBeInTheDocument();
+    expect(within(row).getByText("83%")).toBeInTheDocument();
+    expect(within(row).getByText("$35.13")).toBeInTheDocument();
+    expect(screen.queryByText(/cost more/i)).not.toBeInTheDocument();
+  });
+
+  it("says COST MORE when caching was a net loss", async () => {
+    // Observed run a7dba362: $0.344028 paid vs $0.320110 uncached → -7.47%.
+    await renderWith({ spend: 0.344028, spend_full: 0.32011, metered_runs: 1 });
+
+    const row = await screen.findByTestId("cache-delta");
+    expect(within(row).getByText("Prompt caching cost more")).toBeInTheDocument();
+    expect(within(row).getByText("7%")).toBeInTheDocument();
+    // The dollar is unsigned in the figure — the WORDING carries the sign.
+    expect(within(row).getByText("$0.02")).toBeInTheDocument();
+    expect(screen.queryByText("Prompt caching saved")).not.toBeInTheDocument();
+  });
+
+  it("renders NOTHING on a zero delta", async () => {
+    await renderWith({ spend: 5.0, spend_full: 5.0, metered_runs: 3 });
+
+    await screen.findByText("Est. Cost");
+    expect(screen.queryByTestId("cache-delta")).not.toBeInTheDocument();
+  });
+
+  it("renders NOTHING for a window of only legacy (unmetered) runs", async () => {
+    // The backend folds a legacy row to a zero delta, so spend_full === spend.
+    // This is the case that would otherwise print "cost you $17.69 more (-100%)".
+    await renderWith({ spend: 17.689716, spend_full: 17.689716, metered_runs: 0 });
+
+    await screen.findByText("Est. Cost");
+    expect(screen.queryByTestId("cache-delta")).not.toBeInTheDocument();
+    expect(screen.queryByText(/-100%/)).not.toBeInTheDocument();
+  });
+
+  it("states the coverage and the scope when only part of the window is metered", async () => {
+    await renderWith({
+      kpis: { total: 10, completed: 8, failed: 2, success_rate: 0.8 },
+      spend: 7.06875,
+      spend_full: 42.196866,
+      metered_runs: 4,
+    });
+
+    await screen.findByTestId("cache-delta");
+    expect(screen.getByText(/Measured on 4 of 10 runs/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Engine agent tokens only/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/handoff runs are not metered/),
+    ).toBeInTheDocument();
   });
 });

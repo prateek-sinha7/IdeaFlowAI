@@ -1,14 +1,15 @@
-export type Tier = "basic" | "pro" | "enterprise";
+export type Tier = "basic" | "pro" | "enterprise" | "hexaware";
 export type WorkflowType = string;
 
 export const TIER_PIPELINES: Record<Tier, Set<string>> = {
-  basic: new Set(["user_stories", "user_stories_revision", "ppt", "ppt_revision"]),
+  basic: new Set(["user_stories", "user_stories_revision", "ppt", "ppt_revision", "hello_html"]),
   pro: new Set([
     "user_stories", "user_stories_revision",
     "ppt", "ppt_revision",
     "prototype", "prototype_revision",
     "od_prototype",
     "app_builder", "app_builder_revision",
+    "hello_html",
   ]),
   enterprise: new Set([
     "user_stories", "user_stories_revision",
@@ -17,6 +18,12 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     "od_prototype",
     "app_builder", "app_builder_revision",
     "custom", "migration", "mulesoft_to_springboot", "dotnet_to_azure",
+    "hello_html",
+  ]),
+  hexaware: new Set([
+    "user_stories", "user_stories_revision",
+    "prototype", "prototype_revision",
+    "od_prototype",
   ]),
 };
 
@@ -24,12 +31,14 @@ export const TIER_LABELS: Record<Tier, string> = {
   basic: "Basic",
   pro: "Pro",
   enterprise: "Enterprise",
+  hexaware: "Hexaware",
 };
 
 export const UPGRADE_PATH: Record<Tier, Tier | null> = {
   basic: "pro",
   pro: "enterprise",
   enterprise: null,
+  hexaware: "enterprise",
 };
 
 export function canRunPipeline(tier: Tier, pipelineType: string): boolean {
@@ -37,7 +46,7 @@ export function canRunPipeline(tier: Tier, pipelineType: string): boolean {
 }
 
 export function getRequiredTier(pipelineType: string): Tier | null {
-  for (const tier of ["basic", "pro", "enterprise"] as Tier[]) {
+  for (const tier of ["basic", "pro", "enterprise", "hexaware"] as Tier[]) {
     if (TIER_PIPELINES[tier].has(pipelineType)) return tier;
   }
   return null;
@@ -45,7 +54,7 @@ export function getRequiredTier(pipelineType: string): Tier | null {
 
 export function getUpgradeTier(currentTier: Tier, pipelineType: string): Tier | null {
   if (canRunPipeline(currentTier, pipelineType)) return null;
-  for (const tier of ["basic", "pro", "enterprise"] as Tier[]) {
+  for (const tier of ["basic", "pro", "enterprise", "hexaware"] as Tier[]) {
     if (TIER_PIPELINES[tier].has(pipelineType)) return tier;
   }
   return null;

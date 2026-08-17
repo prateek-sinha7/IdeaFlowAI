@@ -1,5 +1,5 @@
 {
-  "count": 572,
+  "count": 742,
   "entries": [
     {
       "area": [
@@ -604,6 +604,30 @@
       "source": ".planning/BUG-021-GROUNDED-CONTEXT.md",
       "status": "done",
       "summary": "BUG-021 \u2014 grounded fix spec (left chat transcript BODY carries over the previous run on a fresh launch)",
+      "type": "doc"
+    },
+    {
+      "area": [],
+      "date": "",
+      "files": [],
+      "id": "DOC-bugfix-nested-revision",
+      "path": ".knowledge/cards/DOC-bugfix-nested-revision.md",
+      "source": ".planning/BUGFIX-NESTED-REVISION.md",
+      "status": "done",
+      "summary": "Bugfix brief \u2014 the two deferred update_specs defects (A: nested revision, B: silent no-op)",
+      "type": "doc"
+    },
+    {
+      "area": [
+        "resume"
+      ],
+      "date": "",
+      "files": [],
+      "id": "DOC-bugfix-spec-revision-context",
+      "path": ".knowledge/cards/DOC-bugfix-spec-revision-context.md",
+      "source": ".planning/BUGFIX-SPEC-REVISION-CONTEXT.md",
+      "status": "done",
+      "summary": "Bugfix brief \u2014 update_specs regenerates the spec; resume loses planning context",
       "type": "doc"
     },
     {
@@ -1638,6 +1662,17 @@
       "source": ".planning/FIX-REGISTER.md#fix-019",
       "status": "done",
       "summary": "Model picker shows only label in truncated 140px dropdown \u2014 no tier, context window, or description metadata visible",
+      "type": "fix"
+    },
+    {
+      "area": [],
+      "date": "2026-06-29",
+      "files": [],
+      "id": "FIX-020",
+      "path": ".knowledge/cards/FIX-020.md",
+      "source": ".planning/FIX-REGISTER.md#fix-020",
+      "status": "done",
+      "summary": "Frontend UX polish batch \u2014 thinking tab, notification panel, scroll behaviour, and an XSS fix (KAN-71). Exact FIX-020 scope within that batch is NOT recoverable; the id survives only inside the commit body",
       "type": "fix"
     },
     {
@@ -3718,6 +3753,17 @@
       "type": "fix"
     },
     {
+      "area": [],
+      "date": "2026-07-xx",
+      "files": [],
+      "id": "FIX-131",
+      "path": ".knowledge/cards/FIX-131.md",
+      "source": ".planning/FIX-REGISTER.md#fix-131",
+      "status": "done",
+      "summary": "Safety net for run titles stored in the DB with === markers (with FIX-130, under KAN-116 Bug 3) \u2014 Titles persisted containing === separator markers leaked into the history list",
+      "type": "fix"
+    },
+    {
       "area": [
         "frontend",
         "sse",
@@ -4215,6 +4261,45 @@
     },
     {
       "area": [
+        "auth"
+      ],
+      "date": "2026-08-07",
+      "files": [],
+      "id": "FIX-158",
+      "path": ".knowledge/cards/FIX-158.md",
+      "source": ".planning/FIX-REGISTER.md#fix-158",
+      "status": "done",
+      "summary": "Part of the QA-guardrails / knowledge-cards / auth-atomicity batch. Exact FIX-158 scope is NOT recoverable \u2014 Not recorded",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "sse"
+      ],
+      "date": "2026-08-02",
+      "files": [],
+      "id": "FIX-159",
+      "path": ".knowledge/cards/FIX-159.md",
+      "source": ".planning/FIX-REGISTER.md#fix-159",
+      "status": "done",
+      "summary": "EC2 host-config heredocs live in reconcile-host-config.sh, NOT bootstrap-ec2.sh \u2014 corrected, and pinned by a test",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "auth"
+      ],
+      "date": "2026-08-07",
+      "files": [],
+      "id": "FIX-162",
+      "path": ".knowledge/cards/FIX-162.md",
+      "source": ".planning/FIX-REGISTER.md#fix-162",
+      "status": "done",
+      "summary": "Part of the QA-guardrails / knowledge-cards / auth-atomicity batch. Exact FIX-162 scope is NOT recoverable \u2014 Not recorded",
+      "type": "fix"
+    },
+    {
+      "area": [
         "frontend",
         "agents"
       ],
@@ -4597,6 +4682,32 @@
     },
     {
       "area": [
+        "agents"
+      ],
+      "date": "2026-08-05",
+      "files": [],
+      "id": "FIX-183",
+      "path": ".knowledge/cards/FIX-183.md",
+      "source": ".planning/FIX-REGISTER.md#fix-183",
+      "status": "done",
+      "summary": "One of three fixes shipped together: build-agent done badge, narrator crash, gate box in chat. Which of the three is FIX-183 is NOT recoverable \u2014 the commit writes them as the range FIX-182/183/184",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "agents"
+      ],
+      "date": "2026-08-05",
+      "files": [],
+      "id": "FIX-184",
+      "path": ".knowledge/cards/FIX-184.md",
+      "source": ".planning/FIX-REGISTER.md#fix-184",
+      "status": "done",
+      "summary": "One of three fixes shipped together: build-agent done badge, narrator crash, gate box in chat. Which of the three is FIX-184 is NOT recoverable \u2014 see FIX-183",
+      "type": "fix"
+    },
+    {
+      "area": [
         "backend",
         "workflow",
         "agents"
@@ -4974,6 +5085,1009 @@
       "source": ".planning/FIX-REGISTER.md#fix-208",
       "status": "done",
       "summary": "Notification panel agent progress shows 0/N for background concurrent runs \u2014 only viewed run shows live progress",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "frontend/src/hooks/useSmoothText.ts",
+        "frontend/src/components/chat/runtime/useMeasuredVirtualWindow.ts"
+      ],
+      "id": "FIX-209",
+      "path": ".knowledge/cards/FIX-209.md",
+      "source": ".planning/FIX-REGISTER.md#fix-209",
+      "status": "done",
+      "summary": "useSmoothText re-render loop \u2014 \"Maximum update depth exceeded\" at tick function; useMeasuredVirtualWindow scroll handler infinite loop",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "frontend",
+        "sse"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "backend/app/agents/chat/concierge.py",
+        "backend/app/api/run_commands.py",
+        "frontend/src/hooks/useRunChat.ts",
+        "frontend/src/components/layout/DashboardLayout.tsx",
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/providers/RunConnectionProvider.tsx"
+      ],
+      "id": "FIX-210",
+      "path": ".knowledge/cards/FIX-210.md",
+      "source": ".planning/FIX-REGISTER.md#fix-210",
+      "status": "done",
+      "summary": "Concierge proposal chips not appearing; revision confirm posting wrong run; revision UI not switching to new run \u2014 Concierge called propose_chain but chain_hints had no target_id exposed \u2014 only labels",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "backend/app/api/chat_router.py"
+      ],
+      "id": "FIX-211",
+      "path": ".knowledge/cards/FIX-211.md",
+      "source": ".planning/FIX-REGISTER.md#fix-211",
+      "status": "done",
+      "summary": "chat_router auto-approved gate / auto-submitted clarify on plain chat text \u2014 PHASE_GATE_PAUSED: plain text with no gate action defaulted to action=\"approve\" \u2014 any chat message during a review gate silently approved it",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "frontend",
+        "workflow"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "backend/app/api/run_commands.py",
+        "frontend/src/components/chat/RunChatLane.tsx",
+        "frontend/src/hooks/useRunChat.ts"
+      ],
+      "id": "FIX-212",
+      "path": ".knowledge/cards/FIX-212.md",
+      "source": ".planning/FIX-REGISTER.md#fix-212",
+      "status": "done",
+      "summary": "\"Start this workflow\" chain chip persisted after clicking; revision pipeline_not_entitled; blank bubble on confirm; confirm button no feedback",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "agents"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "backend/app/agents/chat/concierge.py",
+        "backend/app/api/run_commands.py"
+      ],
+      "id": "FIX-213",
+      "path": ".knowledge/cards/FIX-213.md",
+      "source": ".planning/FIX-REGISTER.md#fix-213",
+      "status": "done",
+      "summary": "Concierge system prompt overhaul \u2014 emojis, internals leakage, verbose agent detail, no proactive next-step, wrong run state label",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "frontend/src/components/chat/InlineClarifyActions.tsx"
+      ],
+      "id": "FIX-214",
+      "path": ".knowledge/cards/FIX-214.md",
+      "source": "",
+      "status": "done",
+      "summary": "Clarify action button labels updated \u2014 'Submit answers & start the build' \u2192 'Submit answers & proceed'; 'Skip questions & start the build' \u2192 'Proceed with auto recommendation'",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "workflow"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "frontend/src/components/layout/DashboardLayout.tsx",
+        "frontend/src/hooks/useNotifications.ts"
+      ],
+      "id": "FIX-215",
+      "path": ".knowledge/cards/FIX-215.md",
+      "relates": [
+        "FIX-202",
+        "FIX-203",
+        "FIX-204",
+        "FIX-205"
+      ],
+      "source": "",
+      "status": "done",
+      "summary": "Notification click always opened latest run instead of clicked run \u2014 workflowRunId never stamped on completion; onViewResults fell through to type-based stale lookup",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "backend/app/api/run_commands.py"
+      ],
+      "id": "FIX-216b",
+      "path": ".knowledge/cards/FIX-216b.md",
+      "relates": [
+        "FIX-189",
+        "FIX-212"
+      ],
+      "source": "",
+      "status": "done",
+      "summary": "od_prototype/od_ppt revision maps to wrong pipeline type \u2014 od_prototype_revision has no registered agents and is excluded from hexaware tier, causing pipeline_not_entitled on Concierge-proposed revisions",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "frontend",
+        "workflow"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/app/api/runs.py",
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/components/layout/DashboardLayout.tsx"
+      ],
+      "id": "FIX-217",
+      "path": ".knowledge/cards/FIX-217.md",
+      "source": "",
+      "status": "done",
+      "summary": "Chain context missing when chaining from prototype/ppt revisions \u2014 ancestor walk only went one level; stale chain context leaking; empty brief on wizard-chained launches (FIX-216c included)",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "frontend",
+        "agents"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "backend/app/api/run_commands.py",
+        "backend/app/agents/chat/concierge.py",
+        "backend/app/core/entitlements.py",
+        "frontend/src/hooks/useChatAttachments.ts",
+        "frontend/src/hooks/useRunChat.ts",
+        "frontend/src/components/chat/ChatAttachments.tsx",
+        "frontend/src/components/chat/RunChatLane.tsx",
+        "frontend/src/components/chat/MessageBubble.tsx",
+        "frontend/src/components/results/AgentDetailPanel.tsx",
+        "backend/tests/unit/test_run_commands_fix218.py"
+      ],
+      "id": "FIX-218",
+      "path": ".knowledge/cards/FIX-218.md",
+      "source": ".planning/FIX-REGISTER.md#fix-218",
+      "status": "done",
+      "summary": "revision agents receive file as structured reference; filename shown on history replay; chip cleared after send; copy bar fixed; professional file bubble; filename in Context Received panel",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "backend/app/api/run_commands.py"
+      ],
+      "id": "FIX-219",
+      "path": ".knowledge/cards/FIX-219.md",
+      "relates": [
+        "FIX-216b"
+      ],
+      "source": "",
+      "status": "done",
+      "summary": "od_ppt Concierge revision routes to ppt_revision (2 agents) instead of od_ppt_revision (1 agent) \u2014 FIX-216b regression; stale proposal correction added",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/hooks/useRunStateStore.ts"
+      ],
+      "id": "FIX-220",
+      "path": ".knowledge/cards/FIX-220.md",
+      "relates": [
+        "FIX-201"
+      ],
+      "source": "",
+      "status": "done",
+      "summary": "Maximum update depth exceeded \u2014 useWorkflow.pipelineState sync effect fires 26\u00d7 per SSE frame causing infinite re-render loop; coalesced via rAF",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend"
+      ],
+      "date": "2026-08-14",
+      "files": [
+        "backend/app/api/run_commands.py"
+      ],
+      "id": "FIX-221",
+      "path": ".knowledge/cards/FIX-221.md",
+      "relates": [
+        "FIX-219",
+        "FIX-216b"
+      ],
+      "source": "",
+      "status": "done",
+      "summary": "Prototype revision fails silently \u2014 od_prototype_output maps to od_prototype_revision (no agents); revision WorkflowRun minted without workspace_id causing NOT NULL constraint on first event write",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend"
+      ],
+      "date": "2026-08-14",
+      "files": [
+        "frontend/src/hooks/useWorkflow.ts",
+        "frontend/src/hooks/useWorkflow.fix222.test.ts"
+      ],
+      "id": "FIX-222",
+      "path": ".knowledge/cards/FIX-222.md",
+      "relates": [
+        "ISS-063"
+      ],
+      "source": "",
+      "status": "done",
+      "summary": "Spec Revision Cycle 1 shown incorrectly after Run Again on cancelled run \u2014 agentStartEventIds carried from terminal state into resume, causing spurious spec revision cycle banner",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "agents"
+      ],
+      "date": "2026-08-14",
+      "files": [
+        "backend/agents/execution_engine/engine.py"
+      ],
+      "id": "FIX-223",
+      "path": ".knowledge/cards/FIX-223.md",
+      "relates": [
+        "KAN-101"
+      ],
+      "source": "",
+      "status": "done",
+      "summary": "Update the Specs button shows on ALL review gates \u2014 _AGENT_KIND_MAP missing prototype-analyze entry caused all unmapped gated agents to match _UPDATE_SPECS_ELIGIBLE_KINDS via \"summary\" fallback",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "agents"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/agents/capabilities/strategies/task_loop.py",
+        "backend/tests/agents/test_banned_patterns.py"
+      ],
+      "id": "FIX-224",
+      "path": ".knowledge/cards/FIX-224.md",
+      "source": ".planning/FIX-REGISTER.md#fix-224",
+      "status": "done",
+      "summary": "The agents.capabilities must not import the execution kernel or the web layer import-linter contract had been BROKEN since 2026-07-20, so Ports & Adapters was at 3 kept / 1 broken against a documented intended state of 4/0",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "frontend/src/hooks/useWorkflow.ts",
+        "frontend/src/hooks/useRunStateStore.ts",
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/types/index.ts",
+        "frontend/src/hooks/useWorkflow.specRevisionCount.test.ts"
+      ],
+      "id": "FIX-225",
+      "path": ".knowledge/cards/FIX-225.md",
+      "source": ".planning/FIX-REGISTER.md#fix-225",
+      "status": "done",
+      "summary": "Three defects on one reopen-replay path, two of them in the same expression \u2014 the \"Spec Revision Cycle N\" banner read 5 for a run with 2 revisions, and the reopened run's trace repainted as \"0 / 5 agents\" with every Steps row disabled",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "agents",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx"
+      ],
+      "id": "FIX-226",
+      "path": ".knowledge/cards/FIX-226.md",
+      "source": ".planning/FIX-REGISTER.md#fix-226",
+      "status": "done",
+      "summary": "The ISS-065 artifact-version picker only moved the raw output \u2014 the prominent artifact CARD kept rendering the LATEST version, so the owner selected v1, saw v3's page grid, and reported \"while changing the version there",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "auth"
+      ],
+      "date": "2026-08-12",
+      "files": [],
+      "id": "FIX-227",
+      "path": ".knowledge/cards/FIX-227.md",
+      "source": ".planning/FIX-REGISTER.md#fix-227",
+      "status": "done",
+      "summary": "There was NO way for anyone \u2014 user or operator \u2014 to stop a running build once it had crossed a backend restart, and every un-stoppable od_prototype build costs 5\u201321M Bedrock tokens of the owner's money",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "resume",
+        "agents",
+        "auth",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [],
+      "id": "FIX-228",
+      "path": ".knowledge/cards/FIX-228.md",
+      "source": ".planning/FIX-REGISTER.md#fix-228",
+      "status": "done",
+      "summary": "\"Request changes\" (redo) at an agent's gate re-ran that agent with the user's instruction and WITHOUT the document the instruction was about, so the model wrote only the delta and the previous work was destroyed",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [],
+      "id": "FIX-229",
+      "path": ".knowledge/cards/FIX-229.md",
+      "source": ".planning/FIX-REGISTER.md#fix-229",
+      "status": "done",
+      "summary": "A user who resumes a run parked at a review gate and then REJECTS at that gate had the run recorded in history as completed. The rejection was silently discarded from the record and the deliverable appeared accepted",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "agents",
+        "auth"
+      ],
+      "date": "2026-08-12",
+      "files": [],
+      "id": "FIX-230",
+      "path": ".knowledge/cards/FIX-230.md",
+      "source": ".planning/FIX-REGISTER.md#fix-230",
+      "status": "done",
+      "summary": "Two model call-sites spent the owner's money without it appearing in the run's reported cost. (1) The validation fix-loop re-invokes the build sub-agent on a \u2026:fixN thread and drains its stream INTERNALLY",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "agents"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/tests/agents/live_harness.py",
+        "backend/tests/agents/test_gates.py",
+        "backend/tests/agents/test_live_harness.py"
+      ],
+      "id": "FIX-231",
+      "path": ".knowledge/cards/FIX-231.md",
+      "source": ".planning/FIX-REGISTER.md#fix-231",
+      "status": "done",
+      "summary": "The live harness's review-gate wrapper could not accept the gate's own arguments \u2014 every gated harness drive raised TypeError and then reported the run COMPLETE without gating",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth",
+        "runtime"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/agents/execution_engine/engine.py",
+        "backend/agents/execution_engine/fanout.py",
+        "backend/agents/execution_engine/kernel_services.py",
+        "backend/tests/agents/test_restart_resume.py",
+        "backend/tests/agents/test_fanout_cancel.py",
+        "backend/tests/agents/test_fanout.py"
+      ],
+      "id": "FIX-232",
+      "path": ".knowledge/cards/FIX-232.md",
+      "source": ".planning/FIX-REGISTER.md#fix-232",
+      "status": "done",
+      "summary": "Rejecting at a review gate did not stop the run \u2014 every remaining step still ran, the run reported pipeline_complete, and the fake complete/completed rows it left behind made a later resume skip every wave and produce NOTHING",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "agents",
+        "auth",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/app/agents/chat/concierge.py",
+        "backend/app/api/run_commands.py",
+        "backend/agents/authz.py"
+      ],
+      "id": "FIX-233",
+      "path": ".knowledge/cards/FIX-233.md",
+      "source": ".planning/FIX-REGISTER.md#fix-233",
+      "status": "done",
+      "summary": "The Concierge was pre-fed the ENTIRE run through three unbounded read tools \u2014 one chat question re-fed 9,227,107 chars \u2248 2,306,776 tokens, on two runs 144% and 151% of everything the whole pipeline recorded",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "docs",
+        "frontend",
+        "sse",
+        "resume"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/app/main.py",
+        "backend/app/core/config.py",
+        "backend/app/api/run_shutdown.py",
+        "docs/PRODUCTION_DEPLOYMENT_GUIDE.md",
+        "docs/FLOWIN_HANDOFF.md",
+        "frontend/e2e/README.md",
+        "frontend/e2e/tests/ts-v.per-workflow.live.spec.ts",
+        "frontend/e2e/tests/ts-w.model-override.live.spec.ts"
+      ],
+      "id": "FIX-234",
+      "path": ".knowledge/cards/FIX-234.md",
+      "source": ".planning/FIX-REGISTER.md#fix-234",
+      "status": "done",
+      "summary": "The local backend could not be stopped by SIGTERM while any run was streaming, so the entire graceful-shutdown half never ran on a developer machine \u2014 and even when reached it did not stop the run",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "agents"
+      ],
+      "date": "2026-08-12",
+      "files": [],
+      "id": "FIX-235",
+      "path": ".knowledge/cards/FIX-235.md",
+      "relates": [
+        "FIX-201"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-235",
+      "status": "done",
+      "summary": "A re-delivered frame appended a second copy to every accumulating field in handlePipelineMessage \u2014 the reducer's correctness was a property of its CALLERS' dedup, the exact arrangement ISS-080 died of behind 15 green tests",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "agents",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "frontend/src/components/chat/ResultCard.tsx",
+        "frontend/src/components/chat/ResultCard.test.tsx",
+        "frontend/e2e/tests/ts-chat-cards.spec.ts"
+      ],
+      "id": "FIX-236",
+      "path": ".knowledge/cards/FIX-236.md",
+      "source": ".planning/FIX-REGISTER.md#fix-236",
+      "status": "done",
+      "summary": "The spec_revision chat card held a SECOND, contradicting copy of the revision-cycle number \u2014 and the register row's proposed fix would have made it a THIRD",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "workflow",
+        "agents",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "frontend/src/components/results/artifactPreview.tsx"
+      ],
+      "id": "FIX-237",
+      "path": ".knowledge/cards/FIX-237.md",
+      "source": ".planning/FIX-REGISTER.md#fix-237",
+      "status": "done",
+      "summary": "The settled \"Task plan \u00b7 N planned\" card rendered the number COMPLETED, not the number planned \u2014 wrong at the latest version and frozen under the artifact version picker (ISS-087)",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "agents",
+        "auth",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/tests/conftest.py",
+        "backend/tests/unit/test_chat_messages_endpoint.py",
+        "backend/tests/unit/test_iss102_live_model_guard.py"
+      ],
+      "id": "FIX-238",
+      "path": ".knowledge/cards/FIX-238.md",
+      "source": ".planning/FIX-REGISTER.md#fix-238",
+      "status": "done",
+      "summary": "The offline unit suite made REAL, billable AWS Bedrock calls, and nothing in the repo could have stopped it (ISS-102) \u2014 Nothing anywhere asserted that an offline test may not reach a live model",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "frontend",
+        "sse",
+        "workflow",
+        "agents",
+        "auth"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/agents/execution_engine/engine.py",
+        "backend/app/api/run_commands.py",
+        "backend/app/api/analytics.py",
+        "backend/tests/agents/characterization/_normalize.py",
+        "frontend/src/lib/api.ts"
+      ],
+      "id": "FIX-239",
+      "path": ".knowledge/cards/FIX-239.md",
+      "source": ".planning/FIX-REGISTER.md#fix-239",
+      "status": "done",
+      "summary": "The product could not tell you whether prompt caching was saving money or costing it \u2014 and the obvious version of this feature would have printed a catastrophic wrong number on day one. ISS-034 asked for \"saved $Y (Z%)\"",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/agents/authz.py",
+        "backend/agents/execution_engine/engine.py",
+        "backend/app/api/run_stream.py",
+        "backend/tests/unit/test_run_events.py",
+        "backend/tests/unit/test_sse_stream.py"
+      ],
+      "id": "FIX-240",
+      "path": ".knowledge/cards/FIX-240.md",
+      "source": ".planning/FIX-REGISTER.md#fix-240",
+      "status": "done",
+      "summary": "Every chat turn during a live run silently destroyed one engine event from the durable log (ISS-121). The register row's own root cause was WRONG and is corrected in place",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/app/api/run_commands.py",
+        "backend/tests/unit/test_rest_gate_commands.py"
+      ],
+      "id": "FIX-241",
+      "path": ".knowledge/cards/FIX-241.md",
+      "source": ".planning/FIX-REGISTER.md#fix-241",
+      "status": "done",
+      "summary": "A human-in-the-loop gate that fails OPEN: every near-miss of a DENIAL silently APPROVED (ISS-070). resolve_gate dispatched on action with else: # approve (default) as the fallback (run_commands.py:272), an exact, case-sensitive",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "evals",
+        "auth",
+        "artifacts",
+        "runtime"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/agents/execution_engine/engine.py",
+        "backend/agents/execution_engine/kernel_services.py",
+        "backend/tests/agents/test_restart_resume.py",
+        "backend/tests/agents/test_fanout.py",
+        "backend/tests/agents/test_merge_conflict.py",
+        "backend/tests/unit/test_pipeline_failure_semantics.py"
+      ],
+      "id": "FIX-242",
+      "path": ".knowledge/cards/FIX-242.md",
+      "source": ".planning/FIX-REGISTER.md#fix-242",
+      "status": "done",
+      "summary": "A gated fan-out step parked the run at a review gate nobody could see, discover or resolve (ISS-097). _should_gate (engine.py:4908-4925) is a per-INVOCATION predicate on spec.id",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "auth"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/tests/unit/test_rest_answers_cancel.py"
+      ],
+      "id": "FIX-243",
+      "path": ".knowledge/cards/FIX-243.md",
+      "source": ".planning/FIX-REGISTER.md#fix-243",
+      "status": "done",
+      "summary": "The owner's Stop was thrown away whenever no in-process driver was live \u2014 and the next boot re-adopted the run and finished it at the owner's expense (ISS-089)",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "resume"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/app/api/run_commands.py",
+        "backend/tests/unit/test_rest_answers_cancel.py"
+      ],
+      "id": "FIX-244",
+      "path": ".knowledge/cards/FIX-244.md",
+      "source": ".planning/FIX-REGISTER.md#fix-244",
+      "status": "done",
+      "summary": "The two app-layer driver terminals wrote no durable row at all, so the owner's Stop was recorded as a FAILURE and fresh corrupted runs were still being minted (ISS-124)",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "workflow"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "frontend/src/hooks/useWorkflow.ts",
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/hooks/__tests__/terminalStatusReconcile.test.ts",
+        "frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts"
+      ],
+      "id": "FIX-245",
+      "path": ".knowledge/cards/FIX-245.md",
+      "source": ".planning/FIX-REGISTER.md#fix-245",
+      "status": "done",
+      "summary": "A reopened TERMINAL run rendered as if it were still live \u2014 header \"Awaiting approval\", an armed Stop button, armed gate cards (ISS-126)",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/scripts/audit_lost_run_events.py"
+      ],
+      "id": "FIX-246",
+      "path": ".knowledge/cards/FIX-246.md",
+      "source": ".planning/FIX-REGISTER.md#fix-246",
+      "status": "done",
+      "summary": "The historical event loss was recorded as an unmeasured range with a half-wrong justification (ISS-123); it is now a read-only, re-runnable audit. Shipped backend/scripts/audit_lost_run_events.py \u2014 mode=ro, zero INSERT/UPDATE/DELETE/ALTER",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "evals"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts",
+        "frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts",
+        "frontend/e2e/tests/ts-r.cancel.spec.ts"
+      ],
+      "id": "FIX-247",
+      "path": ".knowledge/cards/FIX-247.md",
+      "source": ".planning/FIX-REGISTER.md#fix-247",
+      "status": "done",
+      "summary": "Stop at the clarify gate cancelled the run, but the screen never repainted \u2014 the live terminal handler cleared only legacy React state, never the run store the lane actually reads (ISS-140)",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "frontend",
+        "sse",
+        "auth"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "backend/app/api/run_stream.py",
+        "backend/tests/unit/test_sse_stream.py",
+        "frontend/e2e/fixtures/mockSse.ts",
+        "frontend/e2e/tests/ts-sse-resilience.spec.ts"
+      ],
+      "id": "FIX-248",
+      "path": ".knowledge/cards/FIX-248.md",
+      "source": ".planning/FIX-REGISTER.md#fix-248",
+      "status": "done",
+      "summary": "The narrator's \"Delivered \u2014 open in Preview\" milestone card rendered TWICE in the run chat lane after a mid-run SSE reconnect (ISS-146)",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "backend/app/agents/chat/concierge.py",
+        "backend/tests/agents/test_concierge_capability.py"
+      ],
+      "id": "FIX-249",
+      "path": ".knowledge/cards/FIX-249.md",
+      "source": ".planning/FIX-REGISTER.md#fix-249",
+      "status": "done",
+      "summary": "The Concierge told a user the product \"does not expose billing or token usage metrics\" and referred them to support, for a number rendered inches away in the same viewport (ISS-148)",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "resume",
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "backend/app/api/run_commands.py",
+        "backend/tests/unit/test_rest_revisions.py"
+      ],
+      "id": "FIX-250",
+      "path": ".knowledge/cards/FIX-250.md",
+      "source": ".planning/FIX-REGISTER.md#fix-250",
+      "status": "done",
+      "summary": "Every completed revision run silently lost 7 WorkflowRun output columns \u2014 the fourth caller BUG-R03 never wired, and the row it defeated (get_token_usage, FIX-249) had shipped the SAME session (ISS-152)",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "resume",
+        "agents",
+        "artifacts"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "backend/agents/execution_engine/engine.py",
+        "backend/agents/execution_engine/context.py",
+        "backend/tests/agents/test_spec_revision_context.py",
+        "backend/tests/agents/test_restart_resume.py"
+      ],
+      "id": "FIX-251",
+      "path": ".knowledge/cards/FIX-251.md",
+      "source": ".planning/FIX-REGISTER.md#fix-251",
+      "status": "done",
+      "summary": "update_specs regenerated the spec from scratch instead of revising it, and every resumed run rebuilt its planning context from a 200-char stub \u2014 the degraded spec then drove the planner and the finished prototype, with no UI signal",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "resume",
+        "agents"
+      ],
+      "date": "2026-08-11",
+      "files": [
+        "backend/agents/execution_engine/engine.py",
+        "backend/agents/execution_engine/context.py",
+        "backend/tests/agents/test_spec_revision_cycles.py",
+        "backend/tests/agents/test_redo_gate_safety.py"
+      ],
+      "id": "FIX-252",
+      "path": ".knowledge/cards/FIX-252.md",
+      "relates": [
+        "FIX-217",
+        "ISS-050",
+        "ISS-051"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-252",
+      "status": "done",
+      "summary": "A second \"Update the Specs\" at the RE-OPENED analyze gate was a silent no-op \u2014 the gate closed, instantly re-opened on identical content, no revision ran, and the build proceeded from the unrevised spec (defect B)",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "agents"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/agents/execution_engine/engine.py",
+        "backend/agents/capabilities/gates/human.py",
+        "backend/agents/capabilities/gates/approval.py",
+        "backend/app/api/run_engine.py",
+        "backend/app/api/run_commands.py",
+        "backend/tests/agents/test_update_specs_enforcement.py",
+        "backend/tests/unit/test_update_specs_ingress_fence.py",
+        "backend/tests/agents/test_spec_revision_cycles.py"
+      ],
+      "id": "FIX-253",
+      "path": ".knowledge/cards/FIX-253.md",
+      "relates": [
+        "ISS-053",
+        "ISS-070",
+        "ISS-071"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-253",
+      "status": "done",
+      "summary": "update_specs_eligible was advertised but never enforced \u2014 the review gate ran the spec-revision sub-pipeline at firings that had published the affordance as unavailable",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "frontend",
+        "agents"
+      ],
+      "date": "2026-08-12",
+      "files": [
+        "backend/agents/execution_engine/engine.py",
+        "backend/tests/agents/characterization/_normalize.py",
+        "backend/tests/agents/test_gate_revision_discriminator.py",
+        "backend/tests/agents/test_spec_revision_cycles.py",
+        "backend/tests/agents/test_restart_resume.py",
+        "frontend/src/types/index.ts",
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/hooks/useRunStateStore.ts",
+        "frontend/src/components/layout/DashboardLayout.tsx",
+        "frontend/src/components/chat/RunChatLane.tsx",
+        "frontend/src/components/results/StepsOverviewSpine.tsx",
+        "frontend/src/components/chat/InlineGateActions.tsx"
+      ],
+      "id": "FIX-254",
+      "path": ".knowledge/cards/FIX-254.md",
+      "relates": [
+        "ISS-052",
+        "ISS-062",
+        "ISS-063",
+        "ISS-072"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-254",
+      "status": "done",
+      "summary": "One \"Update the Specs\" click opened the analyze gate THREE times and nothing on the wire told the firings apart \u2014 A modelling gap, not a mechanism: the sub-pipeline was DESIGNED headless",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "auth"
+      ],
+      "date": "2026-08-13",
+      "files": [],
+      "id": "FIX-255",
+      "path": ".knowledge/cards/FIX-255.md",
+      "relates": [
+        "FIX-217",
+        "FIX-216"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-255",
+      "status": "done",
+      "summary": "A run with no brief could be launched, and the pipeline it could launch is the 5-21M-token one. LaunchCommand.message was a bare str and launch_run never checked it",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "workflow"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/hooks/useRunStateStore.ts",
+        "frontend/src/app/dashboard/bridgeTerminality.source.test.ts"
+      ],
+      "id": "FIX-256",
+      "path": ".knowledge/cards/FIX-256.md",
+      "relates": [
+        "ISS-138",
+        "ISS-157",
+        "FIX-220"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-256",
+      "status": "done",
+      "summary": "The FIX-201 legacy\u2192store bridge could resurrect a stood-down run, and dev shipped a second never-called mechanism beside it. Closes ISS-138 (open since 2026-08-12) and ISS-157",
+      "type": "fix"
+    },
+    {
+      "area": [
+        "backend",
+        "agents",
+        "auth"
+      ],
+      "date": "2026-08-13",
+      "files": [
+        "backend/app/agents/chat/concierge.py"
+      ],
+      "id": "FIX-257",
+      "path": ".knowledge/cards/FIX-257.md",
+      "relates": [
+        "FIX-218",
+        "FIX-233"
+      ],
+      "source": ".planning/FIX-REGISTER.md#fix-257",
+      "status": "done",
+      "summary": "The Concierge's file-attachment prompt forbade a tool that no longer exists, and converted questions into steering notes",
       "type": "fix"
     },
     {
@@ -5475,27 +6589,35 @@
     },
     {
       "area": [
-        "workflow",
+        "backend",
         "agents",
         "auth",
         "product"
       ],
       "date": "",
-      "files": [],
+      "files": [
+        "backend/app/agents/cached_invoke.py",
+        "backend/dev.db"
+      ],
       "id": "ISS-033",
       "path": ".knowledge/cards/ISS-033.md",
       "relates": [
         "FIX-034",
+        "FIX-230",
         "FIX-036",
-        "ISS-032"
+        "ISS-032",
+        "ISS-092",
+        "ISS-034"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-033",
-      "status": "open",
-      "summary": "SmartPlanner + ClarifyEngine + the handoff Test/Compliance agents call the model DIRECTLY (not via the shared cached deep-agent runner)",
+      "status": "done",
+      "summary": "The row below was STALE for a month and is corrected here. Original finding: SmartPlanner + ClarifyEngine + the handoff Test/Compliance agents call the model DIRECTLY (not via the shared cached deep-agent runner)",
       "type": "issue"
     },
     {
       "area": [
+        "workflow",
+        "agents",
         "auth",
         "product"
       ],
@@ -5506,10 +6628,13 @@
       "relates": [
         "FIX-037",
         "FIX-036",
-        "ISS-032"
+        "ISS-032",
+        "ISS-033",
+        "FIX-230",
+        "ISS-092"
       ],
       "source": ".planning/ISSUES-REGISTER.md#iss-034",
-      "status": "open",
+      "status": "done",
       "summary": "Optional dollar-savings \u2014 surface cache $ saved. Backend would emit estimated_cost_full_usd (cost as-if-uncached) \u2192 FE shows \"saved $Y (Z%)\"",
       "type": "issue"
     },
@@ -5748,6 +6873,2282 @@
       "source": ".planning/ISSUES-REGISTER.md#iss-049",
       "status": "done",
       "summary": "Surfaced by the 37-07 rebuild agent's careful re-analysis (corrects the earlier \"~10 pre-existing\" hand-wave): the FE suite has 2 DETERMINISTIC failures (both pre-existing, unrelated to 37-07) + ~8 FLAKY",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "tooling"
+      ],
+      "date": "",
+      "files": [
+        "scripts/knowledge/check_ids.py"
+      ],
+      "id": "ISS-050",
+      "path": ".knowledge/cards/ISS-050.md",
+      "relates": [
+        "FIX-185",
+        "ISS-064",
+        "ISS-066"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-050",
+      "status": "open",
+      "summary": "TOMBSTONE. This id was allocated to \"CR-02 guard blocks prototype_revision and user_stories_revision\", closed by FIX-185 (commit fd2ad8f1), and the id lived ONLY in that commit message \u2014 never in a register or card",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "agents",
+        "runtime"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-051",
+      "path": ".knowledge/cards/ISS-051.md",
+      "relates": [
+        "ISS-064",
+        "FIX-218"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-051",
+      "status": "done",
+      "summary": "A nested revision reaches depth 2 with BOTH levels computing revision_index=1, so two passes collide on the same :rev1 checkpoint thread (measured: 7 dispatches, only 4 unique thread ids)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "agents",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-052",
+      "path": ".knowledge/cards/ISS-052.md",
+      "relates": [
+        "ISS-064"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-052",
+      "status": "open",
+      "summary": "One \"Update the Specs\" click costs FOUR approvals: the re-run specify gate, the re-run plan gate, then the analyze gate RE-OPENS after the sub-pipeline returns",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "agents",
+        "evals",
+        "auth"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-053",
+      "path": ".knowledge/cards/ISS-053.md",
+      "relates": [
+        "ISS-064"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-053",
+      "status": "done",
+      "summary": "update_specs_eligible is an FE affordance only \u2014 _run_review_gate (engine.py:5470) acts on the gate action WITHOUT ever consulting it",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend",
+        "backend",
+        "sse",
+        "agents"
+      ],
+      "date": "",
+      "files": [
+        "frontend/src/hooks/useRunChat.ts",
+        "frontend/src/components/layout/DashboardLayout.tsx",
+        "frontend/src/components/chat/RunChatLane.tsx",
+        "backend/app/api/run_commands.py",
+        "backend/app/agents/chat/concierge.py"
+      ],
+      "id": "ISS-054",
+      "path": ".knowledge/cards/ISS-054.md",
+      "relates": [
+        "FIX-210",
+        "ISS-066",
+        "FIX-188"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-054",
+      "status": "done",
+      "summary": "Concierge chain / gate_action / revision proposals never surface \u2014 the proposals binding was dead, so consequential Concierge proposals (chain, gate_action, revision) were held but never rendered as chips",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "auth"
+      ],
+      "date": "",
+      "files": [
+        "backend/app/core/entitlements.py",
+        "backend/app/api/run_commands.py",
+        "backend/tests/unit/test_rest_run_launch.py"
+      ],
+      "id": "ISS-055",
+      "path": ".knowledge/cards/ISS-055.md",
+      "relates": [
+        "ISS-066",
+        "ISS-050",
+        "FIX-189"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-055",
+      "status": "done",
+      "summary": "Tier entitlement never enforced at launch \u2014 any user could run any pipeline regardless of their tier (KAN-161). Introduced a scoped tier for deployments needing prototype + a subset",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-056",
+      "path": ".knowledge/cards/ISS-056.md",
+      "relates": [
+        "ISS-066",
+        "FIX-190"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-056",
+      "status": "done",
+      "summary": "Clarify question quality gaps (KAN-162): (H1) 7 manifests declare 8 defaults but only 1 round fires, silently dropping 3+ topics; (H2) prototype build/validate agents lack a WCAG AA guardrail",
+      "type": "issue"
+    },
+    {
+      "area": [],
+      "date": "",
+      "files": [],
+      "id": "ISS-057",
+      "path": ".knowledge/cards/ISS-057.md",
+      "relates": [
+        "ISS-066",
+        "FIX-191"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-057",
+      "status": "done",
+      "summary": "_extract_docx silently drops table / header / footer content from uploaded Word documents; an all-table docx fires a misleading 422; python-docx / python-pptx / pypdf were absent from requirements.txt (KAN-163)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-058",
+      "path": ".knowledge/cards/ISS-058.md",
+      "relates": [
+        "ISS-066",
+        "FIX-192"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-058",
+      "status": "done",
+      "summary": "RunChatLane voice input mic button was a dead control \u2014 no onClick, no hook; it rendered \"Voice \u00b7 transcribe\" and did nothing (KAN-164)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-059",
+      "path": ".knowledge/cards/ISS-059.md",
+      "relates": [
+        "ISS-066",
+        "FIX-193"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-059",
+      "status": "done",
+      "summary": "Concierge free-text ask during an active (\"building\") run silently no-ops \u2014 every message typed while agents are running returned HTTP 200 {\"channel\":\"steering\"} with no reply (KAN-165)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-060",
+      "path": ".knowledge/cards/ISS-060.md",
+      "relates": [
+        "ISS-066",
+        "FIX-194"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-060",
+      "status": "done",
+      "summary": "Completion notification / toast is not run-scoped \u2014 a finishing run marks a DIFFERENT live run as \"complete\"; the toast shows the wrong label (KAN-166)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-061",
+      "path": ".knowledge/cards/ISS-061.md",
+      "relates": [
+        "ISS-066",
+        "FIX-195"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-061",
+      "status": "done",
+      "summary": "Header badge / notification clicks navigate to the wrong run; the Steps panel shows a two-run hybrid; the notification row tap does nothing (KAN-166)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-062",
+      "path": ".knowledge/cards/ISS-062.md",
+      "relates": [
+        "FIX-218",
+        "ISS-064"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-062",
+      "status": "done",
+      "summary": "A/B measured across two live Bedrock runs: PRE-si4 run 5ecb990f reported eligible=True at every analyze gate including both re-opens (seq 9572/24652/24655)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-063",
+      "path": ".knowledge/cards/ISS-063.md",
+      "relates": [
+        "FIX-163",
+        "FIX-217",
+        "FIX-164",
+        "ISS-065",
+        "FIX-222"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-063",
+      "status": "done",
+      "summary": "The violet \"Spec Revision Cycle N\" banner (FIX-163) is LIVE-SESSION-ONLY state and never back-fills from durable events, so reopening a run that was revised shows no sign a revision ever happened",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-064",
+      "path": ".knowledge/cards/ISS-064.md",
+      "relates": [
+        "FIX-218"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-064",
+      "status": "done",
+      "summary": "A second \"Update the Specs\" at the RE-OPENED analyze gate is a SILENT NO-OP. engine.py:3545 re-seeds ectx.spec_revision_pending_output and breaks without calling _run_spec_revision_sub_pipeline",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "auth",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-065",
+      "path": ".knowledge/cards/ISS-065.md",
+      "relates": [
+        "FIX-217",
+        "ISS-063",
+        "FIX-221"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-065",
+      "status": "done",
+      "summary": "No UI surfaces PER-ARTIFACT versions inside a run. artifact_refs durably stores every version (run d5dbc9f2 holds spec v1/v2/v3, task_list v1/v2, summary v1/v2) and GET /api/runs/{id}/artifacts already returns version per node",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend"
+      ],
+      "date": "",
+      "files": [
+        "backend/app/core/entitlements.py",
+        "backend/app/api/run_commands.py"
+      ],
+      "id": "ISS-066",
+      "path": ".knowledge/cards/ISS-066.md",
+      "relates": [
+        "ISS-054",
+        "ISS-061",
+        "FIX-190",
+        "ISS-055",
+        "FIX-189",
+        "ISS-050",
+        "ISS-064"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-066",
+      "status": "done",
+      "summary": "Register drift: ISS-054..ISS-061 have NO rows in ISSUES-REGISTER.md, yet those ids are live in FIX-190/192/193/194/195 rows, in cards, and in commit messages",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "agents",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-067",
+      "path": ".knowledge/cards/ISS-067.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-067",
+      "status": "done",
+      "summary": ".kiro/steering/velocity-ai-fix.md carries five facts that are wrong on this machine and will mislead any agent that follows it: (1) it prescribes uv run --no-sync pytest but backend/.venv does NOT exist, so every command in it fails",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-068",
+      "path": ".knowledge/cards/ISS-068.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-068",
+      "status": "done",
+      "summary": "Measured repeatedly 2026-08-11 across quick-260811-mxg and -si4. NOTE: an older memory recorded \"10 failed / 6 passed\" \u2014 that was stale feat/ui-2 data; the current figure is 5/5",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "tooling",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "scripts/knowledge/check_ids.py"
+      ],
+      "id": "ISS-069",
+      "path": ".knowledge/cards/ISS-069.md",
+      "relates": [
+        "ISS-066",
+        "FIX-020",
+        "FIX-128",
+        "FIX-129",
+        "FIX-131",
+        "FIX-158",
+        "FIX-159",
+        "FIX-162",
+        "FIX-183",
+        "FIX-184",
+        "FIX-214",
+        "FIX-215"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-069",
+      "status": "done",
+      "summary": "FIX-REGISTER drift \u2014 the ISS-066 defect, in the other register. 11 FIX-NNN ids are in active use with NO row in .planning/FIX-REGISTER.md: FIX-020 (commit messages only), FIX-128, FIX-129 (both: register prose mentions + cards + code)",
+      "type": "issue"
+    },
+    {
+      "area": [],
+      "date": "",
+      "files": [],
+      "id": "ISS-070",
+      "path": ".knowledge/cards/ISS-070.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-070",
+      "status": "done",
+      "summary": "The gate-action discriminator is unvalidated, and an unknown action silently APPROVES. run_commands.py resolve_gate dispatches on action with else: # approve as the fallback, so any unrecognised string \u2014 a typo, a stale client, a probe",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-071",
+      "path": ".knowledge/cards/ISS-071.md",
+      "relates": [
+        "ISS-053"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-071",
+      "status": "open",
+      "summary": "The \"Update the Specs\" affordance is advertised at EVERY gate on every non-prototype workflow. _update_specs_eligible keys on artifact_kind in {\"summary\"}",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "agents",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-072",
+      "path": ".knowledge/cards/ISS-072.md",
+      "relates": [
+        "FIX-220",
+        "FIX-218",
+        "ISS-052",
+        "ISS-064"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-072",
+      "status": "open",
+      "summary": "Collapse the doubled analyze gate by suppressing the IN-PASS firing [1], not the re-opened one. One \"Update the Specs\" click still costs four approvals. FIX-220 made the firings identifiable but suppressed nothing",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "frontend/src/components/chat/InlineGateActions.test.tsx"
+      ],
+      "id": "ISS-073",
+      "path": ".knowledge/cards/ISS-073.md",
+      "relates": [
+        "ISS-052"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-073",
+      "status": "open",
+      "summary": "A stale frontend test asserts a layout the component deliberately abandoned. frontend/src/components/chat/InlineGateActions.test.tsx:54 (\"renders exactly two primary buttons\") asserts queryByTestId(\"chat-gate-update-specs\") is null before",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "resume",
+        "agents",
+        "auth",
+        "artifacts",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "backend/tests/agents/live_harness.py"
+      ],
+      "id": "ISS-074",
+      "path": ".knowledge/cards/ISS-074.md",
+      "relates": [
+        "FIX-220",
+        "FIX-218"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-074",
+      "status": "done",
+      "summary": "The LIVE harness's review-gate wrapper cannot accept the gate's own arguments \u2014 every live gated drive raises TypeError",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth",
+        "frontend"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-075",
+      "path": ".knowledge/cards/ISS-075.md",
+      "relates": [
+        "ISS-063",
+        "ISS-065",
+        "FIX-221",
+        "FIX-225",
+        "FIX-222"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-075",
+      "status": "done",
+      "summary": "Reopening a run resets the whole Steps trace to idle. The trailing resume pipeline_start carries resume_offset = 0 (run d5dbc9f2 seq 24791",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "auth",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-076",
+      "path": ".knowledge/cards/ISS-076.md",
+      "relates": [
+        "ISS-068",
+        "FIX-221"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-076",
+      "status": "open",
+      "summary": "The mocked Playwright suite has a 33-red baseline, not the \"132 green\" the records claim. Measured on bugfix/spec-revision-context-loss at b13d5c33: 33 failed / 43 skipped / 108 passed",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend",
+        "workflow",
+        "agents",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [
+        "frontend/src/lib/api.ts"
+      ],
+      "id": "ISS-077",
+      "path": ".knowledge/cards/ISS-077.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-077",
+      "status": "open",
+      "summary": "ArtifactNode's TypeScript declaration disagrees with the wire shape on three fields. frontend/src/lib/api.ts:602-604 declares derived_from: string[] and children: string[], but the backend returns `derived_from: string \\",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts",
+        "engine"
+      ],
+      "date": "",
+      "files": [
+        "backend/tests/agents/test_restart_resume.py"
+      ],
+      "id": "ISS-078",
+      "path": ".knowledge/cards/ISS-078.md",
+      "relates": [
+        "ISS-068",
+        "FIX-223",
+        "FIX-175"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-078",
+      "status": "done",
+      "summary": "7 reds in backend/tests/agents/test_restart_resume.py (7 failed / 48 passed), and at least two of them may be describing a LIVE PRODUCTION RESUME BUG rather than test rot",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "workflow",
+        "agents",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "backend/tests/agents/test_phase6_frontend_consistency.py"
+      ],
+      "id": "ISS-079",
+      "path": ".knowledge/cards/ISS-079.md",
+      "relates": [
+        "ISS-068",
+        "FIX-223"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-079",
+      "status": "open",
+      "summary": "2 further reds in the shared baseline that ISS-068 never recorded: backend/tests/agents/test_phase6_frontend_consistency.py",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "workflow",
+        "agents",
+        "artifacts",
+        "frontend"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-080",
+      "path": ".knowledge/cards/ISS-080.md",
+      "relates": [
+        "FIX-221",
+        "ISS-063",
+        "FIX-164",
+        "ISS-075",
+        "ISS-081",
+        "FIX-225",
+        "FIX-201"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-080",
+      "status": "done",
+      "summary": "The revision banner back-fills but over-counts: it renders \"Spec Revision Cycle 5\" on a run that had 2 revision cycles \u2014 Observed by me in a live headless-browser pass on 2026-08-12 against the running stack (backend :8010 on current code",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "artifacts",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-081",
+      "path": ".knowledge/cards/ISS-081.md",
+      "relates": [
+        "ISS-080",
+        "ISS-075",
+        "FIX-225"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-081",
+      "status": "done",
+      "summary": "deriveSpecRevisionCount takes max over ALL agents, but prototype-build restarts once per task. Even with ISS-080's double-counting fully fixed",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-082",
+      "path": ".knowledge/cards/ISS-082.md",
+      "relates": [
+        "FIX-225",
+        "ISS-080"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-082",
+      "status": "done",
+      "summary": "The sibling reducer accumulators carry no identity key either \u2014 agent_chunk (output: prev.output + chunk) and hook_run (hookRuns: [...prev.hookRuns, entry]) in useWorkflow.ts",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-083",
+      "path": ".knowledge/cards/ISS-083.md",
+      "relates": [
+        "ISS-039",
+        "FIX-164"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-083",
+      "status": "done",
+      "summary": "A third, dormant counter in the spec-revision family: ResultCard.tsx:97-100,119 renders Revising spec \u2014 cycle {cycle ?? 1} for the spec_revision card kind and NOTHING passes cycle (grep -rn \"cycle={\" src",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-084",
+      "path": ".knowledge/cards/ISS-084.md",
+      "relates": [
+        "ISS-078",
+        "FIX-227",
+        "ISS-088",
+        "ISS-089"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-084",
+      "status": "done",
+      "summary": "Stop / cancel does not stop a building run. POST /api/runs/{id}/cancel returns HTTP 200 {\"ok\":true,\"cancelled\":true} and the run keeps generating",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "agents",
+        "artifacts",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-085",
+      "path": ".knowledge/cards/ISS-085.md",
+      "relates": [
+        "ISS-065",
+        "FIX-222",
+        "FIX-226",
+        "FIX-039",
+        "ISS-087"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-085",
+      "status": "done",
+      "summary": "Switching artifact versions does not change the spec cards \u2014 only the raw output below them. The owner tested the new ISS-065 picker and reported: \"while changing the version there, i couldnt see the older version's content\"",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "agents",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-086",
+      "path": ".knowledge/cards/ISS-086.md",
+      "relates": [
+        "FIX-217"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-086",
+      "status": "done",
+      "summary": "\"Request changes\" (redo) at an agent's own gate re-runs that agent WITHOUT injecting its prior output, so the agent returns only the delta and the previous work is destroyed",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "workflow",
+        "agents",
+        "artifacts",
+        "frontend"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-087",
+      "path": ".knowledge/cards/ISS-087.md",
+      "relates": [
+        "ISS-116",
+        "ISS-085"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-087",
+      "status": "done",
+      "summary": "The un-versioned halves of the agent-detail cards do not follow the artifact version picker. The mechanism was real: deriveArtifactCardModel took protoCompletedTasks (the \"Task plan \u00b7 N planned\" rows)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend",
+        "docs",
+        "sse",
+        "resume",
+        "agents",
+        "auth",
+        "artifacts",
+        "runtime"
+      ],
+      "date": "",
+      "files": [
+        "frontend/src/lib/env.ts",
+        "env-templates/.env.fron",
+        "frontend/e2e/fixtures/live.ts",
+        "docs/LOCALSTACK_SMOKE_REPORT.md",
+        "frontend/src/data/skills.ts",
+        "frontend/src/app/test-preview/page.tsx"
+      ],
+      "id": "ISS-088",
+      "path": ".knowledge/cards/ISS-088.md",
+      "relates": [
+        "ISS-084",
+        "ISS-103"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-088",
+      "status": "done",
+      "summary": "The local backend cannot be stopped by SIGTERM while any run is streaming, so shutdown_run_infrastructure() never executes locally at all \u2014 and even where it does execute it does not stop the runs",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "tooling",
+        "sse",
+        "resume",
+        "workflow",
+        "auth"
+      ],
+      "date": "",
+      "files": [
+        "scripts/cutover_legacy_runs.py"
+      ],
+      "id": "ISS-089",
+      "path": ".knowledge/cards/ISS-089.md",
+      "relates": [
+        "FIX-227",
+        "ISS-084",
+        "ISS-134"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-089",
+      "status": "done",
+      "summary": "A cancel is purely in-process, so a Stop that arrives when no driver is live is lost \u2014 and the next boot auto-resumes the run the owner just tried to stop",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "resume",
+        "agents",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-090",
+      "path": ".knowledge/cards/ISS-090.md",
+      "relates": [
+        "ISS-053",
+        "FIX-228",
+        "ISS-086"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-090",
+      "status": "open",
+      "summary": "redoable has no eligibility fence \u2014 unlike update_specs_eligible it is an inline True literal at all three gate call sites, so ANY agent named in a per-run gate_agent_ids gets a Redo button with no server-side rule",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth",
+        "runtime",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-091",
+      "path": ".knowledge/cards/ISS-091.md",
+      "relates": [
+        "FIX-227",
+        "FIX-228",
+        "ISS-078",
+        "FIX-229"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-091",
+      "status": "done",
+      "summary": "Rejecting at a review gate does not STOP the pipeline: every remaining step still runs and the run ends on pipeline_complete. Measured at 99fcf4a2 \u2014 i.e. WITH FIX-227 and FIX-228 already landed, so FIX-227 does NOT cover this",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "agents",
+        "auth",
+        "product"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-092",
+      "path": ".knowledge/cards/ISS-092.md",
+      "relates": [
+        "FIX-230",
+        "ISS-033",
+        "ISS-034"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-092",
+      "status": "done",
+      "summary": "A single Concierge chat question can feed the model up to 2.3M tokens, and not one of them is counted or capped. Two compounding facts, both verified 2026-08-12",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "auth",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "backend/tests/unit/test_execution_engine.py"
+      ],
+      "id": "ISS-093",
+      "path": ".knowledge/cards/ISS-093.md",
+      "relates": [
+        "ISS-027",
+        "FIX-230"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-093",
+      "status": "open",
+      "summary": "3 stale clarify-round tests in backend/tests/unit/test_execution_engine.py assert an event vocabulary the product no longer emits",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "agents",
+        "evals",
+        "artifacts",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-094",
+      "path": ".knowledge/cards/ISS-094.md",
+      "relates": [
+        "FIX-231",
+        "ISS-074",
+        "ISS-078"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-094",
+      "status": "open",
+      "summary": "3 reds in tests/agents/test_gates.py \u2014 hand-rolled context doubles drifted from the real engine contract on an ATTRIBUTE, so no signature guard can catch them",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-095",
+      "path": ".knowledge/cards/ISS-095.md",
+      "relates": [
+        "FIX-231",
+        "ISS-091",
+        "ISS-074"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-095",
+      "status": "open",
+      "summary": "3 reds in tests/agents/test_declared_gate_streaming.py, and the register's \"environmental\" label for them looks WRONG \u2014 a real defect may be hiding behind it",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "agents",
+        "auth",
+        "artifacts",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "backend/agents/prompts/od-ppt-validator/AGENT.md"
+      ],
+      "id": "ISS-096",
+      "path": ".knowledge/cards/ISS-096.md",
+      "relates": [
+        "FIX-231",
+        "FIX-001",
+        "FIX-014",
+        "FIX-109"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-096",
+      "status": "open",
+      "summary": "Stale prompt-contract pin: tests/agents/test_prompt_contracts.py::test_od_ppt_validator_deck_reemission_contract asserts a sentence that is no longer in the agent's prompt",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "evals",
+        "auth",
+        "runtime",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-097",
+      "path": ".knowledge/cards/ISS-097.md",
+      "relates": [
+        "FIX-242",
+        "ISS-131",
+        "ISS-091"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-097",
+      "status": "done",
+      "summary": "Gating a fan-out step's agent parks the run at a review gate NOBODY CAN SEE, DISCOVER OR RESOLVE. _should_gate (engine.py:4908-4925, predicate at :4922-4925) is a per-INVOCATION predicate on spec.id",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "resume",
+        "workflow",
+        "auth",
+        "runtime",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-098",
+      "path": ".knowledge/cards/ISS-098.md",
+      "relates": [
+        "ISS-091"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-098",
+      "status": "open",
+      "summary": "A mid-wave CancelledError leaves its wave_runs row stuck at running forever. wave_scheduler.py:340 catches except Exception: to flip the in-flight wave's row terminal",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-099",
+      "path": ".knowledge/cards/ISS-099.md",
+      "relates": [
+        "ISS-091",
+        "FIX-232"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-099",
+      "status": "open",
+      "summary": "A retry-enabled step records a CANCELLED step as reusable. When step.retry.max_attempts > 0, _dispatch_step_with_retry (engine.py:7236-7274) runs the strategy inside an attempt loop and, on normal completion of strategy.run",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "agents",
+        "auth",
+        "cost"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-100",
+      "path": ".knowledge/cards/ISS-100.md",
+      "relates": [
+        "FIX-233",
+        "ISS-092"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-100",
+      "status": "open",
+      "summary": "The handoff pipeline's model spend is 100% invisible: there is nowhere to even put the number. Three call sites construct/call agents that ACCEPT a usage_sink and are given none",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "agents",
+        "auth",
+        "perf"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-101",
+      "path": ".knowledge/cards/ISS-101.md",
+      "relates": [
+        "FIX-233"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-101",
+      "status": "open",
+      "summary": "context_provider:conversation still materialises a whole run's event log server-side to keep six chat turns. agents/capabilities/context_providers/conversation.py:99 calls scoped_store.read_events(run_id",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "agents",
+        "auth",
+        "test"
+      ],
+      "date": "",
+      "files": [
+        "backend/tests/conftest.py"
+      ],
+      "id": "ISS-102",
+      "path": ".knowledge/cards/ISS-102.md",
+      "relates": [
+        "ISS-055",
+        "FIX-238",
+        "ISS-118",
+        "ISS-119"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-102",
+      "status": "done",
+      "summary": "[TWO CORRECTIONS TO THIS ROW, both verified by re-running it at d31a5a7b \u2014 read these before trusting anything below.] (1) It is TWO tests, not three",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "agents",
+        "auth",
+        "runtime",
+        "infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-103",
+      "path": ".knowledge/cards/ISS-103.md",
+      "relates": [
+        "FIX-234",
+        "ISS-106"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-103",
+      "status": "open",
+      "summary": "Ctrl-C already cancels in-flight runs \u2014 by an uncontrolled path that runs AFTER the checkpointer pool is closed \u2014 while kill/docker stop does not",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "infra"
+      ],
+      "date": "",
+      "files": [
+        "backend/docker-entrypoint.sh",
+        "backend/app/api/run_shutdown.py"
+      ],
+      "id": "ISS-104",
+      "path": ".knowledge/cards/ISS-104.md",
+      "relates": [
+        "ISS-089",
+        "FIX-234"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-104",
+      "status": "open",
+      "summary": "Stale line-number citations in the shutdown-path comments \u2014 each points at code that has since moved, and a fixer following them lands in the wrong place",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-105",
+      "path": ".knowledge/cards/ISS-105.md",
+      "relates": [
+        "FIX-234",
+        "ISS-088"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-105",
+      "status": "open",
+      "summary": "lifespan.shutdown() is entered BEFORE the SSE request generators finish unwinding, so shutdown_run_infrastructure() snapshots _PIPELINE_QUEUES / _PUMP_TASKS while stream teardown is still in flight",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "resume",
+        "auth",
+        "infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-106",
+      "path": ".knowledge/cards/ISS-106.md",
+      "relates": [
+        "FIX-234",
+        "ISS-088"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-106",
+      "status": "open",
+      "summary": "The graceful-shutdown budget is bounded only in its drain steps; the final pool close is unbounded, so the documented worst case is not a worst case",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-107",
+      "path": ".knowledge/cards/ISS-107.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-107",
+      "status": "open",
+      "summary": "hook_run's payload never reaches the reducer, so the only live consumer of hookRuns is structurally dead. dashboard/page.tsx:915 dispatches `{ type: msg.type, ...(msg.data",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-108",
+      "path": ".knowledge/cards/ISS-108.md",
+      "relates": [
+        "ISS-082"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-108",
+      "status": "open",
+      "summary": "clarifications accumulates with no identity and no per-run reset outside startPipeline. useWorkflow.ts:168 does clarifications: [...(prev.clarifications ?? []), round] inside retainClarifyRound",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-109",
+      "path": ".knowledge/cards/ISS-109.md",
+      "relates": [
+        "ISS-082",
+        "ISS-087"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-109",
+      "status": "open",
+      "summary": "validator_result and gate_passed have ZERO producers in non-test backend code, so validationIssues may be dead on the wire and AgentDetailPanel's checksPassed === true may be structurally unreachable",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-110",
+      "path": ".knowledge/cards/ISS-110.md",
+      "relates": [
+        "FIX-201",
+        "ISS-082",
+        "FIX-235",
+        "ISS-107"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-110",
+      "status": "open",
+      "summary": "hookRuns has no per-run boundary in the reducer. pipeline_start spreads ...prev and never clears it; only startPipeline / resetPipeline do",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "agents",
+        "evals",
+        "auth",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-111",
+      "path": ".knowledge/cards/ISS-111.md",
+      "relates": [
+        "FIX-220",
+        "ISS-083",
+        "ISS-039",
+        "FIX-164",
+        "FIX-163",
+        "ISS-063",
+        "FIX-221",
+        "FIX-225"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-111",
+      "status": "open",
+      "summary": "The spec_revision narrator card kind is unreachable end-to-end, and its branch OUTRANKS every other card kind \u2014 Found by the ISS-083 deep investigation; grep + 232,023-row read-only dev.db query re-run and confirmed during quick-260812-jn9",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "agents",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-112",
+      "path": ".knowledge/cards/ISS-112.md",
+      "relates": [
+        "ISS-083"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-112",
+      "status": "open",
+      "summary": "attachmentRefs is dormant on StartingPointCard, so the \"image not retained\" placeholder can NEVER render. Declared StartingPointCard.tsx:44, destructured :47, consumed :55-57 as (attachmentRefs ?? []).filter(...) \u2192 notRetainedImageCount",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-113",
+      "path": ".knowledge/cards/ISS-113.md",
+      "relates": [
+        "ISS-083",
+        "ISS-110",
+        "FIX-235"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-113",
+      "status": "open",
+      "summary": "runMeta is dormant on AuditTab, so the audit header's owner and workspace are permanently null. Declared AuditTab.tsx:59, destructured :443, consumed :649-655",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "artifacts",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-114",
+      "path": ".knowledge/cards/ISS-114.md",
+      "relates": [
+        "ISS-076",
+        "FIX-236",
+        "ISS-083"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-114",
+      "status": "open",
+      "summary": "ResultCard.test.tsx's LOCK-F case is RED and belongs to no register row, and the underlying LOCK-F guarantee may actually be broken in the product",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "artifacts",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-115",
+      "path": ".knowledge/cards/ISS-115.md",
+      "relates": [
+        "FIX-237"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-115",
+      "status": "open",
+      "summary": "Two non-equivalent ## Task N: parsers still ship (INV-12 debt). FIX-237 extracted parseTasks (artifactPreview.tsx:80-104) and pointed the settled tasks CARD at it, but useWorkflow.ts:1020 keeps its own copy",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-116",
+      "path": ".knowledge/cards/ISS-116.md",
+      "relates": [
+        "ISS-087"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-116",
+      "status": "open",
+      "summary": "The governance-checks verdict badge is DEAD CODE, not merely un-versioned. checksPassed requires validationPassed === true (AgentDetailPanel.tsx:145), which only case \"gate_passed\" sets (useWorkflow.ts:1078)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "agents",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-117",
+      "path": ".knowledge/cards/ISS-117.md",
+      "relates": [
+        "ISS-116",
+        "ISS-087"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-117",
+      "status": "open",
+      "summary": "Validation frames are dropped on replay, so no run reopened from history can ever show a gate verdict. useRunStateStore.ts:395-403 lists pipelineFrameTypes and omits validator_result, gate_passed and gate_blocked",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "agents",
+        "auth",
+        "test"
+      ],
+      "date": "",
+      "files": [
+        "backend/tests/conftest.py"
+      ],
+      "id": "ISS-118",
+      "path": ".knowledge/cards/ISS-118.md",
+      "relates": [
+        "FIX-238"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-118",
+      "status": "open",
+      "summary": "Eight offline tests CONSTRUCT a real LLM provider client. They cost nothing today only because none of them invokes it \u2014 one added .ainvoke/.astream in any of them is live spend",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "test"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-119",
+      "path": ".knowledge/cards/ISS-119.md",
+      "relates": [
+        "FIX-238",
+        "ISS-055"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-119",
+      "status": "open",
+      "summary": "Two TestRouting tests assert a routing contract the product deliberately superseded, and they will stay red until someone decides which side is right",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "workflow",
+        "agents"
+      ],
+      "date": "",
+      "files": [
+        "backend/dev.db"
+      ],
+      "id": "ISS-120",
+      "path": ".knowledge/cards/ISS-120.md",
+      "relates": [
+        "FIX-239",
+        "ISS-034"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-120",
+      "status": "open",
+      "summary": "Bedrock prompt caching is a single process-wide on/off switch, and on short runs it is a MEASURED net cost INCREASE \u2014 Split out of ISS-034 item (d) so a behaviour change to the model-call path is not folded into a telemetry-only change",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents",
+        "auth",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-121",
+      "path": ".knowledge/cards/ISS-121.md",
+      "relates": [
+        "FIX-240",
+        "FIX-232",
+        "ISS-123",
+        "ISS-126",
+        "ISS-091"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-121",
+      "status": "done",
+      "summary": "A gate-rejected run reopens from history looking ALIVE: header \"Awaiting approval\" and a \"Stop\" button. SYMPTOM CORRECTED 2026-08-12 (quick-260812-wir): this row also listed a third symptom",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-122",
+      "path": ".knowledge/cards/ISS-122.md",
+      "relates": [
+        "FIX-239",
+        "ISS-034"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-122",
+      "status": "open",
+      "summary": "The cache-delta line is invisible in practice, because an unmetered-legacy window dilutes the percentage below the zero-suppression threshold \u2014 and the metered_runs signal that would explain this is fetched but never shown",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts",
+        "engine"
+      ],
+      "date": "",
+      "files": [
+        "backend/scripts/audit_lost_run_events.py",
+        "backend/dev.db"
+      ],
+      "id": "ISS-123",
+      "path": ".knowledge/cards/ISS-123.md",
+      "relates": [
+        "FIX-246",
+        "FIX-245",
+        "ISS-126",
+        "FIX-240",
+        "ISS-121"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-123",
+      "status": "done",
+      "summary": "COUNT + REASONING CORRECTED 2026-08-12 (FIX-246). The damage is 15 destroyed engine events across 9 runs, NOT ~29 across 10 \u2014 agent_chunk 11, questionnaire_complete 2, review_gate_approved 1, pipeline_cancelled 1",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "backend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-124",
+      "path": ".knowledge/cards/ISS-124.md",
+      "relates": [
+        "ISS-121",
+        "FIX-240",
+        "FIX-244",
+        "FIX-243"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-124",
+      "status": "done",
+      "summary": "SEVERITY WAS UNDERSTATED \u2014 this was not minor. Beyond the durable hole, stop_run_driver runs _reconcile_terminal_status once the driver is provably gone",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "resume",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-125",
+      "path": ".knowledge/cards/ISS-125.md",
+      "relates": [
+        "ISS-121",
+        "FIX-240"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-125",
+      "status": "open",
+      "summary": "_stamp_resume_marker still allocates its seq the slow, unprotected way. engine.py:6309-6311 reads the ENTIRE durable log (store.read_events(run_id, after_seq=0)) to compute max(seq)+1",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-126",
+      "path": ".knowledge/cards/ISS-126.md",
+      "relates": [
+        "FIX-245",
+        "FIX-240",
+        "ISS-124",
+        "FIX-244",
+        "ISS-123",
+        "FIX-201",
+        "ISS-138"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-126",
+      "status": "done",
+      "summary": "LOCUS AND SCOPE BOTH CORRECTED 2026-08-12 (FIX-245). (1) The stated locus is wrong and it changed the fix. A terminal run NEVER opens an SSE stream \u2014 page.tsx:2171 gates attachRun on non-terminal",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "auth"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-127",
+      "path": ".knowledge/cards/ISS-127.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-127",
+      "status": "open",
+      "summary": "GateCommand.analysis_report has no length cap anywhere on its path into the composed prompt. Traced end to end at e6b24ae5: run_commands.py:115 (`analysis_report: str \\",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "agents"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-128",
+      "path": ".knowledge/cards/ISS-128.md",
+      "relates": [
+        "ISS-070",
+        "FIX-241"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-128",
+      "status": "open",
+      "summary": "A gate REJECTION persists an audit record that says action=\"approve\". run_commands.py's reject branch calls store.set_review_response(gate_key, approved=False, edited_content=...) without passing action=",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "workflow",
+        "agents",
+        "auth",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-129",
+      "path": ".knowledge/cards/ISS-129.md",
+      "relates": [
+        "ISS-097",
+        "ISS-091",
+        "FIX-242"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-129",
+      "status": "open",
+      "summary": "run_fanout swallows EVERY worker event, including terminal ones. fanout.py:414-429 iterates runner.run_worker(...) and forwards nothing; the loop body reads only agent_complete to accumulate worker_tokens",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "runtime",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-130",
+      "path": ".knowledge/cards/ISS-130.md",
+      "relates": [
+        "ISS-097",
+        "FIX-242"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-130",
+      "status": "open",
+      "summary": "KernelServices.run_agent mutates SHARED ExecutionContext scratch while N fan-out workers run concurrently. kernel_services.py:1254-1291 (now :1267-1304) sets and restores build_task_number, build_task_total, current_task_block",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents",
+        "evals",
+        "auth",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-131",
+      "path": ".knowledge/cards/ISS-131.md",
+      "relates": [
+        "FIX-242",
+        "ISS-097"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-131",
+      "status": "open",
+      "summary": "A fan-out step's DECLARED human gate is deduped against an inline gate that no longer fires. engine.py:2470 passes inline_gated=self._should_gate(spec, ectx) into _evaluate_gates at the step boundary",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-132",
+      "path": ".knowledge/cards/ISS-132.md",
+      "relates": [
+        "ISS-097",
+        "FIX-242",
+        "ISS-090",
+        "FIX-228"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-132",
+      "status": "open",
+      "summary": "The task-loop sibling of ISS-097: ticking a task-loop agent opens ONE GATE PER TASK. Same root cause \u2014 _should_gate is per-INVOCATION on spec.id while gate_agent_ids is a per-STEP selection",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "resume",
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-133",
+      "path": ".knowledge/cards/ISS-133.md",
+      "relates": [
+        "FIX-240",
+        "ISS-121",
+        "ISS-078",
+        "FIX-243"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-133",
+      "status": "open",
+      "summary": "FIX-240 / ISS-121's collision-unsafe append idiom survives, unfixed, in the resume tier's double-drive guard. ExecutionEngine._stamp_resume_marker (engine.py:6309) allocates its seq the naive way",
+      "type": "issue"
+    },
+    {
+      "area": [],
+      "date": "",
+      "files": [],
+      "id": "ISS-134",
+      "path": ".knowledge/cards/ISS-134.md",
+      "relates": [
+        "FIX-243",
+        "ISS-089"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-134",
+      "status": "open",
+      "summary": "No cancel path in the system is multi-instance-safe, and FIX-243 makes that boundary load-bearing rather than academic \u2014 Recorded as an explicit scope note during FIX-243 rather than discovered as a failure",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "engine"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-135",
+      "path": ".knowledge/cards/ISS-135.md",
+      "relates": [
+        "FIX-240",
+        "ISS-123",
+        "FIX-244"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-135",
+      "status": "open",
+      "summary": "FIX-240 residual \u2014 payload_json.seq diverges from run_events.seq on a re-append. _RunEventSink.persist re-stamps data[\"seq\"] AFTER append_event_at_or_after returns, but the row was already serialised with the ORIGINAL value",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-136",
+      "path": ".knowledge/cards/ISS-136.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-136",
+      "status": "open",
+      "summary": "Four divergent FE definitions of \"terminal\", and they disagree. page.tsx:64 {completed,failed,cancelled,degraded} (correct, matches backend chat_router.py:62)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents",
+        "evals",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-137",
+      "path": ".knowledge/cards/ISS-137.md",
+      "relates": [
+        "FIX-245",
+        "ISS-136"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-137",
+      "status": "open",
+      "summary": "pipeline_reconnected is a DEAD frame with a live handler, a live test suite and a divergent status list. Verified: NO backend path emits it \u2014 grep over backend/app + backend/agents finds it only in comments",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-138",
+      "path": ".knowledge/cards/ISS-138.md",
+      "relates": [
+        "FIX-201",
+        "FIX-245",
+        "ISS-126"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-138",
+      "status": "done",
+      "summary": "The FIX-201 legacy->store bridge overwrites the run store's pipelineState WHOLESALE, silently discarding any store-only correction",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-139",
+      "path": ".knowledge/cards/ISS-139.md",
+      "relates": [
+        "ISS-126",
+        "FIX-247",
+        "ISS-140"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-139",
+      "status": "done",
+      "summary": "page.tsx's case \"pipeline_cancelled\": case \"pipeline_failed\": switch arm was UNREACHABLE dead code (~:1527-1562) \u2014 Verified during the ISS-126 investigation; the trap is that the arm reads exactly like the right place to fix ISS-126",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "evals",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-140",
+      "path": ".knowledge/cards/ISS-140.md",
+      "relates": [
+        "ISS-126",
+        "FIX-245",
+        "FIX-247"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-140",
+      "status": "done",
+      "summary": "The LIVE terminal path cleared only the legacy React state, never the run store \u2014 and it WAS user-visible: a Stop at the clarify gate cancelled the run, but the screen never repainted",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-141",
+      "path": ".knowledge/cards/ISS-141.md",
+      "relates": [
+        "FIX-245",
+        "ISS-126"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-141",
+      "status": "open",
+      "summary": "A reopened TERMINAL run still renders an actionable clarify card. useRunChat.ts's terminal auto-resolve covers only cardKind === \"gate\"",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "evals"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-142",
+      "path": ".knowledge/cards/ISS-142.md",
+      "relates": [
+        "FIX-240",
+        "FIX-245",
+        "ISS-126",
+        "ISS-137"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-142",
+      "status": "open",
+      "summary": "The WS->SSE cutover DROPPED status from the reconnect ack, breaking parity with locked decision D-13. IMPLEMENTATION-REGISTER.md records for D-13/12-09 that the pipeline_reconnected reply carries live/status/replayed_through_seq",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "frontend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-143",
+      "path": ".knowledge/cards/ISS-143.md",
+      "relates": [
+        "FIX-247"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-143",
+      "status": "open",
+      "summary": "The header \"N Running\" pill goes stale after a live cancel. AppHeader.tsx derives the pill from recentRuns (LIVE_STATUSES.has(r.status), which includes waiting_for_user)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "resume",
+        "agents"
+      ],
+      "date": "",
+      "files": [
+        "backend/app/api/run_commands.py"
+      ],
+      "id": "ISS-144",
+      "path": ".knowledge/cards/ISS-144.md",
+      "relates": [
+        "FIX-247"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-144",
+      "status": "open",
+      "summary": "POST /api/runs/{run_id}/answers accepts a terminal run \u2014 no 409 guard, unlike /gate. backend/app/api/run_commands.py:327-352 (submit_answers) checks ownership (_review_gate_owned_by) before writing but has NO terminal-run check",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-145",
+      "path": ".knowledge/cards/ISS-145.md",
+      "relates": [
+        "FIX-247"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-145",
+      "status": "open",
+      "summary": "Frontend test-suite baselines recorded elsewhere in this repo are stale by roughly an order of magnitude \u2014 re-baseline before gating any future fix on suite colour",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "tooling",
+        "sse",
+        "auth"
+      ],
+      "date": "",
+      "files": [
+        "scripts/knowledge/ctx.py"
+      ],
+      "id": "ISS-146",
+      "path": ".knowledge/cards/ISS-146.md",
+      "relates": [
+        "FIX-248"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-146",
+      "status": "done",
+      "summary": "The narrator's \"Delivered \u2014 open in Preview\" chat card rendered TWICE after a mid-run SSE reconnect. GET /api/runs/{id}/events (api.ts:583-590) merges a durable row's event_id/seq COLUMNS over payload_json",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse"
+      ],
+      "date": "",
+      "files": [
+        "frontend/src/hooks/useRunStream.ts"
+      ],
+      "id": "ISS-147",
+      "path": ".knowledge/cards/ISS-147.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-147",
+      "status": "open",
+      "summary": "pipeline_complete is missing from useRunStream.ts's non-live-close terminal list, so a completed run's stream reconnects when it should settle quietly \u2014 ADR-0001's own predicted failure mode, realized",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-148",
+      "path": ".knowledge/cards/ISS-148.md",
+      "relates": [
+        "ISS-149",
+        "FIX-249",
+        "ISS-140"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-148",
+      "status": "done",
+      "summary": "The Concierge confidently denied that token usage or cost data exists for a run, and referred the user to support \u2014 while the exact number was rendered in the same viewport",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "workflow",
+        "auth",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-149",
+      "path": ".knowledge/cards/ISS-149.md",
+      "relates": [
+        "FIX-249",
+        "ISS-150"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-149",
+      "status": "open",
+      "summary": "Five more Concierge answer-gaps have no tool, mirroring the shape FIX-249 just fixed for tokens/cost. (1) Deliverable FILENAME",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "auth",
+        "backend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-150",
+      "path": ".knowledge/cards/ISS-150.md",
+      "relates": [
+        "FIX-249"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-150",
+      "status": "open",
+      "summary": "Two different numbers both answer \"how long did this run take\", and they disagree. pipeline_complete.total_duration is computed at app/api/run_commands.py as round(time.time() - total_start",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "sse",
+        "workflow",
+        "agents",
+        "auth",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "backend/tests/agents/test_concierge_capability.py"
+      ],
+      "id": "ISS-151",
+      "path": ".knowledge/cards/ISS-151.md",
+      "relates": [
+        "FIX-249"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-151",
+      "status": "open",
+      "summary": "A test's negative assertion has gone stale and can no longer pass, for reasons unrelated to what it guards. backend/tests/agents/test_concierge_capability.py::test_compose_system_prompt_injects_chain_hints_block fails at its final line",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts",
+        "backend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-152",
+      "path": ".knowledge/cards/ISS-152.md",
+      "relates": [
+        "FIX-249",
+        "FIX-250"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-152",
+      "status": "done",
+      "summary": "Every completed revision run silently lost 7 WorkflowRun output columns \u2014 the fourth caller BUG-R03 never wired",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "runtime",
+        "backend"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-153",
+      "path": ".knowledge/cards/ISS-153.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-153",
+      "status": "open",
+      "summary": "A failed revision run shows the user no reason at all. _persist_terminal_status inside _drive_revision_to_queue (run_commands.py:2764, ~line 2803) has NO error parameter",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend",
+        "sse",
+        "workflow",
+        "agents",
+        "auth",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [
+        "frontend/src/components/preview/PreviewPanel.tsx"
+      ],
+      "id": "ISS-154",
+      "path": ".knowledge/cards/ISS-154.md",
+      "relates": [
+        "FIX-250"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-154",
+      "status": "open",
+      "summary": "Switching the in-family version picker to an OLDER, non-latest revision whose .output is NULL shows a blank \"Output will appear here\" preview instead of the deliverable, or any explanatory message",
+      "type": "issue"
+    },
+    {
+      "area": [],
+      "date": "",
+      "files": [],
+      "id": "ISS-155",
+      "path": ".knowledge/cards/ISS-155.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-155",
+      "status": "done",
+      "summary": "\\ \u2014 chainContextBlock?.trim()), and all four staging/consumption guards agree so the reload path can no longer reach a different verdict. TEST-034 (3), seen RED \u2014 the empty brief returned 200 OK and minted a run",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "frontend",
+        "sse",
+        "agents",
+        "test-infra"
+      ],
+      "date": "",
+      "files": [
+        "backend/tests/unit/test_run_commands_fix218.py",
+        "frontend/src/hooks/useChatAttachments.test.ts"
+      ],
+      "id": "ISS-156",
+      "path": ".knowledge/cards/ISS-156.md",
+      "relates": [
+        "FIX-218"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-156",
+      "status": "open",
+      "summary": "dev shipped FIX-218 with five red tests, which the merge inherits. backend/tests/unit/test_run_commands_fix218.py asserts the Concierge prompt contains ## Attached files while dev's own code emits ## PRIORITY OVERRIDE",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "frontend"
+      ],
+      "date": "",
+      "files": [
+        "frontend/src/hooks/useRunStateStore.ts"
+      ],
+      "id": "ISS-157",
+      "path": ".knowledge/cards/ISS-157.md",
+      "relates": [
+        "FIX-220"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-157",
+      "status": "done",
+      "summary": "syncPipelineStateOnly is added to the run store, exported on the interface, and never called \u2014 dev's FIX-220 register row says \"for future use\". The rAF fix it ships alongside still calls runStore.updatePipelineState",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "backend",
+        "agents",
+        "auth"
+      ],
+      "date": "",
+      "files": [
+        "backend/app/agents/chat/concierge.py"
+      ],
+      "id": "ISS-158",
+      "path": ".knowledge/cards/ISS-158.md",
+      "relates": [
+        "FIX-233",
+        "ISS-092",
+        "FIX-218"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-158",
+      "status": "done",
+      "summary": "dev's Concierge file-override prompt instructs the model to \"NEVER call read_events\" \u2014 a tool this branch DELETED in FIX-233 (ISS-092)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "sse",
+        "artifacts"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-159",
+      "path": ".knowledge/cards/ISS-159.md",
+      "source": ".planning/ISSUES-REGISTER.md#iss-159",
+      "status": "open",
+      "summary": "A chained run records NO lineage. Chaining passes context by INLINING the parent's context block into the child's input text; neither parent_run_id nor source_run_id is set on the child",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "auth"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-160",
+      "path": ".knowledge/cards/ISS-160.md",
+      "relates": [
+        "FIX-249",
+        "FIX-250"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-160",
+      "status": "open",
+      "summary": "The Concierge is unreachable on a revision run. The same question, same user, same endpoint: the PARENT run answers correctly (exact token/cost figures)",
+      "type": "issue"
+    },
+    {
+      "area": [
+        "auth"
+      ],
+      "date": "",
+      "files": [],
+      "id": "ISS-161",
+      "path": ".knowledge/cards/ISS-161.md",
+      "relates": [
+        "ISS-153",
+        "FIX-219"
+      ],
+      "source": ".planning/ISSUES-REGISTER.md#iss-161",
+      "status": "open",
+      "summary": "A pure question posted to a parent run over REST /messages was classified as a REVISION and minted a run. Asking \"how many tokens did this run use?\" produced \"channel\":\"revision\" and created run 0702ceaa",
       "type": "issue"
     },
     {
@@ -8617,34 +12018,39 @@
   ],
   "facets": {
     "area": {
-      "agents": 193,
-      "artifacts": 78,
-      "auth": 72,
-      "backend": 74,
-      "docs": 2,
-      "evals": 9,
-      "frontend": 167,
+      "agents": 286,
+      "artifacts": 116,
+      "auth": 131,
+      "backend": 134,
+      "cost": 1,
+      "docs": 4,
+      "engine": 14,
+      "evals": 19,
+      "frontend": 221,
       "harness": 2,
-      "infra": 1,
-      "product": 29,
-      "resume": 40,
-      "runtime": 31,
-      "sse": 129,
-      "test-infra": 4,
-      "workflow": 185
+      "infra": 5,
+      "perf": 1,
+      "product": 30,
+      "resume": 79,
+      "runtime": 41,
+      "sse": 222,
+      "test": 3,
+      "test-infra": 18,
+      "tooling": 4,
+      "workflow": 248
     },
     "status": {
       "accepted": 1,
-      "done": 542,
-      "open": 20,
+      "done": 651,
+      "open": 81,
       "shipped": 1
     },
     "type": {
       "bug": 28,
       "decision": 1,
-      "doc": 63,
-      "fix": 208,
-      "issue": 49,
+      "doc": 65,
+      "fix": 264,
+      "issue": 161,
       "phase": 23,
       "req": 40,
       "task": 111,
@@ -8662,5 +12068,5 @@
     "source",
     "path"
   ],
-  "generated": "2026-08-07 19:27"
+  "generated": "2026-08-14 18:39"
 }

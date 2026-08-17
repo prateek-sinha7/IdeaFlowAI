@@ -1,4 +1,5 @@
 ---
+description: Transforms a natural-language feature description into a structured, implementation-ready specification.
 id: specify-agent
 name: Specify Agent
 role: Feature Specification Author

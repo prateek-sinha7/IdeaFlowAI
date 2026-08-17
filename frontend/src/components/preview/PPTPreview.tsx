@@ -12,16 +12,20 @@ interface PPTPreviewProps {
   pptxCode?: string;
   /** Callback to trigger a revision pipeline run */
   onRevise?: (instruction: string) => void;
-  /** Pipeline type — od_ppt shows HTML download instead of PPTX */
+  /** @deprecated Every ppt run is now the HTML-deck pipeline; kept only so
+   * existing callers don't need an edit. No longer read. */
   pipelineType?: string;
 }
 
-export function PPTPreview({ content, isStreaming, pptxCode, onRevise, pipelineType }: PPTPreviewProps) {
+export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPreviewProps) {
   const [iframeKey] = useState(0);
   const [isDownloading, setIsDownloading] = useState(false);
   const [revisionText, setRevisionText] = useState("");
 
-  const isOdPpt = pipelineType === "od_ppt";
+  // Every ppt run produces an HTML deck now (the legacy PptxGenJS pipeline is
+  // retired — see backend/agents/registry.py); this component always uses the
+  // scaled-iframe HTML render path.
+  const isOdPpt = true;
 
   const handleDownloadHtml = () => {
     if (!content) return;

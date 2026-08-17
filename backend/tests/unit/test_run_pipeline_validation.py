@@ -102,7 +102,7 @@ class TestBasePipelinesIncludeDefaultsPlusCustomPool:
             assert agent_id in allowed, f"Default PPT agent {agent_id!r} not allowed"
         # And the real ids are exactly the od-ppt agents (not the retired
         # ppt-code-generator/ppt-content-strategist the legacy registry had).
-        assert {"od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator"} <= allowed
+        assert {"ppt-brief-analyst", "ppt-composer", "ppt-validator"} <= allowed
 
     def test_prototype_defaults_are_the_real_spec_kit_ids(self) -> None:
         """The prototype allow-list carries the REAL Spec-Kit ids — NOT the
@@ -141,9 +141,9 @@ class TestCrossPipelineInjectionIsBlocked:
         assert "domain-analyst" not in ppt_allowed
 
     def test_user_stories_pipeline_rejects_ppt_agent(self) -> None:
-        """And the inverse — ``od-ppt-composer`` not allowed in user_stories."""
+        """And the inverse — ``ppt-composer`` not allowed in user_stories."""
         us_allowed = allowed_custom_agent_ids("user_stories")
-        assert "od-ppt-composer" not in us_allowed
+        assert "ppt-composer" not in us_allowed
 
     def test_prototype_pipeline_rejects_app_builder_agent(self) -> None:
         """Cross-product: ``app-code-generator`` is an App Builder agent."""
@@ -195,7 +195,6 @@ class TestRevisionPipelinesAreTight:
             "user_stories_revision",
             "prototype_revision",
             "app_builder_revision",
-            "od_ppt_revision",
         ],
     )
     def test_revision_pipeline_allows_only_its_own_agents(
@@ -233,23 +232,31 @@ class TestRevisionPipelinesAreTight:
 # ---------------------------------------------------------------------------
 
 
-class TestCustomPipelineIsUtilityPoolOnly:
-    """A ``custom`` run is assembled from the agent library by the user. Its
-    allow-list is exactly the real custom-utility pool — no base-pipeline agents.
+class TestCustomPipelineComposesAcrossPipelines:
+    """A ``custom`` run is assembled from the agent library by the user, and may
+    draw agents from ANY pipeline — that is the custom workflow builder's whole
+    purpose (spec 012): compose a runtime workflow mixing, say, a ppt agent with
+    a prototype agent.
 
-    (This is one of the four cases that was RED against the legacy helper, which
-    returned the union of ALL agents for ``custom``. The real helper tightens it
-    to the ``custom`` pipeline — this test now PASSES, locking in the fix.)
+    This class previously asserted the opposite (``custom`` == the utility pool
+    only). That tight reading is deliberately NOT the policy: it would break
+    cross-pipeline composition, which is a product requirement, not an accident.
+
+    The entitlement argument for why this is safe lives in
+    ``agents/registry.py::allowed_custom_agent_ids`` and is pinned by
+    ``tests/agents/test_registry_helpers.py::test_custom_is_the_union_of_base_pipelines``:
+    ``custom`` is enterprise-only, and enterprise already holds every pipeline
+    exposed here, so nothing becomes reachable that was not reachable directly.
+    The BASE-pipeline branch is where the tight guard matters, and
+    ``TestCrossPipelineInjectionIsBlocked`` above still enforces it.
     """
 
-    def test_custom_allows_full_custom_utility_pool(self) -> None:
-        assert allowed_custom_agent_ids("custom") == _CUSTOM_POOL
+    def test_custom_includes_the_full_custom_utility_pool(self) -> None:
+        assert _CUSTOM_POOL <= allowed_custom_agent_ids("custom")
 
-    def test_custom_rejects_base_pipeline_agents(self) -> None:
-        """A user composing a ``custom`` workflow cannot reach for base pipeline
-        agents like ``od-ppt-composer`` — those run only inside their own
-        pipeline.
-        """
+    def test_custom_allows_base_pipeline_agents(self) -> None:
+        """A user composing a ``custom`` workflow CAN reach base-pipeline agents
+        like ``ppt-composer`` — cross-pipeline composition is the feature."""
         custom_allowed = allowed_custom_agent_ids("custom")
         base_own = (
             set(PIPELINE_AGENTS["ppt"])
@@ -257,8 +264,25 @@ class TestCustomPipelineIsUtilityPoolOnly:
             | set(PIPELINE_AGENTS["prototype"])
             | set(PIPELINE_AGENTS["app_builder"])
         )
-        leaked = base_own & custom_allowed
-        assert not leaked, f"Base pipeline agents leaked into custom allow-list: {leaked}"
+        missing = base_own - custom_allowed
+        assert not missing, (
+            f"base-pipeline agents are NOT composable into a custom workflow: "
+            f"{sorted(missing)} — cross-pipeline composition is a product requirement"
+        )
+
+    def test_custom_still_excludes_revision_and_internal_agents(self) -> None:
+        """Open does not mean unbounded. Revision pipelines assume a fixed agent
+        shape, and ``chat`` is driven by a different runtime entirely — neither
+        is composable, and both must stay out."""
+        custom_allowed = allowed_custom_agent_ids("custom")
+        for pt, ids in PIPELINE_AGENTS.items():
+            if not pt.endswith("_revision"):
+                continue
+            exclusive = set(ids) - _CUSTOM_POOL
+            for base in ("ppt", "user_stories", "prototype", "app_builder"):
+                exclusive -= set(PIPELINE_AGENTS[base])
+            leaked = exclusive & custom_allowed
+            assert not leaked, f"revision-only agents leaked into custom: {sorted(leaked)}"
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +345,6 @@ class TestSupportedPipelineTypes:
         for rev in (
             "user_stories_revision", "ppt_revision",
             "prototype_revision", "app_builder_revision",
-            "od_ppt_revision",
         ):
             assert rev in SUPPORTED_PIPELINE_TYPES
 
@@ -429,7 +452,7 @@ class TestHandlerRejectionLogic:
         utility injection. ``market-research-agent`` and ``swot-analyst`` are
         valid for PPT (custom pool), as is a real base-PPT agent.
         """
-        agent_ids = ["market-research-agent", "swot-analyst", "od-ppt-composer"]
+        agent_ids = ["market-research-agent", "swot-analyst", "ppt-composer"]
         allowed = allowed_custom_agent_ids("ppt")
         rejected = [aid for aid in agent_ids if aid not in allowed]
         assert rejected == [], f"Unexpected rejections: {rejected}"
@@ -440,7 +463,7 @@ class TestHandlerRejectionLogic:
         test for the audit ticket.
         """
         agent_ids = [
-            "od-ppt-brief-analyst",  # legit (real PPT agent)
+            "ppt-brief-analyst",  # legit (real PPT agent)
             "domain-analyst",        # user_stories — REJECT
             "repo-scanner",          # nonexistent / reverse_engineer — REJECT
         ]
@@ -453,13 +476,13 @@ class TestHandlerRejectionLogic:
         custom-utility or base-PPT agent through a revision run is rejected.
         """
         agent_ids = [
-            "ppt-revision-agent",     # legit
+            "ppt-revision-agent",  # legit (ppt_revision's sole agent)
             "market-research-agent",  # custom utility — REJECT on revision
-            "od-ppt-composer",        # base PPT — REJECT on revision
+            "ppt-composer",        # base PPT — REJECT on revision
         ]
         allowed = allowed_custom_agent_ids("ppt_revision")
         rejected = [aid for aid in agent_ids if aid not in allowed]
-        assert rejected == ["market-research-agent", "od-ppt-composer"]
+        assert rejected == ["market-research-agent", "ppt-composer"]
 
     def test_od_prototype_alias_resolves_and_accepts_real_prototype_ids(self) -> None:
         """The WS handler resolves ``od_prototype`` → ``prototype`` before the

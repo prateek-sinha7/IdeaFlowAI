@@ -138,6 +138,15 @@ class AnalyticsSummary(BaseModel):
     pipelines: list[PipelineRollup] = Field(default_factory=list)
     models: list[ModelRollup] = Field(default_factory=list)
     spend: float = 0.0
+    #: ISS-034 — the same window priced as-if prompt caching had been OFF. The SIGNED
+    #: difference ``spend_full - spend`` is what caching actually did: POSITIVE means it
+    #: saved money, NEGATIVE means it cost more (a run that writes cache entries it never
+    #: re-reads pays the 1.25x cache_write premium for nothing).
+    spend_full: float = 0.0
+    #: How many runs in the window actually carry the counterfactual. Runs persisted
+    #: before ISS-034 landed do not, and contribute a ZERO delta rather than a fabricated
+    #: baseline — so the FE must state the coverage instead of implying the whole window.
+    metered_runs: int = 0
     token_totals: TokenTotals
     type_avg_duration_sec: dict[str, float] = Field(default_factory=dict)
 
@@ -153,6 +162,8 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
     failed = sum(1 for r in runs if r.status == "failed")
 
     spend = 0.0
+    spend_full = 0.0
+    metered_runs = 0
     tok_in = tok_out = tok_cache_read = tok_cache_write = tok_total = 0
 
     daily: dict[str, dict] = defaultdict(
@@ -178,8 +189,17 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
         r_cache_read = int(_num(usage.get("total_cache_read_tokens")))
         r_cache_write = int(_num(usage.get("total_cache_write_tokens")))
         r_cost = _num(usage.get("estimated_cost_usd"))
+        # ISS-034 — an UNMEASURED run contributes NOTHING to the delta, never a
+        # fabricated $0 baseline. ``_num`` coerces an absent key to 0.0, so summing
+        # it raw would price every pre-ISS-034 row as if an uncached run were free
+        # and render "caching cost you <the entire window> more (-100%)". Falling
+        # back to r_cost makes a legacy row's delta exactly zero.
+        r_cost_full = _num(usage.get("estimated_cost_full_usd")) or r_cost
+        if "estimated_cost_full_usd" in usage:
+            metered_runs += 1
 
         spend += r_cost
+        spend_full += r_cost_full
         tok_in += r_in
         tok_out += r_out
         tok_cache_read += r_cache_read
@@ -242,6 +262,8 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
         pipelines=pipelines,
         models=model_rollups,
         spend=spend,
+        spend_full=spend_full,
+        metered_runs=metered_runs,
         token_totals=TokenTotals(
             input=tok_in,
             output=tok_out,

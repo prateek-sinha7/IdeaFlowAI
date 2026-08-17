@@ -3,6 +3,7 @@ consumes:
 - mulesoft-inventory
 context_from:
 - $previous
+description: Turns the inventory into epics, user stories, and Gherkin acceptance criteria for the migrated capabilities.
 estimated_duration: 9.0
 guardrails:
 - mulesoft

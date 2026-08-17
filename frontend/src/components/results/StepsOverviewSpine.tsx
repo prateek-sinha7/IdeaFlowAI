@@ -12,6 +12,7 @@
 // reskinned off the Phase-32 tokens (no gray-* palette).
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { useEffect, useState } from "react";
 import { Check, ChevronRight, XCircle, ListChecks, RotateCw, ShieldAlert, RefreshCw } from "lucide-react";
 import type { AgentRunState, ClarifyRound, PipelineRunState } from "@/types/index";
 import type { GateEventRow } from "@/lib/api";
@@ -22,6 +23,134 @@ import type { ClarifyQuestion } from "@/types/index";
 import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 import { ClarificationsCard } from "./ClarificationsCard";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
+
+// Live per-row activity word (RUNUI-xx) — derived from the SAME toolCalls/
+// thinkingText the Thinking tab already reads, no new event/store plumbing.
+// A quoted live snippet of the actual thinking text was tried first and
+// dropped — variable-length content swapping in/out read as jitter no matter
+// how it was boxed. A short, FIXED vocabulary of verbs (each shimmering,
+// bold) is stable by construction: the words never change length or content,
+// only which one is showing.
+// Capped vocabulary — Thinking / Reading / Writing / Calling tools only.
+function describeToolCall(tool: string): string {
+  if (tool === "write_file" || tool === "edit_file") return "Writing…";
+  if (tool === "read_file") return "Reading…";
+  return "Calling tools…";
+}
+
+// thinkingText ACCUMULATES and never clears — once an agent has thought at
+// all, "is there thinking text?" is true for the rest of the run, so it was
+// masking tool calls that often start+finish inside one polling tick. A tool
+// call's own `timestamp` (set when it's issued) is used to hold its verb on
+// screen for a short window after it lands, so a fast write_file/read_file
+// is actually visible instead of instantly buried under "Thinking…".
+const TOOL_RESULT_HOLD_MS = 1800;
+
+/** The in-flight task for the agent running a build loop, when there is one.
+ *  `task_loop_progress` (task_loop.py:319-329) carries `task_number`,
+ *  `total_tasks` and `agent_id`; the agent id is what lets this line belong to
+ *  ONE row rather than every row. Sub-agent GROUPS (parallel_group / fanout)
+ *  do not emit this event — they emit subagent_spawned/subagent_result, which
+ *  carry no parent id and so cannot be attributed here. */
+function taskProgressLine(
+  agent: AgentRunState,
+  pipeline?: { protoCurrentTask?: number; protoTotalTasks?: number; protoTaskAgentId?: string },
+): string | null {
+  if (!pipeline?.protoTaskAgentId || pipeline.protoTaskAgentId !== agent.id) return null;
+  const current = pipeline.protoCurrentTask ?? 0;
+  const total = pipeline.protoTotalTasks ?? 0;
+  if (current <= 0) return null;
+  return total > 0 ? `Executing task ${current} of ${total}…` : `Executing task ${current}…`;
+}
+
+// Exported for unit test only — the component-level path needs @testing-library,
+// and this is a pure function of (agent, now, pipeline).
+export function liveActivityLine(
+  agent: AgentRunState,
+  nowMs: number,
+  pipeline?: { protoCurrentTask?: number; protoTotalTasks?: number; protoTaskAgentId?: string },
+): string | null {
+  const calls = agent.toolCalls ?? [];
+  const last = calls.length > 0 ? calls[calls.length - 1] : null;
+
+  // Highest priority: naming the task in flight beats any generic verb. A build
+  // loop makes constant tool calls, so a tool verb would otherwise mask it.
+  const taskLine = taskProgressLine(agent, pipeline);
+  if (taskLine) return taskLine;
+
+  if (last && last.result === null) return describeToolCall(last.tool);
+
+  if (last) {
+    const sinceCall = nowMs - Date.parse(last.timestamp || "");
+    if (Number.isFinite(sinceCall) && sinceCall >= 0 && sinceCall < TOOL_RESULT_HOLD_MS) {
+      return describeToolCall(last.tool);
+    }
+  }
+
+  // `output` is checked ALONGSIDE `thinkingText`, not instead of it. The engine
+  // emits `agent_thinking` only for extended-thinking providers
+  // (execution_engine/engine.py:4076-4082), so for most models `thinkingText`
+  // stays empty for the whole run while `agent_chunk` fills `output`. Keying the
+  // line on `thinkingText` alone meant any agent that streamed ordinary output
+  // and called no tools fell through to "Starting…" and stayed there while its
+  // text was visibly arriving on screen. AgentDetailPanel.tsx:971-978 documents
+  // the same finding and applies the same output fallback.
+  // A reasoning stream and an output stream are DIFFERENT states and must not
+  // share a verb. `thinkingText` is the model reasoning before it answers;
+  // `output` is the answer itself already streaming to screen. Collapsing both
+  // into "Thinking…" told the user the agent was still deliberating while its
+  // text was visibly landing.
+  // OUTPUT IS CHECKED FIRST, and the order is load-bearing. Both fields
+  // accumulate and neither ever clears (see the thinkingText note above), so
+  // priority here is really "which state did the agent reach LAST". An agent
+  // reasons and then answers, so any output at all means reasoning is over.
+  // Checking thinkingText first would pin an extended-thinking model on
+  // "Thinking…" for its whole run while its answer streamed underneath — the
+  // same wrong-state bug this line already had for non-thinking models.
+  if ((agent.output ?? "").trim()) return "Writing…";
+  if ((agent.thinkingText ?? "").trim()) return "Thinking…";
+  if (last) return describeToolCall(last.tool);
+
+  return "Starting…";
+}
+
+// Forces a re-render once a second (no displayed value) so liveActivityLine's
+// tool-call hold window actually expires even if no other event happens to
+// arrive in between — without this, Date.now() would only be re-read whenever
+// the agent prop itself changed.
+function useTick(intervalMs: number): void {
+  const [, forceRender] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => forceRender((n) => n + 1), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+}
+
+function AgentActivityLine({
+  agent,
+  pipelineState,
+}: {
+  agent: AgentRunState;
+  pipelineState?: PipelineRunState;
+}) {
+  useTick(1000);
+  const line = liveActivityLine(agent, Date.now(), pipelineState);
+  if (!line) return null;
+
+  return (
+    <span className="flex items-center gap-1.5 text-[12.5px] font-[Manrope]">
+      {line === "Starting…" ? (
+        <span className="text-ink-400">{line}</span>
+      ) : (
+        // leading-none clipped the glyph's ascenders/descenders at some zoom
+        // levels (background-clip: text is sensitive to a too-tight line box)
+        // — a normal line-height gives it room; items-center on the parent
+        // still keeps it vertically centered against the name.
+        <span key={line} className="slide-in-right shimmer-text py-0.5 leading-normal font-bold">{line}</span>
+      )}
+    </span>
+  );
+}
 
 export interface StepsOverviewSpineProps {
   agents: AgentRunState[];
@@ -59,7 +188,7 @@ export interface StepsOverviewSpineProps {
 // The "Awaiting you" card chrome from the mock (brand-tinted, focus-ring shadow).
 function AwaitingCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-3 ml-2 rounded-[12px] border border-line-border bg-[#FCFAF3] overflow-hidden shadow-[0_0_0_3px_rgba(60,44,218,0.06)]">
+    <div className="mb-3 ml-2 rounded-[12px] border border-line-border bg-surface-card overflow-hidden shadow-[0_0_0_3px_rgba(60,44,218,0.06)]">
       {children}
     </div>
   );
@@ -98,6 +227,8 @@ function GateAwaitingCard({
           redoable={laneGate.redoable}
           updateSpecsEligible={laneGate.updateSpecsEligible}
           artifactKind={laneGate.artifactKind}
+          revisionCycle={laneGate.revisionCycle}
+          revisionInFlight={laneGate.revisionInFlight}
           isPipelineRunning={isRunning}
           approveLabel={laneGate.approveLabel}
           onApprove={onApprove}
@@ -328,7 +459,7 @@ export function StepsOverviewSpine({
               onClick={() => navigable && onOpenAgent(agent.id)}
               disabled={!navigable}
               className={`w-full flex items-center gap-2.5 rounded-[11px] border px-3 py-2.5 mb-1.5 text-left transition-colors ${
-                isRun ? "bg-[#F4F2FB] border-[#DED9F7]" : "border-transparent"
+                isRun ? "bg-brand-violet-tint border-brand-border" : "border-transparent"
               } ${
                 navigable ? "hover:bg-surface-warm cursor-pointer" : "cursor-default"
               }`}
@@ -342,7 +473,15 @@ export function StepsOverviewSpine({
               ) : (
                 <span className="w-[18px] h-[18px] flex-none rounded-full border-[1.5px] border-line-faint bg-surface-white" />
               )}
-              <span className={`text-[13px] font-medium font-[Manrope] ${isIdle ? "text-ink-300" : "text-ink-900"}`}>{agent.name}</span>
+              <span className="min-w-0 flex items-center leading-none gap-1.5">
+                <span className={`leading-none text-[13px] font-medium font-[Manrope] ${isIdle ? "text-ink-300" : "text-ink-900"}`}>{agent.name}</span>
+                {isRun && (
+                  <>
+                    <span className="leading-none text-ink-300">·</span>
+                    <AgentActivityLine agent={agent} pipelineState={pipelineState} />
+                  </>
+                )}
+              </span>
               {isIdle && failed && <span className="text-[9px] text-status-amber bg-status-amber-fill border border-status-amber-border px-1.5 py-0.5 rounded">Not run</span>}
               <span className="flex-1" />
               {rowMeta && <span className="text-[11.5px] text-ink-300 font-mono">{rowMeta}</span>}

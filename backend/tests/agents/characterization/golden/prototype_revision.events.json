@@ -36,6 +36,16 @@
   {
     "data": {
       "agent_id": "prototype-revision-agent",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-agent",
       "chunk": "<normalized>"
     },
     "type": "agent_chunk"
@@ -87,6 +97,16 @@
       "tool": "write_file"
     },
     "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-validate",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
   },
   {
     "data": {
@@ -153,38 +173,5 @@
       "unresolved_edges": []
     },
     "type": "workflow_validated"
-  },
-  {
-    "data": {
-      "execution_gate": "PROCEED",
-      "planning_context": {
-        "domain_insights": [],
-        "execution_gate": "PROCEED",
-        "execution_strategy": "sequential",
-        "explicit_constraints": [],
-        "has_topic": true,
-        "implicit_constraints": [],
-        "inferred_intent": "Build me a thing for managing tasks.",
-        "inferred_nfrs": [],
-        "inferred_personas": [],
-        "missing_information": [],
-        "planner_timed_out": false,
-        "quality_targets": [],
-        "topic": null
-      }
-    },
-    "type": "planner_complete"
-  },
-  {
-    "data": {
-      "pipeline_type": "prototype_revision"
-    },
-    "type": "planner_start"
-  },
-  {
-    "data": {
-      "verdict": "PROCEED"
-    },
-    "type": "gate_status"
   }
 ]

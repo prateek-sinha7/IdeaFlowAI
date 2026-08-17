@@ -41,7 +41,7 @@
 import { useCallback, useRef, useState } from "react";
 import type React from "react";
 import type { PipelineRunState, WorkflowType, RunFamily } from "@/types/index";
-import { handlePipelineMessage } from "@/hooks/useWorkflow";
+import { deriveSpecRevisionCount, handlePipelineMessage } from "@/hooks/useWorkflow";
 
 // ─── Per-run state shape ───────────────────────────────────────────────────────
 
@@ -77,7 +77,10 @@ export interface PerRunState {
   // Run family for version timeline
   runFamily: RunFamily | null;
 
-  // Spec revision cycle counter (KAN-101)
+  // ISS-063 — which spec-revision cycle this run is in, derived from the pipeline
+  // head's entry in pipelineState.agentStartEventIds. Written in exactly one place
+  // (handleFrame); the arm/consume detector that used to compute this in page.tsx
+  // is deleted, not shadowed.
   specRevisionCount: number;
 
   // Terminal state (history reopen)
@@ -114,6 +117,10 @@ export interface ReviewGateData {
   redoable?: boolean;
   updateSpecsEligible?: boolean;
   artifactKind?: string;
+  // ISS-052: the per-FIRING revision discriminator. Held per-run so a gate re-opened
+  // after a spec-revision pass is still identifiable when the run is re-projected.
+  revisionCycle?: number;
+  revisionInFlight?: boolean;
 }
 
 export interface WaveGroup {
@@ -278,6 +285,14 @@ export function useRunStateStore(): RunStateStoreReturn {
     makeInitialRunState("__initial__")
   );
 
+  // FIX-224: track the last pipelineState reference that was projected so we can
+  // skip project() when the fakeSetState result is unchanged. Without this, the
+  // bail-out in project() never fires because handleFrame always spreads entry into
+  // a new outer object (`{ ...entry }`), making prev !== state at the outer level
+  // even when pipelineState itself didn't change. This caused setViewedState to fire
+  // on every SSE frame → rapid re-renders → flickering agent circles and L2 views.
+  const lastProjectedPipelineStateRef = useRef<object | null>(null);
+
   // ── Internal helpers ─────────────────────────────────────────────────────────
 
   const getOrCreate = useCallback((runId: string): PerRunState => {
@@ -411,9 +426,20 @@ export function useRunStateStore(): RunStateStoreReturn {
 
     handlePipelineMessage(flatMsg, fakeSetState as React.Dispatch<React.SetStateAction<PipelineRunState>>, agentStartTimes);
 
+    // ISS-063: the ONE writer of specRevisionCount. Derived from the restart history
+    // the reducer just accumulated, so the banner reports the same number live, after
+    // a reload, and after an SSE reconnect replays the log from zero.
+    entry.specRevisionCount = deriveSpecRevisionCount(entry.pipelineState);
+
     // Always project after any frame for the viewed run.
+    // FIX-224: skip project() when pipelineState reference is unchanged — the
+    // reducer returned prev unchanged (idempotent re-delivery). This stops the
+    // rapid re-renders that caused flickering agent circles and L2 agent views.
     if (runId === viewedRunIdRef.current) {
-      project({ ...entry });
+      if (entry.pipelineState !== lastProjectedPipelineStateRef.current) {
+        lastProjectedPipelineStateRef.current = entry.pipelineState;
+        project({ ...entry });
+      }
     }
   }, [getOrCreate, getAgentStartTimes, project]);
 
@@ -437,6 +463,15 @@ export function useRunStateStore(): RunStateStoreReturn {
     }
   }, [getOrCreate, project]);
 
+  // ISS-157: `syncPipelineStateOnly` was DELETED here. dev added it alongside FIX-220
+  // ("for future use") as a second, never-called mechanism for the same behaviour the
+  // rAF coalescing already handles — the dual implementation INV-12 forbids. Its own
+  // premise was also false: it justified skipping `project()` on the grounds that
+  // "the UI projection is already handled by handleFrame's project() on every SSE
+  // frame", but handleFrame returns early — before any projection — on both
+  // `waveIndex === undefined` and `!pipelineFrameTypes.includes(msg.type)`. Wiring it
+  // would have silently dropped UI updates for every frame type outside that set.
+
   const updateWaveGroups = useCallback((
     runId: string,
     reducer: (prev: WaveGroup[]) => WaveGroup[],
@@ -450,6 +485,9 @@ export function useRunStateStore(): RunStateStoreReturn {
 
   const switchViewTo = useCallback((runId: string) => {
     viewedRunIdRef.current = runId;
+    // FIX-224: reset the projection guard when switching views so the new run's
+    // pipelineState is always projected fresh (not gated on the old run's ref).
+    lastProjectedPipelineStateRef.current = null;
     const entry = getOrCreate(runId);
     project({ ...entry });
   }, [getOrCreate, project]);

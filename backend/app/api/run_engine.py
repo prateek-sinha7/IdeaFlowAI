@@ -500,6 +500,25 @@ def _register_resume_queue(pipeline_run_id: str) -> asyncio.Queue:
     return _get_or_create_queue(pipeline_run_id)
 
 
+def _resume_cancel_event(pipeline_run_id: str) -> asyncio.Event:
+    """Return THE per-run cooperative cancel Event — the one ``POST /cancel`` sets.
+
+    ISS-084: this is the app half of the engine's ``_resume_cancel_event`` hook (wired in
+    ``app/main.py``, the single wiring site — the kernel never imports ``app.api``). It is
+    also the ONLY place a resume-path Event is minted (INV-12), which is the whole point:
+    for three years' worth of resume drivers ``_register_resume_task`` minted an Event that
+    nothing downstream ever read, so ``cancel_run`` found it, set it, and answered
+    ``cancelled: true`` while the run carried on billing. Get-or-create, so the engine
+    resolving it later gets the SAME object the endpoint already holds — and so a
+    double-register can never reset an Event a Stop has already set.
+    """
+    event = _CANCEL_EVENTS.get(pipeline_run_id)
+    if event is None:
+        event = asyncio.Event()
+        _CANCEL_EVENTS[pipeline_run_id] = event
+    return event
+
+
 def _register_resume_task(pipeline_run_id: str, task: asyncio.Task) -> None:
     """Record an auto-resumed run's driver task in _PIPELINE_TASKS.
 
@@ -507,18 +526,18 @@ def _register_resume_task(pipeline_run_id: str, task: asyncio.Task) -> None:
     _has_live_task true; a finished one naturally falls back to the durable
     replay + status branch.
 
-    KAN-88: also register a cancel_event so cancel_pipeline can cooperatively
-    stop a resumed run via the cooperative path instead of falling through to
-    the destructive task.cancel() fallback (which leaves the run in a bad state).
+    KAN-88: also arm the run's cooperative cancel_event so a Stop takes the cooperative
+    path (clean ``pipeline_cancelled`` terminal) rather than a destructive task kill.
+    ISS-084 corrected KAN-88's premise — the engine did NOT read this Event until
+    ``_resume_cancel_event`` was wired onto it in ``app/main.py``.
     """
     _PIPELINE_TASKS[pipeline_run_id] = task
-    # Register a cooperative cancel event for the resumed task so the Stop
-    # button works correctly. The engine's resume_run checks this event in
-    # its per-chunk / pre-agent cancel checks (the same mechanism as a
-    # normally-started pipeline run). Only register if no event already exists
-    # (idempotent — a double-register must not reset a set() event).
-    if pipeline_run_id not in _CANCEL_EVENTS:
-        _CANCEL_EVENTS[pipeline_run_id] = asyncio.Event()
+    # Arm the run's cooperative cancel Event BEFORE its driver starts, so a Stop that
+    # arrives during the drive's DB round-trips is not lost. Registration alone is not a
+    # stop mechanism — ISS-084 — it only works because the engine resolves THIS object
+    # through the injected ``_resume_cancel_event`` hook and threads it into every
+    # cooperative boundary.
+    _resume_cancel_event(pipeline_run_id)
 
 
 def _validate_model_overrides(
@@ -776,6 +795,60 @@ def _review_gate_run_is_terminal(gate_key: str) -> bool:
     if row is None:
         return False
     return row.status in ("cancelled", "failed", "degraded")
+
+
+def _review_gate_advertises_update_specs(gate_key: str) -> bool:
+    """True unless the gate named by ``gate_key`` PUBLISHED ``update_specs_eligible:
+    False`` on its most recent ``review_gate_ready``.
+
+    ISS-053 layer 1. The engine already decides eligibility once, in
+    ``ExecutionEngine._update_specs_eligible``, and stamps that verdict onto the durable
+    ``review_gate_ready`` payload. This reads the verdict back so an ingress can answer a
+    caller with a 409 instead of a silently-ignored 200. It does NOT restate the rule —
+    there is exactly one rule and this is not it (INV-3 / INV-12).
+
+    Returns False ONLY on an explicit published ``False`` for exactly this ``gate_key``.
+    Every other shape ABSTAINS (returns True):
+
+      * no ``review_gate_ready`` row — event persistence is best-effort
+        (``_RunEventSink.persist`` degrades a DB failure to a warning), so a missing row
+        means "unknown", never "ineligible";
+      * the latest ready is for a DIFFERENT gate_key — not the gate being resolved;
+      * the payload has no ``update_specs_eligible`` key — a pre-KAN-101 row.
+
+    Abstaining is safe, and it is deliberate: a fabricated denial would 409 a LEGITIMATE
+    revision whenever a persist degraded. It is only safe because the engine-side fence in
+    ``_run_review_gate`` re-checks the same verdict from memory and never abstains — this
+    layer is caller feedback, that layer is the guarantee.
+
+    NOT owner-scoped, mirroring ``_review_gate_run_is_terminal``: every caller has already
+    passed the ownership boundary, and filtering on ``run_events.owner_id`` here would risk
+    a FALSE 409 (which blocks legitimate work) the moment that column diverged from
+    ``WorkflowRun.user_id``.
+    """
+    from app.models.run_event import RunEvent
+
+    run_id = (gate_key or "").split(":", 1)[0]
+    if not run_id:
+        return True
+    db = _get_db()
+    try:
+        row = (
+            db.query(RunEvent.payload_json)
+            .filter(RunEvent.run_id == run_id, RunEvent.type == "review_gate_ready")
+            .order_by(RunEvent.seq.desc())
+            .first()
+        )
+    finally:
+        db.close()
+    if row is None:
+        return True
+    payload = row.payload_json if isinstance(row.payload_json, dict) else {}
+    if payload.get("gate_key") != gate_key:
+        return True
+    if "update_specs_eligible" not in payload:
+        return True
+    return bool(payload["update_specs_eligible"])
 
 
 def _authenticate_token(token: str, db: Session) -> User | None:

@@ -281,12 +281,13 @@ def _od_context() -> dict:
 
 @pytest.mark.asyncio
 async def test_text_only_agent_streams_pure_text_no_tools(tmp_path, monkeypatch) -> None:
-    """text-only class (``tools == []`` → ``exclude_builtin_tools=True``).
+    """text-only class (``tools == []`` → spec 012 / R-22, D-07: universal fs grant,
+    ``exclude_builtin_tools=False``).
 
     Key assertions: ``astream_events`` yields ONLY ``chunk`` events (+ a terminal
-    ``done``, plus benign ``usage``) and ZERO ``tool_call`` events — a pure-text stream
-    with no tool chips; AND the model was offered ZERO tools (recording bind_tools →
-    empty). Uses ``domain-analyst`` (``tools: []``).
+    ``done``, plus benign ``usage``) and ZERO ``tool_call`` events — the scripted
+    model streams pure text and never calls a tool, even though the native fs
+    tools are now offered. Uses ``domain-analyst`` (``tools: []``).
     """
     monkeypatch.setattr("app.core.config.settings.RUNS_ROOT", str(tmp_path))
 
@@ -311,8 +312,59 @@ async def test_text_only_agent_streams_pure_text_no_tools(tmp_path, monkeypatch)
     assert _events_of(events, "error") == []
     # The ONLY non-chunk/usage/done event types are forbidden — assert the type set.
     assert set(_types(events)) <= {"chunk", "usage", "done"}
-    # The model saw ZERO tools (exclude_builtin_tools=True hid the whole built-in suite).
-    assert fake.recorded_tool_names == set()
+    # spec 012 / R-22: the model now sees the native fs tools (universal grant) —
+    # it simply never calls one, so the event stream stays pure-text above.
+    assert {"read_file", "write_file", "edit_file"} <= fake.recorded_tool_names
+    assert "task" not in fake.recorded_tool_names
+
+
+@pytest.mark.asyncio
+async def test_text_only_agent_write_file_survives_into_deliverable(tmp_path, monkeypatch) -> None:
+    """AC-12 (spec 012 / R-22, D-07): a PREVIOUSLY text-only agent (``domain-analyst``,
+    ``tools: []``, no skills attached — the plain no-grant case) can now call the
+    native ``write_file`` tool, and the written file survives on the sandbox disk
+    into ``serialize_sandbox_deliverable``'s output — the D-02 failure mode this
+    universal grant closes for the no-skills case too.
+    """
+    monkeypatch.setattr("app.core.config.settings.RUNS_ROOT", str(tmp_path))
+
+    fake = _ScriptedFakeChatModel(
+        [
+            _ScriptedTurn(
+                texts=[""],
+                tool_calls=[
+                    (
+                        _WRITE_FILE_TOOL,
+                        json.dumps({"file_path": "/answer.md", "content": "Fintech is large."}),
+                        "call_wf_1",
+                    )
+                ],
+                usage=(9, 6),
+            ),
+            _ScriptedTurn(texts=["done."], usage=(2, 0)),
+        ]
+    )
+    ctx = AgentContext(
+        user_request="analyze fintech", model=fake, user_id="u-text-write", run_id="run-text-write"
+    )
+    runner = create_runner("domain-analyst", ctx)
+
+    events = await _collect_events(runner, "go")
+
+    assert _events_of(events, "error") == []
+    write_calls = [e for e in _events_of(events, "tool_call") if e["tool"] == _WRITE_FILE_TOOL]
+    assert len(write_calls) == 1
+
+    from app.agents.sandbox import serialize_sandbox_deliverable
+
+    sandbox_root = _sandbox_root_for(ctx)
+    written = sandbox_root / "answer.md"
+    assert written.is_file(), f"expected file at {written}; tree={list(sandbox_root.rglob('*'))}"
+    assert written.read_text(encoding="utf-8") == "Fintech is large."
+
+    deliverable = serialize_sandbox_deliverable(sandbox_root)
+    assert "answer.md" in deliverable
+    assert "Fintech is large." in deliverable
 
 
 # ===========================================================================
@@ -610,3 +662,305 @@ def test_tool_provider_binding_is_grant_driven() -> None:
         # write/exec tool. The only custom-tool key any set binds is the store-free
         # report_task_complete (prototype sets) or the planning set.
         assert "exec" not in keys and "shell" not in keys
+
+
+# ===========================================================================
+# Test 5b (spec 012 / R-25, T33) — the internet binding site: ctx.capabilities
+# gates whether _resolve_runner_tools unions in web_search/web_fetch.
+# ===========================================================================
+
+
+def test_internet_capability_off_by_default_leaves_tools_absent() -> None:
+    """No ``ctx.capabilities`` at all (the default) → no web_search/web_fetch."""
+    from agents.factory import _resolve_runner_tools
+    from agents.loader import load_agent_spec
+
+    spec = load_agent_spec("domain-analyst")
+    ctx = AgentContext(user_request="x")
+    assert ctx.capabilities == {}
+
+    custom_tools, _ = _resolve_runner_tools(spec, ctx)
+    names = {getattr(t, "name", None) for t in custom_tools}
+    assert "web_search" not in names
+    assert "web_fetch" not in names
+
+
+def test_internet_capability_false_leaves_tools_absent() -> None:
+    """``capabilities: {internet: false}`` → no web_search/web_fetch (explicit off)."""
+    from agents.factory import _resolve_runner_tools
+    from agents.loader import load_agent_spec
+
+    spec = load_agent_spec("domain-analyst")
+    ctx = AgentContext(user_request="x", capabilities={"internet": False})
+
+    custom_tools, _ = _resolve_runner_tools(spec, ctx)
+    names = {getattr(t, "name", None) for t in custom_tools}
+    assert "web_search" not in names
+    assert "web_fetch" not in names
+
+
+def test_internet_capability_true_binds_both_stubs() -> None:
+    """``capabilities: {internet: true}`` → web_search AND web_fetch bind, for a
+    text-only agent (``domain-analyst``, ``tools: []``) as well as a tool-having one."""
+    from agents.factory import _resolve_runner_tools
+    from agents.loader import load_agent_spec
+
+    ctx = AgentContext(user_request="x", capabilities={"internet": True})
+
+    for agent_id in ("domain-analyst", "app-code-generator"):
+        spec = load_agent_spec(agent_id)
+        custom_tools, exclude_builtin = _resolve_runner_tools(spec, ctx)
+        names = {getattr(t, "name", None) for t in custom_tools}
+        assert {"web_search", "web_fetch"} <= names, f"{agent_id}: {names}"
+        assert exclude_builtin is False
+
+
+def test_internet_stub_tools_bound_return_the_stub_message() -> None:
+    """The bound tool objects are the real stubs — invoking them never raises and
+    returns the fixed not-available message (R-25)."""
+    from agents.factory import _resolve_runner_tools
+    from agents.loader import load_agent_spec
+
+    spec = load_agent_spec("domain-analyst")
+    ctx = AgentContext(user_request="x", capabilities={"internet": True})
+    custom_tools, _ = _resolve_runner_tools(spec, ctx)
+    by_name = {getattr(t, "name", None): t for t in custom_tools}
+
+    assert by_name["web_search"].invoke({"query": "anything"}) == (
+        "internet access is not yet available."
+    )
+    assert by_name["web_fetch"].invoke({"url": "https://example.com"}) == (
+        "internet access is not yet available."
+    )
+
+
+def test_internet_capability_off_prompt_is_byte_identical_to_no_capabilities_field() -> None:
+    """With the flag off (default vs. explicit False), the composed prompt for an
+    existing agent is unaffected — the capabilities field is inert until set."""
+    from agents.factory import _compose_system_prompt
+    from agents.loader import load_agent_spec
+
+    spec = load_agent_spec("epic-architect")
+    ctx_default = AgentContext(user_request="test request")
+    ctx_explicit_off = AgentContext(user_request="test request", capabilities={"internet": False})
+
+    prompt_default = _compose_system_prompt(spec, ctx_default)
+    prompt_off = _compose_system_prompt(spec, ctx_explicit_off)
+    assert prompt_default == prompt_off
+
+
+# ===========================================================================
+# Test 6 — skill staging (spec 011 / R-01, R-15, R-16): create_runner resolves
+# the sandbox FIRST, stages ``ctx.attached_skills`` via ``stage_skills``, sets
+# ``ctx.skills_delivery``, and forces ``exclude_builtin_tools=False`` (+ drops
+# the anti-fabrication ``_NO_TOOLS_PREAMBLE``) when anything was staged — an
+# agent must be able to CARRY OUT a skill, not merely read it, and a prompt
+# must never claim the agent has no tools while handing it ``write_file``
+# (C-01). No per-agent scoping exists: every agent in a run sees the SAME
+# staged set (R-01).
+# ===========================================================================
+
+
+def _skill_payload(skill_id: str = "test-skill", *, content: str = "Do the thing.") -> dict:
+    """A minimal user-attached-skill payload matching ``skills_catalog``'s shape
+    (``id``/``name``/``content`` — ``content`` is the frontmatter-stripped body,
+    per ``app/agents/skill_staging.py``'s module docstring)."""
+    return {"id": skill_id, "name": skill_id, "content": content}
+
+
+def test_no_skills_attached_builds_agent_without_skills_middleware(tmp_path, monkeypatch) -> None:
+    """No ``attached_skills`` → ``create_deep_agent`` is called with ``skills=None``.
+
+    The runner keeps no public reference to the compiled graph's middleware
+    stack (it lives inside deepagents' internal assembly), so the reliable,
+    stable-surface way to prove NO ``SkillsMiddleware`` was constructed is to
+    spy on ``app.agents.deep_agent_runner.create_deep_agent`` (the ONE call
+    site — see its docstring: "``None`` ... means no ``SkillsMiddleware`` is
+    constructed at all") and assert the ``skills`` kwarg it received. This is
+    a real call to the real library (not a mock) — the spy just observes the
+    kwargs before delegating to the original, so the graph is genuinely built
+    with ``skills=None``.
+    """
+    monkeypatch.setattr("app.core.config.settings.RUNS_ROOT", str(tmp_path))
+
+    from app.agents import deep_agent_runner as dar
+
+    captured: dict[str, Any] = {}
+    original_create_deep_agent = dar.create_deep_agent
+
+    def _spy(*args: Any, **kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return original_create_deep_agent(*args, **kwargs)
+
+    monkeypatch.setattr(dar, "create_deep_agent", _spy)
+
+    fake = _ScriptedFakeChatModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))])
+    ctx = AgentContext(
+        user_request="analyze fintech", model=fake, user_id="u-noskill", run_id="run-noskill"
+    )
+    create_runner("domain-analyst", ctx)
+
+    assert "skills" in captured
+    assert captured["skills"] is None
+
+
+def test_no_skills_attached_text_only_agent_has_no_preamble(tmp_path, monkeypatch) -> None:
+    """spec 012 / R-22, D-07: no skills + a text-only (``tools: []``) agent still
+    gets the universal fs grant, so ``_NO_TOOLS_PREAMBLE`` is ABSENT — the prompt
+    must never claim "no tools" while the agent holds ``write_file``."""
+    monkeypatch.setattr("app.core.config.settings.RUNS_ROOT", str(tmp_path))
+
+    from agents.factory import _NO_TOOLS_PREAMBLE
+
+    fake = _ScriptedFakeChatModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))])
+    ctx = AgentContext(
+        user_request="analyze fintech", model=fake, user_id="u-noskill2", run_id="run-noskill2"
+    )
+    runner = create_runner("domain-analyst", ctx)
+
+    assert _NO_TOOLS_PREAMBLE not in runner.system_prompt
+
+
+@pytest.mark.asyncio
+async def test_skills_attached_text_only_agent_drops_preamble_and_gets_fs_tools(
+    tmp_path, monkeypatch
+) -> None:
+    """Skills attached + the SAME text-only (``domain-analyst``) agent →
+    ``_NO_TOOLS_PREAMBLE`` is ABSENT, and the bound tool set includes
+    ``read_file``/``write_file``/``edit_file`` while ``task``/``execute`` are
+    excluded (C-01 — the agent must be able to CARRY OUT a skill, not merely
+    read it, and the prompt must never claim it has no tools while handing it
+    ``write_file``).
+    """
+    monkeypatch.setattr("app.core.config.settings.RUNS_ROOT", str(tmp_path))
+
+    from agents.factory import _NO_TOOLS_PREAMBLE
+
+    fake = _ScriptedFakeChatModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))])
+    ctx = AgentContext(
+        user_request="analyze fintech",
+        model=fake,
+        user_id="u-skill",
+        run_id="run-skill",
+        attached_skills=[_skill_payload()],
+    )
+    runner = create_runner("domain-analyst", ctx)
+
+    assert _NO_TOOLS_PREAMBLE not in runner.system_prompt
+
+    await _collect_events(runner, "go")
+
+    seen = fake.recorded_tool_names
+    assert {"read_file", "write_file", "edit_file"} <= seen
+    assert "task" not in seen
+    assert "execute" not in seen
+
+
+def test_skills_attached_stages_to_sandbox_disk(tmp_path, monkeypatch) -> None:
+    """Skills attached → ``ctx.skills_delivery.sources == ["/skills"]``,
+    ``.staged`` contains the attached skill id, and
+    ``<sandbox>/skills/<id>/SKILL.md`` exists on disk."""
+    monkeypatch.setattr("app.core.config.settings.RUNS_ROOT", str(tmp_path))
+
+    fake = _ScriptedFakeChatModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))])
+    ctx = AgentContext(
+        user_request="analyze fintech",
+        model=fake,
+        user_id="u-stage",
+        run_id="run-stage",
+        attached_skills=[_skill_payload("staged-skill")],
+    )
+    create_runner("domain-analyst", ctx)
+
+    delivery = ctx.skills_delivery
+    assert delivery is not None
+    assert delivery.sources == ["/skills"]
+    assert "staged-skill" in delivery.staged
+
+    sandbox_root = _sandbox_root_for(ctx)
+    skill_file = sandbox_root / "skills" / "staged-skill" / "SKILL.md"
+    assert skill_file.is_file()
+
+
+def test_create_runner_skill_staging_is_idempotent(tmp_path, monkeypatch) -> None:
+    """Calling ``create_runner`` TWICE for the same ctx/sandbox does not raise,
+    and the staged file is written ONCE — asserted on ``st_mtime_ns`` staying
+    unchanged across the two calls (not merely content equality)."""
+    monkeypatch.setattr("app.core.config.settings.RUNS_ROOT", str(tmp_path))
+
+    fake = _ScriptedFakeChatModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))])
+    ctx = AgentContext(
+        user_request="analyze fintech",
+        model=fake,
+        user_id="u-idem",
+        run_id="run-idem",
+        attached_skills=[_skill_payload("idem-skill")],
+    )
+
+    create_runner("domain-analyst", ctx)
+    sandbox_root = _sandbox_root_for(ctx)
+    skill_file = sandbox_root / "skills" / "idem-skill" / "SKILL.md"
+    assert skill_file.is_file()
+    first_mtime_ns = skill_file.stat().st_mtime_ns
+
+    # Second call — same ctx (skills_delivery gets overwritten but that's fine;
+    # the FILE ON DISK must not be rewritten since content is identical).
+    create_runner("domain-analyst", ctx)
+    second_mtime_ns = skill_file.stat().st_mtime_ns
+
+    assert second_mtime_ns == first_mtime_ns
+
+
+def test_all_agents_in_a_run_see_the_same_staged_skill_set(tmp_path, monkeypatch) -> None:
+    """Spec 011 R-01: no per-agent scoping exists. Building runners for THREE
+    different agent ids against the same run sandbox (same user_id/run_id)
+    yields the identical ``ctx.skills_delivery.sources`` for every one."""
+    monkeypatch.setattr("app.core.config.settings.RUNS_ROOT", str(tmp_path))
+
+    from agents.planner.tools import PLANNING_TOOLS  # noqa: F401 — sanity import only
+
+    agent_ids = ["domain-analyst", "app-code-generator", "deep-planner"]
+    sources_seen = []
+    for agent_id in agent_ids:
+        fake = _ScriptedFakeChatModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))])
+        ctx = AgentContext(
+            user_request="PIPELINE TYPE: spec_kit\nUSER BRIEF: build X",
+            model=fake,
+            user_id="u-shared",
+            run_id="run-shared",
+            attached_skills=[_skill_payload("shared-skill")],
+        )
+        create_runner(agent_id, ctx)
+        sources_seen.append(ctx.skills_delivery.sources)
+
+    assert all(sources == ["/skills"] for sources in sources_seen)
+    assert len(set(tuple(s) for s in sources_seen)) == 1
+
+
+def test_traversal_skill_id_is_rejected_and_never_written(tmp_path, monkeypatch) -> None:
+    """An attached skill whose ``id`` is ``"../escape"`` is rejected: it does
+    NOT appear in ``.staged``, it produces an entry in ``.errors``, and no
+    file is created outside ``<sandbox>/skills/``."""
+    monkeypatch.setattr("app.core.config.settings.RUNS_ROOT", str(tmp_path))
+
+    fake = _ScriptedFakeChatModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))])
+    ctx = AgentContext(
+        user_request="analyze fintech",
+        model=fake,
+        user_id="u-traversal",
+        run_id="run-traversal",
+        attached_skills=[_skill_payload("../escape", content="malicious")],
+    )
+    create_runner("domain-analyst", ctx)
+
+    delivery = ctx.skills_delivery
+    assert delivery is not None
+    assert "../escape" not in delivery.staged
+    assert delivery.staged == []
+    assert delivery.errors  # at least one entry
+    assert delivery.sources == []  # nothing staged ⇒ no sources advertised
+
+    # Nothing escaped the sandbox — no file with "escape" in its name exists
+    # anywhere under RUNS_ROOT (the sandbox root, or its parent/user dir).
+    escaped = list(tmp_path.rglob("*escape*"))
+    assert escaped == [], f"unexpected file(s) outside <sandbox>/skills/: {escaped}"

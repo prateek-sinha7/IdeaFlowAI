@@ -5,6 +5,7 @@ consumes:
 context_from:
 - material-analyzer
 - app-system-design
+description: STRIDE threat model, identity/IAM design, encryption, secrets, WAF, and security gates for the application.
 estimated_duration: 9.0
 guardrails: []
 icon: "\U0001F6E1️"

@@ -40,7 +40,9 @@ logger = logging.getLogger("agents.planner.smart_planner")
 # what's typically missing, what constraints to infer, what quality targets matter.
 
 DOMAIN_KB: dict[str, dict[str, Any]] = {
-    "od_ppt": {
+    # Content carried over verbatim from the retired "od_ppt" key — od_ppt's
+    # agent set now owns the "ppt" id directly (see agents/registry.py).
+    "ppt": {
         "description": "OpenDesign presentation pipeline — generates a complete HTML slide deck",
         "what_makes_good_brief": "A specific topic, target audience, purpose/objective, and content depth",
         "common_missing": ["target_audience", "tone_and_style", "key_objectives", "slide_count", "content_depth", "data_availability", "visual_style", "key_sections"],
@@ -48,15 +50,6 @@ DOMAIN_KB: dict[str, dict[str, Any]] = {
         "quality_targets": ["Clear narrative arc", "Consistent visual style", "Data-backed claims", "Actionable takeaways"],
         "typical_personas": ["Executive", "Business stakeholder", "Technical team", "Sales team"],
         "nfrs": ["Visual consistency", "Readability", "Slide flow", "Brand alignment"],
-    },
-    "ppt": {
-        "description": "Presentation pipeline — generates slide content",
-        "what_makes_good_brief": "A specific topic, target audience, purpose/objective, and content depth",
-        "common_missing": ["target_audience", "tone_and_style", "key_objectives", "slide_count", "content_depth", "data_availability", "visual_style", "key_sections"],
-        "topic_indicators": ["comparison", "analysis", "overview", "strategy", "results", "report", "pitch"],
-        "quality_targets": ["Clear narrative arc", "Consistent visual style", "Data-backed claims"],
-        "typical_personas": ["Executive", "Business stakeholder", "Technical team"],
-        "nfrs": ["Visual consistency", "Readability", "Slide flow"],
     },
     "user_stories": {
         "description": "User stories pipeline — generates product backlog with epics, stories, acceptance criteria",

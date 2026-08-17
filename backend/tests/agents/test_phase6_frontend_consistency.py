@@ -28,27 +28,25 @@ It also pins the absence of every retired/stale id anywhere in the file, and the
 ``PIPELINE_CATEGORIES`` counts for the reconciled categories. These guard the
 exact regressions Phase 6 closed.
 
-NOTE on the ``ppt`` mapping: the frontend keeps ``pipeline_type: "ppt"`` as the
-category key the selector filters on, while the real agents are the shared
-od-ppt-* specs that live in BOTH ``PIPELINE_AGENTS["ppt"]`` and
-``PIPELINE_AGENTS["od_ppt"]`` (identical membership — asserted below). The
-LOADABLE specs (with ``gate`` frontmatter) only resolve through the ``od_ppt``
-pipeline, though, because ``get_pipeline_agents`` discovers agents by their
-AGENT.md ``pipeline_type`` frontmatter and the od-ppt files declare ``od_ppt``
-(NOT ``ppt``). So we compare the frontend ``ppt`` block against the real
-``od_ppt`` loaded specs — which is exactly the comparison the Phase 6 plan
-(T6 #6) specifies ("for ppt assert ids == the real od_ppt ids").
+NOTE on the ``ppt`` mapping (POST-COLLAPSE): ``ppt``/``od_ppt`` used to be two
+distinct pipelines — a legacy PptxGenJS manifest under the ``ppt`` id and the
+real, actively-used HTML-deck agents declaring ``pipeline_type: od_ppt`` — with
+the frontend's static category key (``"ppt"``) only matching the LOADABLE specs
+via a separate ``od_ppt`` lookup. That dual-id situation has been collapsed: the
+real (former od_ppt) agent set now declares ``pipeline_type: ppt`` directly, the
+legacy PptxGenJS manifest/agents were archived, and ``od_ppt`` is no longer a
+key in ``PIPELINE_AGENTS`` at all. So the frontend ``ppt`` category is now
+compared directly against ``get_pipeline_agents("ppt")`` — no separate
+"loadable pipeline" indirection is needed anymore.
 
-DOCUMENTED FINDING (pinned by ``TestPptEndpointResolutionQuirk`` below):
-``get_pipeline_agents("ppt")`` returns ``[]`` (the frontmatter is ``od_ppt``),
-so ``GET /api/agents/pipelines/ppt`` serves an EMPTY agent list while
-``/pipelines/od_ppt`` serves the three agents. This is a *pre-existing*
-condition (``get_pipeline_agents`` + the od-ppt frontmatter both predate Phase 6;
-Phase 6 added only the flat-list/by-id/allow-list helpers, none of which are
-affected). It has no live-UI impact in this build — the frontend reads the
-static ``LIBRARY_AGENTS`` everywhere and never fetches ``/pipelines/{type}`` —
-but it matters for the noted Phase-7 "migrate to live fetch" follow-on, so it is
-asserted here as a known characteristic rather than left implicit.
+FORMER DOCUMENTED FINDING (now closed by the collapse): ``get_pipeline_agents
+("ppt")`` used to return ``[]`` while ``get_pipeline_agents("od_ppt")`` served
+the three real agents, because the AGENT.md frontmatter declared ``od_ppt`` (not
+``ppt``). Post-collapse, ``get_pipeline_agents("ppt")`` returns the three real
+agents directly and ``od_ppt`` is no longer resolvable at all — the quirk this
+docstring used to describe is gone by construction, so
+``TestPptEndpointResolutionQuirk`` below now pins the CLOSED state instead of
+the old pre-collapse characterization.
 """
 
 from __future__ import annotations
@@ -186,13 +184,12 @@ class TestParserSanity:
 # ---------------------------------------------------------------------------
 
 
-# Map the frontend CATEGORY key to the backend pipeline whose AGENT.md files
-# actually carry the loadable specs (with gate frontmatter). The frontend uses
-# "ppt" as the selector category, but the od-ppt AGENT.md files declare
-# pipeline_type: od_ppt, so the loadable specs resolve through "od_ppt".
+# Map the frontend CATEGORY key to the backend pipeline id that carries the
+# loadable specs (with gate frontmatter). Post-collapse, "ppt" is an ordinary,
+# non-aliased PIPELINE_AGENTS key — no separate lookup pipeline is needed.
 _CATEGORY_TO_LOADABLE_PIPELINE = {
     "prototype": "prototype",
-    "ppt": "od_ppt",
+    "ppt": "ppt",
 }
 
 
@@ -238,66 +235,77 @@ class TestPrototypeAndPptSpecifics:
         assert set(fe) == {
             "prototype-specify",
             "prototype-plan",
+            "prototype-analyze",
             "prototype-build",
             "prototype-validate",
         }
-        # specify + plan are the only Human_Gate agents; build + validate are None.
+        # specify + plan + analyze are Human_Gate agents; build + validate are None.
         assert fe["prototype-specify"] == "Human_Gate"
         assert fe["prototype-plan"] == "Human_Gate"
+        assert fe["prototype-analyze"] == "Human_Gate"
         assert fe["prototype-build"] is None
         assert fe["prototype-validate"] is None
 
     def test_ppt_real_od_ids(self, frontend_agents):
         fe_ids = {a["id"] for a in frontend_agents if a["pipeline_type"] == "ppt"}
         assert fe_ids == {
-            "od-ppt-brief-analyst",
-            "od-ppt-composer",
-            "od-ppt-validator",
+            "ppt-brief-analyst",
+            "ppt-composer",
+            "ppt-validator",
         }
 
-    def test_real_ppt_and_od_ppt_pipelines_have_identical_membership(self):
-        """The frontend folds od_ppt agents under the `ppt` category key; this
-        is only safe because the two real pipelines share membership."""
-        assert set(PIPELINE_AGENTS["ppt"]) == set(PIPELINE_AGENTS["od_ppt"])
+    def test_ppt_pipeline_is_the_real_agent_set(self):
+        """Post-collapse, ``PIPELINE_AGENTS["ppt"]`` IS the real (former
+        od_ppt) agent set directly — no separate od_ppt key exists to compare
+        against anymore."""
+        assert "od_ppt" not in PIPELINE_AGENTS, (
+            "od_ppt should no longer be a PIPELINE_AGENTS key post-collapse"
+        )
+        assert set(PIPELINE_AGENTS["ppt"]) == {
+            "ppt-brief-analyst",
+            "ppt-composer",
+            "ppt-validator",
+        }
 
 
 class TestPptEndpointResolutionQuirk:
-    """Pins the DOCUMENTED (pre-existing, non-Phase-6) finding that the
-    ``ppt`` *pipeline endpoint* resolves to an empty agent list because the
-    od-ppt AGENT.md files declare ``pipeline_type: od_ppt`` (not ``ppt``),
-    while the od-ppt category content is fully reachable via ``od_ppt`` and via
-    the flat list / allow-list. See the module docstring.
+    """Pins the CLOSED state of the former pre-collapse quirk: ``ppt`` used to
+    resolve to an empty agent list while the real agents lived under a
+    separate ``od_ppt`` pipeline id (because the AGENT.md files declared
+    ``pipeline_type: od_ppt``, not ``ppt``). The collapse fixed this at the
+    root — the AGENT.md frontmatter now declares ``pipeline_type: ppt``
+    directly, and ``od_ppt`` is no longer a resolvable pipeline id at all.
 
-    This is a characterization test: it documents current behavior so a future
-    change (e.g. the Phase-7 live-fetch migration, which would call
-    ``GET /api/agents/pipelines/ppt``) trips this and forces a conscious
-    decision rather than silently shipping an empty PPT agent list.
+    This is a characterization test: it documents current (fixed) behavior so
+    a regression that reintroduces the split (e.g. an AGENT.md accidentally
+    reverting to ``pipeline_type: od_ppt``) trips this immediately.
     """
 
-    def test_get_pipeline_agents_ppt_is_empty_but_od_ppt_is_not(self):
-        assert get_pipeline_agents("ppt") == [], (
-            "get_pipeline_agents('ppt') unexpectedly non-empty — the od-ppt "
-            "AGENT.md frontmatter may have been switched to pipeline_type: ppt; "
-            "if so, update this characterization test and the docstring."
+    def test_get_pipeline_agents_ppt_is_not_empty(self):
+        ppt_ids = [s.id for s in get_pipeline_agents("ppt")]
+        assert ppt_ids == [
+            "ppt-brief-analyst",
+            "ppt-composer",
+            "ppt-validator",
+        ], (
+            "get_pipeline_agents('ppt') did not return the real deck agents — "
+            "the od_ppt/ppt collapse may have regressed."
         )
-        od_ppt_ids = [s.id for s in get_pipeline_agents("od_ppt")]
-        assert od_ppt_ids == [
-            "od-ppt-brief-analyst",
-            "od-ppt-composer",
-            "od-ppt-validator",
-        ]
+        # od_ppt is retired entirely: it must not resolve to anything, real or
+        # empty — it should behave like any other unknown pipeline id.
+        assert get_pipeline_agents("od_ppt") == []
 
-    def test_od_ppt_category_content_reachable_via_other_helpers(self):
-        """Despite the empty ``ppt`` endpoint, the od-ppt agents ARE reachable
-        through the helpers Phase 6 added — so the reconciliation's data is
-        complete; only the (unused-by-the-UI) ppt pipeline endpoint is empty."""
+    def test_ppt_category_content_reachable_via_other_helpers(self):
+        """The ppt agents are reachable through every helper Phase 6 added,
+        directly under the "ppt" id — no od_ppt indirection required."""
         from agents.registry import allowed_custom_agent_ids, get_all_agents_flat
 
         flat_ids = {s.id for s in get_all_agents_flat()}
-        od_ppt = {"od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator"}
-        assert od_ppt <= flat_ids
-        assert od_ppt <= allowed_custom_agent_ids("ppt")
-        assert od_ppt <= allowed_custom_agent_ids("od_ppt")
+        ppt = {"ppt-brief-analyst", "ppt-composer", "ppt-validator"}
+        assert ppt <= flat_ids
+        assert ppt <= allowed_custom_agent_ids("ppt")
+        # od_ppt is retired: it must not resolve to any custom agent ids.
+        assert allowed_custom_agent_ids("od_ppt") == set()
 
 
 # ---------------------------------------------------------------------------
@@ -352,15 +360,17 @@ class TestPipelineCategoryCounts:
     def test_ppt_and_prototype_counts_reconciled(self):
         cats = self._categories()
         assert cats["ppt"] == 3, "ppt category count must be 3 (od_ppt agents)"
-        assert cats["prototype"] == 4, "prototype category count must be 4 (spec-kit)"
+        # prototype grew 4 -> 5: the prototype-analyze agent (a Spec Kit-style
+        # cross-artifact analysis step, Human_Gate) was added to the pipeline.
+        assert cats["prototype"] == 5, "prototype category count must be 5 (+ prototype-analyze)"
 
     def test_category_counts_match_real_registry(self):
         """For prototype + ppt, the declared category count equals the real
-        registry pipeline length — the counts can't silently drift. (ppt maps
-        to the loadable ``od_ppt`` pipeline per the module docstring.)"""
+        registry pipeline length — the counts can't silently drift. Post-
+        collapse, "ppt" resolves directly (no od_ppt indirection)."""
         cats = self._categories()
         assert cats["prototype"] == len(get_pipeline_agents("prototype"))
-        assert cats["ppt"] == len(get_pipeline_agents("od_ppt"))
+        assert cats["ppt"] == len(get_pipeline_agents("ppt"))
 
     def test_category_count_equals_library_agents_membership(self):
         """Each concrete category count equals the number of LIBRARY_AGENTS

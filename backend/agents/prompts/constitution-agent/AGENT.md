@@ -1,4 +1,5 @@
 ---
+description: Authors or updates the governing principles document — core development rules, tech constraints, and quality gates — for a project or team.
 id: constitution-agent
 name: Constitution Agent
 role: Governance Principles Author

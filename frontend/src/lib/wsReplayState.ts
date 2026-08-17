@@ -86,6 +86,37 @@ export function isForeignRunFrame(
 }
 
 /**
+ * The run an incoming frame belongs to — the ONE routing decision `handleWebSocketMessage`
+ * makes before it can hand the frame to that run's per-run store entry.
+ *
+ * Three sources, in priority order:
+ *   1. `_sourceRunId` — injected per SSE stream by `RunConnectionProvider`;
+ *   2. `data.pipeline_run_id` — carried only by the run-lifecycle frames;
+ *   3. `sourceRunId` — the transport's stamp, passed as an ARGUMENT.
+ *
+ * (3) is load-bearing and was missing until ISS-082, where the dashboard open-coded (1)+(2)
+ * in a local `const frameRunId` that SHADOWED its own `frameRunId` parameter. Neither key
+ * survives to the per-agent frames on EITHER path — a REST-replayed frame never had them,
+ * and the live subscription rebuilds the message as `{ type, data }` and passes the id
+ * separately — so every `agent_*` frame resolved to `undefined` and the per-run store was
+ * never given one. FIX-201 worked around that with a second, undeduped replay pass, which
+ * is what doubled the reducer's accumulating fields.
+ *
+ * Extracted here, with `shouldApplyEvent` and `isForeignRunFrame`, for the reason stated at
+ * the top of this file: the decision is testable, the closure it came from is not.
+ */
+export function resolveFrameRunId(
+  msg: { data?: unknown; [key: string]: unknown },
+  sourceRunId: string | undefined,
+): string | undefined {
+  const injected = (msg as Record<string, unknown>)._sourceRunId;
+  if (typeof injected === "string" && injected) return injected;
+  const fromData = (msg.data as Record<string, unknown> | undefined)?.pipeline_run_id;
+  if (typeof fromData === "string" && fromData) return fromData;
+  return sourceRunId;
+}
+
+/**
  * Frame types whose payload is keyed by `agent_id` and which MUTATE the viewed
  * run's per-agent live state (status / output / tokens / tool calls / task
  * progress) in `handlePipelineMessage`.
@@ -109,6 +140,7 @@ export const AGENT_SCOPED_FRAME_TYPES: ReadonlySet<string> = new Set([
   "agent_complete",
   "agent_error",
   "agent_input",
+  "agent_skills",
   "tool_call",
   "tool_result",
   "task_progress",

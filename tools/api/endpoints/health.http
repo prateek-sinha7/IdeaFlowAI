@@ -1,0 +1,14 @@
+### Health
+GET {{apiRoot}}/health
+Accept: application/json
+
+{{
+	const body = response.parsedBody;
+	if (response.statusCode !== 200) {
+		console.error('FAIL: expected 200, got', response.statusCode, body);
+	} else if (typeof body.status !== 'string' || typeof body.llm_provider !== 'string') {
+		console.error('FAIL: expected {status, llm_provider, langsmith} shape, got', body);
+	} else {
+		console.log('OK: status =', body.status, '| llm_provider =', body.llm_provider);
+	}
+}}

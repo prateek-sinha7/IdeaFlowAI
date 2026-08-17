@@ -370,3 +370,117 @@ async def test_cancel_before_merge_preserves_fragments_and_skips_merge():
     # Both workers' rows flipped complete (they finished); workspaces torn down.
     assert all(u["status"] == "complete" for u in runner.updated_rows)
     assert all(ws.torn_down for ws in runner.allocated)
+
+
+# ---------------------------------------------------------------------------
+# ISS-091 — the fan-out boundary must also honour RUN TERMINALITY, not just
+# the Stop button's cancel_event.
+#
+# A run driven terminal by a review-gate rejection sets NO cancel_event, so the
+# cancel_event check above cannot see it. Pre-fix, the waves after a rejection
+# still dispatched: every worker no-opped on _run_agent's terminal guard, yet
+# each was recorded subagent_runs='complete' and each wave 'completed' — and
+# wave_scheduler's resume skip trusts exactly those rows, so a rejected run
+# that was later resumed skipped every wave and produced nothing at all.
+#
+# The dispatch-loop fix (engine.py:2523) means no reported path reaches here.
+# This widens the SINGLE existing fan-out cancel boundary rather than adding a
+# second cancel notion inside a strategy (INV-12) — and it lives in fanout.py,
+# not wave_scheduler.py, because a capability may not import the execution
+# kernel (import-linter) and fanout_batch + the spawn_subagents tool funnel
+# through this same run_fanout, which wave_scheduler would not cover.
+# ---------------------------------------------------------------------------
+
+
+class _TerminalRunner(_CancelRunner):
+    """A ``ctx.runner`` whose RUN has already gone terminal, with no cancel_event.
+
+    This is the review-gate-rejection shape: ``KernelServices.is_run_terminal()``
+    reads the state machine, which the rejection transitioned to ``cancelled``,
+    while ``cancel_event`` (the app layer's Stop registry object) was never set.
+    """
+
+    def __init__(self, *, terminal: bool, **kw):
+        super().__init__(**kw)
+        self._terminal = terminal
+        self.terminal_checks = 0
+
+    def is_run_terminal(self) -> bool:
+        self.terminal_checks += 1
+        return self._terminal
+
+
+@pytest.mark.asyncio
+async def test_terminal_run_stops_the_fanout_without_any_cancel_event():
+    """ISS-091: a terminal run must not dispatch a wave, even with no cancel_event."""
+    runner = _TerminalRunner(terminal=True, known_agents={"worker-a"}, block=False)
+    ctx = _make_ctx(runner, cancel_event=None)  # the gate rejection sets NO event
+    step = _make_step("worker-a")
+    requests = [{"agent": "self", "input": f"t-{i}"} for i in range(3)]
+
+    with pytest.raises(asyncio.CancelledError):
+        async for _ev in run_fanout(requests, ctx, step=step):
+            pass
+
+    assert runner.terminal_checks > 0, "the fan-out boundary never consulted run terminality"
+    assert runner.entered == [], "a terminal run must spawn no workers"
+    assert runner.recorded_rows == [], (
+        "a terminal run must write no subagent_runs rows — those rows are what "
+        "wave_scheduler's resume skip later trusts"
+    )
+    assert runner.allocated == [], "a terminal run must allocate no workspaces"
+
+
+@pytest.mark.asyncio
+async def test_non_terminal_run_is_undisturbed_by_the_terminality_check():
+    """The added check must be inert for a healthy run — it only reads state."""
+    runner = _TerminalRunner(terminal=False, known_agents={"worker-a"}, block=False)
+    ctx = _make_ctx(runner, cancel_event=None)
+    step = _make_step("worker-a")
+    requests = [{"agent": "self", "input": f"t-{i}"} for i in range(2)]
+
+    events = [ev async for ev in run_fanout(requests, ctx, step=step)]
+
+    assert runner.terminal_checks > 0, "the boundary must consult terminality on the happy path too"
+    assert sorted(runner.entered) == [0, 1], f"both workers must run: {runner.entered}"
+    assert [e["type"] for e in events if e["type"] == "merge_completed"], (
+        f"a healthy fan-out must still reach its merge: {[e['type'] for e in events]}"
+    )
+
+
+def test_kernel_services_is_run_terminal_reads_the_real_state_machine():
+    """``KernelServices.is_run_terminal`` is the kernel-side predicate fanout reads.
+
+    Driven against the REAL StateMachine so the terminal-state set cannot drift
+    apart from the engine's own guard.
+    """
+    from agents.execution_engine.kernel_services import KernelServices
+    from agents.execution_engine.state_machine import StateMachine
+
+    machine = StateMachine()
+    run_id = "ks-terminal-probe"
+    services = KernelServices(
+        engine=SimpleNamespace(_state_machine=machine),
+        ectx=SimpleNamespace(od_context=None),
+        sandbox=SimpleNamespace(),
+        ordered_agents=[],
+        user_message="",
+        pipeline_run_id=run_id,
+        pipeline_type="sample_wave",
+        planning_context={},
+        attached_skills=None,
+        attached_hooks=None,
+        model_id=None,
+        results=[],
+        cancel_event=None,
+    )
+
+    assert services.is_run_terminal() is False, "an unknown run is not terminal"
+
+    machine.transition(run_id, "generating")
+    assert services.is_run_terminal() is False, "a running run is not terminal"
+
+    machine.transition(run_id, "cancelled")
+    assert services.is_run_terminal() is True, (
+        "a cancelled run — what a review-gate rejection produces — must read terminal"
+    )

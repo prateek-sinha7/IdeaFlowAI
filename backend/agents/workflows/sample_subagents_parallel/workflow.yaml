@@ -1,0 +1,153 @@
+# sample_subagents_parallel — three siblings under one parent, run CONCURRENTLY.
+#
+#   page              (parent — assembles the HTML)
+#   ├── apple         (sibling)
+#   ├── ball          (sibling)
+#   └── cat           (sibling)
+#
+# One subagents block, flat and deliberately NOT nested. That is the whole point:
+# the three siblings have no dependency on each other, so their wall clock is
+# either the SUM of the three (serial) or the MAX (concurrent). Nesting any of
+# them would impose an order and destroy the measurement.
+#
+# `mode: parallel` compiles the parent to the `parallel_group` strategy, which
+# hands the three children to the kernel `run_fanout` spawn path (asyncio.gather
+# over a semaphore bounded by max_parallel, clamped to 4 by the kernel). The
+# children are marked `dispatched_by` at compile time so the engine's serial
+# dispatch loop skips them — otherwise each would run twice.
+#
+# The three subjects are FIXED (apple / ball / cat) rather than taken from the
+# run message, so every run is comparable to the last: same three tasks, same
+# size, and any change in wall clock is the engine's doing, not the topic's.
+#
+# THE RUN MESSAGE IS IGNORED. Launch it empty — nothing here reads it. It still
+# shapes the artifact FILENAMES, because those are `<instance_id>-<topic>.md`
+# (agents/workflows/artifacts.py) and the topic is slugged from the message: an
+# empty message slugs to "topic", so the files land as apple-topic.md /
+# ball-topic.md / cat-topic.md. That is why the parent matches on the `apple-` /
+# `ball-` / `cat-` PREFIX rather than a full filename — the prefix is the part
+# this workflow controls, the suffix is whatever the launcher happened to type.
+#
+# THE RUN MESSAGE IS IGNORED. Launch it with an empty one — nothing here reads it.
+# It still shapes the artifact FILENAMES, because those are `<instance_id>-<topic>`
+# and the topic is slugged from the message: an empty message slugs to "topic", so
+# the files land as apple-topic.md / ball-topic.md / cat-topic.md. That is why the
+# parent is told to match on the `apple-` / `ball-` / `cat-` PREFIX rather than on
+# a full filename — the prefix is the part this workflow controls, the suffix is
+# whatever the launcher happened to type.
+#
+# All three siblings carry the SAME `joke` skill, deliberately. Per-step skills
+# reach an agent through the step it runs as, and a fan-out worker's step is
+# built separately from the serial one — so this is the only thing in the repo
+# that proves a skill still lands on a child dispatched through run_fanout. If
+# the three outputs come back as plain sentences instead of jokes, the skill was
+# dropped on the spawn path.
+#
+# It costs one read_file round-trip per worker, which does add to the timing
+# below. Same skill on all three keeps that cost identical across them, so the
+# comparison between siblings stays clean.
+#
+# Each node is a `custom-agent` instance, compiling to `custom-agent:<instance_id>`
+# and writing `<instance_id>-<topic>.md` into the run sandbox. The parent emits
+# page.html, returned by the `single_file` deliverable strategy.
+id: sample_subagents_parallel
+version: 1
+user_launchable: true
+is_beta: true
+display_name: Sub-agents in parallel
+short_name: Parallel Sub-agents
+icon: Network
+description: One parent over three independent sibling agents, dispatched concurrently.
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  strategy: single_file
+  name: page.html
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 600
+  
+steps:
+- agent: custom-agent
+  instance_id: page
+  name: Page Builder
+  prompt: |
+    List the root directory. Read the three files whose names start with
+    apple-, ball- and cat-. Write one HTML page containing their three jokes,
+    each under a heading of Apple, Ball and Cat. Use their exact text. Inline
+    CSS only.
+  gates: []
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    # The parent is the one spawning its children, so it is the step that needs
+    # the spawn permission — the children are plain single agents.
+    spawn_subagents: true
+  subagents:
+    mode: parallel
+    max_parallel: 3
+    steps:
+    - agent: custom-agent
+      instance_id: apple
+      name: Apple Writer
+      # "Do not look for files" is load-bearing, not filler: the three siblings
+      # run at the SAME time, so there is nothing upstream for them to read. A
+      # worker that goes hunting burns tool calls and — worse for a timing test
+      # — makes its duration depend on the others. Its own SKILL.md is the one
+      # file it is expected to open; the deepagents preamble points it there, so
+      # the instruction does not have to carve out an exception.
+      prompt: |
+        Write one short joke about an apple. Output only the joke, nothing
+        else. Do not look for files or ask questions — answer from your own
+        knowledge.
+      skills: [joke]
+      strategy: single_shot
+      gates: []
+      tools:
+        # true because of the skill: a staged skill is a file on disk
+        # (/skills/joke/SKILL.md) and the agent reaches it with read_file.
+        # read_files: false would advertise a skill the worker cannot open.
+        read_files: true
+        write_files: true
+        exec: false
+    - agent: custom-agent
+      instance_id: ball
+      name: Ball Writer
+      prompt: |
+        Write one short joke about a ball. Output only the joke, nothing
+        else. Do not look for files or ask questions — answer from your own
+        knowledge.
+      skills: [joke]
+      strategy: single_shot
+      gates: []
+      tools:
+        # true because of the skill: a staged skill is a file on disk
+        # (/skills/joke/SKILL.md) and the agent reaches it with read_file.
+        # read_files: false would advertise a skill the worker cannot open.
+        read_files: true
+        write_files: true
+        exec: false
+    - agent: custom-agent
+      instance_id: cat
+      name: Cat Writer
+      prompt: |
+        Write one short joke about a cat. Output only the joke, nothing
+        else. Do not look for files or ask questions — answer from your own
+        knowledge.
+      skills: [joke]
+      strategy: single_shot
+      gates: []
+      tools:
+        # true because of the skill: a staged skill is a file on disk
+        # (/skills/joke/SKILL.md) and the agent reaches it with read_file.
+        # read_files: false would advertise a skill the worker cannot open.
+        read_files: true
+        write_files: true
+        exec: false
+name: Parallel Sub-agents

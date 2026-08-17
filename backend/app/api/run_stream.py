@@ -155,6 +155,7 @@ async def _iter_sse_frames(
     after_seq: int,
     live_queue: Any = None,
     request: Optional[Request] = None,
+    run_is_terminal: bool = False,
 ) -> AsyncIterator[dict]:
     """Yield the SSE frame dicts for one attached client.
 
@@ -162,6 +163,9 @@ async def _iter_sse_frames(
     D-14g gate re-arm (if paused) → live queue drain (until the ``None`` sentinel or
     client disconnect). ``live_queue is None`` means the run has no live task, so the
     replayed durable tail + the handshake are the complete response.
+
+    ``run_is_terminal`` reflects the persisted ``WorkflowRun.status`` and suppresses the
+    gate re-arm alone (FIX-240 / ISS-121) — see step 3.
     """
     # H-10: the WHOLE body (replay, handshake, gate re-arm, live drain) is wrapped in
     # ONE try/finally so the subscription made by the CALLER (``stream_run_events``
@@ -195,7 +199,18 @@ async def _iter_sse_frames(
         # is never in this set, so it is never filtered.
         rows = await store.read_events(run_id, after_seq=after_seq)
         for r in rows:
-            yield _sse_frame(r.seq, r.type, r.payload_json)
+            # The row's ``event_id``/``seq`` COLUMNS are the authoritative identity and
+            # are merged LAST, so they win over any same-named payload key — mirroring
+            # the REST twin ``GET /api/runs/{id}/events`` (frontend/src/lib/api.ts's
+            # getRunEvents projection), so both durable readers key identically. For an
+            # engine-authored row this is a provable no-op: the engine stamps the same
+            # seq/event_id into the payload at its single emit boundary. It only REPAIRS
+            # the four app-layer types persisted with no embedded identity — chat_reply,
+            # chat_message, chat_usage, run_resuming — which without this reach the
+            # client anonymous and get re-keyed (and so re-rendered) by the consumer.
+            yield _sse_frame(
+                r.seq, r.type, {**(r.payload_json or {}), "event_id": r.event_id, "seq": r.seq}
+            )
             replayed_through_seq = r.seq
             replayed_event_ids.add(r.event_id)
         # Release the replay list (and the loop variable's last row) NOW. This generator
@@ -238,7 +253,17 @@ async def _iter_sse_frames(
         #    ``dangling.seq <= 0`` is unreachable. Skipping the query on a fresh attach is a
         #    provable no-op -- and a fresh attach (no Last-Event-ID) is the common case AND the
         #    attach-churn amplification vector, so this is where the saving matters most.
-        if after_seq > 0:
+        #
+        #    FIX-240 (ISS-121): a run whose PERSISTED status is terminal has no gate to
+        #    re-arm, whatever the durable log says. Until FIX-240 the engine's terminal
+        #    event could be evicted from that log by a chat-lane seq collision, and those
+        #    rows are not retroactively recoverable — so a run cancelled before the fix
+        #    still reads as "paused at a review gate". Suppressing the re-arm is a
+        #    defensive read at the app boundary, NOT a second source of truth: the
+        #    derivation stays where it is (``gate_pendency`` remains pure — it lives under
+        #    ``agents.capabilities`` and must not import ``app.*``), the durable replay is
+        #    untouched, and no synthetic event is fabricated.
+        if after_seq > 0 and not run_is_terminal:
             dangling = await _dangling_review_gate(store, run_id)
             if dangling is not None and dangling.seq <= after_seq:
                 yield _sse_frame(dangling.seq, "review_gate_ready", dangling.payload_json)
@@ -334,6 +359,14 @@ async def stream_run_events(
         workspace_id=workflow_run.workspace_id,
     )
 
+    # FIX-240 (ISS-121): capture the persisted terminal state HERE, in request scope,
+    # while the row is still attached — the generator below runs after get_db has torn the
+    # session down. Reuses the exported TERMINAL_STATUSES (the ``RunState`` fence's own
+    # set) rather than restating a third copy of it.
+    from app.api.chat_router import TERMINAL_STATUSES
+
+    run_is_terminal = workflow_run.status in TERMINAL_STATUSES
+
     # Resolve the resume cursor from the browser-native Last-Event-ID header. A missing
     # / non-int header is a full replay (0) — never a 422 (the browser controls this
     # header on auto-reconnect; a hostile value only bounds the caller's OWN replay,
@@ -372,6 +405,7 @@ async def stream_run_events(
                 after_seq=after_seq,
                 live_queue=live_queue,
                 request=request,
+                run_is_terminal=run_is_terminal,
             ):
                 # Detect close reason from the frame type as it flows through.
                 frame_type = frame.get("data", "")

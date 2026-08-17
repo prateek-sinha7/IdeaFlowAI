@@ -15,8 +15,10 @@
  *
  * LOCK-F: the `deliverable` card labels the run output "Deliverable" (never a
  * workflow-specific noun). LIVE-STATE-CONTRACT §2b terminology: the
- * `spec_revision` card is the KAN-101 spec loop-back — "Revising spec — cycle N"
- * — distinct from a family revision RUN; the two are never conflated.
+ * `spec_revision` card is the KAN-101 spec loop-back — distinct from a family
+ * revision RUN; the two are never conflated. Its "cycle N" number arrives INSIDE
+ * the narrator text and is rendered once, in the body — the chrome never
+ * re-derives it (ISS-083 / INV-12).
  *
  * Skin (D-15 — reskin-look keep-behavior): Phase-32 brand token layer + lucide-react.
  */
@@ -93,14 +95,9 @@ interface ResultCardProps {
   message: ChatMessage;
   /** The plan-03 nonce'd deep-link seam — opens a generic run tab (borrow #6). */
   onRequestOpenTab: (tab: string) => void;
-  /**
-   * KAN-101 spec loop-back cycle (spec_revision only) — the "cycle N" counter.
-   * Generic data, never a workflow discriminator. Defaults to 1.
-   */
-  cycle?: number;
 }
 
-export function ResultCard({ message, onRequestOpenTab, cycle }: ResultCardProps) {
+export function ResultCard({ message, onRequestOpenTab }: ResultCardProps) {
   const kind = message.cardKind;
   // Unknown/absent kind → inert generic card (no workflow-name branch; SC-001,
   // T-31-04-T2). A crafted narrator with an unrecognised kind cannot select a
@@ -114,10 +111,11 @@ export function ResultCard({ message, onRequestOpenTab, cycle }: ResultCardProps
   // PreviewPanel.tsx PanelTab/PANEL_TAB_IDS) — the label was renamed but the id
   // was deliberately kept stable for deep-links/testids. Do NOT use "steps" here.
   const tab = message.deepLink?.tab ?? spec?.defaultTab ?? "thinking";
-  const title =
-    kind === "spec_revision"
-      ? `Revising spec — cycle ${cycle ?? 1}`
-      : (spec?.title ?? "Update");
+  // ISS-083 / INV-12: the "cycle N" number has exactly ONE producer — the narrator's
+  // own text (backend chat_narrator.py:157), which renders in the card body below.
+  // The header therefore stays the static CARD_SPECS title; the FE-defaulted second
+  // copy that used to live here contradicted the body it sat above.
+  const title = spec?.title ?? "Update";
   const Icon = spec?.Icon ?? ListChecks;
   const tone = spec?.tone ?? "text-ink-500";
   const linkLabel = spec?.linkLabel ?? "Open";

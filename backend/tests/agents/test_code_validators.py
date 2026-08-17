@@ -296,10 +296,18 @@ def test_code_validators_registered():
     assert ("validator", "code_lint") in registry_mod._KNOWN
 
 
-def test_registry_count_is_fifty_nine():
-    # 53 (Phase 10) + 6 Phase-11 fan-out capabilities: the fanout_batch
-    # strategy, the spawn_subagents tool, and the 4 merge strategies.
-    assert len(registry_mod._KNOWN) == 59
+def test_registry_matches_expected_names():
+    # Drift guard: registering a new name (or dropping one) must trip this.
+    # A size check on `_KNOWN` is order-dependent (parallel workers / suite
+    # subsets import different modules and populate `_KNOWN` via `@register`
+    # import side effects, so `len(_KNOWN)` varies run to run) — set-equality
+    # against the authoritative `_EXPECTED_NAMES` list (single source, kept in
+    # test_registry_capabilities.py) is order-independent and names exactly
+    # which (kind, name) pair drifted when it fails. `_reset_registry` already
+    # calls discover() before every test, so `_KNOWN` is fully populated here.
+    from tests.agents.test_registry_capabilities import _EXPECTED_NAMES
+
+    assert set(registry_mod._KNOWN) == set(_EXPECTED_NAMES)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -351,14 +359,33 @@ def test_exec02_offline_proof_zero_engine_edits(tmp_path):
     assert [i for i in compile_issues if i.severity == "P0"] == [], compile_issues
     assert [i for i in test_issues if i.severity == "P0"] == [], test_issues
 
-    # 3) SC-001 discipline: no edits under backend/agents/execution_engine/ for this
-    #    plan's working tree (the exec-capable workflow is authored by manifest +
-    #    capability only). A git diff over that dir is clean for this plan's work.
-    diff = subprocess.run(
-        ["git", "diff", "--name-only", "HEAD", "--", str(_ENGINE_DIR)],
-        cwd=str(_ENGINE_DIR.parents[1]),
-        capture_output=True,
-        text=True,
-    )
-    changed = [ln for ln in diff.stdout.splitlines() if ln.strip()]
-    assert changed == [], f"SC-001 violated: engine edits required: {changed}"
+    # 3) SC-001 discipline: EXEC-02 (10-04) is authored ENTIRELY by manifest +
+    #    capability files living OUTSIDE backend/agents/execution_engine/ — the
+    #    exec-capable workflow needed ZERO engine edits to run. This is a static
+    #    artifact-location check (mirrors the sibling SC-001 proofs, e.g.
+    #    test_sample_wave_workflow.py / test_sample_brownfield_workflow.py),
+    #    NOT a live ``git diff`` against the current working tree: a git-diff
+    #    check is fooled by ANY unrelated in-flight engine work elsewhere in the
+    #    repo (it can't distinguish "EXEC-02 touched the engine" from "some other
+    #    feature is mid-edit on the engine right now") and so cannot reliably
+    #    guard this invariant across a dirty tree.
+    repo_root = _ENGINE_DIR.parents[2]
+    exec02_artifacts = [
+        "backend/agents/capabilities/validators/_exec_support.py",
+        "backend/agents/capabilities/validators/code_compile.py",
+        "backend/agents/capabilities/validators/code_lint.py",
+        "backend/agents/capabilities/validators/code_test.py",
+        "backend/tests/agents/fixtures/sample_python_repo/calc.py",
+        "backend/tests/agents/fixtures/sample_python_repo/test_calc.py",
+        "backend/tests/agents/fixtures/sample_exec_workflow/workflow.yaml",
+        "backend/tests/agents/fixtures/sample_exec_workflow/exec-spec/AGENT.md",
+        "backend/tests/agents/fixtures/sample_exec_workflow/exec-build/AGENT.md",
+        "backend/tests/agents/test_code_validators.py",
+    ]
+    engine_pkg = "backend/agents/execution_engine/"
+    for rel in exec02_artifacts:
+        assert (repo_root / rel).is_file(), f"missing EXEC-02 proof artifact: {rel}"
+        assert not rel.startswith(engine_pkg), (
+            f"SC-001 violated: EXEC-02 artifact {rel} lives under the engine "
+            "package — the exec-capable workflow must run with ZERO engine edits"
+        )

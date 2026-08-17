@@ -36,6 +36,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.crypto import decrypt_pat, encrypt_pat
 from app.models.database import Base, get_db
+from tests.fixtures.user_factory import create_user
 
 
 # --- Test fixtures ------------------------------------------------------
@@ -91,15 +92,29 @@ def app_client(monkeypatch, tmp_path):
     monkeypatch.setattr(handoff_module, "SessionLocal", TestSession)
 
     with TestClient(app) as client:
+        # Exposed so _register_and_login can create users directly
+        # (self-registration is disabled — see app/api/auth.py).
+        client.SessionLocal = TestSession
         yield client
 
     app.dependency_overrides.clear()
 
 
 def _register_and_login(client: TestClient, email: str = "alice@example.com", password: str = "hunter2hunter2") -> str:
-    """Register a fresh user and return their JWT."""
-    resp = client.post("/api/auth/register", json={"email": email, "password": password})
-    assert resp.status_code in (200, 201), resp.text
+    """Create a fresh user directly in the test DB and return their JWT.
+
+    ``/api/auth/register`` is a permanent 403 (self-registration is disabled
+    by design — see app/api/auth.py). The account is created directly and
+    the JWT comes from the real ``/api/auth/login`` flow, which is what
+    these tests actually need to exercise the handoff/API-key surface.
+    """
+    session = client.SessionLocal()
+    try:
+        create_user(session, email, password)
+    finally:
+        session.close()
+    resp = client.post("/api/auth/login", json={"email": email, "password": password})
+    assert resp.status_code == 200, resp.text
     return resp.json()["token"]
 
 

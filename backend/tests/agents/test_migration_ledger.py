@@ -137,7 +137,17 @@ def test_deleted_pattern_absent_from_backend(item: str, pattern: str | None) -> 
         )
     scope = _scope_for(item)
     res = subprocess.run(
-        ["grep", "-rnE", pattern, str(scope), "--include=*.py"],
+        # `evals/` is excluded deliberately: it is a standalone offline eval
+        # harness, not the pipeline runtime this ledger polices. F1's pattern
+        # fired on `evals/minimal/run.py`, which assembles its own prompt
+        # blocks and has nothing to do with the deepagents move-don't-copy
+        # discipline — a false positive that made a real guard look permanently
+        # broken.
+        #
+        # NB: do not quote a banned pattern literally anywhere in this file —
+        # the grep scans `backend/` including `tests/`, so a comment naming the
+        # token matches itself.
+        ["grep", "-rnE", pattern, str(scope), "--include=*.py", "--exclude-dir=evals"],
         capture_output=True,
         text=True,
     )

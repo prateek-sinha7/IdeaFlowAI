@@ -1,0 +1,249 @@
+### custom — open-agent / arbitrary agent composition run
+# Two examples in this file:
+#   A) pipeline_type: "custom" using the 8-agent custom-utility pool directly
+#      (market-research-agent, swot-analyst, roadmap-planner, security-auditor,
+#      test-case-generator, performance-optimizer, documentation-agent, report-generator)
+#   B) a *base* pipeline (user_stories) with agent_ids overridden to splice in
+#      an agent borrowed from another pipeline — allowed because
+#      allowed_custom_agent_ids() permits "own agents ∪ custom pool ∪ every
+#      other base pipeline's agents" for any base pipeline_type
+#      (backend/agents/registry.py:219-298).
+#
+# NOTE: the old WebSocket run_pipeline/submit_questionnaire flow (/ws/chat) was
+# retired — the backend now launches a run over plain REST
+# (POST /api/runs) and streams its events back over SSE
+# (GET /api/runs/{id}/events/stream). The two are fully decoupled transports
+# (unlike the old WS message channel), so there's no more "must share one
+# connection" race: the launch, the SSE stream, and the clarify-answer POST
+# are three independent HTTP calls.
+# Run with: httpyac send --all -e local tools/api/runs/run.custom.http
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	exports.jwt = response.parsedBody.token;
+	console.log('logged in as', response.parsedBody.user.email);
+}}
+
+### 2. Discovery — the full agent library (flat, across all pipelines)
+GET {{apiRoot}}/api/agents/library
+Authorization: Bearer {{jwt}}
+
+### 3. Discovery — the custom-utility agent pool specifically
+GET {{apiRoot}}/api/agents/pipelines/custom
+Authorization: Bearer {{jwt}}
+
+### === Example A: pipeline_type "custom", explicit agent_ids from the custom pool ===
+
+### 4a. Launch, using explicit agent_ids from the custom pool
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"pipeline_type": "custom",
+	"message": "Research the competitive landscape for AI-assisted code review tools and produce a SWOT analysis with a prioritized roadmap.",
+	"agent_ids": ["market-research-agent", "swot-analyst", "roadmap-planner"]
+}
+
+{{
+	exports.pipelineRunIdA = response.parsedBody.run_id;
+	console.log('launched run A', exports.pipelineRunIdA);
+}}
+
+### 4a-2. Stream events over SSE, auto-skip clarification, wait for completion
+SSE {{apiRoot}}/api/runs/{{pipelineRunIdA}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	await new Promise((resolve) => {
+		let done = false;
+		let answered = false;
+		const finish = () => { if (!done) { done = true; resolve(); } };
+		$requestClient.addEventListener('message', async (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') {
+				console.error('SSE error', msg && msg.body);
+				finish();
+				return;
+			}
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
+			if (!data) return;
+			console.log('SSE <-', data.type);
+			if (data.type === 'questionnaire_ready' && !answered) {
+				answered = true;
+				console.log('-> auto-answering clarify gate with skip_clarification: true');
+				try {
+					await fetch(`${apiRoot}/api/runs/${pipelineRunIdA}/answers`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+						body: JSON.stringify({ responses: [], skip_clarification: true }),
+					});
+				} catch (e) {
+					console.error('POST /answers failed', e);
+				}
+			}
+			if (['pipeline_complete', 'pipeline_failed', 'pipeline_cancelled', 'budget_aborted', 'error'].includes(data.type)) {
+				finish();
+			}
+		});
+		$requestClient.addEventListener('disconnect', finish);
+		setTimeout(finish, 15 * 60 * 1000);
+	});
+}}
+
+### 5a. Inspect the run
+GET {{apiRoot}}/api/runs/{{pipelineRunIdA}}
+Authorization: Bearer {{jwt}}
+
+### 5a-2. Save the deliverable (if the run produced one) to artifacts/custom/
+GET {{apiRoot}}/api/runs/{{pipelineRunIdA}}/artifacts?include=content
+Authorization: Bearer {{jwt}}
+
+{{
+	const fs = require('fs');
+	const path = require('path');
+	const body = response.parsedBody;
+	const deliverable = (body.artifacts || []).find(a => a.kind === 'deliverable');
+	if (!deliverable) {
+		console.log('No "deliverable" artifact yet -- the run may not have completed, or this pipeline has no single-file deliverable.');
+	} else {
+		const outDir = path.join(path.dirname(httpFile.fileName), 'artifacts', 'custom');
+		fs.mkdirSync(outDir, { recursive: true });
+		const trimmed = deliverable.content.trim().toLowerCase();
+		const ext = trimmed.startsWith('<!doctype html') || trimmed.startsWith('<html') ? 'html' : 'txt';
+		const outPath = path.join(outDir, `${pipelineRunIdA}.${ext}`);
+		fs.writeFileSync(outPath, deliverable.content, 'utf-8');
+		console.log('Saved deliverable to', outPath, '(' + deliverable.content.length + ' bytes)');
+	}
+}}
+
+### === Example B: base pipeline "user_stories" with a cross-pipeline agent spliced in ===
+
+### 4b. Launch user_stories but insert market-research-agent (from the custom pool)
+# between domain-analyst and epic-architect. Demonstrates that agent_ids can
+# extend a base pipeline's own agents with an agent from elsewhere, not just
+# the custom pool's own agent set.
+# NOTE: agent_ids must keep the full dependency chain intact -- the backend
+# validates the resulting workflow as a DAG (POST /api/runs, "Workflow DAG is
+# unsatisfiable") and rejects it with 422 if a consumer agent (here,
+# backlog-compiler, which consumes nfr-specialist's and backlog-reviewer's
+# outputs) is kept while a producer it depends on is dropped. Verified live:
+# omitting nfr-specialist/backlog-reviewer here 422s with code
+# "workflow_unsatisfiable" even though every agent_id itself is valid.
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"pipeline_type": "user_stories",
+	"message": "Build a backlog for a personal finance budgeting app, informed by a quick competitive scan first.",
+	"agent_ids": ["domain-analyst", "market-research-agent", "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer", "backlog-compiler"]
+}
+
+{{
+	exports.pipelineRunIdB = response.parsedBody.run_id;
+	console.log('launched run B', exports.pipelineRunIdB);
+}}
+
+### 4b-2. Stream events over SSE, auto-skip clarification, wait for completion
+SSE {{apiRoot}}/api/runs/{{pipelineRunIdB}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	await new Promise((resolve) => {
+		let done = false;
+		let answered = false;
+		const finish = () => { if (!done) { done = true; resolve(); } };
+		$requestClient.addEventListener('message', async (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') {
+				console.error('SSE error', msg && msg.body);
+				finish();
+				return;
+			}
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
+			if (!data) return;
+			console.log('SSE <-', data.type);
+			if (data.type === 'questionnaire_ready' && !answered) {
+				answered = true;
+				console.log('-> auto-answering clarify gate with skip_clarification: true');
+				try {
+					await fetch(`${apiRoot}/api/runs/${pipelineRunIdB}/answers`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+						body: JSON.stringify({ responses: [], skip_clarification: true }),
+					});
+				} catch (e) {
+					console.error('POST /answers failed', e);
+				}
+			}
+			if (['pipeline_complete', 'pipeline_failed', 'pipeline_cancelled', 'budget_aborted', 'error'].includes(data.type)) {
+				finish();
+			}
+		});
+		$requestClient.addEventListener('disconnect', finish);
+		setTimeout(finish, 15 * 60 * 1000);
+	});
+}}
+
+### 5b. Inspect the run
+GET {{apiRoot}}/api/runs/{{pipelineRunIdB}}
+Authorization: Bearer {{jwt}}
+
+### 5b-2. Save the deliverable (if the run produced one) to artifacts/user_stories/
+GET {{apiRoot}}/api/runs/{{pipelineRunIdB}}/artifacts?include=content
+Authorization: Bearer {{jwt}}
+
+{{
+	const fs = require('fs');
+	const path = require('path');
+	const body = response.parsedBody;
+	const deliverable = (body.artifacts || []).find(a => a.kind === 'deliverable');
+	if (!deliverable) {
+		console.log('No "deliverable" artifact yet -- the run may not have completed, or this pipeline has no single-file deliverable.');
+	} else {
+		const outDir = path.join(path.dirname(httpFile.fileName), 'artifacts', 'user_stories');
+		fs.mkdirSync(outDir, { recursive: true });
+		const trimmed = deliverable.content.trim().toLowerCase();
+		const ext = trimmed.startsWith('<!doctype html') || trimmed.startsWith('<html') ? 'html' : 'txt';
+		const outPath = path.join(outDir, `${pipelineRunIdB}.${ext}`);
+		fs.writeFileSync(outPath, deliverable.content, 'utf-8');
+		console.log('Saved deliverable to', outPath, '(' + deliverable.content.length + ' bytes)');
+	}
+}}
+
+### === Saved custom workflow CRUD (persisting an agent_ids composition for reuse) ===
+
+### 6. Save example A's composition as a reusable named workflow
+POST {{apiRoot}}/api/user-workflows
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"name": "Competitive SWOT + roadmap",
+	"base_pipeline_type": "custom",
+	"agent_ids": ["market-research-agent", "swot-analyst", "roadmap-planner"],
+	"model_overrides": {}
+}
+
+{{
+	exports.userWorkflowId = response.parsedBody.id;
+}}
+
+### 7. List saved custom workflows
+GET {{apiRoot}}/api/user-workflows
+Authorization: Bearer {{jwt}}
+
+### 8. Delete the saved workflow (cleanup)
+DELETE {{apiRoot}}/api/user-workflows/{{userWorkflowId}}
+Authorization: Bearer {{jwt}}

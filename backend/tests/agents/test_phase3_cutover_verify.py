@@ -203,6 +203,21 @@ _DOCUMENTED_EVENT_TYPES = frozenset(
         "error",
         "summary",
         "state_restoration_failed",
+        # ── Skills delivery (spec 011 / D6) ──────────────────────────────────
+        # ``agent_skills`` — emitted per agent invocation at engine.py:3566,
+        # AFTER create_runner returns, reporting what ``stage_skills`` actually
+        # DELIVERED (ctx.skills_delivery) rather than what was merely attached,
+        # so a silently-dropped or unparseable SKILL.md is surfaced. Consumed by
+        # the FE's per-agent skills panel.
+        #
+        # Registered 2026-08-10 (spec 012 FINDING-01). Spec 011 shipped the emit
+        # site without adding it here, so all five characterization snapshots
+        # failed with "emitted UNDOCUMENTED event type(s): ['agent_skills']" —
+        # correctly, since the vocabulary is the contract. The failure sat inside
+        # the pre-existing red-test background and was never actioned. This is a
+        # DECLARATION of an intended event, NOT a re-baselined golden: no
+        # snapshot data file was touched.
+        "agent_skills",
         # ── Declared-gate dispatch events (§9 gate capabilities) ─────────────
         # Additive events the kernel forwards from ``_evaluate_declared_gates``
         # (engine.py:1879-1886 post-step / the pre-step gate loop) when a step

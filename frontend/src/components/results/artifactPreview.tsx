@@ -77,6 +77,32 @@ export function parseSpecOverview(content: string): string {
     .join(" ");
 }
 
+// Parse <tasks>…</tasks> into the plan's numbered rows. Shared by TasksPreview (the
+// list renderer) and the settled tasks CARD in AgentDetailPanel — one parse
+// implementation (INV-12). The card counts the PLAN, so its rows have to come from the
+// artifact body; it used to read the build agent's completed-task stream instead, which
+// is a different quantity (ISS-087).
+export function parseTasks(
+  content: string,
+): { number: number; title: string; goal: string; raw: string }[] {
+  const tasksMatch = content.match(/<tasks>([\s\S]*?)<\/tasks>/i);
+  const tasksContent = tasksMatch ? tasksMatch[1].trim() : content;
+  return tasksContent
+    .split(/(?=##\s+Task\s+\d+)/)
+    .filter(b => b.trim())
+    .map(block => {
+      const numMatch = block.match(/##\s+Task\s+(\d+):\s*(.+)/);
+      const goalMatch = block.match(/\*\*Goal\*\*:\s*(.+)/);
+      return {
+        number: numMatch ? parseInt(numMatch[1]) : 0,
+        title: numMatch ? numMatch[2].trim() : block.slice(0, 60),
+        goal: goalMatch ? goalMatch[1].trim() : "",
+        raw: block,
+      };
+    })
+    .filter(t => t.number > 0);
+}
+
 // ─── Spec renderer — parses <spec>...</spec> into readable sections ───────────
 export function SpecPreview({ content }: { content: string }) {
   const sections = parseSpecSections(content);
@@ -110,25 +136,11 @@ export function SpecPreview({ content }: { content: string }) {
 
 // ─── Task list renderer — read-only numbered task rows ────────────────────────
 export function TasksPreview({ content }: { content: string }) {
-  const tasksMatch = content.match(/<tasks>([\s\S]*?)<\/tasks>/i);
-  const tasksContent = tasksMatch ? tasksMatch[1].trim() : content;
-
-  const taskBlocks = tasksContent.split(/(?=##\s+Task\s+\d+)/);
-  const tasks = taskBlocks
-    .filter(b => b.trim())
-    .map(block => {
-      const numMatch = block.match(/##\s+Task\s+(\d+):\s*(.+)/);
-      const goalMatch = block.match(/\*\*Goal\*\*:\s*(.+)/);
-      return {
-        number: numMatch ? parseInt(numMatch[1]) : 0,
-        title: numMatch ? numMatch[2].trim() : block.slice(0, 60),
-        goal: goalMatch ? goalMatch[1].trim() : "",
-        raw: block,
-      };
-    })
-    .filter(t => t.number > 0);
+  const tasks = parseTasks(content);
 
   if (tasks.length === 0) {
+    const tasksMatch = content.match(/<tasks>([\s\S]*?)<\/tasks>/i);
+    const tasksContent = tasksMatch ? tasksMatch[1].trim() : content;
     return (
       <pre className="text-[11px] text-ink-700 whitespace-pre-wrap leading-relaxed font-mono">
         {tasksContent.slice(0, 3000)}

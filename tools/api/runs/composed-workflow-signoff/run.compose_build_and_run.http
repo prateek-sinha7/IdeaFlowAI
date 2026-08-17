@@ -1,0 +1,152 @@
+### COMPOSE BUILD + RUN — mint a Composer-shaped user_workflow (DB-only
+# manifest.steps tree, spec-012 shape) directly over the API and launch it.
+#
+# This is the API-level equivalent of what "Build a workflow in the Designer
+# from scratch" exercises manually in the browser (Composer canvas: add root
+# agent, add 2 flat sub-agents, name/prompt each, save). It reproduces the
+# EXACT manifest shape a real Composer save produces — verified live against
+# this backend on 2026-08-14 by actually building the workflow in the
+# browser first and capturing its POST /api/user-workflows response body
+# (see ../composed-workflow-signoff/REPORT.md). Use this file for repeatable
+# CI/regression coverage of the launch path; use the browser for UI-bug
+# hunting (drag/drop, edge routing, config rail) which this file cannot
+# exercise.
+#
+# Shape: 1 parent custom-agent ("Signoff Root") with 2 flat children
+# ("Signoff Child A", "Signoff Child B") — sequential subagents.mode.
+#
+# Run with: httpyac send --all -e local tools/api/runs/composed-workflow-signoff/run.compose_build_and_run.http
+# Or via the wrapper: ./run-http.sh compose_build_and_run
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	exports.jwt = response.parsedBody.token;
+	apiLine('POST /api/auth/login -> ' + response.statusCode + ' ' + response.parsedBody.user.email);
+}}
+
+### 2. Create the saved composed workflow (DB-only manifest.steps tree — no
+# base_pipeline_type file behind it; base_pipeline_type: "custom" IS the
+# marker for a from-scratch Composer build, same as a real UI save).
+POST {{apiRoot}}/api/user-workflows
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"name": "Signoff Composer Test (API) {{$timestamp}}",
+	"description": "API-minted twin of the browser-built Composer signoff workflow.",
+	"base_pipeline_type": "custom",
+	"agent_ids": ["custom-agent"],
+	"manifest": {
+		"steps": [
+			{
+				"agent": "custom-agent",
+				"instance_id": "signoff-root",
+				"name": "Signoff Root",
+				"prompt": "Pick a fun emoji for the topic and hand off to the next agent.",
+				"tools": { "read_files": true, "write_files": true, "exec": false, "spawn_subagents": false },
+				"gates": [],
+				"subagents": {
+					"mode": "sequential",
+					"max_parallel": 3,
+					"steps": [
+						{
+							"agent": "custom-agent",
+							"instance_id": "signoff-child-a",
+							"name": "Signoff Child A",
+							"prompt": "Write a two-sentence blurb about the emoji chosen upstream.",
+							"tools": { "read_files": true, "write_files": true, "exec": false },
+							"gates": [],
+							"strategy": "single_shot",
+							"depends_on": []
+						},
+						{
+							"agent": "custom-agent",
+							"instance_id": "signoff-child-b",
+							"name": "Signoff Child B",
+							"prompt": "Present the emoji and blurb together as a final one-line summary.",
+							"tools": { "read_files": true, "write_files": true, "exec": false },
+							"gates": [],
+							"strategy": "single_shot",
+							"depends_on": []
+						}
+					]
+				},
+				"depends_on": ["custom-agent:signoff-child-a", "custom-agent:signoff-child-b"]
+			}
+		],
+		"deliverable": { "strategy": "streamed_text", "name": "output.md" },
+		"planner": "skip",
+		"clarify": { "mode": "skip", "defaults": [] }
+	}
+}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	apiLine('POST /api/user-workflows -> ' + response.statusCode);
+	if (response.statusCode >= 400) {
+		apiLine('FAILED: ' + JSON.stringify(response.parsedBody), 'error');
+	} else {
+		exports.userWorkflowId = response.parsedBody.id;
+		apiLine('created saved workflow ' + exports.userWorkflowId + ' (' + response.parsedBody.name + ')');
+	}
+}}
+
+### 3. Launch — user_workflow_id present, row's manifest_json HAS a steps
+# tree (this IS the composed-workflow-execution launch arm under test).
+{{
+	const payload = {
+		user_workflow_id: userWorkflowId,
+		pipeline_type: "custom",
+		message: process.env.RUN_MESSAGE || 'lighthouse',
+	};
+	exports.launchBody = JSON.stringify(payload);
+}}
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{{launchBody}}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	apiLine('POST /api/runs payload: ' + request.body);
+	apiLine('POST /api/runs -> ' + response.statusCode);
+	if (response.statusCode >= 400) {
+		apiLine('FAILED: ' + JSON.stringify(response.parsedBody), 'error');
+	} else {
+		exports.runId = response.parsedBody.run_id;
+		apiLine('launched run=' + exports.runId);
+	}
+}}
+
+### 4. Stream events over SSE, wait for completion (skipped when launch failed).
+# @disabled !runId
+SSE {{apiRoot}}/api/runs/{{runId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	await require('../lib/stream-subscribe.js')(runId, $requestClient);
+}}
+
+### 5. Inspect the completed run
+GET {{apiRoot}}/api/runs/{{runId}}
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	const body = response.parsedBody;
+	apiLine('GET /api/runs/' + runId + ' -> ' + response.statusCode + ' status=' + body.status);
+	if (body.status !== 'completed') {
+		apiLine('NOT completed — status=' + body.status + ' error=' + JSON.stringify(body.error), 'warn');
+	}
+}}

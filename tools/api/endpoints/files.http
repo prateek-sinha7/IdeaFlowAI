@@ -1,0 +1,56 @@
+### Files - Extract text from upload (pdf/docx/pptx)
+# Requires a real ./sample.pdf next to this file (not checked in) — httpyac
+# fails to even send the request if it's missing, so there's no response to
+# assert against below; this one's for manual/exploratory use with a real
+# file in hand. The unsupported-extension case below needs no external file
+# and is a real, self-contained assertion.
+POST {{apiRoot}}/api/files/extract-text
+Authorization: Bearer {{jwt}}
+Content-Type: multipart/form-data; boundary=FlowinBoundary
+
+--FlowinBoundary
+Content-Disposition: form-data; name="file"; filename="sample.pdf"
+Content-Type: application/pdf
+
+< ./sample.pdf
+--FlowinBoundary--
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ') — set a real {{jwt}} to exercise this assertion');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (typeof body.text !== 'string' || typeof body.truncated !== 'boolean') {
+		console.error('FAIL: expected {filename, text, truncated} shape, got', body);
+	} else {
+		console.log('OK: extracted', body.text.length, 'char(s) from', body.filename, '| truncated =', body.truncated);
+	}
+}}
+
+### Files - Extract text (unsupported extension, expect 415)
+# No external file needed — the extension is checked against the filename
+# before the body bytes are even read (see file_extract.py extract_text),
+# so an inline body with a disallowed filename is enough to exercise this.
+POST {{apiRoot}}/api/files/extract-text
+Authorization: Bearer {{jwt}}
+Content-Type: multipart/form-data; boundary=FlowinBoundary
+
+--FlowinBoundary
+Content-Disposition: form-data; name="file"; filename="not-a-real-doc.exe"
+Content-Type: application/octet-stream
+
+this content is irrelevant -- the extension is rejected first
+--FlowinBoundary--
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 415) {
+		console.error('FAIL: expected 415 for an unsupported extension, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: unsupported extension (.exe) correctly rejected (415)');
+	}
+}}
