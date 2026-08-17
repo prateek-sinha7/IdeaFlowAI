@@ -13,7 +13,7 @@ import type { RunArtifactsResponse } from "@/lib/api";
 // ─────────────────────────────────────────────────────────────────
 
 const mockGetToken = vi.fn(() => "test-token");
-const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<WorkflowRun[]>>();
+const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<{ runs: WorkflowRun[]; total: number }>>();
 const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<WorkflowRun>>();
 const mockDeleteWorkflow = vi.fn<(token: string, id: string) => Promise<void>>();
 const mockGetRunFamily = vi.fn<(token: string, id: string) => Promise<RunFamily>>(
@@ -102,7 +102,7 @@ beforeEach(() => {
 
 describe("WorkflowHistory reopen — clarify fetch + Starting point (C2)", () => {
   it("fetches getRunArtifacts(kind=clarifications) and renders the brief + clarify round on the Thinking tab", async () => {
-    mockGetWorkflows.mockResolvedValue([makeRun()]);
+    mockGetWorkflows.mockResolvedValue({ runs: [makeRun()], total: 1 });
     mockGetWorkflow.mockResolvedValue(makeRun());
     mockGetRunArtifacts.mockResolvedValue(clarifyArtifacts());
 
@@ -130,7 +130,7 @@ describe("WorkflowHistory reopen — clarify fetch + Starting point (C2)", () =>
   });
 
   it("shows NO ClarificationsCard for a PROCEED reopen (empty artifacts)", async () => {
-    mockGetWorkflows.mockResolvedValue([makeRun()]);
+    mockGetWorkflows.mockResolvedValue({ runs: [makeRun()], total: 1 });
     mockGetWorkflow.mockResolvedValue(makeRun());
     mockGetRunArtifacts.mockResolvedValue({ workflow_id: "solo", artifacts: [] });
 
@@ -165,7 +165,7 @@ describe("WorkflowHistory reopen — revision chip + Original-brief expander (C-
       parentRunId: "root",
       rootRunId: "root",
     });
-    mockGetWorkflows.mockResolvedValue([revisionRun]);
+    mockGetWorkflows.mockResolvedValue({ runs: [revisionRun], total: 1 });
     mockGetWorkflow.mockResolvedValue(revisionRun);
     mockGetRunFamily.mockResolvedValue({
       root_id: "root",

@@ -181,6 +181,8 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     if (reviseOpen && revisionRef.current) revisionRef.current.focus();
   }, [reviseOpen]);
 
+  // KAN-110 (revised): initial fetch on mount or filter change — replaces list.
+  // When filterType changes we reset back to the first page.
   useEffect(() => {
     const token = getToken();
     if (!token) return;
@@ -207,9 +209,13 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   }, [runs.length, totalRuns, loadingMore]);
 
   const handleSelectRun = useCallback(async (run: WorkflowRun) => {
-    // KAN-96: if this run is the currently-active pipeline, navigate to the
-    // live execution view rather than opening the static history detail.
-    if (activeRunId && run.id === activeRunId && onViewRunningPipeline) {
+    // KAN-96: if this run is the currently-ACTIVE (still running) pipeline,
+    // navigate to the live execution view rather than opening the history detail.
+    // Guard on BOTH the id match AND the run status — pipelineState.pipelineRunId
+    // is not cleared when a pipeline completes, so a completed run must always
+    // open in the history detail view regardless of id match.
+    const isCurrentlyRunning = run.status === "running" || run.status === "revising";
+    if (activeRunId && run.id === activeRunId && isCurrentlyRunning && onViewRunningPipeline) {
       onViewRunningPipeline();
       return;
     }
@@ -322,6 +328,10 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       await deleteWorkflow(token, deleteConfirmId);
       setRuns((prev) => prev.filter((r) => r.id !== deleteConfirmId));
       if (selectedRun?.id === deleteConfirmId) { setSelectedRun(null); setSelectedOutput(null); }
+      // KAN-106: reset family so the detail view VersionTimeline doesn't show
+      // stale chips after a member is deleted. The family is re-fetched
+      // automatically when selectedRun changes or the detail is reopened.
+      setFamily(null);
       setDeleteConfirmId(null);
     } catch {
       setDeleteError("Failed to delete run. Please try again.");
@@ -434,6 +444,15 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // ─── DETAIL VIEW ───────────────────────────────────────────────────────────
   if (selectedRun) {
     const workflowType = selectedRun.type as WorkflowType;
+    // KAN-105: compute a display label that tells the user HOW this run was
+    // created — revision, chained, or a fresh standalone run. Revision types
+    // already carry "(Revised)" in TYPE_META. For non-revision types, a
+    // parentRunId means it was created via the Chain action from another run.
+    const isRevisionType = workflowType.endsWith("_revision");
+    const isChainedRun = !isRevisionType && !!selectedRun.parentRunId;
+    const displayLabel = isChainedRun
+      ? `${meta.label} (Chained)`
+      : meta.label;
     // ─── C-FLAG-1 (260703-174) — reopen StartingPointCard revision chip wiring ──
     // revisionParentVersion = 1-based family index of selectedRun's PARENT, derived
     // from the fetched `family` state (getRunFamily). family.members uses the same
@@ -840,10 +859,15 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // family grouping (fields already on each row — no fetch, no backend change).
   const sections = bucketAndSortFamilies(visibleFamilies, sortKey);
   const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
-  const typeCounts: Record<string, number> = { all: families.length };
-  families.forEach((g) => {
-    // Count the FAMILY once under its base type (normalized from the root).
-    const base = baseWorkflowType(g.root.type);
+  // KAN-110: all counts from current page only.
+  // "All" = total unfiltered runs (server). Type tabs = count from current 50 runs.
+  const typeCounts: Record<string, number> = { all: totalRuns };
+  ["user_stories", "ppt", "prototype", "app_builder", "custom"].forEach((t) => {
+    typeCounts[t] = 0;
+  });
+  // Count each run on the current page under its base type.
+  runs.forEach((r) => {
+    const base = baseWorkflowType(r.type);
     typeCounts[base] = (typeCounts[base] || 0) + 1;
   });
 
@@ -1057,6 +1081,26 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           </div>
         )}
       </div>
+
+      {/* ── Load More — shown at bottom of list when more runs exist ── */}
+      {runs.length < totalRuns && !loading && (
+        <div className="flex-shrink-0 flex items-center justify-center gap-3 py-3">
+          <span className="text-[11px] text-gray-400">
+            Showing {runs.length} of {totalRuns} workflows
+          </span>
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="group flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[11px] font-medium bg-[#1B2A4A] text-white hover:bg-[#243558] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            {loadingMore ? (
+              <><Loader2 className="h-3 w-3 animate-spin opacity-70" />Loading…</>
+            ) : (
+              <>Load more <ChevronRight className="h-3 w-3 opacity-60 group-hover:translate-x-0.5 transition-transform" /></>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Delete modal */}
       <AnimatePresence>
