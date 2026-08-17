@@ -890,6 +890,7 @@ export function CanvasView({
         </div>
         <select
           aria-label="Deliverable strategy"
+          name="deliverable-strategy"
           value={deliverableStrategy}
           disabled={!onRunConfigChange}
           onChange={(e) => {
@@ -910,6 +911,7 @@ export function CanvasView({
           <input
             type="text"
             aria-label="Output file name"
+            name="output-filename"
             value={deliverableBaseName}
             disabled={!onRunConfigChange}
             onChange={(e) =>
@@ -925,6 +927,7 @@ export function CanvasView({
           />
           <select
             aria-label="Output format"
+            name="output-format"
             value={currentFormat}
             disabled={!onRunConfigChange || formatLocked}
             onChange={(e) =>

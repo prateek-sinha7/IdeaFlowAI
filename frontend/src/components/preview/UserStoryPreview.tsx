@@ -246,6 +246,8 @@ export function UserStoryPreview({ content, onRevise }: UserStoryPreviewProps) {
         <div className="flex-shrink-0 border-t border-gray-100 bg-white px-5 py-3 flex items-center gap-3 sticky bottom-0">
           <input
             type="text"
+            aria-label="Revision instructions"
+            name="user-story-revision"
             value={revisionText}
             onChange={(e) => setRevisionText(e.target.value)}
             onKeyDown={(e) => {

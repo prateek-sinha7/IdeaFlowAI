@@ -146,6 +146,8 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-ink-400" />
             <input
               type="text"
+              aria-label="Search templates"
+              name="template-search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search templates…"

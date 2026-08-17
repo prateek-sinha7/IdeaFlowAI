@@ -103,6 +103,7 @@ export function HandoffPreviewPanel({
         <label className="text-[10px] text-gray-400 inline-flex items-center gap-1.5 select-none cursor-pointer">
           <input
             type="checkbox"
+            name="auto-follow"
             checked={autoFollow}
             onChange={(e) => setAutoFollow(e.target.checked)}
             className="h-3 w-3"

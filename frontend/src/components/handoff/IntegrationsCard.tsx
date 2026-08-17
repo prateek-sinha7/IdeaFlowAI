@@ -257,6 +257,8 @@ export function IntegrationsCard({
         <div className="flex gap-2">
           <div className="flex-1 relative">
             <input
+              aria-label="GitHub personal access token"
+              name="github-pat"
               type={showPat ? "text" : "password"}
               value={pat}
               onChange={(e) => setPat(e.target.value)}
@@ -369,6 +371,8 @@ export function IntegrationsCard({
         </div>
         <div className="flex gap-2">
           <input
+            aria-label="API key name"
+            name="api-key-name"
             value={keyName}
             onChange={(e) => setKeyName(e.target.value)}
             placeholder="Key name (e.g. Laptop)"

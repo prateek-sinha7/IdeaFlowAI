@@ -609,6 +609,8 @@ export function BriefAttachBox({
     <>
       <textarea
         ref={textareaRef}
+        name="brief"
+        aria-label="Brief description"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}

@@ -294,6 +294,8 @@ export default function AdminPage() {
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-ink-400" />
                 <input
                   type="text"
+                  aria-label="Search users"
+                  name="admin-user-search"
                   placeholder="Search users..."
                   value={search}
                   onChange={e => setSearch(e.target.value)}
@@ -426,20 +428,22 @@ export default function AdminPage() {
               </div>
               <div className="space-y-3.5">
                 <div>
-                  <label className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5 block">Email</label>
-                  <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+                  <label htmlFor="new-user-email" className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5 block">Email</label>
+                  <input id="new-user-email" type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
                     className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-white px-3 py-2.5 text-[13px] text-ink-900 focus:outline-none focus:border-ink-400"
                     placeholder="user@example.com" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5 block">Password</label>
-                  <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                  <label htmlFor="new-user-password" className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5 block">Password</label>
+                  <input id="new-user-password" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
                     className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-white px-3 py-2.5 text-[13px] text-ink-900 focus:outline-none focus:border-ink-400"
                     placeholder="At least 8 characters" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5 block">Plan</label>
-                  <select value={newTier} onChange={e => setNewTier(e.target.value as Tier)}
+                  <label htmlFor="new-user-tier" className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5 block">Plan</label>
+                  <select id="new-user-tier" value={newTier} onChange={e => setNewTier(e.target.value as Tier)}
+                    aria-label="Select plan tier"
+                    name="new-user-tier"
                     className="w-full rounded-[var(--radius-button)] border border-line-control px-3 py-2.5 text-[13px] text-ink-900 focus:outline-none focus:border-ink-400 bg-surface-white">
                     {TIER_ORDER.map(t => (
                       <option key={t} value={t}>{TIER_LABELS[t]}</option>
@@ -447,7 +451,7 @@ export default function AdminPage() {
                   </select>
                 </div>
                 <label className="flex items-center gap-2.5 cursor-pointer">
-                  <input type="checkbox" checked={newIsAdmin} onChange={e => setNewIsAdmin(e.target.checked)}
+                  <input type="checkbox" name="new-user-is-admin" checked={newIsAdmin} onChange={e => setNewIsAdmin(e.target.checked)}
                     className="h-4 w-4 rounded border-line-control accent-brand focus:ring-brand" />
                   <span className="text-[12px] text-ink-700">Grant admin access</span>
                 </label>

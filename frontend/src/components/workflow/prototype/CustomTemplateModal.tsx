@@ -235,6 +235,8 @@ export function CustomTemplateModal({ onConfirm, onClose }: CustomTemplateModalP
             <div>
               <div className="flex gap-2">
                 <input
+                  aria-label="Template URL"
+                  name="template-url"
                   type="url"
                   value={urlInput}
                   onChange={(e) => { setUrlInput(e.target.value); setUrlFetched(false); setUrlError(null); }}
@@ -268,10 +270,11 @@ export function CustomTemplateModal({ onConfirm, onClose }: CustomTemplateModalP
 
           {/* Name input */}
           <div>
-            <label className="block text-[11px] font-medium text-ink-700 mb-1">
+            <label htmlFor="custom-template-name" className="block text-[11px] font-medium text-ink-700 mb-1">
               Template name <span className="text-status-failed">*</span>
             </label>
             <input
+              id="custom-template-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}

@@ -186,6 +186,8 @@ export function AgentLibrary({
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
                   <input
                     type="text"
+                    aria-label="Search agents"
+                    name="agent-search"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search agents..."

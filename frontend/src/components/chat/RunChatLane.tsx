@@ -997,6 +997,7 @@ function FreeTextComposer({
           }}
           rows={1}
           placeholder={placeholder}
+          name="run-chat-message"
           aria-label="Chat message input"
           className="max-h-[132px] flex-1 resize-none overflow-y-auto border-none bg-transparent font-serif text-[13px] leading-[1.3] text-ink-900 placeholder-ink-200 focus:outline-none"
         />
