@@ -177,33 +177,6 @@ class WorkflowRunListResponse(BaseModel):
         return v.isoformat()
 
 
-class WorkflowRunListResponse(BaseModel):
-    """Slim run data for the history list endpoint (KAN-110).
-
-    Excludes the heavy ``output``, ``agent_outputs``, and ``input`` fields that
-    are only needed when a run is opened. Omitting them reduces the list payload
-    from ~16MB to ~50KB for 50 rows — a ~300× reduction.
-    The full ``WorkflowRunResponse`` is returned by ``GET /api/runs/{id}``.
-    """
-
-    id: str
-    title: str
-    type: str
-    status: str
-    agent_count: int
-    duration: Optional[float] = None
-    error: Optional[str] = None
-    token_usage: Optional[str] = None
-    deliverable_mimetype: Optional[str] = None
-    deliverable_filename: Optional[str] = None
-    parent_run_id: Optional[str] = None
-    root_run_id: str
-    created_at: datetime
-    completed_at: Optional[datetime] = None
-
-    model_config = {"from_attributes": True}
-
-
 # ---------------------------------------------------------------------------
 # Workstream A — revision-family read helpers (POR §4.2 + §4.3, app-layer only).
 # ---------------------------------------------------------------------------
@@ -379,12 +352,6 @@ def list_runs(
     if status_filter:
         query = query.filter(WorkflowRun.status == status_filter)
     
-    # Count before applying limit/offset so the total reflects filters.
-    # Uses the same WHERE clause as the page query — no extra round trip on a
-    # cold query; SQLite/Postgres both plan it as a single index scan.
-    total = query.count()
-    response.headers["X-Total-Count"] = str(total)
-
     # Count before applying limit/offset so the total reflects filters.
     # Uses the same WHERE clause as the page query — no extra round trip on a
     # cold query; SQLite/Postgres both plan it as a single index scan.
@@ -1200,8 +1167,6 @@ def _owned_family_members(
         .filter(WorkflowRun.id == root_id, WorkflowRun.user_id == user_id)
         .first()
     )
-    root_base = _base_type(root_row.type) if root_row is not None else None
-
     if root_row is not None:
         members[root_row.id] = root_row
 
@@ -1244,9 +1209,6 @@ def _owned_family_members(
             if root_base_type is not None and _canonical_base(child.type) != root_base_type:
                 continue
             visited.add(child.id)
-            # KAN-105: skip chained runs (different base type from the root).
-            if root_base is not None and _base_type(child.type) != root_base:
-                continue
             members[child.id] = child
             frontier.add(child.id)
 

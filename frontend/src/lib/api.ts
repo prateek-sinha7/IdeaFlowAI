@@ -280,16 +280,14 @@ interface RawWorkflowRun {
   title: string;
   type: string;
   status: string;
-  // KAN-110: input/output/agent_outputs are absent from the slim list response.
-  // They are present in the full single-run response (GET /api/runs/{id}).
-  input?: string | null;
-  output?: string | null;
-  agent_outputs?: string | null;
+  input: string;
+  output: string | null;
+  agent_outputs: string | null;
   agent_count: number;
   duration: number | null;
   error: string | null;
   token_usage: string | null;
-  model_id?: string | null;
+  model_id: string | null;
   // UXFIX-02 (22-03 / D-19): persisted declared/resolved deliverable shape.
   deliverable_mimetype?: string | null;
   deliverable_filename?: string | null;
@@ -324,7 +322,7 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     title: raw.title,
     type: raw.type as WorkflowType,
     status: raw.status as WorkflowRun["status"],
-    input: raw.input ?? "",
+    input: raw.input,
     output: raw.output ?? undefined,
     agentOutputs,
     tokenUsage,

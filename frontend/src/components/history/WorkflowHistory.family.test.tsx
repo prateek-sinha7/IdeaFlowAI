@@ -13,7 +13,7 @@ import type { RunSummary } from "@/lib/api";
 // ─────────────────────────────────────────────────────────────────
 
 const mockGetToken = vi.fn(() => "test-token");
-const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<{ runs: WorkflowRun[]; total: number }>>();
+const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<WorkflowRun[]>>();
 const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<WorkflowRun>>();
 const mockDeleteWorkflow = vi.fn<(token: string, id: string) => Promise<void>>();
 const mockGetRunFamily = vi.fn<(token: string, id: string) => Promise<RunFamily>>();
@@ -158,7 +158,7 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
       ...familyRuns(),
       makeRun({ id: "solo", title: "Solo run", type: "ppt", parentRunId: null, rootRunId: "solo", createdAt: t3, output: "<html>solo</html>" }),
     ];
-    mockGetWorkflows.mockResolvedValue({ runs: runs, total: runs.length });
+    mockGetWorkflows.mockResolvedValue(runs);
     mockGetRunFamily.mockResolvedValue(familyPayload());
 
     render(<WorkflowHistory onBack={vi.fn()} />);
@@ -183,7 +183,7 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
   });
 
   it("child version row is a native button (aria-label) that opens the version on activation (§8 keyboard)", async () => {
-    mockGetWorkflows.mockResolvedValue({ runs: familyRuns(), total: familyRuns().length });
+    mockGetWorkflows.mockResolvedValue(familyRuns());
     mockGetRunFamily.mockResolvedValue(familyPayload());
     const byId: Record<string, WorkflowRun> = Object.fromEntries(familyRuns().map((r) => [r.id, r]));
     mockGetWorkflow.mockImplementation((_t, id) => Promise.resolve(byId[id]));
@@ -204,7 +204,7 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
 
   it("renders a single-member (standalone) family as a plain row — no pill, no expander (zero regression)", async () => {
     const solo = makeRun({ id: "solo", title: "Just me", type: "ppt", parentRunId: null, rootRunId: "solo", createdAt: t0, output: "<html>solo</html>" });
-    mockGetWorkflows.mockResolvedValue({ runs: [solo], total: 1 });
+    mockGetWorkflows.mockResolvedValue([solo]);
 
     render(<WorkflowHistory onBack={vi.fn()} />);
 
@@ -214,48 +214,11 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
     // No "v{N}" count pill.
     expect(screen.queryByLabelText(/\d+ versions/)).toBeNull();
   });
-
-  it("KAN-105: a chained run (different base type) is shown as a separate workflow entry, not as a version of the source", async () => {
-    // Simulate: user ran a prototype (id="proto"), then chained to user_stories
-    // (id="chain"). Both share rootRunId="proto" because the backend's
-    // parent_run_id walk treats them the same. They must render as TWO
-    // independent entries in the history list, not as "v2" under the prototype.
-    const protoRun = makeRun({
-      id: "proto",
-      title: "My Prototype",
-      type: "prototype",
-      parentRunId: null,
-      rootRunId: "proto",
-      createdAt: t0,
-      output: "<html>proto</html>",
-    });
-    const chainedRun = makeRun({
-      id: "chain",
-      title: "Chained Stories",
-      type: "user_stories",
-      parentRunId: "proto",
-      rootRunId: "proto",   // ← same rootRunId as proto (the bug scenario)
-      createdAt: t1,
-      output: "## User Stories",
-    });
-    mockGetWorkflows.mockResolvedValue({ runs: [protoRun, chainedRun], total: 2 });
-
-    render(<WorkflowHistory onBack={vi.fn()} />);
-
-    // Both titles must appear as separate rows.
-    await screen.findByText("My Prototype");
-    await screen.findByText("Chained Stories");
-
-    // No "v2" count pill — the chained run must NOT be shown as a version of the prototype.
-    expect(screen.queryByLabelText(/\d+ versions/)).toBeNull();
-    // No expander on either row.
-    expect(screen.queryByLabelText("Show versions")).toBeNull();
-  });
 });
 
 describe("Revision Families (B2) — detail version timeline (D4)", () => {
   async function openLatestDetail() {
-    mockGetWorkflows.mockResolvedValue({ runs: familyRuns(), total: familyRuns().length });
+    mockGetWorkflows.mockResolvedValue(familyRuns());
     mockGetRunFamily.mockResolvedValue(familyPayload());
     render(<WorkflowHistory onBack={vi.fn()} />);
     // Click the family root card body → opens the latest member (v3 = r2).

@@ -11,7 +11,7 @@ import type { RunSummary } from "@/lib/api";
 
 // Stable mock fns we can drive per-test.
 const mockGetToken = vi.fn(() => "test-token");
-const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<{ runs: WorkflowRun[]; total: number }>>();
+const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<WorkflowRun[]>>();
 const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<WorkflowRun>>();
 const mockDeleteWorkflow = vi.fn<(token: string, id: string) => Promise<void>>();
 // SHELL-03: the terminal-run detail now mounts RunDetailPage (fed by getRunSummary)
@@ -129,7 +129,7 @@ function summaryFor(run: WorkflowRun, agents: { agent_id: string; name: string }
 type ChainHandler = (run: WorkflowRun, type: import("@/types/index").WorkflowType) => void;
 
 async function renderAndOpenRun(run: WorkflowRun, onChainPipeline?: ChainHandler) {
-  mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
+  mockGetWorkflows.mockResolvedValue([run]);
   // The detail-load short-circuits when run.output is set, but mock
   // getWorkflow anyway so any code path that does fetch the full run
   // resolves correctly.
