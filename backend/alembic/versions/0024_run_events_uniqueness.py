@@ -41,6 +41,7 @@ the 0017/0021/0022/0023 batch idiom).
 """
 
 from alembic import op
+import sqlalchemy as sa
 
 revision = "0024"
 down_revision = "0023"
@@ -61,6 +62,37 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop whichever of the two backstops is actually present.
+
+    DEFENSIVE BY NECESSITY (the 0014 ``op.get_bind()`` precedent). Neither
+    constraint is guaranteed to exist at this point in a downgrade:
+
+      * ``uq_run_events_scope_seq`` is owned by TWO revisions. 0028 skips it
+        when duplicates are present and 0029 adds it after reconciling them,
+        so 0029's ``downgrade()`` may already have dropped it before control
+        reaches here.
+      * On the databases 0028 exists to repair, the 0024 DDL never applied at
+        all, so neither constraint was ever created.
+
+    An unconditional ``drop_constraint`` raises ``ValueError: No such
+    constraint`` in both cases. That matters operationally: the entrypoint
+    (``backend/docker-entrypoint.sh``) runs alembic under ``set -eu``, so a
+    raising migration crash-loops the container rather than booting.
+
+    ADDITIVE-ONLY / INV-3: drops constraints only, never rows.
+    """
+    existing = {
+        uc["name"]
+        for uc in sa.inspect(op.get_bind()).get_unique_constraints("run_events")
+    }
+    targets = [
+        name
+        for name in ("uq_run_events_scope_seq", "uq_run_events_scope_event")
+        if name in existing
+    ]
+    if not targets:
+        return
+
     with op.batch_alter_table("run_events") as b:
-        b.drop_constraint("uq_run_events_scope_seq", type_="unique")
-        b.drop_constraint("uq_run_events_scope_event", type_="unique")
+        for name in targets:
+            b.drop_constraint(name, type_="unique")

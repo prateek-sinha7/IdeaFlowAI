@@ -167,9 +167,14 @@ def test_migration_0016_down_revision_is_0015() -> None:
     assert rev.down_revision == "0015", (
         f"0016 down_revision is {rev.down_revision!r}, expected '0015'"
     )
-    # And 0016 is the new head.
+    # The ledger must resolve to exactly ONE head. Asserting a hardcoded
+    # revision number here goes stale on every new migration (0016 was the head
+    # when this test was written); the invariant worth guarding is single-head,
+    # because a second head makes `alembic upgrade head` ambiguous and it fails
+    # with "Multiple head revisions are present" — which crash-loops the backend
+    # container, since docker-entrypoint.sh runs it under `set -eu`.
     heads = list(script.get_heads())
-    assert heads == ["0016"], f"expected single head 0016, got {heads}"
+    assert len(heads) == 1, f"expected a single head, got {heads}"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -186,8 +191,10 @@ def test_migration_0023_down_revision_is_0022() -> None:
     assert rev.down_revision == "0022", (
         f"0023 down_revision is {rev.down_revision!r}, expected '0022'"
     )
+    # Single-head, not a hardcoded revision number — see the note in
+    # test_migration_0016_down_revision_is_0015.
     heads = list(script.get_heads())
-    assert heads == ["0023"], f"expected single head 0023, got {heads}"
+    assert len(heads) == 1, f"expected a single head, got {heads}"
 
 
 def test_migration_0023_is_additive_only() -> None:
@@ -222,9 +229,7 @@ def test_migration_0026_is_additive() -> None:
     ONLY the two nullable task-identity columns (task_id + worker_index) and
     contains no drop/alter-narrow/drop-table of existing columns (RESUME-06).
     Source-level assertion — no DB round-trip (the round-trip lives in
-    tests/agents/test_subagent_runs.py). The 0016/0023 stale-head asserts above
-    are PRE-EXISTING (head is 0026 now) — this is a source-assertion, not a
-    head-chain assertion, so it does not add to that fail count."""
+    tests/agents/test_subagent_runs.py)."""
     mig = (
         _BACKEND_DIR
         / "alembic"
