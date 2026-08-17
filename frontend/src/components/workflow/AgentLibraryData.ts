@@ -1,3 +1,16 @@
+/**
+ * DEPRECATED — This file is no longer used in the main codebase.
+ *
+ * Agents are now fetched from GET /api/agents/library (populated by the backend's
+ * folder-scanned agent registry in agents/prompts/) and stored in Redux via
+ * agentsSlice. The useAgentLibrary hook consumes this Redux state directly.
+ *
+ * This file is kept for historical reference and test fixtures only. It became
+ * stale once the backend migrated to dynamic agent discovery (FIX-051/ISS-035).
+ *
+ * To use agent data: call useAgentLibrary() which returns Redux state from the API.
+ */
+
 import type { AgentDef } from "@/types/index";
 
 export const LIBRARY_AGENTS: AgentDef[] = [
@@ -9,12 +22,15 @@ export const LIBRARY_AGENTS: AgentDef[] = [
   { id: "backlog-reviewer", name: "Quality Review Agent", role: "Backlog Validation & Gap Analysis", description: "Reviews all stories for completeness, gaps, and quality before finalizing.", pipeline_type: "user_stories", order: 5, icon: "✅", estimated_duration: 34, has_skill: true, gate: null },
   { id: "backlog-compiler", name: "Delivery Compilation Agent", role: "Final Backlog Synthesis", description: "Compiles all stories into a clean, structured document ready for your team.", pipeline_type: "user_stories", order: 6, icon: "📦", estimated_duration: 51, has_skill: true, gate: null },
 
-  // PPT PIPELINE — real od_ppt agents (HTML deck pipeline). pipeline_type kept
-  // as "ppt" (the category key the agent-selector UI filters on); real ids/metadata
-  // sourced from backend agents.registry["ppt"] (the loader-backed od-ppt-* agents).
-  { id: "od-ppt-brief-analyst", name: "Presentation Strategist Agent", role: "Slide Plan & Content Architecture", description: "Analyses the brief and architects the slide-by-slide plan, narrative arc, and content structure for the deck.", pipeline_type: "ppt", order: 1, icon: "📋", estimated_duration: 8, has_skill: true, gate: null },
-  { id: "od-ppt-composer", name: "Deck Engineer Agent", role: "HTML Deck Construction", description: "Builds the complete HTML presentation from the plan — every slide, chart, and visual element wired to the template.", pipeline_type: "ppt", order: 2, icon: "🖥️", estimated_duration: 30, has_skill: true, gate: null },
-  { id: "od-ppt-validator", name: "Deck QA Agent", role: "Structural Validation & Delivery", description: "Validates the deck for structural integrity and presentation correctness, then packages it ready for delivery.", pipeline_type: "ppt", order: 3, icon: "📦", estimated_duration: 10, has_skill: true, gate: null },
+  // PPT PIPELINE — real od_ppt agents (HTML deck pipeline). od_ppt's agent set
+  // now owns the "ppt" id directly (backend AGENT.md frontmatter declares
+  // pipeline_type: ppt; the legacy 3-field "ppt" workflow is archived —
+  // backend/agents/workflows/.archive/ppt/). pipeline_type here matches what
+  // GET /api/agents/library returns — the category key the agent-selector UI
+  // filters on.
+  { id: "ppt-brief-analyst", name: "Presentation Strategist Agent", role: "Slide Plan & Content Architecture", description: "Analyses the brief and architects the slide-by-slide plan, narrative arc, and content structure for the deck.", pipeline_type: "ppt", order: 1, icon: "📋", estimated_duration: 8, has_skill: true, gate: null },
+  { id: "ppt-composer", name: "Deck Engineer Agent", role: "HTML Deck Construction", description: "Builds the complete HTML presentation from the plan — every slide, chart, and visual element wired to the template.", pipeline_type: "ppt", order: 2, icon: "🖥️", estimated_duration: 30, has_skill: true, gate: null },
+  { id: "ppt-validator", name: "Deck QA Agent", role: "Structural Validation & Delivery", description: "Validates the deck for structural integrity and presentation correctness, then packages it ready for delivery.", pipeline_type: "ppt", order: 3, icon: "📦", estimated_duration: 10, has_skill: true, gate: null },
 
   // PROTOTYPE PIPELINE — real spec-kit agents. pipeline_type "prototype" is the
   // category key the agent-selector UI filters on; real ids/metadata/gate sourced

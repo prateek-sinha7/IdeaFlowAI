@@ -73,6 +73,17 @@ interface InlineGateActionsProps {
    * SC-001: never a workflow/agent literal — structurally derived server-side.
    */
   artifactKind?: string;
+  /**
+   * ISS-052 — the per-FIRING discriminator from the backend. `gateKey` names a gate
+   * SLOT, not a firing, so the gate opened INSIDE a spec-revision pass and the one
+   * re-opened after that pass returns arrive with the SAME `gateKey` and the SAME
+   * `output`. `revisionCycle` is which cycle this firing belongs to (0 = none has run);
+   * `revisionInFlight` is whether the pass is still on the stack. Two jobs here: the
+   * badge (so the two do not read identically) and the re-arm dependency below (so the
+   * one-action latch releases when the second gate opens). SC-001: generic run state.
+   */
+  revisionCycle?: number;
+  revisionInFlight?: boolean;
   /** KAN-100 terminal fence: actions render only while the pipeline is live. */
   isPipelineRunning: boolean;
   /** Caller-supplied primary-action label (e.g. "Accept & continue to build"). */
@@ -90,6 +101,8 @@ export function InlineGateActions({
   redoable,
   updateSpecsEligible,
   artifactKind,
+  revisionCycle = 0,
+  revisionInFlight = false,
   isPipelineRunning,
   approveLabel,
   onApprove,
@@ -113,8 +126,15 @@ export function InlineGateActions({
   // the next gate event (fresh output), preventing a double-send.
   const [submitted, setSubmitted] = useState(false);
 
-  // Fresh gate only: new output OR new gateKey resets everything. A no-echo
-  // re-render with the SAME output leaves the retained edit intact (KAN-98).
+  // Fresh gate only: a new output, a new gateKey, OR a new revision stamp resets
+  // everything. A no-echo re-render with all four unchanged leaves the retained edit
+  // intact (KAN-98).
+  //
+  // ISS-052: the stamp is load-bearing, not decorative. When a spec-revision pass
+  // returns, the SAME gate re-opens with the SAME gateKey and byte-identical output
+  // (live: 11,974 chars, 5 ms after the approve). On `[output, gateKey]` alone nothing
+  // in the dependency list changes, so this effect never re-runs, `submitted` stays
+  // latched, and the user faces a live gate with every action disabled.
   useEffect(() => {
     setEditedContent(output);
     setHasEdits(false);
@@ -124,7 +144,7 @@ export function InlineGateActions({
     setRedoInstructions("");
     setShowRedo(false);
     setSubmitted(false);
-  }, [output, gateKey]);
+  }, [output, gateKey, revisionCycle, revisionInFlight]);
 
   const canRedo = !!onRedo && !!redoable;
   const canUpdateSpecs = !!onUpdateSpecs && !!updateSpecsEligible;
@@ -184,6 +204,24 @@ export function InlineGateActions({
         <p className="text-[11px] font-semibold text-ink-900 flex-1 min-w-0 truncate">
           {agentName} · review before continuing
         </p>
+        {/* ISS-052: the two spec-revision firings of this gate are otherwise identical
+            on screen — same agent, same output, same actions bar. Name the cycle and
+            say whether the revision is still running. Dormant (renders nothing) on
+            every gate outside a revision cycle. SC-001: server-derived state only. */}
+        {revisionCycle > 0 && (
+          <span
+            data-testid="chat-gate-revision"
+            className={`flex-shrink-0 text-[8.5px] font-semibold uppercase tracking-wider px-1.5 py-1 rounded border ${
+              revisionInFlight
+                ? "text-status-amber bg-status-amber-fill border-status-amber-border"
+                : "text-brand bg-brand-fill border-brand-border"
+            }`}
+          >
+            {revisionInFlight
+              ? `Revision cycle ${revisionCycle} · in progress`
+              : `Revision cycle ${revisionCycle} · complete`}
+          </span>
+        )}
         <button
           type="button"
           onClick={() => setShowEdit((v) => !v)}

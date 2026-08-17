@@ -1,16 +1,18 @@
-# user_stories — 6-agent user-story backlog pipeline.
-# Step order = PIPELINE_AGENTS["user_stories"] (== get_pipeline_agents order).
-# planner: run — SKIP_PLANNER_FOR_PROTOTYPE=False, every pipeline runs the planner.
-# clarify.defaults reproduced verbatim from engine._pipeline_defaults["user_stories"]
-# (engine.py:757). Pure data — no control-flow/DSL.
 id: user_stories
 version: 1
-# Catalog (Plan 20-01): declared launchability — inert metadata.
-# display_name (UXFIX-01/22-07): authored friendly catalog label — presentation
-# only, never read by the compiler/kernel (INV-3 parity preserved).
 user_launchable: true
-display_name: "Generate product requirements"
-description: "Epics, user stories, and Gherkin acceptance criteria — ready for Jira."
+is_beta: false
+display_name: Generate product requirements
+short_name: User Stories
+icon: FileText
+description: Epics, user stories, and Gherkin acceptance criteria — ready for Jira.
+chained_from:
+- id: prototype
+  beta: false
+  text: Document the features
+- id: ppt
+  beta: false
+  text: Define what to build
 planner: run
 clarify:
   mode: auto
@@ -19,8 +21,10 @@ clarify:
   # new items cover the user-story-specific dimensions (personas/roles,
   # user journeys, business rules, compliance/integrations) that are
   # consistently missing from short prompts and materially affect epic/story
-  # quality. ClarifyEngine caps at 5 per round — with 8 defaults a 2-round
-  # clarify handles all 8 when missing, or fewer when the brief is richer.
+  # quality. ClarifyEngine caps at ~5 questions per round; rounds: 2 below lets
+  # a second round pick up genuinely unresolved topics from the 8 (skipped
+  # early if nothing is left, and never forced on a user who skips round 1).
+  rounds: 2
   defaults: [target_audience, scope, priority, technology, personas, user_journeys, business_rules, compliance_security]
 deliverable:
   strategy: streamed_text
@@ -28,21 +32,22 @@ deliverable:
 context_providers: []
 seed_files: {}
 steps:
-  - agent: domain-analyst
-    strategy: single_shot
-    gates: []
-  - agent: epic-architect
-    strategy: single_shot
-    gates: []
-  - agent: story-estimator
-    strategy: single_shot
-    gates: []
-  - agent: nfr-specialist
-    strategy: single_shot
-    gates: []
-  - agent: backlog-reviewer
-    strategy: single_shot
-    gates: []
-  - agent: backlog-compiler
-    strategy: single_shot
-    gates: []
+- agent: domain-analyst
+  strategy: single_shot
+  gates: []
+- agent: epic-architect
+  strategy: single_shot
+  gates: []
+- agent: story-estimator
+  strategy: single_shot
+  gates: []
+- agent: nfr-specialist
+  strategy: single_shot
+  gates: []
+- agent: backlog-reviewer
+  strategy: single_shot
+  gates: []
+- agent: backlog-compiler
+  strategy: single_shot
+  gates: []
+name: User Stories

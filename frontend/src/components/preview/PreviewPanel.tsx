@@ -16,6 +16,7 @@ import { ReadOnlyVersionBanner } from "./ReadOnlyVersionBanner";
 // deliverable renderer (ND-G) with a real-filename URL bar (ND-D) + the "Renders
 // as" segmented type switch. A passive frame — no content rendering here.
 import { PreviewChrome, RendersAsSwitch } from "./PreviewChrome";
+import { useTheme } from "@/hooks/useTheme";
 // Phase 39 (RUNUI-06/07) — the mock's right-column run header (Version menu /
 // Share / Download / status badge) mounts above the tab row. It supersedes the
 // old in-preview version pill (INV-3/INV-12 — one version affordance).
@@ -175,6 +176,26 @@ function AppBuilderIDEPreview({
 //   • application/zip…  → the AppBuilder file-bundle view (parsed from content).
 //   • anything else     → a safe download affordance — never inline/execute an
 //                          unknown type (T-18-06).
+// A raw HTML deliverable that sets no background of its own renders on the
+// browser's UA-default white canvas — a jarring white hole when our viewer
+// chrome is in dark theme. We don't touch the deliverable's own bytes if it
+// DOES style itself: this only supplies a fallback default, inserted right
+// after <head> (or prepended if there's no <head>) so any of the page's own
+// <style>/<link> rules — which come later in source order — still win on an
+// equal-specificity `html,body{background:...}` tie.
+const DARK_IFRAME_DEFAULT_STYLE =
+  "<style>:root{color-scheme:dark}html,body{background:#0D0D0D;color:#F5F5F5}</style>";
+
+function withDarkIframeDefault(html: string, dark: boolean): string {
+  if (!dark) return html;
+  const headMatch = html.match(/<head[^>]*>/i);
+  if (headMatch) {
+    const idx = html.indexOf(headMatch[0]) + headMatch[0].length;
+    return html.slice(0, idx) + DARK_IFRAME_DEFAULT_STYLE + html.slice(idx);
+  }
+  return DARK_IFRAME_DEFAULT_STYLE + html;
+}
+
 function GenericDeliverablePreview({
   deliverable,
   agentOutputs,
@@ -182,6 +203,7 @@ function GenericDeliverablePreview({
   deliverable: GenericDeliverable;
   agentOutputs?: import("@/components/results/FilesTab").AgentOutputItem[];
 }) {
+  const { theme } = useTheme();
   const mimetype = (deliverable.mimetype || "").toLowerCase();
   const content = deliverable.content || "";
 
@@ -196,7 +218,7 @@ function GenericDeliverablePreview({
       <div className="h-full flex flex-col overflow-hidden">
         <div className="flex-1 min-h-0 overflow-hidden">
           <iframe
-            srcDoc={content}
+            srcDoc={withDarkIframeDefault(content, theme === "dark")}
             className="w-full h-full border-0"
             title="Deliverable Preview"
             sandbox="allow-scripts"
@@ -551,8 +573,6 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // Normalize revision types to their base type for rendering
   const renderType = detectedType === "user_stories_revision" ? "user_stories"
     : detectedType === "ppt_revision" ? "ppt"
-    : detectedType === "od_ppt" ? "ppt"
-    : detectedType === "od_ppt_revision" ? "ppt"
     : detectedType === "prototype_revision" ? "prototype"
     : detectedType === "od_prototype" ? "prototype"
     : detectedType === "app_builder_revision" ? "app_builder"
@@ -1006,10 +1026,9 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
             <PPTTabActions
               content={pptContent}
               pptxCode={pptxCode}
-              isOdPpt={
-                rawPipelineType === "od_ppt" || rawPipelineType === "od_ppt_revision" ||
-                detectedType === "od_ppt" || detectedType === "od_ppt_revision"
-              }
+              // Every ppt run is now the HTML-deck pipeline (the legacy
+              // PptxGenJS pipeline is retired) — always the HTML-download path.
+              isOdPpt={true}
             />
           )}
         </div>

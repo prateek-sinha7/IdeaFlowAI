@@ -60,7 +60,39 @@ def _extract_docx(data: bytes) -> str:
     try:
         from docx import Document
         doc = Document(io.BytesIO(data))
-        return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        parts: list[str] = []
+
+        # Body paragraphs — the only content _extract_docx collected before this fix.
+        body_text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        if body_text:
+            parts.append(body_text)
+
+        # Tables — python-docx walks <w:tbl> nodes separately from <w:p> top-level
+        # paragraphs, so doc.paragraphs never includes table cell text.  Pricing
+        # tables, requirements matrices, and comparison tables in a Word spec doc
+        # were silently dropped before this fix.  One row per line, cells pipe-
+        # separated; [Table]/[/Table] markers let the downstream LLM identify the
+        # chunk as tabular.  Note: merged (spanned) cells repeat their text once
+        # per grid column they span — cosmetically redundant but not wrong.
+        for table in doc.tables:
+            rows = []
+            for row in table.rows:
+                cells = [cell.text.replace("\n", " ").strip() for cell in row.cells]
+                if any(cells):
+                    rows.append(" | ".join(cells))
+            if rows:
+                parts.append("[Table]\n" + "\n".join(rows) + "\n[/Table]")
+
+        # Headers/footers — exposed by doc.sections[i].header/.footer, each with a
+        # .paragraphs collection identical to the document body.  Often carries doc
+        # title, confidentiality banners, or version/date info that agents need.
+        for section in doc.sections:
+            for label, sec_part in (("Header", section.header), ("Footer", section.footer)):
+                text = "\n".join(p.text for p in sec_part.paragraphs if p.text.strip())
+                if text:
+                    parts.append(f"[{label}]\n{text}\n[/{label}]")
+
+        return "\n\n".join(parts)
     except Exception as exc:
         logger.warning("DOCX extraction failed: %s", exc)
         return ""

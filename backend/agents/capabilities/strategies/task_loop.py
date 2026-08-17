@@ -556,11 +556,20 @@ class TaskLoopStrategy:
             # tool call, no bloat in design.md. This is the authoritative CSS class/
             # component reference the agent should use when making visual edits.
             # Best-effort: silently skipped when no example.html exists for the template.
+            #
+            # ISS-068: read the example through the ``template_example`` PORT on the D-03
+            # handle, never by importing od_context directly — a capability importing
+            # agents.execution_engine (which itself imports app.services.od_loader) breaks
+            # the "agents.capabilities must not import the execution kernel or the web
+            # layer" import-linter contract. The port is the same bytes and the same
+            # EXAMPLE_MAX_CHARS cap (KernelServices.template_example → engine.
+            # _load_template_example → od_context.get_example_html). The ``hasattr`` guard
+            # mirrors the context_providers/opendesign.py consumer, because the unit-test
+            # fakes set only a bare ``ctx.runner``.
             _tid = od.get("template_id", "") or ""
-            if _tid:
+            if _tid and hasattr(runner, "template_example"):
                 try:
-                    from agents.execution_engine.od_context import get_example_html
-                    _example = get_example_html(_tid)
+                    _example = runner.template_example(_tid)
                     if _example:
                         runner.sandbox.write("template.html", _example)
                         logger.info(

@@ -1,0 +1,108 @@
+### CASE 2 — saved user_workflow, flat/file-backed composition (Hello Poet)
+#
+# Middle case of the launch_run() 3-way branch: `user_workflow_id` IS present,
+# but the row's `manifest_json` is null (no spec-012 step tree) -- it's a
+# saved workflow that's still just real, file-backed agents (emoji-picker,
+# writer, presenter for hello_html), personalized with attached_skills/
+# attached_hooks stored on the row.
+#
+# NOTE ON WHERE THINGS STAND: at the time this file was written, the backend's
+# `user_workflow_id` handling is a DEBUG STUB ONLY (run_commands.py) -- it
+# looks up the row and PRINTS "CASE 2", but does NOT yet source
+# pipeline_type/agent_ids/attached_skills/attached_hooks FROM the row. So this
+# request still sends pipeline_type + agent_ids + attached_hooks explicitly,
+# same as today's real (accidental) working payload -- the run itself should
+# still complete normally. What this script proves is ONLY that the
+# CASE-DETECTION fires correctly (watch the backend console for "CASE 2").
+# Once the real fix lands (source everything from the row, ignore/reject a
+# conflicting agent_ids), Step 2 below should be simplified to send ONLY
+# user_workflow_id + message.
+#
+# Real saved-workflow id used below: "Hello Poet" (624c96b1-c52e-4f4c-bacc-31676d25bdbf),
+# base_pipeline_type=hello_html, manifest=null, agent_ids=[emoji-picker,writer,presenter].
+# Override with USER_WORKFLOW_ID=<id> if your seed data differs.
+#
+# TEMPLATE NOTE: this file (and its case1/case3 siblings) is a thin shell over
+# two shared modules -- lib/api-line.js (console line printer) and
+# lib/stream-subscribe.js (the full SSE transcript handler, identical across
+# all three). Only Step 2's payload differs per case.
+#
+# Run with: httpyac send --all -e local --output none tools/api/runs/run.case2.http
+# Or via the wrapper (also saves logs/artifacts): ./run-http.sh case2
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	exports.jwt = response.parsedBody.token;
+	exports.userWorkflowId = process.env.USER_WORKFLOW_ID || '624c96b1-c52e-4f4c-bacc-31676d25bdbf';
+	apiLine('POST /api/auth/login -> ' + response.statusCode + ' ' + response.parsedBody.user.email);
+	apiLine('target user_workflow_id: ' + exports.userWorkflowId + ' (override with USER_WORKFLOW_ID=<id>)');
+}}
+
+### 1b. Sanity check -- confirm the row exists, is owned, and is the flat shape (manifest: null)
+GET {{apiRoot}}/api/user-workflows/{{userWorkflowId}}
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const body = response.parsedBody;
+	apiLine('GET /api/user-workflows/' + userWorkflowId + ' -> ' + response.statusCode
+		+ ' name=' + JSON.stringify(body.name) + ' manifest=' + (body.manifest ? 'PRESENT (would be CASE 3!)' : 'null (CASE 2, as expected)'));
+}}
+
+### 2. Launch -- user_workflow_id present, row's manifest_json is null.
+# THIS BLOCK IS THE ONLY PART THAT DIFFERS BETWEEN CASE FILES.
+{{
+	const payload = {
+		user_workflow_id: userWorkflowId,
+		pipeline_type: "hello_html",
+		agent_ids: ["emoji-picker", "writer", "presenter"],
+		message: process.env.HELLO_WORD || 'lighthouse',
+		attached_hooks: [{
+			id: "post-design-quality",
+			name: "Design Quality Check X",
+			event: "PostToolUse",
+			trigger: "After Edit / Write on frontend files",
+			description: "Warns when frontend edits drift toward generic template-looking UI. Keeps visual output distinctive and intentional.",
+		}],
+	};
+	exports.launchBody = JSON.stringify(payload);
+}}
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{{launchBody}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	apiLine('POST /api/runs payload: ' + request.body);
+	apiLine('POST /api/runs -> ' + response.statusCode);
+	apiLine('CHECK THE BACKEND CONSOLE NOW -- it must have printed "CASE 2" for this request.');
+	if (response.statusCode >= 400) {
+		apiLine('FAILED: ' + JSON.stringify(response.parsedBody), 'error');
+	} else {
+		exports.runId = response.parsedBody.run_id;
+		apiLine('launched run=' + exports.runId);
+	}
+}}
+
+### 3. Stream events over SSE, wait for completion (skipped entirely when the launch above failed --
+# runId is undefined in that case, and {{runId}} in the URL below would throw before this request
+# even opens; @disabled skips the whole request/script block up front instead).
+# @disabled !runId
+SSE {{apiRoot}}/api/runs/{{runId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	await require('./lib/stream-subscribe.js')(runId, $requestClient);
+}}

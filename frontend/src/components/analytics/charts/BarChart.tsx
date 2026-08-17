@@ -103,9 +103,9 @@ export function BarChart({ data, ariaLabel, chroma = "var(--brand)" }: BarChartP
                 opacity: barOpacity,
               }}
             />
-            <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-ink-900 text-white text-[9px] px-2 py-1 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg">
+            <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-surface-near-black text-white text-[9px] px-2 py-1 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg">
               {tip}
-              <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[var(--ink-900)]" />
+              <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[var(--surface-near-black)]" />
             </div>
           </div>
         );

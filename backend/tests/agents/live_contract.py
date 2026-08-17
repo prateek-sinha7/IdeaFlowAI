@@ -145,6 +145,12 @@ _ENGINE_EVENT_TYPES: frozenset[str] = frozenset(
         "task_progress",
         "task_loop_progress",
         "agent_complete",
+        # Progressive-disclosure skills (spec 011): emitted once per step that
+        # stages skills into the sandbox. This is a SECOND vocabulary list — the
+        # other is `_DOCUMENTED_EVENT_TYPES` in test_phase3_cutover_verify.py.
+        # 011 declared the event there but not here, so every engine-world
+        # capture failed with "UNKNOWN event type 'agent_skills'" (40 tests).
+        "agent_skills",
         "review_gate_ready",
         "review_gate_approved",
         # Clarify (Human_Gate) — emitted by ClarifyEngine when the planner returns

@@ -5,6 +5,7 @@ consumes:
 context_from:
 - mulesoft-decomposition
 - mulesoft-test-compliance
+description: Designs the parallel-run harness against the legacy Mule app, cutover gates, and rollback runbook.
 estimated_duration: 8.0
 guardrails:
 - mulesoft

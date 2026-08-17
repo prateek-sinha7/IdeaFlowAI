@@ -33,6 +33,7 @@ job.
 
 from __future__ import annotations
 
+import asyncio
 import json as _json
 import re
 import uuid
@@ -427,8 +428,14 @@ async def test_midwave_resume_does_not_reinvoke_completed_workers():
         # exception) and leaves the run non-terminal — either way wave 0 is durably
         # complete. Tolerate both shapes (the dispatch loop may catch + surface, or
         # propagate) so the test asserts on the DURABLE state, not the control flow.
+        # Drive the PUBLIC entry: ``execute`` is where the durable ``_RunEventSink`` is
+        # built and every stamped event persisted (engine.py:1020/:1065). ``_execute_impl``
+        # persists nothing, so calling it directly would leave instance A with artifacts
+        # but ZERO ``run_events`` — and the resume classifier reads its completeness
+        # evidence from exactly those rows. The point of this test is that instance A
+        # writes its own durable substrate, so it must go through the sink (TEST-013).
         try:
-            async for ev in engine_a._execute_impl(
+            async for ev in engine_a.execute(
                 agents=list(h.specs),
                 user_message="Run the wave workflow.",
                 pipeline_run_id=run_id,
@@ -1116,7 +1123,9 @@ async def test_waiting_for_user_uncompilable_type_keeps_wr05_fail():
 # five-action consumer so approve/reject/edit/redo/update_specs all work post-restart.
 
 
-async def _build_open_review_gate_fixture(session, *, gated_index=1, seed_gate=True):
+async def _build_open_review_gate_fixture(
+    session, *, gated_index=1, seed_gate=True, lifecycle="complete"
+):
     """Seed a durable single_shot run PARKED at a review gate on ``ordered_agents[gated_index]``.
 
     Three single_shot agents; agent[0] AND the gated agent BOTH produced their typed
@@ -1125,6 +1134,16 @@ async def _build_open_review_gate_fixture(session, *, gated_index=1, seed_gate=T
     ``review_gate_ready`` with ``gate_key = {run}:{gated agent}`` is appended (no
     resolution ⇒ ``derive_open_gate`` → ``("review", key)``). Returns
     ``(ordered_agents, compiled, tmp, gated_index)`` for a direct classifier call.
+
+    ``lifecycle`` selects the durable AGENT-lifecycle evidence written beside each
+    artifact — the second half of the completeness predicate (FIX-121):
+
+      * ``"complete"`` (default, what a finished agent persists) — ``agent_complete``;
+      * ``"start_only"`` — ``agent_start`` with no terminal event: the agent was STOPPED
+        between its artifact write and its completion event;
+      * ``"none"`` — no lifecycle rows at all.
+
+    The last two are the fail-safe shapes: an artifact ALONE never proves completeness.
     """
     import types
 
@@ -1143,7 +1162,12 @@ async def _build_open_review_gate_fixture(session, *, gated_index=1, seed_gate=T
     agent_ids = ["og-a", "og-b", "og-c"]
     gated_id = agent_ids[gated_index]
     pre_store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
-    # agent[0] and the gated agent both produced their durable summary artifact.
+    # agent[0] and the gated agent both produced their durable summary artifact — and,
+    # as a real run does, each also persisted its terminal ``agent_complete`` beside it
+    # (engine.py:4392). The classifier requires BOTH (FIX-121: an artifact with no
+    # terminal event means the agent was stopped mid-flight and MUST be re-entered), so
+    # a fixture that seeds the ref alone is not modelling a completed agent (TEST-013).
+    _seq = 0
     for produced_id in (agent_ids[0], gated_id):
         content = f"<output of {produced_id}>"
         await pre_store.write_ref(
@@ -1154,9 +1178,16 @@ async def _build_open_review_gate_fixture(session, *, gated_index=1, seed_gate=T
                 location=f"artifact_refs/{produced_id}", version=1,
             )
         )
+        if lifecycle != "none":
+            _seq += 1
+            _ltype = "agent_complete" if lifecycle == "complete" else "agent_start"
+            await pre_store.append_event(
+                run_id, seq=_seq, event_id=f"og-{_ltype}-{produced_id}", type=_ltype,
+                payload_json={"agent_id": produced_id},
+            )
     if seed_gate:
         await pre_store.append_event(
-            run_id, seq=1, event_id="og-rg", type="review_gate_ready",
+            run_id, seq=_seq + 1, event_id="og-rg", type="review_gate_ready",
             payload_json={"gate_key": f"{run_id}:{gated_id}"},
         )
     session.commit()
@@ -1200,8 +1231,43 @@ async def test_open_gate_override_is_noop_without_review_gate():
         session, seed_gate=False
     )
     idx = await ExecutionEngine()._first_incomplete_step(tmp, ordered_agents, compiled)
-    # agent[0] + gated agent produced; agent[2] did NOT → first incomplete is index 2.
+    # agent[0] + gated agent produced AND persisted agent_complete; agent[2] did NOT
+    # → first incomplete is index 2.
     assert idx == 2, f"no open gate ⇒ the normal produced-disjunct offset (2); got {idx}"
+    session.close()
+
+
+@pytest.mark.parametrize("lifecycle", ["start_only", "none"])
+@pytest.mark.asyncio
+async def test_artifact_without_agent_complete_is_reentered_not_skipped(lifecycle):
+    """FIX-121 (TEST-013 — the shipped predicate had NO test): a durable typed artifact
+    is NOT on its own proof that a step finished. A step is complete only when the
+    artifact is corroborated by a terminal ``agent_complete`` (or a
+    ``step_completed``/``step_reused`` event); absent that, the classifier re-enters.
+
+    This is the invariant behind the user-reported bug ``c71f3d9c`` fixed: a Stop during
+    the Spec Kit Analyzer re-raises ``CancelledError`` WITHOUT emitting ``agent_error``
+    (engine.py:4521-4522), so the analyzer had persisted its artifact and no terminal
+    event — and the pre-fix ``produced_agents`` disjunct skipped it on resume, showing
+    the user no data for that step.
+
+    Both shapes must re-enter, and for the same reason — absence of terminal evidence is
+    never evidence of completion. The fail-safe direction is re-run (correct-but-wasteful),
+    because the inverse is silent data loss. ``agent[0]`` and the gated agent BOTH hold a
+    durable artifact, so a predicate that trusted the artifact alone would answer 2.
+    """
+    from agents.execution_engine.engine import ExecutionEngine
+
+    session, db_engine = _make_session()
+    ordered_agents, compiled, tmp, _gated = await _build_open_review_gate_fixture(
+        session, seed_gate=False, lifecycle=lifecycle
+    )
+    idx = await ExecutionEngine()._first_incomplete_step(tmp, ordered_agents, compiled)
+    assert idx == 0, (
+        f"an artifact with lifecycle={lifecycle!r} (no agent_complete) must re-enter its "
+        f"step (idx == 0); got idx={idx} — the classifier skipped a step it cannot prove "
+        f"finished, which is FIX-121's data-loss bug"
+    )
     session.close()
 
 
@@ -1280,7 +1346,8 @@ async def test_gate_reentry_all_five_actions_post_restart(action):
     gate_n = {"n": 0}
 
     async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False,
-                    update_specs_eligible=False, artifact_kind=None, cancel_event=None):
+                    update_specs_eligible=False, artifact_kind=None, cancel_event=None,
+                    **kwargs):  # absorb additive gate discriminators (ISS-052 / FIX-220)
         i = gate_n["n"]
         gate_n["n"] += 1
         captured_outputs.append(output)
@@ -1358,7 +1425,8 @@ async def test_gate_reentry_redo_numbering_continues_past_pre_restart_redos():
     gate_n = {"n": 0}
 
     async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False,
-                    update_specs_eligible=False, artifact_kind=None, cancel_event=None):
+                    update_specs_eligible=False, artifact_kind=None, cancel_event=None,
+                    **kwargs):  # absorb additive gate discriminators (ISS-052 / FIX-220)
         i = gate_n["n"]
         gate_n["n"] += 1
         yield {"type": "review_gate_ready", "data": {
@@ -1405,7 +1473,8 @@ async def test_gate_reentry_update_specs_writes_audit_row_a2():
     gate_n = {"n": 0}
 
     async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False,
-                    update_specs_eligible=False, artifact_kind=None, cancel_event=None):
+                    update_specs_eligible=False, artifact_kind=None, cancel_event=None,
+                    **kwargs):  # absorb additive gate discriminators (ISS-052 / FIX-220)
         i = gate_n["n"]
         gate_n["n"] += 1
         yield {"type": "review_gate_ready", "data": {
@@ -1495,6 +1564,15 @@ async def _build_partial_build_fixture(session, *, seed_task_ids):
             location="tasks.md",
             version=1,
         )
+    )
+    # The plan step is a completed single_shot agent, so a real run persisted its
+    # terminal ``agent_complete`` alongside the ref (engine.py:4392). Without it the
+    # classifier stops at index 0 on the PLAN step — fail-safe and correct (FIX-121) —
+    # and the task_loop branch these two tests exist to exercise is never reached
+    # (TEST-013).
+    await pre_store.append_event(
+        run_id, seq=1, event_id="pb-ac-plan", type="agent_complete",
+        payload_json={"agent_id": "prototype-plan"},
     )
     for tid in seed_task_ids:
         body = f"<partial task {tid}>"
@@ -2629,15 +2707,20 @@ async def test_resumed_run_is_wired_live_ectx_and_milestone_cards():
             return None
         card_state["emitted"] = True
         src_event_id = (event.get("data") or {}).get("event_id")
+        reply_eid = f"chat_reply:{src_event_id}"
         created, card_seq = await store.append_event_next_seq(
             rid,
-            event_id=f"chat_reply:{src_event_id}",
+            event_id=reply_eid,
             type="chat_reply",
             payload_json={"kind": "milestone", "text": "resumed"},
         )
         card = {"kind": "milestone", "text": "resumed"}
-        emitted_cards.append((created, card_seq, card))
-        return (created, card_seq, card)
+        # FIX-175 contract: the sink returns (created, seq, card, reply_eid) — the
+        # DB row's own event_id, so the engine can stamp it on the live SSE yield
+        # (chat_narrator.persist_milestone_card:287-289; unpacked at engine.py:1077
+        # and :8491). A 3-tuple breaks the drive itself, not just this test.
+        emitted_cards.append((created, card_seq, card, reply_eid))
+        return (created, card_seq, card, reply_eid)
 
     call_log: dict[str, int] = {}
     with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
@@ -3042,8 +3125,11 @@ async def test_failed_run_resumes_skips_completed_tasks(monkeypatch):
         session, call_log, fail_on=set(), db_engine=db_engine, raise_on_fanout_call=2
     ) as h:
         engine_a = h.make_engine()
+        # ``execute``, not ``_execute_impl`` — the durable ``_RunEventSink`` lives in the
+        # public entry (engine.py:1020/:1065), and this test's whole premise is a resume
+        # that reads the durable rows instance A wrote for itself (TEST-013).
         try:
-            async for _ev in engine_a._execute_impl(
+            async for _ev in engine_a.execute(
                 agents=list(h.specs),
                 user_message="Run the wave workflow.",
                 pipeline_run_id=run_id,
@@ -3497,6 +3583,71 @@ def test_apply_terminal_output_columns_populates_all_columns():
     assert wr.model_id == "claude-x"
 
 
+@pytest.mark.parametrize(
+    "tail,expected",
+    [
+        # KAN-120, the case ``resume_supersedes`` exists for: attempt 1 was cancelled,
+        # a LATER attempt (run_resuming + pipeline_start) ran to completion.
+        (
+            [("pipeline_start", 1), ("pipeline_cancelled", 2), ("run_resuming", 3),
+             ("pipeline_start", 4), ("pipeline_complete", 5)],
+            "completed",
+        ),
+        # FIX-229 / ISS-078: the user REJECTED at a re-entered gate. The cancellation and
+        # the completion are the SAME attempt — the engine emits pipeline_cancelled and the
+        # dispatch loop falls through to the run's single pipeline_complete emitter — so
+        # the rejection stands. Pre-fix this reconciled to "completed": a silent status lie.
+        (
+            [("run_resuming", 1), ("pipeline_start", 2), ("review_gate_ready", 3),
+             ("pipeline_cancelled", 4), ("pipeline_complete", 5)],
+            "cancelled",
+        ),
+        # A rejection on a LATER attempt than a completion is still a rejection.
+        (
+            [("pipeline_start", 1), ("pipeline_complete", 2), ("run_resuming", 3),
+             ("pipeline_start", 4), ("pipeline_cancelled", 5)],
+            "cancelled",
+        ),
+    ],
+    ids=["later-attempt-completes", "same-attempt-rejection", "later-attempt-rejects"],
+)
+@pytest.mark.asyncio
+async def test_reconcile_supersedes_only_across_an_attempt_boundary(
+    monkeypatch, tail, expected
+):
+    """FIX-229 (TEST-013 — ``resume_supersedes`` shipped with NO test): the reconcile must
+    ask *"did a LATER ATTEMPT succeed?"*, not *"is there a pipeline_complete at a higher
+    seq?"*. An attempt boundary is a ``run_resuming``/``pipeline_start`` row; only a
+    completion separated from the last cancellation by one supersedes it."""
+    from agents.authz import ScopedStore
+    from app.models.workflow import WorkflowRun
+
+    session, db_engine = _make_session()
+    run_id = f"rc-{uuid.uuid4().hex[:8]}"
+    owner = "rc-user"
+    ws = "ws-rc"
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="generating", workspace_id=ws
+    )
+    store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+    for type_, seq in tail:
+        await store.append_event(
+            run_id, seq=seq, event_id=f"rc-{seq}", type=type_, payload_json={},
+        )
+    session.commit()
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        rc = _wire_user_resume_drive(monkeypatch, db_engine, h.make_engine())
+        await rc._reconcile_terminal_status(run_id)
+
+    session.expire_all()
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    assert row.status == expected, (
+        f"tail {[t for t, _ in tail]} must reconcile to {expected!r}; got {row.status!r}"
+    )
+    session.close()
+
+
 @pytest.mark.asyncio
 async def test_user_resume_persists_output_columns(monkeypatch):
     """END-TO-END (BUG-R03): a run crashed mid-build then USER-resumed to completion persists
@@ -3700,4 +3851,752 @@ async def test_stop_at_clarify_yields_pipeline_cancelled(monkeypatch):
         await agen.aclose()
 
     assert saw_cancelled, "Stop at clarify must yield the existing pipeline_cancelled terminal"
+    session.close()
+
+
+# ===========================================================================
+# D2 (BUGFIX-SPEC-REVISION-CONTEXT §2) — a resumed run must REHYDRATE its
+# planning context from the durable rows, not rebuild it from the stub.
+#
+# `_execute_impl`'s skip-planner branch calls `_default_planning_context(user_message)`
+# on every resume, so `inferred_intent` collapses to `user_message[:200]` and every
+# list comes back empty — measured 4,591 -> 291 chars across 16 of 18 dispatches on the
+# reported run. The durable `planning_context` + `clarifications` rows ARE already in
+# `ectx.artifacts` at that point (RESUME-04 hydrates every kind at engine.py:1406), so
+# the fix is a pure read: rehydrate, never re-invoke (TRAP 4 / BUG-R05 —
+# `test_offset0_gate_resume_does_not_replan_or_reclarify` guards the re-invoke).
+#
+# Both tests carry `rehydrat` in their name so `-k rehydrat` selects exactly this pair.
+# ===========================================================================
+
+
+_REHYDRATE_INTENT = "PLANNER-INTENT-SENTINEL: a governed claims-intake workbench"
+_REHYDRATE_ANSWER = "SPINNAKER-SENTINEL"
+_REHYDRATE_QUESTION = "Which deployment target?"
+
+
+def _rehydrate_planner_json(explicit_constraints=None) -> str:
+    """The durable planner row. ``explicit_constraints`` is overridable so the
+    malformed-shape test can inject the raw, unvalidated LLM JSON the planner really
+    persists (a non-list, or a list holding non-strings)."""
+    return _json.dumps({
+        "inferred_intent": _REHYDRATE_INTENT,
+        "has_topic": True,
+        "topic": "claims intake",
+        "explicit_constraints": [] if explicit_constraints is None else explicit_constraints,
+        "implicit_constraints": ["IMPLICIT-SENTINEL: must stay auditable"],
+        "missing_information": ["deployment target"],
+        "execution_strategy": "sequential",
+        "execution_gate": "CLARIFY_REQUIRED",
+        "inferred_personas": [],
+        "inferred_nfrs": [],
+        "quality_targets": [],
+        "domain_insights": [],
+        "planner_timed_out": False,
+    })
+
+
+def _rehydrate_clarifications_json(round_num: int, qid: str, question: str, answer) -> str:
+    return _json.dumps([{
+        "question_id": qid,
+        "question_text": question,
+        "impact_level": "high",
+        "answer": answer,
+        "round": round_num,
+    }])
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_planning_context_rebuilds_planner_and_answers():
+    """D2 unit: the rehydrator reconstructs the planner's REAL intent plus every
+    answered clarification, and those constraints render in the composed prompt."""
+    from agents.execution_engine.engine import ExecutionEngine, PLANNER_AGENT_ID
+    from agents.loader import load_agent_spec
+
+    from tests.agents.test_redo_gate_safety import _make_ectx
+
+    run_id = "rehydrate-unit"
+    user_message = "Build me a governed claims intake workbench for inland marine."
+    ectx = _make_ectx(run_id)
+
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="planning_context",
+        producer_step="planner", producer_agent=PLANNER_AGENT_ID, task_id=None,
+        content=_rehydrate_planner_json(), location="artifact_refs/planning_context",
+    )
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="clarifications",
+        producer_step="clarify_round_1", producer_agent="clarify-agent", task_id=None,
+        content=_rehydrate_clarifications_json(1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER),
+        location="artifact_refs/clarifications",
+    )
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="clarifications",
+        producer_step="clarify_round_2", producer_agent="clarify-agent", task_id=None,
+        content=_rehydrate_clarifications_json(
+            2, "r2_q1", "Which auth model?", "ROUND2-SENTINEL"
+        ),
+        location="artifact_refs/clarifications",
+    )
+
+    engine = ExecutionEngine()
+    rebuilt = engine._rehydrate_planning_context(ectx, user_message)
+
+    assert rebuilt["inferred_intent"] == _REHYDRATE_INTENT, (
+        "the rehydrated intent must be the PLANNER's, not the user_message[:200] stub"
+    )
+    assert rebuilt["inferred_intent"] != user_message[:200]
+    assert "IMPLICIT-SENTINEL: must stay auditable" in rebuilt["implicit_constraints"]
+
+    constraints = rebuilt["explicit_constraints"]
+    assert f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}" in constraints, (
+        f"round 1's answered clarification must be merged back: {constraints}"
+    )
+    assert "Which auth model? → ROUND2-SENTINEL" in constraints, (
+        f"round 2's answered clarification must be merged back: {constraints}"
+    )
+    # A resumed run is mid-build — a stale CLARIFY_REQUIRED must not leak to a consumer.
+    assert rebuilt["execution_gate"] == "PROCEED"
+
+    # Idempotent: re-merging an already-merged base must not double-count.
+    again = engine._rehydrate_planning_context(ectx, user_message)
+    assert again["explicit_constraints"] == constraints
+
+    # The reconstruction is observable where it matters — the composed prompt.
+    spec = load_agent_spec("domain-analyst")
+    composed = await engine._compose_context_message(
+        spec, 0, [spec], user_message, rebuilt, ectx,
+    )
+    assert "**Explicit Constraints**" in composed
+    assert _REHYDRATE_ANSWER in composed, (
+        "the merged clarification answers must reach the dispatched prompt"
+    )
+    assert _REHYDRATE_INTENT in composed
+
+
+@pytest.mark.asyncio
+async def test_resume_dispatch_carries_rehydrated_planning_context(monkeypatch):
+    """D2 wiring: driving the REAL resume tier on a run holding durable
+    `planning_context` + `clarifications` rows, the dispatched prompt carries the
+    planner's intent and the user's answer — not the truncated stub.
+
+    The unit test above would pass against a helper nobody calls; this is the proof
+    that the skip-planner branch actually routes through it.
+    """
+    from agents.artifacts.graph import ArtifactRef
+    from agents.authz import ScopedStore
+    from agents.execution_engine.engine import PLANNER_AGENT_ID
+
+    session, db_engine = _make_session()
+    run_id = f"rh-{uuid.uuid4().hex[:8]}"
+    owner = "rh-user"
+    ws = "ws-rh"
+    # The seeded brief IS the resumed run's user_message, so the stub intent the fix
+    # must displace (`user_message[:200]`) is a real, assertable string in the prompt.
+    user_message = "Run the wave workflow."
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="failed", workspace_id=ws,
+        input_=user_message,
+    )
+
+    # One durable run_events row = the in-flight evidence the resume classifier needs,
+    # WITHOUT an open review gate — so the resume re-enters step 0 and DISPATCHES it
+    # (a gate re-entry would skip the model call, and with it the compose under test).
+    pre_store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+    await pre_store.append_event(
+        run_id, seq=1, event_id="rh-1", type="agent_start",
+        payload_json={"agent_id": "sample-wave-plan"},
+    )
+
+    planner_json = _rehydrate_planner_json()
+    await pre_store.write_ref(ArtifactRef(
+        id=str(uuid.uuid4()), run_id=run_id, owner_id=owner, workspace_id=ws,
+        kind="planning_context", producer_step="planner", producer_agent=PLANNER_AGENT_ID,
+        task_id=None, content=planner_json, content_hash=_pb_hash(planner_json),
+        location="artifact_refs/planning_context", version=1, visibility="workspace",
+    ))
+    clar_json = _rehydrate_clarifications_json(
+        1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER
+    )
+    await pre_store.write_ref(ArtifactRef(
+        id=str(uuid.uuid4()), run_id=run_id, owner_id=owner, workspace_id=ws,
+        kind="clarifications", producer_step="clarify_round_1",
+        producer_agent="clarify-agent", task_id=None, content=clar_json,
+        content_hash=_pb_hash(clar_json), location="artifact_refs/clarifications",
+        version=1, visibility="workspace",
+    ))
+    session.commit()
+
+    composed: list[str] = []
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine_b = h.make_engine()
+
+        _orig_compose = engine_b._compose_context_message
+
+        async def _spy_compose(*a, **k):
+            msg = await _orig_compose(*a, **k)
+            composed.append(msg)
+            return msg
+
+        engine_b._compose_context_message = _spy_compose  # type: ignore[assignment]
+
+        rc = _wire_user_resume_drive(monkeypatch, db_engine, engine_b)
+        await rc._drive_user_resume(run_id, user=_ResumeUser(owner))
+
+    assert composed, "the resumed run dispatched no agent — nothing to assert on"
+    first = composed[0]
+    assert _REHYDRATE_ANSWER in first, (
+        "D2: a resumed dispatch must carry the user's clarification answers; got:\n"
+        f"{first[:1500]}"
+    )
+    assert _REHYDRATE_INTENT in first, (
+        "D2: a resumed dispatch must carry the planner's real inferred_intent, not the "
+        f"user_message[:200] stub; got:\n{first[:1500]}"
+    )
+    assert f"**Inferred Intent**: {user_message[:200]}" not in first, (
+        "the truncated stub intent must be gone from the resumed dispatch"
+    )
+    session.close()
+
+
+# ===========================================================================
+# D2 hardening — the two findings the verifier raised against the first cut of
+# `_rehydrate_planning_context` (quick-260811-mxg, VERIFICATION.md C1 + C2).
+# Both carry `rehydrat` in their name so `-k rehydrat` still selects the set.
+# ===========================================================================
+
+
+@pytest.mark.parametrize(
+    "bad_constraints,expected_kept",
+    [
+        ([{"c": "a dict, not a string"}], []),          # set() -> unhashable type: 'dict'
+        (5, []),                                         # set() -> int is not iterable
+        ("a bare string", []),                           # a str is iterable -> silent charwise set
+        (["keep me", 7, None, "and me"], ["keep me", "and me"]),
+    ],
+    ids=["list-of-dicts", "scalar-int", "bare-string", "mixed-list"],
+)
+@pytest.mark.asyncio
+async def test_rehydrate_survives_malformed_planner_constraints(bad_constraints, expected_kept):
+    """C1: the planner row is raw, unvalidated LLM JSON, so `explicit_constraints`
+    can be a non-list or hold non-strings. The idempotency `set()` and the summary
+    log's `len()` sit outside the merge guard, so before the normalisation these
+    shapes raised TypeError straight out of the helper — breaking its documented
+    "never raises into the run" contract on a resumed run. D2 is the first code to
+    read this row on resume, so the crash path did not exist before this fix.
+    """
+    from agents.execution_engine.engine import ExecutionEngine, PLANNER_AGENT_ID
+
+    from tests.agents.test_redo_gate_safety import _make_ectx
+
+    run_id = "rehydrate-malformed-planner"
+    ectx = _make_ectx(run_id)
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="planning_context",
+        producer_step="planner", producer_agent=PLANNER_AGENT_ID, task_id=None,
+        content=_rehydrate_planner_json(bad_constraints),
+        location="artifact_refs/planning_context",
+    )
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="clarifications",
+        producer_step="clarify_round_1", producer_agent="clarify-agent", task_id=None,
+        content=_rehydrate_clarifications_json(
+            1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER
+        ),
+        location="artifact_refs/clarifications",
+    )
+
+    # Must not raise — this is the whole point.
+    rebuilt = ExecutionEngine()._rehydrate_planning_context(ectx, "Build the workbench.")
+
+    # Degrading on the malformed field must NOT cost us the rest of the row...
+    assert rebuilt["inferred_intent"] == _REHYDRATE_INTENT
+    # ...nor the clarification merge, which is D2's actual payload.
+    assert f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}" in rebuilt["explicit_constraints"]
+    # Well-formed members survive; malformed ones are dropped, never coerced.
+    for kept in expected_kept:
+        assert kept in rebuilt["explicit_constraints"]
+    assert all(isinstance(c, str) for c in rebuilt["explicit_constraints"])
+    assert not any(isinstance(c, (dict, int, type(None))) for c in rebuilt["explicit_constraints"])
+    # Exact-count, not just membership. Without the normalisation a bare string is
+    # ITERABLE, so `set()`/`list()` explode it charwise and every character becomes its
+    # own "constraint" — all of them str, so the isinstance assertions above would pass
+    # on a badly corrupted context. The count is what actually discriminates.
+    assert rebuilt["explicit_constraints"] == [
+        *expected_kept, f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}"
+    ], (
+        "the rebuilt constraints must be exactly the well-formed survivors plus the "
+        f"merged answer, with nothing coerced or exploded: {rebuilt['explicit_constraints']}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_merge_survives_monkeypatched_clarify_engine():
+    """C2: the import-time `ClarifyEngine` bind is load-bearing and nothing covered it.
+
+    `test_offset0_gate_resume_does_not_replan_or_reclarify` monkeypatches the
+    `clarify_engine` MODULE attribute. A late-bound `from ... import ClarifyEngine`
+    inside the rehydrator would resolve to that fake, whose `_merge_answers` does not
+    exist -> AttributeError -> caught by the narrow guard -> a resumed run silently
+    carrying ZERO clarification answers. That is the exact silent degradation this
+    task exists to remove, so it gets a test rather than a comment.
+    """
+    import agents.execution_engine.clarify_engine as _clar_mod
+    from agents.execution_engine.engine import ExecutionEngine, PLANNER_AGENT_ID
+
+    from tests.agents.test_redo_gate_safety import _make_ectx
+
+    class _FakeClarifyNoMerge:
+        """Stands in for the fakes the resume tests install — no `_merge_answers`."""
+
+    run_id = "rehydrate-patched-clarify"
+    ectx = _make_ectx(run_id)
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="planning_context",
+        producer_step="planner", producer_agent=PLANNER_AGENT_ID, task_id=None,
+        content=_rehydrate_planner_json(), location="artifact_refs/planning_context",
+    )
+    ectx.artifacts.write_ref(
+        run_id=run_id, owner_id="anon", workspace_id="ws", kind="clarifications",
+        producer_step="clarify_round_1", producer_agent="clarify-agent", task_id=None,
+        content=_rehydrate_clarifications_json(
+            1, "r1_q1", _REHYDRATE_QUESTION, _REHYDRATE_ANSWER
+        ),
+        location="artifact_refs/clarifications",
+    )
+
+    original = _clar_mod.ClarifyEngine
+    _clar_mod.ClarifyEngine = _FakeClarifyNoMerge  # exactly what the resume tests do
+    try:
+        rebuilt = ExecutionEngine()._rehydrate_planning_context(ectx, "Build the workbench.")
+    finally:
+        _clar_mod.ClarifyEngine = original
+
+    assert f"{_REHYDRATE_QUESTION} → {_REHYDRATE_ANSWER}" in rebuilt["explicit_constraints"], (
+        "the rehydrator must use the IMPORT-TIME ClarifyEngine bind — a late binding "
+        "would pick up the monkeypatched fake and silently drop every answer"
+    )
+
+
+# ===========================================================================
+# ISS-091 — a review-gate REJECTION must terminate the run.
+#
+# The inline gate's ``_gate_rejected`` handler transitions the run to
+# ``cancelled``, yields ``pipeline_cancelled`` and returns — but a ``return``
+# only ends THAT step's generator. The dispatch loop (engine.py:2523) observed
+# only ``agent_error``, so the terminal event was forwarded and ignored and the
+# outer per-step loop advanced: every remaining step ran and the run terminated
+# on ``pipeline_complete``. The step-boundary check (:2381) could not catch it
+# either — it reads ``cancel_event``, which a gate rejection never sets (which
+# is why FIX-227 is orthogonal to this).
+#
+# The damage is NOT token spend: every post-rejection worker short-circuits on
+# _run_agent's terminal guard (:3329) and bills nothing. It is the DURABLE
+# RECORD. Each no-op worker is still written ``subagent_runs.status='complete'``
+# and each wave ``wave_runs.status='completed'`` — and wave_scheduler's resume
+# skip (wave_scheduler.py:251-256) trusts exactly those rows. A rejected run
+# that is later resumed therefore skips every wave and can NEVER produce its
+# deliverable (T3 — the regression test that matters).
+#
+# The fix mirrors the declared-gate handler WR-03 (engine.py:2454-2479), whose
+# own comment describes this defect verbatim.
+#
+# Two traps these tests exist to keep honest:
+#   * ``make_engine()`` installs ``_run_review_gate`` as an INSTANCE attribute,
+#     so patching the CLASS is silently shadowed;
+#   * ``gate_agent_ids=[]`` means "NO gates this run" since FIX-041 — the gated
+#     agent must be named explicitly.
+# ===========================================================================
+
+_ISS091_TERMINAL = "pipeline_cancelled"
+# Events that prove a downstream step actually executed after the terminal.
+_ISS091_POST_TERMINAL_WORK = {
+    "agent_start", "wave_started", "subagent_spawned", "merge_started",
+}
+
+
+async def _iss091_rejecting_gate(*_a, **kwargs):
+    """A ``_run_review_gate`` double that opens the gate and REJECTS.
+
+    ``*_a, **kwargs`` so it binds the engine's real keyword call whatever that
+    grows into (test_gate_stub_signature_drift.py).
+    """
+    agent_id = kwargs.get("agent_id")
+    run_id = kwargs.get("pipeline_run_id")
+    yield {
+        "type": "review_gate_ready",
+        "data": {"agent_id": agent_id, "gate_key": f"{run_id}:{agent_id}"},
+    }
+    yield {"type": "_gate_rejected", "data": {"agent_id": agent_id}}
+
+
+async def _iss091_run_to_rejection(session, db_engine, run_id, owner, call_log):
+    """Drive ``sample_wave`` to an inline-gate rejection on step 0. Returns the events."""
+    events: list[dict] = []
+    with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
+        engine = h.make_engine()
+        engine._run_review_gate = _iss091_rejecting_gate  # type: ignore[assignment]
+        async for event in engine.execute(
+            agents=list(h.specs),
+            user_message="Run the wave workflow.",
+            pipeline_run_id=run_id,
+            pipeline_type=_FIXTURE_ID,
+            user_id=owner,
+            # NOT [] — that means "no gates this run" (FIX-041).
+            gate_agent_ids=["sample-wave-plan"],
+        ):
+            events.append(event)
+    return events
+
+
+@pytest.mark.asyncio
+async def test_inline_gate_rejection_stops_the_pipeline():
+    """ISS-091: rejecting at the inline review gate ENDS the run.
+
+    ``pipeline_cancelled`` must be the run's terminal event, ``pipeline_complete``
+    must never be emitted, and nothing downstream may execute after it.
+    """
+    session, db_engine = _make_session()
+    run_id = f"iss091a-{uuid.uuid4().hex[:8]}"
+    owner = "iss091-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    events = await _iss091_run_to_rejection(session, db_engine, run_id, owner, {})
+    types = [e.get("type") for e in events]
+
+    assert _ISS091_TERMINAL in types, f"the rejection produced no terminal: {types}"
+    assert types[-1] == _ISS091_TERMINAL, (
+        f"a rejected run must END on {_ISS091_TERMINAL}; it ended on {types[-1]!r}. "
+        f"Tail after the cancel: {types[types.index(_ISS091_TERMINAL) + 1:]}"
+    )
+    assert "pipeline_complete" not in types, (
+        "a rejected run must NOT report completion — the dispatch loop fell through "
+        f"to the Step-5 terminal block: {types}"
+    )
+    tail = types[types.index(_ISS091_TERMINAL) + 1:]
+    ran_anyway = sorted({t for t in tail if t in _ISS091_POST_TERMINAL_WORK})
+    assert not ran_anyway, (
+        f"work executed AFTER the run was cancelled: {ran_anyway} (full tail: {tail})"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_gate_rejection_writes_no_wave_or_subagent_rows():
+    """ISS-091: a rejected run must leave NO durable fan-out rows.
+
+    Pre-fix the post-rejection waves still dispatched, and although every worker
+    no-opped on the terminal guard, each was recorded ``complete`` and each wave
+    ``completed`` — a durable record of work that never happened.
+    """
+    from app.models.subagent_run import SubagentRun
+    from app.models.wave_run import WaveRun
+
+    session, db_engine = _make_session()
+    run_id = f"iss091b-{uuid.uuid4().hex[:8]}"
+    owner = "iss091-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    call_log: dict[str, int] = {}
+    await _iss091_run_to_rejection(session, db_engine, run_id, owner, call_log)
+
+    session.expire_all()
+    waves = session.query(WaveRun).filter(WaveRun.run_id == run_id).all()
+    workers = session.query(SubagentRun).filter(
+        SubagentRun.parent_run_id == run_id
+    ).all()
+
+    assert waves == [], (
+        "a rejected run dispatched waves it must never have started: "
+        f"{[(w.wave_index, w.status) for w in waves]}"
+    )
+    assert workers == [], (
+        "a rejected run recorded workers that never did any work: "
+        f"{[(w.worker_agent, w.status, w.tokens) for w in workers]}"
+    )
+    assert not call_log, f"a rejected run spent model calls: {call_log}"
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_rejected_run_resumes_and_still_produces_its_deliverable():
+    """ISS-091 / N1 — the data-loss regression test.
+
+    Reject -> restart -> resume. Pre-fix the rejection had already flipped both
+    ``wave_runs`` rows to ``completed``, so the resume skipped both waves, wrote
+    ZERO files and recorded the run ``completed`` — permanent, silent loss of the
+    run's entire output with no error anywhere. Post-fix the rejection leaves no
+    such rows, so the resume genuinely runs the waves.
+    """
+    from pathlib import Path as _Path
+
+    from agents.execution_engine.state_machine import get_state_machine
+    from app.core.config import settings as _settings
+    from app.models.workflow import WorkflowRun
+
+    session, db_engine = _make_session()
+    run_id = f"iss091c-{uuid.uuid4().hex[:8]}"
+    owner = "iss091-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    call_log: dict[str, int] = {}
+    await _iss091_run_to_rejection(session, db_engine, run_id, owner, call_log)
+
+    # Simulate the backend RESTART: the in-process state machine forgets the run,
+    # and restore_non_terminal_runs sees a non-terminal workflow_runs row.
+    get_state_machine().forget_run(run_id)
+    session.expire_all()
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    row.status = "generating"
+    session.commit()
+
+    call_log.clear()
+    with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
+        engine_b = h.make_engine()  # make_engine installs the APPROVING no-op gate
+        await engine_b.resume_run(run_id)
+
+    root = _Path(_settings.RUNS_ROOT)
+    produced = sorted(
+        p.name for p in root.rglob("part_*.txt") if run_id in str(p)
+    )
+    assert produced == ["part_a.txt", "part_b.txt", "part_c.txt", "part_d.txt"], (
+        "the resumed run produced nothing — the rejection poisoned the durable "
+        f"wave record and every wave was skipped as already-done. Produced: {produced}"
+    )
+    assert call_log, (
+        "the resumed run invoked no worker model at all — the waves were skipped"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_declared_gate_rejection_still_cancels_the_run():
+    """Guard for WR-03 (engine.py:2454-2479) — the DECLARED-gate sibling.
+
+    ISS-091's fix adds the inline path's missing terminal observation to the
+    dispatch loop. This pins the pre-existing declared-gate path so that fix
+    cannot disturb it: a ``gates: [human]`` step whose review is rejected must
+    still cancel the run and never complete.
+
+    ``gate_agent_ids=None`` is load-bearing: a non-None selection makes
+    ``_should_gate`` claim the agent for the INLINE gate, and the WR-02 dedupe
+    (engine.py:5052-5066) then skips the declared gate entirely.
+    """
+    import agents.execution_engine.engine as engine_mod
+
+    session, db_engine = _make_session()
+    run_id = f"iss091d-{uuid.uuid4().hex[:8]}"
+    owner = "iss091-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    events: list[dict] = []
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine = h.make_engine()
+        engine._run_review_gate = _iss091_rejecting_gate  # type: ignore[assignment]
+
+        # Declare a human gate on step 0. The harness's __exit__ restores
+        # compile_for_run unconditionally, so this wrapper does not leak.
+        _harness_compile = engine_mod.compile_for_run
+
+        def _compile_with_declared_gate(pipeline_type, _inner=_harness_compile):
+            compiled = _inner(pipeline_type)
+            for _step in compiled.steps:
+                if _step.agent_id == "sample-wave-plan":
+                    _step.gates = ["human"]
+            return compiled
+
+        engine_mod.compile_for_run = _compile_with_declared_gate
+
+        async for event in engine.execute(
+            agents=list(h.specs),
+            user_message="Run the wave workflow.",
+            pipeline_run_id=run_id,
+            pipeline_type=_FIXTURE_ID,
+            user_id=owner,
+            gate_agent_ids=None,  # else the inline gate claims the agent (WR-02 dedupe)
+        ):
+            events.append(event)
+
+    types = [e.get("type") for e in events]
+    assert "review_gate_ready" in types, (
+        f"precondition failed — the declared human gate never opened: {types}"
+    )
+    assert types[-1] == _ISS091_TERMINAL, (
+        f"WR-03 regressed: a declared-gate rejection must end the run on "
+        f"{_ISS091_TERMINAL}; it ended on {types[-1]!r}"
+    )
+    assert "pipeline_complete" not in types, (
+        f"WR-03 regressed: a declared-gate rejection reported completion: {types}"
+    )
+    session.close()
+
+
+# ===========================================================================
+# ISS-097 — a fan-out step must not arm one inline review gate PER WORKER.
+#
+# ``_should_gate`` (engine.py:4908) is a per-INVOCATION predicate on
+# ``spec.id``, but ``gate_agent_ids`` is a per-STEP selection ("checked agents
+# pause the pipeline after they finish"). Those two readings were identical
+# until fan-out made one step produce N invocations of one agent id. A
+# self×N fan-out therefore arms N inline gates, all on the ONE gate_key
+# ``f"{run_id}:{agent_id}"`` (engine.py:5705).
+#
+# The consequence is worse than N gates: ``fanout.py:414-429`` consumes every
+# worker event and forwards NOTHING (it reads only ``agent_complete`` for token
+# accounting), so ZERO ``review_gate_ready`` frames reach the emit boundary,
+# ZERO rows land in durable ``run_events``, ``derive_open_gate`` returns
+# ``(None, None)`` — and the run stops dead at a HITL pause the user cannot
+# see, discover or resolve, with ``workflow_runs.status`` reading
+# ``waiting_for_user`` indefinitely.
+#
+# METHOD TRAP — mandatory, and the reason the first investigation nearly filed
+# "not reachable": ``_ResumeHarness.make_engine`` assigns an empty async
+# generator to ``engine._run_review_gate`` as an INSTANCE attribute, silently
+# shadowing the real bound method. A gate assertion on this harness that does
+# not ``del engine._run_review_gate`` first passes green while proving nothing.
+# ===========================================================================
+
+# Long enough that a healthy scripted run (~1s) never trips it, short enough
+# that the pre-fix hang is a fast RED.
+_ISS097_TIMEOUT_S = 20.0
+
+
+def _count_gate_entries(engine, *, delegate: bool = True) -> list[str]:
+    """Un-shadow the harness's gate stub, then count REAL gate entries by agent id.
+
+    THE UN-SHADOW IS THE POINT. ``make_engine`` (:365) installs an empty async
+    generator as an INSTANCE attribute over ``ExecutionEngine._run_review_gate``.
+    ``del`` restores the real bound method; without it a gate assertion on this
+    harness passes green while proving nothing — measured: 1.07 s green against a
+    live 4-arm hang.
+
+    ``delegate=True`` wraps the REAL gate, so a gate that opens really blocks and
+    the hang stays observable. ``delegate=False`` counts the entry without opening
+    a blocking gate. Returns the (live) list of agent ids the gate was entered for.
+    """
+    del engine._run_review_gate  # ← the un-shadow
+    real = engine._run_review_gate
+    entries: list[str] = []
+
+    # ``*a, **kw`` binds whatever the engine's real keyword call grows into
+    # (test_gate_stub_signature_drift.py) and forwards it unchanged.
+    async def _counting_gate(*a, **kw):
+        entries.append(str(kw.get("agent_id") or "?"))
+        if not delegate:
+            return
+        async for ev in real(*a, **kw):
+            yield ev
+
+    engine._run_review_gate = _counting_gate  # type: ignore[assignment]
+    return entries
+
+
+@pytest.mark.asyncio
+async def test_fanout_workers_do_not_arm_the_inline_review_gate():
+    """ISS-097: gating a fan-out step's agent must not hang the run.
+
+    Drives ``sample_wave`` with a SINGLE-wave plan (4 workers in one
+    ``run_fanout`` call) and ``gate_agent_ids=["sample-wave-worker"]`` — the
+    exact selection one tick in the launch wizard's gate picker produces.
+
+    Pre-fix: ``_run_review_gate`` is entered 4 times (once per worker), every
+    frame is swallowed by ``fanout.py``, and the run never returns.
+    """
+    from app.models.subagent_run import SubagentRun
+
+    session, db_engine = _make_session()
+    run_id = f"iss097-{uuid.uuid4().hex[:8]}"
+    owner = "iss097-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    events: list[dict] = []
+    timed_out = False
+
+    with _ResumeHarness(
+        session, {}, fail_on=set(), db_engine=db_engine, plan=_SINGLE_WAVE_PLAN
+    ) as h:
+        engine = h.make_engine()
+        gate_entries = _count_gate_entries(engine)
+
+        async def _drive():
+            async for event in engine.execute(
+                agents=list(h.specs),
+                user_message="Run the wave workflow.",
+                pipeline_run_id=run_id,
+                pipeline_type=_FIXTURE_ID,
+                user_id=owner,
+                gate_agent_ids=["sample-wave-worker"],
+            ):
+                events.append(event)
+
+        try:
+            await asyncio.wait_for(_drive(), timeout=_ISS097_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            timed_out = True
+
+    types = [e.get("type") for e in events]
+    session.expire_all()
+    stuck = [
+        w for w in session.query(SubagentRun).filter(
+            SubagentRun.parent_run_id == run_id
+        ).all()
+        if w.status == "running"
+    ]
+
+    assert not timed_out, (
+        f"the run HUNG at an invisible fan-out worker gate: "
+        f"{len(gate_entries)} gate arm(s) on {sorted(set(gate_entries))}, "
+        f"{types.count('review_gate_ready')} review_gate_ready frame(s) on the wire"
+    )
+    assert gate_entries == [], (
+        f"a fan-out worker invocation armed the inline review gate: {gate_entries}"
+    )
+    assert not stuck, (
+        "workers left orphaned in subagent_runs: "
+        f"{[(w.worker_agent, w.worker_index, w.status) for w in stuck]}"
+    )
+    assert "pipeline_complete" in types, (
+        f"the gated fan-out run did not complete: {types[-6:]}"
+    )
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_selecting_a_non_fanout_agent_still_opens_its_inline_gate():
+    """ISS-097 neutrality: the fix must narrow ONLY the worker invocation.
+
+    ``gate_agent_ids=["sample-wave-plan"]`` names the single_shot step's agent.
+    That invocation must still gate exactly once — proving the new
+    invocation-scope flag defaults to gating and that the fan-out fix is not
+    "turn gating off everywhere".
+    """
+    session, db_engine = _make_session()
+    run_id = f"iss097n-{uuid.uuid4().hex[:8]}"
+    owner = "iss097-user"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    with _ResumeHarness(
+        session, {}, fail_on=set(), db_engine=db_engine, plan=_SINGLE_WAVE_PLAN
+    ) as h:
+        engine = h.make_engine()
+        # delegate=False: count the entry without opening a real (blocking) gate.
+        gate_entries = _count_gate_entries(engine, delegate=False)
+
+        async def _drive():
+            async for _event in engine.execute(
+                agents=list(h.specs),
+                user_message="Run the wave workflow.",
+                pipeline_run_id=run_id,
+                pipeline_type=_FIXTURE_ID,
+                user_id=owner,
+                gate_agent_ids=["sample-wave-plan"],
+            ):
+                pass
+
+        await asyncio.wait_for(_drive(), timeout=_ISS097_TIMEOUT_S)
+
+    assert gate_entries == ["sample-wave-plan"], (
+        f"non-fan-out inline gating changed: {gate_entries}"
+    )
     session.close()

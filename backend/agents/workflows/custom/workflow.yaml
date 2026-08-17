@@ -1,18 +1,18 @@
-# custom — 8 utility agents (the custom-utility pool).
-# Step order == PIPELINE_AGENTS["custom"]. deliverable: streamed_text.
-# clarify.defaults verbatim from engine._pipeline_defaults["custom"] (engine.py:761)
-# — this is also the fallback list every revision/absent id reuses (parity trap #2).
 id: custom
 version: 1
-# Catalog (Plan 20-01): declared launchability — inert metadata.
 user_launchable: true
-display_name: "Compose a custom workflow"
-description: "Assemble specialist agents for tasks outside the standard pipelines."
+is_beta: false
+display_name: Compose a custom workflow
+short_name: Custom Workflow
+icon: Puzzle
+description: Assemble specialist agents for tasks outside the standard pipelines.
 planner: run
 clarify:
   mode: auto
   # KAN-74: extended from 4 to 8 defaults. Adds: output_format, constraints,
   # domain, assumptions — needed for custom workflows with diverse deliverables.
+  # ISS-056: rounds: 2 lets a second round surface topics beyond the ~5/round cap.
+  rounds: 2
   defaults: [target_audience, key_objectives, scope, priority, output_format, constraints, domain, assumptions]
 deliverable:
   strategy: streamed_text
@@ -20,33 +20,31 @@ deliverable:
 context_providers: []
 seed_files: {}
 steps:
-  - agent: market-research-agent
-    strategy: single_shot
-    gates: []
-  - agent: swot-analyst
-    strategy: single_shot
-    gates: []
-  - agent: roadmap-planner
-    strategy: single_shot
-    gates: []
-  - agent: security-auditor
-    strategy: single_shot
-    gates: []
-  - agent: test-case-generator
-    strategy: single_shot
-    gates: []
-  - agent: performance-optimizer
-    strategy: single_shot
-    gates: []
-  - agent: documentation-agent
-    strategy: single_shot
-    gates: []
-  - agent: report-generator
-    strategy: single_shot
-    gates: []
-  # Generic fan-out producer (Phase 51 / FANOUT-04). Kept in lock-step with
-  # PIPELINE_AGENTS["custom"] + the task-list-planner AGENT.md (order 9) so the
-  # engine membership assertion (engine.py:1701-1714) holds for a `custom` run.
-  - agent: task-list-planner
-    strategy: single_shot
-    gates: []
+- agent: market-research-agent
+  strategy: single_shot
+  gates: []
+- agent: swot-analyst
+  strategy: single_shot
+  gates: []
+- agent: roadmap-planner
+  strategy: single_shot
+  gates: []
+- agent: security-auditor
+  strategy: single_shot
+  gates: []
+- agent: test-case-generator
+  strategy: single_shot
+  gates: []
+- agent: performance-optimizer
+  strategy: single_shot
+  gates: []
+- agent: documentation-agent
+  strategy: single_shot
+  gates: []
+- agent: report-generator
+  strategy: single_shot
+  gates: []
+- agent: task-list-planner
+  strategy: single_shot
+  gates: []
+name: Custom Workflow

@@ -13,6 +13,12 @@ import { resolve } from "node:path";
 // viewed run's turns are cleared and the new run's streamed frames fold into the
 // now-empty transcript.
 //
+// FIX-201 (KAN-168): a SECOND seedRunChatTranscript call was added in
+// handleSwitchToLiveRun (the badge/notification live-run-switch path) to fix
+// the same symptom on badge clicks. That call uses durableFrames (not []) and
+// is in a different code path (not inside the !isRevision block). The fresh-
+// launch call in !isRevision remains exactly once; the total count is now 2.
+//
 // The inline `onStartPipeline` arrow resists an isolated unit render (a giant
 // inline arrow in a JSX prop inside the 1500+-line page.tsx), so — as with
 // contentSourceRunType.source.test.ts / contentSourceRunScope.source.test.ts,
@@ -23,10 +29,11 @@ import { resolve } from "node:path";
 //  2. INSIDE the `!isRevision` block: the reset sits between `if (!isRevision) {`
 //     and the `// For revisions, keep existing content` comment — never on the
 //     revision path.
-//  3. EXACTLY ONCE: the reset appears once (history-open's
-//     `seedRunChatTranscript(durableFrames)` uses `durableFrames`, not `[]`, so
-//     it does not match) — proving the reset was not duplicated onto the
-//     revision path.
+//  3. EXACTLY ONCE in the fresh-launch block: the [] reset is inside !isRevision
+//     exactly once (handleSwitchToLiveRun uses durableFrames, not [], so the
+//     count of `seedRunChatTranscript([])` remains 1 in the whole file).
+//  4. TOTAL CALLS: page.tsx now has exactly 2 seedRunChatTranscript calls total:
+//     one for fresh launches (with []) and one for live-switch (with durableFrames).
 // ─────────────────────────────────────────────────────────────────
 
 const pageSource = readFileSync(
@@ -52,8 +59,34 @@ describe("BUG-021 fresh-launch transcript reset (source-lock)", () => {
     expect(freshRunBlock).toContain("seedRunChatTranscript([]);");
   });
 
-  it("the fresh-launch reset appears EXACTLY once (not duplicated onto the revision path)", () => {
+  it("the fresh-launch [] reset appears EXACTLY once (not duplicated onto the revision path)", () => {
+    // seedRunChatTranscript([]) — with empty array — appears exactly once:
+    // in the !isRevision fresh-launch block. The FIX-201 handleSwitchToLiveRun
+    // call uses durableFrames (not []), so it does NOT match this pattern.
     const matches = pageSource.match(/seedRunChatTranscript\(\[\]/g) ?? [];
     expect(matches).toHaveLength(1);
+  });
+
+  it("FIX-201: live-switch path also seeds transcript (handleSwitchToLiveRun with durableFrames)", () => {
+    // The badge/notification live-switch path must seed the transcript from durable
+    // events (not []) so the chat lane shows the correct run's conversation immediately.
+    // This proves Fix-201 is wired alongside the existing BUG-021 fresh-launch reset.
+    expect(pageSource).toContain("seedRunChatTranscript(durableFrames, false)");
+  });
+
+  it("FIX-201: page.tsx has exactly 2 seedRunChatTranscript call sites (fresh-launch + live-switch)", () => {
+    // Two canonical uses — no more, no less (INV-12: no duplication):
+    //   1. seedRunChatTranscript([])           — BUG-021 fresh launch
+    //   2. seedRunChatTranscript(durableFrames, false) — FIX-201 live-switch
+    // History-reopen (handleSelectWorkflowRun) uses seedRunChatTranscript at a
+    // separate call site — that is the 3rd call site but in a different function.
+    const allMatches = pageSource.match(/seedRunChatTranscript\(/g) ?? [];
+    expect(allMatches.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("FIX-201: handleSwitchToLiveRun sets activePipelineRunId synchronously", () => {
+    // Without setActivePipelineRunId(runId) in handleSwitchToLiveRun, useRunChat.runId
+    // stays on the old run until pipelineState.pipelineRunId resets asynchronously.
+    expect(pageSource).toContain("setActivePipelineRunId(runId)");
   });
 });

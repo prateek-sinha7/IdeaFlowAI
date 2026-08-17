@@ -1,0 +1,258 @@
+variable "name_prefix" {
+  description = "Resource name prefix, e.g. velocityai-dev."
+  type        = string
+}
+
+variable "environment" {
+  description = "Environment short name (e.g. dev, stage, prod). Appears in tags and the CloudWatch log-group path."
+  type        = string
+
+  validation {
+    condition     = contains(["dev", "stage", "prod"], var.environment)
+    error_message = "environment must be one of: dev, stage, prod."
+  }
+}
+
+# --- Existing network / compute (looked up by ID, not created here) --------
+# This module targets an existing VPC/subnets/instance that were NOT created
+# by this Terraform tree (e.g. provisioned by another process). It never
+# reads or writes their configuration beyond what's passed in here.
+
+variable "vpc_id" {
+  description = "ID of the existing VPC the ALB and its security groups are created in."
+  type        = string
+
+  validation {
+    condition     = can(regex("^vpc-[0-9a-f]{8,17}$", var.vpc_id))
+    error_message = "vpc_id must look like a VPC ID, e.g. vpc-0123456789abcdef0."
+  }
+}
+
+variable "subnet_ids" {
+  description = "Subnet IDs for the internal ALB. Must be at least two subnets in different Availability Zones, each with at least 8 free IP addresses (AWS ALB requirement). Do not pass Transit Gateway attachment subnets."
+  type        = list(string)
+
+  validation {
+    condition     = length(var.subnet_ids) >= 2
+    error_message = "subnet_ids must contain at least two subnets (different AZs) for ALB high availability."
+  }
+
+  validation {
+    condition     = alltrue([for s in var.subnet_ids : can(regex("^subnet-[0-9a-f]{8,17}$", s))])
+    error_message = "Each subnet_ids entry must look like a subnet ID, e.g. subnet-0123456789abcdef0."
+  }
+}
+
+variable "instance_id" {
+  description = "ID of the existing EC2 instance to register as the ALB target. The instance's primary network interface receives an additional security group (see aws_network_interface_sg_attachment) that permits traffic only from the ALB's security group; the instance's existing security group(s) are left untouched."
+  type        = string
+
+  validation {
+    condition     = can(regex("^i-[0-9a-f]{8,17}$", var.instance_id))
+    error_message = "instance_id must look like an EC2 instance ID, e.g. i-0123456789abcdef0."
+  }
+}
+
+# --- Ingress control ---------------------------------------------------------
+
+variable "trusted_ingress_cidrs" {
+  description = "CIDR blocks permitted to reach the ALB on 443/tcp — the approved corporate VPN/TGW-routed ranges. MUST NOT contain 0.0.0.0/0; this module refuses to create an internet-open internal ALB."
+  type        = list(string)
+
+  validation {
+    condition     = length(var.trusted_ingress_cidrs) > 0
+    error_message = "trusted_ingress_cidrs must contain at least one CIDR. An internal ALB with no ingress rule is unreachable."
+  }
+
+  validation {
+    condition     = !contains(var.trusted_ingress_cidrs, "0.0.0.0/0")
+    error_message = "trusted_ingress_cidrs must NEVER contain 0.0.0.0/0 for an internal ALB. Use the approved corporate VPN/TGW CIDR(s)."
+  }
+
+  validation {
+    condition = alltrue([
+      for cidr in var.trusted_ingress_cidrs : can(cidrnetmask(cidr))
+    ])
+    error_message = "Each trusted_ingress_cidrs entry must be a valid CIDR."
+  }
+}
+
+# --- Target group / health check --------------------------------------------
+
+variable "target_port" {
+  description = "Port the target (nginx on the EC2 instance) listens on for the ALB's HTTPS target group."
+  type        = number
+  default     = 443
+
+  validation {
+    condition     = var.target_port > 0 && var.target_port <= 65535
+    error_message = "target_port must be a valid TCP port (1-65535)."
+  }
+}
+
+variable "health_check_path" {
+  description = "Path the ALB health check requests over HTTPS."
+  type        = string
+  default     = "/"
+}
+
+variable "health_check_matcher" {
+  description = "HTTP status code range considered healthy."
+  type        = string
+  default     = "200-399"
+}
+
+variable "health_check_interval_seconds" {
+  description = "Seconds between health checks."
+  type        = number
+  default     = 30
+}
+
+variable "health_check_timeout_seconds" {
+  description = "Seconds to wait for a health check response."
+  type        = number
+  default     = 5
+}
+
+variable "healthy_threshold" {
+  description = "Consecutive successful health checks before a target is marked healthy."
+  type        = number
+  default     = 3
+}
+
+variable "unhealthy_threshold" {
+  description = "Consecutive failed health checks before a target is marked unhealthy."
+  type        = number
+  default     = 3
+}
+
+# --- TLS ---------------------------------------------------------------------
+
+variable "certificate_arn" {
+  description = "ARN of an ACM certificate (issued by a private/corporate CA, or imported) whose subject matches the ALB's generated DNS name. This module deliberately does NOT create or import a certificate — private key material must never be generated by, or pass through, Terraform state. Provision the certificate out-of-band (corporate PKI, or `aws acm import-certificate` — see scripts/aws-cli in .local) and pass its ARN here."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-zA-Z-]*:acm:[a-z0-9-]+:[0-9]{12}:certificate/[0-9a-f-]+$", var.certificate_arn))
+    error_message = "certificate_arn must be a valid ACM certificate ARN (arn:aws:acm:<region>:<account>:certificate/<id>)."
+  }
+}
+
+variable "ssl_policy" {
+  description = "ELB SSL negotiation policy for the HTTPS listener."
+  type        = string
+  default     = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+}
+
+# --- ALB behavior -------------------------------------------------------------
+
+variable "enable_deletion_protection" {
+  description = "If true, the ALB cannot be deleted via the API/console without first disabling this flag. Default true; deliberately flip in tfvars to roll it."
+  type        = bool
+  default     = true
+}
+
+variable "idle_timeout_seconds" {
+  description = "ALB idle connection timeout. Must exceed the application's SSE heartbeat interval or long-lived streams will be cut."
+  type        = number
+  default     = 300
+}
+
+# --- Access / connection logs (S3) -------------------------------------------
+
+variable "log_bucket_name" {
+  description = "Name of the S3 bucket to create for ALB access + connection logs. Must be globally unique. ALB access logs support only SSE-S3 (AWS-managed keys), not a customer CMK — see AWS ELB access-log documentation."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z0-9.-]{3,63}$", var.log_bucket_name))
+    error_message = "log_bucket_name must be a valid S3 bucket name (lowercase letters, digits, dots, hyphens, 3-63 chars)."
+  }
+}
+
+variable "log_retention_days" {
+  description = "Days after which ALB access/connection log objects expire from the log bucket."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = var.log_retention_days >= 1
+    error_message = "log_retention_days must be >= 1."
+  }
+}
+
+variable "log_bucket_force_destroy" {
+  description = "If true, `terraform destroy` empties the log bucket before deleting it. Default false (safe default); set true only in throwaway/dev environments."
+  type        = bool
+  default     = false
+}
+
+# --- Alarms -------------------------------------------------------------------
+
+variable "create_sns_topic" {
+  description = "If true, creates a dedicated SNS topic for this module's CloudWatch alarms. If false, alarms publish to var.alarm_sns_topic_arn instead (e.g. an existing shared alerts topic)."
+  type        = bool
+  default     = true
+}
+
+variable "alarm_sns_topic_arn" {
+  description = "Existing SNS topic ARN to notify. Required when create_sns_topic = false; ignored otherwise."
+  type        = string
+  default     = ""
+}
+
+variable "alarm_email" {
+  description = "Email address subscribed to the SNS topic this module creates. Ignored when create_sns_topic = false. Empty disables the subscription."
+  type        = string
+  default     = ""
+}
+
+variable "kms_key_arn" {
+  description = "ARN of a KMS CMK used to encrypt the SNS topic this module creates. Empty uses the AWS-managed SNS key."
+  type        = string
+  default     = ""
+}
+
+variable "unhealthy_host_alarm_threshold" {
+  description = "UnHealthyHostCount threshold (Sum, 1 evaluation period) above which the alarm fires."
+  type        = number
+  default     = 0
+}
+
+variable "target_5xx_alarm_threshold" {
+  description = "Target-generated 5xx count threshold (Sum over 5 min) above which the alarm fires."
+  type        = number
+  default     = 5
+}
+
+variable "elb_5xx_alarm_threshold" {
+  description = "ALB-generated 5xx count threshold (Sum over 5 min) above which the alarm fires."
+  type        = number
+  default     = 5
+}
+
+variable "target_response_time_alarm_threshold_seconds" {
+  description = "Average TargetResponseTime (seconds, 5 min) above which the alarm fires."
+  type        = number
+  default     = 3
+}
+
+# --- Tagging ------------------------------------------------------------------
+
+variable "owner" {
+  description = "Tag value for Owner."
+  type        = string
+  default     = "velocityai"
+}
+
+variable "cost_center" {
+  description = "Tag value for CostCenter."
+  type        = string
+  default     = "velocityai"
+}
+
+variable "extra_tags" {
+  description = "Additional tags merged onto every resource this module creates."
+  type        = map(string)
+  default     = {}
+}

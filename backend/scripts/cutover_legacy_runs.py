@@ -22,10 +22,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from datetime import datetime, timezone  # noqa: E402
 
+from agents.execution_engine.engine import NON_TERMINAL_RUN_STATUSES  # noqa: E402
 from app.models.database import SessionLocal  # noqa: E402
 from app.models.workflow import WorkflowRun  # noqa: E402
-
-NON_TERMINAL = ("running", "planning", "clarifying", "waiting_for_user", "generating", "analyzing", "revising")
 
 
 def main(dry_run: bool = False) -> int:
@@ -34,7 +33,7 @@ def main(dry_run: bool = False) -> int:
         # In-flight runs that the new engine cannot resume.
         stuck = (
             db.query(WorkflowRun)
-            .filter(WorkflowRun.status.in_(NON_TERMINAL))
+            .filter(WorkflowRun.status.in_(NON_TERMINAL_RUN_STATUSES))
             .all()
         )
         count = 0

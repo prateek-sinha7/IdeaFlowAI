@@ -4,7 +4,6 @@ Contains ONLY pipeline-to-ID mappings and the get_pipeline_agents() function.
 No AgentDefinition instances, no prompt strings, no DEEP_AGENT_CONFIG dicts.
 
 Public API:
-    SUPPORTED_PIPELINE_TYPES  — frozenset of valid pipeline type strings
     PIPELINE_AGENTS           — ordered agent ID lists per pipeline type
     REVISION_BASE_MAP         — maps revision pipeline types to their base types
     get_pipeline_agents(pipeline_type) -> list[AgentSpec]
@@ -16,6 +15,7 @@ from agents.loader import (
     AgentSpec,
     AgentSpecError,
     SUPPORTED_PIPELINE_TYPES,
+    TEMPLATE_AGENT_IDS_BY_FLAG,
     list_agent_ids,
     load_agent_spec,
 )
@@ -23,174 +23,77 @@ from agents.loader import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Pipeline-to-agent-ID mappings
+# Pipeline-to-agent-ID mappings (FIX-051 / ISS-035)
 # ---------------------------------------------------------------------------
+#
+# PIPELINE_AGENTS is DERIVED, not hand-maintained: it is built once at import
+# time by scanning agents/prompts/ for every pipeline_type any AGENT.md
+# actually declares, then loading each one's agents (via the loader's
+# list_agent_ids). This is the same dynamic scan get_pipeline_agents()
+# already trusts. Before FIX-051 this was a ~150-line
+# hand-typed literal that agent-library listing (get_all_agents_flat),
+# security allow-listing (allowed_custom_agent_ids), and workflow discovery
+# (app/api/workflows.py) all read directly — so an agent added on disk with
+# correct AGENT.md frontmatter (pipeline_type + order) was live for pipeline
+# EXECUTION but invisible everywhere else until someone remembered to also
+# hand-edit this dict. Now adding an AGENT.md is sufficient; there is nothing
+# left to forget.
 
-PIPELINE_AGENTS: dict[str, list[str]] = {
-    # ── User Stories pipeline — 6 agents ──────────────────────────────────
-    "user_stories": [
-        "domain-analyst",
-        "epic-architect",
-        "story-estimator",
-        "nfr-specialist",
-        "backlog-reviewer",
-        "backlog-compiler",
-    ],
 
-    # ── User Stories Revision pipeline — 1 agent ──────────────────────────
-    "user_stories_revision": [
-        "user-story-revision-agent",
-    ],
-
-    # ── PPT pipeline — 4 agents ───────────────────────────────────────────
-    "ppt": [
-        "od-ppt-brief-analyst",
-        "od-ppt-composer",
-        "od-ppt-validator",
-    ],
-
-    # ── od_ppt pipeline (alias — same agents, own runner) ─────────────────
-    "od_ppt": [
-        "od-ppt-brief-analyst",
-        "od-ppt-composer",
-        "od-ppt-validator",
-    ],
-
-    # ── od_ppt revision pipeline — 1 agent ────────────────────────────────
-    "od_ppt_revision": [
-        "od-ppt-revision-agent",
-    ],
-
-    # ── PPT Revision pipeline — 2 agents ─────────────────────────────────
-    "ppt_revision": [
-        "ppt-revision-agent",
-        "ppt-revision-assembler",
-    ],
-
-    # ── Prototype pipeline — Spec Kit Approach 2+3 ────────────────────────
-    # Phase 1: Spec Writer generates spec.md
-    # Phase 2: Task Planner decomposes into atomic tasks
-    # Phase 3: Build Agent executes tasks incrementally
-    # Phase 4: Validation Agent runs P0/P1 checks
-    "prototype": [
-        "prototype-specify",
-        "prototype-plan",
-        "prototype-analyze",
-        "prototype-build",
-        "prototype-validate",
-    ],
-
-    # ── Prototype Revision pipeline — 2 agents (KAN-108) ─────────────────
-    # prototype-revision-agent edits prototype.html in place; prototype-revision-validate
-    # runs a comprehensive P0/P1 quality pass after — dedicated agent with correct
-    # consumes/injects contracts for this pipeline (prototype-validate declares
-    # consumes:[prototype-build] which is not present here).
-    "prototype_revision": [
-        "prototype-revision-agent",
-        "prototype-revision-validate",
-    ],
-
-    # ── App Builder pipeline — 15 agents ──────────────────────────────────
-    "app_builder": [
-        "material-analyzer",
-        "app-user-stories",
-        "app-system-design",
-        "app-security-architecture",
-        "app-ux-design",
-        "app-api-design",
-        "app-database-design",
-        "app-code-generator",
-        "app-feature-implementation",
-        "app-infra-generator",
-        "app-code-compliance",
-        "app-test-implementation",
-        "app-test-compliance",
-        "app-devops",
-        "app-sdlc-governance",
-    ],
-
-    # ── App Builder Revision pipeline — 1 agent ───────────────────────────
-    "app_builder_revision": [
-        "app-builder-revision-agent",
-    ],
-
-    # ── Mulesoft → Spring Boot pipeline — 13 agents ───────────────────────
-    "mulesoft_to_springboot": [
-        "mulesoft-inventory",
-        "mulesoft-user-stories",
-        "mulesoft-decomposition",
-        "mulesoft-security-architecture",
-        "mulesoft-springboot-scaffold",
-        "mulesoft-feature-coding",
-        "mulesoft-dataweave-translator",
-        "mulesoft-aws-infra",
-        "mulesoft-code-compliance",
-        "mulesoft-test-implementation",
-        "mulesoft-test-compliance",
-        "mulesoft-validation",
-        "mulesoft-sdlc-governance",
-    ],
-
-    # ── .NET → Azure pipeline — 13 agents ────────────────────────────────
-    "dotnet_to_azure": [
-        "dotnet-inventory",
-        "dotnet-user-stories",
-        "dotnet-azure-target-mapping",
-        "dotnet-security-architecture",
-        "dotnet-modernization",
-        "dotnet-feature-coding",
-        "dotnet-azure-bicep",
-        "dotnet-azure-ai",
-        "dotnet-code-compliance",
-        "dotnet-test-implementation",
-        "dotnet-test-compliance",
-        "dotnet-validation",
-        "dotnet-sdlc-governance",
-    ],
-
-    # ── Custom pipeline — 9 utility agents ───────────────────────────────
-    "custom": [
-        "market-research-agent",
-        "swot-analyst",
-        "roadmap-planner",
-        "security-auditor",
-        "test-case-generator",
-        "performance-optimizer",
-        "documentation-agent",
-        "report-generator",
-        # Generic fan-out producer (Phase 51 / FANOUT-04): a domain-general
-        # `## Task N:` list-emitter the composer inserts as a fan-out producer
-        # node. A prompt fragment only (tools: []) — NOT a new capability kind.
-        # Order 9 in the custom AGENT.md set; kept in lock-step with the
-        # matching step in agents/workflows/custom/workflow.yaml so the engine
-        # membership assertion (engine.py:1701-1714) holds for a `custom` run.
-        "task-list-planner",
-    ],
-
-    # ── Reverse Engineer pipeline — agents TBD ────────────────────────────
-    # (populated when AGENT.md files are created for this pipeline)
-    "reverse_engineer": [],
-
-    # ── Free-chat pipeline — 7 agents (migration Phase 7b) ────────────────
-    # The conversational `user_message` path. Driven by the dedicated
-    # `ChatRunner` sequencer (app/agents/chat_runner.py), NOT the
-    # ExecutionEngine. Registered here so the chat pipeline has a single
-    # source of truth for its agent membership/ordering (consumed by
-    # `get_pipeline_agents("chat")`). The order below is the multi-phase
-    # sequence: Discovery → Requirements → UserStories/PPT/Prototype/UIDesign
-    # → Preview. This is an INTERNAL pipeline: it is intentionally excluded
-    # from `allowed_custom_agent_ids` (NOT a user-runnable `run_pipeline`
-    # pipeline — see the guard there).
-    "chat": [
-        "chat-discovery",
-        "chat-requirements",
-        "chat-user-stories",
-        "chat-ppt",
-        "chat-prototype",
-        "chat-ui-design",
-        "chat-preview",
-    ],
+# od_* pipeline aliases that are NOT real PIPELINE_AGENTS keys — resolved to a
+# base pipeline (by callers, before ever indexing PIPELINE_AGENTS) rather than
+# scanned for agents. No AGENT.md declares pipeline_type: od_prototype (they
+# declare pipeline_type: prototype); od_prototype is purely a run-label alias.
+#
+# NOTE: "ppt"/"od_ppt" and "ppt_revision"/"od_ppt_revision" used to be a
+# SECOND, different kind of dual-id situation — two really-distinct manifests
+# (not an alias) that both happened to produce presentation decks. That has
+# been collapsed: the real od_ppt/od_ppt_revision agent sets now declare
+# pipeline_type: ppt / ppt_revision directly (their AGENT.md frontmatter was
+# edited), and the legacy ppt/ppt_revision manifests + agents were DELETED.
+# So "ppt" and "ppt_revision" are ordinary, non-aliased PIPELINE_AGENTS keys —
+# WR-01 is closed at the root instead of papered over with an alias line.
+#
+# No od_ppt/od_ppt_revision alias is kept: v1 has not shipped, so no persisted
+# run carries those labels and there is nothing to stay compatible with. They
+# are gone from the tier entitlements and from SUPPORTED_PIPELINE_TYPES too.
+_OD_ALIAS_BASE: dict[str, str] = {
+    "od_prototype": "prototype",
 }
+
+
+def _discover_pipeline_agents() -> dict[str, list[str]]:
+    """Scan agents/prompts/ once and bucket agents by their own pipeline_type.
+
+    Single source of truth: each AGENT.md's own `pipeline_type` + `order`
+    frontmatter. Replaces the former hand-maintained literal dict.
+
+    The KEY set is ``SUPPORTED_PIPELINE_TYPES``, which is itself DERIVED from
+    disk (workflow.yaml dirs ∪ pipeline_types declared by AGENT.md files ∪ the
+    two run-label aliases — see agents/loader.py). Nothing here is
+    hand-maintained; the allow-list this loop used to iterate is gone.
+
+    Deriving the keys from the DECLARED pipeline_types alone was tried and is
+    WRONG: it silently drops every AGENT-LESS pipeline. `reverse_engineer`
+    (a manifest with no agents) and `od_prototype_revision` (a pure run-label
+    alias) have no AGENT.md declaring them, so they vanished from the dict
+    entirely — turning ``PIPELINE_AGENTS[pt]`` from an empty list into a
+    KeyError for callers that reasonably expect every supported type to be a
+    key. The empty list is meaningful: "this pipeline exists and has no
+    agents", which is not the same as "this pipeline does not exist".
+
+    Per-pipeline behaviour (ascending-order sort, duplicate-order
+    AgentSpecError, `template: true` skip) is whatever ``list_agent_ids``
+    implements — nothing is reimplemented here.
+    """
+    return {
+        pt: list_agent_ids(pt)
+        for pt in sorted(SUPPORTED_PIPELINE_TYPES)
+        if pt not in _OD_ALIAS_BASE
+    }
+
+
+PIPELINE_AGENTS: dict[str, list[str]] = _discover_pipeline_agents()
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +128,7 @@ REVISION_BASE_MAP: dict[str, str] = {
     "user_stories_revision": "user_stories",
     "prototype_revision": "prototype",
     "app_builder_revision": "app_builder",
+    "custom_revision": "custom",
 }
 
 
@@ -248,9 +152,6 @@ def get_pipeline_agents(pipeline_type: str) -> list[AgentSpec]:
         AgentSpecError: propagated from loader if an AGENT.md file is
             malformed or has invalid fields.
     """
-    if pipeline_type not in SUPPORTED_PIPELINE_TYPES:
-        return []
-
     ids = list_agent_ids(pipeline_type)
     specs = [load_agent_spec(aid) for aid in ids]
     return sorted(specs, key=lambda s: s.order)
@@ -266,16 +167,6 @@ def get_pipeline_agents(pipeline_type: str) -> list[AgentSpec]:
 # data from the REAL pipeline-to-ID maps above + the on-disk AGENT.md files
 # (via the loader), so there is a single source of truth. Phase 6 (T3)
 # repoints ``app/api/agents.py`` and ``app/api/websocket.py`` here.
-
-# od_* pipeline aliases that are NOT real PIPELINE_AGENTS keys and must
-# resolve to a base pipeline before the allow-list logic runs. (Mirrors the
-# resolution in app/api/websocket.py — od_prototype→prototype; od_ppt and
-# od_ppt_revision ARE real registry keys, so they are handled by the general
-# base/revision logic below, not here.)
-_OD_ALIAS_BASE: dict[str, str] = {
-    "od_prototype": "prototype",
-}
-
 
 def get_agent_by_id(agent_id: str) -> AgentSpec | None:
     """Return the AgentSpec for ``agent_id``, or ``None`` if it does not exist.
@@ -300,9 +191,9 @@ def get_all_agents_flat() -> list[AgentSpec]:
 
     Iterates every pipeline in ``PIPELINE_AGENTS`` (base + revision + custom),
     loads each agent id via ``load_agent_spec``, and de-duplicates by ``id``
-    (an agent may appear in more than one pipeline — e.g. the od-ppt agents are
-    shared by the ``ppt`` and ``od_ppt`` pipelines). This spans ALL pipelines
-    to match the intent of the legacy flat list (the full agent pool).
+    (an agent may in principle appear in more than one pipeline). This spans
+    ALL pipelines to match the intent of the legacy flat list (the full agent
+    pool).
 
     Ordering is stable and deterministic: pipeline insertion order in
     ``PIPELINE_AGENTS``, then ascending ``order`` within each pipeline; the
@@ -338,6 +229,25 @@ def get_all_agents_flat() -> list[AgentSpec]:
             seen.add(spec.id)
             specs.append(spec)
 
+    # Template agents (spec 012): excluded from PIPELINE_AGENTS membership — the
+    # engine asserts compiled-steps == membership, and a template is never a step
+    # — but they belong in the FLAT pool, because that is what the composer's
+    # agent picker reads. A blank custom agent the user cannot select is useless.
+    # Sourced from the loader's cached TEMPLATE_AGENT_IDS_BY_FLAG (computed once
+    # at import time — replaces the former hand-maintained template-id name
+    # list, see AgentSpec.template) rather than re-scanning disk per call.
+    for template_id in sorted(TEMPLATE_AGENT_IDS_BY_FLAG):
+        if template_id in seen:
+            continue
+        try:
+            specs.append(load_agent_spec(template_id))
+            seen.add(template_id)
+        except (FileNotFoundError, AgentSpecError):
+            logger.warning(
+                "get_all_agents_flat: skipping template agent %r (load failed)",
+                template_id,
+            )
+
     return specs
 
 
@@ -355,26 +265,32 @@ def allowed_custom_agent_ids(pipeline_type: str) -> set[str]:
     Branches:
       * od_ alias (``od_prototype``) → resolved to its base pipeline
         (``prototype``) and re-evaluated.
-      * base pipeline (real equivalents of user_stories / ppt / prototype /
-        app_builder / mulesoft_to_springboot / dotnet_to_azure, AND ``od_ppt``):
+      * base pipeline (user_stories / ppt / prototype / app_builder /
+        mulesoft_to_springboot / dotnet_to_azure):
         ``set(PIPELINE_AGENTS[base]) | set(PIPELINE_AGENTS["custom"])`` — the
         pipeline's own agents plus the custom-utility pool the UI exposes.
-        Treating ``od_ppt`` as a base pipeline FIXES the legacy ``od_ppt → ∅``
-        bug that rejected every od_ppt run supplying ``agent_ids``.
-      * revision pipeline (any ``*_revision`` — incl. ``od_ppt_revision``):
+        Deliberately NOT unioned with any OTHER base pipeline's own agents:
+        each base pipeline's tier entitlement (``can_run_pipeline``) is
+        checked against its OWN ``pipeline_type`` only, never against the
+        origin pipeline of an individual ``agent_id`` — so unioning in e.g.
+        ``app_builder``'s or ``custom``'s own agents here would let a
+        lower-tier user reach pro/enterprise-only agents through a
+        basic-tier pipeline's ``run_pipeline``/save-workflow call. This was
+        tried (KAN-75, 2026-06-24) and reverted: it is a real cross-pipeline
+        injection / entitlement bypass, not a supported feature.
+      * revision pipeline (any ``*_revision``):
         ``set(PIPELINE_AGENTS[that_revision])`` only. Revisions are
         intentionally tight (the revision flow assumes a fixed agent shape and
         the UI does not let the user inject agents into a revision run).
-      * ``"custom"``: the custom-utility pool UNION every non-revision,
-        non-internal base pipeline's agents — i.e. ``set(PIPELINE_AGENTS["custom"])``
-        plus each base pipeline's ids (see the ``pipeline_type == "custom"``
-        branch below). This lets the "compose a custom workflow" UI include any
-        base-pipeline agent (prototype, user_stories, ppt, app_builder, …) in a
-        ``custom`` run, so the launch allow-list matches what the composer pool
-        exposes. (This is the SAME union the base-pipeline branch returns; the
-        only pools excluded are the tight ``*_revision`` pipelines and the
-        internal ``chat`` pipeline. ``custom`` is NOT part of the legacy-parity
-        guarantee — base + revision pipelines are.)
+      * ``"custom"``: the custom-utility pool ONLY —
+        ``set(PIPELINE_AGENTS["custom"])``. A ``custom`` run is assembled by
+        the user from the agent library; base-pipeline agents (ppt-composer,
+        app-code-generator, …) run only inside their own pipeline. (Same
+        entitlement-bypass reasoning as the base-pipeline branch above:
+        unioning in every base pipeline's agents here would let ANY tier
+        reach ``app_builder``-only agents merely by naming ``custom`` as the
+        pipeline type, regardless of whether that tier is entitled to
+        ``app_builder`` itself.)
       * unknown / unsupported (incl. the empty ``reverse_engineer`` pipeline):
         ``set()`` — the security fallback. The caller is still expected to
         reject unknown pipeline types up-front; this empty-set guarantees no
@@ -392,37 +308,34 @@ def allowed_custom_agent_ids(pipeline_type: str) -> set[str]:
     if pipeline_type in _INTERNAL_PIPELINES:
         return set()
 
-    # Revision pipelines (tight): driven by the *_revision suffix so that BOTH
-    # the REVISION_BASE_MAP entries AND od_ppt_revision (absent from that map)
-    # are covered. Their own agents only.
+    # Revision pipelines (tight): driven by the *_revision suffix so every
+    # REVISION_BASE_MAP entry is covered generically. Their own agents only.
     if pipeline_type.endswith("_revision"):
         return set(PIPELINE_AGENTS.get(pipeline_type, []))
 
     if pipeline_type == "custom":
-        # The custom pipeline allows agents from the custom utility pool AND
-        # from any base pipeline — this enables the "compose a custom workflow"
-        # UI to include prototype, user_stories, ppt, app_builder agents.
-        # We union ALL non-revision, non-internal pipeline agent lists.
-        all_agents: set[str] = set(PIPELINE_AGENTS.get("custom", []))
-        for pt, agent_list in PIPELINE_AGENTS.items():
-            if pt.endswith("_revision") or pt in _INTERNAL_PIPELINES or pt == "custom":
+        # OPEN BY DESIGN: composing across pipelines is the point of the custom
+        # workflow builder (spec 012), so this branch stays wide.
+        #
+        # Not an entitlement bypass TODAY only because `custom` is enterprise-only
+        # (entitlements.py::TIER_PIPELINES) and enterprise already holds every
+        # pipeline unioned here. LOAD-BEARING: granting `custom` to a tier that
+        # lacks any of them turns this into a real bypass — narrow it to the
+        # custom pool plus a per-agent origin-tier check before that happens.
+        out: set[str] = set()
+        for pt, ids in PIPELINE_AGENTS.items():
+            if pt.endswith("_revision") or pt in _INTERNAL_PIPELINES:
                 continue
-            all_agents.update(agent_list)
-        return all_agents
+            out |= set(ids)
+        return out
 
-    # Base pipelines (own agents ∪ custom pool ∪ all other base pipeline agents).
-    # The AgentLibrary UI allows adding any agent from any pipeline into any
-    # base pipeline run, so we must accept cross-pipeline agent ids here.
-    # This mirrors the "custom" branch behaviour for base pipelines.
+    # Base pipelines (own agents ∪ custom pool). Derived: a present,
+    # non-revision, non-custom, NON-EMPTY pipeline. The non-empty guard keeps
+    # the agentless reverse_engineer pipeline out (→ falls through to ∅,
+    # matching the legacy security fallback). od_ppt naturally lands here.
     base_agents = PIPELINE_AGENTS.get(pipeline_type)
     if base_agents:  # present and non-empty
-        all_allowed: set[str] = set(base_agents) | set(PIPELINE_AGENTS.get("custom", []))
-        # Add agents from all other base (non-revision, non-internal, non-custom) pipelines
-        for pt, agent_list in PIPELINE_AGENTS.items():
-            if pt.endswith("_revision") or pt in _INTERNAL_PIPELINES or pt == "custom":
-                continue
-            all_allowed.update(agent_list)
-        return all_allowed
+        return set(base_agents) | set(PIPELINE_AGENTS.get("custom", []))
 
     # Unknown / unsupported / empty → security fallback.
     return set()

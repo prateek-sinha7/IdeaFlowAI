@@ -1,22 +1,28 @@
-# app_builder — 15-agent full-app generation pipeline.
-# Step order == PIPELINE_AGENTS["app_builder"] (== get_pipeline_agents order).
-# deliverable: serialized_sandbox (the filename:-block bundle). gates: [] per step
-# (static-gate detection stays behavioral via _should_gate/AGENT.md, Phase 7).
-# clarify.defaults verbatim from engine._pipeline_defaults["app_builder"]
-# (engine.py:758).
 id: app_builder
 version: 1
-# Catalog (Plan 20-01): declared launchability — inert metadata read by
-# GET /api/workflows, never by the compiler/kernel (INV-3 parity).
-# display_name (UXFIX-01/22-07): authored friendly catalog label — presentation only.
 user_launchable: true
-display_name: "Build an end-to-end application"
-description: "Full-stack code, tests, and infrastructure from a single requirement."
+is_beta: false
+short_name: App Builder
+display_name: Build an end-to-end application
+icon: Rocket
+chained_from:
+- id: prototype
+  beta: true
+  text: Build this from scratch
+- id: ppt
+  beta: true
+  text: Develop the product
+- id: user_stories
+  beta: true
+  text: Code the features
+description: Full-stack code, tests, and infrastructure from a single requirement.
 planner: run
 clarify:
   mode: auto
   # KAN-74: extended from 4 to 8 defaults. Adds: user_journeys, data_model,
   # integrations, performance — critical for full-stack app generation quality.
+  # ISS-056: rounds: 2 lets a second round surface topics beyond the ~5/round cap.
+  rounds: 2
   defaults: [technology, scope, target_audience, security, user_journeys, data_model, integrations, performance]
 deliverable:
   strategy: serialized_sandbox
@@ -24,55 +30,50 @@ deliverable:
 context_providers: []
 seed_files: {}
 steps:
-  - agent: material-analyzer
-    strategy: single_shot
-    gates: []
-  - agent: app-user-stories
-    strategy: single_shot
-    gates: []
-  - agent: app-system-design
-    strategy: single_shot
-    gates: []
-  - agent: app-security-architecture
-    strategy: single_shot
-    gates: []
-  - agent: app-ux-design
-    strategy: single_shot
-    gates: []
-  - agent: app-api-design
-    strategy: single_shot
-    gates: []
-  - agent: app-database-design
-    strategy: single_shot
-    gates: []
-  - agent: app-code-generator
-    strategy: single_shot
-    gates: []
-  - agent: app-feature-implementation
-    strategy: single_shot
-    gates: []
-  - agent: app-infra-generator
-    strategy: single_shot
-    gates: []
-    # post_step (19-02 / ISS-005): after the infra-generator writes its 12 infra
-    # files, run the api_prefix validator EVENT-FREE (side effects only — writes a
-    # validation_results audit row, emits NO event) so endpoints missing /api/v1 are
-    # caught deterministically without perturbing the byte-identical app_builder
-    # golden. NOT gates:[validation] (that emits a validation_warning event the
-    # golden has no slot for → breaks INV-3).
-    post_step: api_prefix_audit
-  - agent: app-code-compliance
-    strategy: single_shot
-    gates: []
-  - agent: app-test-implementation
-    strategy: single_shot
-    gates: []
-  - agent: app-test-compliance
-    strategy: single_shot
-    gates: []
-  - agent: app-devops
-    strategy: single_shot
-    gates: []
-  - agent: app-sdlc-governance
-    strategy: single_shot
-    gates: []
+- agent: material-analyzer
+  strategy: single_shot
+  gates: []
+- agent: app-user-stories
+  strategy: single_shot
+  gates: []
+- agent: app-system-design
+  strategy: single_shot
+  gates: []
+- agent: app-security-architecture
+  strategy: single_shot
+  gates: []
+- agent: app-ux-design
+  strategy: single_shot
+  gates: []
+- agent: app-api-design
+  strategy: single_shot
+  gates: []
+- agent: app-database-design
+  strategy: single_shot
+  gates: []
+- agent: app-code-generator
+  strategy: single_shot
+  gates: []
+- agent: app-feature-implementation
+  strategy: single_shot
+  gates: []
+- agent: app-infra-generator
+  strategy: single_shot
+  gates: []
+  post_step: api_prefix_audit
+- agent: app-code-compliance
+  strategy: single_shot
+  gates: []
+- agent: app-test-implementation
+  strategy: single_shot
+  gates: []
+- agent: app-test-compliance
+  strategy: single_shot
+  gates: []
+- agent: app-devops
+  strategy: single_shot
+  gates: []
+- agent: app-sdlc-governance
+  strategy: single_shot
+  gates: []
+name: App Builder

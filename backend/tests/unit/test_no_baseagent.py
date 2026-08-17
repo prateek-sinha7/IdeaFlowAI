@@ -89,7 +89,12 @@ def test_scanned_paths_exist() -> None:
     """Sanity: the scanned roots exist (catches accidental path typos)."""
     assert (BACKEND / "agents" / "execution_engine" / "engine.py").exists()
     assert (BACKEND / "app" / "agents" / "chat_runner.py").exists()
-    assert (BACKEND / "app" / "api" / "websocket.py").exists()
+    # Was `app/api/websocket.py`. That file was deliberately deleted in
+    # df7c7fd3 ("delete the /ws/chat endpoint + WS run_pipeline/run_revision
+    # drivers — INV-12 exit gate"); the run drivers now live in run_commands.py.
+    # Asserting the old path made this typo-guard permanently red, which is the
+    # opposite of what a sanity check is for.
+    assert (BACKEND / "app" / "api" / "run_commands.py").exists()
 
 
 def test_legacy_chat_stack_is_deleted() -> None:

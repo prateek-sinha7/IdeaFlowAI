@@ -1,19 +1,35 @@
-# user_stories_revision — single revision agent over a prior backlog.
-# clarify.defaults fall to engine._pipeline_defaults["custom"] (engine.py:761)
-# — revisions have no dedicated entry in the dict (parity trap #2).
-# context_providers: [previous_run] seeds the prior run's output (Phase-7 impl).
 id: user_stories_revision
+user_launchable: false
+is_beta: true
+display_name: Revise product requirements
+short_name: User Stories Revision
+description: Apply a revision instruction to a prior user-stories backlog.
+icon: FileText
 version: 1
-planner: run
+# ISS-050 / KAN-156: planner changed from run to skip AND clarify.mode changed
+# from auto to skip (BOTH required, atomic). user_stories_output →
+# user_stories_revision is reachable from the generic chat-lane revision channel
+# (Phase 29). CR-02 rejects planner: run. Additionally clarify.mode: auto with
+# planner: run would unconditionally force gate_verdict = CLARIFY_REQUIRED
+# (engine.py:1809-1812), guaranteeing the indefinite event.wait() hang CR-02
+# was designed to prevent. Both fields must flip together. Matches the
+# ppt_revision / od_ppt_revision precedent.
+planner: skip
 clarify:
-  mode: auto
-  defaults: [target_audience, key_objectives, scope, priority]
+  mode: skip
+  defaults:
+  - target_audience
+  - key_objectives
+  - scope
+  - priority
 deliverable:
   strategy: streamed_text
   name: user_stories.md
-context_providers: [previous_run]
+context_providers:
+- previous_run
 seed_files: {}
 steps:
-  - agent: user-story-revision-agent
-    strategy: single_shot
-    gates: []
+- agent: user-story-revision-agent
+  strategy: single_shot
+  gates: []
+name: User Stories Revision

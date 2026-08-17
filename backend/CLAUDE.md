@@ -113,8 +113,9 @@ ExecutionEngine.execute(agents, user_message, pipeline_run_id, pipeline_type, �
       │       └─► _WORKFLOW_COMPILER.compile(manifest, registry) ← validated plan
       │       (raises FileNotFoundError if no manifest for the resolved id)
       │   sequence / deliverable / clarify / planner  ← FROM compiled plan
-      │   registry.get_pipeline_agents(pipeline_type)            ← agent membership
-      │   ASSERT [s.agent_id for s in compiled.steps] == membership  → else RuntimeError
+      │   roster: the CALLER's list if it has one (composer picks, or
+      │           registry.get_pipeline_agents), else compiled.steps   (ADR-0008)
+      │   (the old ASSERT plan == membership → RuntimeError is DELETED — ADR-0003)
       │   await get_checkpointer()                               ← Postgres / InMemory
       │   RunSandbox(user_id, pipeline_run_id)                   ← per-run disk dir
       │
@@ -256,7 +257,7 @@ will catch any missing or invalid fields.
 | `id` | string | *(required)* | Kebab-case identifier; must match the folder name exactly |
 | `name` | string | *(required)* | Human-readable display name shown in the UI |
 | `role` | string | *(required)* | Short role description shown in the UI progress panel |
-| `pipeline_type` | string | *(required)* | Pipeline this agent belongs to; must be one of `SUPPORTED_PIPELINE_TYPES` |
+| `pipeline_type` | string | *(required)* | Pipeline this agent belongs to. Any non-empty string — no allow-list check since ADR-0005, so a typo creates a phantom type instead of raising |
 | `order` | integer | *(required)* | Execution position within the pipeline (ascending, unique per pipeline) |
 | `max_tokens` | integer | *(required)* | Documented per-agent output ceiling (1–32768). Retained for the UI/spec; the runtime caps every agent at `settings.MAX_OUTPUT_TOKENS`, not this value |
 | `tools` | list[str] | `[]` | Tool sets to bind: `"workspace"`, `"prototype"`, `"prototype_emit_only"`, `"planning"` (see [Tool Sets](#tool-sets)) |
@@ -267,6 +268,7 @@ will catch any missing or invalid fields.
 | `description` | string | *(falls back to `role`)* | Longer UI/API blurb; absence never errors (loader falls back to `role`) |
 | `gate` | string\|null | `null` | `Human_Gate` puts the agent in the default review-gate set; `Validation_Gate`; or absent |
 | `injects` | list[str] | `[]` | For od_prototype/od_ppt agents: any of `[template, design_system, craft]` (composed into the prompt by `_compose_injection`) |
+| `template` | bool | `false` | `true` marks a folder that exists to be INSTANTIATED, never to be a pipeline member — `custom-agent` is the blank agent a composed workflow clones N times as `custom-agent:<instance_id>`. Excluded from every roster by `list_agent_ids`. Strict bool: `"yes"`/`1` raise rather than coerce (ADR-0005) |
 | `produces` / `consumes` | list[str] | `[]` | **The live inter-agent routing mechanism.** An upstream agent's typed output reaches this agent IFF `set(upstream.produces) & set(this.consumes)` is non-empty; the content is read from the typed artifact graph (`ectx.artifacts`) via `_filter_consumed_outputs` / `_latest_typed_content` in `engine.py`. Also read by `WorkflowResolver` for DAG validation |
 
 ### `context_from` Examples
@@ -306,17 +308,19 @@ silently omitted. Use explicit IDs for non-adjacent upstream context (common in 
 
 ## Adding a Pipeline
 
-### Step 1 — Add the pipeline type to SUPPORTED_PIPELINE_TYPES
+### Step 1 — Nothing. The pipeline type is discovered from disk
 
-Open `agents/loader.py` and add the new type to the frozenset:
+**There is no list to edit.** `SUPPORTED_PIPELINE_TYPES` used to be a hand-typed
+frozenset in `agents/loader.py`; it is now derived at import from (a) every
+`agents/workflows/<id>/` containing a `workflow.yaml`, (b) every `pipeline_type`
+declared by an `AGENT.md`, and (c) a small alias set. Creating the folder in Step 4
+is what registers the type — see **ADR-0005** and SC-001 in
+`.knowledge/INVARIANTS.md`.
 
-```python
-SUPPORTED_PIPELINE_TYPES: frozenset[str] = frozenset({
-    "user_stories",
-    "your_new_pipeline",   # ← add here
-    ...
-})
-```
+The trade-off this bought: a typo'd `pipeline_type` in an `AGENT.md` no longer raises
+`AgentSpecError`. It silently becomes its own one-agent phantom type, dropping that
+agent from the pipeline it meant to join. A startup consistency check is the intended
+replacement and is **not implemented yet** — until it is, check your spelling.
 
 ### Step 2 — Create AGENT.md files for each agent in the pipeline
 
@@ -347,9 +351,18 @@ at run entry `compile_for_run(pipeline_type)` resolves the id and calls
 (each step's `agent_id` + its capabilities), the `deliverable`, the `clarify` config, and the
 `planner` flag.
 
-The manifest's step `agent_id`s must **match the `PIPELINE_AGENTS` membership and order** for
-this pipeline, or the engine aborts at run entry with `RuntimeError` (the membership assertion
-in `engine.py`). Copy an existing `agents/workflows/<id>/workflow.yaml` (e.g.
+The manifest's step `agent_id`s **should** match the `PIPELINE_AGENTS` membership and order
+for this pipeline. They are no longer *enforced* to: the run-entry membership assertion that
+raised `RuntimeError` on drift was removed (**ADR-0003**) because a composed workflow —
+whose steps are instances of one agent template with no `AGENT.md` — can never satisfy it.
+
+**Nothing checks this at runtime today.** If the two drift, the run executes the manifest's
+agents while `GET /api/agents/pipelines/{type}`, the mint-time `agent_count` and the
+model-override allow-list keep reporting registry membership. `tests/agents/test_manifest_coverage.py`
+is the only remaining guard and it is test-time only. A non-blocking drift warning is the
+intended replacement (ADR-0003 "Confirmation").
+
+Copy an existing `agents/workflows/<id>/workflow.yaml` (e.g.
 `agents/workflows/prototype/workflow.yaml`) as the template rather than hand-writing the keys.
 
 ### Step 5 — (Optional) Add a REVISION_BASE_MAP entry
@@ -452,6 +465,15 @@ The **library sub-agent dispatch tool (`task`) is always excluded** so the model
 its own sub-agents — the engine orchestrates per-task sub-agents itself (prototype build loop).
 Tool exclusion is enforced by a per-graph `_ToolFilterMiddleware` inside `DeepAgentRunner`
 (built on the public `AgentMiddleware` / `ModelRequest.override` API).
+
+> **The TOOL is excluded; its PROMPT is not.** `SubAgentMiddleware`
+> (`deepagents/middleware/subagents.py`) injects `TASK_SYSTEM_PROMPT` into the system prompt
+> independently of tool binding, so every agent still carries ~500 tokens describing how to
+> use `task` — including the list of available subagent types — for a tool it cannot call.
+> Confirmed in captured composed-workflow system prompts. Removing it needs
+> `GeneralPurposeSubagentProfile(enabled=False)` / `HarnessProfile(base_system_prompt=…)`;
+> `HarnessProfile` is **beta** in deepagents 0.6.7. Tracked as **C1** in
+> `.planning/debug/outstanding-bugs.md` (parked).
 
 `report_task_complete` (`app/agents/tools/runner_tools.py`) is **store-free**: it just returns a
 confirmation string. The engine derives `task_progress` from the tool's call/result events
@@ -619,6 +641,26 @@ verbatim in the composed system prompt.
 > `create_agent`/`_build_tools` path). The live pipeline contract is covered by the
 > `tests/agents/` runner/registry/loader/static-check suites and the `tests/unit/` engine/API
 > suites above.
+
+### Debug tracing a local run
+
+`ENV=development` gives DEBUG automatically for `app`, `app.agents`, `app.api`,
+`agents.factory`, and `agents.execution_engine`; force it anywhere with
+`LOG_LEVEL_APP=DEBUG`. Production stays INFO by default, so prompts/payloads are
+never dumped off-box. At DEBUG, the skills seam traces per agent: `factory` logs
+`create_runner`, the resolved tool set (`resolve_tools`), and the composed-prompt
+size (`compose_prompt`, count + chars only — never the body); `skill_staging` logs
+the `(id, description)` pairs the deepagents preamble will advertise
+(`skills_block`) — the line that explains why a skill was or wasn't picked. The
+one exception is `skill_used` (`deep_agent_runner`), logged at **INFO**: it fires
+when the model actually reads a staged skill's `SKILL.md`, and is the activation
+signal you want visible without turning on full DEBUG.
+
+Console output format is controlled by `LOG_FORMAT=pretty|json` (`""` = auto).
+Development defaults to `pretty` — one coloured line per record, HH:MM:SS + a
+component label; every other environment defaults to `json`, unchanged.
+Colour auto-disables (the layout stays) when stdout is piped to a file, when
+`NO_COLOR` is set, or when `TERM=dumb`.
 
 ---
 

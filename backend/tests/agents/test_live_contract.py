@@ -591,8 +591,19 @@ class TestClarifyVocabularyOffline:
     gap — offline never emitted clarify events because the planner was faked.)"""
 
     @pytest.mark.asyncio
-    async def test_clarify_events_validate_clean(self) -> None:
+    async def test_clarify_events_validate_clean(self, monkeypatch) -> None:
         from agents.execution_engine.engine import ExecutionEngine
+
+        # ClarifyEngine's question generation tries an LLM call first and falls
+        # back to its static library on any Exception. Force that fallback here
+        # rather than reaching a real provider (see test_live_harness.py's
+        # identical test for the full rationale — ISS-102 offline guard).
+        async def _no_llm(*args, **kwargs):
+            raise RuntimeError("offline test: no LLM clarify generation")
+
+        monkeypatch.setattr(
+            "app.agents.cached_invoke.cached_invoke", _no_llm
+        )
 
         ctx = ExecutionEngine()._default_planning_context(
             "Build user stories for a web app."

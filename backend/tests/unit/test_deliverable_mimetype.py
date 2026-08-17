@@ -164,7 +164,7 @@ async def test_pipeline_complete_mimetype_never_null_when_deliverable_present() 
     per-resolver default — NEVER null when a deliverable exists."""
     from tests.agents._scripted_model import _drive
 
-    events = await _drive("od_ppt")
+    events = await _drive("ppt")
     completes = [e for e in events if e.get("type") == "pipeline_complete"]
     assert completes, "no pipeline_complete event emitted"
     data = completes[-1].get("data") or {}

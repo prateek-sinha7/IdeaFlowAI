@@ -306,6 +306,96 @@ def test_runtime_capability_does_not_import_app_or_create_deep_agent() -> None:
 
 
 # ===========================================================================
+# PORTS & ADAPTERS BOUNDARY (TEST-008 / ISS-068)
+# ===========================================================================
+
+# The import-linter contract "agents.capabilities must not import the execution
+# kernel or the web layer" (pyproject.toml [[tool.importlinter.contracts]]) in
+# pytest form. It is duplicated HERE on purpose: `lint-imports` is a separate
+# binary that must be invoked from `backend/` (run from the repo root it prints
+# "Could not read any configuration" and exits, which reads as a pass), so in
+# practice nobody runs it and a violation survives. This exact contract was
+# broken for ~3 weeks by a single line — see the non-vacuity guard below.
+#
+# Scope note: this SUPERSETS the `app`-import half of
+# `test_runtime_capability_does_not_import_app_or_create_deep_agent` above,
+# which is deliberately kept — that assertion is INV-13/F5-scoped (the runtime
+# adapter reaches runner construction through the factory build seam) and
+# carries its own diagnostic. This one is the architecture boundary itself.
+_RE_CAPABILITY_BOUNDARY_IMPORT = re.compile(
+    r"^\s*(?:from|import)\s+(?:agents\.execution_engine|app)\b"
+)
+_CAPABILITIES_ROOT = _BACKEND_ROOT / "agents" / "capabilities"
+
+
+def test_capabilities_do_not_import_kernel_or_web_layer() -> None:
+    """No module under ``agents/capabilities/`` may import the kernel or ``app`` .
+
+    Ports & Adapters: the kernel depends only on capability ports, and a capability
+    reaches kernel/app primitives ONLY through the D-03 handle (``ctx.runner`` /
+    ``KernelServices``). A direct import inverts the dependency and drags the web
+    layer into the capability tree.
+
+    ISS-068: ``strategies/task_loop.py`` did
+    ``from agents.execution_engine.od_context import get_example_html`` for the
+    ``template.html`` revision seed, which transitively pulled in
+    ``app.services.od_loader`` — breaking the contract on both forbidden roots at
+    once. The port it needed (``KernelServices.template_example``) already existed
+    and was already used by ``context_providers/opendesign.py``; it was a one-off
+    bypass, not a missing seam. ZERO matches expected."""
+    hits = _scan(_RE_CAPABILITY_BOUNDARY_IMPORT, _CAPABILITIES_ROOT)
+    assert not hits, (
+        "Ports & Adapters: agents.capabilities must not import agents.execution_engine "
+        "or app — reach kernel/app primitives through the ctx.runner (KernelServices) "
+        "handle instead, adding a port there if one is genuinely missing. This mirrors "
+        "the import-linter contract in pyproject.toml; do NOT amend that contract to "
+        "record a violation. Offenders:\n"
+        + "\n".join(f"  {p}:{n}: {ln}" for p, n, ln in hits)
+    )
+
+
+def test_capability_boundary_gate_catches_the_iss068_violation(tmp_path: Path) -> None:
+    """NON-VACUITY: replay the real ISS-068 line and assert the scanner flags it.
+
+    The live tree is clean, so a never-matching regex would pass silently. These are
+    the exact statements that broke the contract (``task_loop.py:562`` and the
+    transitive ``od_context.py:26``), plus a plain kernel import."""
+    bad = tmp_path / "rogue_capability.py"
+    bad.write_text(
+        "def seed(runner, tid):\n"
+        "    from agents.execution_engine.od_context import get_example_html\n"
+        "    return get_example_html(tid)\n"
+        "from app.services import od_loader\n"
+        "import agents.execution_engine\n",
+        encoding="utf-8",
+    )
+    hits = _scan(_RE_CAPABILITY_BOUNDARY_IMPORT, tmp_path)
+    assert len(hits) == 3, (
+        "NON-VACUITY FAILURE: the capability-boundary scanner did not flag the "
+        f"injected ISS-068 imports — the gate would not catch a real regression. "
+        f"Expected 3 hits, got {len(hits)}: {hits}"
+    )
+
+
+def test_capability_boundary_gate_ignores_lookalikes(tmp_path: Path) -> None:
+    """A commented import, a sibling capability import, and modules whose names merely
+    START with ``app`` must NOT trip the boundary gate (guards the false-red direction —
+    ``agents/capabilities/`` legitimately imports its own subpackages everywhere)."""
+    benign = tmp_path / "benign.py"
+    benign.write_text(
+        "# from agents.execution_engine.od_context import get_example_html\n"
+        "from agents.capabilities.registry import CapabilityRegistry\n"
+        "from application_config import settings\n"
+        "import appdirs\n",
+        encoding="utf-8",
+    )
+    assert not _scan(_RE_CAPABILITY_BOUNDARY_IMPORT, tmp_path), (
+        "FALSE POSITIVE: the capability-boundary gate tripped on a comment, a sibling "
+        "capability import, or an `app`-prefixed third-party module."
+    )
+
+
+# ===========================================================================
 # NON-VACUITY GUARD (T-04-02) — prove the scanner actually fires
 # ===========================================================================
 

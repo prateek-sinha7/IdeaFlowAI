@@ -11,6 +11,7 @@ import {
   type SelectionsMap,
   type StepSelection,
 } from "../AgentsPopup";
+import { AgentSkillsPicker } from "./AgentSkillsPicker";
 import type { AgentDef, WorkflowType } from "@/types/index";
 
 /** Compact a model id/label for the inline pill (mock: "Opus 4.5"). The full
@@ -38,6 +39,7 @@ export function AgentRow({
   pipelineType,
   selection,
   onSelection,
+  onSkillsChange,
   onMoveUp,
   onMoveDown,
   onRemove,
@@ -54,6 +56,8 @@ export function AgentRow({
   pipelineType: WorkflowType;
   selection?: StepSelection;
   onSelection: (agentId: string, sel: StepSelection | undefined) => void;
+  /** Spec 013 — per-agent skill picker write-through (mirrors Canvas R-01/R-36/R-38). */
+  onSkillsChange?: (agentId: string, skills: string[]) => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onRemove: () => void;
@@ -74,6 +78,7 @@ export function AgentRow({
   // Ignore the auto-coupled `validation` gate when reflecting the Gate chip.
   const gateOn = (selection?.gates ?? []).some((g) => g !== "validation");
   const retryOn = (selection?.retry ?? 0) > 0;
+  const skillsOn = (agent.skills?.length ?? 0) > 0;
 
   const chip = (label: string, on: boolean) => (
     <button
@@ -191,15 +196,45 @@ export function AgentRow({
         {chip("Validator", validatorOn)}
         {chip("Gate", gateOn)}
         {chip("Retry", retryOn)}
+        {chip("Skills", skillsOn)}
         <span className="flex-1" />
         <button
           type="button"
           onClick={() => setConfigOpen((v) => !v)}
           className="font-sans text-[11px] font-medium text-brand"
         >
-          Custom prompt →
+          Configure →
         </button>
       </div>
+
+      {/* attached-skill chips — same delete-by-X affordance as the Canvas
+          view's node card / rail, so removing a skill doesn't require opening
+          the config panel. */}
+      {skillsOn && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-[74px]">
+          {agent.skills!.map((skillId) => (
+            <span
+              key={skillId}
+              className="inline-flex items-center gap-1 rounded-full border border-line-control bg-surface-white py-0.5 pl-2 pr-1 font-sans text-[11px] text-ink-700"
+            >
+              {skillId}
+              <button
+                type="button"
+                aria-label={`Remove ${skillId}`}
+                onClick={() =>
+                  onSkillsChange?.(
+                    agent.id,
+                    (agent.skills ?? []).filter((s) => s !== skillId),
+                  )
+                }
+                className="grid h-3.5 w-3.5 place-items-center rounded-full text-ink-300 hover:bg-line-faint hover:text-ink-700"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Config panel — the REUSED per-agent levers (SelectionsMap) + prompt
           editor. Not re-implemented (INV-3): AdvancedExpander is the single
@@ -221,6 +256,10 @@ export function AgentRow({
                 }
                 onSelectionsChange={(m) => onSelection(agent.id, m[agent.id])}
               />
+              {/* Spec 013 — the SHARED skills picker (AgentSkillsPicker), also
+                  used by the Canvas view's CanvasConfigRail, so the two views
+                  can't drift (R-01/R-36/R-38). */}
+              <AgentSkillsPicker agent={agent} onSkillsChange={onSkillsChange} />
               <AgentPromptSection agent={agent} surfaceOnly />
             </div>
           </motion.div>

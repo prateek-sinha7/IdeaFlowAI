@@ -1,20 +1,19 @@
-# mulesoft_to_springboot — 13-agent MuleSoft -> Spring Boot migration pipeline.
-# Step order == PIPELINE_AGENTS["mulesoft_to_springboot"]. deliverable:
-# serialized_sandbox. clarify.defaults verbatim from
-# engine._pipeline_defaults["mulesoft_to_springboot"] (engine.py:759).
 id: mulesoft_to_springboot
 version: 1
-# Catalog (Plan 20-01): declared launchability — inert metadata.
-# display_name (UXFIX-01/22-07): authored friendly catalog label — presentation only.
 user_launchable: true
-display_name: "Platform workflows"
-description: "Modernise a legacy estate — Mulesoft to AWS or .NET to Azure."
+is_beta: true
+display_name: MuleSoft to Spring Boot
+short_name: MuleSoft to Spring Boot
+description: Modernise a MuleSoft integration estate to Spring Boot on AWS.
+icon: GitBranch
 planner: run
 clarify:
   mode: auto
   # KAN-74: extended from 4 to 8 defaults. Adds: integration_patterns,
   # target_infrastructure, data_migration, compliance_security — all critical
   # for a safe, complete MuleSoft → Spring Boot migration.
+  # ISS-056: rounds: 2 lets a second round surface topics beyond the ~5/round cap.
+  rounds: 2
   defaults: [scope, technology, timeline, priority, integration_patterns, target_infrastructure, data_migration, compliance_security]
 deliverable:
   strategy: serialized_sandbox
@@ -22,42 +21,43 @@ deliverable:
 context_providers: []
 seed_files: {}
 steps:
-  - agent: mulesoft-inventory
-    strategy: single_shot
-    gates: []
-  - agent: mulesoft-user-stories
-    strategy: single_shot
-    gates: []
-  - agent: mulesoft-decomposition
-    strategy: single_shot
-    gates: []
-  - agent: mulesoft-security-architecture
-    strategy: single_shot
-    gates: []
-  - agent: mulesoft-springboot-scaffold
-    strategy: single_shot
-    gates: []
-  - agent: mulesoft-feature-coding
-    strategy: single_shot
-    gates: []
-  - agent: mulesoft-dataweave-translator
-    strategy: single_shot
-    gates: []
-  - agent: mulesoft-aws-infra
-    strategy: single_shot
-    gates: []
-  - agent: mulesoft-code-compliance
-    strategy: single_shot
-    gates: []
-  - agent: mulesoft-test-implementation
-    strategy: single_shot
-    gates: []
-  - agent: mulesoft-test-compliance
-    strategy: single_shot
-    gates: []
-  - agent: mulesoft-validation
-    strategy: single_shot
-    gates: []
-  - agent: mulesoft-sdlc-governance
-    strategy: single_shot
-    gates: []
+- agent: mulesoft-inventory
+  strategy: single_shot
+  gates: []
+- agent: mulesoft-user-stories
+  strategy: single_shot
+  gates: []
+- agent: mulesoft-decomposition
+  strategy: single_shot
+  gates: []
+- agent: mulesoft-security-architecture
+  strategy: single_shot
+  gates: []
+- agent: mulesoft-springboot-scaffold
+  strategy: single_shot
+  gates: []
+- agent: mulesoft-feature-coding
+  strategy: single_shot
+  gates: []
+- agent: mulesoft-dataweave-translator
+  strategy: single_shot
+  gates: []
+- agent: mulesoft-aws-infra
+  strategy: single_shot
+  gates: []
+- agent: mulesoft-code-compliance
+  strategy: single_shot
+  gates: []
+- agent: mulesoft-test-implementation
+  strategy: single_shot
+  gates: []
+- agent: mulesoft-test-compliance
+  strategy: single_shot
+  gates: []
+- agent: mulesoft-validation
+  strategy: single_shot
+  gates: []
+- agent: mulesoft-sdlc-governance
+  strategy: single_shot
+  gates: []
+name: MuleSoft to Spring Boot

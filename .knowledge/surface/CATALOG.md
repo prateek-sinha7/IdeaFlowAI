@@ -3,7 +3,7 @@
 
 # Catalog
 
-291 cards · built 2026-08-07 13:36
+293 cards · built 2026-08-17 13:52
 
 Migrated for completeness — **not** loaded by default. Search with
 `ctx.py "<terms>"`; these rank alongside fixes and decisions.
@@ -134,7 +134,7 @@ REQ-7 [sse,workflow,artifacts] Prototype as Manifest — Parity Proof (Phase 2)
 REQ-8 [workflow,agents,evals,artifacts,runtime] Capability Registry, Gates & Tool Permissions (Phase 3)
 REQ-9 [workflow,artifacts,runtime] Local Workspace Runtime & Repo Workflows — No Exec (Phase 4A)
 
-## Documents (63)
+## Documents (65)
 
 DOC-bug-004-grounded-context [sse] BUG-004 — SSE stream DB connection leak (grounded fix spec)
 DOC-bug-006-007-grounded-context [-] BUG-006 + BUG-007 — grounded fix spec (cluster close-out)
@@ -149,6 +149,8 @@ DOC-bug-017-grounded-context [-] BUG-017 — grounded fix spec (Concierge chat r
 DOC-bug-018-grounded-context [-] BUG-018 — grounded fix spec (Concierge reply overwrites the user's question + footer takes over the last slot)
 DOC-bug-019-020-grounded-context [-] BUG-019 + BUG-020 — grounded fix spec (left chat lane header: stale name on fresh launch + raw un-humanized type)
 DOC-bug-021-grounded-context [-] BUG-021 — grounded fix spec (left chat transcript BODY carries over the previous run on a fresh launch)
+DOC-bugfix-nested-revision [-] Bugfix brief — the two deferred update_specs defects (A: nested revision, B: silent no-op)
+DOC-bugfix-spec-revision-context [resume] Bugfix brief — update_specs regenerates the spec; resume loses planning context
 DOC-chat-and-ui-convergence-plan [-] Universal Run Chat & VelocityAI UI Convergence — Plan of Record (Milestone v2.0)
 DOC-concierge-streaming-scope [-] Scope — Stream the Concierge reply (left chat lane)
 DOC-custom-workflow-qa-test-sheet [workflow] Custom Workflow Composer — Variation QA Test Sheet

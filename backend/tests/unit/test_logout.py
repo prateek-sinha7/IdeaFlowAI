@@ -26,14 +26,15 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.auth import router as auth_router
-from app.core.security import decode_access_token, hash_password
+from app.core.security import decode_access_token
 from app.models.database import Base, get_db
 # Ensure RevokedToken's table is registered with Base.metadata before
 # create_all is called.
 from app.models.revoked_token import RevokedToken  # noqa: F401
-from app.models.user import User
+from app.models.user import User  # noqa: F401  (registers the table on Base.metadata)
 from app.models.chat import ChatSession, Message  # noqa: F401
 from app.models.workflow import WorkflowRun  # noqa: F401
+from tests.fixtures.user_factory import create_user
 
 
 @pytest.fixture
@@ -63,6 +64,9 @@ def client():
     app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(app) as test_client:
+        # Exposed so _register can create users directly (self-registration
+        # is disabled — see app/api/auth.py) against this test's own engine.
+        test_client.SessionLocal = TestingSession
         yield test_client
 
     app.dependency_overrides.clear()
@@ -71,32 +75,28 @@ def client():
 
 
 def _register(client, email: str = "alice@example.com", password: str = "password123") -> dict:
-    """Create a local ("break-glass"-shaped) user directly via the DB, then
+    """Create a local ("break-glass"-shaped) user directly in the test DB, then
     log in and return the parsed AuthResponse JSON.
 
-    ``POST /api/auth/register`` is permanently disabled (self-registration is
-    admin-only), so this fixture can no longer exercise it — same shape as
-    the real bootstrap path (``app/scripts/bootstrap_admin.py`` /
-    ``backend/scripts/seed_test_users.py``), which also inserts directly
-    rather than going through an HTTP registration endpoint. Mirrors what
-    account creation for a ``auth_provider="local"`` user is at any point in
-    the codebase's history (pre- and post-Cognito).
+    ``POST /api/auth/register`` is a permanent 403 (self-registration is
+    admin-only by design), so this helper can no longer exercise it. It inserts
+    directly instead — the same shape as the real bootstrap path
+    (``app/scripts/bootstrap_admin.py`` / ``backend/scripts/seed_test_users.py``),
+    which also inserts rather than going through an HTTP registration endpoint.
+    The row is an ``auth_provider="local"`` user (the column's model default),
+    which is what account creation for a local user is at any point in the
+    codebase's history — pre- and post-Cognito.
+
+    These tests are about JWT/logout behaviour, not account creation, so the
+    insert goes through the shared ``tests.fixtures.user_factory.create_user``
+    helper (one hashing path, shared with every other auth suite) and the token
+    comes from the real ``/api/auth/login`` flow — the part under test.
     """
-    get_db_override = client.app.dependency_overrides[get_db]
-    db = next(get_db_override())
+    session = client.SessionLocal()
     try:
-        existing = db.query(User).filter(User.email == email).one_or_none()
-        if existing is None:
-            db.add(
-                User(
-                    email=email,
-                    password_hash=hash_password(password),
-                    auth_provider="local",
-                )
-            )
-            db.commit()
+        create_user(session, email, password)
     finally:
-        db.close()
+        session.close()
     return _login(client, email=email, password=password)
 
 

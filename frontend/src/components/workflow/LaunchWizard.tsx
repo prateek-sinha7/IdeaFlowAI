@@ -25,7 +25,7 @@ import {
 } from "@/components/workflow/prototype/DiscoveryForm";
 import { ReviewGatesSection } from "@/components/workflow/ReviewGatesSection";
 import { AgentsPopup } from "@/components/workflow/AgentsPopup";
-import { LIBRARY_AGENTS } from "@/components/workflow/AgentLibraryData";
+import { useAgentLibrary } from "@/hooks/useAgentLibrary";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import {
@@ -37,6 +37,7 @@ import {
 import type { CustomDesignSystem } from "@/components/workflow/prototype/CustomDesignSystemModal";
 import type { CustomTemplate } from "@/components/workflow/prototype/CustomTemplateModal";
 import type { AgentDef } from "@/types/index";
+import { collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflows";
 
 /**
  * LaunchWizard (plan 37-07) — the ONE unified deliverable-launch page. It
@@ -65,7 +66,7 @@ interface ModeConfig {
   /** AgentLibraryData `pipeline_type` for the default lineup. */
   agentPipeline: "prototype" | "ppt";
   /** `base_pipeline_type` sent to POST /api/user-workflows on Save. */
-  savePipeline: "od_prototype" | "od_ppt";
+  savePipeline: "od_prototype" | "ppt";
   title: string;
   chainingTitle: string;
   eyebrow: string;
@@ -90,7 +91,7 @@ const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
   },
   ppt: {
     agentPipeline: "ppt",
-    savePipeline: "od_ppt",
+    savePipeline: "ppt",
     title: "Configure your presentation",
     chainingTitle: "Pick a template",
     eyebrow: "New presentation",
@@ -104,15 +105,14 @@ const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
 
 /** Copy for the chain context/banner, keyed on the source pipeline (data map). */
 const CHAIN_SOURCE_LABEL: Record<string, string> = {
-  od_ppt: "Presentation", od_ppt_revision: "Presentation",
   ppt: "Presentation", ppt_revision: "Presentation",
   od_prototype: "Prototype", prototype: "Prototype", prototype_revision: "Prototype",
   user_stories: "User Stories", user_stories_revision: "User Stories",
   app_builder: "App Builder", app_builder_revision: "App Builder",
 };
 
-const defaultAgentsFor = (mode: LaunchMode): AgentDef[] =>
-  LIBRARY_AGENTS.filter((a) => a.pipeline_type === MODE_CONFIG[mode].agentPipeline).sort(
+const defaultAgentsFor = (libraryAgents: AgentDef[], mode: LaunchMode): AgentDef[] =>
+  libraryAgents.filter((a) => a.pipeline_type === MODE_CONFIG[mode].agentPipeline).sort(
     (a, b) => a.order - b.order,
   );
 
@@ -123,6 +123,7 @@ export interface LaunchWizardProps {
 
 export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const router = useRouter();
+  const { libraryAgents } = useAgentLibrary();
 
   const [authChecked, setAuthChecked] = useState(false);
   const [mode, setMode] = useState<LaunchMode>(initialMode);
@@ -164,7 +165,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const [contextExpanded, setContextExpanded] = useState(false);
   const [showAgents, setShowAgents] = useState(false);
 
-  const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => defaultAgentsFor(initialMode));
+  const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => defaultAgentsFor(libraryAgents, initialMode));
 
   const selectionsRef = useRef<Record<string, Record<string, unknown>>>({});
   const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: false });
@@ -218,7 +219,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       if (d.customTemplateBody) setCustomTemplateBody(d.customTemplateBody);
       if (d.agentIds && d.agentIds.length > 0) {
         const restored = d.agentIds
-          .map((id) => LIBRARY_AGENTS.find((a) => a.id === id))
+          .map((id) => libraryAgents.find((a) => a.id === id))
           .filter(Boolean) as AgentDef[];
         if (restored.length > 0) setPipelineAgents(restored);
       }
@@ -292,8 +293,8 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
 
   // Optional-agent budget (defaults are free; up to 5 extra), per active lineup.
   const defaultAgentIds = useMemo(
-    () => new Set(defaultAgentsFor(mode).map((a) => a.id)),
-    [mode],
+    () => new Set(defaultAgentsFor(libraryAgents, mode).map((a) => a.id)),
+    [libraryAgents, mode],
   );
   const optionalAgentCount = pipelineAgents.filter((a) => !defaultAgentIds.has(a.id)).length;
   const canAddMore = optionalAgentCount < 5;
@@ -305,18 +306,20 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     // selection + lineup + levers; shared inputs (brief/DS/files/images) persist.
     setSelectedTemplateId(null);
     setCustomTemplateBody(null);
-    setPipelineAgents(defaultAgentsFor(nextMode));
+    setPipelineAgents(defaultAgentsFor(libraryAgents, nextMode));
     selectionsRef.current = {};
     gateSelectionRef.current = { ids: [], touched: false };
-  }, []);
+  }, [libraryAgents]);
 
   const handleAddAgent = useCallback((agent: AgentDef) => {
     setPipelineAgents((prev) => {
-      if (prev.find((a) => a.id === agent.id)) return prev;
+      // Reusable blank template — mint a fresh instance id per add (R-03).
+      const node = instantiateIfTemplate(agent, collectAgentIds(prev));
+      if (prev.find((a) => a.id === node.id)) return prev;
       if (prev.filter((a) => !defaultAgentIds.has(a.id)).length >= 5) return prev;
       const insertIdx = prev.length > 0 ? prev.length - 1 : 0;
       const updated = [...prev];
-      updated.splice(insertIdx, 0, { ...agent, order: insertIdx + 1 });
+      updated.splice(insertIdx, 0, { ...node, order: insertIdx + 1 });
       return updated;
     });
   }, [defaultAgentIds]);
@@ -408,14 +411,25 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     });
   }, []);
 
+  // ISS-155: validate what `handleLaunch` ACTUALLY consumes, not a proxy for it.
+  // The previous form was `isChaining || brief.trim()` — chaining WAIVED the brief
+  // on the assumption a chain context block would stand in for it, but nothing ever
+  // checked that the block exists. `DashboardLayout` swallows a failed
+  // `getChainContext` as non-fatal and (FIX-217) now clears `chain.context_block`
+  // up front, so "chaining with no context block" is reachable — and `handleLaunch`
+  // then falls through to `brief.trim()`, the empty string. Requiring the union of
+  // the two things `handleLaunch` reads keeps dev's UX goal (no brief needed when
+  // chaining WORKS) while closing the briefless launch.
+  const hasBuildInput = Boolean(brief.trim() || chainContextBlock?.trim());
+
   const canContinue = useMemo(() => {
     if (mode === "prototype") {
-      // KAN-87: template optional; DS required (color tokens). Brief unless chaining.
-      return Boolean(selectedDsId && (isChaining || brief.trim()));
+      // KAN-87: template optional; DS required (color tokens).
+      return Boolean(selectedDsId && hasBuildInput);
     }
     // ppt: template required; DS only when the template declares it.
-    return Boolean(selectedTemplateId && (isChaining || brief.trim()) && (!dsRequired || selectedDsId));
-  }, [mode, selectedDsId, selectedTemplateId, dsRequired, isChaining, brief]);
+    return Boolean(selectedTemplateId && hasBuildInput && (!dsRequired || selectedDsId));
+  }, [mode, selectedDsId, selectedTemplateId, dsRequired, hasBuildInput]);
 
   const handleSaveWorkflow = useCallback(async (name: string, description: string) => {
     setShowSaveModal(false);
@@ -744,7 +758,11 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         <div className="pt-2">
           {!canContinue && (
             <div className="mb-4 flex flex-wrap gap-2">
-              {!isChaining && !brief.trim() && <Pill label="Add a brief" />}
+              {/* ISS-155: keyed on hasBuildInput, NOT on `!isChaining`. A chained
+                  launch whose context block failed to load now blocks Continue, and
+                  the old condition hid this pill for every chained launch — leaving
+                  a disabled button with no stated reason. */}
+              {!hasBuildInput && <Pill label="Add a brief" />}
               {mode === "ppt" && !selectedTemplateId && <Pill label="Pick a template" />}
               {(mode === "prototype" || dsRequired) && !selectedDsId && <Pill label="Pick a design system" />}
             </div>

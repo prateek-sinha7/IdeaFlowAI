@@ -1,0 +1,242 @@
+### Prototype - List templates
+GET {{apiRoot}}/api/prototype/templates
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ') — set a real {{jwt}} to exercise this assertion');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (!Array.isArray(body) || !body.every(t => typeof t.id === 'string')) {
+		console.error('FAIL: expected an array of {id, name, description, mode, ...}, got', body);
+	} else {
+		console.log('OK:', body.length, 'prototype template(s):', body.map(t => t.id).join(', '));
+	}
+}}
+
+### Prototype - Get template
+GET {{apiRoot}}/api/prototype/templates/saas-landing
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (body.id !== 'saas-landing' || typeof body.body !== 'string') {
+		console.error('FAIL: expected {id, name, description, body, ...} shape, got', body);
+	} else {
+		console.log('OK: template', body.id, '| has_preview =', body.has_preview, '| has_thumbnail =', body.has_thumbnail);
+	}
+}}
+
+### Prototype - Get template (unknown id, expect 404)
+GET {{apiRoot}}/api/prototype/templates/not-a-real-template-id
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 404) {
+		console.error('FAIL: expected 404 for an unknown template id, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: unknown template id correctly 404s');
+	}
+}}
+
+### Prototype - Template preview (public, no auth required)
+GET {{apiRoot}}/api/prototype/templates/saas-landing/preview
+
+{{
+	const sc = response.statusCode;
+	if (sc === 200) {
+		console.log('OK: preview HTML served (200)');
+	} else if (sc === 404) {
+		console.log('NOTE: saas-landing has no example.html in this checkout — no preview (404)');
+	} else {
+		console.error('FAIL: expected 200 or 404, got', sc, response.parsedBody);
+	}
+}}
+
+### Prototype - Template thumbnail (public, no auth required)
+# Thumbnails are generated at build time (see .gitignore's OpenDesign gallery
+# thumbnail note) — 404 is expected in a dev checkout with no build step run.
+GET {{apiRoot}}/api/prototype/templates/saas-landing/thumbnail
+
+{{
+	const sc = response.statusCode;
+	if (sc === 200) {
+		console.log('OK: thumbnail image served (200)');
+	} else if (sc === 404) {
+		console.log('OK: no pre-rendered thumbnail in this checkout — correctly reports 404');
+	} else {
+		console.error('FAIL: expected 200 or 404, got', sc, response.parsedBody);
+	}
+}}
+
+### Prototype - Template asset (public, no auth required)
+# saas-landing has no assets/ subdirectory in this checkout (only
+# example.html + SKILL.md) — 404 here is the correct, verified outcome for
+# THIS template; other templates with an assets/ dir would 200.
+GET {{apiRoot}}/api/prototype/templates/saas-landing/assets/template.html
+
+{{
+	const sc = response.statusCode;
+	if (sc === 200) {
+		console.log('OK: asset served (200)');
+	} else if (sc === 404) {
+		console.log('OK: saas-landing has no assets/ dir — correctly reports 404');
+	} else {
+		console.error('FAIL: expected 200 or 404, got', sc, response.parsedBody);
+	}
+}}
+
+### Prototype - List design systems
+GET {{apiRoot}}/api/prototype/design-systems
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (!Array.isArray(body) || !body.every(d => typeof d.id === 'string')) {
+		console.error('FAIL: expected an array of {id, name, category, description, ...}, got', body);
+	} else {
+		console.log('OK:', body.length, 'design system(s):', body.map(d => d.id).join(', '));
+	}
+}}
+
+### Prototype - Get design system
+# "linear-app" is the real id in this backend's design-system catalog
+# (skills/opendesign/design-systems/) — the bare "linear" used previously
+# does not exist and always 404'd (this is the same staleness already
+# documented in tools/api/runs/README.md's "Findings from live verification").
+GET {{apiRoot}}/api/prototype/design-systems/linear-app
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (body.id !== 'linear-app' || typeof body.body !== 'string') {
+		console.error('FAIL: expected {id, name, category, description, body, ...} shape, got', body);
+	} else {
+		console.log('OK: design system', body.id);
+	}
+}}
+
+### Prototype - Get design system (unknown id, expect 404)
+GET {{apiRoot}}/api/prototype/design-systems/not-a-real-design-system-id
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 404) {
+		console.error('FAIL: expected 404 for an unknown design system id, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: unknown design system id correctly 404s');
+	}
+}}
+
+### Prototype - Design system preview (public, no auth required)
+GET {{apiRoot}}/api/prototype/design-systems/linear-app/preview
+
+{{
+	const sc = response.statusCode;
+	if (sc === 200) {
+		console.log('OK: components.html served (200)');
+	} else if (sc === 404) {
+		console.log('NOTE: linear-app has no components.html in this checkout — no preview (404)');
+	} else {
+		console.error('FAIL: expected 200 or 404, got', sc, response.parsedBody);
+	}
+}}
+
+### Prototype - Fetch URL proxy
+# Makes a REAL outbound HTTP request to the target URL (SSRF-guarded, 10s
+# timeout, 2MB cap) — no agent/LLM involved, just a proxy fetch.
+GET {{apiRoot}}/api/prototype/fetch-url?url=https://example.com
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 502 || sc === 504) {
+		console.log('SKIP: upstream fetch failed (status', sc + ') — network-dependent, not a defect in this file');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (typeof body.html !== 'string') {
+		console.error('FAIL: expected {html: "..."} shape, got', body);
+	} else {
+		console.log('OK: fetched', body.html.length, 'char(s) of HTML');
+	}
+}}
+
+### Prototype - Fetch URL proxy (loopback URL, expect 400 SSRF block)
+# Validation runs BEFORE the outbound request, so this is a safe, offline,
+# self-contained negative test — no real request to 127.0.0.1 is made.
+GET {{apiRoot}}/api/prototype/fetch-url?url=http://127.0.0.1/admin
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 400) {
+		console.error('FAIL: expected 400 (SSRF guard should block a loopback URL), got', sc, response.parsedBody);
+	} else {
+		console.log('OK: loopback URL correctly blocked (400)');
+	}
+}}
+
+### Prototype - Fetch URL proxy (bad scheme, expect 400)
+GET {{apiRoot}}/api/prototype/fetch-url?url=ftp://example.com/file
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 400) {
+		console.error('FAIL: expected 400 for a non-http(s) scheme, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: non-http(s) scheme correctly rejected (400)');
+	}
+}}
+
+### Prototype - Run NDJSON pipeline
+# EXCLUDED from assertions: this triggers a real agent/LLM pipeline run
+# (od-prototype's WS-equivalent REST flow) — out of scope for this REST-only
+# test suite. Left here for manual/exploratory use only. Note the
+# design_system_id below is deliberately "linear" (not "linear-app") to match
+# tools/api/runs/prototype.run.http's documented finding — that value is a
+# stale example carried over from before this was discovered, not touched
+# here since this request itself is excluded.
+POST {{apiRoot}}/api/prototype/run
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"template_id": "saas-landing",
+	"design_system_id": "linear",
+	"brief": "Build a focused landing page for an AI code review tool.",
+	"discovery": {
+		"audience": "engineering managers",
+		"cta": "Start free trial"
+	}
+}

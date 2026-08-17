@@ -41,12 +41,13 @@ Proceed-path tests (REAL dispatch — scripted wiring via ``_dispatch_wiring``):
     reaching the dispatched agent input
 
 Targeting rule (RESEARCH Pitfall 1): every proceed-path test targets
-``od_ppt_output`` or ``ppt_output`` ONLY — the two kinds whose derived WR-06
-aliases (``od_ppt_revision`` / ``ppt_revision``) carry ``planner: skip``
-manifests (14-01). Any other ``*_output`` target would derive a
-``planner: run`` manifest and hang at the clarify gate. The pre-14 suite's
-"spec" proceed-path targets are re-targeted accordingly; guard tests keep
-their original targets (they never reach dispatch).
+``ppt_output`` ONLY — the kind whose derived WR-06 alias (``ppt_revision``)
+carries a ``planner: skip`` manifest (14-01; formerly two kinds/aliases,
+``ppt_output``/``od_ppt_output`` and ``ppt_revision``/``od_ppt_revision``,
+collapsed into one — see agents/registry.py). Any other ``*_output`` target
+would derive a ``planner: run`` manifest and hang at the clarify gate. The
+pre-14 suite's "spec" proceed-path targets are re-targeted accordingly; guard
+tests keep their original targets (they never reach dispatch).
 
 Offline / in-memory SQLite / no API key — ``SessionLocal`` is monkeypatched
 onto a shared StaticPool engine so every ``ScopedStore`` (engine path, no
@@ -96,15 +97,11 @@ WS = "ws-x"
 # must be EXACTLY the raw deck HTML between the artifact tags. Expected bytes
 # are DERIVED from the harness (single source — never duplicated as literals).
 #
-# od_ppt_revision is a 1-step pipeline (od-ppt-revision-agent IS the
-# deliverable producer); ppt_revision is 2 steps and the deliverable is the
-# ASSEMBLER's deck (ppt-revision-assembler, the LAST agent).
-_OD_REV_TURN_TEXT = _scripts_for("od-ppt-revision-agent")[0].texts[0]
+# ppt_revision is a 1-step pipeline (ppt-revision-agent IS the deliverable
+# producer — formerly od_ppt_revision; the legacy 2-agent revise+reassemble
+# ppt_revision is archived, see agents/registry.py).
+_OD_REV_TURN_TEXT = _scripts_for("ppt-revision-agent")[0].texts[0]
 EXPECTED_OD_REVISED_DECK = _OD_REV_TURN_TEXT.split("<artifact>", 1)[1].split(
-    "</artifact>", 1
-)[0]
-_PPT_ASM_TURN_TEXT = _scripts_for("ppt-revision-assembler")[0].texts[0]
-EXPECTED_PPT_REVISED_DECK = _PPT_ASM_TURN_TEXT.split("<artifact>", 1)[1].split(
     "</artifact>", 1
 )[0]
 
@@ -394,7 +391,7 @@ async def test_revision_stores_new_version_with_lineage(engine: ExecutionEngine,
     execute()'s final_output (the scripted REVISED deck, unwrapped) with
     derived_from == the seeded parent original (FR-014 chain link 1).
 
-    Re-targeted from "spec" to "od_ppt_output" (14-04): only the two flipped
+    Re-targeted from "spec" to "ppt_output" (14-04): only the two flipped
     ``planner: skip`` manifests are run_revision-dispatchable. The pre-14 stub
     assertions (final_output containing the three ``===`` section markers,
     ref content == the context blob) are GONE — the context is the agents'
@@ -406,14 +403,14 @@ async def test_revision_stores_new_version_with_lineage(engine: ExecutionEngine,
         db_factory,
         run_id=parent,
         owner_id=OWNER,
-        kind="od_ppt_output",
+        kind="ppt_output",
         content="<!doctype html><html><body><section class='deck-slide'>Original Title</section></body></html>",
     )
 
     rev_run_id, sent = await _dispatch_revision(
         engine,
         parent_run_id=parent,
-        target_artifact_type="od_ppt_output",
+        target_artifact_type="ppt_output",
         instruction="Improve the title slide",
     )
 
@@ -427,7 +424,7 @@ async def test_revision_stores_new_version_with_lineage(engine: ExecutionEngine,
 
     # The revision artifact landed in the revision run via ScopedStore.
     store = ScopedStore(owner_id=OWNER)
-    refs = await store.list_refs(rev_run_id, kind="od_ppt_output")
+    refs = await store.list_refs(rev_run_id, kind="ppt_output")
     assert len(refs) == 1, "expected exactly one exact-kind revision ref"
     revision = refs[0]
     assert revision.content == final_output
@@ -452,25 +449,25 @@ async def test_revision_contains_three_separate_inputs(engine: ExecutionEngine, 
         "<!doctype html><html><body><section class='deck-slide'>Intro</section></body></html>"
     )
     _seed_ref(
-        db_factory, run_id=parent, owner_id=OWNER, kind="od_ppt_output", content=original_content
+        db_factory, run_id=parent, owner_id=OWNER, kind="ppt_output", content=original_content
     )
 
     instruction = "Improve the Introduction slide only"
     _, sent = await _dispatch_revision(
         engine,
         parent_run_id=parent,
-        target_artifact_type="od_ppt_output",
+        target_artifact_type="ppt_output",
         instruction=instruction,
     )
 
     context_message = _context_message(sent)
 
-    assert "=== ORIGINAL ARTIFACT (type: od_ppt_output) ===" in context_message
+    assert "=== ORIGINAL ARTIFACT (type: ppt_output) ===" in context_message
     assert "=== VERSION HISTORY ===" in context_message
     assert "=== REVISION INSTRUCTION ===" in context_message
 
     # Original content + instruction preserved verbatim INSIDE their sections.
-    original_section = _original_section(context_message, "od_ppt_output")
+    original_section = _original_section(context_message, "ppt_output")
     assert original_content in original_section
     instruction_section = context_message.split("=== REVISION INSTRUCTION ===", 1)[1].split(
         "=== END REVISION INSTRUCTION ===", 1
@@ -501,14 +498,14 @@ async def test_planning_context_prefix_absent_when_no_planning_artifact(
         db_factory,
         run_id=parent,
         owner_id=OWNER,
-        kind="od_ppt_output",
+        kind="ppt_output",
         content="<!doctype html><html><body>deck</body></html>",
     )
 
     _, sent = await _dispatch_revision(
         engine,
         parent_run_id=parent,
-        target_artifact_type="od_ppt_output",
+        target_artifact_type="ppt_output",
         instruction="Fix slide 2",
     )
 
@@ -529,7 +526,7 @@ async def test_planning_context_available_when_present(engine: ExecutionEngine, 
         db_factory,
         run_id=parent,
         owner_id=OWNER,
-        kind="od_ppt_output",
+        kind="ppt_output",
         content="<!doctype html><html><body>deck</body></html>",
     )
     _seed_ref(
@@ -543,7 +540,7 @@ async def test_planning_context_available_when_present(engine: ExecutionEngine, 
     _, sent = await _dispatch_revision(
         engine,
         parent_run_id=parent,
-        target_artifact_type="od_ppt_output",
+        target_artifact_type="ppt_output",
         instruction="Fix slide 2",
     )
 
@@ -619,7 +616,7 @@ async def test_revision_run_events_persist_and_resolve_on_real_db(
         db_factory,
         run_id=parent,
         owner_id=OWNER,
-        kind="od_ppt_output",
+        kind="ppt_output",
         content="<!doctype html><html><body><section class='deck-slide'>S1</section></body></html>",
         workspace_id=WS,
     )
@@ -637,7 +634,7 @@ async def test_revision_run_events_persist_and_resolve_on_real_db(
                 owner_id=OWNER,        # AUTHZ-03 — never None at creation
                 workspace_id=None,     # transiently null — execute() stamps it
                 title="Revision: x",
-                type="od_ppt_revision",
+                type="ppt_revision",
                 status="revising",
                 input="x",
             )
@@ -649,7 +646,7 @@ async def test_revision_run_events_persist_and_resolve_on_real_db(
     _, sent = await _dispatch_revision(
         engine,
         parent_run_id=parent,
-        target_artifact_type="od_ppt_output",
+        target_artifact_type="ppt_output",
         instruction="Tighten slide 1",
         pipeline_run_id=rev_run_id,
     )
@@ -752,7 +749,7 @@ async def test_clarifications_round_trip_via_artifact_refs(db_factory) -> None:
 #
 # The exact-kind scenarios above seed parents with EXACTLY the kind they
 # target, covering FR-014 chain link 1. No real run ever persists the FE's
-# target kinds ("ppt_output"/"od_ppt_output") — the run path persists
+# target kinds ("ppt_output"/"ppt_output") — the run path persists
 # per-agent kinds (_AGENT_KIND_MAP values, falling back to "summary") plus
 # summary/planning_context/clarifications and, since 13-05, a completion
 # kind="deliverable" ref. These scenarios seed parents the way the RUN PATH
@@ -788,8 +785,8 @@ def _seed_realistic_parent(
         kind="summary",
         content=contents["summary_v1"],
         version=1,
-        producer_step="od-ppt-composer",
-        producer_agent="od-ppt-composer",
+        producer_step="ppt-composer",
+        producer_agent="ppt-composer",
     )
     _seed_ref(
         session_factory,
@@ -798,8 +795,8 @@ def _seed_realistic_parent(
         kind="summary",
         content=contents["summary_v2"],
         version=2,
-        producer_step="od-ppt-validator",
-        producer_agent="od-ppt-validator",
+        producer_step="ppt-validator",
+        producer_agent="ppt-validator",
     )
     _seed_ref(
         session_factory,
@@ -818,7 +815,7 @@ def _seed_realistic_parent(
             kind="deliverable",
             content=contents["deliverable"],
             producer_step="deliverable",
-            producer_agent="od-ppt-validator",
+            producer_agent="ppt-validator",
         )
     return contents
 
@@ -831,8 +828,8 @@ async def test_fe_target_resolves_deliverable_ref_on_realistic_parent(
     the way a NEW (post-13-05) run persists proceeds via chain link 2 — the
     kind="deliverable" completion ref — and the DELIVERABLE content reaches
     the dispatched agent input as the ORIGINAL ARTIFACT (14-03 real dispatch:
-    the 2-step ppt_revision pipeline runs; the ASSEMBLER's scripted deck is
-    the final deliverable)."""
+    the single-step ppt_revision pipeline runs; ppt-revision-agent's scripted
+    deck is the final deliverable)."""
     parent = "run-parent-realistic-new"
     contents = _seed_realistic_parent(
         db_factory, run_id=parent, owner_id=OWNER, with_deliverable=True
@@ -853,11 +850,11 @@ async def test_fe_target_resolves_deliverable_ref_on_realistic_parent(
     # planning_context still resolves alongside the chain — prefix PRESENT.
     assert "=== PLANNING CONTEXT" in context_message
 
-    # The 2-step ppt_revision pipeline completed for real: final_output is the
-    # ASSEMBLER's scripted deck (the LAST agent), unwrapped.
+    # The single-step ppt_revision pipeline completed for real: final_output
+    # is ppt-revision-agent's scripted deck, unwrapped.
     completes = [e for e in sent if e["type"] == "pipeline_complete"]
     assert len(completes) == 1
-    assert completes[0]["data"]["final_output"] == EXPECTED_PPT_REVISED_DECK
+    assert completes[0]["data"]["final_output"] == EXPECTED_OD_REVISED_DECK
 
 
 @pytest.mark.asyncio
@@ -907,8 +904,8 @@ async def test_summary_fallback_skips_error_placeholder_refs(
         kind="summary",
         content=real_content,
         version=1,
-        producer_step="od-ppt-composer",
-        producer_agent="od-ppt-composer",
+        producer_step="ppt-composer",
+        producer_agent="ppt-composer",
     )
     _seed_ref(
         db_factory,
@@ -917,8 +914,8 @@ async def test_summary_fallback_skips_error_placeholder_refs(
         kind="summary",
         content="[Error: model timed out after 3 attempts]",
         version=2,
-        producer_step="od-ppt-validator",
-        producer_agent="od-ppt-validator",
+        producer_step="ppt-validator",
+        producer_agent="ppt-validator",
     )
 
     _, sent = await _dispatch_revision(
@@ -1042,9 +1039,15 @@ async def test_planner_run_target_rejected_before_dispatch(
     engine: ExecutionEngine, db_factory
 ) -> None:
     """CR-02 (14 review): a target whose derived alias resolves a REGISTERED
-    revision pipeline carrying ``planner: run`` (e.g. ``prototype_output`` →
-    ``prototype_revision``) is rejected with ValueError BEFORE dispatch —
+    revision pipeline carrying ``planner: run`` (e.g. ``app_builder_output`` →
+    ``app_builder_revision``) is rejected with ValueError BEFORE dispatch —
     never parked at the clarify gate's no-timeout ``event.wait()``.
+
+    ISS-050 (KAN-156): retargeted from ``prototype_output`` to
+    ``app_builder_output`` — prototype_revision was flipped to
+    ``planner: skip`` (now dispatchable) so it can no longer be used as the
+    CR-02 rejection example. ``app_builder_revision`` still declares
+    ``planner: run`` and is correctly rejected.
 
     The FR-014 artifact guard does NOT block this exploit: the deliverable
     chain link (link 2) resolves for ANY target kind, so an owned completed
@@ -1067,8 +1070,8 @@ async def test_planner_run_target_rejected_before_dispatch(
     with pytest.raises(ValueError, match="not revision-dispatchable"):
         await engine._handle_revision(
             parent_run_id=parent,
-            target_artifact_type="prototype_output",
-            instruction="Make the hero section bolder",
+            target_artifact_type="app_builder_output",
+            instruction="Add a login page",
             pipeline_run_id="run-rev-planner-run",
             websocket_send_fn=ws,
             owner_id=OWNER,
@@ -1078,5 +1081,57 @@ async def test_planner_run_target_rejected_before_dispatch(
     # for the rejected revision run (no stuck task, no "revising" leak).
     assert events == []
     store = ScopedStore(owner_id=OWNER)
-    refs = await store.list_refs("run-rev-planner-run", kind="prototype_output")
+    refs = await store.list_refs("run-rev-planner-run", kind="app_builder_output")
     assert refs == []
+
+
+@pytest.mark.asyncio
+async def test_prototype_revision_now_dispatches_successfully(
+    engine: ExecutionEngine, db_factory
+) -> None:
+    """ISS-050 (KAN-156) fix proof — fail-before / pass-after pin.
+
+    ``prototype_output`` → ``prototype_revision`` was previously rejected by
+    CR-02 (planner: run) when dispatched via the generic chat-lane revision
+    channel. After the ISS-050 manifest fix (planner: run → planner: skip) it
+    must pass the guard and dispatch successfully.
+
+    **Fail-before-fix:** running this test against an unmodified
+    ``prototype_revision/workflow.yaml`` (planner: run) raises
+    ``ValueError: ... not revision-dispatchable ...``.
+
+    **Pass-after-fix:** the manifest carries ``planner: skip``, the guard
+    passes, execute() is invoked with scripted models, a ``pipeline_complete``
+    event is observed, and a new ``prototype_output`` ref with the correct
+    lineage lands in the store.
+    """
+    parent = "run-parent-proto-rev-iss050"
+    _seed_run(db_factory, run_id=parent, owner_id=OWNER)
+    original_id = _seed_ref(
+        db_factory,
+        run_id=parent,
+        owner_id=OWNER,
+        kind="prototype_output",
+        content="<!doctype html><html><body><h1>Original</h1></body></html>",
+    )
+
+    rev_run_id, sent = await _dispatch_revision(
+        engine,
+        parent_run_id=parent,
+        target_artifact_type="prototype_output",
+        instruction="Make the hero section bolder",
+    )
+
+    complete_events = [e for e in sent if e["type"] == "pipeline_complete"]
+    assert len(complete_events) == 1, (
+        "ISS-050: prototype_revision did not dispatch — CR-02 guard still "
+        "firing; check prototype_revision/workflow.yaml planner: skip"
+    )
+
+    store = ScopedStore(owner_id=OWNER)
+    refs = await store.list_refs(rev_run_id, kind="prototype_output")
+    assert len(refs) == 1, "expected exactly one prototype_output revision ref"
+    revision = refs[0]
+    assert revision.derived_from == original_id
+    assert revision.run_id == rev_run_id
+    assert revision.owner_id == OWNER

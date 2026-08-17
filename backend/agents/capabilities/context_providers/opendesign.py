@@ -114,10 +114,10 @@ class OpenDesignProvider:
                 # prototype-plan, tools=[]) must NOT see a full working HTML doc — it
                 # nudges them to copy/continue it instead of writing the spec /
                 # decomposing into tasks.
-                # EXTENDED (B-explicit): the composer (od-ppt-composer) opts into
+                # EXTENDED (B-explicit): the composer (ppt-composer) opts into
                 # example.html via the DECLARED ``template_example`` inject — NOT the
                 # broad ``"workspace" in spec_tools`` proxy KAN-63 (b5f5885e) used. That
-                # proxy also swept in the planner-shaped od-ppt-brief-analyst (it declares
+                # proxy also swept in the planner-shaped ppt-brief-analyst (it declares
                 # tools=[workspace] but is an order-1 planning/strategy agent), re-leaking
                 # example.html to a planner and violating the Phase-7 "planners must not
                 # see a full working HTML doc" rule above. Keying on the explicit inject

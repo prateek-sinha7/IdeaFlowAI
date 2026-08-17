@@ -19,9 +19,9 @@ export const AGENTS: Record<string, AgentSeed[]> = {
     { id: "app-devops", name: "DevOps Agent", role: "DevOps" },
   ],
   od_ppt: [
-    { id: "od-ppt-brief-analyst", name: "Brief Analyst", role: "Analysis" },
-    { id: "od-ppt-composer", name: "Deck Composer", role: "Composition" },
-    { id: "od-ppt-validator", name: "Deck Validator", role: "Validation" },
+    { id: "ppt-brief-analyst", name: "Brief Analyst", role: "Analysis" },
+    { id: "ppt-composer", name: "Deck Composer", role: "Composition" },
+    { id: "ppt-validator", name: "Deck Validator", role: "Validation" },
   ],
   od_prototype: [
     { id: "prototype-specify", name: "Spec Writer", role: "Specification" },

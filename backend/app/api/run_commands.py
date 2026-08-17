@@ -39,12 +39,15 @@ import logging
 import time
 import uuid as _uuid
 from datetime import datetime, timezone
-from typing import Any
+from enum import Enum
+from types import SimpleNamespace
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from agents.artifact_store.store import get_artifact_store
+from agents.workflows.plan import CompiledWorkflow
 from agents.capabilities.model_pricing import estimate_cost_usd
 from app.agents.chat_runner import ChatRunner
 from app.agents.modes import get_mode_prompt
@@ -77,6 +80,7 @@ from app.api.run_engine import (
     _get_or_create_queue,
     _is_run_live,
     _resolve_owned_parent_run_id,
+    _review_gate_advertises_update_specs,
     _review_gate_owned_by,
     _review_gate_run_is_terminal,
     _revalidate_selections_trust_user,
@@ -107,7 +111,12 @@ class GateCommand(BaseModel):
     """
 
     gate_key: str
-    action: str = "approve"
+    # ISS-070: a CLOSED domain. The vocabulary's single authority is
+    # ``chat_router.GATE_ACTIONS``; ``Literal`` needs static values, so the two are
+    # pinned together by a set-equality test rather than a second constant (INV-12).
+    # The default is RETAINED — an ABSENT action still means approve (the published
+    # OpenAPI contract, and test_attach_replay_matrix.py:551's bare POST).
+    action: Literal["approve", "reject", "redo", "update_specs"] = "approve"
     approved: bool | None = None
     edited_content: str | None = None
     instructions: str | None = None
@@ -155,6 +164,62 @@ def _deny_unknown_gate() -> HTTPException:
     are indistinguishable to the caller — both 404 "Unknown gate_key"."""
     return HTTPException(
         status_code=status.HTTP_404_NOT_FOUND, detail="Unknown gate_key"
+    )
+
+
+def _deny_update_specs_not_offered(gate_key: str) -> HTTPException:
+    """ISS-053: this gate firing did not offer the spec-revision affordance.
+
+    The verdict is the engine's own, read back off the ``review_gate_ready`` it published
+    (``_review_gate_advertises_update_specs``) — this restates no rule. Raised by ALL
+    THREE ``set_review_response`` ingresses so no channel is privileged; a fence on
+    ``POST /gate`` alone would leave both ``/messages`` routes open.
+
+    409 rather than 403: the request is well-formed and authorised, it just conflicts with
+    the run's current state — the same shape as the KAN-100 terminal fence beside it.
+    ``recoverable: false`` because retrying the identical POST cannot succeed; the user
+    must approve to the gate where a revision cycle IS offered.
+    """
+    logger.warning(
+        "gate update_specs REFUSED at ingress: gate_key=%s — the gate published "
+        "update_specs_eligible=False",
+        gate_key,
+    )
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "error": "This review gate does not offer a spec-revision cycle",
+            "code": "update_specs_not_offered",
+            "recoverable": False,
+        },
+    )
+
+
+def _deny_unknown_gate_action(action: object) -> HTTPException:
+    """ISS-070: an unrecognised discriminator must never resolve a HITL gate.
+
+    The degrade is to REFUSE and leave the gate ARMED — never approve (the fail-open
+    this replaces), and never reject either: FIX-232 makes a rejection terminal, so
+    degrading an unparseable action into a denial would destroy the run on a typo.
+    Refusing the request is the only degrade that preserves every legitimate option —
+    the same choice the engine already makes for an ineligible ``update_specs``.
+
+    400 rather than 409: the request is malformed, not in conflict with the run's state,
+    so re-issuing it correctly WILL succeed — hence ``recoverable: true``.
+
+    Raised by ALL THREE ``set_review_response`` ingresses so no channel is privileged.
+    The log line is the forensic trace: the refused action is never persisted, and the
+    store's own ``action="approve"`` default would otherwise launder it into a clean-
+    looking approval record.
+    """
+    logger.warning("gate action REFUSED at ingress: unrecognised action=%r", action)
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "error": "Unknown gate action",
+            "code": "unknown_gate_action",
+            "recoverable": True,
+        },
     )
 
 
@@ -228,6 +293,10 @@ async def resolve_gate(
     elif action == "update_specs":
         # KAN-101: route to the shipped spec-revision sub-pipeline. The analysis
         # report is carried in the generic ``instructions`` field (SC-001 / INV-1).
+        # ISS-053: only at a gate that ADVERTISED the affordance — the engine's own
+        # published verdict, read back rather than recomputed.
+        if not _review_gate_advertises_update_specs(gate_key):
+            raise _deny_update_specs_not_offered(gate_key)
         analysis_report = body.analysis_report or ""
         await store.set_review_response(
             gate_key, approved=False, action="update_specs", instructions=analysis_report
@@ -236,11 +305,19 @@ async def resolve_gate(
         await store.set_review_response(
             gate_key, approved=False, edited_content=body.edited_content
         )
-    else:  # approve (default)
+    elif action == "approve":
         approved = True if body.approved is None else bool(body.approved)
         await store.set_review_response(
-            gate_key, approved=approved, edited_content=body.edited_content
+            gate_key,
+            approved=approved,
+            action="approve",
+            edited_content=body.edited_content,
         )
+    else:
+        # ISS-070: fail CLOSED. Unreachable over HTTP now that the schema closes the
+        # domain — kept because an in-process caller (or a fifth Literal member added
+        # without a branch here) would otherwise reopen the silent approval.
+        raise _deny_unknown_gate_action(action)
 
     return {"ok": True, "action": action, "gate_key": gate_key}
 
@@ -282,6 +359,141 @@ async def submit_answers(
 # POST /api/runs/{run_id}/cancel — cooperative cancel
 # ---------------------------------------------------------------------------
 
+# Strong references to the detached escalation backstops, so a task started for a Stop is
+# not garbage-collected mid-flight (the asyncio contract). Mirrors _CONCIERGE_STREAM_TASKS.
+_CANCEL_ESCALATIONS: set = set()
+
+
+def _arm_cancel_escalation(run_id: str) -> None:
+    """Start the bounded fallback for a Stop, detached from the HTTP response.
+
+    The cooperative event is the mechanism; this only backstops the mid-model-call blind
+    window. Best-effort by construction: no running loop (a sync test client outside the
+    portal) simply means no escalation, never a failed Stop.
+    """
+    from app.api.run_shutdown import stop_run_driver
+
+    try:
+        task = asyncio.get_running_loop().create_task(stop_run_driver(run_id))
+    except Exception as exc:  # noqa: BLE001 — the ack must never depend on the backstop
+        logger.warning("cancel(run=%s): could not arm the escalation: %s", run_id, exc)
+        return
+    _CANCEL_ESCALATIONS.add(task)
+    task.add_done_callback(_CANCEL_ESCALATIONS.discard)
+
+
+async def _record_cancellation_in_the_durable_tail(
+    run_id: str, *, reason: str = "owner_stopped_run_with_no_live_driver"
+) -> None:
+    """Append the ``pipeline_cancelled`` row a driver would have emitted (ISS-089).
+
+    Best-effort: audit + SSE replay + ``_reconcile_terminal_status`` agreement, none of
+    which the money guarantee depends on. It rides ``append_event_at_or_after`` — the
+    COLLISION-SAFE append — because the chat lane allocates from the same per-run seq
+    space and FIX-240 (ISS-121) proved a ``uq_run_events_scope_seq`` rejection here is
+    swallowed by the persist degrade rather than retried.
+
+    Principal resolution is ``_reconcile_terminal_status``'s, verbatim: never the nullable
+    ``owner_id`` alone, and the run's RECOVERED workspace (the value the sink actually
+    wrote under) rather than the WS-path row's frequently-NULL ``workspace_id``.
+
+    ``reason`` is parameterised for ISS-124 — the two app-layer DRIVER terminals
+    (``_drive_launch_to_queue`` / ``_drive_revision_to_queue``) reach this same append
+    from their ``except asyncio.CancelledError`` branches, where a driver WAS live and
+    was destructively cancelled. The default is FIX-243's original string, unchanged, so
+    the no-live-driver payload stays byte-identical. Extended, not copied (INV-12): one
+    durable-terminal writer, three callers.
+    """
+    from agents.authz import ScopedStore
+    from agents.execution_engine.engine import get_execution_engine
+
+    db = _get_db()
+    try:
+        wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        if wr is None:
+            return
+        owner_id = wr.owner_id or wr.user_id or f"anon:{wr.session_id or run_id}"
+    finally:
+        db.close()
+
+    try:
+        workspace_id = await get_execution_engine()._recover_workspace_id(owner_id, run_id)
+        store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
+        await store.append_event_at_or_after(
+            run_id,
+            (await store._max_event_seq(run_id)) + 1,
+            str(_uuid.uuid4()),
+            "pipeline_cancelled",
+            {"pipeline_run_id": run_id, "reason": reason},
+        )
+    except Exception as exc:  # noqa: BLE001 — the audit row must never fail the Stop
+        logger.warning(
+            "cancel(run=%s): durable pipeline_cancelled append failed: %s", run_id, exc
+        )
+
+
+async def _cancel_run_without_a_live_driver(run_id: str) -> dict:
+    """Make the owner's Stop DURABLE when no in-process driver can carry it (ISS-089).
+
+    The cooperative ``asyncio.Event`` and the escalation task both die with the process,
+    so before this a Stop that arrived with no live driver wrote NOTHING — and the run
+    stayed inside ``NON_TERMINAL_RUN_STATUSES``, so the next boot re-adopted it and drove
+    it to completion at the owner's expense (the ``d5dbc9f2`` incident: 45% of a
+    16,530,718-token run billed AFTER the API answered ``cancelled: true``).
+
+    Writing the terminal status HERE needs no migration, no new event type and no change
+    to ``restore_non_terminal_runs``: ``cancelled`` is already outside
+    ``NON_TERMINAL_RUN_STATUSES``, so the boot scan consults this decision through the
+    filter it already has, and ``POST /resume`` already accepts ``cancelled`` — the run
+    moves from AUTOMATIC resume to EXPLICIT, owner-authenticated resume, which is what a
+    Stop should mean.
+
+    SCOPE — single-process only. ``_is_run_live`` is process-local, and today the
+    deployment is single-process (``exec uvicorn``, no ``--workers``, no replicas), so
+    "not live here" == "not live anywhere". Under the locked ECS Fargate to-be, a Stop
+    landing on instance B would mark a row cancelled while instance A kept billing; that
+    needs a cross-process liveness fact (lease/heartbeat) and is NOT solved here.
+    """
+    from agents.execution_engine.engine import NON_TERMINAL_RUN_STATUSES
+
+    db = _get_db()
+    try:
+        wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+        status_now = wr.status if wr is not None else None
+    finally:
+        db.close()
+
+    # Already terminal (or gone) — nothing is owed, so answer exactly as before, key order
+    # included, and write nothing. This is what makes a repeated Stop idempotent.
+    if status_now not in NON_TERMINAL_RUN_STATUSES:
+        return {
+            "ok": True, "run_id": run_id, "accepted": False, "cancelled": False,
+            "status": "not_running", "message": "No active pipeline",
+        }
+
+    await _record_cancellation_in_the_durable_tail(run_id)
+    try:
+        # AUTHORITATIVE, unlike the audit row above: this is the write that closes the
+        # money hole, so it must not inherit _reconcile_terminal_status's best-effort
+        # degrade. A failure is reported as a failure.
+        _persist_resume_status(run_id, "cancelled")
+    except Exception as exc:  # noqa: BLE001 — surfaced, never swallowed into a false ack
+        logger.error(
+            "cancel(run=%s): terminal status write FAILED: %s", run_id, exc, exc_info=True
+        )
+        raise _reject(
+            "cancel_not_persisted",
+            "The run could not be marked cancelled; it may still resume on the next "
+            "restart. Retry the Stop.",
+            http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            recoverable=True,
+        ) from exc
+
+    return {
+        "ok": True, "run_id": run_id, "accepted": True, "cancelled": True,
+        "status": "cancelled",
+    }
+
 
 @router.post("/{run_id}/cancel")
 async def cancel_run(
@@ -291,20 +503,44 @@ async def cancel_run(
     """Cooperatively cancel a run over HTTP (mirrors WS ``cancel_pipeline``).
 
     Owner-gated (T-29-03-3) → 404 on cross-owner. Sets the per-run cooperative
-    ``asyncio.Event`` in ``_CANCEL_EVENTS`` (ISS-007) — the engine observes it
-    (per-chunk / pre-agent) and emits ``pipeline_cancelled`` through the normal
-    persisted+drained path; suspend/persist semantics are unchanged. When no live
-    event exists the ack is idempotent (nothing to cancel).
+    ``asyncio.Event`` in ``_CANCEL_EVENTS`` (ISS-007) — the engine observes it at its next
+    boundary and emits ``pipeline_cancelled`` through the normal persisted+drained path,
+    which is what writes the terminal ``WorkflowRun.status``; suspend/persist semantics are
+    unchanged. ``stop_run_driver`` backstops the mid-model-call blind window.
+
+    ISS-084 — the response is an ACCEPTANCE, not a claim of cancellation. It used to
+    answer ``cancelled: true`` whenever an Event object existed in a dict and ``.set()``
+    did not raise, which said nothing about whether any consumer held that object. For
+    every resumed run that Event was an orphan, so the field was ``true`` in exactly the
+    case where cancelling was impossible — an unfalsifiable success that turned a visible
+    failure into a silent one while the run kept billing. Liveness (``_is_run_live``, the
+    driver TASK, which also self-heals a stale registration) is now the truth condition,
+    and the field says what actually happened:
+
+      * ``accepted: true`` + ``status: "stopping"`` — a live driver was signalled. The
+        terminal follows on the event stream; it is not asserted here.
+      * ``accepted: true`` + ``cancelled: true`` + ``status: "cancelled"`` — no live
+        driver, but the run was still owed work, so the Stop was made DURABLE here
+        (ISS-089). Nothing follows on the event stream; the row is already terminal.
+      * ``accepted: false`` + ``status: "not_running"`` — nothing to stop (idempotent ack,
+        so the client UI still returns to idle).
     """
     if not _review_gate_owned_by(run_id, current_user.id):
         raise _deny_unknown_gate()
 
+    # Ordering: the liveness probe self-heals (and clears _CANCEL_EVENTS for) a stale
+    # registration, so it must run BEFORE the event lookup.
+    if not _is_run_live(run_id):
+        return await _cancel_run_without_a_live_driver(run_id)
+
     event: asyncio.Event | None = _CANCEL_EVENTS.get(run_id)
     if event is not None:
         event.set()
-        return {"ok": True, "run_id": run_id, "cancelled": True}
-    # Idempotent: nothing active to cancel, but ack so the client returns to idle.
-    return {"ok": True, "run_id": run_id, "cancelled": False, "message": "No active pipeline"}
+    _arm_cancel_escalation(run_id)
+    return {
+        "ok": True, "run_id": run_id, "accepted": True, "cancelled": False,
+        "status": "stopping",
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -521,16 +757,31 @@ async def _reconcile_terminal_status(run_id: str) -> None:
         # cancellation) AND pipeline_complete (from the resume) in the durable tail.
         # The original logic unconditionally prioritised cancelled, leaving a
         # successfully-resumed run with status="cancelled" in history.
-        # Fix: if a clean pipeline_complete exists with a higher seq than the last
-        # pipeline_cancelled, the resume supersedes the cancellation → completed.
+        # Fix: a clean pipeline_complete belonging to a LATER ATTEMPT than the last
+        # pipeline_cancelled supersedes that cancellation → completed.
+        #
+        # FIX-229 (ISS-078): "later attempt", not merely "higher seq". A user who
+        # REJECTS at a gate on a resumed run produces both events within ONE attempt —
+        # the engine emits pipeline_cancelled and the dispatch loop then falls through
+        # to the run's single pipeline_complete emitter:
+        #     … 5:review_gate_ready | 6:pipeline_cancelled | 7:pipeline_complete
+        # On a bare seq comparison that trailing complete wins and the run the user
+        # explicitly rejected is recorded as "completed". An attempt boundary is a
+        # run_resuming / pipeline_start row, so require one BETWEEN the cancellation
+        # and the winning completion — same-attempt tails then keep the cancellation.
         cancelled_seqs = [e.seq for e in events if e.type == "pipeline_cancelled"]
         complete_seqs = [e.seq for e in completes
                          if not (isinstance(e.payload_json, dict)
                                  and e.payload_json.get("status") == "degraded")]
+        reattempt_seqs = [e.seq for e in events
+                          if e.type in ("run_resuming", "pipeline_start")]
         resume_supersedes = (
             cancelled
             and complete_seqs
             and max(complete_seqs) > max(cancelled_seqs)
+            and any(
+                max(cancelled_seqs) < s < max(complete_seqs) for s in reattempt_seqs
+            )
         )
         if cancelled and not resume_supersedes:
             new_status = "cancelled"
@@ -603,6 +854,11 @@ class MessageCommand(BaseModel):
     ``responses``/``skip_clarification`` carry structured clarify answers;
     ``target_artifact_type`` the revision target. ``attachments`` are payload-transient
     refs (ND-10 — never persisted to sandbox/DB; a placeholder marks them on replay).
+    ``file_contents`` are FIX-218 pre-extracted file texts — [{name, text, error?}] —
+    sent by the FE after client-side text extraction (text formats) or a
+    /api/files/extract-text round-trip (binary: pdf/docx/pptx). Payload-transient
+    (ND-10): content rides the live Concierge ctx and ectx.steering_notes for the next
+    agent dispatch only — never persisted (the attachment ref row stays retained:false).
     """
 
     text: str = ""
@@ -620,6 +876,13 @@ class MessageCommand(BaseModel):
     # without disturbing the zero-model routing of any routable turn. Default False ⇒
     # dormant (byte-identical Phase-29 routing for every non-concierge turn, INV-12).
     concierge: bool = False
+    # file_contents: FIX-218 (KAN-170) — pre-extracted file text from chat attachments.
+    # Each entry: {name: str, text: str, error?: str}. Additive optional; default None
+    # ⇒ dormant (byte-identical routing, INV-3). The FE populates this AFTER extraction
+    # (client-side for text formats; /api/files/extract-text for binary) and sends it
+    # alongside body.attachments. Payload-transient (ND-10) — never persisted; the text
+    # is threaded to _ConciergeCtx.attached_files and apply_steering for the live ectx.
+    file_contents: list[dict] | None = None
     # confirm_proposal: the FE confirm round-trip (33-04). A concierge turn carrying a
     # previously-HELD consequential proposal to EXECUTE: {"channel": ..., "params": {...}}
     # reconstructed from the durable ``concierge_proposal`` row. Present ⇒ the held intent
@@ -720,11 +983,18 @@ async def _persist_chat_message(
     ``message_id``) on the additive ``run_events`` uniqueness constraints, so a race can
     never persist a duplicate ``seq`` (Last-Event-ID replay) or a duplicate row.
     """
-    # ND-10: attachments are payload-transient — persist a placeholder ref (kind + a
-    # "not retained" marker), NEVER the bytes (no sandbox/DB retention; the image does
-    # not survive replay/reopen).
+    # ND-10: attachment bytes are payload-transient — NEVER persisted.
+    # But metadata (kind, name, mimeType, sizeBytes) IS persisted as a ref so
+    # the transcript can show the filename on replay/reopen (FIX-218).
+    # The `retained: False` flag tells the FE the bytes are gone (honest placeholder).
     attachment_refs = [
-        {"kind": (a.get("kind") or a.get("type") or "attachment"), "retained": False}
+        {
+            "kind": (a.get("kind") or a.get("type") or "attachment"),
+            "name": str(a.get("name") or "").strip(),
+            "mimeType": a.get("mimeType") or a.get("mime_type") or None,
+            "sizeBytes": a.get("sizeBytes") or a.get("size_bytes") or None,
+            "retained": False,
+        }
         for a in (body.attachments or [])
     ]
     # ND-10/LOCK-E (30-03): per-turn images are ALSO payload-transient — stamp a
@@ -775,6 +1045,43 @@ _CONSEQUENTIAL_PROPOSAL_CHANNELS = frozenset({"gate_action", "revision", "chain"
 # body is dropped mid-stream).
 _CONCIERGE_STREAM_TASKS: set = set()
 
+# FIX-218 (KAN-170): character cap for a single attached file's text in the Concierge
+# system prompt and the steering note. Keeps the combined prompt within reasonable
+# token bounds while still giving agents enough context. Mirrors the launch-composer
+# ATTACH_MAX_CHARS constant on the FE (6,000 chars).
+_ATTACHED_FILE_TEXT_CAP = 6_000
+
+
+def _build_attached_files_block(file_contents: list[dict] | None) -> str:
+    """FIX-218 (KAN-170): render pre-extracted file texts into a prompt block.
+
+    ``file_contents`` is the ``body.file_contents`` list — each entry:
+    ``{name: str, text: str, error?: str}``. Builds a multi-file block capped
+    per-file at ``_ATTACHED_FILE_TEXT_CAP`` chars. Returns ``""`` when the list is
+    absent or all entries have extraction errors (so the Concierge prompt is
+    byte-identical to the pre-fix behaviour — INV-3).
+
+    Payload-transient (ND-10): the block is used solely in the live Concierge ctx
+    and the ``ectx.steering_notes`` carry; it is NEVER persisted to the DB.
+    """
+    if not file_contents:
+        return ""
+    parts: list[str] = []
+    for entry in file_contents:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "attachment").strip()[:200]
+        error = entry.get("error")
+        text = str(entry.get("text") or "").strip()
+        if error:
+            # Extraction failed — include a diagnostic note so the Concierge can
+            # inform the user rather than silently omitting the file.
+            parts.append(f"=== ATTACHED FILE: {name} ===\n[Extraction error: {error}]\n=== END FILE ===")
+        elif text:
+            capped = text[:_ATTACHED_FILE_TEXT_CAP]
+            suffix = "\n[Content truncated — showing first portion]" if len(text) > _ATTACHED_FILE_TEXT_CAP else ""
+            parts.append(f"=== ATTACHED FILE: {name} ===\n{capped}{suffix}\n=== END FILE ===")
+    return "\n\n".join(parts)
 
 class _ConciergeCtx:
     """The minimal owner-scoped ctx handed to ``ConciergeCapability.converse``.
@@ -800,7 +1107,8 @@ class _ConciergeCtx:
 
     def __init__(
         self, *, run_id, scoped_store, owner_id, workspace_id, compiled=None,
-        chain_hints=None, run_summary=None,
+        chain_hints=None, run_summary=None, open_gate=None, run_status=None,
+        attached_files=None,
     ):
         self.run_id = run_id
         self.scoped_store = scoped_store
@@ -810,6 +1118,30 @@ class _ConciergeCtx:
         self.compiled = compiled
         self.chain_hints = chain_hints or []
         self.run_summary = run_summary or ""
+        # FIX-210 (ISS-054): the run's current gate state — "questionnaire", "review",
+        # or None. Injected into the system prompt so the Concierge gives an accurate
+        # status answer when the run is paused at clarify/review instead of reporting
+        # a stale state from reading events. GENERIC — opaque string, no workflow name.
+        self.open_gate = open_gate or ""
+        # The run's persisted status (WorkflowRun.status) — used to distinguish a
+        # live-building run from a completed one so the prompt label is accurate.
+        self.run_status = run_status or ""
+        # ISS-092: DECLARE the ``conversation`` inject so ``context_provider:conversation``
+        # surfaces this run's bounded chat transcript. Before this, the Concierge's only
+        # cross-turn memory was the unbounded read_events tool happening to return chat
+        # rows inside the whole event log; with that tool gone, this is what keeps
+        # multi-turn coherent. The provider self-gates on this token, so declaring it
+        # HERE — on the Concierge ctx alone — leaves every pipeline agent untouched and
+        # the characterization goldens byte-identical (INV-3).
+        self.current_spec_injects = {"conversation"}
+        # FIX-218 [dev] (KAN-170): pre-extracted file text from chat attachments. A rendered
+        # text block injected into the system prompt so the Concierge can answer
+        # questions about the file and surface a propose_steering_note for injection.
+        # Payload-transient (ND-10) — never persisted. Format: formatted text block
+        # ready to inject into the system prompt, or "" when no files were attached.
+        # NOTE (merge 2026-08-13): "FIX-218" here is dev's id. This branch's own FIX-218
+        # was renumbered to FIX-252 on merge — see .planning/FIX-REGISTER.md.
+        self.attached_files = attached_files or ""
 
 
 def _resolve_concierge():
@@ -889,6 +1221,8 @@ async def _dispose_concierge_proposal(
     wr_type: str,
     gate_key: str | None,
     ectx,
+    open_gate: str | None = None,
+    attached_files: str = "",
 ) -> dict:
     """Dispose ONE Concierge ``ProposalIntent`` through its matching Phase-29 seam (D-05).
 
@@ -915,9 +1249,28 @@ async def _dispose_concierge_proposal(
     params = dict(getattr(intent, "params", {}) or {})
 
     # ── steering_note → apply_steering (best-effort; applied immediately). ───────────
+    # FIX-210 (ISS-054): EXCEPTION — when the run is paused at a questionnaire or
+    # review gate, a steering note would unblock the clarify engine and auto-proceed
+    # without user input. Treat it as consequential in that case: hold it behind a
+    # confirm chip. The user asked a status question; the Concierge should NEVER
+    # silently launch the build by applying a note that skips clarification.
     if channel == "steering_note":
+        if open_gate in ("questionnaire", "review"):
+            # Hold behind a confirm chip — identical to gate_action/revision path.
+            await store.append_event_next_seq(
+                run_id,
+                event_id=f"concierge-proposal:{message_id}:{channel}",
+                type="concierge_proposal",
+                payload_json={
+                    "pipeline_run_id": run_id,
+                    "message_id": message_id,
+                    "channel": channel,
+                    "params": params,
+                    "status": "pending",
+                },
+            )
+            return {"channel": channel, "held": True, "params": params}
         from app.api.chat_router import apply_steering
-
         apply_steering(ectx, {"text": params.get("note", ""), "sticky": False})
         return {"channel": channel, "disposed": "steering"}
 
@@ -935,7 +1288,7 @@ async def _dispose_concierge_proposal(
                 "status": "pending",  # awaiting the FE confirm round-trip (33-04)
             },
         )
-        return {"channel": channel, "held": True}
+        return {"channel": channel, "held": True, "params": params}
 
     # ── gate_action → store.set_review_response (KAN-94 armed + KAN-100 fenced). ─────
     if channel == "gate_action":
@@ -966,14 +1319,23 @@ async def _dispose_concierge_proposal(
                 gate_key, approved=False, action="redo", instructions=rationale
             )
         elif action == "update_specs":
+            # ISS-053: the Concierge reaches the same seam, so it rides the same fence.
+            if not _review_gate_advertises_update_specs(gate_key):
+                raise _deny_update_specs_not_offered(gate_key)
             await art_store.set_review_response(
                 gate_key, approved=False, action="update_specs",
                 instructions=rationale or "",
             )
         elif action == "reject":
             await art_store.set_review_response(gate_key, approved=False)
-        else:  # approve (default)
+        elif action == "approve":
             await art_store.set_review_response(gate_key, approved=True)
+        else:
+            # ISS-070 hardening: currently unreachable — concierge.py:350 normalizes any
+            # action outside _GATE_ACTIONS to request_changes, and these params are
+            # server-written (H1), never client body. Fail closed so adding a member to
+            # concierge.py:80 without a branch here cannot silently approve a gate.
+            raise _deny_unknown_gate_action(action)
         return {"channel": channel, "disposed": "gate", "action": action}
 
     # ── chain → surface to FE as a chain proposal (FIX-115 / Option A). ───────────
@@ -989,8 +1351,54 @@ async def _dispose_concierge_proposal(
 
     # ── revision → _mint_revision_row + _drive_revision_to_queue (family child). ────
     if channel == "revision":
-        target = params.get("target") or f"{wr_type}_output"
+        # FIX-211: when the parent run is itself a revision (e.g. user_stories_revision),
+        # wr_type already ends with "_revision". Using it verbatim as the target gives
+        # "user_stories_revision_output" → revision_pipeline_type becomes
+        # "user_stories_revision_revision" which is not in TIER_PIPELINES → 403.
+        # Strip any trailing "_revision" suffix from wr_type to get the base artifact
+        # family (e.g. "user_stories") before constructing the fallback target.
+        base_type = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
+        # FIX-216b (corrected): od_prototype_revision is excluded from hexaware tier
+        # and has no agents, so od_prototype on hexaware must fall back to prototype_revision.
+        # Only apply the OD→base fallback when the natural od_*_revision is not entitled.
+        _OD_FALLBACK_MAP = {"od_prototype": "prototype"}
+        if base_type in _OD_FALLBACK_MAP:
+            natural_revision = f"{base_type}_revision"
+            if not can_run_pipeline(current_user.tier, natural_revision)[0]:
+                base_type = _OD_FALLBACK_MAP[base_type]
+        target = params.get("target") or f"{base_type}_output"
+        # OD target remapping: od_prototype_output → prototype_output unconditionally.
+        # od_prototype_revision has no registered agents so it can never be dispatched.
+        # This applies whether the Concierge stored the target explicitly or the fallback
+        # derived it — both paths must produce a dispatchable revision pipeline type.
+        # od_ppt_output stays as-is (od_ppt_revision has agents and is entitled).
+        _OD_TARGET_REMAP = {"od_prototype_output": "prototype_output"}
+        target = _OD_TARGET_REMAP.get(target, target)
+        # Stale-proposal correction: a proposal created before FIX-216b may have
+        # stored target="ppt_output" for an od_ppt parent run. Remap to the correct
+        # od_ppt_output so the revision uses od_ppt_revision (1 agent), not ppt_revision.
+        _base_for_correction = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
+        if _base_for_correction == "od_ppt" and target == "ppt_output":
+            target = "od_ppt_output"
         instruction = params.get("instruction", "")
+        # FIX-218: when files were attached on this Concierge turn, frame them as
+        # supplementary reference material. The user's chat instruction always takes
+        # precedence — if the file conflicts with or is unrelated to the request,
+        # agents must follow the user's instruction and ignore irrelevant file content.
+        if attached_files.strip():
+            user_instruction = instruction.strip()
+            file_section = (
+                "=== USER'S REVISION REQUEST (PRIMARY — always follow this) ===\n"
+                + (user_instruction if user_instruction else "(apply the reference material to improve the deliverable)")
+                + "\n=== END USER REQUEST ===\n\n"
+                "=== SUPPLEMENTARY REFERENCE MATERIAL (user-attached files) ===\n"
+                "Use this content ONLY where it is relevant and consistent with the user's request above.\n"
+                "If this content conflicts with or is unrelated to the user's request, IGNORE IT "
+                "and follow the user's request exactly.\n\n"
+                + attached_files.strip()
+                + "\n=== END REFERENCE MATERIAL ==="
+            )
+            instruction = file_section
         rdb = _get_db()
         try:
             child_run_id, _ = _mint_revision_row(
@@ -1168,14 +1576,25 @@ async def post_message(
                 _gk, approved=False, action="redo", instructions=dispatch.instructions
             )
         elif dispatch.action == "update_specs":
+            # ISS-053: this route needs no gate_key from the caller (the server derives it
+            # from the event log), so it is the EASIEST ingress to replay — fence it too.
+            if not _review_gate_advertises_update_specs(_gk):
+                raise _deny_update_specs_not_offered(_gk)
             await art_store.set_review_response(
                 _gk, approved=False, action="update_specs",
                 instructions=dispatch.instructions or "",
             )
         elif dispatch.action == "reject":
             await art_store.set_review_response(_gk, approved=False)
-        else:  # approve (default)
+        elif dispatch.action == "approve":
             await art_store.set_review_response(_gk, approved=True)
+        else:
+            # ISS-070 hardening: currently unreachable — BOTH Dispatch(channel=
+            # CHANNEL_GATE) sites (chat_router.py:244/:255) require
+            # turn.action in GATE_ACTIONS, which IS the ISS-119 routing contract and is
+            # deliberately NOT touched here. Fail closed so adding a member to
+            # GATE_ACTIONS without a branch here cannot silently approve a gate.
+            raise _deny_unknown_gate_action(dispatch.action)
     elif dispatch.channel == CHANNEL_STEERING:
         # A.3 (Phase 43): resolve the RUNNING run's live in-process ectx ONCE (the live-ectx
         # registry now populates it at run start — DEF-29-09-1 closed) and drain BOTH the
@@ -1198,6 +1617,13 @@ async def post_message(
             apply_steering(ectx, dispatch.note)
         if validated_turn_images:
             apply_turn_images(ectx, validated_turn_images)
+        # FIX-218 (KAN-170): when file contents are attached during a RUNNING phase,
+        # also inject them as a steering note for the next agent dispatch. Mirrors the
+        # steering path (INV-12 — same apply_steering seam, no new path). Payload-
+        # transient (ND-10). Degrade-safe: no-op when ectx is None or block is empty.
+        _steering_file_block = _build_attached_files_block(body.file_contents)
+        if _steering_file_block:
+            apply_steering(ectx, {"text": _steering_file_block, "sticky": False})
     elif dispatch.channel == CHANNEL_REVISION:
         # revision → mint + drive the shipped family child run (D-02), the exact seam
         # POST /{id}/revisions uses. A generic target derives from the run type when the
@@ -1268,7 +1694,8 @@ async def post_message(
                 intent, confirmed=True, store=store, art_store=art_store,
                 run_id=run_id, message_id=body.message_id, current_user=current_user,
                 wr_status=wr_status, wr_type=wr_type, gate_key=resolved_gate_key,
-                ectx=ectx,
+                ectx=ectx, open_gate=open_gate,
+                attached_files=_build_attached_files_block(body.file_contents),
             )
             # Mark the durable pending row RESOLVED (additive; namespaced event_id so a
             # replayed confirm is idempotent — the resolved row makes _load_pending_proposal
@@ -1317,7 +1744,27 @@ async def post_message(
             # FIX-116: thread the run's deliverable summary so the Concierge knows
             # what was produced without read_events round-trip (generic, INV-1).
             run_summary=wr_run_summary,
+            # FIX-210 (ISS-054): thread the run's current gate state so the Concierge
+            # gives an accurate status answer when paused at clarify/review.
+            open_gate=open_gate,
+            # Thread the run's persisted status so the prompt label is accurate
+            # (building run vs completed run — avoids "produced" for in-flight runs).
+            run_status=wr_status,
+            # FIX-218 (KAN-170): thread pre-extracted file text from chat attachments so
+            # the Concierge can answer questions about the file content and propose
+            # injection into the running pipeline. Payload-transient (ND-10) — never
+            # persisted. Absent ⇒ "" ⇒ dormant (byte-identical prompt, INV-3).
+            attached_files=_build_attached_files_block(body.file_contents),
         )
+        # FIX-218 (KAN-170): when file contents were attached AND a running pipeline
+        # exists (live ectx), also inject the file text as a sticky steering note so
+        # the NEXT agent dispatch receives it as a === USER GUIDANCE === block. This
+        # mirrors the existing CHANNEL_STEERING apply_steering path (INV-12) — we reuse
+        # the SAME seam rather than building a new one. Payload-transient (ND-10).
+        # Degrade-safe: if ectx is None (run not live in this process), no-op.
+        _attached_block = getattr(ctx, "attached_files", "") or ""
+        if _attached_block and ectx is not None:
+            apply_steering(ectx, {"text": _attached_block, "sticky": False})
         # ── Option B: STREAM the reply on the POST response body (text/event-stream). ──
         # The model's ordered text deltas ride the POST the FE already makes as TRANSIENT
         # ``chat_reply_chunk`` frames (never persisted → never replayed → never
@@ -1376,19 +1823,116 @@ async def post_message(
                         "text": answer_text or "",
                     },
                 )
+                # ── ISS-092: record the Concierge's OWN model spend, durably. ──────
+                # ``converse`` runs here, in a background task spawned AFTER the run
+                # settled — outside execute()'s lifetime — so neither the engine's
+                # aux_token_usage fold nor _apply_terminal_completion can ever see it.
+                # Without this row a chat turn's cost does not exist anywhere.
+                #
+                # It is a run_events row, NOT a workflow_runs column: token_usage is
+                # written solely by _apply_terminal_completion (the documented SOLE
+                # writer, already run and never run again) and answers "what does this
+                # workflow cost to RUN" — folding a user's chattiness into it would make
+                # two runs of the same workflow non-comparable. Reported as a separate
+                # line instead.
+                #
+                # event_id is namespaced on message_id, so append_event_next_seq's
+                # idempotency makes a retried/double-submitted POST a no-op rather than
+                # a double count. An ABSENT ctx.usage writes NO row: a token that was not
+                # observed is reported as unmeasured, never estimated from len(answer).
+                # Its own try/except — telemetry must never break the reply.
+                try:
+                    chat_usage = getattr(ctx, "usage", None)
+                    if isinstance(chat_usage, dict):
+                        _in = int(chat_usage.get("input_tokens", 0) or 0)
+                        _out = int(chat_usage.get("output_tokens", 0) or 0)
+                        _cr = int(chat_usage.get("cache_read_tokens", 0) or 0)
+                        _cw = int(chat_usage.get("cache_write_tokens", 0) or 0)
+                        _model = (
+                            chat_usage.get("model_id")
+                            or settings.BEDROCK_INFERENCE_PROFILE_ID
+                        )
+                        await store.append_event_next_seq(
+                            run_id,
+                            event_id=f"chat-usage:{body.message_id}",
+                            type="chat_usage",
+                            payload_json={
+                                "pipeline_run_id": run_id,
+                                "message_id": body.message_id,
+                                "model_id": _model,
+                                "input_tokens": _in,
+                                "output_tokens": _out,
+                                "total_tokens": _in + _out,
+                                "cache_read_tokens": _cr,
+                                "cache_write_tokens": _cw,
+                                # Same pricing convention as the run's headline cost
+                                # site (:2107): input_tokens is the UNCACHED portion.
+                                "estimated_cost_usd": estimate_cost_usd(
+                                    _model,
+                                    input_tokens=max(0, _in - _cr - _cw),
+                                    output_tokens=_out,
+                                    cache_read_tokens=_cr,
+                                    cache_write_tokens=_cw,
+                                    cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+                                ),
+                            },
+                        )
+                except Exception:  # noqa: BLE001 — telemetry never breaks the answer.
+                    logger.exception("chat_usage record failed for run %s", run_id)
                 # Drain + dispose proposals EXACTLY as today — still HELD behind a confirm
                 # chip (T-33-03-01), never auto-executed; only the call-site moved here.
                 for intent in _drain_concierge_proposals(concierge, ctx):
-                    held.append(await _dispose_concierge_proposal(
+                    disposed = await _dispose_concierge_proposal(
                         intent, confirmed=False, store=store, art_store=art_store,
                         run_id=run_id, message_id=body.message_id,
                         current_user=current_user, wr_status=wr_status,
                         wr_type=wr_type, gate_key=resolved_gate_key, ectx=ectx,
-                    ))
+                        open_gate=open_gate,
+                        attached_files=_attached_block,
+                    )
+                    held.append(disposed)
+                    logger.info(
+                        "Concierge proposal disposed: run=%s channel=%s held=%s",
+                        run_id,
+                        getattr(intent, "channel", "?"),
+                        disposed.get("held"),
+                    )
             except Exception:  # noqa: BLE001 — never leave the stream hung on a persist error.
                 logger.exception("Concierge durable persist failed for run %s", run_id)
                 errored = True
             finally:
+                # FIX-210 (ISS-054): provide a visible fallback when the Concierge fails
+                # to generate a response. An empty text with errored=True was silently
+                # rendering as a blank invisible bubble — the user saw no reply at all.
+                display_text = answer_text or (
+                    "I'm sorry, I couldn't retrieve the run status right now. "
+                    "Please try again in a moment."
+                    if errored else ""
+                )
+                # FIX-211: emit each HELD proposal as its own concierge_proposal SSE
+                # frame BEFORE the terminal chat_reply, so the FE receives the proposal
+                # events through the same streamed-POST drain path (RunConnectionProvider
+                # fanout → handleFrame → setProposals). This avoids the fetchEvents
+                # timing race where the POST resolves before the background DB writes
+                # finish. The durable rows were already written above; these frames are
+                # TRANSIENT echoes of those rows carrying the same payload shape the
+                # FE's concierge_proposal handleFrame case expects.
+                # The event_id MUST match the durable row so the FE seenRef dedup
+                # treats the later fetchEvents re-fetch of the same row as a duplicate
+                # and drops it — preventing double chips.
+                for h in held:
+                    h_channel = h.get("channel")
+                    if h.get("held") and h_channel:
+                        await frame_q.put(_sse_frame(reply_seq or 0, "concierge_proposal", {
+                            "pipeline_run_id": run_id,
+                            "message_id": body.message_id,
+                            "channel": h_channel,
+                            "params": h.get("params", {}),
+                            "status": "pending",
+                            # Match the durable row's event_id so seenRef dedup
+                            # drops the fetchEvents re-fetch of the same row.
+                            "event_id": f"concierge-proposal:{body.message_id}:{h_channel}",
+                        }))
                 terminal = {
                     "pipeline_run_id": run_id,
                     # Carry the SAME distinct event_id the durable row uses (:1266) so the
@@ -1398,7 +1942,7 @@ async def post_message(
                     # (BUG-018 regression on the streamed-POST path).
                     "event_id": f"chat-reply:{body.message_id}",
                     "message_id": body.message_id,
-                    "text": answer_text or "",
+                    "text": display_text,
                     "seq": reply_seq,
                     "proposals": held,
                 }
@@ -1453,6 +1997,36 @@ async def post_message(
 # coupled, so it is not importable — the de-dup is the deferred follow-up).
 
 
+class LaunchSource(str, Enum):
+    """Which of the three launch shapes a ``POST /api/runs`` request is using.
+
+    Detected once, near the top of ``launch_run``, from ``body.user_workflow_id``
+    + the referenced row's ``manifest_json`` shape — see ``_detect_launch_source``.
+    Every branch below eventually reconverges at the SAME mint + execute call
+    (marked ``# JOIN POINT`` further down) — this enum only decides how
+    ``pipeline_type`` / ``agents`` (or, for MANIFEST, a compiled plan) get
+    populated before that point, not how the run actually executes.
+    """
+
+    # Case 1 — no user_workflow_id at all. A fresh built-in pipeline launch,
+    # or an ad-hoc `pipeline_type: "custom"` + agent_ids picked straight from
+    # the library with no saved row behind it. UNCHANGED existing behavior.
+    FILE_PIPELINE = "file_pipeline"
+
+    # Case 2 — user_workflow_id present, row.manifest_json is null/absent.
+    # A saved workflow that's still just a flat list of real, file-backed
+    # agents (e.g. "Hello Poet": hello_html + attached_hooks/skills on the
+    # row). Composition is still agent_ids-shaped; only the SOURCE of
+    # pipeline_type/agent_ids/hooks/skills changes (row, not client body).
+    USER_WORKFLOW_FLAT = "user_workflow_flat"
+
+    # Case 3 — user_workflow_id present, row.manifest_json has a "steps" key.
+    # A workflow built entirely in the Composer (spec 012) — the manifest
+    # tree IS the composition. No file behind base_pipeline_type. The
+    # agent_ids allow-list does not apply here (nothing to check it against).
+    USER_WORKFLOW_MANIFEST = "user_workflow_manifest"
+
+
 class LaunchCommand(BaseModel):
     """Body for ``POST /api/runs`` — the full run-launch payload (D-13 / POR §6).
 
@@ -1475,6 +2049,17 @@ class LaunchCommand(BaseModel):
     custom_template_body: str | None = None
     source_workflow_run_id: str | None = None
     images: list | None = None
+    user_workflow_id: str | None = None
+    # Composer Run-settings (deliverable/planner/clarify/internet) — the
+    # run-time values from the Composer's Workflow-tab rail. Only consumed by
+    # the USER_WORKFLOW_MANIFEST branch below, where they take precedence over
+    # both the saved row's manifest_json and the hardcoded setdefault fallback,
+    # so a user who changes these post-save doesn't have to re-save to have
+    # Run once respect the change.
+    deliverable: dict | None = None
+    planner: str | None = None
+    clarify: dict | None = None
+    capabilities: dict | None = None
 
 
 def _reject(code: str, error: str, *, http_status: int = status.HTTP_400_BAD_REQUEST,
@@ -1529,9 +2114,9 @@ def _resolve_launch_agents(body: "LaunchCommand"):
     The SUPPORTED_PIPELINE_TYPES gate is preserved.
 
     Per-boundary parity: the REST launch twin never loaded od_context for the
-    ``od_ppt_revision`` arm (websocket.py loads it NON-FATALLY; the REST path fell
+    ``ppt_revision`` arm (websocket.py loads it NON-FATALLY; the REST path fell
     through to ``None``). That exact behavior is preserved here — REST keeps
-    ``od_ppt_revision`` od_context ``None`` — while prototype/od_ppt load fatally
+    ``ppt_revision`` od_context ``None`` — while prototype/ppt load fatally
     through the seam so a bad template rejects pre-mint (V5).
     """
     from agents.loader import SUPPORTED_PIPELINE_TYPES
@@ -1539,11 +2124,11 @@ def _resolve_launch_agents(body: "LaunchCommand"):
     from app.api.launch_context import resolve_launch_od_context
 
     pipeline_type = body.pipeline_type
-    if pipeline_type == "od_ppt_revision":
+    if pipeline_type == "ppt_revision":
         # REST parity: revisions seed from previous_run, not a launch-time template;
         # the REST twin never resolved od_context for this arm (WS owns the
         # non-fatal template load). Preserve od_context=None per boundary.
-        base_pipeline_type, od_context = "od_ppt_revision", None
+        base_pipeline_type, od_context = "ppt_revision", None
     else:
         try:
             base_pipeline_type, od_context = resolve_launch_od_context(
@@ -1663,55 +2248,216 @@ async def launch_run(
         allowed_custom_agent_ids,
         get_pipeline_agents,
     )
+    from app.api.user_workflows import _owned
+
+    # ── Detect which of the 3 launch shapes this request is (see LaunchSource) ─
+    launch_source = LaunchSource.FILE_PIPELINE
+    user_workflow_row = None
+    compiled = None  # set only in the USER_WORKFLOW_MANIFEST branch (TODO #3)
+    if body.user_workflow_id is not None:
+        # Row is the sole source of truth from here on — any client-sent
+        # agent_ids/pipeline_type gets overwritten below (TODO #2/#3), never merged.
+        #
+        # SNAPSHOT the columns we need while the session is still open, rather than
+        # reading them off the ORM instance afterwards: `close()` detaches the
+        # instance, and while plain already-loaded columns survive that today, adding
+        # a `deferred=True` column or a relationship to WorkflowDefinition would turn
+        # every read below into a DetachedInstanceError at run-launch time. A plain
+        # namespace of values has no such coupling.
+        launch_db = _get_db()
+        try:
+            _row = _owned(launch_db, body.user_workflow_id, current_user)
+            user_workflow_row = SimpleNamespace(
+                id=_row.id,
+                base_pipeline_type=_row.base_pipeline_type,
+                agents=_row.agents,
+                manifest_json=_row.manifest_json,
+                attached_hooks=_row.attached_hooks,
+                attached_skills=_row.attached_skills,
+                model_overrides=_row.model_overrides,
+            )
+        finally:
+            launch_db.close()
+        if user_workflow_row.manifest_json and "steps" in user_workflow_row.manifest_json:
+            launch_source = LaunchSource.USER_WORKFLOW_MANIFEST
+        else:
+            launch_source = LaunchSource.USER_WORKFLOW_FLAT
+
+    if launch_source is LaunchSource.FILE_PIPELINE:
+        # Case 1 — unchanged, nothing to do here.
+        pass
+
+    elif launch_source is LaunchSource.USER_WORKFLOW_FLAT:
+        # Case 2 — still agent_ids-shaped, just sourced from the row instead
+        # of the client body. Falls through into the UNCHANGED allow-list
+        # block below, which now reads these overwritten body.* values.
+        body.pipeline_type = user_workflow_row.base_pipeline_type
+        body.agent_ids = (
+            json.loads(user_workflow_row.agents) if user_workflow_row.agents else []
+        )
+        if user_workflow_row.attached_hooks:
+            body.attached_hooks = user_workflow_row.attached_hooks
+        if user_workflow_row.attached_skills:
+            body.attached_skills = user_workflow_row.attached_skills
+        if user_workflow_row.model_overrides:
+            body.model_overrides = user_workflow_row.model_overrides
+
+    elif launch_source is LaunchSource.USER_WORKFLOW_MANIFEST:
+        # Case 3 — the manifest tree IS the composition; no flat agent_ids
+        # list, no allow-list check. Synthesize the top-level fields
+        # build_manifest_from_dict requires but a DB-composed manifest_json
+        # never carries (its docstring in user_workflows.py._validated_manifest
+        # says this is the intended synthesis point), then compile with
+        # trust="db" — the compiler's own less-privileged, step-by-step
+        # capability checks are the real security boundary for this shape.
+        from agents.execution_engine.engine import (
+            _CAPABILITY_REGISTRY,
+            _WORKFLOW_COMPILER,
+        )
+        from agents.workflows.manifest import (
+            ManifestValidationError,
+            build_manifest_from_dict,
+        )
+        from agents.workflows.compiler import CompilerError
+
+        raw_manifest = dict(user_workflow_row.manifest_json)
+        raw_manifest.setdefault("id", f"user-workflow-{user_workflow_row.id}")
+        # Request body (this run's live Composer settings) wins over the row's
+        # last-saved manifest_json, which in turn wins over the hardcoded
+        # fallback — so Run once reflects whatever the Workflow-tab rail shows
+        # right now, not a stale save or a silently-hardcoded default.
+        raw_manifest["deliverable"] = (
+            body.deliverable
+            or raw_manifest.get("deliverable")
+            or {"strategy": "streamed_text", "name": "output.md"}
+        )
+        raw_manifest["planner"] = body.planner or raw_manifest.get("planner") or "skip"
+        raw_manifest["clarify"] = (
+            body.clarify or raw_manifest.get("clarify") or {"mode": "skip", "defaults": []}
+        )
+        raw_manifest["capabilities"] = (
+            body.capabilities or raw_manifest.get("capabilities") or {}
+        )
+
+        try:
+            parsed_manifest = build_manifest_from_dict(
+                raw_manifest, f"workflow:{user_workflow_row.id}"
+            )
+            compiled = _WORKFLOW_COMPILER.compile(
+                parsed_manifest, _CAPABILITY_REGISTRY, trust="db"
+            )
+        except (ManifestValidationError, CompilerError) as exc:
+            raise _reject(
+                "invalid_workflow_manifest",
+                str(exc),
+                http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        body.pipeline_type = user_workflow_row.base_pipeline_type
 
     pipeline_type = body.pipeline_type
     content = body.message
 
+    # ── Empty-brief gate (ISS-155) ─────────────────────────────────────────────
+    # A run with no brief has nothing to build, and the spend is committed HERE —
+    # an od_prototype build is 5–21M Bedrock tokens (measured ceiling 37.3M), so a
+    # briefless launch burns the owner's money on nothing. This has to live at the
+    # ingress rather than in the wizard: `LaunchCommand.message` is a bare `str`,
+    # every client shares this seam (wizard, chain, Concierge, any future API
+    # consumer), and a stale `sessionStorage` draft can reach it with no wizard in
+    # the loop at all. Deny BEFORE the mint, like every other ingress denial here
+    # (no WorkflowRun row, no driver, no spend).
+    #
+    # Reachable in practice, not theoretical: the chain path waives the brief on
+    # the wizard side (`LaunchWizard.canContinue` — `isChaining || brief.trim()`)
+    # on the assumption a chain context block stands in for it, and `handleLaunch`
+    # falls through to `brief.trim()` — the empty string — whenever that block is
+    # absent. A legitimate chained launch is unaffected: when chaining works, the
+    # context block IS the message, and it is never blank.
+    if not (content or "").strip():
+        raise _reject(
+            "empty_brief",
+            "A run needs a brief. Describe what you want built, or — when chaining — "
+            "make sure the source run's context could be loaded.",
+        )
+
     base_pipeline_type, od_context = _resolve_launch_agents(body)
 
-    # P1 fix: tier entitlement gate, BEFORE any WorkflowRun is minted. Checked
-    # against the RESOLVED base type (od_prototype/od_ppt normalize to their
-    # tier-table entries) — see _require_tier_entitlement.
+    # ── Entitlement gate (tier) — KAN-161 / ISS-055 + P1 REST tier-gate fix ────
+    # MERGE NOTE: both branches added a launch-time tier gate here, calling the
+    # SAME ``can_run_pipeline``. Unified onto the shared ``_require_tier_entitlement``
+    # helper so launch / resume / revision all deny through ONE seam (the helper is
+    # also called from ``resume_run_endpoint`` and ``create_revision``); the inline
+    # duplicate it replaced was byte-equivalent apart from its rejection code.
+    #
+    # Use the RAW pipeline_type (not base_pipeline_type): TIER_PIPELINES carries
+    # "od_prototype" and "prototype" as DISTINCT keys, and WorkflowRun.type is
+    # stamped from pipeline_type too. Checking the alias-collapsed base would
+    # silently mis-key the lookup for every od_prototype launch.
     _require_tier_entitlement(current_user, pipeline_type)
 
     # ── Resolve + allow-list the agents (invalid_agent_ids) ────────────────────
+    # RUNS for: FILE_PIPELINE, USER_WORKFLOW_FLAT (both are agent_ids-shaped —
+    # the inner `if agent_ids: / else:` below is UNCHANGED, untouched logic).
+    # SKIPPED for: USER_WORKFLOW_MANIFEST — no flat list to check against.
     agent_ids = body.agent_ids
-    if agent_ids:
-        allowed_ids = allowed_custom_agent_ids(base_pipeline_type)
-        rejected = [aid for aid in agent_ids if aid not in allowed_ids]
-        if rejected:
-            raise _reject(
-                "invalid_agent_ids",
-                f"Invalid agent_ids for {pipeline_type!r}: {rejected}",
-                rejected_agent_ids=rejected,
+    agents = None
+    if launch_source is not LaunchSource.USER_WORKFLOW_MANIFEST:
+        if agent_ids:
+            allowed_ids = allowed_custom_agent_ids(base_pipeline_type)
+            rejected = [aid for aid in agent_ids if aid not in allowed_ids]
+            if rejected:
+                raise _reject(
+                    "invalid_agent_ids",
+                    f"Invalid agent_ids for {pipeline_type!r}: {rejected}",
+                    rejected_agent_ids=rejected,
+                )
+            agents = [load_agent_spec(aid) for aid in agent_ids]
+            # CWF-001 D1: producer-first pre-sort (defense-in-depth + legacy repair).
+            # A custom composition sent/saved consumer-before-producer is reordered to a
+            # runnable producer-first order BEFORE the mint; a genuinely-unsatisfiable set
+            # (a consumed non-exempt type no selected agent produces, or a real cycle) is
+            # rejected pre-mint (no WorkflowRun row). ONLY the custom `agent_ids` branch —
+            # file-backed built-in manifests (the `else`) are already producer-first and
+            # MUST NOT be re-sorted (scope fence).
+            from app.api.composition_order import (
+                UnsatisfiableComposition,
+                presort_specs,
             )
-        agents = [load_agent_spec(aid) for aid in agent_ids]
-        # CWF-001 D1: producer-first pre-sort (defense-in-depth + legacy repair).
-        # A custom composition sent/saved consumer-before-producer is reordered to a
-        # runnable producer-first order BEFORE the mint; a genuinely-unsatisfiable set
-        # (a consumed non-exempt type no selected agent produces, or a real cycle) is
-        # rejected pre-mint (no WorkflowRun row). ONLY the custom `agent_ids` branch —
-        # file-backed built-in manifests (the `else`) are already producer-first and
-        # MUST NOT be re-sorted (scope fence).
-        from app.api.composition_order import (
-            UnsatisfiableComposition,
-            presort_specs,
-        )
 
-        try:
-            agents = presort_specs(agents)
-        except UnsatisfiableComposition as exc:
-            raise _reject(
-                "workflow_unsatisfiable",
-                str(exc),
-                http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
+            try:
+                agents = presort_specs(agents)
+            except UnsatisfiableComposition as exc:
+                raise _reject(
+                    "workflow_unsatisfiable",
+                    str(exc),
+                    http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
+        else:
+            agents = get_pipeline_agents(base_pipeline_type)
+            if not agents and base_pipeline_type == "ppt":
+                agents = [load_agent_spec(aid) for aid in PIPELINE_AGENTS.get("ppt", [])]
+            # Composed workflows (nodes are INSTANCES of an agent template, e.g.
+            # "custom-agent:facts") have no AGENT.md on disk, so the registry
+            # legitimately returns [] for them. Fall back to the compiled plan —
+            # the same single source of roster truth the engine now uses — before
+            # rejecting as no_agents.
+            if not agents:
+                from agents.execution_engine.engine import compile_for_run
+
+                try:
+                    _plan = compile_for_run(base_pipeline_type)
+                except Exception:
+                    _plan = None
+                if _plan is not None and _plan.steps:
+                    agents = [load_agent_spec(s.agent_id) for s in _plan.steps]
     else:
-        agents = get_pipeline_agents(base_pipeline_type)
-        if not agents and base_pipeline_type == "ppt":
-            agents = [load_agent_spec(aid) for aid in PIPELINE_AGENTS.get("ppt", [])]
+        # `agents` stays None on purpose — Case 3 has no flat agent list.
+        # `compiled` (set above) carries the roster instead; it reaches
+        # `_drive_launch_to_queue` via `compiled_override`.
+        pass
 
-    if not agents:
+    if launch_source is not LaunchSource.USER_WORKFLOW_MANIFEST and not agents:
         raise _reject(
             "no_agents",
             f"No agents found for pipeline_type {pipeline_type!r}",
@@ -1727,10 +2473,14 @@ async def launch_run(
     # od_* runs with a loaded template pass unchanged; custom workflows that
     # merely include a template-injecting agent skip this (factory _compose_injection
     # degrades gracefully when od_context is empty).
+    # `agents or []`: Case 3 (USER_WORKFLOW_MANIFEST) leaves `agents` as None —
+    # harmless here since its pipeline_type is always "custom", never one of
+    # the template-requiring types below, so `_needs_template` is always False
+    # for it regardless of this list's contents.
     _template_injecting = [
-        spec.id for spec in agents if "template" in (getattr(spec, "injects", None) or [])
+        spec.id for spec in (agents or []) if "template" in (getattr(spec, "injects", None) or [])
     ]
-    _needs_template = pipeline_type in ("prototype", "ppt", "od_prototype", "od_ppt")
+    _needs_template = pipeline_type in ("prototype", "ppt", "od_prototype")
     if (
         _template_injecting
         and _needs_template
@@ -1745,19 +2495,24 @@ async def launch_run(
         )
 
     # ── model_overrides ingress validation (D-07, MODEL-03) ────────────────────
+    # SKIPPED for Case 3 (USER_WORKFLOW_MANIFEST): both checks below are
+    # agent_ids-specific re-validations against a flat roster. Case 3's
+    # manifest already went through the compiler's own trust="db" step-by-step
+    # checks (TODO #3) — a stricter, per-step equivalent, not a gap.
     model_overrides = body.model_overrides or {}
-    _override_error = _validate_model_overrides(
-        model_overrides, {spec.id for spec in agents}
-    )
-    if _override_error is not None:
-        raise _reject("invalid_model_override", _override_error)
+    if launch_source is not LaunchSource.USER_WORKFLOW_MANIFEST:
+        _override_error = _validate_model_overrides(
+            model_overrides, {spec.id for spec in agents}
+        )
+        if _override_error is not None:
+            raise _reject("invalid_model_override", _override_error)
 
-    # ── EMP-02 launch-side trust=user re-validation of persisted selections ────
-    _selection_error = _revalidate_selections_trust_user(
-        base_pipeline_type, [spec.id for spec in agents], body.selections
-    )
-    if _selection_error is not None:
-        raise _reject("invalid_selection", _selection_error)
+        # ── EMP-02 launch-side trust=user re-validation of persisted selections ─
+        _selection_error = _revalidate_selections_trust_user(
+            base_pipeline_type, [spec.id for spec in agents], body.selections
+        )
+        if _selection_error is not None:
+            raise _reject("invalid_selection", _selection_error)
 
     # ── image-input ingress gate (IMAGE-INPUT §3 Layer 1/5) ────────────────────
     # Identical caps to the WS path: mime allow-list, ~3.75MB/image, ≤20, ~8MB
@@ -1779,6 +2534,13 @@ async def launch_run(
         validated_images = images
 
     # ── Mint the WorkflowRun (mirror websocket.py:1912-1966) ───────────────────
+    # ═══ JOIN POINT ═════════════════════════════════════════════════════════
+    # All 3 LaunchSource branches reconverge HERE.
+    # `compiled` is only non-None for Case 3 (set in the USER_WORKFLOW_MANIFEST
+    # branch, TODO #3) — CompiledWorkflow.steps is already FLAT (the compiler
+    # flattens the tree; parent/child is encoded per-step via `dispatched_by`,
+    # not nesting), so counting it needs no recursion.
+    agent_count = len(compiled.steps) if compiled is not None else len(agents)
     pipeline_run_id = str(_uuid.uuid4())
     cancel_event = asyncio.Event()
     _CANCEL_EVENTS[pipeline_run_id] = cancel_event
@@ -1803,7 +2565,7 @@ async def launch_run(
             type=pipeline_type,
             status="running",
             input=content or f"Run {pipeline_type} pipeline",
-            agent_count=len(agents),
+            agent_count=agent_count,
             session_id=current_user.id,
             parent_run_id=parent_run_id,
             selections_json=body.selections,
@@ -1813,6 +2575,12 @@ async def launch_run(
             # but requires storing template_id separately). od_context is None
             # for non-OD runs → od_context_json stays NULL (INV-3 parity).
             od_context_json=od_context,
+            # Persist the per-run gate selection (migration 0031) for the same
+            # reason as the two above: resume_run rebuilds the context from this
+            # row. Without it a gate that exists only via this override vanishes
+            # on restart and a pending redo is silently dropped. None (the
+            # "use static AGENT.md gates" default) stays NULL.
+            gate_agent_ids_json=body.gate_agent_ids,
         )
         db.add(workflow_run)
         db.commit()
@@ -1834,6 +2602,7 @@ async def launch_run(
             user=current_user,
             attached_skills=body.attached_skills or [],
             attached_hooks=body.attached_hooks or [],
+            compiled_override=compiled,
             od_context=od_context,
             validated_images=validated_images,
             gate_agent_ids=body.gate_agent_ids,
@@ -1866,10 +2635,12 @@ def _apply_terminal_output_columns(
     (launch's seen-flags, user-resume's ``_reconcile_terminal_status``, the engine state
     machine on restart). It does NOT commit — the caller owns the session.
 
-    This is the SOLE writer of these columns for BOTH the launch path AND the two resume
-    entry points (restart auto-resume via the engine ``_resume_output_persist_sink`` hook,
-    user-resume via ``_reconcile_terminal_status``), so a resume-completion row matches a
-    never-restarted launch completion. Workflow-agnostic (SC-001 — no workflow/agent name).
+    This is the SOLE writer of these columns for the launch path, the two resume entry
+    points (restart auto-resume via the engine ``_resume_output_persist_sink`` hook,
+    user-resume via ``_reconcile_terminal_status``), AND the revision driver
+    (``_drive_revision_to_queue``, ISS-152 — the fourth caller BUG-R03 missed), so a
+    revision or resume-completion row matches a never-restarted launch completion.
+    Workflow-agnostic (SC-001 — no workflow/agent name).
     """
     agent_outputs_collector: list[dict] = []
     current_agent: dict = {}
@@ -1902,7 +2673,14 @@ def _apply_terminal_output_columns(
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
         elif utype == "tool_result":
-            for tc in reversed(current_agent.get("tool_calls", [])):
+            # FIFO, not LIFO. The tool_call event carries no call id, so the only
+            # thing to pair on is the tool NAME — and results come back in call
+            # order. Walking newest-first handed result #1 to the LAST outstanding
+            # call and shifted every result after it by one, so any step with two
+            # same-named calls (a composed agent reading three artifacts) recorded
+            # a wrong audit trail. Matching oldest-unresolved-first is correct for
+            # in-order results and no worse than LIFO for out-of-order ones.
+            for tc in current_agent.get("tool_calls", []):
                 if tc.get("tool") == data.get("tool") and tc.get("result") is None:
                     tc["result"] = data.get("result")
                     break
@@ -1956,6 +2734,16 @@ def _apply_terminal_output_columns(
                 cache_read_tokens=total_cache_read,
                 cache_write_tokens=total_cache_write,
                 cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+            ),
+            # ISS-034: the as-if-UNCACHED counterfactual on the SAME token base, so
+            # Analytics can report the SIGNED effect of prompt caching. Rows written
+            # before this key existed simply lack it — every reader is a tolerant
+            # json.loads and the Analytics fold treats an absent key as a ZERO delta
+            # (never a fabricated $0 baseline), so no migration is needed.
+            "estimated_cost_full_usd": estimate_cost_usd(
+                wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
+                input_tokens=total_input,
+                output_tokens=total_output,
             ),
         })
     if not wr.completed_at:
@@ -2065,6 +2853,7 @@ async def _drive_launch_to_queue(
     model_overrides: dict,
     selections: dict | None,
     event_queue: asyncio.Queue,
+    compiled_override: "CompiledWorkflow | None" = None,
 ) -> None:
     """Run the engine and push every event into the per-run queue. Never touches a
     socket — the SSE stream drains the same queue (and the engine's durable
@@ -2110,6 +2899,7 @@ async def _drive_launch_to_queue(
             model_id=getattr(user, "preferred_model", None) or None,
             od_context=od_context,
             images=validated_images,
+            compiled_override=compiled_override,
             gate_agent_ids=gate_agent_ids,
             parent_run_id=parent_run_id,
             model_overrides=model_overrides,
@@ -2204,7 +2994,21 @@ async def _drive_launch_to_queue(
                 db.close()
     except asyncio.CancelledError:
         await event_queue.put({"type": "pipeline_cancelled", "data": {"message": "Pipeline cancelled"}})
+        # ISS-124: make the terminal DURABLE, not queue-only. This branch is the
+        # ``stop_run_driver`` escalation path (``task.cancel()`` for a driver that could
+        # not observe the cooperative event in bounded time), and it wrote no ``run_events``
+        # row at all — so (a) the run's durable log ended on whatever came before, which is
+        # how ISS-126's dangling ``review_gate_ready`` reopens are still being MINTED, and
+        # (b) ``stop_run_driver`` then runs ``_reconcile_terminal_status``, which decides
+        # from the durable tail alone and took its D2 fail-safe → the owner's Stop was
+        # recorded as ``failed``, overwriting the ``cancelled`` written just below.
+        # The frame above is already emitted unconditionally; this only makes the row agree
+        # with it. Best-effort by construction (the helper swallows its own failures), so a
+        # cancelled driver can never be made worse by the audit write.
         if workflow_run_id:
+            await _record_cancellation_in_the_durable_tail(
+                workflow_run_id, reason="driver_task_cancelled"
+            )
             db = _get_db()
             try:
                 wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
@@ -2268,11 +3072,27 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
 
     pipeline_run_id = str(_uuid.uuid4())
     revision_pipeline_type = f"{target_artifact_type.removesuffix('_output')}_revision"
+
+    # ── Entitlement gate (tier) — KAN-161 / ISS-055 ────────────────────────────
+    # Single insertion covers all 3 production call sites (create_revision,
+    # CHANNEL_REVISION in post_message, Concierge "revision" disposal). Fails fast
+    # BEFORE any registry lookup or DB row is minted, matching the fail-fast
+    # pattern in user_workflows.py. user.tier is available — the full User object
+    # is threaded to every caller already.
+    _rev_allowed, _rev_reason = can_run_pipeline(user.tier, revision_pipeline_type)
+    if not _rev_allowed:
+        raise _reject("pipeline_not_entitled", _rev_reason, http_status=status.HTTP_403_FORBIDDEN)
+
     _rev_agents = get_pipeline_agents(revision_pipeline_type)
+    # Inherit workspace_id from the parent run (required — run_events.workspace_id
+    # is NOT NULL; a revision row without it fails on the first event write).
+    parent_wr = db.query(WorkflowRun).filter(WorkflowRun.id == parent_run_id).first()
+    parent_workspace_id = getattr(parent_wr, "workspace_id", None) if parent_wr else None
     wr = WorkflowRun(
         id=pipeline_run_id,
         user_id=user.id,
         owner_id=user.id,
+        workspace_id=parent_workspace_id,
         parent_run_id=parent_run_id,
         title=f"Revision: {instruction[:50]}",
         type=revision_pipeline_type,
@@ -2283,113 +3103,6 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
     db.add(wr)
     db.commit()
     return pipeline_run_id, revision_pipeline_type
-
-
-@router.post("/{run_id}/classify-intent")
-async def classify_intent(
-    run_id: str,
-    body: "ClassifyIntentCommand",
-    current_user: User = Depends(get_current_user),
-):
-    """Silently classify a settled-run user message as revise / chain / ask (FIX-116).
-
-    Calls the LLM with ONLY the user text + run deliverable summary + available chain
-    targets. Returns ``{"intent": "revise"|"chain"|"ask", "target_id"?: "..."}`` with
-    NO chat reply — the caller renders the appropriate UI affordance immediately.
-
-    Owner-gated (IDOR → 404). No chat_message row is written; this is a pure
-    read+classify endpoint. Generic (SC-001/INV-1) — no pipeline_type branch.
-    """
-    db = _get_db()
-    try:
-        wr = (
-            db.query(WorkflowRun)
-            .filter(WorkflowRun.id == run_id, WorkflowRun.user_id == current_user.id)
-            .first()
-        )
-        if wr is None:
-            raise HTTPException(status_code=404, detail="Workflow run not found")
-        _wr_title = (wr.title or "").strip()
-        _wr_output = (wr.output or "").strip()
-        _wr_output_preview = _wr_output[:400] + ("…" if len(_wr_output) > 400 else "")
-        run_summary = (
-            (f"Run title: {_wr_title}\n" if _wr_title else "")
-            + (f"Deliverable preview:\n{_wr_output_preview}" if _wr_output_preview else "")
-        ).strip()
-    finally:
-        db.close()
-
-    user_text = (body.text or "").strip()
-    chain_hints = body.chain_hints or []
-
-    # Build a minimal classification prompt — NO conversational preamble, just the
-    # deliverable context + the user message + the available chain targets.
-    chain_targets_str = ""
-    if chain_hints:
-        chain_targets_str = "\nAvailable chain targets (id → label):\n" + "\n".join(
-            f"  {h.get('id','')}: {h.get('label','')}"
-            for h in chain_hints[:8]
-            if isinstance(h, dict) and h.get("id")
-        )
-
-    classify_prompt = (
-        "You are a SILENT INTENT CLASSIFIER. Read the user's message and output ONLY "
-        "a JSON object with no extra text.\n\n"
-        "Rules:\n"
-        "- If the user wants to CHANGE or ADD to THIS run's deliverable "
-        "(revise, update, add Google auth, change a section, etc.) → "
-        "{\"intent\": \"revise\"}\n"
-        "- If the user wants to START A NEW WORKFLOW using this output "
-        "(build a prototype, create a presentation, chain to X) → "
-        "{\"intent\": \"chain\", \"target_id\": \"<id from Available chain targets>\"}\n"
-        "- If the user is just ASKING A QUESTION (what is, how does, explain) → "
-        "{\"intent\": \"ask\"}\n"
-        "- If no chain target matches, use {\"intent\": \"revise\"} for action requests.\n\n"
-        f"What this run produced:\n{run_summary or '(no summary available)'}\n"
-        f"{chain_targets_str}\n\n"
-        f"User message: {user_text}\n\n"
-        "Output ONLY valid JSON, nothing else."
-    )
-
-    # Use the Concierge's DeepAgentRunner but with NO tools — pure text classification.
-    import json as _json
-    from app.agents.deep_agent_runner import DeepAgentRunner
-
-    try:
-        runner = DeepAgentRunner(
-            system_prompt="You are a JSON-only intent classifier. Always output valid JSON.",
-            tools=[],
-            model=None,
-            thread_id=f"{run_id}:classify",
-        )
-        full = ""
-        async for event in runner.astream_events(classify_prompt):
-            if event["type"] == "chunk":
-                full += event["chunk"]
-        # Extract the first JSON object from the response
-        start = full.find("{")
-        end = full.rfind("}") + 1
-        if start >= 0 and end > start:
-            data = _json.loads(full[start:end])
-            intent = str(data.get("intent", "revise")).lower()
-            target_id = str(data.get("target_id", "")) if intent == "chain" else ""
-            # Validate target_id is a known chain hint
-            known_ids = {h.get("id") for h in chain_hints if isinstance(h, dict)}
-            if intent == "chain" and target_id not in known_ids:
-                intent = "revise"
-                target_id = ""
-            return {"intent": intent, "target_id": target_id}
-    except Exception as exc:
-        logger.warning("classify-intent: LLM classification failed (%s) — defaulting to revise", exc)
-
-    return {"intent": "revise", "target_id": ""}
-
-
-class ClassifyIntentCommand(BaseModel):
-    """Body for ``POST /{id}/classify-intent``."""
-
-    text: str
-    chain_hints: list[dict] | None = None
 
 
 @router.post("/{run_id}/revisions")
@@ -2478,11 +3191,19 @@ async def _drive_revision_to_queue(
     pipeline_failed_seen = False
     degraded_seen = False
     pipeline_cancelled_seen = False
+    # ISS-152: this driver is a fourth caller of the shared
+    # _apply_terminal_output_columns mapping (BUG-R03, INV-12) — mirrors the launch
+    # driver's raw_events/monotonic_start (this file, _drive_launch_to_queue) so a
+    # revision completion carries output/agent_outputs/token_usage/duration/model_id/
+    # deliverable_* exactly like a launch or resume completion, never silently NULL.
+    raw_events: list[tuple[str, dict]] = []
+    monotonic_start = time.monotonic()
 
     async def _queue_send(event: dict) -> None:
         nonlocal pipeline_complete_seen, pipeline_failed_seen, degraded_seen
         nonlocal pipeline_cancelled_seen
         etype = event.get("type")
+        raw_events.append((etype or "", event.get("data") or {}))
         if etype == "pipeline_cancelled":
             pipeline_cancelled_seen = True
         if etype == "pipeline_complete":
@@ -2500,6 +3221,16 @@ async def _drive_revision_to_queue(
             if swr:
                 swr.status = new_status
                 swr.completed_at = datetime.now(timezone.utc)
+                # ISS-152: the SOLE event→column mapping (_apply_terminal_output_columns),
+                # reused byte-for-byte from the launch driver — the driver's OWN monotonic
+                # clock, never pipeline_complete's total_duration (keeps ISS-150's two
+                # disagreeing duration numbers from getting a third).
+                _apply_terminal_output_columns(
+                    swr,
+                    raw_events,
+                    model_id=getattr(user, "preferred_model", None) or None,
+                    duration_seconds=round(time.monotonic() - monotonic_start, 1),
+                )
                 sdb.commit()
         finally:
             sdb.close()
@@ -2540,6 +3271,12 @@ async def _drive_revision_to_queue(
             "type": "pipeline_cancelled",
             "data": {"message": "Revision cancelled"},
         })
+        # ISS-124 (second locus) — identical hole, identical fix. See the launch driver's
+        # CancelledError branch for the full rationale; the two drivers stay behaviorally
+        # identical by design (LOCK-B).
+        await _record_cancellation_in_the_durable_tail(
+            workflow_run_id, reason="driver_task_cancelled"
+        )
         _persist_terminal_status("cancelled")
     except Exception as exc:
         logger.error("REST revision driver failed: %s", exc, exc_info=True)

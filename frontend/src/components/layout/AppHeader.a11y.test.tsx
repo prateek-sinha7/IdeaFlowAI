@@ -14,6 +14,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Provider } from "react-redux";
+import { configureStore } from "@reduxjs/toolkit";
 
 // next/navigation — AppHeader calls useRouter() to route the admin-only
 // "Admin Dashboard" menu item to /admin.
@@ -22,21 +24,36 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { AppHeader } from "./AppHeader";
+import globalReducer from "@/store/slices/globalSlice";
 
 type HeaderOverrides = Partial<React.ComponentProps<typeof AppHeader>>;
+
+// AppHeader resolves its live-run workflow labels through `useWorkflowLabels()`,
+// which reads the `global` slice via `useAppSelector` — so the component must be
+// rendered inside a react-redux Provider or every assertion here dies on
+// "could not find react-redux context value". Only the `global` slice is
+// registered: it is the only one this component subscribes to, and an empty
+// workflow catalog is the correct fixture (the label resolver falls back to the
+// static map, which is what these nav/a11y assertions expect). Mirrors the
+// Provider + configureStore pattern in LibraryPage.reskin.test.tsx.
+function createTestStore() {
+  return configureStore({ reducer: { global: globalReducer } });
+}
 
 function setup(overrides: HeaderOverrides = {}) {
   const onNavigate = vi.fn();
   const onLogout = vi.fn();
   render(
-    <AppHeader
-      currentPage="saved-workflows"
-      onNavigate={onNavigate}
-      onLogout={onLogout}
-      userEmail="qa@flowin.test"
-      userTier="basic"
-      {...overrides}
-    />,
+    <Provider store={createTestStore()}>
+      <AppHeader
+        currentPage="saved-workflows"
+        onNavigate={onNavigate}
+        onLogout={onLogout}
+        userEmail="qa@flowin.test"
+        userTier="basic"
+        {...overrides}
+      />
+    </Provider>,
   );
   return { onNavigate, onLogout };
 }
@@ -114,15 +131,22 @@ describe("AppHeader — profile menu a11y", () => {
     await user.click(screen.getByRole("button", { name: /account menu/i }));
     const menu = screen.getByRole("menu");
     const items = within(menu).getAllByRole("menuitem");
-    // Account Settings / Security / Analytics / Workflow History / Log out.
+    // Account Settings / Security / Analytics / Workflow History / Dark mode /
+    // Log out — for a NON-admin user (Admin Dashboard is isAdmin-gated and has
+    // its own cases above).
     // Security was added with the MFA enrolment page — without a route into it,
     // ADMIN_MFA_REQUIRED is a lockout switch rather than a control.
-    expect(items).toHaveLength(5);
+    // "Dark mode" is the theme toggle; it lives in this menu as a menuitem too,
+    // so the count is 6 rather than the 5 this assertion originally expected.
+    expect(items).toHaveLength(6);
     expect(
       within(menu).getByRole("menuitem", { name: /account settings/i }),
     ).toBeInTheDocument();
     expect(
       within(menu).getByRole("menuitem", { name: /security/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(menu).getByRole("menuitem", { name: /dark mode/i }),
     ).toBeInTheDocument();
     expect(
       within(menu).getByRole("menuitem", { name: /log out/i }),

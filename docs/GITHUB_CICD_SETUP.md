@@ -21,6 +21,13 @@ Comprehensive operator guide for the GitHub Actions CI/CD pipeline
 > `velocityai-app.service` systemd unit). This runbook only adds the
 > GitHub-to-AWS authentication and deploy machinery on top of that existing
 > host setup.
+>
+> On a Terraform-managed box that provisioning happens automatically at first
+> boot (`infra/terraform/modules/compute/user_data.sh.tpl`). **If the instance
+> was created by hand** (console/CLI, no `terraform apply`), nothing renders
+> that template and nothing uploads `bootstrap-ec2.sh` to S3 — see
+> [§2.6](#26-provisioning-a-hand-created-ec2-instance) to provision it via the
+> `Provision` GitHub Actions workflow instead.
 
 > **Naming: environment names are `dev` / `stage` / `prod`, NOT `dev` /
 > `staging` / `production`.** This matches the short names already used by
@@ -45,6 +52,7 @@ Comprehensive operator guide for the GitHub Actions CI/CD pipeline
 2. [How the Pipeline Works](#how-the-pipeline-works)
 3. [Account-Level AWS Setup](#1-account-level-aws-setup-once)
 4. [Per-Environment AWS Setup](#2-per-environment-aws-setup)
+   - [2.6 Provisioning a Hand-Created EC2 Instance](#26-provisioning-a-hand-created-ec2-instance)
 5. [GitHub Repository Configuration](#3-github-repository-configuration)
 6. [Trigger and Tag Matrix](#4-trigger-and-tag-matrix)
 7. [First Deploy and Validation](#5-first-deploy-and-validation)
@@ -640,6 +648,87 @@ aws ssm put-parameter --name "/velocityai/<ENV>/deploy/instance_id" \
   --type String --value "<INSTANCE_ID>" --region eu-central-1
 ```
 
+### 2.6 Provisioning a Hand-Created EC2 Instance
+
+**When you need this:** the target instance was created by console/CLI, not
+`terraform apply`. `bootstrap-ec2.sh` therefore never ran (nothing rendered
+`user_data.sh.tpl`, nothing uploaded the script to S3), and the box has no
+Postgres, no Docker, no nginx/TLS, and no systemd units. `deploy.yml` alone
+cannot fix this — it only redeploys containers onto an already-provisioned
+host.
+
+**What handles it:** `.github/workflows/provision.yml` (`workflow_dispatch`
+only — deliberately manual, since provisioning a box is rare and deliberate).
+It does what `user_data.sh.tpl` + the app layer's `aws_s3_object.*` uploads do
+on a Terraform-managed box:
+
+1. Uploads `bootstrap-ec2.sh`, `reconcile-host-config.sh`,
+   `docker-compose.yml`, `docker-compose.prod.yml` to
+   `s3://<this env's backup bucket>/config/` from the runner, using the same
+   per-environment `AWS_DEPLOY_ROLE_ARN` deploy.yml uses (now also carrying
+   the `ConfigObjectUpload` / `ConfigBucketEncryptionRead` /
+   `KMSForConfigUploadViaS3` statements — see `github_oidc.tf`).
+2. Sends `.github/scripts/remote-bootstrap.sh` over SSM RunCommand, which
+   writes `/etc/velocityai/bootstrap.env`, installs
+   `velocityai-firstboot.service` (so a later reboot or rebuilt instance
+   self-heals without another CI run), fetches `bootstrap-ec2.sh` back from
+   S3 with a sha256 check against what the runner just uploaded, and runs it.
+
+**One-time by design:** `remote-bootstrap.sh`'s first gate exits 0 immediately
+if `/var/lib/velocityai/.bootstrap-done` already exists on the box — a routine
+re-run of this workflow against an already-provisioned host is a safe no-op.
+Pass `force: true` to re-run `bootstrap-ec2.sh` anyway (idempotent, but the
+app stack **will restart**). Pass `dry_run: true` to validate every
+precondition (SSM parameter, S3 upload, checksum) without writing anything to
+the box.
+
+**Manual prerequisites — this workflow cannot create these for you:**
+
+- An IAM instance profile attached to the instance, granting at minimum:
+  `s3:GetObject` on `config/*` of the backup bucket (`s3_config_read`),
+  `ssm:GetParametersByPath` + `kms:Decrypt` under `/velocityai/<env>/*`,
+  `ecr:GetAuthorizationToken` + pull actions on the two repos, and the
+  CloudWatch agent's describe/put-metric actions. See
+  `infra/terraform/modules/iam/main.tf` for the exact statements to replicate.
+- A second EBS volume attached to the instance for the Postgres data
+  directory. If it isn't `/dev/nvme1n1`, set the `VELOCITYAI_DATA_DEVICE`
+  variable (below) — `bootstrap-ec2.sh` now asserts the device exists as a
+  block device before touching `mkfs`, rather than guessing.
+- `metadata_options` set to `http_tokens = required` **and**
+  `http_put_response_hop_limit = 2`. The console default hop limit is 1, which
+  makes boto3 inside the backend container fail with `NoCredentialsError` —
+  the container→bridge→IMDS path is 2 hops.
+- A DNS A record pointing the target FQDN at the instance's Elastic IP, and
+  inbound 80/443 open — `certbot certonly` in `bootstrap-ec2.sh` §13 needs
+  both before this workflow can succeed.
+- The `/velocityai/<env>/DATABASE_PASSWORD` SSM SecureString parameter
+  already created (`remote-bootstrap.sh` checks for its existence, by name
+  only, before doing anything else):
+
+  ```bash
+  aws ssm put-parameter --name "/velocityai/<ENV>/DATABASE_PASSWORD" \
+    --type SecureString --value "$(openssl rand -base64 32)" --region eu-central-1
+  ```
+
+**Additional variables** (per environment, on top of §3.2's table):
+
+| Name | Example value | Notes |
+|---|---|---|
+| `VELOCITYAI_BACKUP_BUCKET` | `velocityai-dev-pg-dumps-<account>` | The env's own backup bucket. Config artifacts land under its `config/` prefix. |
+| `VELOCITYAI_KMS_KEY_ID` | `arn:aws:kms:eu-central-1:<account>:key/<id>` | Project CMK ARN — used for backup encryption and, if the bucket enforces SSE-KMS, the config upload. |
+| `VELOCITYAI_FQDN` | `dev.velocityai.example.com` | Must already resolve to the instance's EIP — `certbot` fails otherwise. |
+| `VELOCITYAI_ACME_EMAIL` | `platform@example.com` | Let's Encrypt registration contact. |
+| `VELOCITYAI_PARAM_PREFIX` | `/velocityai/dev` | Optional — defaults to `/velocityai/<environment>`. |
+| `VELOCITYAI_DATA_DEVICE` | `/dev/nvme1n1` | Optional — only needed if the attached data volume uses a different device path. |
+
+`AWS_DEPLOY_ROLE_ARN`, `AWS_REGION`, `ECR_REGISTRY`, and `EC2_INSTANCE_ID` are
+reused as-is from §3.2.
+
+**After provisioning succeeds:** the host is fully provisioned but the app is
+**not** running yet — same as the Terraform path, `bootstrap-ec2.sh` §18b
+cleanly skips starting `velocityai-app.service` when ECR has no pinned image
+yet. Run the **Deploy** workflow for the environment to finish the bring-up.
+
 ---
 
 ## 3. GitHub Repository Configuration
@@ -692,6 +781,7 @@ secrets are masked.
 | `AWS_REGION` | `eu-central-1` | |
 | `ECR_REGISTRY` | `<ACCOUNT>.dkr.ecr.eu-central-1.amazonaws.com` | |
 | `EC2_INSTANCE_ID` | `i-0abc123def456` | The tagged instance from §2.2 |
+| `KMS_KEY_ALIAS` | `velocityai-dev-euc1` | The project CMK that encrypts this environment's SecureString parameters. Copy the alias **exactly** as the KMS console shows it; the `alias/` prefix is optional. Leave unset only if your aliases follow the legacy `velocityai-<env>` (`velocityai` for prod) convention, which `deploy.yml` derives as a fallback. A mismatch fails the deploy at the first SecureString push with `InvalidKeyId`. |
 | `CORS_ORIGINS` | `["https://dev.velocityai.example.com"]` | JSON array string |
 | `PUBLIC_BASE_URL` | `https://dev.velocityai.example.com` | |
 | `BEDROCK_MODEL_ID` | `anthropic.claude-haiku-4-5-20251001-v1:0` | → `llm/model_id` |
@@ -827,6 +917,8 @@ Do this for **dev** first.
 | SSM command runs but status = `Failed` | On-box error (compose pull, ECR login, health check) | Read the printed stdout/stderr in the poll step; SSM into the box and check `journalctl -u velocityai-app.service` |
 | SSM command fails immediately with `_script.sh: 1: set: Illegal option -o pipefail` / `failed to run commands: exit status 2` | The generated `remote.sh` has no shebang, so `AWS-RunShellScript` executed it with the box's default `/bin/sh` (dash) instead of bash — dash doesn't support `set -o pipefail` | Confirmed fixed in `deploy.yml`: the heredoc now starts with `#!/bin/bash` before `set -euo pipefail` so SSM always runs it under bash regardless of the instance's default shell |
 | Health check times out | Image tag not in ECR yet, or app boot error (bad `SECRET_KEY`, DB unreachable) | Confirm `build` pushed the tag; check backend logs; verify `SECRET_KEY` is set and non-default in SSM |
+| Config push fails with `InvalidKeyId ... Alias alias/velocityai-<env> is not found` | The KMS alias in the account doesn't match the name `deploy.yml` derived. Real aliases often carry a region suffix (e.g. `velocityai-dev-euc1`), which the derivation doesn't know about | Set `KMS_KEY_ALIAS` on this Environment (§3.2) to the alias exactly as the KMS console shows it. The step aborts on the **first** SecureString, so no partial config was written — just fix the variable and re-run. |
+| Config push fails with `AccessDeniedException` on a SecureString | The deploy role's `KMSEncryptSecureStringViaSSM` statement doesn't cover this key | Add the key ARN to `github_cicd_kms_key_arns` for this environment's role (§2.1). Note the role is granted `kms:Encrypt` **only**, via SSM — it deliberately cannot call KMS directly. |
 | Config value not reaching the app | Wrong SSM key name — `velocityai-load-secrets` silently drops unknown keys | Use the exact names in [§10](#10-reference-config-key-mapping); Bedrock keys live under `llm/*` |
 | `docker compose pull` fails with `manifest unknown` | The digest isn't in the repo the box is pulling from (build job skipped/failed, or `ECR_REGISTRY` points at another account) | Re-run the workflow; confirm the `build` job completed and compare its digests with `/etc/velocityai/app.env` |
 | Push to ECR fails with `denied` | Build role missing ECR push actions, or repo ARN mismatch | Re-check the `ECRPushPull` statement resource ARNs (§2.1) |

@@ -1,0 +1,50 @@
+### Workflows - List manifest workflows
+GET {{apiRoot}}/api/workflows
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ') — set a real {{jwt}} to exercise this assertion');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (!Array.isArray(body) || !body.every(w => typeof w.id === 'string' && typeof w.step_count === 'number')) {
+		console.error('FAIL: expected an array of {id, name, description, step_count, steps, ...}, got', body);
+	} else {
+		console.log('OK:', body.length, 'workflow(s):', body.map(w => w.id).join(', '));
+	}
+}}
+
+### Workflows - Get manifest workflow
+GET {{apiRoot}}/api/workflows/prototype
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (body.id !== 'prototype' || !Array.isArray(body.steps)) {
+		console.error('FAIL: expected {id, name, description, planner, clarify_mode, deliverable, steps: []} shape, got', body);
+	} else {
+		console.log('OK: prototype workflow has', body.steps.length, 'step(s), clarify_mode =', body.clarify_mode);
+	}
+}}
+
+### Workflows - Get manifest workflow (unknown id, expect 404)
+GET {{apiRoot}}/api/workflows/not-a-real-workflow-id
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 404) {
+		console.error('FAIL: expected 404 for an unknown workflow id, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: unknown workflow id correctly 404s');
+	}
+}}

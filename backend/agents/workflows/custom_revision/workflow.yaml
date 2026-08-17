@@ -1,0 +1,38 @@
+id: custom_revision
+user_launchable: false
+is_beta: true
+display_name: Revise composed workflow
+short_name: Composed Workflow Revision
+description: Apply a revision instruction to a prior composed (Designer-built) workflow run — discover-then-plan-then-execute, since the original run's file shape is unknown ahead of time.
+icon: Wand2
+version: 1
+# Mirrors user_stories_revision / prototype_revision precedent: planner: run
+# is REJECTED at revision dispatch (CR-02, engine.py — a planner:run manifest
+# parks at the clarify gate's no-timeout wait, which neither the revision
+# panel nor the chat-lane revision channel ever answers). This pipeline's own
+# discovery/scoping step is a REAL agent in `steps:` below (custom-revision-
+# planner), not the SmartPlanner pre-pass — so `planner: skip` here is
+# correct and required, not a loss of capability.
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  # Unknown-shape output (the original composed workflow could have written
+  # one file or many, of any type) — serialized_sandbox bundles whatever is
+  # actually on disk after the builder runs, same mechanism app_builder_revision
+  # uses for its own unknown/multi-file app output. plan.md is excluded from
+  # the bundle via _DELIVERABLE_EXCLUDE (app/agents/sandbox.py).
+  strategy: serialized_sandbox
+  name: output
+context_providers:
+- previous_run
+seed_files: {}
+steps:
+- agent: custom-revision-planner
+  strategy: single_shot
+  gates: []
+- agent: custom-revision-builder
+  strategy: single_shot
+  gates: []
+name: Composed Workflow Revision

@@ -21,7 +21,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 
-const TIER_ORDER: Tier[] = ["basic", "pro", "enterprise"];
+const TIER_ORDER: Tier[] = ["basic", "pro", "enterprise", "hexaware"];
 
 // Tier -> Badge status key (token-backed chip): basic=neutral grey, pro=brand
 // violet, enterprise=green. The tier LABEL is passed explicitly so the chip
@@ -31,6 +31,7 @@ const TIER_BADGE_STATUS: Record<string, string> = {
   basic: "queued",
   pro: "running",
   enterprise: "done",
+  hexaware: "amber",
 };
 
 function TierBadge({ tier }: { tier: string }) {
@@ -302,7 +303,7 @@ export default function AdminPage() {
         </div>
 
         {/* Users table */}
-        <Card className="overflow-hidden shadow-sm">
+        <Card className="shadow-sm">{/* No overflow-hidden — TierDropdown needs to overflow the table */}
           {/* Table header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-line-divider">
             <div className="flex items-center gap-2">

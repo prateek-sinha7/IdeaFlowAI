@@ -409,6 +409,9 @@ class ClarifyEngine:
         user_request_summary = planning_context.get("user_request_summary", "")
         # Already-answered topics (from previous rounds) — never re-ask these
         clarified_topics = planning_context.get("clarified_topics") or []
+        # ISS-056/H3(b): design system/template already chosen in wizard — short names only
+        design_system_name = planning_context.get("design_system_name")
+        template_name_ctx = planning_context.get("template_name")
 
         if not user_request and not inferred_intent:
             return None
@@ -440,13 +443,9 @@ class ClarifyEngine:
                 "Priority: user roles/personas, key journeys, business rules, scope (MVP vs full), "
                 "acceptance criteria style, compliance requirements."
             ),
-            "od_ppt": (
+            "ppt": (
                 "Priority: presentation purpose (inform/persuade/report), target audience, "
                 "content depth, number of slides, visual style, key sections/chapters."
-            ),
-            "ppt": (
-                "Priority: presentation purpose, target audience, content depth, "
-                "slide count, visual style, key sections."
             ),
             "app_builder": (
                 "Priority: tech stack, core features, data model, integrations needed, "
@@ -480,6 +479,17 @@ These 4 questions are MANDATORY regardless of what else is in the brief."""
         if clarified_topics:
             already_answered = f"\nALREADY ANSWERED in previous rounds — do NOT ask again: {clarified_topics}"
 
+        # ISS-056/H3(b): if the wizard already resolved a design system/template,
+        # add a brief note so the LLM doesn't generate redundant visual-style questions.
+        design_note = ""
+        if design_system_name or template_name_ctx:
+            _ds = design_system_name or "n/a"
+            _tmpl = template_name_ctx or "n/a"
+            design_note = (
+                f"\nALREADY CHOSEN — do not ask about visual style/design system: "
+                f"template={_tmpl}, design system={_ds}"
+            )
+
         prompt = f"""You are a product clarification expert following the GitHub Spec Kit clarify.md approach.
 Analyze the user's brief and generate targeted, content-aware clarification questions.
 
@@ -495,6 +505,7 @@ Analyze the user's brief and generate targeted, content-aware clarification ques
 - Domain insights: {json.dumps(domain_insights)}
 {coverage_summary}
 {already_answered}
+{design_note}
 
 ## Question guidelines (Spec Kit style)
 {pipeline_guidance}
@@ -636,10 +647,6 @@ prose before or after. Your response MUST start with `[` and end with `]`."""
             content_hint = content_hint[:117] + "..."
 
         TOPIC_BY_PIPELINE: dict[str, tuple[str, list[str]]] = {
-            "od_ppt": (
-                "What is the main topic or subject of this presentation?",
-                ["Product / service overview", "Market research & competitive analysis", "Business strategy & roadmap", "Technical deep-dive", "Sales pitch / proposal", "Training & education"],
-            ),
             "ppt": (
                 "What is the main topic or subject of this presentation?",
                 ["Product / service overview", "Market research & competitive analysis", "Business strategy & roadmap", "Technical deep-dive", "Sales pitch / proposal", "Training & education"],

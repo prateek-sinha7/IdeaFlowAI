@@ -11,7 +11,8 @@ fileMatchPattern: "backend/app/models/**,backend/alembic/**"
 
 ## Migration Chain (Q3 — additive only)
 
-Head: **0026**
+Head: **0030** (`0030_workflow_runs_user_created_index.py`, verified 2026-08-12). This number
+drifts — read it, don't trust it: `ls backend/alembic/versions/ | sort | tail -1`.
 
 | Migration | What it adds | Phase |
 |-----------|-------------|-------|

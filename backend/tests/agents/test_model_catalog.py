@@ -14,11 +14,13 @@ from pathlib import Path
 
 from agents.capabilities.model_catalog import ModelCatalog, ModelEntry
 
-# The five selectable model ids (authoritative — sourced from the catalog itself).
+# The seven selectable model ids (authoritative — sourced from the catalog itself).
 _EXPECTED_IDS = {
     "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "us.anthropic.claude-3-5-haiku-20241022-v1:0",
     "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
     "eu.anthropic.claude-sonnet-4-6",
+    "eu.anthropic.claude-sonnet-4-20250514-v1:0",
     "eu.anthropic.claude-opus-4-5-20251101-v1:0",
     "eu.anthropic.claude-opus-4-6-v1",
 }
@@ -48,7 +50,7 @@ _FIELDS = {
 
 def test_catalog_lists_five_fully_fielded_entries() -> None:
     entries = ModelCatalog().list()
-    assert len(entries) == 5
+    assert len(entries) == 7
     for entry in entries:
         assert isinstance(entry, ModelEntry)
         for field in _FIELDS:
@@ -68,7 +70,7 @@ def test_catalog_lists_five_fully_fielded_entries() -> None:
 def test_ids_get_and_is_allowed() -> None:
     catalog = ModelCatalog()
     assert set(catalog.ids()) == _EXPECTED_IDS
-    assert len(catalog.ids()) == 5  # no duplicates
+    assert len(catalog.ids()) == 7  # no duplicates
 
     for model_id in _EXPECTED_IDS:
         assert catalog.is_allowed(model_id) is True
@@ -88,8 +90,10 @@ def test_ids_get_and_is_allowed() -> None:
 def test_cost_class_assignment() -> None:
     by_id = {e.id: e for e in ModelCatalog().list()}
     assert by_id["eu.anthropic.claude-haiku-4-5-20251001-v1:0"].cost_class == "cheap"
+    assert by_id["us.anthropic.claude-3-5-haiku-20241022-v1:0"].cost_class == "cheap"
     assert by_id["eu.anthropic.claude-sonnet-4-5-20250929-v1:0"].cost_class == "standard"
     assert by_id["eu.anthropic.claude-sonnet-4-6"].cost_class == "standard"
+    assert by_id["eu.anthropic.claude-sonnet-4-20250514-v1:0"].cost_class == "standard"
     assert by_id["eu.anthropic.claude-opus-4-5-20251101-v1:0"].cost_class == "premium"
     assert by_id["eu.anthropic.claude-opus-4-6-v1"].cost_class == "premium"
 

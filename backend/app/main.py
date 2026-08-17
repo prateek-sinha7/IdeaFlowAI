@@ -1,10 +1,8 @@
 """FastAPI application entry point for the AI SaaS Platform."""
 
-import contextvars
 import json
 import logging
 import os
-import sys
 import uuid
 from contextlib import asynccontextmanager
 
@@ -15,12 +13,15 @@ from sqlalchemy import inspect, text
 from app.api.auth import router as auth_router
 from app.api.chats import router as chats_router
 from app.api.agents import router as agents_router
+from app.api.skills import router as skills_router
+from app.api.hooks import router as hooks_router
 from app.api.workflows import router as workflows_router
 from app.api.capabilities import router as capabilities_router
 from app.api.runs import router as runs_router
 from app.api.analytics import router as analytics_router
 from app.api.run_commands import router as run_commands_router
 from app.api.run_stream import router as run_stream_router
+from app.api.user_agents import router as user_agents_router
 from app.api.user_workflows import router as user_workflows_router
 from app.api.handoff import router as handoff_router
 from app.api.settings import router as settings_router
@@ -32,92 +33,18 @@ from app.api.ppt_templates import router as ppt_templates_router
 from app.api.admin import router as admin_router
 from app.api.file_extract import router as file_extract_router
 from app.api.run_files import router as run_files_router
-from app.core.config import redact_db_url, settings
+from app.core.config import settings
 from app.models.database import engine
 
-# `settings` above and `_early_settings` (imported earlier, before the logging
-# setup block, so the JSON formatter can read SERVICE_NAME/ENV) are the SAME
+# `settings` above and `app.core.logging`'s own `_early_settings` (imported at
+# that module's top, before its `configure_logging()` reads it) are the SAME
 # object -- Settings() is instantiated once at module import in app.core.config
-# and both names bind to it. Kept as two names deliberately: `_early_settings`
-# documents "this is read before logging.basicConfig runs" at its use site.
+# and both names bind to it. Logging setup itself now lives in app.core.logging
+# so main.py isn't carrying it; call it here, at the same point it used to run.
 
-# ============================================================
-# LOGGING CONFIGURATION (M-02 request-ID correlation, M-06 structured JSON)
-# ============================================================
+from app.core.logging import configure_logging, _request_id_var  # noqa: E402 - preserves original setup-order point
 
-from app.core.config import settings as _early_settings  # noqa: E402 - needed before logging setup
-
-# M-02: the request ID nginx generates ($request_id, forwarded as the
-# X-Request-ID header by velocityai-proxy-headers.conf) or, absent nginx (local
-# dev / a direct request), one minted here. A contextvar (not a global) so
-# concurrent requests on the same process never see each other's ID -- every
-# log line emitted while handling a request carries it via the logging filter
-# below, which is what lets an operator grep one nginx access-log line's
-# request_id and pull every app-log line that same request produced.
-_request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "request_id", default="-"
-)
-
-
-class _RequestIdFilter(logging.Filter):
-    """Stamps the CURRENT request's ID onto every LogRecord (M-02)."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.request_id = _request_id_var.get()
-        return True
-
-
-class _JsonFormatter(logging.Formatter):
-    """M-06: JSON log lines with static service/environment fields + request_id.
-
-    Replaces the previous pipe-delimited text format, which carried none of
-    service/environment/request_id and required string-parsing to filter in
-    CloudWatch Logs Insights. ``sort_keys`` kept off for formatter perf; field
-    order is fixed by the dict literal below, which is good enough for grep/
-    Insights (both parse full JSON, not positionally).
-    """
-
-    def format(self, record: logging.LogRecord) -> str:
-        payload = {
-            "time": self.formatTime(record, LOG_DATE_FORMAT),
-            "level": record.levelname,
-            "service": _early_settings.SERVICE_NAME,
-            "environment": _early_settings.ENV,
-            "request_id": getattr(record, "request_id", "-"),
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        if record.exc_info:
-            payload["exc_info"] = self.formatException(record.exc_info)
-        return json.dumps(payload, default=str, ensure_ascii=False)
-
-
-LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
-
-_log_handler = logging.StreamHandler(sys.stdout)
-_log_handler.setFormatter(_JsonFormatter())
-_log_handler.addFilter(_RequestIdFilter())
-
-logging.basicConfig(level=logging.INFO, handlers=[_log_handler])
-
-# M-06: app.agents / app.api carry prompts/payloads/user content at DEBUG.
-# Previously HARDCODED to DEBUG in every environment -- environment-driven
-# instead: DEBUG only in ENV=development (the existing local-dev experience,
-# unchanged) or when explicitly overridden via LOG_LEVEL_APP; INFO everywhere
-# else, so a DEBUG-level prompt/payload dump is opt-in, not the always-on
-# default, once these logs ship off-box to CloudWatch (H-06).
-_app_log_level = (
-    getattr(logging, _early_settings.LOG_LEVEL_APP.upper(), None)
-    if _early_settings.LOG_LEVEL_APP
-    else (logging.DEBUG if _early_settings.ENV.lower() == "development" else logging.INFO)
-)
-logging.getLogger("app").setLevel(_app_log_level)
-logging.getLogger("app.agents").setLevel(_app_log_level)
-logging.getLogger("app.api").setLevel(_app_log_level)
-logging.getLogger("agents.factory").setLevel(_app_log_level)  # KAN-71: show prompt override usage
-logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
+configure_logging()
 
 logger = logging.getLogger("app.main")
 
@@ -145,10 +72,6 @@ else:
 async def lifespan(app: FastAPI):
     """Application lifespan: create database tables on startup."""
     logger.info("🚀 Starting VelocityAI Backend...")
-    # NEVER log settings.DATABASE_URL directly: it embeds the live Postgres
-    # password in every deployed environment, and this banner is shipped to
-    # CloudWatch on each boot.
-    logger.info("   Database: %s", redact_db_url(settings.DATABASE_URL))
     if settings.ANTHROPIC_API_KEY:
         logger.info("   LLM provider: anthropic-direct (model=%s)", settings.ANTHROPIC_MODEL_ID or "claude-haiku-4-5")
     elif settings.AWS_BEARER_TOKEN_BEDROCK:
@@ -208,6 +131,13 @@ async def lifespan(app: FastAPI):
         engine_instance._resume_register_queue = _ws_bridge._register_resume_queue
         engine_instance._resume_register_task = _ws_bridge._register_resume_task
         engine_instance._resume_cleanup = _ws_bridge._cleanup_pipeline
+        # ── ISS-084: arm the cooperative STOP signal for every resume-family drive.
+        # The engine spawns those drivers itself (restore_non_terminal_runs), so unlike a
+        # launch there is no caller to hand it a cancel_event — without this line
+        # _drive_resumed_stream passes None and Stop / POST /cancel / SIGTERM / a restart
+        # are ALL no-ops for any run that has crossed a restart. Returns the SAME Event
+        # object the REST cancel endpoint sets (one registry, one object).
+        engine_instance._resume_cancel_event = _ws_bridge._resume_cancel_event
         # ── RESUME-10: wire the live-layer trio onto the engine so an AUTO-RESUMED run
         # (restore_non_terminal_runs branch b) is a first-class LIVE run — it registers
         # its rebuilt ectx (steering / per-turn images / Concierge resolve via
@@ -282,28 +212,26 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # ── Shutdown sequence (D7 — KAN-139): gracefully close the checkpointer pool
-    # BEFORE the process exits so Postgres async connections are returned cleanly
-    # instead of being abruptly dropped (each drop leaks one Postgres connection
-    # that the pool never reclaims until the server-side idle timeout). This is
-    # the SINGLE wiring site — close_checkpointer() was defined but never called.
+    # ── Shutdown sequence (D7 — KAN-139). The checkpointer pool close is NOT wired
+    # here. It is step 4 of shutdown_run_infrastructure() below, which must run LAST
+    # among the awaits because the Concierge drain and the pump teardown ahead of it
+    # may still hold a pooled connection. Closing it here as well ran it FIRST, which
+    # made that documented ordering guarantee false in every environment — and with
+    # SHUTDOWN_STOP_RUNS on it would leave stop_pipeline_drivers() driving runs against
+    # an already-closed pool (get_checkpointer() raises after close).
     _sweep_task.cancel()
     try:
         await _sweep_task
     except _asyncio.CancelledError:
         pass
-    try:
-        from app.agents.checkpointer import close_checkpointer
-        await close_checkpointer()
-        logger.info("Checkpointer pool closed.")
-    except Exception as _shutdown_exc:  # noqa: BLE001
-        logger.warning("Checkpointer shutdown failed (non-fatal): %s", _shutdown_exc)
-    logger.info("🔴 Shut down complete.")
 
     # ── KAN-151 D8: the shutdown half of the application lifecycle. ────────────
-    # Reachable only because docker-entrypoint.sh passes --timeout-graceful-shutdown;
-    # uvicorn's unbounded default plus a live SSE stream makes this code unreachable
-    # (measured: the process is SIGKILLed at the 30s stop_grace_period instead).
+    # Reachable only because the process is launched with --timeout-graceful-shutdown
+    # (docker-entrypoint.sh in production; the documented local run command otherwise —
+    # see README.txt). With uvicorn's unbounded default a live SSE stream makes this
+    # code unreachable: measured, the process stayed alive past 30s on SIGTERM and only
+    # `startup_complete` was ever recorded (ISS-088, pinned by
+    # tests/unit/test_shutdown_reachability.py).
     # The body itself lives in app.api.run_shutdown so main.py never reaches into
     # the private per-run registries; it never raises, so a teardown failure cannot
     # turn a clean exit into uvicorn's "Application shutdown failed".
@@ -314,6 +242,7 @@ async def lifespan(app: FastAPI):
         logger.info("shutdown summary: %s", json.dumps(_summary, default=str))
     except Exception as _shutdown_exc:  # noqa: BLE001
         logger.error("Shutdown teardown failed (non-fatal): %s", _shutdown_exc, exc_info=True)
+    logger.info("🔴 Shut down complete.")
 
 
 app = FastAPI(
@@ -399,6 +328,8 @@ async def _request_id_middleware(request: Request, call_next):
 app.include_router(auth_router)
 app.include_router(chats_router)
 app.include_router(agents_router)
+app.include_router(skills_router)
+app.include_router(hooks_router)
 app.include_router(workflows_router)
 app.include_router(capabilities_router)
 app.include_router(runs_router)
@@ -415,6 +346,7 @@ app.include_router(run_stream_router)
 # (44-07). Thin over the SAME store/cancel seams. Shares the /api/runs prefix.
 app.include_router(run_commands_router)
 app.include_router(user_workflows_router)
+app.include_router(user_agents_router)
 app.include_router(handoff_router)
 app.include_router(settings_router)
 app.include_router(mcp_router)

@@ -1,17 +1,17 @@
 """14-03 — FE-exact ``run_revision`` REAL-DISPATCH contract regression (F2 / SC1+SC2).
 
 The frontend (DashboardLayout.tsx:388-403) sends ``run_revision`` frames with
-``target_artifact_type: "ppt_output" | "od_ppt_output"``. Before Phase 14 the
+``target_artifact_type: "ppt_output" | "ppt_output"``. Before Phase 14 the
 engine's ``_handle_revision`` echoed the composed revision CONTEXT back as the
 "revision" (the Phase-3 stub — no model ever ran, ``total_duration: 0.0``).
 After 14-03 the handler dispatches the registry's real revision pipeline
 through the public ``execute()`` chokepoint: the deepagents runtime runs the
-``od-ppt-revision-agent``, the declared ``ppt`` deliverable strategy unwraps
+``ppt-revision-agent``, the declared ``ppt`` deliverable strategy unwraps
 the agent's ``<artifact>``-wrapped REVISED deck, and the post-dispatch lineage
 write persists it under the exact target kind with ``derived_from``.
 
 This suite pins that real-dispatch contract end-to-end:
-  * a scripted ``od_ppt`` parent run completes ORGANICALLY through execute()
+  * a scripted ``ppt`` parent run completes ORGANICALLY through execute()
     (nothing seeded by hand — the FR-014 chain resolves only what the run
     path persisted);
   * ``_handle_revision`` with the FE-exact frame drives REAL agents (observed
@@ -64,14 +64,41 @@ from tests.agents._scripted_model import (
 OWNER = "harness-user"
 
 # The deterministic revised deck the 14-01 harness scripts for the
-# od-ppt-revision-agent: its single turn streams
+# ppt-revision-agent: its single turn streams
 # "Revised per instruction.\n<artifact>{deck}</artifact>" — the declared
 # ``ppt`` deliverable strategy unwraps it, so final_output must be EXACTLY
 # the raw deck HTML between the artifact tags (no wrapper, no narration).
-_REV_TURN_TEXT = _scripts_for("od-ppt-revision-agent")[0].texts[0]
+_REV_TURN_TEXT = _scripts_for("ppt-revision-agent")[0].texts[0]
 EXPECTED_REVISED_DECK = _REV_TURN_TEXT.split("<artifact>", 1)[1].split(
     "</artifact>", 1
 )[0]
+
+
+@pytest.fixture(autouse=True)
+def in_process_checkpointer(monkeypatch):
+    """Pin the LangGraph checkpointer to InMemorySaver for this module.
+
+    Post-collapse, ``ppt`` runs REAL agents through the engine (before the
+    collapse ``PIPELINE_AGENTS["ppt"]`` was empty, so this file's ``_drive
+    ("ppt")`` call never actually exercised the checkpointer). This test tree
+    has no autouse pin like ``tests/agents/conftest.py``'s, so ``_drive`` was
+    silently binding to whatever the developer's ``backend/.env``
+    ``DATABASE_URL`` points at (a real Postgres instance in local dev) — and
+    a real async Postgres checkpointer connection/lock does not survive being
+    reused across two sequential ``ExecutionEngine`` runs in the same test
+    process (`RuntimeError: ... is bound to a different event loop`). This
+    suite asserts event streams and deliverable bytes, not persistence
+    durability, so an in-memory saver is the correct dependency — see
+    ``tests/agents/conftest.py::in_process_checkpointer`` for the full
+    rationale (same fixture, scoped here instead of module-wide because this
+    file lives under ``tests/unit/``, not ``tests/agents/``).
+    """
+    from app.agents import checkpointer as checkpointer_module
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+    monkeypatch.setattr(checkpointer_module, "_checkpointer", None)
+    monkeypatch.setattr(checkpointer_module, "_pool", None)
 
 
 @pytest.fixture
@@ -135,7 +162,7 @@ async def _dispatch_revision(
     try:
         await engine._handle_revision(
             parent_run_id=parent_run_id,
-            target_artifact_type="od_ppt_output",  # FE-exact — never a persisted kind
+            target_artifact_type="ppt_output",  # FE-exact — never a persisted kind
             instruction=instruction,
             pipeline_run_id=revision_run_id,
             websocket_send_fn=websocket_send_fn,
@@ -152,15 +179,15 @@ async def _dispatch_revision(
 @pytest.mark.asyncio
 async def test_fe_exact_run_revision_dispatches_real_pipeline(db_factory) -> None:
     """SC1+SC2: the FE's exact run_revision payload drives the REAL
-    od_ppt_revision pipeline through execute() — model runs observed, revised
+    ppt_revision pipeline through execute() — model runs observed, revised
     deck as final_output, single-source seq, exact-kind derived_from lineage."""
-    # ── 1) Complete a scripted od_ppt run end-to-end via the PUBLIC execute().
+    # ── 1) Complete a scripted ppt run end-to-end via the PUBLIC execute().
     # The 13-05 completion block persists the run deliverable itself — this test
     # deliberately seeds NO artifact rows, so the only way the revision below can
     # resolve is through what the run path organically persisted.
-    run_events = await _drive("od_ppt")
+    run_events = await _drive("ppt")
     run_completes = [e for e in run_events if e["type"] == "pipeline_complete"]
-    assert run_completes, "scripted od_ppt run did not complete"
+    assert run_completes, "scripted ppt run did not complete"
     parent_run_id = run_completes[-1]["data"]["pipeline_run_id"]
     parent_deliverable = run_completes[-1]["data"]["final_output"]
     assert parent_deliverable, "scripted run produced an empty deliverable"
@@ -180,12 +207,12 @@ async def test_fe_exact_run_revision_dispatches_real_pipeline(db_factory) -> Non
     # started AND completed — the stub never emitted either event type.
     starts = [e for e in sent if e["type"] == "agent_start"]
     completes_agent = [e for e in sent if e["type"] == "agent_complete"]
-    assert any(e["data"].get("agent_id") == "od-ppt-revision-agent" for e in starts), (
-        "expected agent_start for od-ppt-revision-agent (real dispatch)"
+    assert any(e["data"].get("agent_id") == "ppt-revision-agent" for e in starts), (
+        "expected agent_start for ppt-revision-agent (real dispatch)"
     )
     assert any(
-        e["data"].get("agent_id") == "od-ppt-revision-agent" for e in completes_agent
-    ), "expected agent_complete for od-ppt-revision-agent (real dispatch)"
+        e["data"].get("agent_id") == "ppt-revision-agent" for e in completes_agent
+    ), "expected agent_complete for ppt-revision-agent (real dispatch)"
 
     # ── (c) Exactly ONE real pipeline_start / pipeline_complete pair, both
     # carrying the FE-routed WR-06 alias (data-derived, no kernel literal).
@@ -193,9 +220,9 @@ async def test_fe_exact_run_revision_dispatches_real_pipeline(db_factory) -> Non
     pipeline_completes = [e for e in sent if e["type"] == "pipeline_complete"]
     assert len(pipeline_starts) == 1, "expected exactly one pipeline_start"
     assert len(pipeline_completes) == 1, "expected exactly one pipeline_complete"
-    assert pipeline_starts[0]["data"]["pipeline_type"] == "od_ppt_revision"
+    assert pipeline_starts[0]["data"]["pipeline_type"] == "ppt_revision"
     terminal = pipeline_completes[0]["data"]
-    assert terminal["pipeline_type"] == "od_ppt_revision"
+    assert terminal["pipeline_type"] == "ppt_revision"
     assert terminal["pipeline_run_id"] == revision_run_id
 
     # ── (d) final_output is the agents' REVISED deck, unwrapped by the
@@ -220,7 +247,7 @@ async def test_fe_exact_run_revision_dispatches_real_pipeline(db_factory) -> Non
         f"seq must be contiguous 1..N with no duplicates; got {seqs}"
     )
 
-    # ── (f) Exact-kind lineage (SC2): exactly one od_ppt_output ref on the
+    # ── (f) Exact-kind lineage (SC2): exactly one ppt_output ref on the
     # revision run, content == final_output, derived_from == the PARENT's
     # resolved deliverable ref id (the FR-014 chain-link-2 ref the run path
     # organically persisted — read-side lookup only, nothing seeded).
@@ -229,14 +256,14 @@ async def test_fe_exact_run_revision_dispatches_real_pipeline(db_factory) -> Non
     assert parent_deliverable_refs, "parent run persisted no deliverable ref"
     parent_original_id = parent_deliverable_refs[-1].id
 
-    revision_refs = await store.list_refs(revision_run_id, kind="od_ppt_output")
+    revision_refs = await store.list_refs(revision_run_id, kind="ppt_output")
     assert len(revision_refs) == 1, "expected exactly one exact-kind revision ref"
     rev_ref = revision_refs[0]
     assert rev_ref.content == final_output
     assert rev_ref.derived_from == parent_original_id
     assert rev_ref.owner_id == OWNER
     assert rev_ref.visibility == "workspace"
-    assert rev_ref.producer_agent == "od-ppt-revision-agent"
+    assert rev_ref.producer_agent == "ppt-revision-agent"
 
 
 @pytest.mark.asyncio
@@ -250,9 +277,9 @@ async def test_revision_of_revision_resolves_via_exact_kind_chain_link_1(
     revision has no WorkflowRun row, exactly like the _drive parent run;
     same-owner discipline is preserved throughout.)"""
     # ── 1) Parent run + FIRST revision (same shape as the main test).
-    run_events = await _drive("od_ppt")
+    run_events = await _drive("ppt")
     run_completes = [e for e in run_events if e["type"] == "pipeline_complete"]
-    assert run_completes, "scripted od_ppt run did not complete"
+    assert run_completes, "scripted ppt run did not complete"
     parent_run_id = run_completes[-1]["data"]["pipeline_run_id"]
 
     engine = ExecutionEngine()
@@ -265,7 +292,7 @@ async def test_revision_of_revision_resolves_via_exact_kind_chain_link_1(
     assert "Revised Title" in first_revised_deck
 
     # ── 2) SECOND revision against the FIRST revision's run id as parent.
-    # Chain link 1 (exact kind od_ppt_output) must match the 14-03 lineage ref
+    # Chain link 1 (exact kind ppt_output) must match the 14-03 lineage ref
     # — no FR-014 ValueError, and the run proceeds to its own terminal pair.
     second_rev_run_id, second_sent = await _dispatch_revision(
         engine,
@@ -275,7 +302,7 @@ async def test_revision_of_revision_resolves_via_exact_kind_chain_link_1(
     assert not [e for e in second_sent if e["type"] == "state_restoration_failed"]
     second_completes = [e for e in second_sent if e["type"] == "pipeline_complete"]
     assert len(second_completes) == 1, "revision-of-revision did not complete"
-    assert second_completes[0]["data"]["pipeline_type"] == "od_ppt_revision"
+    assert second_completes[0]["data"]["pipeline_type"] == "ppt_revision"
 
     # ── 3) The composed context the SECOND revision's agent received embeds
     # the FIRST revision's deck content as the ORIGINAL ARTIFACT — evidence
@@ -284,9 +311,9 @@ async def test_revision_of_revision_resolves_via_exact_kind_chain_link_1(
     agent_inputs = [e for e in second_sent if e["type"] == "agent_input"]
     assert agent_inputs, "expected a forwarded agent_input event"
     context_message = agent_inputs[0]["data"]["context_message"]
-    assert "=== ORIGINAL ARTIFACT (type: od_ppt_output) ===" in context_message
+    assert "=== ORIGINAL ARTIFACT (type: ppt_output) ===" in context_message
     original_section = context_message.split(
-        "=== ORIGINAL ARTIFACT (type: od_ppt_output) ===", 1
+        "=== ORIGINAL ARTIFACT (type: ppt_output) ===", 1
     )[1].split("=== END ORIGINAL ARTIFACT ===", 1)[0]
     assert "Revised Title" in original_section, (
         "chain link 1 must resolve the FIRST revision's REVISED deck as the original"
@@ -295,8 +322,8 @@ async def test_revision_of_revision_resolves_via_exact_kind_chain_link_1(
     # ── 4) And the second revision's own lineage ref chains off the FIRST
     # revision's exact-kind ref (derived_from == that ref's id).
     store = ScopedStore(owner_id=OWNER)
-    first_rev_refs = await store.list_refs(first_rev_run_id, kind="od_ppt_output")
+    first_rev_refs = await store.list_refs(first_rev_run_id, kind="ppt_output")
     assert len(first_rev_refs) == 1
-    second_rev_refs = await store.list_refs(second_rev_run_id, kind="od_ppt_output")
+    second_rev_refs = await store.list_refs(second_rev_run_id, kind="ppt_output")
     assert len(second_rev_refs) == 1
     assert second_rev_refs[0].derived_from == first_rev_refs[0].id

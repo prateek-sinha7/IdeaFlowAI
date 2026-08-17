@@ -20,7 +20,11 @@ class WorkflowDefinition(Base):
     """
 
     __tablename__ = "workflows"
-    __table_args__ = (Index("ix_workflows_user", "user_id"),)
+    __table_args__ = (
+        Index("ix_workflows_user", "user_id"),
+        # Phase 21 (0021): backs the owner-scoped GET list query.
+        Index("ix_workflows_owner_source", "owner_id", "source"),
+    )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
@@ -41,6 +45,8 @@ class WorkflowDefinition(Base):
     base_pipeline_type = Column(String, nullable=True)       # Phase 21: saved-workflow base type ("custom" v1)
     model_overrides = Column(JSON, nullable=True)            # Phase 21: persisted per-agent {agent_id: model_id}
     description = Column(String, nullable=True)              # Phase 21 (WR-03): user free-text blurb (dedicated; NOT constitution_ref)
+    attached_skills = Column(JSON, nullable=True)             # persisted UI-attached skills (list[dict], same shape as the launch path's attached_skills)
+    attached_hooks = Column(JSON, nullable=True)              # persisted UI-attached hooks (list[dict], same shape as the launch path's attached_hooks)
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

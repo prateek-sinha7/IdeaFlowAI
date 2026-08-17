@@ -1,0 +1,114 @@
+### CASE 3 — saved user_workflow, DB-only Composer manifest tree (Parallel Sub-agents Test)
+#
+# Third case of the launch_run() 3-way branch: `user_workflow_id` IS present,
+# AND the row's `manifest_json` holds a real "steps" tree (spec 012 -- built
+# entirely in the Composer, no file behind base_pipeline_type="custom").
+#
+# NOTE ON WHERE THINGS STAND -- IMPORTANT, this run is EXPECTED TO FAIL today:
+# the backend's `user_workflow_id` handling is a DEBUG STUB ONLY
+# (run_commands.py) -- it looks up the row and PRINTS "CASE 3", then falls
+# straight through into the EXISTING code, which still checks `agent_ids`
+# against the static `allowed_custom_agent_ids()` allow-list. The single id
+# below (the parent "Page Builder" node) is a Composer-generated instance id
+# that allow-list has never heard of, so this launch WILL 400 with
+# "invalid_agent_ids" -- that is the exact bug this whole investigation is
+# about, not a mistake in this script. What this file proves, until the real
+# fix lands, is ONLY that detection fires correctly (watch the backend
+# console for "CASE 3") right before the existing code rejects the request.
+#
+# Once the real fix lands (compile row.manifest_json directly via
+# WorkflowCompiler.compile(..., trust="db"), skipping the agent_ids
+# allow-list entirely for this branch), this same request should start
+# succeeding and running the full parent + 3-sibling tree.
+#
+# Real saved-workflow id used below: "Parallel Sub-agents Test"
+# (76840113-63aa-4828-a6e6-93dd62b61f42), base_pipeline_type=custom,
+# manifest.steps=[Page Builder -> {Apple, Ball, Cat} Writer].
+# Override with USER_WORKFLOW_ID=<id> if your seed data differs.
+#
+# TEMPLATE NOTE: this file (and its case1/case2 siblings) is a thin shell over
+# two shared modules -- lib/api-line.js (console line printer) and
+# lib/stream-subscribe.js (the full SSE transcript handler, identical across
+# all three). Only Step 2's payload differs per case.
+#
+# Run with: httpyac send --all -e local --output none tools/api/runs/run.case3.http
+# Or via the wrapper (also saves logs/artifacts): ./run-http.sh case3
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	exports.jwt = response.parsedBody.token;
+	exports.userWorkflowId = process.env.USER_WORKFLOW_ID || '76840113-63aa-4828-a6e6-93dd62b61f42';
+	apiLine('POST /api/auth/login -> ' + response.statusCode + ' ' + response.parsedBody.user.email);
+	apiLine('target user_workflow_id: ' + exports.userWorkflowId + ' (override with USER_WORKFLOW_ID=<id>)');
+}}
+
+### 1b. Sanity check -- confirm the row exists, is owned, and is the manifest-tree shape
+GET {{apiRoot}}/api/user-workflows/{{userWorkflowId}}
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const body = response.parsedBody;
+	const hasSteps = !!(body.manifest && body.manifest.steps);
+	apiLine('GET /api/user-workflows/' + userWorkflowId + ' -> ' + response.statusCode
+		+ ' name=' + JSON.stringify(body.name)
+		+ ' manifest.steps=' + (hasSteps ? body.manifest.steps.length + ' step(s) (CASE 3, as expected)' : 'ABSENT (would be CASE 2!)'));
+	exports.rowAgentIds = body.agent_ids;
+	apiLine('row.agent_ids (the flat column Run currently uses -- watch it be wrong/incomplete): ' + JSON.stringify(exports.rowAgentIds));
+}}
+
+### 2. Launch -- user_workflow_id present, row's manifest_json HAS a steps tree.
+# THIS BLOCK IS THE ONLY PART THAT DIFFERS BETWEEN CASE FILES.
+# EXPECTED: 400 invalid_agent_ids today (see header note above).
+{{
+	const payload = {
+		user_workflow_id: userWorkflowId,
+		pipeline_type: "custom",
+		agent_ids: rowAgentIds && rowAgentIds.length ? rowAgentIds : ["1krppp8-wrx4z0"],
+		message: process.env.RUN_MESSAGE || 'cat',
+		selections: { __deliverable__: { strategy: "streamed_text", name: "output.md", mimetype: "text/markdown" } },
+	};
+	exports.launchBody = JSON.stringify(payload);
+}}
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{{launchBody}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	apiLine('POST /api/runs payload: ' + request.body);
+	apiLine('POST /api/runs -> ' + response.statusCode);
+	apiLine('CHECK THE BACKEND CONSOLE NOW -- it must have printed "CASE 3" for this request.');
+	if (response.statusCode === 400 && JSON.stringify(response.parsedBody).includes('invalid_agent_ids')) {
+		apiLine('Got the EXPECTED 400 invalid_agent_ids -- this is the known bug, not a script error.', 'warn');
+		apiLine(JSON.stringify(response.parsedBody), 'warn');
+	} else if (response.statusCode >= 400) {
+		apiLine('UNEXPECTED failure: ' + JSON.stringify(response.parsedBody), 'error');
+	} else {
+		exports.runId = response.parsedBody.run_id;
+		apiLine('Launch SUCCEEDED (' + exports.runId + ') -- the real fix must already be wired in! Streaming to confirm the full tree runs.', 'warn');
+	}
+}}
+
+### 3. Stream events over SSE, wait for completion (skipped entirely when the launch above failed --
+# runId is undefined in that case, and {{runId}} in the URL below would throw before this request
+# even opens; @disabled skips the whole request/script block up front instead).
+# @disabled !runId
+SSE {{apiRoot}}/api/runs/{{runId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	await require('./lib/stream-subscribe.js')(runId, $requestClient);
+}}

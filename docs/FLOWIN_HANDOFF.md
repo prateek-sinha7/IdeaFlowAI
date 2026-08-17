@@ -281,7 +281,11 @@ export PUBLIC_BASE_URL=http://localhost:3000
 
 cd backend
 alembic upgrade head
-uvicorn app.main:app --reload --port 8000
+# --timeout-graceful-shutdown is required, not optional: without it a live SSE
+# stream (any run you are watching) makes uvicorn ignore SIGTERM forever — the
+# server can only be stopped with kill -9, and its shutdown code never runs.
+# No --reload: it masks crashes, and untreated it leaves two stuck processes.
+uvicorn app.main:app --port 8000 --timeout-graceful-shutdown 5
 ```
 
 ```bash

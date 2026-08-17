@@ -1,5 +1,21 @@
 {
   "backlinks": {
+    ".knowledge/INVARIANTS.md#SC-001": [
+      "ADR-0005"
+    ],
+    ".knowledge/cards/ADR-0003.md": [
+      "ADR-0008"
+    ],
+    ".knowledge/cards/ADR-0006.md": [
+      "ADR-0012"
+    ],
+    ".knowledge/cards/ADR-0007.md": [
+      "ADR-0011"
+    ],
+    ".planning/phases/04-manifest-compiler-1a/04-04-SUMMARY.md": [
+      "ADR-0003",
+      "ADR-0004"
+    ],
     "ADR-0001": [
       "FIX-122"
     ],
@@ -8,6 +24,15 @@
     ],
     "BUG-015-sse": [
       "ADR-0001"
+    ],
+    "FIX-001": [
+      "ISS-096"
+    ],
+    "FIX-014": [
+      "ISS-096"
+    ],
+    "FIX-020": [
+      "ISS-069"
     ],
     "FIX-033": [
       "ISS-030"
@@ -32,7 +57,8 @@
       "FIX-041b",
       "FIX-042b",
       "ISS-035",
-      "ISS-039"
+      "ISS-039",
+      "ISS-085"
     ],
     "FIX-046": [
       "FIX-177"
@@ -47,6 +73,9 @@
     "FIX-065": [
       "FIX-096"
     ],
+    "FIX-109": [
+      "ISS-096"
+    ],
     "FIX-119": [
       "FIX-168"
     ],
@@ -59,7 +88,21 @@
       "FIX-121"
     ],
     "FIX-128": [
-      "FIX-129"
+      "FIX-129",
+      "ISS-069"
+    ],
+    "FIX-129": [
+      "ISS-069"
+    ],
+    "FIX-131": [
+      "ISS-069"
+    ],
+    "FIX-133": [
+      "FIX-195",
+      "FIX-201"
+    ],
+    "FIX-134": [
+      "FIX-201"
     ],
     "FIX-135": [
       "FIX-153"
@@ -74,16 +117,43 @@
       "FIX-160"
     ],
     "FIX-146": [
-      "FIX-148"
+      "FIX-148",
+      "FIX-195"
     ],
     "FIX-149": [
       "FIX-155"
     ],
+    "FIX-153": [
+      "FIX-206"
+    ],
+    "FIX-155": [
+      "FIX-194"
+    ],
     "FIX-156": [
       "FIX-157"
     ],
+    "FIX-157": [
+      "FIX-194"
+    ],
+    "FIX-158": [
+      "ISS-069"
+    ],
+    "FIX-159": [
+      "ISS-069"
+    ],
+    "FIX-162": [
+      "ISS-069"
+    ],
     "FIX-163": [
-      "FIX-164"
+      "FIX-164",
+      "ISS-063",
+      "ISS-111"
+    ],
+    "FIX-164": [
+      "ISS-063",
+      "ISS-080",
+      "ISS-083",
+      "ISS-111"
     ],
     "FIX-166": [
       "FIX-177"
@@ -95,6 +165,272 @@
       "FIX-173",
       "FIX-175",
       "FIX-176"
+    ],
+    "FIX-175": [
+      "ISS-078"
+    ],
+    "FIX-183": [
+      "ISS-069"
+    ],
+    "FIX-184": [
+      "ISS-069"
+    ],
+    "FIX-185": [
+      "ISS-050"
+    ],
+    "FIX-188": [
+      "ISS-054"
+    ],
+    "FIX-189": [
+      "FIX-216b",
+      "ISS-055",
+      "ISS-066"
+    ],
+    "FIX-190": [
+      "ISS-056",
+      "ISS-066"
+    ],
+    "FIX-191": [
+      "ISS-057"
+    ],
+    "FIX-192": [
+      "ISS-058"
+    ],
+    "FIX-193": [
+      "ISS-059"
+    ],
+    "FIX-194": [
+      "FIX-201",
+      "ISS-060"
+    ],
+    "FIX-195": [
+      "FIX-201",
+      "ISS-061"
+    ],
+    "FIX-201": [
+      "FIX-206",
+      "FIX-220",
+      "FIX-224",
+      "FIX-235",
+      "ISS-080",
+      "ISS-110",
+      "ISS-126",
+      "ISS-138"
+    ],
+    "FIX-202": [
+      "FIX-203",
+      "FIX-204",
+      "FIX-208",
+      "FIX-215"
+    ],
+    "FIX-203": [
+      "FIX-204",
+      "FIX-205",
+      "FIX-215"
+    ],
+    "FIX-204": [
+      "FIX-215"
+    ],
+    "FIX-205": [
+      "FIX-215"
+    ],
+    "FIX-210": [
+      "ISS-054"
+    ],
+    "FIX-212": [
+      "FIX-216b"
+    ],
+    "FIX-214": [
+      "ISS-069"
+    ],
+    "FIX-215": [
+      "ISS-069"
+    ],
+    "FIX-216": [
+      "FIX-255"
+    ],
+    "FIX-216b": [
+      "FIX-219",
+      "FIX-221"
+    ],
+    "FIX-217": [
+      "FIX-252",
+      "FIX-255",
+      "ISS-063",
+      "ISS-065",
+      "ISS-086"
+    ],
+    "FIX-218": [
+      "FIX-257",
+      "ISS-051",
+      "ISS-062",
+      "ISS-064",
+      "ISS-072",
+      "ISS-074",
+      "ISS-156",
+      "ISS-158"
+    ],
+    "FIX-219": [
+      "FIX-221",
+      "ISS-161"
+    ],
+    "FIX-220": [
+      "FIX-224",
+      "FIX-256",
+      "ISS-072",
+      "ISS-074",
+      "ISS-111",
+      "ISS-157"
+    ],
+    "FIX-221": [
+      "ISS-065",
+      "ISS-075",
+      "ISS-076",
+      "ISS-080",
+      "ISS-111"
+    ],
+    "FIX-222": [
+      "ISS-063",
+      "ISS-075",
+      "ISS-085"
+    ],
+    "FIX-223": [
+      "ISS-078",
+      "ISS-079"
+    ],
+    "FIX-225": [
+      "ISS-075",
+      "ISS-080",
+      "ISS-081",
+      "ISS-082",
+      "ISS-111"
+    ],
+    "FIX-226": [
+      "ISS-085"
+    ],
+    "FIX-227": [
+      "ISS-084",
+      "ISS-089",
+      "ISS-091"
+    ],
+    "FIX-228": [
+      "ISS-090",
+      "ISS-091",
+      "ISS-132"
+    ],
+    "FIX-229": [
+      "ISS-091"
+    ],
+    "FIX-230": [
+      "ISS-033",
+      "ISS-034",
+      "ISS-092",
+      "ISS-093"
+    ],
+    "FIX-231": [
+      "ISS-094",
+      "ISS-095",
+      "ISS-096"
+    ],
+    "FIX-232": [
+      "ISS-099",
+      "ISS-121"
+    ],
+    "FIX-233": [
+      "FIX-257",
+      "ISS-100",
+      "ISS-101",
+      "ISS-158"
+    ],
+    "FIX-234": [
+      "ISS-103",
+      "ISS-104",
+      "ISS-105",
+      "ISS-106"
+    ],
+    "FIX-235": [
+      "ISS-110",
+      "ISS-113"
+    ],
+    "FIX-236": [
+      "ISS-114"
+    ],
+    "FIX-237": [
+      "ISS-115"
+    ],
+    "FIX-238": [
+      "ISS-102",
+      "ISS-118",
+      "ISS-119"
+    ],
+    "FIX-239": [
+      "ISS-120",
+      "ISS-122"
+    ],
+    "FIX-240": [
+      "ISS-121",
+      "ISS-123",
+      "ISS-124",
+      "ISS-125",
+      "ISS-126",
+      "ISS-133",
+      "ISS-135",
+      "ISS-142"
+    ],
+    "FIX-241": [
+      "ISS-128"
+    ],
+    "FIX-242": [
+      "ISS-097",
+      "ISS-129",
+      "ISS-130",
+      "ISS-131",
+      "ISS-132"
+    ],
+    "FIX-243": [
+      "ISS-124",
+      "ISS-133",
+      "ISS-134"
+    ],
+    "FIX-244": [
+      "ISS-124",
+      "ISS-126",
+      "ISS-135"
+    ],
+    "FIX-245": [
+      "ISS-123",
+      "ISS-126",
+      "ISS-137",
+      "ISS-138",
+      "ISS-140",
+      "ISS-141",
+      "ISS-142"
+    ],
+    "FIX-246": [
+      "ISS-123"
+    ],
+    "FIX-247": [
+      "ISS-139",
+      "ISS-140",
+      "ISS-143",
+      "ISS-144",
+      "ISS-145"
+    ],
+    "FIX-248": [
+      "ISS-146"
+    ],
+    "FIX-249": [
+      "ISS-148",
+      "ISS-149",
+      "ISS-150",
+      "ISS-151",
+      "ISS-152",
+      "ISS-160"
+    ],
+    "FIX-250": [
+      "ISS-152",
+      "ISS-154",
+      "ISS-160"
     ],
     "ISS-007": [
       "ISS-035"
@@ -118,6 +454,9 @@
     "ISS-022": [
       "ISS-025"
     ],
+    "ISS-027": [
+      "ISS-093"
+    ],
     "ISS-029": [
       "FIX-031"
     ],
@@ -128,18 +467,306 @@
       "ISS-033",
       "ISS-034"
     ],
+    "ISS-033": [
+      "ISS-034",
+      "ISS-092"
+    ],
+    "ISS-034": [
+      "ISS-033",
+      "ISS-092",
+      "ISS-120",
+      "ISS-122"
+    ],
     "ISS-035": [
       "ISS-036"
     ],
     "ISS-039": [
-      "FIX-163"
+      "FIX-163",
+      "ISS-083",
+      "ISS-111"
     ],
     "ISS-045": [
       "ISS-048"
+    ],
+    "ISS-050": [
+      "FIX-252",
+      "ISS-055",
+      "ISS-066"
+    ],
+    "ISS-051": [
+      "FIX-252"
+    ],
+    "ISS-052": [
+      "FIX-254",
+      "ISS-072",
+      "ISS-073"
+    ],
+    "ISS-053": [
+      "FIX-253",
+      "ISS-071",
+      "ISS-090"
+    ],
+    "ISS-054": [
+      "ISS-066"
+    ],
+    "ISS-055": [
+      "ISS-066",
+      "ISS-102",
+      "ISS-119"
+    ],
+    "ISS-061": [
+      "ISS-066"
+    ],
+    "ISS-062": [
+      "FIX-254"
+    ],
+    "ISS-063": [
+      "FIX-222",
+      "FIX-254",
+      "ISS-065",
+      "ISS-075",
+      "ISS-080",
+      "ISS-111"
+    ],
+    "ISS-064": [
+      "ISS-050",
+      "ISS-051",
+      "ISS-052",
+      "ISS-053",
+      "ISS-062",
+      "ISS-066",
+      "ISS-072"
+    ],
+    "ISS-065": [
+      "ISS-063",
+      "ISS-075",
+      "ISS-085"
+    ],
+    "ISS-066": [
+      "ISS-050",
+      "ISS-054",
+      "ISS-055",
+      "ISS-056",
+      "ISS-057",
+      "ISS-058",
+      "ISS-059",
+      "ISS-060",
+      "ISS-061",
+      "ISS-069"
+    ],
+    "ISS-068": [
+      "ISS-076",
+      "ISS-078",
+      "ISS-079"
+    ],
+    "ISS-070": [
+      "FIX-253",
+      "ISS-128"
+    ],
+    "ISS-071": [
+      "FIX-253"
+    ],
+    "ISS-072": [
+      "FIX-254"
+    ],
+    "ISS-074": [
+      "ISS-094",
+      "ISS-095"
+    ],
+    "ISS-075": [
+      "ISS-080",
+      "ISS-081"
+    ],
+    "ISS-076": [
+      "ISS-114"
+    ],
+    "ISS-078": [
+      "ISS-084",
+      "ISS-091",
+      "ISS-094",
+      "ISS-133"
+    ],
+    "ISS-080": [
+      "ISS-081",
+      "ISS-082"
+    ],
+    "ISS-081": [
+      "ISS-080"
+    ],
+    "ISS-082": [
+      "ISS-108",
+      "ISS-109",
+      "ISS-110"
+    ],
+    "ISS-083": [
+      "ISS-111",
+      "ISS-112",
+      "ISS-113",
+      "ISS-114"
+    ],
+    "ISS-084": [
+      "ISS-088",
+      "ISS-089"
+    ],
+    "ISS-085": [
+      "ISS-087"
+    ],
+    "ISS-086": [
+      "ISS-090"
+    ],
+    "ISS-087": [
+      "ISS-085",
+      "ISS-109",
+      "ISS-116",
+      "ISS-117"
+    ],
+    "ISS-088": [
+      "ISS-084",
+      "ISS-105",
+      "ISS-106"
+    ],
+    "ISS-089": [
+      "ISS-084",
+      "ISS-104",
+      "ISS-134"
+    ],
+    "ISS-090": [
+      "ISS-132"
+    ],
+    "ISS-091": [
+      "ISS-095",
+      "ISS-097",
+      "ISS-098",
+      "ISS-099",
+      "ISS-121",
+      "ISS-129"
+    ],
+    "ISS-092": [
+      "ISS-033",
+      "ISS-034",
+      "ISS-100",
+      "ISS-158"
+    ],
+    "ISS-097": [
+      "ISS-129",
+      "ISS-130",
+      "ISS-131",
+      "ISS-132"
+    ],
+    "ISS-103": [
+      "ISS-088"
+    ],
+    "ISS-106": [
+      "ISS-103"
+    ],
+    "ISS-107": [
+      "ISS-110"
+    ],
+    "ISS-110": [
+      "ISS-113"
+    ],
+    "ISS-116": [
+      "ISS-087",
+      "ISS-117"
+    ],
+    "ISS-118": [
+      "ISS-102"
+    ],
+    "ISS-119": [
+      "ISS-102"
+    ],
+    "ISS-121": [
+      "ISS-123",
+      "ISS-124",
+      "ISS-125",
+      "ISS-133"
+    ],
+    "ISS-123": [
+      "ISS-121",
+      "ISS-126",
+      "ISS-135"
+    ],
+    "ISS-124": [
+      "ISS-126"
+    ],
+    "ISS-126": [
+      "ISS-121",
+      "ISS-123",
+      "ISS-138",
+      "ISS-139",
+      "ISS-140",
+      "ISS-141",
+      "ISS-142"
+    ],
+    "ISS-131": [
+      "ISS-097"
+    ],
+    "ISS-134": [
+      "ISS-089"
+    ],
+    "ISS-136": [
+      "ISS-137"
+    ],
+    "ISS-137": [
+      "ISS-142"
+    ],
+    "ISS-138": [
+      "FIX-256",
+      "ISS-126"
+    ],
+    "ISS-140": [
+      "ISS-139",
+      "ISS-148"
+    ],
+    "ISS-149": [
+      "ISS-148"
+    ],
+    "ISS-150": [
+      "ISS-149"
+    ],
+    "ISS-153": [
+      "ISS-161"
+    ],
+    "ISS-157": [
+      "FIX-256"
+    ],
+    "KAN-101": [
+      "FIX-223"
+    ],
+    "specs/003-workflow-engine-decoupling/plan.md#q1": [
+      "ADR-0002"
+    ],
+    "specs/012-per-agent-skills-custom-agents/reports/README.md": [
+      "ADR-0010"
+    ],
+    "specs/012-per-agent-skills-custom-agents/reports/dag-validation-bypass.md": [
+      "ADR-0004"
+    ],
+    "specs/012-per-agent-skills-custom-agents/reports/dynamic-loader.md": [
+      "ADR-0005"
+    ],
+    "specs/012-per-agent-skills-custom-agents/reports/outstanding-bugs.md": [
+      "ADR-0011",
+      "ADR-0012"
+    ],
+    "specs/012-per-agent-skills-custom-agents/reports/plan-as-roster.md": [
+      "ADR-0003",
+      "ADR-0008"
+    ],
+    "specs/012-per-agent-skills-custom-agents/reports/step-fanout.md": [
+      "ADR-0009"
+    ],
+    "specs/012-per-agent-skills-custom-agents/spec.md#R-01": [
+      "ADR-0006"
+    ],
+    "specs/012-per-agent-skills-custom-agents/spec.md#R-12": [
+      "ADR-0007"
     ]
   },
   "by_area": {
     "agents": [
+      "ADR-0006",
+      "ADR-0007",
       "BUG-001-sse",
       "BUG-002-sse",
       "BUG-003-sse",
@@ -240,6 +867,43 @@
       "FIX-170",
       "FIX-177",
       "FIX-182",
+      "FIX-183",
+      "FIX-184",
+      "FIX-185",
+      "FIX-187",
+      "FIX-190",
+      "FIX-193",
+      "FIX-194",
+      "FIX-206",
+      "FIX-208",
+      "FIX-213",
+      "FIX-218",
+      "FIX-223",
+      "FIX-225",
+      "FIX-226",
+      "FIX-228",
+      "FIX-229",
+      "FIX-230",
+      "FIX-231",
+      "FIX-232",
+      "FIX-233",
+      "FIX-235",
+      "FIX-236",
+      "FIX-237",
+      "FIX-238",
+      "FIX-239",
+      "FIX-240",
+      "FIX-241",
+      "FIX-242",
+      "FIX-246",
+      "FIX-249",
+      "FIX-250",
+      "FIX-251",
+      "FIX-252",
+      "FIX-253",
+      "FIX-254",
+      "FIX-257",
+      "FIX-259",
       "ISS-001",
       "ISS-004",
       "ISS-005",
@@ -260,11 +924,74 @@
       "ISS-031",
       "ISS-032",
       "ISS-033",
+      "ISS-034",
       "ISS-037",
       "ISS-046",
       "ISS-047",
       "ISS-048",
       "ISS-049",
+      "ISS-051",
+      "ISS-052",
+      "ISS-053",
+      "ISS-054",
+      "ISS-056",
+      "ISS-059",
+      "ISS-062",
+      "ISS-063",
+      "ISS-064",
+      "ISS-067",
+      "ISS-071",
+      "ISS-072",
+      "ISS-074",
+      "ISS-075",
+      "ISS-077",
+      "ISS-078",
+      "ISS-079",
+      "ISS-080",
+      "ISS-081",
+      "ISS-082",
+      "ISS-084",
+      "ISS-085",
+      "ISS-086",
+      "ISS-087",
+      "ISS-088",
+      "ISS-090",
+      "ISS-091",
+      "ISS-092",
+      "ISS-094",
+      "ISS-095",
+      "ISS-096",
+      "ISS-097",
+      "ISS-099",
+      "ISS-100",
+      "ISS-101",
+      "ISS-102",
+      "ISS-103",
+      "ISS-109",
+      "ISS-111",
+      "ISS-112",
+      "ISS-115",
+      "ISS-116",
+      "ISS-117",
+      "ISS-118",
+      "ISS-120",
+      "ISS-121",
+      "ISS-123",
+      "ISS-127",
+      "ISS-128",
+      "ISS-129",
+      "ISS-130",
+      "ISS-131",
+      "ISS-132",
+      "ISS-137",
+      "ISS-144",
+      "ISS-145",
+      "ISS-148",
+      "ISS-151",
+      "ISS-152",
+      "ISS-154",
+      "ISS-156",
+      "ISS-158",
       "PH-15-live-pass-prompt-contract-closure",
       "PH-19-prompt-and-deliverable-adherence",
       "QUICK-260701-n4l-complete-kan-86-loose-end-add-prototy",
@@ -330,7 +1057,13 @@
       "TEST-6-2",
       "TEST-6-3"
     ],
+    "api": [
+      "ADR-0002",
+      "ADR-0008",
+      "ADR-0010"
+    ],
     "artifacts": [
+      "ADR-0007",
       "BUG-002-sse",
       "BUG-003-sse",
       "BUG-006-sse",
@@ -366,6 +1099,18 @@
       "FIX-154",
       "FIX-167",
       "FIX-167b",
+      "FIX-226",
+      "FIX-228",
+      "FIX-229",
+      "FIX-233",
+      "FIX-236",
+      "FIX-237",
+      "FIX-238",
+      "FIX-242",
+      "FIX-246",
+      "FIX-249",
+      "FIX-250",
+      "FIX-251",
       "ISS-001",
       "ISS-004",
       "ISS-011",
@@ -374,6 +1119,32 @@
       "ISS-027",
       "ISS-028",
       "ISS-038",
+      "ISS-052",
+      "ISS-065",
+      "ISS-071",
+      "ISS-072",
+      "ISS-074",
+      "ISS-077",
+      "ISS-078",
+      "ISS-080",
+      "ISS-081",
+      "ISS-085",
+      "ISS-086",
+      "ISS-087",
+      "ISS-088",
+      "ISS-090",
+      "ISS-094",
+      "ISS-096",
+      "ISS-111",
+      "ISS-114",
+      "ISS-115",
+      "ISS-123",
+      "ISS-145",
+      "ISS-148",
+      "ISS-149",
+      "ISS-152",
+      "ISS-154",
+      "ISS-159",
       "PH-05-typed-artifacts-persistence-ownership-1b",
       "PH-19-prompt-and-deliverable-adherence",
       "REQ-1",
@@ -436,7 +1207,26 @@
       "FIX-133",
       "FIX-137",
       "FIX-158",
-      "FIX-185",
+      "FIX-207",
+      "FIX-227",
+      "FIX-228",
+      "FIX-230",
+      "FIX-232",
+      "FIX-233",
+      "FIX-238",
+      "FIX-239",
+      "FIX-240",
+      "FIX-241",
+      "FIX-242",
+      "FIX-243",
+      "FIX-246",
+      "FIX-248",
+      "FIX-249",
+      "FIX-250",
+      "FIX-255",
+      "FIX-257",
+      "FIX-259",
+      "FIX-260",
       "ISS-003",
       "ISS-011",
       "ISS-016",
@@ -449,6 +1239,46 @@
       "ISS-047",
       "ISS-048",
       "ISS-049",
+      "ISS-053",
+      "ISS-055",
+      "ISS-063",
+      "ISS-065",
+      "ISS-074",
+      "ISS-075",
+      "ISS-076",
+      "ISS-078",
+      "ISS-084",
+      "ISS-088",
+      "ISS-089",
+      "ISS-091",
+      "ISS-092",
+      "ISS-093",
+      "ISS-096",
+      "ISS-097",
+      "ISS-098",
+      "ISS-100",
+      "ISS-101",
+      "ISS-102",
+      "ISS-103",
+      "ISS-106",
+      "ISS-111",
+      "ISS-118",
+      "ISS-121",
+      "ISS-123",
+      "ISS-127",
+      "ISS-129",
+      "ISS-131",
+      "ISS-145",
+      "ISS-146",
+      "ISS-148",
+      "ISS-149",
+      "ISS-150",
+      "ISS-151",
+      "ISS-152",
+      "ISS-154",
+      "ISS-158",
+      "ISS-160",
+      "ISS-161",
       "PH-03-token-trim-measured-change-0c",
       "PH-21-saved-workflows-user-authored-named-persisted",
       "REQ-1",
@@ -554,25 +1384,137 @@
       "FIX-171",
       "FIX-173",
       "FIX-175",
+      "FIX-185",
+      "FIX-187",
+      "FIX-189",
+      "FIX-190",
+      "FIX-191",
+      "FIX-210",
+      "FIX-211",
+      "FIX-212",
+      "FIX-213",
+      "FIX-216b",
+      "FIX-217",
+      "FIX-218",
+      "FIX-219",
+      "FIX-221",
+      "FIX-223",
+      "FIX-231",
+      "FIX-232",
+      "FIX-233",
+      "FIX-234",
+      "FIX-238",
+      "FIX-239",
+      "FIX-240",
+      "FIX-241",
+      "FIX-242",
+      "FIX-243",
+      "FIX-244",
+      "FIX-246",
+      "FIX-248",
+      "FIX-249",
+      "FIX-250",
+      "FIX-251",
+      "FIX-252",
+      "FIX-253",
+      "FIX-254",
+      "FIX-257",
+      "ISS-033",
+      "ISS-054",
+      "ISS-055",
+      "ISS-066",
+      "ISS-067",
+      "ISS-074",
+      "ISS-075",
+      "ISS-078",
+      "ISS-079",
+      "ISS-080",
+      "ISS-087",
+      "ISS-092",
+      "ISS-093",
+      "ISS-096",
+      "ISS-100",
+      "ISS-101",
+      "ISS-102",
+      "ISS-104",
+      "ISS-118",
+      "ISS-120",
+      "ISS-123",
+      "ISS-124",
+      "ISS-144",
+      "ISS-150",
+      "ISS-151",
+      "ISS-152",
+      "ISS-153",
+      "ISS-156",
+      "ISS-158",
       "TEST-46"
     ],
+    "compiler": [
+      "ADR-0009"
+    ],
+    "cost": [
+      "ISS-100"
+    ],
     "docs": [
+      "FIX-234",
       "ISS-012",
-      "ISS-043"
+      "ISS-043",
+      "ISS-088"
+    ],
+    "engine": [
+      "ADR-0002",
+      "ADR-0003",
+      "ADR-0004",
+      "ADR-0008",
+      "ADR-0009",
+      "ADR-0010",
+      "ADR-0011",
+      "ISS-078",
+      "ISS-091",
+      "ISS-097",
+      "ISS-098",
+      "ISS-099",
+      "ISS-121",
+      "ISS-123",
+      "ISS-125",
+      "ISS-129",
+      "ISS-130",
+      "ISS-131",
+      "ISS-132",
+      "ISS-133",
+      "ISS-135"
     ],
     "evals": [
       "BUG-007-sse",
       "FIX-028",
       "FIX-041b",
       "FIX-100",
+      "FIX-242",
+      "FIX-247",
       "ISS-027",
       "ISS-029",
+      "ISS-053",
+      "ISS-094",
+      "ISS-097",
+      "ISS-111",
+      "ISS-131",
+      "ISS-137",
+      "ISS-140",
+      "ISS-142",
       "REQ-8",
       "TEST-2-1",
       "TEST-2-5"
     ],
+    "factory": [
+      "ADR-0011",
+      "ADR-0012"
+    ],
     "frontend": [
       "ADR-0001",
+      "ADR-0002",
+      "ADR-0010",
+      "ADR-0012",
       "BUG-002-sse",
       "BUG-007-sse",
       "BUG-013-sse",
@@ -721,8 +1663,77 @@
       "FIX-178",
       "FIX-180",
       "FIX-181",
+      "FIX-186",
+      "FIX-188",
+      "FIX-192",
+      "FIX-193",
+      "FIX-194",
+      "FIX-195",
+      "FIX-201",
+      "FIX-202",
+      "FIX-203",
+      "FIX-204",
+      "FIX-205",
+      "FIX-206",
+      "FIX-207",
+      "FIX-208",
+      "FIX-209",
+      "FIX-210",
+      "FIX-212",
+      "FIX-214",
+      "FIX-215",
+      "FIX-217",
+      "FIX-218",
+      "FIX-220",
+      "FIX-222",
+      "FIX-224",
+      "FIX-225",
+      "FIX-226",
+      "FIX-234",
+      "FIX-236",
+      "FIX-237",
+      "FIX-239",
+      "FIX-245",
+      "FIX-247",
+      "FIX-248",
+      "FIX-254",
+      "FIX-256",
       "ISS-022",
       "ISS-025",
+      "ISS-054",
+      "ISS-058",
+      "ISS-060",
+      "ISS-061",
+      "ISS-073",
+      "ISS-075",
+      "ISS-077",
+      "ISS-080",
+      "ISS-081",
+      "ISS-082",
+      "ISS-083",
+      "ISS-085",
+      "ISS-087",
+      "ISS-088",
+      "ISS-107",
+      "ISS-108",
+      "ISS-109",
+      "ISS-110",
+      "ISS-112",
+      "ISS-113",
+      "ISS-115",
+      "ISS-117",
+      "ISS-122",
+      "ISS-136",
+      "ISS-137",
+      "ISS-138",
+      "ISS-139",
+      "ISS-140",
+      "ISS-141",
+      "ISS-143",
+      "ISS-147",
+      "ISS-154",
+      "ISS-156",
+      "ISS-157",
       "TEST-0-1",
       "TEST-45"
     ],
@@ -731,7 +1742,20 @@
       "ISS-020"
     ],
     "infra": [
-      "ISS-018"
+      "ISS-018",
+      "ISS-103",
+      "ISS-104",
+      "ISS-105",
+      "ISS-106"
+    ],
+    "loader": [
+      "ADR-0005"
+    ],
+    "naming": [
+      "ADR-0002"
+    ],
+    "perf": [
+      "ISS-101"
     ],
     "product": [
       "ISS-001",
@@ -762,7 +1786,13 @@
       "ISS-045",
       "ISS-046",
       "ISS-047",
-      "ISS-048"
+      "ISS-048",
+      "ISS-092"
+    ],
+    "registry": [
+      "ADR-0002",
+      "ADR-0003",
+      "ADR-0005"
     ],
     "resume": [
       "BUG-016-sse",
@@ -771,6 +1801,7 @@
       "BUG-R03-resume",
       "BUG-R04-resume",
       "BUG-R05-resume",
+      "DOC-bugfix-spec-revision-context",
       "DOC-resume-capability-design-draft",
       "DOC-resume-qa-test-sheet",
       "FIX-047",
@@ -783,7 +1814,46 @@
       "FIX-125",
       "FIX-152",
       "FIX-162",
+      "FIX-225",
+      "FIX-227",
+      "FIX-228",
+      "FIX-229",
+      "FIX-232",
+      "FIX-234",
+      "FIX-235",
+      "FIX-240",
+      "FIX-241",
+      "FIX-242",
+      "FIX-243",
+      "FIX-244",
+      "FIX-250",
+      "FIX-251",
+      "FIX-252",
+      "FIX-258",
       "ISS-048",
+      "ISS-051",
+      "ISS-063",
+      "ISS-072",
+      "ISS-074",
+      "ISS-075",
+      "ISS-078",
+      "ISS-084",
+      "ISS-085",
+      "ISS-088",
+      "ISS-089",
+      "ISS-090",
+      "ISS-091",
+      "ISS-097",
+      "ISS-098",
+      "ISS-103",
+      "ISS-106",
+      "ISS-111",
+      "ISS-123",
+      "ISS-124",
+      "ISS-125",
+      "ISS-129",
+      "ISS-133",
+      "ISS-144",
       "PH-12-wave-scheduler-durable-resume-6",
       "PH-45-resume-completeness-bug-fix-r0",
       "PH-49-gate-resume-across-restart-r4",
@@ -808,6 +1878,7 @@
       "TEST-40"
     ],
     "runtime": [
+      "ADR-0006",
       "BUG-015-sse",
       "CWF-001-custom-workflow",
       "CWF-002-custom-workflow",
@@ -817,9 +1888,19 @@
       "FIX-018",
       "FIX-042b",
       "FIX-059",
+      "FIX-232",
+      "FIX-242",
       "ISS-011",
       "ISS-018",
       "ISS-036",
+      "ISS-051",
+      "ISS-088",
+      "ISS-091",
+      "ISS-097",
+      "ISS-098",
+      "ISS-103",
+      "ISS-130",
+      "ISS-153",
       "PH-02-executioncontext-ownership-0b",
       "PH-08-capabilities-hardened-registry-gates-tool-per",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -910,7 +1991,40 @@
       "FIX-173",
       "FIX-175",
       "FIX-177",
-      "FIX-185",
+      "FIX-201",
+      "FIX-202",
+      "FIX-206",
+      "FIX-207",
+      "FIX-210",
+      "FIX-225",
+      "FIX-226",
+      "FIX-227",
+      "FIX-229",
+      "FIX-231",
+      "FIX-232",
+      "FIX-233",
+      "FIX-234",
+      "FIX-235",
+      "FIX-236",
+      "FIX-237",
+      "FIX-238",
+      "FIX-239",
+      "FIX-240",
+      "FIX-241",
+      "FIX-242",
+      "FIX-243",
+      "FIX-244",
+      "FIX-245",
+      "FIX-246",
+      "FIX-247",
+      "FIX-248",
+      "FIX-249",
+      "FIX-253",
+      "FIX-256",
+      "FIX-258",
+      "FIX-259",
+      "FIX-260",
+      "FIX-261",
       "ISS-002",
       "ISS-007",
       "ISS-011",
@@ -927,6 +2041,72 @@
       "ISS-047",
       "ISS-048",
       "ISS-049",
+      "ISS-051",
+      "ISS-053",
+      "ISS-054",
+      "ISS-055",
+      "ISS-060",
+      "ISS-063",
+      "ISS-065",
+      "ISS-067",
+      "ISS-068",
+      "ISS-072",
+      "ISS-073",
+      "ISS-075",
+      "ISS-076",
+      "ISS-078",
+      "ISS-079",
+      "ISS-080",
+      "ISS-083",
+      "ISS-084",
+      "ISS-085",
+      "ISS-086",
+      "ISS-087",
+      "ISS-088",
+      "ISS-089",
+      "ISS-091",
+      "ISS-093",
+      "ISS-094",
+      "ISS-095",
+      "ISS-096",
+      "ISS-097",
+      "ISS-099",
+      "ISS-102",
+      "ISS-103",
+      "ISS-105",
+      "ISS-109",
+      "ISS-111",
+      "ISS-112",
+      "ISS-113",
+      "ISS-114",
+      "ISS-116",
+      "ISS-117",
+      "ISS-118",
+      "ISS-119",
+      "ISS-121",
+      "ISS-122",
+      "ISS-123",
+      "ISS-124",
+      "ISS-126",
+      "ISS-128",
+      "ISS-129",
+      "ISS-131",
+      "ISS-133",
+      "ISS-136",
+      "ISS-137",
+      "ISS-138",
+      "ISS-139",
+      "ISS-141",
+      "ISS-142",
+      "ISS-143",
+      "ISS-145",
+      "ISS-146",
+      "ISS-147",
+      "ISS-149",
+      "ISS-151",
+      "ISS-154",
+      "ISS-156",
+      "ISS-159",
       "PH-16-terminal-state-integrity-and-reconnect-frame",
       "PH-44-sse-only-hard-cutoff-run-revision-retirement",
       "QUICK-260716-o6z-fix-bug-012-durable-reopened-od-ppt-o",
@@ -970,13 +2150,48 @@
       "TEST-6-1",
       "TEST-6-2"
     ],
+    "test": [
+      "ISS-102",
+      "ISS-118",
+      "ISS-119"
+    ],
     "test-infra": [
       "ISS-022",
       "ISS-025",
       "ISS-026",
-      "ISS-049"
+      "ISS-049",
+      "ISS-067",
+      "ISS-068",
+      "ISS-069",
+      "ISS-073",
+      "ISS-074",
+      "ISS-076",
+      "ISS-079",
+      "ISS-093",
+      "ISS-094",
+      "ISS-096",
+      "ISS-114",
+      "ISS-145",
+      "ISS-151",
+      "ISS-156"
+    ],
+    "tooling": [
+      "ISS-050",
+      "ISS-069",
+      "ISS-089",
+      "ISS-146"
     ],
     "workflow": [
+      "ADR-0003",
+      "ADR-0004",
+      "ADR-0005",
+      "ADR-0006",
+      "ADR-0007",
+      "ADR-0008",
+      "ADR-0009",
+      "ADR-0010",
+      "ADR-0011",
+      "ADR-0012",
       "BUG-002-sse",
       "BUG-003-sse",
       "BUG-005-sse",
@@ -1062,6 +2277,31 @@
       "FIX-155",
       "FIX-156",
       "FIX-166",
+      "FIX-185",
+      "FIX-190",
+      "FIX-194",
+      "FIX-195",
+      "FIX-201",
+      "FIX-202",
+      "FIX-205",
+      "FIX-212",
+      "FIX-215",
+      "FIX-217",
+      "FIX-225",
+      "FIX-229",
+      "FIX-232",
+      "FIX-237",
+      "FIX-239",
+      "FIX-240",
+      "FIX-241",
+      "FIX-242",
+      "FIX-243",
+      "FIX-245",
+      "FIX-246",
+      "FIX-249",
+      "FIX-250",
+      "FIX-256",
+      "FIX-258",
       "ISS-003",
       "ISS-008",
       "ISS-009",
@@ -1076,7 +2316,7 @@
       "ISS-027",
       "ISS-029",
       "ISS-030",
-      "ISS-033",
+      "ISS-034",
       "ISS-035",
       "ISS-039",
       "ISS-042",
@@ -1086,6 +2326,52 @@
       "ISS-047",
       "ISS-048",
       "ISS-049",
+      "ISS-056",
+      "ISS-063",
+      "ISS-065",
+      "ISS-071",
+      "ISS-075",
+      "ISS-077",
+      "ISS-078",
+      "ISS-079",
+      "ISS-080",
+      "ISS-081",
+      "ISS-082",
+      "ISS-084",
+      "ISS-087",
+      "ISS-089",
+      "ISS-091",
+      "ISS-097",
+      "ISS-098",
+      "ISS-099",
+      "ISS-108",
+      "ISS-109",
+      "ISS-110",
+      "ISS-113",
+      "ISS-114",
+      "ISS-115",
+      "ISS-116",
+      "ISS-120",
+      "ISS-121",
+      "ISS-123",
+      "ISS-126",
+      "ISS-127",
+      "ISS-129",
+      "ISS-130",
+      "ISS-131",
+      "ISS-132",
+      "ISS-136",
+      "ISS-137",
+      "ISS-138",
+      "ISS-142",
+      "ISS-143",
+      "ISS-145",
+      "ISS-148",
+      "ISS-149",
+      "ISS-150",
+      "ISS-151",
+      "ISS-152",
+      "ISS-154",
       "PH-04-manifest-compiler-1a",
       "PH-07-prototype-as-manifest-parity-proof-sc-001-2",
       "PH-09-local-workspace-runtime-repo-workflows-no-exe",
@@ -1158,11 +2444,18 @@
     ]
   },
   "by_file": {
+    "backend/CLAUDE.md": [
+      "ADR-0002"
+    ],
     "backend/Dockerfile": [
       "FIX-040"
     ],
     "backend/agents/artifact_store/store.py": [
       "FIX-152"
+    ],
+    "backend/agents/authz.py": [
+      "FIX-233",
+      "FIX-240"
     ],
     "backend/agents/capabilities/context_providers/opendesign.py": [
       "FIX-002",
@@ -1179,6 +2472,12 @@
     "backend/agents/capabilities/deliverables/ppt_guarded.py": [
       "BUG-009-sse"
     ],
+    "backend/agents/capabilities/gates/approval.py": [
+      "FIX-253"
+    ],
+    "backend/agents/capabilities/gates/human.py": [
+      "FIX-253"
+    ],
     "backend/agents/capabilities/hooks/__init__.py": [
       "FIX-007b"
     ],
@@ -1189,12 +2488,26 @@
       "FIX-035",
       "FIX-038"
     ],
+    "backend/agents/capabilities/tools/providers.py": [
+      "ADR-0012"
+    ],
     "backend/agents/execution_engine/clarify_engine.py": [
       "FIX-003",
       "FIX-024",
-      "FIX-126"
+      "FIX-126",
+      "FIX-190"
+    ],
+    "backend/agents/execution_engine/context.py": [
+      "FIX-251",
+      "FIX-252"
     ],
     "backend/agents/execution_engine/engine.py": [
+      "ADR-0002",
+      "ADR-0003",
+      "ADR-0004",
+      "ADR-0008",
+      "ADR-0010",
+      "ADR-0011",
       "FIX-016",
       "FIX-018",
       "FIX-035",
@@ -1208,27 +2521,48 @@
       "FIX-120",
       "FIX-121",
       "FIX-171",
-      "FIX-175"
+      "FIX-175",
+      "FIX-190",
+      "FIX-223",
+      "FIX-232",
+      "FIX-239",
+      "FIX-240",
+      "FIX-242",
+      "FIX-251",
+      "FIX-252",
+      "FIX-253",
+      "FIX-254"
+    ],
+    "backend/agents/execution_engine/fanout.py": [
+      "FIX-232"
     ],
     "backend/agents/execution_engine/kernel_services.py": [
-      "FIX-007b"
+      "FIX-007b",
+      "FIX-232",
+      "FIX-242"
     ],
     "backend/agents/execution_engine/od_context.py": [
-      "FIX-032"
+      "FIX-032",
+      "FIX-187",
+      "FIX-190"
     ],
     "backend/agents/execution_engine/state_machine.py": [
       "FIX-152"
     ],
     "backend/agents/factory.py": [
+      "ADR-0011",
       "FIX-017"
     ],
     "backend/agents/loader.py": [
+      "ADR-0002",
+      "ADR-0005",
       "FIX-058",
       "FIX-059"
     ],
     "backend/agents/planner/smart_planner.py": [
       "FIX-003",
-      "FIX-024"
+      "FIX-024",
+      "FIX-190"
     ],
     "backend/agents/prompts/backlog-compiler/AGENT.md": [
       "FIX-126"
@@ -1267,7 +2601,8 @@
       "FIX-001b",
       "FIX-014",
       "FIX-054",
-      "FIX-109"
+      "FIX-109",
+      "ISS-096"
     ],
     "backend/agents/prompts/performance-optimizer/AGENT.md": [
       "FIX-061"
@@ -1280,7 +2615,8 @@
     ],
     "backend/agents/prompts/prototype-build/AGENT.md": [
       "FIX-009",
-      "FIX-127"
+      "FIX-127",
+      "FIX-190"
     ],
     "backend/agents/prompts/prototype-plan/AGENT.md": [
       "FIX-006",
@@ -1289,10 +2625,12 @@
     ],
     "backend/agents/prompts/prototype-revision-agent/AGENT.md": [
       "FIX-050b",
-      "FIX-126"
+      "FIX-126",
+      "FIX-190"
     ],
     "backend/agents/prompts/prototype-revision-validate/AGENT.md": [
-      "FIX-127"
+      "FIX-127",
+      "FIX-190"
     ],
     "backend/agents/prompts/prototype-specify/AGENT.md": [
       "FIX-006",
@@ -1300,7 +2638,8 @@
       "FIX-048"
     ],
     "backend/agents/prompts/prototype-validate/AGENT.md": [
-      "FIX-127"
+      "FIX-127",
+      "FIX-190"
     ],
     "backend/agents/prompts/report-generator/AGENT.md": [
       "FIX-061"
@@ -1324,46 +2663,69 @@
       "FIX-126"
     ],
     "backend/agents/registry.py": [
+      "ADR-0002",
+      "ADR-0005",
       "BUG-003-sse",
       "FIX-049",
       "FIX-058",
       "FIX-059"
     ],
     "backend/agents/workflows/app_builder/workflow.yaml": [
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
+    ],
+    "backend/agents/workflows/artifacts.py": [
+      "ADR-0007",
+      "ADR-0011"
     ],
     "backend/agents/workflows/compiler.py": [
+      "ADR-0009",
+      "ADR-0012",
       "FIX-007b"
     ],
     "backend/agents/workflows/custom/workflow.yaml": [
       "FIX-011",
-      "FIX-056"
+      "FIX-056",
+      "FIX-190"
     ],
     "backend/agents/workflows/dotnet_to_azure/workflow.yaml": [
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/mulesoft_to_springboot/workflow.yaml": [
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/od_ppt/workflow.yaml": [
       "FIX-015"
     ],
+    "backend/agents/workflows/plan.py": [
+      "ADR-0009"
+    ],
     "backend/agents/workflows/ppt/workflow.yaml": [
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/prototype/workflow.yaml": [
       "FIX-010",
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
     ],
     "backend/agents/workflows/prototype_revision/workflow.yaml": [
-      "FIX-049"
+      "FIX-049",
+      "FIX-185"
     ],
     "backend/agents/workflows/selections.py": [
+      "ADR-0010",
       "FIX-059"
     ],
     "backend/agents/workflows/user_stories/workflow.yaml": [
       "FIX-003",
-      "FIX-011"
+      "FIX-011",
+      "FIX-190"
+    ],
+    "backend/agents/workflows/user_stories_revision/workflow.yaml": [
+      "FIX-185"
     ],
     "backend/alembic/versions/0027_workflow_run_od_context.py": [
       "FIX-106"
@@ -1371,9 +2733,20 @@
     "backend/alembic/versions/0030_workflow_runs_user_created_index.py": [
       "FIX-144"
     ],
+    "backend/app/agents/cached_invoke.py": [
+      "ISS-033"
+    ],
     "backend/app/agents/chat/concierge.py": [
       "FIX-115",
-      "FIX-116"
+      "FIX-116",
+      "FIX-210",
+      "FIX-213",
+      "FIX-218",
+      "FIX-233",
+      "FIX-249",
+      "FIX-257",
+      "ISS-054",
+      "ISS-158"
     ],
     "backend/app/agents/chat_narrator.py": [
       "FIX-083",
@@ -1398,8 +2771,21 @@
     "backend/app/agents/sandbox.py": [
       "FIX-152"
     ],
+    "backend/app/agents/skill_staging.py": [
+      "ADR-0006"
+    ],
     "backend/app/api/agents.py": [
+      "ADR-0010",
       "FIX-001"
+    ],
+    "backend/app/api/analytics.py": [
+      "FIX-239"
+    ],
+    "backend/app/api/chat_router.py": [
+      "FIX-211"
+    ],
+    "backend/app/api/file_extract.py": [
+      "FIX-191"
     ],
     "backend/app/api/ppt_templates.py": [
       "FIX-040"
@@ -1409,6 +2795,7 @@
       "FIX-040"
     ],
     "backend/app/api/run_commands.py": [
+      "ADR-0008",
       "FIX-087",
       "FIX-105",
       "FIX-106",
@@ -1417,14 +2804,39 @@
       "FIX-116",
       "FIX-130",
       "FIX-152",
-      "FIX-171"
+      "FIX-171",
+      "FIX-189",
+      "FIX-210",
+      "FIX-212",
+      "FIX-213",
+      "FIX-216b",
+      "FIX-218",
+      "FIX-219",
+      "FIX-221",
+      "FIX-233",
+      "FIX-239",
+      "FIX-241",
+      "FIX-244",
+      "FIX-250",
+      "FIX-253",
+      "ISS-054",
+      "ISS-055",
+      "ISS-066",
+      "ISS-144"
     ],
     "backend/app/api/run_engine.py": [
-      "FIX-152"
+      "FIX-152",
+      "FIX-253"
+    ],
+    "backend/app/api/run_shutdown.py": [
+      "FIX-234",
+      "ISS-104"
     ],
     "backend/app/api/run_stream.py": [
       "BUG-015-sse",
-      "FIX-152"
+      "FIX-152",
+      "FIX-240",
+      "FIX-248"
     ],
     "backend/app/api/runs.py": [
       "FIX-004",
@@ -1436,7 +2848,8 @@
       "FIX-145",
       "FIX-151",
       "FIX-173",
-      "FIX-179"
+      "FIX-179",
+      "FIX-217"
     ],
     "backend/app/api/websocket.py": [
       "FIX-012",
@@ -1450,15 +2863,21 @@
     ],
     "backend/app/core/config.py": [
       "FIX-034",
-      "FIX-152"
+      "FIX-152",
+      "FIX-234"
     ],
     "backend/app/core/entitlements.py": [
       "FIX-058",
-      "FIX-059"
+      "FIX-059",
+      "FIX-189",
+      "FIX-218",
+      "ISS-055",
+      "ISS-066"
     ],
     "backend/app/main.py": [
       "FIX-144",
-      "FIX-152"
+      "FIX-152",
+      "FIX-234"
     ],
     "backend/app/models/workflow.py": [
       "FIX-106"
@@ -1467,6 +2886,28 @@
       "FIX-040",
       "FIX-042b"
     ],
+    "backend/dev.db": [
+      "ISS-033",
+      "ISS-067",
+      "ISS-075",
+      "ISS-080",
+      "ISS-087",
+      "ISS-092",
+      "ISS-100",
+      "ISS-101",
+      "ISS-120",
+      "ISS-123"
+    ],
+    "backend/docker-entrypoint.sh": [
+      "ISS-104"
+    ],
+    "backend/requirements.txt": [
+      "FIX-191"
+    ],
+    "backend/scripts/audit_lost_run_events.py": [
+      "FIX-246",
+      "ISS-123"
+    ],
     "backend/scripts/seed_test_users.py": [
       "TEST-46"
     ],
@@ -1474,7 +2915,9 @@
       "FIX-049"
     ],
     "backend/tests/agents/characterization/_normalize.py": [
-      "FIX-036"
+      "FIX-036",
+      "FIX-239",
+      "FIX-254"
     ],
     "backend/tests/agents/characterization/golden/od_ppt.events.json": [
       "FIX-031"
@@ -1485,15 +2928,51 @@
     "backend/tests/agents/characterization/golden/prototype_revision.html": [
       "FIX-049"
     ],
+    "backend/tests/agents/live_harness.py": [
+      "FIX-231",
+      "ISS-074"
+    ],
     "backend/tests/agents/test_bedrock_cache_and_thinking.py": [
       "FIX-034"
+    ],
+    "backend/tests/agents/test_concierge_capability.py": [
+      "FIX-249",
+      "ISS-151"
     ],
     "backend/tests/agents/test_context_providers.py": [
       "FIX-031",
       "FIX-032"
     ],
+    "backend/tests/agents/test_fanout.py": [
+      "FIX-232",
+      "FIX-242"
+    ],
+    "backend/tests/agents/test_fanout_cancel.py": [
+      "FIX-232"
+    ],
+    "backend/tests/agents/test_gate_revision_discriminator.py": [
+      "FIX-254"
+    ],
+    "backend/tests/agents/test_gates.py": [
+      "FIX-231"
+    ],
+    "backend/tests/agents/test_id_alias_resolver.py": [
+      "FIX-185"
+    ],
     "backend/tests/agents/test_iss032_cache_tokens.py": [
       "FIX-036"
+    ],
+    "backend/tests/agents/test_iss056_clarify_quality_fixes.py": [
+      "FIX-190"
+    ],
+    "backend/tests/agents/test_live_harness.py": [
+      "FIX-231"
+    ],
+    "backend/tests/agents/test_manifest_parity.py": [
+      "FIX-185"
+    ],
+    "backend/tests/agents/test_merge_conflict.py": [
+      "FIX-242"
     ],
     "backend/tests/agents/test_model_pricing.py": [
       "FIX-035",
@@ -1502,31 +2981,146 @@
     "backend/tests/agents/test_phase5_revision_validation.py": [
       "FIX-049"
     ],
+    "backend/tests/agents/test_phase6_frontend_consistency.py": [
+      "ISS-079"
+    ],
+    "backend/tests/agents/test_redo_gate_safety.py": [
+      "FIX-252"
+    ],
     "backend/tests/agents/test_restart_resume.py": [
-      "FIX-175"
+      "FIX-175",
+      "FIX-232",
+      "FIX-242",
+      "FIX-251",
+      "FIX-254",
+      "ISS-078"
+    ],
+    "backend/tests/agents/test_spec_revision_context.py": [
+      "FIX-251"
+    ],
+    "backend/tests/agents/test_spec_revision_cycles.py": [
+      "FIX-252",
+      "FIX-253",
+      "FIX-254"
+    ],
+    "backend/tests/agents/test_update_specs_enforcement.py": [
+      "FIX-253"
+    ],
+    "backend/tests/conftest.py": [
+      "FIX-238",
+      "ISS-102",
+      "ISS-118"
+    ],
+    "backend/tests/unit/test_chat_messages_endpoint.py": [
+      "FIX-238"
     ],
     "backend/tests/unit/test_chat_narrator.py": [
       "FIX-083",
       "FIX-175"
     ],
+    "backend/tests/unit/test_execution_engine.py": [
+      "ISS-093"
+    ],
+    "backend/tests/unit/test_file_extract_fix191.py": [
+      "FIX-191"
+    ],
+    "backend/tests/unit/test_iss102_live_model_guard.py": [
+      "FIX-238"
+    ],
+    "backend/tests/unit/test_pipeline_failure_semantics.py": [
+      "FIX-242"
+    ],
     "backend/tests/unit/test_prototype_run_request.py": [
       "FIX-030"
+    ],
+    "backend/tests/unit/test_rest_answers_cancel.py": [
+      "FIX-243",
+      "FIX-244"
+    ],
+    "backend/tests/unit/test_rest_gate_commands.py": [
+      "FIX-241"
+    ],
+    "backend/tests/unit/test_rest_revisions.py": [
+      "FIX-250"
+    ],
+    "backend/tests/unit/test_rest_run_launch.py": [
+      "FIX-189",
+      "ISS-055"
+    ],
+    "backend/tests/unit/test_revision_intelligence.py": [
+      "FIX-185"
+    ],
+    "backend/tests/unit/test_run_commands_fix218.py": [
+      "FIX-218",
+      "ISS-156"
+    ],
+    "backend/tests/unit/test_run_events.py": [
+      "FIX-240"
+    ],
+    "backend/tests/unit/test_sse_stream.py": [
+      "FIX-240",
+      "FIX-248"
+    ],
+    "backend/tests/unit/test_update_specs_ingress_fence.py": [
+      "FIX-253"
+    ],
+    "docs/FLOWIN_HANDOFF.md": [
+      "FIX-234"
+    ],
+    "docs/LOCALSTACK_SMOKE_REPORT.md": [
+      "ISS-088"
+    ],
+    "docs/PRODUCTION_DEPLOYMENT_GUIDE.md": [
+      "FIX-234"
+    ],
+    "env-templates/.env.fron": [
+      "ISS-088"
     ],
     "frontend/e2e/FIXTURE-CONTRACT.md": [
       "TEST-45"
     ],
     "frontend/e2e/README.md": [
+      "FIX-234",
       "TEST-0-1",
       "TEST-45"
     ],
+    "frontend/e2e/fixtures/live.ts": [
+      "ISS-088"
+    ],
+    "frontend/e2e/fixtures/mockSse.ts": [
+      "FIX-248"
+    ],
+    "frontend/e2e/tests/ts-chat-cards.spec.ts": [
+      "FIX-236"
+    ],
+    "frontend/e2e/tests/ts-r.cancel.spec.ts": [
+      "FIX-247"
+    ],
     "frontend/e2e/tests/ts-sse-resilience.spec.ts": [
-      "FIX-152"
+      "FIX-152",
+      "FIX-248"
+    ],
+    "frontend/e2e/tests/ts-v.per-workflow.live.spec.ts": [
+      "FIX-234"
+    ],
+    "frontend/e2e/tests/ts-w.model-override.live.spec.ts": [
+      "FIX-234"
     ],
     "frontend/next.config.ts": [
       "BUG-007-sse"
     ],
     "frontend/src/.../workflowChaining.test.ts": [
       "ISS-025"
+    ],
+    "frontend/src/app/dashboard/bridgeTerminality.source.test.ts": [
+      "FIX-256"
+    ],
+    "frontend/src/app/dashboard/freshLaunchTranscriptReset.source.test.ts": [
+      "FIX-201"
+    ],
+    "frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts": [
+      "FIX-201",
+      "FIX-247"
     ],
     "frontend/src/app/dashboard/page.tsx": [
       "FIX-005",
@@ -1564,10 +3158,32 @@
       "FIX-173",
       "FIX-174",
       "FIX-176",
-      "FIX-178"
+      "FIX-178",
+      "FIX-188",
+      "FIX-195",
+      "FIX-201",
+      "FIX-203",
+      "FIX-205",
+      "FIX-206",
+      "FIX-208",
+      "FIX-210",
+      "FIX-217",
+      "FIX-220",
+      "FIX-225",
+      "FIX-245",
+      "FIX-247",
+      "FIX-254",
+      "FIX-256"
+    ],
+    "frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts": [
+      "FIX-245",
+      "FIX-247"
     ],
     "frontend/src/app/login/page.tsx": [
       "FIX-102"
+    ],
+    "frontend/src/app/test-preview/page.tsx": [
+      "ISS-088"
     ],
     "frontend/src/app/workflow/ppt/templates/page.tsx": [
       "FIX-003b",
@@ -1592,26 +3208,42 @@
     "frontend/src/components/catalog/WorkflowCatalog.tsx": [
       "FIX-004b"
     ],
+    "frontend/src/components/chat/ChatAttachments.tsx": [
+      "FIX-218"
+    ],
     "frontend/src/components/chat/ChatPanel.tsx": [
       "BUG-018-sse"
     ],
     "frontend/src/components/chat/InlineClarifyActions.tsx": [
       "FIX-094",
-      "FIX-095"
+      "FIX-095",
+      "FIX-214"
+    ],
+    "frontend/src/components/chat/InlineGateActions.test.tsx": [
+      "ISS-073"
     ],
     "frontend/src/components/chat/InlineGateActions.tsx": [
       "FIX-154",
-      "FIX-163"
+      "FIX-163",
+      "FIX-254"
+    ],
+    "frontend/src/components/chat/MessageBubble.tsx": [
+      "FIX-218"
     ],
     "frontend/src/components/chat/ResultCard.test.tsx": [
-      "FIX-128"
+      "FIX-128",
+      "FIX-236"
     ],
     "frontend/src/components/chat/ResultCard.tsx": [
       "FIX-083",
       "FIX-128",
       "FIX-167",
       "FIX-167b",
-      "FIX-178"
+      "FIX-178",
+      "FIX-236"
+    ],
+    "frontend/src/components/chat/RunChatLane.test.tsx": [
+      "FIX-193"
     ],
     "frontend/src/components/chat/RunChatLane.tsx": [
       "BUG-002-sse",
@@ -1627,10 +3259,19 @@
       "FIX-125",
       "FIX-154",
       "FIX-168",
-      "FIX-171"
+      "FIX-171",
+      "FIX-192",
+      "FIX-193",
+      "FIX-212",
+      "FIX-218",
+      "FIX-254",
+      "ISS-054"
     ],
     "frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx": [
       "FIX-085"
+    ],
+    "frontend/src/components/chat/runtime/useMeasuredVirtualWindow.ts": [
+      "FIX-209"
     ],
     "frontend/src/components/history/RevisionFamilyView.tsx": [
       "FIX-053",
@@ -1656,9 +3297,16 @@
       "FIX-146",
       "FIX-147",
       "FIX-156",
-      "FIX-157"
+      "FIX-157",
+      "FIX-201",
+      "FIX-202",
+      "FIX-208"
+    ],
+    "frontend/src/components/layout/DashboardLayout.fix194.test.tsx": [
+      "FIX-194"
     ],
     "frontend/src/components/layout/DashboardLayout.tsx": [
+      "ADR-0010",
       "FIX-021",
       "FIX-026",
       "FIX-040b",
@@ -1691,7 +3339,22 @@
       "FIX-157",
       "FIX-163",
       "FIX-170",
-      "FIX-173"
+      "FIX-173",
+      "FIX-186",
+      "FIX-188",
+      "FIX-194",
+      "FIX-195",
+      "FIX-201",
+      "FIX-202",
+      "FIX-203",
+      "FIX-204",
+      "FIX-205",
+      "FIX-208",
+      "FIX-210",
+      "FIX-215",
+      "FIX-217",
+      "FIX-254",
+      "ISS-054"
     ],
     "frontend/src/components/library/LibraryPage.tsx": [
       "FIX-078"
@@ -1702,7 +3365,8 @@
     "frontend/src/components/preview/PreviewPanel.tsx": [
       "FIX-007b",
       "FIX-140",
-      "FIX-163"
+      "FIX-163",
+      "ISS-154"
     ],
     "frontend/src/components/preview/QuestionnairePanel.tsx": [
       "FIX-025",
@@ -1716,8 +3380,12 @@
     "frontend/src/components/preview/RunHeader.tsx": [
       "FIX-062"
     ],
+    "frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx": [
+      "FIX-226"
+    ],
     "frontend/src/components/results/AgentDetailPanel.tsx": [
-      "FIX-049b"
+      "FIX-049b",
+      "FIX-218"
     ],
     "frontend/src/components/results/AgentThinkingTab.tsx": [
       "FIX-022",
@@ -1749,7 +3417,12 @@
       "FIX-123",
       "FIX-124",
       "FIX-154",
-      "FIX-163"
+      "FIX-163",
+      "FIX-206",
+      "FIX-254"
+    ],
+    "frontend/src/components/results/artifactPreview.tsx": [
+      "FIX-237"
     ],
     "frontend/src/components/settings/AccountSettings.tsx": [
       "FIX-019"
@@ -1757,14 +3430,23 @@
     "frontend/src/components/sidebar/Sidebar.tsx": [
       "FIX-090"
     ],
+    "frontend/src/components/ui/CompletionToast.tsx": [
+      "FIX-202"
+    ],
+    "frontend/src/components/ui/NotificationPanel.fix195.test.tsx": [
+      "FIX-195"
+    ],
     "frontend/src/components/ui/NotificationPanel.tsx": [
       "FIX-021",
-      "FIX-156"
+      "FIX-156",
+      "FIX-195",
+      "FIX-202"
     ],
     "frontend/src/components/workflow/AgentProgressPanel.test.tsx": [
       "ISS-022"
     ],
     "frontend/src/components/workflow/AgentsPopup.tsx": [
+      "ADR-0010",
       "FIX-001",
       "FIX-013",
       "FIX-019",
@@ -1818,7 +3500,14 @@
       "FIX-065",
       "FIX-096"
     ],
+    "frontend/src/components/workflow/composer/AgentSkillsPicker.tsx": [
+      "ADR-0010"
+    ],
+    "frontend/src/components/workflow/composer/CanvasConfigRail.tsx": [
+      "ADR-0012"
+    ],
     "frontend/src/components/workflow/composer/ComposerPage.tsx": [
+      "ADR-0010",
       "FIX-112",
       "FIX-113"
     ],
@@ -1833,9 +3522,30 @@
     "frontend/src/components/workflow/prototype/TemplateGallery.tsx": [
       "FIX-039"
     ],
+    "frontend/src/context/SkillsHooksContext.tsx": [
+      "ADR-0010"
+    ],
+    "frontend/src/data/skills.ts": [
+      "ISS-088"
+    ],
+    "frontend/src/hooks/__tests__/terminalStatusReconcile.test.ts": [
+      "FIX-245"
+    ],
+    "frontend/src/hooks/useChatAttachments.test.ts": [
+      "ISS-156"
+    ],
+    "frontend/src/hooks/useChatAttachments.ts": [
+      "FIX-218"
+    ],
+    "frontend/src/hooks/useNotifications.fix202.test.tsx": [
+      "FIX-202"
+    ],
     "frontend/src/hooks/useNotifications.ts": [
       "FIX-145",
-      "FIX-148"
+      "FIX-148",
+      "FIX-202",
+      "FIX-204",
+      "FIX-215"
     ],
     "frontend/src/hooks/useRunChat.test.ts": [
       "FIX-128"
@@ -1847,7 +3557,21 @@
       "FIX-172",
       "FIX-176",
       "FIX-178",
-      "FIX-180"
+      "FIX-180",
+      "FIX-188",
+      "FIX-210",
+      "FIX-212",
+      "FIX-218",
+      "ISS-054"
+    ],
+    "frontend/src/hooks/useRunStateStore.ts": [
+      "FIX-201",
+      "FIX-220",
+      "FIX-224",
+      "FIX-225",
+      "FIX-254",
+      "FIX-256",
+      "ISS-157"
     ],
     "frontend/src/hooks/useRunStream.test.ts": [
       "FIX-129"
@@ -1857,13 +3581,28 @@
       "BUG-014-sse",
       "FIX-122",
       "FIX-129",
-      "FIX-135"
+      "FIX-135",
+      "FIX-207",
+      "ISS-147"
+    ],
+    "frontend/src/hooks/useSmoothText.ts": [
+      "FIX-209"
+    ],
+    "frontend/src/hooks/useWorkflow.fix222.test.ts": [
+      "FIX-222"
+    ],
+    "frontend/src/hooks/useWorkflow.specRevisionCount.test.ts": [
+      "FIX-225"
     ],
     "frontend/src/hooks/useWorkflow.ts": [
+      "ADR-0010",
       "FIX-007b",
       "FIX-107",
       "FIX-120",
-      "FIX-166"
+      "FIX-166",
+      "FIX-222",
+      "FIX-225",
+      "FIX-245"
     ],
     "frontend/src/lib/__tests__/wsRunScope.test.ts": [
       "FIX-129"
@@ -1876,7 +3615,12 @@
       "FIX-105",
       "FIX-116",
       "FIX-144",
-      "FIX-145"
+      "FIX-145",
+      "FIX-239",
+      "ISS-077"
+    ],
+    "frontend/src/lib/env.ts": [
+      "ISS-088"
     ],
     "frontend/src/lib/ppt-api.ts": [
       "FIX-039"
@@ -1892,7 +3636,11 @@
       "FIX-135",
       "FIX-137",
       "FIX-144",
-      "FIX-152"
+      "FIX-152",
+      "FIX-210"
+    ],
+    "frontend/src/store/api/userWorkflows.ts": [
+      "ADR-0012"
     ],
     "frontend/src/types/index.ts": [
       "FIX-001",
@@ -1903,7 +3651,19 @@
       "FIX-145",
       "FIX-156",
       "FIX-166",
-      "FIX-178"
+      "FIX-178",
+      "FIX-225",
+      "FIX-254"
+    ],
+    "scripts/cutover_legacy_runs.py": [
+      "ISS-089"
+    ],
+    "scripts/knowledge/check_ids.py": [
+      "ISS-050",
+      "ISS-069"
+    ],
+    "scripts/knowledge/ctx.py": [
+      "ISS-146"
     ]
   },
   "edges": {
@@ -1911,6 +3671,45 @@
       "BUG-015-sse",
       "FIX-121",
       "FIX-122"
+    ],
+    "ADR-0002": [
+      "specs/003-workflow-engine-decoupling/plan.md#q1"
+    ],
+    "ADR-0003": [
+      ".planning/phases/04-manifest-compiler-1a/04-04-SUMMARY.md",
+      "specs/012-per-agent-skills-custom-agents/reports/plan-as-roster.md"
+    ],
+    "ADR-0004": [
+      ".planning/phases/04-manifest-compiler-1a/04-04-SUMMARY.md",
+      "specs/012-per-agent-skills-custom-agents/reports/dag-validation-bypass.md"
+    ],
+    "ADR-0005": [
+      ".knowledge/INVARIANTS.md#SC-001",
+      "specs/012-per-agent-skills-custom-agents/reports/dynamic-loader.md"
+    ],
+    "ADR-0006": [
+      "specs/012-per-agent-skills-custom-agents/spec.md#R-01"
+    ],
+    "ADR-0007": [
+      "specs/012-per-agent-skills-custom-agents/spec.md#R-12"
+    ],
+    "ADR-0008": [
+      ".knowledge/cards/ADR-0003.md",
+      "specs/012-per-agent-skills-custom-agents/reports/plan-as-roster.md"
+    ],
+    "ADR-0009": [
+      "specs/012-per-agent-skills-custom-agents/reports/step-fanout.md"
+    ],
+    "ADR-0010": [
+      "specs/012-per-agent-skills-custom-agents/reports/README.md"
+    ],
+    "ADR-0011": [
+      ".knowledge/cards/ADR-0007.md",
+      "specs/012-per-agent-skills-custom-agents/reports/outstanding-bugs.md"
+    ],
+    "ADR-0012": [
+      ".knowledge/cards/ADR-0006.md",
+      "specs/012-per-agent-skills-custom-agents/reports/outstanding-bugs.md"
     ],
     "FIX-031": [
       "ISS-029"
@@ -1997,6 +3796,99 @@
       "FIX-046",
       "FIX-166"
     ],
+    "FIX-194": [
+      "FIX-155",
+      "FIX-157"
+    ],
+    "FIX-195": [
+      "FIX-133",
+      "FIX-146"
+    ],
+    "FIX-201": [
+      "FIX-133",
+      "FIX-134",
+      "FIX-194",
+      "FIX-195"
+    ],
+    "FIX-203": [
+      "FIX-202"
+    ],
+    "FIX-204": [
+      "FIX-202",
+      "FIX-203"
+    ],
+    "FIX-205": [
+      "FIX-203"
+    ],
+    "FIX-206": [
+      "FIX-153",
+      "FIX-201"
+    ],
+    "FIX-208": [
+      "FIX-202"
+    ],
+    "FIX-215": [
+      "FIX-202",
+      "FIX-203",
+      "FIX-204",
+      "FIX-205"
+    ],
+    "FIX-216b": [
+      "FIX-189",
+      "FIX-212"
+    ],
+    "FIX-219": [
+      "FIX-216b"
+    ],
+    "FIX-220": [
+      "FIX-201"
+    ],
+    "FIX-221": [
+      "FIX-216b",
+      "FIX-219"
+    ],
+    "FIX-222": [
+      "ISS-063"
+    ],
+    "FIX-223": [
+      "KAN-101"
+    ],
+    "FIX-224": [
+      "FIX-201",
+      "FIX-220"
+    ],
+    "FIX-235": [
+      "FIX-201"
+    ],
+    "FIX-252": [
+      "FIX-217",
+      "ISS-050",
+      "ISS-051"
+    ],
+    "FIX-253": [
+      "ISS-053",
+      "ISS-070",
+      "ISS-071"
+    ],
+    "FIX-254": [
+      "ISS-052",
+      "ISS-062",
+      "ISS-063",
+      "ISS-072"
+    ],
+    "FIX-255": [
+      "FIX-216",
+      "FIX-217"
+    ],
+    "FIX-256": [
+      "FIX-220",
+      "ISS-138",
+      "ISS-157"
+    ],
+    "FIX-257": [
+      "FIX-218",
+      "FIX-233"
+    ],
     "ISS-012": [
       "ISS-014"
     ],
@@ -2028,12 +3920,18 @@
     "ISS-033": [
       "FIX-034",
       "FIX-036",
-      "ISS-032"
+      "FIX-230",
+      "ISS-032",
+      "ISS-034",
+      "ISS-092"
     ],
     "ISS-034": [
       "FIX-036",
       "FIX-037",
-      "ISS-032"
+      "FIX-230",
+      "ISS-032",
+      "ISS-033",
+      "ISS-092"
     ],
     "ISS-035": [
       "FIX-039",
@@ -2047,11 +3945,542 @@
     ],
     "ISS-048": [
       "ISS-045"
+    ],
+    "ISS-050": [
+      "FIX-185",
+      "ISS-064",
+      "ISS-066"
+    ],
+    "ISS-051": [
+      "FIX-218",
+      "ISS-064"
+    ],
+    "ISS-052": [
+      "ISS-064"
+    ],
+    "ISS-053": [
+      "ISS-064"
+    ],
+    "ISS-054": [
+      "FIX-188",
+      "FIX-210",
+      "ISS-066"
+    ],
+    "ISS-055": [
+      "FIX-189",
+      "ISS-050",
+      "ISS-066"
+    ],
+    "ISS-056": [
+      "FIX-190",
+      "ISS-066"
+    ],
+    "ISS-057": [
+      "FIX-191",
+      "ISS-066"
+    ],
+    "ISS-058": [
+      "FIX-192",
+      "ISS-066"
+    ],
+    "ISS-059": [
+      "FIX-193",
+      "ISS-066"
+    ],
+    "ISS-060": [
+      "FIX-194",
+      "ISS-066"
+    ],
+    "ISS-061": [
+      "FIX-195",
+      "ISS-066"
+    ],
+    "ISS-062": [
+      "FIX-218",
+      "ISS-064"
+    ],
+    "ISS-063": [
+      "FIX-163",
+      "FIX-164",
+      "FIX-217",
+      "FIX-222",
+      "ISS-065"
+    ],
+    "ISS-064": [
+      "FIX-218"
+    ],
+    "ISS-065": [
+      "FIX-217",
+      "FIX-221",
+      "ISS-063"
+    ],
+    "ISS-066": [
+      "FIX-189",
+      "FIX-190",
+      "ISS-050",
+      "ISS-054",
+      "ISS-055",
+      "ISS-061",
+      "ISS-064"
+    ],
+    "ISS-069": [
+      "FIX-020",
+      "FIX-128",
+      "FIX-129",
+      "FIX-131",
+      "FIX-158",
+      "FIX-159",
+      "FIX-162",
+      "FIX-183",
+      "FIX-184",
+      "FIX-214",
+      "FIX-215",
+      "ISS-066"
+    ],
+    "ISS-071": [
+      "ISS-053"
+    ],
+    "ISS-072": [
+      "FIX-218",
+      "FIX-220",
+      "ISS-052",
+      "ISS-064"
+    ],
+    "ISS-073": [
+      "ISS-052"
+    ],
+    "ISS-074": [
+      "FIX-218",
+      "FIX-220"
+    ],
+    "ISS-075": [
+      "FIX-221",
+      "FIX-222",
+      "FIX-225",
+      "ISS-063",
+      "ISS-065"
+    ],
+    "ISS-076": [
+      "FIX-221",
+      "ISS-068"
+    ],
+    "ISS-078": [
+      "FIX-175",
+      "FIX-223",
+      "ISS-068"
+    ],
+    "ISS-079": [
+      "FIX-223",
+      "ISS-068"
+    ],
+    "ISS-080": [
+      "FIX-164",
+      "FIX-201",
+      "FIX-221",
+      "FIX-225",
+      "ISS-063",
+      "ISS-075",
+      "ISS-081"
+    ],
+    "ISS-081": [
+      "FIX-225",
+      "ISS-075",
+      "ISS-080"
+    ],
+    "ISS-082": [
+      "FIX-225",
+      "ISS-080"
+    ],
+    "ISS-083": [
+      "FIX-164",
+      "ISS-039"
+    ],
+    "ISS-084": [
+      "FIX-227",
+      "ISS-078",
+      "ISS-088",
+      "ISS-089"
+    ],
+    "ISS-085": [
+      "FIX-039",
+      "FIX-222",
+      "FIX-226",
+      "ISS-065",
+      "ISS-087"
+    ],
+    "ISS-086": [
+      "FIX-217"
+    ],
+    "ISS-087": [
+      "ISS-085",
+      "ISS-116"
+    ],
+    "ISS-088": [
+      "ISS-084",
+      "ISS-103"
+    ],
+    "ISS-089": [
+      "FIX-227",
+      "ISS-084",
+      "ISS-134"
+    ],
+    "ISS-090": [
+      "FIX-228",
+      "ISS-053",
+      "ISS-086"
+    ],
+    "ISS-091": [
+      "FIX-227",
+      "FIX-228",
+      "FIX-229",
+      "ISS-078"
+    ],
+    "ISS-092": [
+      "FIX-230",
+      "ISS-033",
+      "ISS-034"
+    ],
+    "ISS-093": [
+      "FIX-230",
+      "ISS-027"
+    ],
+    "ISS-094": [
+      "FIX-231",
+      "ISS-074",
+      "ISS-078"
+    ],
+    "ISS-095": [
+      "FIX-231",
+      "ISS-074",
+      "ISS-091"
+    ],
+    "ISS-096": [
+      "FIX-001",
+      "FIX-014",
+      "FIX-109",
+      "FIX-231"
+    ],
+    "ISS-097": [
+      "FIX-242",
+      "ISS-091",
+      "ISS-131"
+    ],
+    "ISS-098": [
+      "ISS-091"
+    ],
+    "ISS-099": [
+      "FIX-232",
+      "ISS-091"
+    ],
+    "ISS-100": [
+      "FIX-233",
+      "ISS-092"
+    ],
+    "ISS-101": [
+      "FIX-233"
+    ],
+    "ISS-102": [
+      "FIX-238",
+      "ISS-055",
+      "ISS-118",
+      "ISS-119"
+    ],
+    "ISS-103": [
+      "FIX-234",
+      "ISS-106"
+    ],
+    "ISS-104": [
+      "FIX-234",
+      "ISS-089"
+    ],
+    "ISS-105": [
+      "FIX-234",
+      "ISS-088"
+    ],
+    "ISS-106": [
+      "FIX-234",
+      "ISS-088"
+    ],
+    "ISS-108": [
+      "ISS-082"
+    ],
+    "ISS-109": [
+      "ISS-082",
+      "ISS-087"
+    ],
+    "ISS-110": [
+      "FIX-201",
+      "FIX-235",
+      "ISS-082",
+      "ISS-107"
+    ],
+    "ISS-111": [
+      "FIX-163",
+      "FIX-164",
+      "FIX-220",
+      "FIX-221",
+      "FIX-225",
+      "ISS-039",
+      "ISS-063",
+      "ISS-083"
+    ],
+    "ISS-112": [
+      "ISS-083"
+    ],
+    "ISS-113": [
+      "FIX-235",
+      "ISS-083",
+      "ISS-110"
+    ],
+    "ISS-114": [
+      "FIX-236",
+      "ISS-076",
+      "ISS-083"
+    ],
+    "ISS-115": [
+      "FIX-237"
+    ],
+    "ISS-116": [
+      "ISS-087"
+    ],
+    "ISS-117": [
+      "ISS-087",
+      "ISS-116"
+    ],
+    "ISS-118": [
+      "FIX-238"
+    ],
+    "ISS-119": [
+      "FIX-238",
+      "ISS-055"
+    ],
+    "ISS-120": [
+      "FIX-239",
+      "ISS-034"
+    ],
+    "ISS-121": [
+      "FIX-232",
+      "FIX-240",
+      "ISS-091",
+      "ISS-123",
+      "ISS-126"
+    ],
+    "ISS-122": [
+      "FIX-239",
+      "ISS-034"
+    ],
+    "ISS-123": [
+      "FIX-240",
+      "FIX-245",
+      "FIX-246",
+      "ISS-121",
+      "ISS-126"
+    ],
+    "ISS-124": [
+      "FIX-240",
+      "FIX-243",
+      "FIX-244",
+      "ISS-121"
+    ],
+    "ISS-125": [
+      "FIX-240",
+      "ISS-121"
+    ],
+    "ISS-126": [
+      "FIX-201",
+      "FIX-240",
+      "FIX-244",
+      "FIX-245",
+      "ISS-123",
+      "ISS-124",
+      "ISS-138"
+    ],
+    "ISS-128": [
+      "FIX-241",
+      "ISS-070"
+    ],
+    "ISS-129": [
+      "FIX-242",
+      "ISS-091",
+      "ISS-097"
+    ],
+    "ISS-130": [
+      "FIX-242",
+      "ISS-097"
+    ],
+    "ISS-131": [
+      "FIX-242",
+      "ISS-097"
+    ],
+    "ISS-132": [
+      "FIX-228",
+      "FIX-242",
+      "ISS-090",
+      "ISS-097"
+    ],
+    "ISS-133": [
+      "FIX-240",
+      "FIX-243",
+      "ISS-078",
+      "ISS-121"
+    ],
+    "ISS-134": [
+      "FIX-243",
+      "ISS-089"
+    ],
+    "ISS-135": [
+      "FIX-240",
+      "FIX-244",
+      "ISS-123"
+    ],
+    "ISS-137": [
+      "FIX-245",
+      "ISS-136"
+    ],
+    "ISS-138": [
+      "FIX-201",
+      "FIX-245",
+      "ISS-126"
+    ],
+    "ISS-139": [
+      "FIX-247",
+      "ISS-126",
+      "ISS-140"
+    ],
+    "ISS-140": [
+      "FIX-245",
+      "FIX-247",
+      "ISS-126"
+    ],
+    "ISS-141": [
+      "FIX-245",
+      "ISS-126"
+    ],
+    "ISS-142": [
+      "FIX-240",
+      "FIX-245",
+      "ISS-126",
+      "ISS-137"
+    ],
+    "ISS-143": [
+      "FIX-247"
+    ],
+    "ISS-144": [
+      "FIX-247"
+    ],
+    "ISS-145": [
+      "FIX-247"
+    ],
+    "ISS-146": [
+      "FIX-248"
+    ],
+    "ISS-148": [
+      "FIX-249",
+      "ISS-140",
+      "ISS-149"
+    ],
+    "ISS-149": [
+      "FIX-249",
+      "ISS-150"
+    ],
+    "ISS-150": [
+      "FIX-249"
+    ],
+    "ISS-151": [
+      "FIX-249"
+    ],
+    "ISS-152": [
+      "FIX-249",
+      "FIX-250"
+    ],
+    "ISS-154": [
+      "FIX-250"
+    ],
+    "ISS-156": [
+      "FIX-218"
+    ],
+    "ISS-157": [
+      "FIX-220"
+    ],
+    "ISS-158": [
+      "FIX-218",
+      "FIX-233",
+      "ISS-092"
+    ],
+    "ISS-160": [
+      "FIX-249",
+      "FIX-250"
+    ],
+    "ISS-161": [
+      "FIX-219",
+      "ISS-153"
     ]
   },
   "rules_by_file": {
+    "backend/agents/capabilities/tools/providers.py": [
+      "ADR-0012"
+    ],
+    "backend/agents/execution_engine/engine.py": [
+      "ADR-0003",
+      "ADR-0004",
+      "ADR-0008",
+      "ADR-0010",
+      "ADR-0011"
+    ],
+    "backend/agents/factory.py": [
+      "ADR-0011"
+    ],
+    "backend/agents/loader.py": [
+      "ADR-0005"
+    ],
+    "backend/agents/registry.py": [
+      "ADR-0005"
+    ],
+    "backend/agents/workflows/artifacts.py": [
+      "ADR-0007",
+      "ADR-0011"
+    ],
+    "backend/agents/workflows/compiler.py": [
+      "ADR-0012"
+    ],
+    "backend/agents/workflows/selections.py": [
+      "ADR-0010"
+    ],
+    "backend/app/agents/skill_staging.py": [
+      "ADR-0006"
+    ],
+    "backend/app/api/agents.py": [
+      "ADR-0010"
+    ],
+    "backend/app/api/run_commands.py": [
+      "ADR-0008"
+    ],
+    "frontend/src/components/layout/DashboardLayout.tsx": [
+      "ADR-0010"
+    ],
+    "frontend/src/components/workflow/AgentsPopup.tsx": [
+      "ADR-0010"
+    ],
+    "frontend/src/components/workflow/composer/AgentSkillsPicker.tsx": [
+      "ADR-0010"
+    ],
+    "frontend/src/components/workflow/composer/CanvasConfigRail.tsx": [
+      "ADR-0012"
+    ],
+    "frontend/src/components/workflow/composer/ComposerPage.tsx": [
+      "ADR-0010"
+    ],
+    "frontend/src/context/SkillsHooksContext.tsx": [
+      "ADR-0010"
+    ],
     "frontend/src/hooks/useRunStream.ts": [
       "ADR-0001"
+    ],
+    "frontend/src/hooks/useWorkflow.ts": [
+      "ADR-0010"
+    ],
+    "frontend/src/store/api/userWorkflows.ts": [
+      "ADR-0012"
     ]
   }
 }

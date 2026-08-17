@@ -103,41 +103,41 @@ export function StartingPointCard({ input, originalBriefRootRunId, revisionParen
   };
 
   return (
-    <div className="rounded-xl border overflow-hidden border-gray-100">
+    <div className="rounded-xl border overflow-hidden border-line-divider">
       <button
           onClick={() => setExpanded(v => !v)}
           aria-expanded={expanded}
           aria-label={expanded ? `Collapse ${title.toLowerCase()}` : `Expand ${title.toLowerCase()}`}
-          className="w-full flex items-center gap-3 px-4 py-3 bg-white hover:bg-gray-50/50 transition-colors text-left"
+          className="w-full flex items-center gap-3 px-4 py-3 bg-surface-white hover:bg-surface-warm transition-colors text-left"
         >
-          <div className="w-7 h-7 rounded-lg bg-[#E8EDF5] flex items-center justify-center flex-shrink-0">
-            <FileText aria-hidden className="h-3.5 w-3.5 text-[#1B2A4A]" />
+          <div className="w-7 h-7 rounded-lg bg-brand-fill flex items-center justify-center flex-shrink-0">
+            <FileText aria-hidden className="h-3.5 w-3.5 text-brand" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <p className="text-[12px] font-semibold text-gray-900">{title}</p>
+              <p className="text-[12px] font-semibold text-ink-900">{title}</p>
               {isRevision && revisionParentVersion != null && (
-                <span className="text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">
+                <span className="text-[9px] bg-line-faint-row text-ink-500 px-1.5 py-0.5 rounded-full font-medium">
                   revision of v{revisionParentVersion}
                 </span>
               )}
             </div>
-            <p className="text-[10px] text-gray-400 truncate">{subtitle}</p>
+            <p className="text-[10px] text-ink-400 truncate">{subtitle}</p>
           </div>
-          <ChevronDown aria-hidden className={`h-3.5 w-3.5 text-gray-400 flex-shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
+          <ChevronDown aria-hidden className={`h-3.5 w-3.5 text-ink-400 flex-shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
         </button>
 
         {expanded && (
-          <div className="border-t border-gray-100 px-4 py-3 bg-white space-y-3">
+          <div className="border-t border-line-divider px-4 py-3 bg-surface-white space-y-3">
             {/* REVISION variant — the instruction is the PRIMARY content */}
             {isRevision && (
               <>
-                <div className="rounded-xl border-2 border-[#1B2A4A]/30 bg-[#1B2A4A]/5 px-3 py-2.5">
+                <div className="rounded-xl border-2 border-brand/30 bg-brand/5 px-3 py-2.5">
                   <div className="flex items-center gap-1.5 mb-1.5">
-                    <Pencil aria-hidden className="h-3 w-3 text-[#1B2A4A]" />
-                    <span className="text-[9px] font-bold text-[#1B2A4A] uppercase tracking-widest">Revision Request</span>
+                    <Pencil aria-hidden className="h-3 w-3 text-brand" />
+                    <span className="text-[9px] font-bold text-brand uppercase tracking-widest">Revision Request</span>
                   </div>
-                  <p className="text-[11px] text-[#1B2A4A] font-medium leading-relaxed">{parsed.revisionInstruction}</p>
+                  <p className="text-[11px] text-brand font-medium leading-relaxed">{parsed.revisionInstruction}</p>
                 </div>
 
                 {/* Original brief (v1) — lazy fetch on first expand only */}
@@ -147,7 +147,7 @@ export function StartingPointCard({ input, originalBriefRootRunId, revisionParen
                       onClick={toggleOriginal}
                       aria-expanded={originalOpen}
                       aria-label="Show original brief version 1"
-                      className="flex items-center gap-1.5 text-[9px] font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors"
+                      className="flex items-center gap-1.5 text-[9px] font-bold text-ink-400 uppercase tracking-widest hover:text-ink-600 transition-colors"
                     >
                       <FileText aria-hidden className="h-3 w-3" />
                       Original brief (v1)
@@ -157,11 +157,11 @@ export function StartingPointCard({ input, originalBriefRootRunId, revisionParen
                       <div className="mt-2">
                         {originalLoading ? (
                           <div className="flex items-center gap-2">
-                            <span className="h-3.5 w-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                            <span className="text-[10px] text-gray-400">Loading original brief…</span>
+                            <span className="h-3.5 w-3.5 border-2 border-ink-400 border-t-transparent rounded-full animate-spin" />
+                            <span className="text-[10px] text-ink-400">Loading original brief…</span>
                           </div>
                         ) : (
-                          <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed p-3 rounded-lg border border-gray-100 bg-white max-h-[500px] overflow-y-auto font-mono">
+                          <pre className="text-[9px] text-ink-600 whitespace-pre-wrap leading-relaxed p-3 rounded-lg border border-line-divider bg-surface-white max-h-[500px] overflow-y-auto font-mono">
                             {originalBrief && originalBrief.length > 0 ? originalBrief : "No original brief available."}
                           </pre>
                         )}
@@ -175,14 +175,14 @@ export function StartingPointCard({ input, originalBriefRootRunId, revisionParen
             {/* NORMAL / CHAINED variant — brief as line-clamped body w/ Show more */}
             {!isRevision && parsed.brief && (
               <div>
-                <p className={`text-[11px] text-gray-700 leading-relaxed ${briefExpanded ? "whitespace-pre-wrap max-h-[500px] overflow-y-auto" : "line-clamp-2"}`}>
+                <p className={`text-[11px] text-ink-700 leading-relaxed ${briefExpanded ? "whitespace-pre-wrap max-h-[500px] overflow-y-auto" : "line-clamp-2"}`}>
                   {parsed.brief}
                 </p>
                 <button
                   onClick={() => setBriefExpanded(v => !v)}
                   aria-expanded={briefExpanded}
                   aria-label={briefExpanded ? "Show less of the brief" : "Show more of the brief"}
-                  className="mt-1 flex items-center gap-1 text-[9px] font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors"
+                  className="mt-1 flex items-center gap-1 text-[9px] font-bold text-ink-400 uppercase tracking-widest hover:text-ink-600 transition-colors"
                 >
                   {briefExpanded ? "Show less" : "Show more"}
                   <ChevronDown aria-hidden className={`h-3 w-3 transition-transform ${briefExpanded ? "rotate-180" : ""}`} />
@@ -191,7 +191,7 @@ export function StartingPointCard({ input, originalBriefRootRunId, revisionParen
             )}
 
             {!isRevision && !parsed.brief && parsed.attachments.length > 0 && (
-              <p className="text-[10px] text-gray-400">No typed brief — see attachments below.</p>
+              <p className="text-[10px] text-ink-400">No typed brief — see attachments below.</p>
             )}
 
             {/* CHAINED — "From previous workflow" collapsed chip */}
@@ -201,14 +201,14 @@ export function StartingPointCard({ input, originalBriefRootRunId, revisionParen
                   onClick={() => setChainOpen(v => !v)}
                   aria-expanded={chainOpen}
                   aria-label="Show context from previous workflow"
-                  className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[10px] text-gray-600 hover:bg-gray-200 transition-colors"
+                  className="inline-flex items-center gap-1 rounded-lg bg-line-faint-row px-2.5 py-1 text-[10px] text-ink-600 hover:bg-line-control transition-colors"
                 >
                   <File aria-hidden className="h-2.5 w-2.5" />
                   From previous workflow
                   <ChevronDown aria-hidden className={`h-3 w-3 transition-transform ${chainOpen ? "rotate-180" : ""}`} />
                 </button>
                 {chainOpen && (
-                  <pre className="mt-2 text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed p-3 rounded-lg border border-gray-100 bg-white max-h-[500px] overflow-y-auto font-mono">
+                  <pre className="mt-2 text-[9px] text-ink-600 whitespace-pre-wrap leading-relaxed p-3 rounded-lg border border-line-divider bg-surface-white max-h-[500px] overflow-y-auto font-mono">
                     {parsed.chainContext}
                   </pre>
                 )}
@@ -224,14 +224,14 @@ export function StartingPointCard({ input, originalBriefRootRunId, revisionParen
                       onClick={() => setOpenAttachment(prev => (prev === i ? null : i))}
                       aria-expanded={openAttachment === i}
                       aria-label={`${openAttachment === i ? "Collapse" : "Expand"} attachment ${att.name}`}
-                      className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[10px] text-gray-600 hover:bg-gray-200 transition-colors"
+                      className="inline-flex items-center gap-1 rounded-lg bg-line-faint-row px-2.5 py-1 text-[10px] text-ink-600 hover:bg-line-control transition-colors"
                     >
                       <File aria-hidden className="h-2.5 w-2.5" />
                       {att.name} — {att.content.length} chars
                       <ChevronDown aria-hidden className={`h-3 w-3 transition-transform ${openAttachment === i ? "rotate-180" : ""}`} />
                     </button>
                     {openAttachment === i && (
-                      <pre className="mt-1.5 text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed p-3 rounded-lg border border-gray-100 bg-white max-h-[500px] overflow-y-auto font-mono">
+                      <pre className="mt-1.5 text-[9px] text-ink-600 whitespace-pre-wrap leading-relaxed p-3 rounded-lg border border-line-divider bg-surface-white max-h-[500px] overflow-y-auto font-mono">
                         {att.content}
                       </pre>
                     )}
@@ -244,9 +244,9 @@ export function StartingPointCard({ input, originalBriefRootRunId, revisionParen
                 from a retained:false image ref: no <img>, no byte fetch, no
                 durable storage (image persistence for reopen is deferred). */}
             {notRetainedImageCount > 0 && (
-              <div className="flex items-center gap-2 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-2">
-                <ImageOff aria-hidden className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-                <p className="text-[10px] text-gray-500 leading-relaxed">
+              <div className="flex items-center gap-2 rounded-lg border border-dashed border-line-control bg-surface-warm px-3 py-2">
+                <ImageOff aria-hidden className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
+                <p className="text-[10px] text-ink-500 leading-relaxed">
                   {notRetainedImageCount === 1 ? "Image not retained" : `${notRetainedImageCount} images not retained`}
                   {" — images are not stored after the run."}
                 </p>

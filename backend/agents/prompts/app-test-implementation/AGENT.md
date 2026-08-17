@@ -7,6 +7,7 @@ context_from:
 - app-user-stories
 - app-code-generator
 - app-feature-implementation
+description: Writes the test code (JUnit/xUnit/Jest/Pact/Playwright) that proves the user stories' acceptance criteria.
 estimated_duration: 12.0
 guardrails: []
 icon: "\U0001F9EC"

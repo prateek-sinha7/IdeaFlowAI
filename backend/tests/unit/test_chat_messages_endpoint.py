@@ -31,8 +31,9 @@ from sqlalchemy.pool import StaticPool
 
 
 class _FakeUser:
-    def __init__(self, id: str):
+    def __init__(self, id: str, tier: str = "enterprise"):
         self.id = id
+        self.tier = tier
 
 
 @pytest.fixture
@@ -209,7 +210,17 @@ class TestPersist:
                      attachments=[{"kind": "image", "data": "BIGBASE64"}])
         assert resp.status_code == 200
         stored = _chat_rows(env, run_id)[0].payload_json["attachments"]
-        assert stored == [{"kind": "image", "retained": False}]  # bytes NOT persisted
+        # RECONCILED on the 2026-08-13 `dev` merge (was an exact-dict equality). dev's
+        # FIX-218 (KAN-170) additionally persists the attachment METADATA — name /
+        # mimeType / sizeBytes — so the transcript can show a filename on replay. That
+        # is a deliberate behaviour change, so the exact-equality form was over-strict.
+        # What ND-10 actually requires, and what this test now pins, is that the BYTES
+        # never reach the durable row. Asserting the invariant, not the dict shape.
+        assert len(stored) == 1
+        assert stored[0]["kind"] == "image"
+        assert stored[0]["retained"] is False
+        assert "data" not in stored[0]                     # the bytes NEVER persist
+        assert "BIGBASE64" not in json.dumps(stored)       # nor anywhere else in the row
 
     def test_cross_owner_is_404(self, env):
         owner = _seed_user(env, "owner")
@@ -237,19 +248,45 @@ def _arm_review(env, gate_key):
 
 
 class TestRouting:
-    def test_clarify_waiting_routes_to_answers_seam(self, env):
+    @pytest.fixture(autouse=True)
+    def _no_live_concierge(self, monkeypatch):
+        """ISS-102 — keep this class's Concierge seam off the wire. DO NOT DELETE.
+
+        A bare-text turn at ``PHASE_CLARIFY_WAITING`` / ``PHASE_GATE_PAUSED`` is
+        *deliberately* routed to ``CHANNEL_CONCIERGE`` by
+        ``app/api/chat_router.py::route_chat_turn`` — a plain text turn must NOT be
+        auto-submitted as a freeform clarify answer, and must NOT default to
+        ``approve``. The REAL ``ConciergeCapability`` resolved by
+        ``run_commands._resolve_concierge`` (:918, called at :1442) carries
+        ``model=None``, so it goes ``build_model()`` → ``ChatBedrockConverse`` → a live
+        AWS ``ConverseStream`` call that bills real money.
+
+        Class-wide rather than per-test because only 2 of the 8 methods reach the seam
+        today but any of them could tomorrow; a per-test patch on the other 6 would be
+        dead code (INV-12, "no shadows"). ``_StreamingConcierge`` is defined later in
+        this file — the body resolves it as a module global at call time.
+        """
+        from app.api import run_commands as rc_module
+
+        fake = _StreamingConcierge()
+        monkeypatch.setattr(rc_module, "_resolve_concierge", lambda: fake)
+
+    def test_clarify_waiting_plain_text_routes_to_concierge(self, env):
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="waiting_for_user")
         _seed_events(env, run_id, [(1, "questionnaire_ready", {})], owner_id=owner.id)
         env["state"]["user"] = owner
 
+        # SAFETY: plain text (no structured responses from clarify form) routes to Concierge,
+        # not auto-submitted as freeform answer. Prevents user questions from answering the gate.
+        # A Concierge-routed turn streams as text/event-stream (BE-2), not a plain JSON body.
         resp = _post(env, run_id, text="dark mode please", message_id="m-c")
         assert resp.status_code == 200, resp.text
-        assert resp.json()["channel"] == "answers"
-        recorded = env["store"]._questionnaire_responses.get(run_id)
-        assert recorded == [{"question_id": "freeform", "answer": "dark mode please"}]
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        terminals = [f for f in _parse_sse_frames(resp.text) if f["type"] == "chat_reply"]
+        assert len(terminals) == 1
 
-    def test_gate_paused_routes_to_gate_seam_approve(self, env):
+    def test_gate_paused_plain_text_routes_to_concierge(self, env):
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="waiting_for_user")
         gate_key = f"{run_id}:prototype-specify"
@@ -258,10 +295,14 @@ class TestRouting:
         _arm_review(env, gate_key)
         env["state"]["user"] = owner
 
-        resp = _post(env, run_id, message_id="m-g1")  # default action approve
-        assert resp.json()["channel"] == "gate"
-        recorded = env["store"]._questionnaire_responses.get(f"review:{gate_key}")
-        assert recorded and recorded[0]["approved"] is True
+        # KAN-100: plain text (no explicit gate action) routes to Concierge, not auto-approve.
+        # Prevents silent approval if user types a question during a gate pause.
+        # A Concierge-routed turn streams as text/event-stream (BE-2), not a plain JSON body.
+        resp = _post(env, run_id, message_id="m-g1")
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        terminals = [f for f in _parse_sse_frames(resp.text) if f["type"] == "chat_reply"]
+        assert len(terminals) == 1
 
     def test_gate_update_specs_routes_to_kan101(self, env):
         owner = _seed_user(env, "owner")
@@ -399,9 +440,13 @@ class _StreamingConcierge:
     """A scripted concierge (no live model): ``converse`` streams two deltas via the
     ``on_chunk`` sink then returns the full text, and surfaces one held gate proposal."""
 
-    def __init__(self, deltas=("Hel", "lo"), answer="Hello"):
+    def __init__(self, deltas=("Hel", "lo"), answer="Hello", usage=None):
         self._deltas = list(deltas)
         self._answer = answer
+        # ISS-092 — the OBSERVED model spend this turn, surfaced on the ctx exactly as
+        # the real capability does. ``None`` models a converse that reported nothing:
+        # the endpoint must then write NO chat_usage row (unmeasured is never invented).
+        self._usage = usage
         self.seen: list = []
         # c72 — capture the ctx.chain_hints threaded onto each converse turn.
         self.seen_hints: list = []
@@ -409,6 +454,8 @@ class _StreamingConcierge:
     async def converse(self, ctx, user_message, on_chunk=None):
         self.seen.append(user_message)
         self.seen_hints.append(getattr(ctx, "chain_hints", None))
+        if self._usage is not None:
+            ctx.usage = dict(self._usage)
         for delta in self._deltas:
             if on_chunk is not None:
                 res = on_chunk(delta)
@@ -507,3 +554,112 @@ class TestConciergeStreaming:
         assert resp.status_code == 200, resp.text
         assert resp.headers["content-type"].startswith("application/json")
         assert resp.json()["channel"] == "steering"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ISS-092 — the Concierge's own model spend becomes a durable, readable number
+# ════════════════════════════════════════════════════════════════════════════
+_USAGE = {
+    "input_tokens": 1200, "output_tokens": 340,
+    "cache_read_tokens": 900, "cache_write_tokens": 100,
+    "model_id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+}
+
+
+class TestChatUsageAccounting:
+    def test_chat_usage_row_records_observed_tokens_once_per_message_id(self, env, monkeypatch):
+        """One durable ``chat_usage`` row per answered turn, idempotent on message_id.
+
+        ``append_event_next_seq`` is keyed on ``event_id`` (``chat-usage:{message_id}``),
+        so a retried/double-submitted POST resolves to the SAME row — a replay can never
+        double-count the spend.
+        """
+        from app.api import run_commands as rc_module
+
+        fake = _StreamingConcierge(usage=_USAGE)
+        monkeypatch.setattr(rc_module, "_resolve_concierge", lambda: fake)
+
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="completed")
+        env["state"]["user"] = owner
+
+        r1 = _post(env, run_id, text="what did it cost?", concierge=True, message_id="u1")
+        assert r1.status_code == 200, r1.text
+
+        rows = _events_of_type(env, run_id, "chat_usage")
+        assert len(rows) == 1, "one answered turn must record exactly one chat_usage row"
+        payload = rows[0].payload_json
+        assert rows[0].event_id == "chat-usage:u1"
+        assert payload["message_id"] == "u1"
+        assert payload["input_tokens"] == 1200
+        assert payload["output_tokens"] == 340
+        assert payload["cache_read_tokens"] == 900
+        assert payload["cache_write_tokens"] == 100
+        assert payload["model_id"] == _USAGE["model_id"]
+        # Priced from the OBSERVED counters — the number exists, so it can be reported.
+        assert isinstance(payload["estimated_cost_usd"], (int, float))
+        # Owner + workspace stamped by the ScopedStore (every durable row carries them).
+        assert rows[0].owner_id == owner.id and rows[0].workspace_id == "ws-1"
+
+        # A replayed POST with the SAME message_id must not add a second row.
+        r2 = _post(env, run_id, text="what did it cost?", concierge=True, message_id="u1")
+        assert r2.status_code == 200, r2.text
+        assert len(_events_of_type(env, run_id, "chat_usage")) == 1, "replay double-counted"
+
+    def test_chat_usage_never_mutates_workflow_run_token_usage(self, env, monkeypatch):
+        """Chat spend is a SEPARATE line — it never touches the run's headline cost.
+
+        ``workflow_runs.token_usage`` answers "what does this workflow cost to run", is
+        written solely by ``_apply_terminal_completion`` (documented SOLE writer) and is
+        pinned by the characterization goldens. Folding a user's chattiness into it would
+        make two runs of the same workflow non-comparable and put a second writer on a
+        deliberately consolidated seam.
+        """
+        from app.api import run_commands as rc_module
+        from app.models.workflow import WorkflowRun
+
+        fake = _StreamingConcierge(usage=_USAGE)
+        monkeypatch.setattr(rc_module, "_resolve_concierge", lambda: fake)
+
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="completed")
+        env["state"]["user"] = owner
+
+        db = env["Session"]()
+        try:
+            before = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first().token_usage
+        finally:
+            db.close()
+
+        assert _post(env, run_id, text="hi", concierge=True, message_id="u2").status_code == 200
+        # The row proves the turn WAS counted — so an unchanged headline is a decision,
+        # not an accident of the spend never being observed.
+        assert len(_events_of_type(env, run_id, "chat_usage")) == 1
+
+        db = env["Session"]()
+        try:
+            after = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first().token_usage
+        finally:
+            db.close()
+        assert after == before, "chat spend must NOT be folded into the run's headline cost"
+
+    def test_no_chat_usage_row_when_spend_was_not_observed(self, env, monkeypatch):
+        """A converse that reports no usage writes NO row — unmeasured is never invented.
+
+        The absolute rule for ISS-092: a token that was not observed is reported as
+        unmeasured. Deriving a count from ``len(chat_reply)`` would poison the downstream
+        cache-savings figures (ISS-034), so the absence of a measurement stays an absence.
+        """
+        from app.api import run_commands as rc_module
+
+        fake = _StreamingConcierge(usage=None)  # converse surfaces nothing
+        monkeypatch.setattr(rc_module, "_resolve_concierge", lambda: fake)
+
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="completed")
+        env["state"]["user"] = owner
+
+        assert _post(env, run_id, text="hi", concierge=True, message_id="u3").status_code == 200
+        # The reply still landed — counting never gates the product.
+        assert len(_events_of_type(env, run_id, "chat_reply")) == 1
+        assert _events_of_type(env, run_id, "chat_usage") == []

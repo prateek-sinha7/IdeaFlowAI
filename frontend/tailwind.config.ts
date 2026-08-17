@@ -29,6 +29,7 @@ const config: Config = {
         typing: "typing 1.4s steps(3, end) infinite",
         "fade-in": "fade-in 0.3s ease-out forwards",
         "fade-in-up": "fade-in-up 0.3s ease-out forwards",
+        shimmer: "shimmer 2s infinite",
       },
       keyframes: {
         typing: {
@@ -43,6 +44,10 @@ const config: Config = {
         "fade-in-up": {
           from: { opacity: "0", transform: "translateY(8px)" },
           to: { opacity: "1", transform: "translateY(0)" },
+        },
+        shimmer: {
+          "0%": { transform: "translateX(-150%)" },
+          "100%": { transform: "translateX(150%)" },
         },
       },
     },

@@ -2,7 +2,11 @@
 
 **Spec ID**: 009-grading-dashboard
 **Created**: 2026-07-30
-**Status**: Clarified — see [clarifications.md](clarifications.md) (C1–C5 resolved, C6–C8 recommended)
+**Status**: **OBSOLETE (2026-08-10).** 184 of 185 tasks completed; the one unchecked
+item — `site/` coverage > 80% — is moot because `backend/evals/grading/site/` no longer exists.
+The whole `evals/grading/` package was deleted by
+[007-minimal-eval](../007-minimal-eval/spec.md). No open work; no live code. Read for history
+only. (Original: Clarified — see [clarifications.md](clarifications.md), C1–C5 resolved, C6–C8 recommended.)
 **Stack**: Python 3.11, stdlib only for rendering · pytest · `evals/grading/` — no new dependency, no JS toolchain, no network, no server
 
 ---

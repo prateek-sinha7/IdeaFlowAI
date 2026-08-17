@@ -16,10 +16,13 @@ import {
   LayoutGrid,
   Shield,
   ShieldCheck,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { NotificationPanel } from "@/components/ui/NotificationPanel";
 import type { PipelineNotification } from "@/hooks/useNotifications";
-import { getWorkflowLabel } from "@/hooks/useNotifications";
+import { useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
+import { useTheme } from "@/hooks/useTheme";
 import type { Tier } from "@/lib/entitlements";
 import { TIER_LABELS } from "@/lib/entitlements";
 import type { SettingsSection } from "@/components/settings/AccountSettings";
@@ -41,7 +44,7 @@ const RUN_STATUS_TONE: Record<string, { label: string; dotClass: string }> = {
 // Statuses that mean "the run is still in flight and needs your attention or
 // is actively building". Used to filter recentRuns for the badge.
 const LIVE_STATUSES = new Set([
-  "running", "revising", "planning", "generating", "waiting_for_user", "clarifying",
+  "running", "revising", "planning", "generating", "waiting_for_user", "clarifying", "analyzing",
 ]);
 
 interface AppHeaderProps {
@@ -77,11 +80,19 @@ interface AppHeaderProps {
   recentRuns?: WorkflowRun[];
   onSwitchToLiveRun?: (runId: string) => void;
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
+  /**
+   * Per-run agents-completed count from the run store (page.tsx → DashboardLayout).
+   * When present, used instead of the scalar pipelineAgentsCompleted for non-active
+   * runs so all concurrent runs show real progress, not just the viewed one.
+   */
+  runAgentsCompletedMap?: Record<string, number>;
   // Notifications (for the bell panel — unchanged)
   notifications?: PipelineNotification[];
   unreadCount?: number;
   onMarkAllRead?: () => void;
   onClearNotifications?: () => void;
+  // FIX-202: per-item dismiss — passed through to NotificationPanel.
+  onDismissOneNotification?: (id: string) => void;
   onViewResults?: (n: PipelineNotification) => void;
 }
 
@@ -102,14 +113,18 @@ export function AppHeader({
   recentRuns = [],
   onSwitchToLiveRun,
   onSelectWorkflowRun,
+  runAgentsCompletedMap,
   notifications = [],
   unreadCount = 0,
   onMarkAllRead,
   onClearNotifications,
+  onDismissOneNotification,
   onViewResults,
 }: AppHeaderProps) {
   const router = useRouter();
+  const getWorkflowLabel = useWorkflowLabels();
   const [profileOpen, setProfileOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
   // KAN-132: dropdown state for the multi-pipeline running badge
   const [runningDropdownOpen, setRunningDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -177,19 +192,22 @@ export function AppHeader({
         // from pipelineAgentsCompleted/Total so the dropdown shows real progress
         // (e.g. "2/6") instead of a hardcoded "0/N" from the list endpoint.
         const isActive = activePipelineRunId != null && r.id === activePipelineRunId;
+        // For the active run use the live scalar (most up-to-date, updated every
+        // agent_complete frame via pipelineState). For background runs use the
+        // per-run store map if available — it receives the same SSE frames for
+        // all attached runs. Falls back to 0 when the run isn't in the store yet.
+        const storeCompleted = runAgentsCompletedMap?.[r.id] ?? 0;
         return {
           id: r.id,
           workflowRunId: r.id,
           workflowType: r.type,
           title: r.title,
-          // Map extended live statuses to the PipelineNotification status union.
-          // "waiting_for_user"/"gate" both mean the run is paused at a review gate.
           status: (r.status === "waiting_for_user" ? "gate"
             : (r.status === "running" || r.status === "planning" || r.status === "generating"
                 || r.status === "clarifying" || r.status === "analyzing" || r.status === "revising")
               ? "running"
               : r.status) as PipelineNotification["status"],
-          agentsCompleted: isActive ? pipelineAgentsCompleted : 0,
+          agentsCompleted: isActive ? pipelineAgentsCompleted : storeCompleted,
           agentsTotal: isActive ? (pipelineAgentsTotal || r.agentCount) : (r.agentCount ?? 0),
           createdAt: new Date(r.createdAt),
           read: true,
@@ -291,6 +309,12 @@ export function AppHeader({
                 if (serverRun) {
                   handleRunClick(serverRun);
                 } else {
+                  // FIX-201 (KAN-168): fallback when serverRun not yet in recentRuns —
+                  // attempt to switch by run id directly so viewport still updates.
+                  const runId = runningPipelines[0].workflowRunId;
+                  if (runId && onSwitchToLiveRun) {
+                    onSwitchToLiveRun(runId);
+                  }
                   onGoToPipeline?.();
                 }
               }}
@@ -443,8 +467,10 @@ export function AppHeader({
           unreadCount={unreadCount}
           onMarkAllRead={onMarkAllRead ?? (() => {})}
           onClearAll={onClearNotifications ?? (() => {})}
+          onDismissOne={onDismissOneNotification}
           onGoToPipeline={onGoToPipeline ?? (() => {})}
           onViewResults={onViewResults ?? (() => {})}
+          liveRuns={runningPipelines}
           recentRuns={recentRuns}
         />
 
@@ -550,6 +576,34 @@ export function AppHeader({
                       Admin Dashboard
                     </button>
                   )}
+                </div>
+
+                <div className="border-t border-line-divider py-0.5">
+                  <button
+                    role="menuitem"
+                    onClick={() => toggleTheme()}
+                    className="w-full flex items-center justify-between gap-2.5 px-3.5 py-2 text-[12px] text-ink-700 hover:bg-surface-warm transition-colors text-left"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      {theme === "dark" ? (
+                        <Moon className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
+                      ) : (
+                        <Sun className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
+                      )}
+                      Dark mode
+                    </span>
+                    <span
+                      className={`relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-[var(--radius-pill)] transition-colors ${
+                        theme === "dark" ? "bg-brand" : "bg-line-control"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-3 w-3 transform rounded-[var(--radius-pill)] bg-surface-white transition-transform ${
+                          theme === "dark" ? "translate-x-3.5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </span>
+                  </button>
                 </div>
 
                 <div className="border-t border-line-divider py-0.5">

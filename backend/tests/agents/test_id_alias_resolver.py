@@ -16,31 +16,63 @@ from the compiled plan is covered by ``test_compiled_plan_runs.py``.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from agents.execution_engine.engine import compile_for_run, resolve_alias
+from agents.loader import SUPPORTED_PIPELINE_TYPES
 from agents.registry import PIPELINE_AGENTS, _OD_ALIAS_BASE, get_pipeline_agents
 
-# The 13 engine-dispatchable pipelines = 15 PIPELINE_AGENTS keys minus the two
-# non-engine-dispatched edge cases (chat = ChatRunner; reverse_engineer = empty).
-_DISPATCHABLE = sorted(set(PIPELINE_AGENTS) - {"chat", "reverse_engineer"})
-
-# The exact verbatim per-pipeline default clarifying-question lists the engine
-# formerly hardcoded in `_pipeline_defaults` (engine.py:752-761, now removed).
-# The compiled plan's clarify.defaults MUST reproduce these (revisions / edge ids
-# fall to the `custom` list). Kept in lockstep with the engine's former dict.
-_EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
-    "od_ppt": ["target_audience", "tone_and_style", "key_objectives", "slide_count"],
-    "ppt": ["target_audience", "tone_and_style", "key_objectives", "slide_count"],
-    "od_prototype": ["target_audience", "scope", "priority", "style"],
-    "prototype": ["target_audience", "scope", "priority", "style"],
-    "user_stories": ["target_audience", "scope", "priority", "technology"],
-    "app_builder": ["technology", "scope", "target_audience", "security"],
-    "mulesoft_to_springboot": ["scope", "technology", "timeline", "priority"],
-    "dotnet_to_azure": ["scope", "technology", "timeline", "priority"],
-    "custom": ["target_audience", "key_objectives", "scope", "priority"],
+_MANIFEST_BASE = Path(__file__).resolve().parents[2] / "agents" / "workflows"
+_MANIFEST_BACKED_IDS = {
+    pt
+    for pt in SUPPORTED_PIPELINE_TYPES
+    if (_MANIFEST_BASE / pt / "workflow.yaml").exists()
 }
-_CUSTOM_DEFAULTS = _EXPECTED_CLARIFY_DEFAULTS["custom"]
+
+# The 13 engine-dispatchable pipelines = the manifest-backed pipelines minus
+# the two non-engine-dispatched edge cases (chat = ChatRunner; reverse_engineer
+# = empty). FIX-051 / ISS-035: scoped to manifest-backed ids, not raw
+# PIPELINE_AGENTS keys — PIPELINE_AGENTS can now contain a pipeline_type with
+# real agents but no manifest yet (e.g. spec_kit), which cannot be compiled.
+_DISPATCHABLE = sorted(_MANIFEST_BACKED_IDS - {"chat", "reverse_engineer"})
+
+# The verbatim per-pipeline clarify.defaults, hard-copied from each pipeline's
+# `agents/workflows/<id>/workflow.yaml`. This originally mirrored the engine's
+# hardcoded `_pipeline_defaults` dict (pre-migration engine.py:752-761), but that
+# literal dict was migrated OUT of the engine and into the manifests in
+# MAN-04/MAN-05 (commit 63f0fc66) — `compiled.clarify.defaults` (sourced from the
+# manifest) is authoritative now, and KAN-74 (commit ae4e36f7) subsequently
+# extended most pipelines' defaults from 4 to 8 items. "od_ppt" was dropped: the
+# od_ppt/ppt collapse (commit ef32ef88) removed it from SUPPORTED_PIPELINE_TYPES
+# entirely, so it can never reach this dict via `_DISPATCHABLE`. Kept in lockstep
+# with the manifests — update this copy when a manifest's defaults deliberately
+# change.
+_EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
+    "ppt": ["target_audience", "tone_and_style", "key_objectives", "slide_count", "content_depth", "data_availability", "visual_style", "key_sections"],
+    "od_prototype": ["target_audience", "scope", "priority", "style", "user_journeys", "key_screens", "interactions", "personas"],
+    "prototype": ["target_audience", "scope", "priority", "style", "user_journeys", "key_screens", "interactions", "personas"],
+    "user_stories": ["target_audience", "scope", "priority", "technology", "personas", "user_journeys", "business_rules", "compliance_security"],
+    "app_builder": ["technology", "scope", "target_audience", "security", "user_journeys", "data_model", "integrations", "performance"],
+    "mulesoft_to_springboot": ["scope", "technology", "timeline", "priority", "integration_patterns", "target_infrastructure", "data_migration", "compliance_security"],
+    "dotnet_to_azure": ["scope", "technology", "timeline", "priority", "azure_services", "data_migration", "integration_patterns", "compliance_security"],
+    "custom": ["target_audience", "key_objectives", "scope", "priority", "output_format", "constraints", "domain", "assumptions"],
+    # clarify.mode: skip — these take their topic straight from the run input and
+    # ask nothing. Visible to this test only since ADR-0005 derived
+    # SUPPORTED_PIPELINE_TYPES from disk, which swept the sample_* workflows in.
+    # Kept in lockstep with test_manifest_parity.py's _ENGINE_PIPELINE_DEFAULTS.
+    "sample_subagents_parallel": [],
+    "sample_fanout": [],
+    "sample_wave": [],
+    "sample_brownfield": [],
+}
+# The fallback for any id absent from the dict above (the *_revision manifests +
+# chat/reverse_engineer) — these were NOT touched by KAN-74 and still declare the
+# pre-KAN-74 4-item "custom" list verbatim. Intentionally decoupled from
+# `_EXPECTED_CLARIFY_DEFAULTS["custom"]` above (the "custom" PIPELINE's own
+# defaults DID get extended to 8 by KAN-74; this fallback did not).
+_CUSTOM_DEFAULTS = ["target_audience", "key_objectives", "scope", "priority"]
 
 
 # ── resolve_alias (MAN-05) ──────────────────────────────────────────────────
@@ -81,6 +113,15 @@ def test_compiled_agent_sequence_matches_registry_order(pipeline_type: str) -> N
     compiled_ids = [s.agent_id for s in compiled.steps]
 
     manifest_id = resolve_alias(pipeline_type)
+    if not (get_pipeline_agents(manifest_id) or PIPELINE_AGENTS.get(manifest_id)):
+        # A manifest-only workflow (the sample_* shape tests, composed workflows):
+        # its steps are custom-agent instances or worker templates with no AGENT.md,
+        # so the registry side is empty BY CONSTRUCTION and there is nothing to
+        # compare against. This is the same reason ADR-0003 deleted the engine's
+        # run-entry membership assertion. Assert the plan is non-empty instead.
+        assert compiled_ids, f"{pipeline_type}: compiled plan has no steps"
+        return
+
     registry_order = [a.id for a in get_pipeline_agents(manifest_id)]
     expected = registry_order if registry_order else PIPELINE_AGENTS[manifest_id]
     assert compiled_ids == expected
@@ -114,21 +155,39 @@ def test_compiled_clarify_defaults_match_engine_dict(pipeline_type: str) -> None
 
 # ── compile_for_run sources the planner flag (MAN-04, concern 4) ────────────
 
-# Phase 14 carve-out: the two run_revision-dispatched manifests declare
-# planner: skip (clarify-auto would hang a dispatched revision at the clarify
-# event.wait()). Sibling trap: tests/agents/test_manifest_parity.py
-# (_RUN_REVISION_DISPATCHED) — keep both carve-outs in lockstep.
-_RUN_REVISION_DISPATCHED = frozenset({"ppt_revision", "od_ppt_revision"})
+# Phase 14 carve-out + ISS-050 (KAN-156) addition: run_revision-dispatched
+# manifests declare planner: skip (clarify-auto would hang a dispatched revision
+# at the clarify event.wait()). ISS-050 adds prototype_revision and
+# user_stories_revision — now reachable from the generic chat-lane revision
+# channel (Phase 29). Sibling trap: tests/agents/test_manifest_parity.py
+# (_RUN_REVISION_DISPATCHED) — keep both carve-outs in lockstep. "od_ppt_revision"
+# was dropped here too: the od_ppt/ppt collapse (commit ef32ef88) deleted its
+# workflow.yaml and removed it from SUPPORTED_PIPELINE_TYPES, so it can never
+# reach `_DISPATCHABLE`.
+_RUN_REVISION_DISPATCHED = frozenset({
+    "ppt_revision",
+    "prototype_revision",
+    "user_stories_revision",
+})
+
+# Sibling trap: keep in lockstep with tests/agents/test_manifest_parity.py's
+# _PLANNER_SKIP_IDS.
+_PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
+    # Deliberately tiny local shape tests where a deep-planner round-trip
+    # would cost more than the work itself. Mirrors test_manifest_parity.py.
+    "sample_subagents_parallel",
+}
 
 
 @pytest.mark.parametrize("pipeline_type", _DISPATCHABLE + ["od_prototype"])
 def test_compiled_planner_is_run_everywhere(pipeline_type: str) -> None:
-    """Every dispatchable manifest declares planner: run — EXCEPT the two
+    """Every dispatchable manifest declares planner: run — EXCEPT the
     run_revision-dispatched manifests (planner: skip as of Phase 14; see
-    _RUN_REVISION_DISPATCHED above and the sibling trap in
-    test_manifest_parity.py). For every other pipeline the engine's
-    skip_planner stays False and the planner/clarifier runs (byte-identical).
+    _RUN_REVISION_DISPATCHED above) and the sample_* fixtures (see
+    _PLANNER_SKIP_IDS above and the sibling trap in test_manifest_parity.py).
+    For every other pipeline the engine's skip_planner stays False and the
+    planner/clarifier runs (byte-identical).
     """
     compiled = compile_for_run(pipeline_type)
-    expected = "skip" if pipeline_type in _RUN_REVISION_DISPATCHED else "run"
+    expected = "skip" if pipeline_type in _PLANNER_SKIP_IDS else "run"
     assert compiled.planner == expected

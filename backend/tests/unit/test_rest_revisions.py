@@ -61,9 +61,9 @@ class _FakeUser:
     def __init__(self, id: str, tier: str = "enterprise"):
         self.id = id
         self.preferred_model = None
-        # Defaults to "enterprise" (P1 tier-gate fix) so pre-existing ownership/
-        # mint/driver tests are unaffected; entitlement behavior is covered by
-        # its own dedicated test(s).
+        # Defaults to "enterprise" (KAN-161 / ISS-055 + the P1 tier-gate fix) so
+        # pre-existing ownership/mint/driver tests are unaffected; entitlement
+        # behavior is covered by its own dedicated test(s).
         self.tier = tier
 
 
@@ -126,7 +126,7 @@ def _seed_user(env, tag="u") -> _FakeUser:
         db.close()
 
 
-def _seed_parent(env, owner_id: str, run_type="od_ppt") -> str:
+def _seed_parent(env, owner_id: str, run_type="ppt") -> str:
     parent_id = str(uuid.uuid4())
     db = env["Session"]()
     try:
@@ -141,7 +141,7 @@ def _seed_parent(env, owner_id: str, run_type="od_ppt") -> str:
     return parent_id
 
 
-def _seed_child(env, owner_id: str, *, run_type="od_ppt_revision") -> str:
+def _seed_child(env, owner_id: str, *, run_type="ppt_revision") -> str:
     """Seed a child revision row for a direct driver-level dispatch test."""
     run_id = str(uuid.uuid4())
     db = env["Session"]()
@@ -210,7 +210,7 @@ def test_owned_parent_mints_linked_child(env, monkeypatch):
     parent_id = _seed_parent(env, owner.id)
     env["state"]["user"] = owner
 
-    resp = _post_revision(env, parent_id, "od_ppt_output", "Make slide 1 a CTA.")
+    resp = _post_revision(env, parent_id, "ppt_output", "Make slide 1 a CTA.")
     assert resp.status_code == 200, resp.text
     child_id = resp.json()["run_id"]
 
@@ -219,9 +219,9 @@ def test_owned_parent_mints_linked_child(env, monkeypatch):
     assert child.parent_run_id == parent_id
     assert child.owner_id == owner.id
     assert child.user_id == owner.id
-    assert child.type == "od_ppt_revision"
+    assert child.type == "ppt_revision"
     # agent_count derives from the LIVE registry membership (Pitfall 6).
-    assert child.agent_count == (len(get_pipeline_agents("od_ppt_revision")) or 1)
+    assert child.agent_count == (len(get_pipeline_agents("ppt_revision")) or 1)
 
 
 def test_cross_owner_parent_returns_404(env, monkeypatch):
@@ -231,7 +231,7 @@ def test_cross_owner_parent_returns_404(env, monkeypatch):
     parent_id = _seed_parent(env, owner.id)
     env["state"]["user"] = attacker
 
-    resp = _post_revision(env, parent_id, "od_ppt_output", "Steal the deck.")
+    resp = _post_revision(env, parent_id, "ppt_output", "Steal the deck.")
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Unknown run"
     # No child row was minted for the attacker.
@@ -246,20 +246,22 @@ def test_unknown_parent_returns_404(env, monkeypatch):
     _install_stub(env, monkeypatch, lambda k: _noop_complete(k))
     caller = _seed_user(env, "caller")
     env["state"]["user"] = caller
-    resp = _post_revision(env, str(uuid.uuid4()), "od_ppt_output", "Fix it.")
+    resp = _post_revision(env, str(uuid.uuid4()), "ppt_output", "Fix it.")
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Unknown run"
 
 
 def test_agent_count_derives_for_ppt_revision(env, monkeypatch):
-    """ppt_output → ppt_revision (multi-agent) proves the derivation is not a
-    hardcoded 1 (Pitfall 6)."""
+    """ppt_output → ppt_revision derives agent_count from the LIVE registry
+    membership, never a hardcoded literal (Pitfall 6). ppt_revision is a
+    single-agent pipeline (formerly od_ppt_revision — see
+    agents/registry.py); this pins the derivation, not a specific count."""
     _install_stub(env, monkeypatch, lambda k: _noop_complete(k))
     owner = _seed_user(env, "owner")
     parent_id = _seed_parent(env, owner.id, run_type="ppt")
     env["state"]["user"] = owner
     expected = len(get_pipeline_agents("ppt_revision"))
-    assert expected > 1, "ppt_revision lost its multi-agent membership?"
+    assert expected >= 1, "ppt_revision lost its agent membership?"
 
     resp = _post_revision(env, parent_id, "ppt_output", "Revise the deck.")
     assert resp.status_code == 200, resp.text
@@ -288,10 +290,60 @@ async def test_driver_happy_path_completed(env, monkeypatch):
     owner = _seed_user(env, "owner")
     run_id = _seed_child(env, owner.id)
     drained = await _drive(env, run_id=run_id, parent_run_id="parent",
-                           target="od_ppt_output", instruction="x", user=owner)
+                           target="ppt_output", instruction="x", user=owner)
     assert [e["type"] for e in drained].count("pipeline_complete") == 1
     assert _row(env, run_id).status == "completed"
     assert _row(env, run_id).completed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_driver_happy_path_persists_output_columns(env, monkeypatch):
+    """ISS-152: the revision driver is a fourth caller of the shared
+    ``_apply_terminal_output_columns`` mapping that BUG-R03 never wired — its
+    ``_persist_terminal_status`` writes ONLY ``status``/``completed_at``. Drives the
+    full ``agent_start``→``agent_chunk``→``agent_complete``→``pipeline_complete``
+    vocabulary (mirrors ``test_driver_persists_model_id_and_prices_non_circular`` in
+    ``test_rest_run_launch.py``) and asserts all 7 output columns land. RED today —
+    every assertion below fails against the unpatched driver."""
+    import json
+
+    async def _rich(kwargs):
+        send = kwargs["websocket_send_fn"]
+        await send({"type": "pipeline_start", "data": {"agents": []}})
+        await send({"type": "agent_start", "data": {
+            "agent_id": "user-stories-revision-agent", "name": "Reviser",
+            "role": "r", "icon": "i"}})
+        await send({"type": "agent_chunk", "data": {"chunk": "<html>revised</html>"}})
+        await send({"type": "agent_complete", "data": {
+            "duration": 2.1, "input_tokens": 3944, "output_tokens": 297,
+            "total_tokens": 4241}})
+        await send({"type": "pipeline_complete", "data": {
+            "final_output": "<html>revised</html>",
+            "deliverable_mimetype": "text/markdown",
+            "deliverable_filename": "user_stories.md",
+        }})
+
+    _install_stub(env, monkeypatch, _rich)
+    owner = _seed_user(env, "owner")
+    owner.preferred_model = "claude-sonnet-test"
+    run_id = _seed_child(env, owner.id)
+    await _drive(env, run_id=run_id, parent_run_id="parent",
+                 target="od_ppt_output", instruction="x", user=owner)
+
+    row = _row(env, run_id)
+    assert row.status == "completed"
+    assert row.output == "<html>revised</html>"
+    outputs = json.loads(row.agent_outputs)
+    assert len(outputs) == 1
+    assert outputs[0]["agent_id"] == "user-stories-revision-agent"
+    usage = json.loads(row.token_usage)
+    assert usage["total_input_tokens"] == 3944
+    assert usage["total_output_tokens"] == 297
+    assert usage["total_tokens"] == 4241
+    assert row.duration is not None
+    assert row.model_id == "claude-sonnet-test"
+    assert row.deliverable_mimetype == "text/markdown"
+    assert row.deliverable_filename == "user_stories.md"
 
 
 @pytest.mark.asyncio
@@ -304,7 +356,7 @@ async def test_driver_pipeline_failed_records_failed(env, monkeypatch):
     owner = _seed_user(env, "owner")
     run_id = _seed_child(env, owner.id)
     drained = await _drive(env, run_id=run_id, parent_run_id="parent",
-                           target="od_ppt_output", instruction="x", user=owner)
+                           target="ppt_output", instruction="x", user=owner)
     assert [e["type"] for e in drained].count("pipeline_failed") == 1
     row = _row(env, run_id)
     assert row.status == "failed"
@@ -320,7 +372,7 @@ async def test_driver_value_error_maps_to_validation_error(env, monkeypatch):
     owner = _seed_user(env, "owner")
     run_id = _seed_child(env, owner.id)
     drained = await _drive(env, run_id=run_id, parent_run_id="parent",
-                           target="od_ppt_output", instruction="x", user=owner)
+                           target="ppt_output", instruction="x", user=owner)
     errors = [e for e in drained if e["type"] == "error"]
     assert len(errors) == 1
     assert errors[0]["data"]["code"] == "revision_validation_error"
@@ -338,7 +390,7 @@ async def test_driver_runtime_error_maps_to_revision_error(env, monkeypatch):
     owner = _seed_user(env, "owner")
     run_id = _seed_child(env, owner.id)
     drained = await _drive(env, run_id=run_id, parent_run_id="parent",
-                           target="od_ppt_output", instruction="x", user=owner)
+                           target="ppt_output", instruction="x", user=owner)
     errors = [e for e in drained if e["type"] == "error"]
     assert len(errors) == 1
     assert errors[0]["data"]["code"] == "revision_error"
@@ -379,7 +431,7 @@ async def test_driver_cancellation_records_cancelled(env, monkeypatch):
     owner = _seed_user(env, "owner")
     run_id = _seed_child(env, owner.id)
     drained = await _drive(env, run_id=run_id, parent_run_id="parent",
-                           target="od_ppt_output", instruction="x", user=owner)
+                           target="ppt_output", instruction="x", user=owner)
     assert "pipeline_cancelled" in [e["type"] for e in drained]
     row = _row(env, run_id)
     assert row.status == "cancelled"

@@ -13,7 +13,10 @@
  *   1. Backend on :8000 with Bedrock reachable (profile `default`, eu-central-1):
  *        cd backend
  *        RUNS_ROOT=/tmp/flowin-runs AWS_PROFILE=default AWS_REGION=eu-central-1 \
- *          python3.11 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+ *          python3.11 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 \
+ *            --timeout-graceful-shutdown 5
+ *      (--timeout-graceful-shutdown is required: these specs hold an SSE stream
+ *       open, and without it the backend ignores SIGTERM forever afterwards.)
  *   2. Frontend dev server on :3000 (auto-started/reused by playwright.config.ts).
  *   3. Seeded users (enterprise unlocks everything):
  *        python3.11 backend/scripts/seed_test_users.py

@@ -154,6 +154,17 @@ _VOLATILE_STRIP_KEYS = frozenset(
         "redoable",
         "update_specs_eligible",
         "artifact_kind",
+        # ── Additive-but-parity-neutral review_gate_ready keys (ISS-052 / FIX-220) ──
+        # The engine also stamps the per-FIRING discriminator on every
+        # ``review_gate_ready``: ``revision_cycle`` (which spec-revision cycle this gate
+        # belongs to, 0 = none) + ``revision_in_flight`` (is the gate INSIDE that pass).
+        # Without them the analyze gate opened inside a revision pass and the one
+        # re-opened after it returns are identical on the wire — same gate_key, same
+        # output bytes. Metadata-only and NOT in _REQUIRED_DATA_KEYS, so they are
+        # STRIPPED here, mirroring the redoable / update_specs_eligible precedent, to
+        # keep the characterization event goldens byte-identical (INV-3).
+        "revision_cycle",
+        "revision_in_flight",
         # ── Additive-but-parity-neutral prompt-cache keys (ISS-032 / FIX-036) ────
         # The runner now surfaces the Bedrock prompt-cache split
         # (input_token_details.cache_read/cache_creation) → the engine threads it
@@ -189,6 +200,30 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # the ``chat_reply`` card discriminators are stable, so neither is stripped.
         "message_id",
         "replayed_through_seq",
+        # ── Additive-but-parity-neutral pipeline_start key (KAN-120 / ISS-068) ───
+        # The engine stamps ``resume_offset`` on ``pipeline_start`` — how many leading
+        # agents a resumed run skips — so the FE can mark them "done" immediately
+        # instead of waiting for the durable SSE replay. It is 0 on every non-resumed
+        # run, and the characterization harness never resumes, so it is 0 in all 5
+        # goldens; but a key whose VALUE is 0 is still a NEW KEY, and the snapshot
+        # compares whole canonical-JSON dicts — which is why all 5 event goldens went
+        # red when it landed. ``_REQUIRED_DATA_KEYS`` has no ``pipeline_start`` entry
+        # at all, so this is metadata-only and stripping it cannot weaken the
+        # required-keys assertion; resume-offset behaviour is pinned directly by
+        # ``test_restart_resume.py``, so no oracle power is lost. Stripping (rather
+        # than regenerating) keeps all 5 golden files byte-untouched — maximum INV-3
+        # conservation — mirroring the deliverable_mimetype / redoable / cache_* /
+        # image_count precedents above.
+        "resume_offset",
+        # ── Additive-but-parity-neutral pipeline_complete key (ISS-034) ──────────
+        # The engine also prices the run as-if-UNCACHED (``estimated_cost_full_usd``
+        # — the same token base with the cache tiers switched off) so Analytics can
+        # report the SIGNED effect of prompt caching. It is a run-specific cost
+        # rollup exactly like its ``estimated_cost_usd`` sibling six lines above, and
+        # is NOT in _REQUIRED_DATA_KEYS, so it is STRIPPED here. Stripping (rather
+        # than regenerating) keeps all 5 event goldens byte-untouched — mirroring the
+        # deliverable_mimetype / redoable / cache_* / resume_offset precedents.
+        "estimated_cost_full_usd",
     }
 )
 

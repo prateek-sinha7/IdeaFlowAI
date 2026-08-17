@@ -24,6 +24,11 @@ from agents.capabilities.registry import register
     "deliverable",
     "streamed_text",
     description="Resolve the deliverable as the agent's streamed text output (no sandbox file read).",
+    # No sandbox file access at all (unlike serialized_sandbox, which reads
+    # arbitrary sandbox files and IS user_allowed=True below) — this is the
+    # least-privileged deliverable resolver, so a user/db manifest may
+    # reference it too (CAP-03).
+    user_allowed=True,
 )
 class StreamedTextResolver:
     """Return the artifact-unwrapped streamed deliverable (``name='streamed_text'``).

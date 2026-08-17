@@ -42,7 +42,10 @@ from agents.workflows.manifest import WorkflowManifest
 # names it, never this module). Kept aligned with compiler._ALLOWED_STEP_KEYS.
 _LEVER_KEYS: frozenset[str] = frozenset(
     {"validators", "gates", "model", "retry", "injects", "compaction", "post_step",
-     "fix", "fanout", "on_conflict", "tools", "hooks", "task_source", "depends_on"}
+     "fix", "fanout", "on_conflict", "tools", "hooks", "task_source", "depends_on",
+     # ADR-0010 — per-agent skills, the composer's replacement for run-level
+     # ``attached_skills``.
+     "skills"}
 )
 
 
@@ -134,8 +137,18 @@ def _synthesize_step(agent_id: str, sel: dict | None) -> dict:
         if coerced is not None:
             step["retry"] = coerced
 
+    # ADR-0010 — ``skills`` rides this generic projection so a composer-authored
+    # per-agent skill selection reaches the run. It has to be here: run-level
+    # ``attached_skills`` (the old delivery path for a composed run) is retired,
+    # and a saved row's ``manifest_json`` is NEVER the run plan — the engine
+    # compiles its own file-backed plan and overlays THIS selections map on top
+    # (``engine._apply_selections``). Without ``skills`` in this list a user could
+    # tick a skill in the composer, watch it persist, and have it silently never
+    # reach the agent. ``skills`` is a plain list of catalog ids with no capability
+    # reference, so it carries no trust=user gate.
     for key in ("injects", "compaction", "post_step", "fix", "fanout",
-                "on_conflict", "tools", "hooks", "task_source", "depends_on"):
+                "on_conflict", "tools", "hooks", "task_source", "depends_on",
+                "skills"):
         if sel.get(key) is not None:
             step[key] = sel[key]
 

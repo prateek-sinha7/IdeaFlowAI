@@ -11,6 +11,7 @@ import {
   VolumeX,
   ChevronDown,
   ChevronRight,
+  FileText,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { ChatMessage } from "@/types/index";
@@ -228,82 +229,111 @@ export function MessageBubble({
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, ease: "easeOut" }}
         className="flex w-full justify-end mb-8 group"
-        onMouseEnter={() => setShowActions(true)}
-        onMouseLeave={() => setShowActions(false)}
       >
-        <div className="relative max-w-[86%] flex items-start gap-3">
+        {/* Hover zone covers bubble + action bar so mouse movement between them
+            doesn't dismiss the bar before the click lands. */}
+        <div
+          className="relative max-w-[86%] flex items-start gap-3"
+          onMouseEnter={() => setShowActions(true)}
+          onMouseLeave={() => setShowActions(false)}
+        >
           {/* Message content */}
           <div className="flex-1 min-w-0">
-            {/* User message container — the mock's brand-tint bubble (Phase 39,
-                RUNUI-06): #ECEAFC fill, #DED9F7 border, 14/14/4/14 radius. */}
-            <div className="rounded-[14px_14px_4px_14px] border border-brand-border bg-brand-fill px-[13px] py-[10px]">
-              {isEditing ? (
-                <div className="flex flex-col gap-2">
-                  <textarea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    onKeyDown={handleEditKeyDown}
-                    className="w-full min-h-[60px] resize-none rounded-lg border border-grey/20 bg-black/40 px-3 py-2 text-white text-[15px] focus:border-grey/40 focus:outline-none leading-relaxed"
-                    autoFocus
-                  />
-                  <div className="flex gap-2 justify-end">
-                    <button
-                      onClick={() => {
-                        setEditContent(message.content);
-                        setIsEditing(false);
-                      }}
-                      className="rounded-lg px-3 py-1.5 text-xs text-grey hover:text-white transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleEditSubmit}
-                      className="rounded-lg bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/15 transition-colors"
-                    >
-                      Save & Send
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <p className="font-serif text-[13.5px] leading-[1.5] text-ink-800 whitespace-pre-wrap">
-                  {displayContent}
-                </p>
-              )}
-            </div>
+            {/* User message container — file-only: no bubble wrapper, chips render bare.
+                Text present (with or without files): brand-fill bubble wraps everything. */}
+            {(() => {
+              const fileAtts = (message.attachments ?? []).filter((a) => a.kind === "file");
+              const fileOnly = fileAtts.length > 0 && !displayContent;
 
-            {/* Action bar */}
-            {!isEditing && (
-              <AnimatePresence>
-                {showActions && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.15 }}
-                    className="flex justify-end mt-1.5"
-                  >
-                    <div className="flex items-center gap-0.5 rounded-full glass-action-bar px-2 py-1">
-                      <button
-                        onClick={handleCopy}
-                        className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-grey/80 hover:text-white transition-colors"
-                        aria-label="Copy message"
-                      >
-                        {copied ? <Check className="h-3 w-3 text-green-400" /> : <Copy className="h-3 w-3" />}
-                      </button>
-                      {onEdit && (
-                        <button
-                          onClick={() => setIsEditing(true)}
-                          className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-grey/80 hover:text-white transition-colors"
-                          aria-label="Edit message"
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </button>
-                      )}
-                      <span className="text-[10px] text-grey/40 px-1">{formattedTime}</span>
+              const fileChips = fileAtts.length > 0 ? (
+                <div className={`flex flex-col gap-[5px] ${!fileOnly ? "mb-[8px]" : ""}`}>
+                  {fileAtts.map((a, i) => (
+                    <div
+                      key={`${a.name}-${i}`}
+                      className="inline-flex items-center gap-[8px] rounded-[8px] border border-brand-border bg-brand-fill px-[10px] py-[7px]"
+                    >
+                      <span className="grid h-[24px] w-[24px] flex-none place-items-center rounded-[6px] bg-white/70">
+                        <FileText className="h-[13px] w-[13px] text-brand" strokeWidth={1.7} />
+                      </span>
+                      <span className="font-sans text-[12px] font-semibold text-ink-900 break-all leading-[1.3]">
+                        {a.name || "Attached file"}
+                      </span>
                     </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                  ))}
+                </div>
+              ) : null;
+
+              if (fileOnly) {
+                // No bubble background — chips stand alone
+                return isEditing ? null : fileChips;
+              }
+
+              return (
+                <div className="rounded-[14px_14px_4px_14px] border border-brand-border bg-brand-fill px-[13px] py-[10px]">
+                  {isEditing ? (
+                    <div className="flex flex-col gap-2">
+                      <textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        onKeyDown={handleEditKeyDown}
+                        className="w-full min-h-[60px] resize-none rounded-lg border border-grey/20 bg-black/40 px-3 py-2 text-white text-[15px] focus:border-grey/40 focus:outline-none leading-relaxed"
+                        autoFocus
+                      />
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => { setEditContent(message.content); setIsEditing(false); }}
+                          className="rounded-lg px-3 py-1.5 text-xs text-grey hover:text-white transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleEditSubmit}
+                          className="rounded-lg bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/15 transition-colors"
+                        >
+                          Save & Send
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {fileChips}
+                      {displayContent && (
+                        <p className="font-serif text-[13.5px] leading-[1.5] text-ink-800 whitespace-pre-wrap">
+                          {displayContent}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Action bar — always mounted, fades in on hover via CSS opacity. */}
+            {!isEditing && (
+              <div className={`flex justify-end mt-1.5 transition-opacity duration-150 ${showActions || copied ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
+                <div className="flex items-center gap-0.5 rounded-full glass-action-bar px-2 py-1">
+                  <button
+                    onClick={handleCopy}
+                    className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-grey/80 hover:text-grey/60 transition-colors"
+                    aria-label="Copy message"
+                  >
+                    {copied
+                      ? <Check className="h-3 w-3 text-green-400" />
+                      : <Copy className="h-3 w-3" />
+                    }
+                  </button>
+                  {onEdit && (
+                    <button
+                      onClick={() => setIsEditing(true)}
+                      className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-grey/80 hover:text-grey/60 transition-colors"
+                      aria-label="Edit message"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  )}
+                  <span className="text-[10px] text-grey/40 px-1">{formattedTime}</span>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -405,57 +435,47 @@ export function MessageBubble({
           </div>
         )}
 
-        {/* Floating action bar — glass morphism pill below message on hover */}
+        {/* Floating action bar — always mounted, fades via CSS opacity on hover */}
         {!isStreaming && (
-          <AnimatePresence>
-            {showActions && (
-              <motion.div
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 4 }}
-                transition={{ duration: 0.15 }}
-                className="mt-3 inline-flex items-center gap-0.5 rounded-full glass-action-bar px-2 py-1"
+          <div className={`mt-3 inline-flex items-center gap-0.5 rounded-full glass-action-bar px-2 py-1 transition-opacity duration-150 ${showActions || copied ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-grey/70 hover:text-grey/50 transition-colors"
+              aria-label="Copy message"
+            >
+              {copied ? (
+                <Check className="h-3 w-3 text-green-400" />
+              ) : (
+                <Copy className="h-3 w-3" />
+              )}
+            </button>
+
+            {ttsSupported && (
+              <button
+                onClick={handleTTS}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-grey/70 hover:text-grey/50 transition-colors"
+                aria-label={isSpeaking ? "Stop reading" : "Read aloud"}
               >
-                <button
-                  onClick={handleCopy}
-                  className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-grey/70 hover:text-white transition-colors"
-                  aria-label="Copy message"
-                >
-                  {copied ? (
-                    <Check className="h-3 w-3 text-green-400" />
-                  ) : (
-                    <Copy className="h-3 w-3" />
-                  )}
-                </button>
-
-                {ttsSupported && (
-                  <button
-                    onClick={handleTTS}
-                    className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-grey/70 hover:text-white transition-colors"
-                    aria-label={isSpeaking ? "Stop reading" : "Read aloud"}
-                  >
-                    {isSpeaking ? (
-                      <VolumeX className="h-3 w-3 text-red-400" />
-                    ) : (
-                      <Volume2 className="h-3 w-3" />
-                    )}
-                  </button>
+                {isSpeaking ? (
+                  <VolumeX className="h-3 w-3 text-red-400" />
+                ) : (
+                  <Volume2 className="h-3 w-3" />
                 )}
-
-                {onRegenerate && (
-                  <button
-                    onClick={() => onRegenerate(message.id)}
-                    className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-grey/70 hover:text-white transition-colors"
-                    aria-label="Regenerate response"
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                  </button>
-                )}
-
-                <span className="text-[10px] text-grey/40 px-1">{formattedTime}</span>
-              </motion.div>
+              </button>
             )}
-          </AnimatePresence>
+
+            {onRegenerate && (
+              <button
+                onClick={() => onRegenerate(message.id)}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-grey/70 hover:text-grey/50 transition-colors"
+                aria-label="Regenerate response"
+              >
+                <RefreshCw className="h-3 w-3" />
+              </button>
+            )}
+
+            <span className="text-[10px] text-grey/40 px-1">{formattedTime}</span>
+          </div>
         )}
       </div>
     </motion.div>

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { CheckCircle2, XCircle, X, ArrowRight } from "lucide-react";
-import { getWorkflowLabel } from "@/hooks/useNotifications";
+import { useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
 import type { WorkflowType } from "@/types/index";
 
 export interface ToastItem {
@@ -11,6 +11,9 @@ export interface ToastItem {
   workflowType: WorkflowType;
   title: string;
   status: "completed" | "failed";
+  // FIX-202: the backend run id of the completed run — used to navigate
+  // directly to that run's preview (not just setMainView("execution")).
+  workflowRunId?: string;
 }
 
 interface CompletionToastProps {
@@ -34,6 +37,7 @@ function SingleToast({
     return () => clearTimeout(t);
   }, [onDismiss]);
 
+  const getWorkflowLabel = useWorkflowLabels();
   const isSuccess = toast.status === "completed";
 
   return (
@@ -58,7 +62,7 @@ function SingleToast({
       {/* Content */}
       <div className="flex-1 min-w-0">
         <p className="text-[12px] font-semibold text-gray-900">
-          {getWorkflowLabel(toast.workflowType)} {isSuccess ? "complete" : "failed"}
+          {isSuccess ? "Run completed" : `${getWorkflowLabel(toast.workflowType)} failed`}
         </p>
         <p className="text-[11px] text-gray-500 truncate mt-0.5">{toast.title}</p>
         {isSuccess && (
@@ -66,7 +70,7 @@ function SingleToast({
             onClick={onViewResults}
             className="flex items-center gap-1 mt-2 text-[11px] font-medium text-[#1B2A4A] hover:underline"
           >
-            View results <ArrowRight className="h-3 w-3" />
+            Open <ArrowRight className="h-3 w-3" />
           </button>
         )}
       </div>

@@ -44,6 +44,14 @@ _EDITED = "_gate_edited"
 # CONSUMED — never re-surfaced to the wire, never mapped to GATE_PASS. The FE never
 # offers Redo on a declared gate (review_gate_ready.redoable is False off this path).
 _REDO = "_gate_redo"
+# ISS-053: the same is true of ``_gate_update_specs``. A declared gate passes
+# ``update_specs_eligible=False``, so the shared primitive now refuses that action and
+# keeps waiting — but this branch is what makes a signal arriving by any OTHER route
+# safe. Without it the event hit the ``yield event`` fall-through below: an internal
+# ``_gate_*`` signal on the SSE wire (backend-engine.md §39 forbids that) AND a
+# fall-through to GATE_PASS, i.e. a declared step signing itself off on an action the
+# user never took.
+_UPDATE_SPECS = "_gate_update_specs"
 
 
 @register(
@@ -91,7 +99,7 @@ class HumanGate:
         output = getattr(ctx, "last_streamed", "") or ""
 
         rejected = False
-        redo_seen = False
+        unwired_action_seen = False
         edited_content: str | None = None
         async for event in delegate(step, output=output):
             etype = event.get("type")
@@ -99,10 +107,10 @@ class HumanGate:
                 rejected = True
                 # internal signal — not re-surfaced as a gate event
                 continue
-            if etype == _REDO:
-                # REDO-GATE F1a: consume the redo signal — never yield it (no wire
+            if etype in (_REDO, _UPDATE_SPECS):
+                # REDO-GATE F1a / ISS-053: consume the signal — never yield it (no wire
                 # leak via _evaluate_gates), never let it fall through to GATE_PASS.
-                redo_seen = True
+                unwired_action_seen = True
                 continue
             if etype == _EDITED:
                 # WR-04 (13 review fix): the user approved WITH edits. The edit
@@ -124,7 +132,7 @@ class HumanGate:
         # HONEST audit row (F9) instead of a misleading GATE_PASS.
         outcome = (
             GATE_BLOCK if rejected
-            else (GATE_WAIT_HUMAN if redo_seen else GATE_PASS)
+            else (GATE_WAIT_HUMAN if unwired_action_seen else GATE_PASS)
         )
         # The audit row keeps a CONTENT-FREE detail (no user payload persisted in
         # gate_events); the edited content itself rides the GateOutcome only.

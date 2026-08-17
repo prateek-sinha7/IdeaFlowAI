@@ -7,6 +7,7 @@ context_from:
 - material-analyzer
 - app-user-stories
 - app-system-design
+description: Endpoint contracts, error envelopes, idempotency rules, async event contracts, versioning policy, and the OpenAPI 3.1 document.
 estimated_duration: 8.0
 guardrails: []
 icon: "\U0001F50C"

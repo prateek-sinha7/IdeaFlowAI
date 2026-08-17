@@ -1,0 +1,153 @@
+### User workflows - Create
+POST {{apiRoot}}/api/user-workflows
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"name": "My Prototype Flow",
+	"description": "Customized prototype flow",
+	"base_pipeline_type": "prototype",
+	"agent_ids": [
+		"context-analyst",
+		"prototype-architect",
+		"ui-generator"
+	],
+	"model_overrides": {
+		"ui-generator": "anthropic.claude-sonnet-4-20250514-v1:0"
+	}
+}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ') — set a real {{jwt}} to exercise this assertion');
+	} else if (sc === 409) {
+		console.log('OK (idempotent rerun): a saved workflow named "My Prototype Flow" already exists (409)');
+	} else if (sc !== 201) {
+		console.error('FAIL: expected 201 or 409, got', sc, body);
+	} else if (typeof body.id !== 'string' || !Array.isArray(body.agent_ids)) {
+		console.error('FAIL: expected a UserWorkflowResponse shape, got', body);
+	} else {
+		console.log('OK: created saved workflow', body.id);
+	}
+}}
+
+### User workflows - Create (empty agent_ids, expect 422)
+# Pydantic's Field(min_length=1) on agent_ids rejects this before any DB
+# write — a saved workflow with zero agents would be unrunnable.
+POST {{apiRoot}}/api/user-workflows
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"name": "Empty Agent List Flow",
+	"base_pipeline_type": "prototype",
+	"agent_ids": []
+}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 422) {
+		console.error('FAIL: expected 422 for an empty agent_ids list, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: empty agent_ids correctly rejected (422)');
+	}
+}}
+
+### User workflows - List
+GET {{apiRoot}}/api/user-workflows
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200, got', sc, body);
+	} else if (!Array.isArray(body)) {
+		console.error('FAIL: expected an array, got', body);
+	} else {
+		console.log('OK:', body.length, 'saved workflow(s)');
+	}
+}}
+
+### User workflows - Get by ID
+GET {{apiRoot}}/api/user-workflows/{{userWorkflowId}}
+Authorization: Bearer {{jwt}}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{userWorkflowId}} does not exist for this user (404) — set a real id to exercise the 200 path');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200 or 404, got', sc, body);
+	} else {
+		console.log('OK: saved workflow', body.id, '=', body.name);
+	}
+}}
+
+### User workflows - Get by ID (nonexistent id, expect 404)
+GET {{apiRoot}}/api/user-workflows/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc !== 404) {
+		console.error('FAIL: expected 404 for a nonexistent saved workflow id, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: nonexistent saved workflow id correctly 404s (IDOR->404 posture)');
+	}
+}}
+
+### User workflows - Patch
+PATCH {{apiRoot}}/api/user-workflows/{{userWorkflowId}}
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"name": "My Prototype Flow v2",
+	"description": "Updated description"
+}
+
+{{
+	const body = response.parsedBody;
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{userWorkflowId}} does not exist for this user (404)');
+	} else if (sc !== 200) {
+		console.error('FAIL: expected 200 or 404, got', sc, body);
+	} else if (body.name !== 'My Prototype Flow v2') {
+		console.error('FAIL: expected the name to be updated, got', body);
+	} else {
+		console.log('OK: saved workflow renamed to', body.name);
+	}
+}}
+
+### User workflows - Delete
+# Run LAST — deletes {{userWorkflowId}} if it exists and you have a real jwt.
+DELETE {{apiRoot}}/api/user-workflows/{{userWorkflowId}}
+Authorization: Bearer {{jwt}}
+
+{{
+	const sc = response.statusCode;
+	if (sc === 401 || sc === 403) {
+		console.log('SKIP: not authenticated (status', sc + ')');
+	} else if (sc === 404) {
+		console.log('SKIP: {{userWorkflowId}} does not exist for this user (404)');
+	} else if (sc !== 204) {
+		console.error('FAIL: expected 204 or 404, got', sc, response.parsedBody);
+	} else {
+		console.log('OK: saved workflow deleted (204)');
+	}
+}}

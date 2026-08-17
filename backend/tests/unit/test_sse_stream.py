@@ -166,6 +166,10 @@ class TestReplay:
                 (3, "agent_complete", {"seq": 3}),
             ],
         )
+        # The replayed body now also carries the row's authoritative event_id COLUMN
+        # (see TestReplayIdentityProjection); _seed_events mints a fresh uuid4 per row,
+        # so the expected value is read back rather than hardcoded.
+        row_event_id = db_session.query(RunEvent).filter_by(run_id="run-1", seq=2).one().event_id
         frames = asyncio.run(
             _collect(
                 _iter_sse_frames(
@@ -178,7 +182,7 @@ class TestReplay:
         replay = [p for p in parsed if p["type"] != "stream_attached"]
         assert [p["id"] for p in replay] == ["2", "3"]
         assert [p["type"] for p in replay] == ["agent_chunk", "agent_complete"]
-        assert replay[0]["data"] == {"seq": 2, "text": "hi"}
+        assert replay[0]["data"] == {"seq": 2, "text": "hi", "event_id": row_event_id}
 
     def test_replay_full_when_cursor_zero(self, db_session):
         _seed_run(db_session)
@@ -220,6 +224,72 @@ class TestReplay:
         # seq 3 replayed (>2); seq 1,2 skipped; handshake carries the last replayed seq.
         assert "3" in ids and "1" not in ids and "2" not in ids
         assert "stream_attached" in text
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# replay identity — the row's event_id/seq COLUMNS must reach the wire
+# ════════════════════════════════════════════════════════════════════════════
+class TestReplayIdentityProjection:
+    """A replayed row must be served WITH its durable identity columns.
+
+    The engine stamps ``seq`` + ``event_id`` INTO the payload at its single emit
+    boundary, so an engine-authored row carries its identity twice. But four
+    app-layer types are persisted by the app itself and embed NO identity in
+    ``payload_json`` — ``chat_reply`` / ``chat_message`` / ``chat_usage`` /
+    ``run_resuming``. For those rows the COLUMNS are the only identity that exists.
+
+    Concretely, ``app/agents/chat_narrator.py::persist_milestone_card`` persists a
+    narrator milestone card whose payload is exactly ``{pipeline_run_id, message_id,
+    card_kind, text, deep_link}`` and mints the durable ``event_id`` COLUMN as
+    ``chat_reply:{source_event_id}``. The frontend keys the assistant bubble on
+    ``data.event_id`` (``useRunChat.ts::upsertNarratorMessage``) and otherwise falls
+    back to ``chat-reply:{message_id}`` — a key the narrator's durable id can never
+    equal. So a replay that drops the columns renders the card a SECOND time once the
+    REST twin (``GET /api/runs/{id}/events``, which does merge the columns) backfills
+    it. This pins the projection at the source.
+    """
+
+    def test_replayed_identity_less_chat_reply_carries_its_row_identity(self, db_session):
+        _seed_run(db_session)
+        _seed_events(
+            db_session,
+            [
+                (1, "agent_start", {"seq": 1, "agent": "a"}),
+                (
+                    2,
+                    "chat_reply",
+                    {
+                        "pipeline_run_id": "run-1",
+                        "message_id": "m1",
+                        "card_kind": "deliverable",
+                        "text": "Delivered",
+                    },
+                ),
+            ],
+        )
+        # _seed_events mints a fresh uuid4 per row, so the expected value must be read
+        # back from the DB — a hardcoded literal would be wrong on every run.
+        row_event_id = db_session.query(RunEvent).filter_by(run_id="run-1", seq=2).one().event_id
+
+        frames = asyncio.run(
+            _collect(
+                _iter_sse_frames(
+                    run_id="run-1", store=_store(db_session), after_seq=1, live_queue=None
+                )
+            )
+        )
+        replay = [p for p in (_parse(f) for f in frames) if p["type"] != "stream_attached"]
+        assert [p["type"] for p in replay] == ["chat_reply"]
+
+        data = replay[0]["data"]
+        # The identity the payload never carried, taken from the row's COLUMNS.
+        assert data.get("event_id") == row_event_id
+        assert data.get("seq") == 2
+        # ...and the persisted payload keys survive the merge unchanged.
+        assert data["pipeline_run_id"] == "run-1"
+        assert data["message_id"] == "m1"
+        assert data["card_kind"] == "deliverable"
+        assert data["text"] == "Delivered"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -429,6 +499,40 @@ class TestGateRearm:
         # The gate is resolved (approved) → no re-arm frame beyond the handshake.
         rearmed = [p for p in parsed if p["type"] == "review_gate_ready"]
         assert rearmed == [], "a resolved gate must NOT re-arm"
+
+    def test_terminal_run_does_not_rearm_even_with_a_dangling_gate(self, db_session):
+        """FIX-240 (ISS-121): a run whose PERSISTED status is terminal must never re-arm
+        a gate, however open the durable log looks.
+
+        This is the shape of every run cancelled BEFORE FIX-240: the engine's terminal
+        event lost a seq collision with the chat lane and was discarded, so the log still
+        ends on an unresolved ``review_gate_ready``. Those rows are not retroactively
+        recoverable and no synthetic event is back-filled — the persisted status is
+        consulted at the app boundary instead.
+        """
+        _seed_run(db_session, status="cancelled")
+        _seed_events(
+            db_session,
+            [
+                (1, "agent_complete", {"seq": 1}),
+                (2, "review_gate_ready", {"seq": 2, "gate_key": "gk"}),
+                (3, "chat_message", {"seq": 3, "text": "Not what I wanted — stop."}),
+                # seq 4 — pipeline_cancelled — is the row the collision destroyed.
+            ],
+        )
+        frames = asyncio.run(
+            _collect(
+                _iter_sse_frames(
+                    run_id="run-1",
+                    store=_store(db_session),
+                    after_seq=3,
+                    live_queue=None,
+                    run_is_terminal=True,
+                )
+            )
+        )
+        rearmed = [p for p in (_parse(f) for f in frames) if p["type"] == "review_gate_ready"]
+        assert rearmed == [], "a terminal run must NOT re-arm a dangling gate"
 
     def test_rearm_is_read_only(self, db_session):
         """Re-arm reads gate state; it must not write/append any row (no mutation)."""

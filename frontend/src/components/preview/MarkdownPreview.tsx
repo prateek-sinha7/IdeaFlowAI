@@ -37,11 +37,11 @@ export function MarkdownPreview({ content, onRevise }: MarkdownPreviewProps) {
   if (!content) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-6">
-        <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 mb-4">
-          <FileText className="h-7 w-7 text-gray-400" />
+        <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-surface-warm border border-line-control mb-4">
+          <FileText className="h-7 w-7 text-ink-400" />
         </div>
-        <p className="text-sm font-medium text-gray-600">No Output Yet</p>
-        <p className="text-[11px] text-gray-400 mt-1">Run the pipeline to generate output</p>
+        <p className="text-sm font-medium text-ink-600">No Output Yet</p>
+        <p className="text-[11px] text-ink-400 mt-1">Run the pipeline to generate output</p>
       </div>
     );
   }
@@ -55,13 +55,13 @@ export function MarkdownPreview({ content, onRevise }: MarkdownPreviewProps) {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-white flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-line-divider bg-surface-white flex-shrink-0">
         <div className="flex items-center gap-2">
-          <FileText className="h-3.5 w-3.5 text-blue-600" />
-          <span className="text-[11px] font-semibold text-gray-900">Output</span>
+          <FileText className="h-3.5 w-3.5 text-brand" />
+          <span className="text-[11px] font-semibold text-ink-900">Output</span>
         </div>
-        <button onClick={handleCopyAll} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[10px] font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 border border-gray-200 transition-all">
-          {copied ? <><Check className="h-3 w-3 text-emerald-600" /><span className="text-emerald-600">Copied!</span></> : <><Copy className="h-3 w-3" /><span>Copy All</span></>}
+        <button onClick={handleCopyAll} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[10px] font-medium text-ink-500 hover:text-ink-900 hover:bg-surface-warm border border-line-control transition-all">
+          {copied ? <><Check className="h-3 w-3 text-status-done" /><span className="text-status-done">Copied!</span></> : <><Copy className="h-3 w-3" /><span>Copy All</span></>}
         </button>
       </div>
 
@@ -75,25 +75,25 @@ export function MarkdownPreview({ content, onRevise }: MarkdownPreviewProps) {
               return (
                 <div className="mt-6 first:mt-0">
                   <button onClick={() => toggleSection(id)} className="flex items-center gap-2 w-full text-left group">
-                    {isCollapsed ? <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-blue-600" /> : <ChevronDown className="h-4 w-4 text-gray-400 group-hover:text-blue-600" />}
-                    <h1 className="text-[17px] font-bold text-gray-900 pb-1 border-b-2 border-blue-200 flex-1">{children}</h1>
+                    {isCollapsed ? <ChevronRight className="h-4 w-4 text-ink-400 group-hover:text-brand" /> : <ChevronDown className="h-4 w-4 text-ink-400 group-hover:text-brand" />}
+                    <h1 className="text-[17px] font-bold text-ink-900 pb-1 border-b-2 border-brand-border flex-1">{children}</h1>
                   </button>
                 </div>
               );
             },
             h2: ({ children }) => (
-              <h2 className="text-[14px] font-bold text-gray-900 mt-5 mb-2 pb-1 border-b border-gray-200">{children}</h2>
+              <h2 className="text-[14px] font-bold text-ink-900 mt-5 mb-2 pb-1 border-b border-line-divider">{children}</h2>
             ),
             h3: ({ children }) => (
-              <h3 className="text-[13px] font-semibold text-gray-900 mt-4 mb-1">{children}</h3>
+              <h3 className="text-[13px] font-semibold text-ink-900 mt-4 mb-1">{children}</h3>
             ),
             p: ({ children }) => (
-              <p className="text-[12.5px] text-gray-700 leading-[1.6] mb-2">{children}</p>
+              <p className="text-[12.5px] text-ink-700 leading-[1.6] mb-2">{children}</p>
             ),
             ul: ({ children }) => <ul className="my-1 pl-4 space-y-0.5">{children}</ul>,
             ol: ({ children }) => <ol className="my-1 pl-4 space-y-0.5 list-decimal">{children}</ol>,
             li: ({ children }) => (
-              <li className="text-[12.5px] text-gray-700 leading-[1.6] marker:text-blue-500">{children}</li>
+              <li className="text-[12.5px] text-ink-700 leading-[1.6] marker:text-brand">{children}</li>
             ),
             code: ({ className, children, ...props }) => {
               const isBlock = className?.includes("language-") || String(children).includes("\n");
@@ -103,27 +103,27 @@ export function MarkdownPreview({ content, onRevise }: MarkdownPreviewProps) {
                 return <CodeBlock code={codeStr} language={lang} />;
               }
               return (
-                <code className="text-[12px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono border border-blue-100" {...props}>{children}</code>
+                <code className="text-[12px] bg-brand-fill text-brand px-1.5 py-0.5 rounded font-mono border border-brand-border" {...props}>{children}</code>
               );
             },
             pre: ({ children }) => <>{children}</>,
             table: ({ children }) => (
-              <div className="overflow-x-auto my-3 rounded-lg border border-gray-200">
+              <div className="overflow-x-auto my-3 rounded-lg border border-line-divider">
                 <table className="w-full text-[12px] border-collapse">{children}</table>
               </div>
             ),
-            thead: ({ children }) => <thead className="bg-gray-50">{children}</thead>,
-            th: ({ children }) => <th className="px-3 py-2 text-left font-semibold text-gray-900 border-b border-gray-200">{children}</th>,
-            td: ({ children }) => <td className="px-3 py-2 text-gray-700 border-b border-gray-100">{children}</td>,
-            tr: ({ children }) => <tr className="hover:bg-gray-50 transition-colors">{children}</tr>,
-            hr: () => <hr className="my-4 border-gray-200" />,
-            strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
-            em: ({ children }) => <em className="italic text-gray-600">{children}</em>,
+            thead: ({ children }) => <thead className="bg-surface-warm">{children}</thead>,
+            th: ({ children }) => <th className="px-3 py-2 text-left font-semibold text-ink-900 border-b border-line-divider">{children}</th>,
+            td: ({ children }) => <td className="px-3 py-2 text-ink-700 border-b border-line-faint-row">{children}</td>,
+            tr: ({ children }) => <tr className="hover:bg-surface-warm transition-colors">{children}</tr>,
+            hr: () => <hr className="my-4 border-line-divider" />,
+            strong: ({ children }) => <strong className="font-semibold text-ink-900">{children}</strong>,
+            em: ({ children }) => <em className="italic text-ink-600">{children}</em>,
             blockquote: ({ children }) => (
-              <blockquote className="border-l-[3px] border-blue-500 pl-3 my-2 text-gray-600 italic">{children}</blockquote>
+              <blockquote className="border-l-[3px] border-brand pl-3 my-2 text-ink-600 italic">{children}</blockquote>
             ),
             a: ({ href, children }) => (
-              <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline hover:text-blue-700">{children}</a>
+              <a href={href} target="_blank" rel="noopener noreferrer" className="text-brand underline hover:text-brand-pressed">{children}</a>
             ),
           }}
         >
@@ -133,7 +133,7 @@ export function MarkdownPreview({ content, onRevise }: MarkdownPreviewProps) {
 
       {/* Revision bar */}
       {onRevise && (
-        <div className="flex-shrink-0 border-t border-gray-200 bg-white px-4 py-3 flex items-center gap-3">
+        <div className="flex-shrink-0 border-t border-line-divider bg-surface-white px-4 py-3 flex items-center gap-3">
           <input
             type="text"
             value={revisionText}
@@ -145,7 +145,7 @@ export function MarkdownPreview({ content, onRevise }: MarkdownPreviewProps) {
               }
             }}
             placeholder='Request changes, e.g. "Add Stripe payment integration" or "Add a user roles system"'
-            className="flex-1 text-[12px] text-gray-700 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-gray-400 transition-colors"
+            className="flex-1 text-[12px] text-ink-700 placeholder-ink-400 bg-surface-warm border border-line-control rounded-lg px-3 py-2 focus:outline-none focus:border-ink-400 transition-colors"
           />
           <button
             onClick={() => {
@@ -155,7 +155,7 @@ export function MarkdownPreview({ content, onRevise }: MarkdownPreviewProps) {
               }
             }}
             disabled={!revisionText.trim()}
-            className="flex items-center gap-1.5 text-[11px] font-medium text-white bg-[#1B2A4A] hover:bg-[#2a3d5e] disabled:opacity-40 rounded-lg px-3 py-2 transition-colors flex-shrink-0"
+            className="flex items-center gap-1.5 text-[11px] font-medium text-white bg-brand hover:bg-brand-pressed disabled:opacity-40 rounded-lg px-3 py-2 transition-colors flex-shrink-0"
           >
             <RefreshCw className="h-3.5 w-3.5" /> Revise
           </button>
