@@ -126,3 +126,56 @@ repos:
         language: system
         files: ^infra/terraform/.*\.tf$
         pass_filenames: false
+
+  # ---------------------------------------------------------------------
+  # Knowledge base — ONE hook, three phases.
+  #
+  # This was three separate hooks (architecture / domains / sync). They had to
+  # run in a fixed order, they shared a `git add`, and each printed its own
+  # unlabelled block -- so a developer watching a commit saw three disconnected
+  # stanzas with no way to tell which had done anything. The ordering
+  # constraint also lived here in YAML, where nothing enforced it, and getting
+  # it wrong failed INTERMITTENTLY: a commit deleting a source file failed
+  # twice and passed on the third try as the hooks converged.
+  #
+  # Now the order, the logging and the exit code live in one place --
+  # `rebuild_knowledge.py --hook` -- which already owned the stage sequence and
+  # asserts it.
+  #
+  #   [1/3] architecture   ~0.2s glob; pays the ~40s extractor run ONLY when a
+  #                        source file was actually added or removed
+  #   [2/3] domain cards   ms unless a domain's SYMBOLS moved; then headless
+  #                        claude re-authors just the affected cards and
+  #                        re-inlines their diagrams into ARCHITECTURE.md
+  #   [3/3] index/context  ~1.6s, always
+  #
+  # Only phase 3 can fail the commit. Phases 1 and 2 regenerate documentation,
+  # and losing a documentation refresh must never cost someone their commit --
+  # a teammate without the `claude` CLI is unaffected. A broken link in phase 3
+  # IS a real failure and blocks.
+  #
+  # `verbose: true` because pre-commit hides a passing hook's output, and the
+  # whole point of the phase logging is to see what happened.
+  #
+  # always_run, NOT `files: ^\.knowledge/`: pre-commit passes a hook the files
+  # that EXIST, so a commit whose only change is a DELETED card matches nothing
+  # and the hook is skipped -- exactly when the index most needs regenerating,
+  # because it still advertises a card that is gone. That shipped a broken
+  # INDEX.md in commit 07394989.
+  #
+  # `SKIP=knowledge git commit ...` opts out for one commit.
+  # ---------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: knowledge
+        name: knowledge base (architecture -> domains -> index)
+        entry: python3 tools/knowledge/rebuild_knowledge.py --hook
+        language: system
+        always_run: true
+        pass_filenames: false
+        verbose: true
+        # Off by default during the soft-rollout window: `git commit` will
+        # NOT run this hook. Run it manually with
+        #     pre-commit run knowledge --hook-stage manual
+        # To make it auto again, delete this line.
+        stages: [manual]

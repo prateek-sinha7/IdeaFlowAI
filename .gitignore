@@ -123,3 +123,4 @@ TODO.md
 
 # Stale local run output — the live RUNS_ROOT is /tmp/flowin-runs, nothing references this
 backend/.runs-local/
+graphify-out/
