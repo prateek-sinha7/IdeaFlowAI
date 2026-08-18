@@ -378,6 +378,10 @@ export function DashboardLayout({
   // resume attempt fails (instead of silently navigating home). Cleared on the
   // next pipeline_start (the run actually resumes) or when a new run is started.
   const [resumeError, setResumeError] = useState<string | null>(null);
+  // FIX-226: true between "Run Again" click and the first pipeline_start arriving
+  // (the run is accepted but not yet building). Shows an animated "Restarting run…"
+  // indicator in the chat footer. Cleared on pipeline_start or error.
+  const [runRestarting, setRunRestarting] = useState(false);
   const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{
     id: string; question: string; options: string[]; answerType?: string;
     recommendedAnswer?: string; recommendedReasoning?: string;
@@ -835,7 +839,11 @@ export function DashboardLayout({
   // only this effect clears it). The empty deps-array on the outer useCallback
   // is safe because this effect runs on each isPipelineRunning change.
   useEffect(() => {
-    if (isPipelineRunning) setResumeError(null);
+    if (isPipelineRunning) {
+      setResumeError(null);
+      // FIX-226: pipeline started — clear the "Restarting run…" indicator.
+      setRunRestarting(false);
+    }
   }, [isPipelineRunning]);
 
   // Extract Agent 3's (ppt-code-generator) output for early PPTX download
@@ -1914,6 +1922,8 @@ export function DashboardLayout({
     }
     // Clear any prior inline resume error before attempting.
     setResumeError(null);
+    // FIX-226: show "Restarting run…" indicator immediately.
+    setRunRestarting(true);
 
     const doResume = (token: string, id: string): Promise<void> =>
       postResume(token, id).then(({ run_id }) => {
@@ -1952,6 +1962,7 @@ export function DashboardLayout({
         runConnection.attachRun(runId);
         return;
       }
+      setRunRestarting(false);
       setResumeError("Could not resume the run — please try again.");
     });
   }, [lastCancelledRunId, pipelineState, contentSourceRunId, activePipelineRunId, runConnection, handleGoHome]);
@@ -2575,6 +2586,7 @@ export function DashboardLayout({
                       onRelaunch={handleResumeRun}
                       onEditBrief={handleEditBrief}
                       relaunchError={resumeError}
+                      runRestarting={runRestarting}
                       suggestions={laneSuggestions}
                       onSuggestion={handleLaneSuggestion}
                       // 43-02 (A.1 CRUX) — Concierge props wired at the mount.

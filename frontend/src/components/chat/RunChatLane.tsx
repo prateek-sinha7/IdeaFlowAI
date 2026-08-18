@@ -250,6 +250,12 @@ export interface RunChatLaneProps {
    */
   relaunchError?: string | null;
   /**
+   * FIX-226: true between "Run Again" click and the first pipeline_start
+   * confirming the run is building. Shows an animated "Restarting run…"
+   * indicator in the chat footer so the user gets immediate feedback.
+   */
+  runRestarting?: boolean;
+  /**
    * "Edit brief & run again" — navigates home so the user can modify their
    * brief and start a fresh run. Distinct from `onRelaunch` (resume from
    * checkpoint). When absent the secondary button falls back to `onRelaunch`.
@@ -1080,6 +1086,7 @@ export function RunChatLane({
   onRevise,
   onRelaunch,
   relaunchError,
+  runRestarting,
   onEditBrief,
   suggestions,
   onSuggestion,
@@ -1655,6 +1662,28 @@ export function RunChatLane({
         );
 
       case "terminal": {
+        // FIX-226: while the resume is in flight (between "Run Again" click and
+        // pipeline_start), show an animated "Restarting run…" indicator. This
+        // gives immediate feedback without persisting a message to the transcript.
+        // Uses the same three-dot brand animation as "Preparing your questions…".
+        if (runRestarting) {
+          return (
+            <div className="ml-[31px] flex items-center gap-[9px] font-sans text-[11.5px] font-medium text-ink-500">
+              <span className="flex items-center gap-[3px]">
+                {[0, 1, 2].map((i) => (
+                  <motion.span
+                    key={i}
+                    className="h-[5px] w-[5px] rounded-full bg-brand"
+                    animate={{ opacity: [0.3, 0.9, 0.3] }}
+                    transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.15, ease: "easeInOut" }}
+                  />
+                ))}
+              </span>
+              Restarting run…
+            </div>
+          );
+        }
+
         // Terminal variant keys off the GENERIC pipelineState markers (plan 05)
         // — cancelled / failed / degraded — never a workflow name (SC-001).
         const failedIds = pipelineState?.failedAgents ?? [];
