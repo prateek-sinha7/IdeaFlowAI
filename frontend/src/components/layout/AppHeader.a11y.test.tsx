@@ -131,20 +131,19 @@ describe("AppHeader — profile menu a11y", () => {
     await user.click(screen.getByRole("button", { name: /account menu/i }));
     const menu = screen.getByRole("menu");
     const items = within(menu).getAllByRole("menuitem");
-    // Account Settings / Security / Analytics / Workflow History / Dark mode /
-    // Log out — for a NON-admin user (Admin Dashboard is isAdmin-gated and has
-    // its own cases above).
-    // Security was added with the MFA enrolment page — without a route into it,
-    // ADMIN_MFA_REQUIRED is a lockout switch rather than a control.
-    // "Dark mode" is the theme toggle; it lives in this menu as a menuitem too,
-    // so the count is 6 rather than the 5 this assertion originally expected.
-    expect(items).toHaveLength(6);
+    // Account Settings / Analytics / Run History / Dark mode / Log out — for a
+    // NON-admin user (Admin Dashboard is isAdmin-gated and has its own cases
+    // above).
+    // "Dark mode" is the theme toggle; it lives in this menu as a menuitem too.
+    // The standalone "Security" item was removed from this menu; the MFA
+    // controls remain reachable as a tab inside Account Settings.
+    expect(items).toHaveLength(5);
     expect(
       within(menu).getByRole("menuitem", { name: /account settings/i }),
     ).toBeInTheDocument();
     expect(
-      within(menu).getByRole("menuitem", { name: /security/i }),
-    ).toBeInTheDocument();
+      within(menu).queryByRole("menuitem", { name: /^security$/i }),
+    ).not.toBeInTheDocument();
     expect(
       within(menu).getByRole("menuitem", { name: /dark mode/i }),
     ).toBeInTheDocument();

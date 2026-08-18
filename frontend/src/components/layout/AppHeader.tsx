@@ -15,7 +15,6 @@ import {
   CreditCard,
   LayoutGrid,
   Shield,
-  ShieldCheck,
   Moon,
   Sun,
 } from "lucide-react";
@@ -537,18 +536,6 @@ export function AppHeader({
                   >
                     <Settings className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
                     Account Settings
-                  </button>
-                  {/* Deep-links into the Account Settings "Security" tab. It used
-                      to router.push("/settings/security") — that standalone route
-                      is gone, and its MFA controls now live as a tab on this
-                      surface, so security is an in-app panel like the rest. */}
-                  <button
-                    role="menuitem"
-                    onClick={() => { setProfileOpen(false); onNavigate("settings", { settingsSection: "security" }); }}
-                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[12px] text-ink-700 hover:bg-surface-warm transition-colors text-left"
-                  >
-                    <ShieldCheck className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
-                    Security
                   </button>
                   <button
                     role="menuitem"

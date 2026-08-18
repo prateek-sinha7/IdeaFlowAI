@@ -1762,9 +1762,10 @@ export function DashboardLayout({
 
   // Header navigation — free navigation even while pipeline runs.
   //
-  // `options.settingsSection` deep-links into one Account Settings tab (the
-  // profile menu's "Security" item, which replaced the retired /settings/security
-  // route). The nonce is what makes a REPEAT request work: the settings view is
+  // `options.settingsSection` deep-links into one Account Settings tab. No
+  // caller passes it today (the profile menu's "Security" item that used it was
+  // removed); omitting it lands on "profile", which is what every current
+  // caller wants. The nonce is what makes a REPEAT request work: the settings view is
   // keyed on it, so asking for the same tab again remounts AccountSettings and
   // re-applies `initialSection` even when the user has since clicked another tab.
   const handleNavigate = useCallback((
