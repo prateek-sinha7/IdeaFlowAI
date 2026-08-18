@@ -10,6 +10,7 @@ import type {
   FamilyMember,
   RunFamily,
   User,
+  WorkflowManifest,
   WorkflowRun,
   WorkflowType,
 } from "@/types/index";
@@ -423,6 +424,10 @@ export interface AnalyticsSummary {
   pipelines: AnalyticsPipelineRollup[];
   models: AnalyticsModelRollup[];
   spend: number;
+  /** ISS-034 — the same window priced as-if prompt caching had been OFF. */
+  spend_full: number;
+  /** How many runs in the window carry the counterfactual (pre-ISS-034 rows do not). */
+  metered_runs: number;
   token_totals: AnalyticsTokenTotals;
   type_avg_duration_sec: Record<string, number>;
 }
@@ -718,38 +723,35 @@ export async function postGate(
  * Cooperatively cancel a run over REST (mirrors WS `cancel_pipeline`). The WS
  * frame was connection-scoped and carried no id; the REST path threads the run
  * id explicitly. Owner-gated server-side; idempotent when no live run exists.
+ *
+ * ISS-084 — the response is an ACCEPTANCE, never a confirmation. `accepted: true`
+ * (`status: "stopping"`) means a live driver was signalled; the run's terminal
+ * arrives on the event stream as `pipeline_cancelled`, which is the ONLY thing that
+ * proves it stopped. Do not branch on `cancelled` — it is retained for wire
+ * compatibility and is never `true` here (it used to be `true` in exactly the case
+ * where cancelling was impossible).
  */
 export async function postCancel(
   token: string,
   runId: string,
-): Promise<{ ok: boolean; run_id: string; cancelled?: boolean }> {
-  return request<{ ok: boolean; run_id: string; cancelled?: boolean }>(
+): Promise<{
+  ok: boolean;
+  run_id: string;
+  accepted?: boolean;
+  status?: "stopping" | "not_running";
+  cancelled?: boolean;
+}> {
+  return request<{
+    ok: boolean;
+    run_id: string;
+    accepted?: boolean;
+    status?: "stopping" | "not_running";
+    cancelled?: boolean;
+  }>(
     `/api/runs/${encodeURIComponent(runId)}/cancel`,
     {
       method: "POST",
       headers: authHeaders(token),
-    },
-  );
-}
-
-/**
- * FIX-116: Silently classify a settled-run user message as revise / chain / ask.
- * The LLM reads the user text + run deliverable summary + available chain targets
- * and returns ONLY a classification — no chat reply is produced.
- * Generic (SC-001/INV-1) — no workflow-name literal.
- */
-export async function classifyIntent(
-  token: string,
-  runId: string,
-  text: string,
-  chainHints?: { id: string; label: string }[],
-): Promise<{ intent: "revise" | "chain" | "ask"; target_id?: string }> {
-  return request<{ intent: "revise" | "chain" | "ask"; target_id?: string }>(
-    `/api/runs/${encodeURIComponent(runId)}/classify-intent`,
-    {
-      method: "POST",
-      headers: authHeaders(token),
-      body: JSON.stringify({ text, chain_hints: chainHints ?? [] }),
     },
   );
 }
@@ -1061,6 +1063,8 @@ export interface WorkflowStepDetail {
   compaction?: string | null;
   task_source?: { kind: string; parser?: string | null; target?: string | null } | null;
   declared_gate?: string | null;
+  /** Per-step skill ids (spec 012, R-01). */
+  skills?: string[];
 }
 
 /** The compiled deliverable spec for a workflow (BE `WorkflowDeliverable`). */
@@ -1132,6 +1136,17 @@ export interface UserWorkflowSummary {
   // For PPT/Prototype saved workflows a special `_wizard` key is embedded inside
   // selections carrying { templateId, designSystemId, brief, gateAgentIds, ... }.
   selections?: Record<string, Record<string, unknown>> | null;
+  // Spec 012 (R-27/R-29) — the full `{"steps": [...]}` manifest, present once
+  // the composition uses a per-node skill, custom prompt, or sub-agent tree.
+  // Mutually exclusive with `selections` (the backend `_project` splits the
+  // reused `manifest_json` column across these two fields). ComposerPage's
+  // `initialManifestSteps` reads `manifest?.steps` from this on reload.
+  manifest?: WorkflowManifest | null;
+  // Persisted UI-attached skills/hooks — same shape sent to the launch path
+  // (`attached_skills`/`attached_hooks` in useWorkflow.ts's startPipeline
+  // payload). NULL/absent ⇒ none attached.
+  attached_skills?: Array<Record<string, unknown>> | null;
+  attached_hooks?: Array<Record<string, unknown>> | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -1174,10 +1189,42 @@ export async function createUserWorkflow(
      * before persisting (the authoritative CAP-03 backstop).
      */
     selections?: Record<string, Record<string, unknown>>;
+    // Same shape as useWorkflow.ts's startPipeline `attached_skills`/
+    // `attached_hooks` payload. Omitted when empty (payload stays byte-identical
+    // for saves with no skills/hooks attached — INV-3).
+    attached_skills?: Array<Record<string, unknown>>;
+    attached_hooks?: Array<Record<string, unknown>>;
   }
 ): Promise<UserWorkflowSummary> {
   return request<UserWorkflowSummary>("/api/user-workflows", {
     method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Update an existing saved workflow in place (PATCH analog of
+ * `createUserWorkflow`). Every field is optional — an absent field leaves the
+ * stored value untouched. `agent_ids`/`base_pipeline_type` are NOT accepted
+ * (composition is immutable after creation — see backend
+ * `UpdateUserWorkflowRequest`); this only renames/updates description,
+ * model_overrides, selections, and attached skills/hooks on the existing row.
+ */
+export async function updateUserWorkflow(
+  token: string,
+  workflowId: string,
+  body: {
+    name?: string;
+    description?: string;
+    model_overrides?: Record<string, string>;
+    selections?: Record<string, Record<string, unknown>>;
+    attached_skills?: Array<Record<string, unknown>>;
+    attached_hooks?: Array<Record<string, unknown>>;
+  }
+): Promise<UserWorkflowSummary> {
+  return request<UserWorkflowSummary>(`/api/user-workflows/${workflowId}`, {
+    method: "PATCH",
     headers: authHeaders(token),
     body: JSON.stringify(body),
   });

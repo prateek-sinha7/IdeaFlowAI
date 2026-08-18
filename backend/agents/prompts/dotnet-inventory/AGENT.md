@@ -1,6 +1,7 @@
 ---
 consumes: []
 context_from: []
+description: Catalogues your .NET estate — projects, frameworks, NuGet deps, auth model, and modernisation risk hotspots.
 estimated_duration: 8.0
 guardrails:
 - dotnet

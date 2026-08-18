@@ -11,6 +11,7 @@ context_from:
 - dotnet-code-compliance
 - dotnet-test-compliance
 - dotnet-validation
+description: Architecture Decision Records, runbooks, SLOs/SLIs, dashboards, compliance evidence matrix, and operations handover.
 estimated_duration: 9.0
 guardrails:
 - dotnet

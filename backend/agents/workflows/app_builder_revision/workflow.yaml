@@ -1,18 +1,27 @@
-# app_builder_revision — single revision agent over a prior app bundle.
-# clarify.defaults fall to engine._pipeline_defaults["custom"] (parity trap #2).
-# context_providers: [previous_run]. deliverable: serialized_sandbox.
 id: app_builder_revision
+user_launchable: false
+is_beta: true
+display_name: Revise application
+short_name: App Builder Revision
+description: Apply a revision instruction to a prior generated application.
+icon: Rocket
 version: 1
 planner: run
 clarify:
   mode: auto
-  defaults: [target_audience, key_objectives, scope, priority]
+  defaults:
+  - target_audience
+  - key_objectives
+  - scope
+  - priority
 deliverable:
   strategy: serialized_sandbox
   name: app
-context_providers: [previous_run]
+context_providers:
+- previous_run
 seed_files: {}
 steps:
-  - agent: app-builder-revision-agent
-    strategy: single_shot
-    gates: []
+- agent: app-builder-revision-agent
+  strategy: single_shot
+  gates: []
+name: App Builder Revision

@@ -38,7 +38,15 @@ from tests.agents._scripted_model import (
 
 # Per-event bound: pre-fix code never yields review_gate_ready (the gate buffers
 # until approval, which never comes) → this timeout fails the test deterministically.
-_EVENT_TIMEOUT_S = 30.0
+#
+# This is a DEADLOCK detector, not a latency assertion: the regression it guards
+# yields the event never, so detection power is identical at any finite bound. The
+# value is therefore set for false-positive immunity, not tightness — at 30s this
+# test failed intermittently under ``-n auto`` (10 workers on a 10-core box) with
+# ``asyncio.exceptions.CancelledError``, purely because a scheduled event lost the
+# CPU race, and which runs tripped it depended on machine load. Do not lower it to
+# "catch slowness"; a slow-but-live gate is not what this test is about.
+_EVENT_TIMEOUT_S = 120.0
 
 
 @pytest.mark.asyncio
@@ -49,12 +57,25 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
     does, with TWO deliberate differences:
 
       (a) ``engine._run_review_gate`` is NOT monkeypatched — the declared
-          ``gates:[human]`` steps (prototype-specify / prototype-plan) must reach
-          the REAL pause (``await event.wait()``);
-      (b) ``gate_agent_ids=[]`` is passed to ``execute()`` so the legacy inline
-          ``_should_gate`` path stays silent and ONLY the manifest-declared gate
-          path is exercised.
+          ``gates:[human]`` steps (prototype-specify / prototype-plan /
+          prototype-analyze) must reach the REAL pause (``await event.wait()``);
+      (b) prototype-specify's loaded spec has its inline ``gate: Human_Gate``
+          frontmatter stripped (``dataclasses.replace(..., gate=None)``) so it
+          is not eligible for the inline ``_should_gate`` path. KAN-94 unified
+          the WR-02 dedupe: an explicit ``gate_agent_ids`` selection now decides
+          BOTH the inline path AND whether a manifest-declared ``human`` gate is
+          skipped (dedupe fires either when the inline gate already covers the
+          agent, or when a non-None ``gate_agent_ids`` excludes it) — so
+          ``gate_agent_ids=[]`` no longer isolates "declared path only"; it
+          silences every gate. Passing ``gate_agent_ids=None`` (the default) with
+          prototype-specify's inline attribute removed is the only remaining way
+          to force ITS gate through the manifest-declared ``HumanGate`` handler
+          (the F1 regression surface) while prototype-plan/prototype-analyze —
+          which still carry the inline attribute — take the (also real, also
+          human) inline path.
     """
+    import dataclasses
+
     import agents.execution_engine.engine as engine_mod
     import agents.factory as factory_mod
     from agents.execution_engine.engine import ExecutionEngine
@@ -75,7 +96,13 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
 
     engine_mod.compile_for_run = _patched_compile_for_run
 
-    specs = get_pipeline_agents("prototype")
+    specs = list(get_pipeline_agents("prototype"))
+    # Strip prototype-specify's inline attribute (see docstring) — its declared
+    # ``gates:[human]`` step is the ONLY one this run exercises through the
+    # manifest ``HumanGate`` handler; plan/analyze keep theirs and take the
+    # (deduped) inline path.
+    specs[0] = dataclasses.replace(specs[0], gate=None)
+    assert specs[0].id == "prototype-specify"
 
     # ── Per-agent scripted model factory (no network). ────────────────────────
     _orig_create_runner = factory_mod.create_runner
@@ -146,7 +173,10 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
         pipeline_type="prototype",
         user_id="harness-user",
         od_context=od_context,
-        gate_agent_ids=[],  # silence the legacy inline path — declared gates ONLY
+        # gate_agent_ids left at the default (None): prototype-specify's inline
+        # attribute was stripped above so its gate is forced through the
+        # declared HumanGate handler; plan/analyze use their unchanged inline
+        # attribute (see docstring).
     )
 
     try:
@@ -198,11 +228,13 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
     types = [e.get("type") for e in events]
 
     # ── Post-conditions ───────────────────────────────────────────────────────
-    # The prototype manifest declares gates:[human] on prototype-specify AND
-    # prototype-plan — both must have paused and been approved through this flow.
+    # The prototype manifest declares gates:[human] on prototype-specify,
+    # prototype-plan, AND prototype-analyze — all three must have paused and
+    # been approved through this flow (specify via the declared HumanGate
+    # handler, plan/analyze via the deduped inline path).
     assert len(approved_gate_keys) >= 1, "no review_gate_ready was ever received"
-    assert len(approved_gate_keys) == 2, (
-        f"expected the 2 declared gated steps (specify, plan) to pause; "
+    assert len(approved_gate_keys) == 3, (
+        f"expected the 3 gated steps (specify, plan, analyze) to pause; "
         f"approved={approved_gate_keys}"
     )
 
@@ -261,7 +293,10 @@ async def test_default_run_single_gate_per_agent_with_real_payload() -> None:
 
     specs = get_pipeline_agents("prototype")
     gated_ids = {s.id for s in specs if getattr(s, "gate", None) == "Human_Gate"}
-    assert gated_ids == {"prototype-specify", "prototype-plan"}, (
+    # KAN-86 added prototype-analyze to the prototype pipeline with
+    # `gate: Human_Gate` declared (mirroring specify/plan) — an intentional
+    # static-set change, not drift; the pin below tracks it.
+    assert gated_ids == {"prototype-specify", "prototype-plan", "prototype-analyze"}, (
         f"precondition: the static inline gate set changed: {gated_ids}"
     )
 
@@ -375,7 +410,14 @@ async def test_declared_gate_rejection_cancels_the_run() -> None:
     state machine stranded in ``waiting_for_user``. Rejection must mirror the
     inline path: ``pipeline_cancelled`` terminal, state ``cancelled``, no
     ``pipeline_complete``, no further agents.
+
+    As in the F1 streaming test above, prototype-specify's inline ``gate:
+    Human_Gate`` attribute is stripped so its gate is forced through the
+    manifest-declared ``HumanGate`` handler (KAN-94 made ``gate_agent_ids=[]``
+    silence ALL gates, not just the inline ones — see that test's docstring).
     """
+    import dataclasses
+
     import agents.execution_engine.engine as engine_mod
     import agents.factory as factory_mod
     from agents.execution_engine.engine import ExecutionEngine
@@ -393,7 +435,9 @@ async def test_declared_gate_rejection_cancels_the_run() -> None:
 
     engine_mod.compile_for_run = _patched_compile_for_run
 
-    specs = get_pipeline_agents("prototype")
+    specs = list(get_pipeline_agents("prototype"))
+    specs[0] = dataclasses.replace(specs[0], gate=None)
+    assert specs[0].id == "prototype-specify"
 
     _orig_create_runner = factory_mod.create_runner
     _orig_engine_create_runner = getattr(engine_mod, "create_runner", None)
@@ -439,7 +483,9 @@ async def test_declared_gate_rejection_cancels_the_run() -> None:
         pipeline_type="prototype",
         user_id="harness-user",
         od_context=od_context,
-        gate_agent_ids=[],  # declared gates ONLY (the WR-03 surface under test)
+        # gate_agent_ids left at the default (None) — see docstring: specify's
+        # inline attribute is stripped above so ITS gate is the one forced
+        # through the declared HumanGate handler (the WR-03 surface under test).
     )
 
     try:

@@ -133,7 +133,11 @@ def test_mistral_fallback_used_when_nothing_else_configured(monkeypatch: pytest.
 
     result = build_model(model="mistral-medium-latest")  # deliberately != the default, proves override wins
 
-    mock_cls.assert_called_once_with(model="mistral-medium-latest", api_key="fake-mistral-key")
+    mock_cls.assert_called_once_with(
+        model="mistral-medium-latest",
+        api_key="fake-mistral-key",
+        timeout=settings.LLM_CALL_TIMEOUT_SECONDS,
+    )
     assert result is mock_cls.return_value
 
 
@@ -143,7 +147,11 @@ def test_mistral_fallback_uses_default_model_id(monkeypatch: pytest.MonkeyPatch)
 
     build_model()
 
-    mock_cls.assert_called_once_with(model="mistral-small-latest", api_key="fake-mistral-key")
+    mock_cls.assert_called_once_with(
+        model="mistral-small-latest",
+        api_key="fake-mistral-key",
+        timeout=settings.LLM_CALL_TIMEOUT_SECONDS,
+    )
 
 
 def test_bedrock_wins_over_mistral_fallback_tier(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -186,7 +194,11 @@ def test_explicit_provider_mistral_overrides_anthropic(monkeypatch: pytest.Monke
 
     result = build_model(model="mistral-medium-latest", provider="mistral")
 
-    mistral_cls.assert_called_once_with(model="mistral-medium-latest", api_key="fake-mistral-key")
+    mistral_cls.assert_called_once_with(
+        model="mistral-medium-latest",
+        api_key="fake-mistral-key",
+        timeout=settings.LLM_CALL_TIMEOUT_SECONDS,
+    )
     anthropic_cls.assert_not_called()
     assert result is mistral_cls.return_value
 

@@ -40,6 +40,13 @@ _DELIVERABLE_EXCLUDE: frozenset[str] = frozenset({"PLANNER.md"})
 # dormant and ``serialize_sandbox_deliverable`` stays byte-identical.
 _UPLOADS_PREFIX = ".uploads/"
 
+# Reserved sandbox prefix for the engine-owned run trace (R-23/R-24, spec 012).
+# The engine writes ``.logs/run-logs.jsonl``; no agent has a tool that can
+# append to it. Prefix-based exclusion (F-09) so a stray agent write anywhere
+# under ``.logs/`` is dropped from the deliverable rather than corrupting the
+# trace or leaking into the delivered artifact tree.
+_LOGS_PREFIX = ".logs/"
+
 # Sentinel emitted when no deliverable files exist — kept byte-identical to the
 # legacy deliverable format so the engine produces the same ``WorkflowRun.output``
 # string from the on-disk sandbox.
@@ -125,6 +132,7 @@ class RunSandbox:
             self.root.chmod(0o700)
         except OSError:
             pass  # best-effort on filesystems that don't honour chmod
+        logger.debug("ensure %s", self.root)
         return self.root
 
     def path_for(self, relpath: str) -> Path:
@@ -139,15 +147,24 @@ class RunSandbox:
         # Delegate to the has_git=False Workspace (LocalWorkspace.write_file) — the
         # single disk-write impl. It mkdir(parents)s + writes UTF-8 under the
         # traversal-proof path_for, identical to the legacy inline body.
-        return self._ws().write_file(relpath, content)  # type: ignore[attr-defined]
+        result = self._ws().write_file(relpath, content)  # type: ignore[attr-defined]
+        logger.debug("write %s (%d chars)", relpath, len(content))
+        return result
 
     def read(self, relpath: str) -> str | None:
         # Preserve the legacy contract: missing file → None (LocalWorkspace.read_file
         # raises on a missing file, so guard is_file() here to keep byte-parity).
         p = self.path_for(relpath)
         if not p.is_file():
+            logger.debug("read %s -> (absent)", relpath)
             return None
-        return self._ws().read_file(relpath)  # type: ignore[attr-defined]
+        result = self._ws().read_file(relpath)  # type: ignore[attr-defined]
+        logger.debug("read %s -> %d chars", relpath, len(result))
+        return result
+
+    def audit_log(self, event: str, detail: dict) -> None:
+        """Trace-only structured audit line (mirrors the reference tracer)."""
+        logger.debug("audit_log %s %s", event, detail)
 
     def cleanup(self) -> None:
         """Remove the run dir (idempotent).
@@ -157,6 +174,7 @@ class RunSandbox:
         and no teardown cycle. Both entry points — this facade and
         ``LocalSandboxRuntime.teardown(ws)`` — land on this single rmtree.
         """
+        logger.debug("cleanup %s", self.root)
         shutil.rmtree(self.root, ignore_errors=True)
 
 
@@ -272,6 +290,8 @@ def _collect_deliverable_relpaths(
             # ``.uploads/`` and must never surface as a deliverable file. Dormant
             # on golden runs (no ``.uploads/`` dir → identical output, INV-3).
             if relpath.startswith(_UPLOADS_PREFIX):
+                continue
+            if relpath.startswith(_LOGS_PREFIX):
                 continue
             if relpath in exclude_set or name in exclude_set:
                 continue

@@ -103,9 +103,10 @@ def _latest_run(TestingSession):
 
 
 class _FakeUser:
-    def __init__(self, id: str):
+    def __init__(self, id: str, tier: str = "enterprise"):
         self.id = id
         self.preferred_model = None
+        self.tier = tier
 
 
 @pytest.fixture

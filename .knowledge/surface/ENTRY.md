@@ -2,7 +2,7 @@
 
 # Project knowledge — entry point
 
-You were redirected here because you asked to read a `.planning/` register whole. All 16.8 MB of `.planning/` is carried as **572 cards** in `.knowledge/cards/`; the registers themselves are unchanged on disk.
+You were redirected here because you asked to read a `.planning/` register whole. All 18.5 MB of `.planning/` is carried as **742 cards** in `.knowledge/cards/`; the registers themselves are unchanged on disk.
 
 This is not a failure. Query below — do not retry the original path.
 
@@ -26,16 +26,16 @@ python3 scripts/knowledge/ctx.py --show <ID>             # one card, full prose
 | type | n | what it is | example |
 |---|---:|---|---|
 | `decision` | 1 | rules in force — always loaded | `ctx.py --rules sse` |
-| `fix` | 208 | shipped fixes, symptom + cause | `ctx.py "reconnect banner"` |
-| `issue` | 49 | tracked issues | `ctx.py --type issue "review gate"` |
+| `fix` | 264 | shipped fixes, symptom + cause | `ctx.py "reconnect banner"` |
+| `issue` | 161 | tracked issues | `ctx.py --type issue "review gate"` |
 | `bug` | 28 | QA campaign bugs | `ctx.py --type bug "resume"` |
 | `phase` | 23 | phase pointers → _register-parts/ shards | `ctx.py --type phase "compiler"` |
 | `test` | 49 | test-register sections | `ctx.py --type test "compiler"` |
 | `req` | 40 | requirement sections | `ctx.py --type req "artifacts"` |
-| `doc` | 63 | pointers to planning documents | `ctx.py --type doc "roadmap"` |
+| `doc` | 65 | pointers to planning documents | `ctx.py --type doc "roadmap"` |
 | `task` | 111 | pointers to quick/ and phases/ work folders | `ctx.py --type task "resume"` |
 
-**Areas:** `agents` (193), `workflow` (185), `frontend` (167), `sse` (129), `artifacts` (78), `backend` (74), `auth` (72), `resume` (40), `runtime` (31), `product` (29)
+**Areas:** `agents` (286), `workflow` (248), `sse` (222), `frontend` (221), `backend` (134), `auth` (131), `artifacts` (116), `resume` (79), `runtime` (41), `product` (30)
 
 ## Full lists
 
@@ -44,8 +44,8 @@ python3 scripts/knowledge/ctx.py --show <ID>             # one card, full prose
 | `.knowledge/surface/ARCHITECTURE.md` | **current state** — milestone, phase, enforced boundaries, ADRs in force | **first** |
 | `.knowledge/INVARIANTS.md` | project-wide constraints | always |
 | `.knowledge/surface/RULES.md` | decisions in force | always |
-| `.knowledge/surface/INDEX.md` | 281 primary cards (decision, fix, issue, phase) | always |
-| `.knowledge/surface/CATALOG.md` | 291 secondary cards (bug, test, req, doc, task) | on demand |
+| `.knowledge/surface/INDEX.md` | 449 primary cards (decision, fix, issue, phase) | always |
+| `.knowledge/surface/CATALOG.md` | 293 secondary cards (bug, test, req, doc, task) | on demand |
 | `.knowledge/surface/index.json` | every entry + `facets` for filtering | tools only |
 
 ## If you genuinely need the raw register

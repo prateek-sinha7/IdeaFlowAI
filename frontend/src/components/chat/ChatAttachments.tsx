@@ -21,7 +21,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { FileText, ImageIcon, ImageOff, Paperclip, X } from "lucide-react";
 
-import { useChatAttachments, type PendingAttachment } from "@/hooks/useChatAttachments";
+import { useChatAttachments, type PendingAttachment, type FileContentEntry } from "@/hooks/useChatAttachments";
 import type { ChatAttachment } from "@/types/index";
 
 const DEFAULT_ACCEPT =
@@ -31,6 +31,11 @@ interface ChatAttachmentsProps {
   /** Notify the lane of the current live intake so it can attach them to the
    *  next sent turn. Fires whenever the intake changes. */
   onChange?: (attachments: PendingAttachment[]) => void;
+  /**
+   * FIX-218 (KAN-170): notify the lane of pre-extracted file text entries so
+   * they can be sent in body.file_contents. Fires whenever fileContents changes.
+   */
+  onFileContentsChange?: (fileContents: FileContentEntry[]) => void;
   /** Render a REOPENED/replayed turn's stored refs as placeholder chips. When
    *  set, the live intake is suppressed (this turn is history, not the composer). */
   reopenedAttachments?: ChatAttachment[];
@@ -47,6 +52,12 @@ interface ChatAttachmentsProps {
    * Populated with a function that opens the hidden file picker, so an external
    * trigger (the composer bar's paperclip in `compact` mode) can invoke it. */
   openRef?: MutableRefObject<(() => void) | null>;
+  /**
+   * Notifies the parent when file extraction is in progress (true while any
+   * binary file is being read server-side). Used to disable the send button
+   * until extraction completes so the Concierge always gets the file text.
+   */
+  onExtractingChange?: (isExtracting: boolean) => void;
 }
 
 function formatSize(bytes?: number): string {
@@ -70,14 +81,25 @@ function PlaceholderChip({ att }: { att: ChatAttachment }) {
   );
 }
 
-export function ChatAttachments({ onChange, reopenedAttachments, accept, compact, openRef }: ChatAttachmentsProps) {
-  const { attachments, addFiles, onPaste, onDrop, remove } = useChatAttachments();
+export function ChatAttachments({ onChange, onFileContentsChange, reopenedAttachments, accept, compact, openRef, onExtractingChange }: ChatAttachmentsProps) {
+  const { attachments, fileContents, isExtracting, extractingIds, addFiles, onPaste, onDrop, remove } = useChatAttachments();
   const [dragActive, setDragActive] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     onChange?.(attachments);
   }, [attachments, onChange]);
+
+  // FIX-218 (KAN-170): notify lane of file contents when they change.
+  useEffect(() => {
+    onFileContentsChange?.(fileContents);
+  }, [fileContents, onFileContentsChange]);
+
+  // FIX-218: notify parent of extraction state so the send button can be
+  // disabled while a binary file is being read server-side.
+  useEffect(() => {
+    onExtractingChange?.(isExtracting);
+  }, [isExtracting, onExtractingChange]);
 
   // Expose an imperative "open picker" to an external trigger (compact mode).
   useEffect(() => {
@@ -135,11 +157,14 @@ export function ChatAttachments({ onChange, reopenedAttachments, accept, compact
   const chips =
     attachments.length > 0 ? (
       <div className={`flex flex-wrap gap-1.5 ${compact ? "mb-2" : "pt-2"}`}>
-        {attachments.map((att) => (
+        {attachments.map((att) => {
+          const extracting = extractingIds.has(att.id);
+          return (
           <span
             key={att.id}
             data-testid="chat-attach-chip"
             data-retained="false"
+            data-extracting={extracting ? "true" : "false"}
             className={
               compact
                 ? "inline-flex items-center gap-[7px] rounded-[var(--radius-node)] border border-line-control bg-surface-white px-2 py-[5px] text-[11.5px] text-ink-800"
@@ -152,15 +177,21 @@ export function ChatAttachments({ onChange, reopenedAttachments, accept, compact
                 alt={att.name}
                 className="h-4 w-4 rounded object-cover"
               />
+            ) : extracting ? (
+              // Animated dot while server-side extraction is in flight.
+              <span className="h-2.5 w-2.5 animate-spin rounded-full border border-brand border-t-transparent" />
             ) : (
               <FileText className={compact ? "h-3 w-3 text-ink-500" : "h-2.5 w-2.5"} />
             )}
-            <span className="max-w-[10rem] truncate font-sans font-medium">{att.name}</span>
-            {att.kind === "file" && att.sizeBytes ? (
+            <span className="max-w-[10rem] truncate font-sans font-medium">
+              {extracting ? `Reading ${att.name}…` : att.name}
+            </span>
+            {!extracting && att.kind === "file" && att.sizeBytes ? (
               <span className={compact ? "text-ink-200 tabular-nums" : "text-gray-400"}>
                 {formatSize(att.sizeBytes)}
               </span>
             ) : null}
+            {!extracting && (
             <button
               type="button"
               aria-label={`Remove ${att.name}`}
@@ -173,8 +204,10 @@ export function ChatAttachments({ onChange, reopenedAttachments, accept, compact
             >
               <X className="h-2.5 w-2.5" />
             </button>
+            )}
           </span>
-        ))}
+          );
+        })}
       </div>
     ) : null;
 

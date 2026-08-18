@@ -34,6 +34,7 @@ from app.models.revoked_token import RevokedToken  # noqa: F401
 from app.models.user import User  # noqa: F401
 from app.models.chat import ChatSession, Message  # noqa: F401
 from app.models.workflow import WorkflowRun  # noqa: F401
+from tests.fixtures.user_factory import create_user
 
 
 @pytest.fixture
@@ -63,6 +64,9 @@ def client():
     app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(app) as test_client:
+        # Exposed so _register can create users directly (self-registration
+        # is disabled — see app/api/auth.py) against this test's own engine.
+        test_client.SessionLocal = TestingSession
         yield test_client
 
     app.dependency_overrides.clear()
@@ -71,13 +75,19 @@ def client():
 
 
 def _register(client, email: str = "alice@example.com", password: str = "password123") -> dict:
-    """Register a user and return the parsed JSON response."""
-    resp = client.post(
-        "/api/auth/register",
-        json={"email": email, "password": password},
-    )
-    assert resp.status_code == 201, resp.text
-    return resp.json()
+    """Create a user directly in the test DB, then log in for a real JWT.
+
+    ``/api/auth/register`` is a permanent 403 (self-registration is
+    disabled by design). These tests are about JWT/logout behaviour, not
+    account creation, so the account is created directly and the token
+    comes from the real ``/api/auth/login`` flow — the part under test.
+    """
+    session = client.SessionLocal()
+    try:
+        create_user(session, email, password)
+    finally:
+        session.close()
+    return _login(client, email=email, password=password)
 
 
 def _login(client, email: str = "alice@example.com", password: str = "password123") -> dict:

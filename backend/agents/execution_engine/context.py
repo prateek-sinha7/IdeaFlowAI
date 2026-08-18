@@ -276,6 +276,74 @@ class ExecutionContext:
     # ``derived_from`` lineage of a re-run is intentionally NOT an ectx field — it is
     # a _run_agent loop local so it cannot leak across agents (F3).
     redo_directive: str = ""
+    # spec_revision_prior_artifact: the PRIOR version of the artifact an agent is being
+    # asked to amend, published for exactly ONE dispatch. Joins the consume-once
+    # injection-seam family (``redo_directive`` / ``spec_revision_context`` /
+    # ``steering_notes``) and follows its discipline exactly.
+    #
+    # TWO publishers, ONE field and ONE renderer (INV-12 — the alternative was a second
+    # field and a second block meaning the same thing):
+    #   * ``_run_spec_revision_sub_pipeline`` sets it immediately before the specify
+    #     sub-dispatch and RESTORES it in the same ``finally`` that restores
+    #     ``spec_revision_context`` (BUGFIX-SPEC-REVISION-CONTEXT D1 / FIX-217);
+    #   * ``_run_agent``'s redo loop sets it around the re-run's compose call and restores
+    #     it immediately after (ISS-086 / FIX-228) — a "Request changes" re-run is an
+    #     amendment, and the agent cannot amend a document it cannot see.
+    # Both publishers SAVE/RESTORE rather than clear, because a redo can fire at a gate
+    # opened inside a revision pass: zeroing there would strip the outer pass's own
+    # subject mid-flight (the quick-260811-si4 defect-A shape).
+    #
+    # It is the agent's ONLY channel to its own prior output: self-consumption is
+    # structurally impossible (``_filter_consumed_outputs`` breaks on
+    # ``upstream.id == spec.id``), the re-run threads a FRESH checkpoint id so nothing is
+    # replayed, and the gated authoring agents declare ``consumes: []`` + ``tools: []``.
+    # Default-empty ⇒ DORMANT on every non-revision, non-redo dispatch (no block appended)
+    # ⇒ INV-3 byte-parity holds. Transient per-run scratch (INV-2 — never the singleton).
+    spec_revision_prior_artifact: str = ""
+    # spec_revision_context: the ANALYSIS REPORT a revision pass is acting on, published
+    # for the pass's dispatches so ``_compose_context_message`` can render the revision
+    # block (KAN-101). The third member of the consume-once injection-seam family beside
+    # ``redo_directive`` and ``spec_revision_prior_artifact``, and set/cleared by the same
+    # ``_run_spec_revision_sub_pipeline`` try/finally.
+    #
+    # DECLARED here as of quick-260811-si4. It has worked as an UNDECLARED attribute only
+    # because ``ExecutionContext`` is a non-slots dataclass, which meant a bare read on a
+    # fresh context raised ``AttributeError`` and every caller had to spell
+    # ``getattr(ectx, "spec_revision_context", "")``. The sub-pipeline's re-entrancy
+    # save/restore reads the field at entry, so it needs a real default. Behaviour is
+    # identical (the renderer already guards on truthiness) — default-empty ⇒ DORMANT on
+    # every non-revision dispatch ⇒ INV-3 byte-parity holds. Transient per-run scratch
+    # (INV-2).
+    spec_revision_context: str = ""
+    # revision_attempt: the revision sub-pipeline's index, published so ``_run_agent``
+    # can derive a FRESH ``:rev{N}`` checkpoint thread for the re-run. Without it the
+    # revision reuses the first pass's thread and correctness depends on the
+    # checkpointer replaying that turn — the P23 replay class the ``:redo{N}`` and
+    # ``:retry{n}`` suffixes already close (BUGFIX-SPEC-REVISION-CONTEXT D3). Mirrors
+    # ``_run_agent``'s ``redo_attempt`` local; named distinctly from that function's
+    # ``spec_revision_attempt`` local so the two are not confused for one another.
+    # Default 0 ⇒ DORMANT (no suffix) ⇒ INV-3 byte-parity holds. Transient per-run
+    # scratch (INV-2).
+    revision_attempt: int = 0
+    # revision_high_water: a MONOTONE per-run mark of the highest revision index ever
+    # published by ``_run_spec_revision_sub_pipeline``. Unlike every other member of this
+    # scratch family it is deliberately **never cleared and never restored** — that is its
+    # entire job.
+    #
+    # ``_run_agent``'s ``spec_revision_attempt`` is a per-INVOCATION local, so a revision
+    # pass that re-enters itself (the analyze re-run inside a pass is itself gated, and the
+    # gate ACTION is client-controlled — the eligibility flag is an FE affordance the engine
+    # never enforces) has two levels each computing index 1 and each minting the SAME
+    # ``:rev1`` checkpoint thread id. The second pass is then served the first pass's
+    # LangGraph conversation replay — the P23 class the ``:redo{N}`` and ``:retry{n}``
+    # suffixes already close. The sub-pipeline derives its EFFECTIVE index from this mark
+    # (``revision_index if it exceeds the mark else mark + 1``), so no two passes — sibling
+    # or nested, at any depth — can collide (BUGFIX-NESTED-REVISION defect A).
+    #
+    # Default 0 ⇒ a first cycle still resolves to 1 ⇒ ``:rev1`` unchanged ⇒ DORMANT on every
+    # non-revision run ⇒ INV-3 byte-parity holds. Transient per-run scratch (INV-2), no
+    # storage: no migration, no table, no column.
+    revision_high_water: int = 0
     # steering_notes: the consume-once MID-RUN steering queue (D-06 / CHAT-03 /
     # ND-11 — the THIRD member of the consume-once injection-seam family beside
     # ``redo_directive`` and KAN-101's ``spec_revision_context``; COEXIST, not

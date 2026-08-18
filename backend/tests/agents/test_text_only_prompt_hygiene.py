@@ -51,26 +51,33 @@ def _compose_as_create_runner_would(agent_id: str) -> tuple[str, bool]:
 
 
 # ---------------------------------------------------------------------------
-# 1. Preamble PRESENT for a tools:[] text-only agent
+# 1. Preamble ABSENT for a tools:[] text-only agent (spec 012 / R-22, D-07: the
+#    universal fs grant means NO agent resolves to zero callable tools anymore,
+#    so ``no_tools`` never fires and the preamble is dead for every agent).
 # ---------------------------------------------------------------------------
 
 
 class TestNoToolsPreamblePresence:
-    def test_tools_empty_agent_gets_preamble(self):
-        """epic-architect (tools: []) — the no-tools preamble MUST be present."""
+    def test_tools_empty_agent_gets_no_preamble(self):
+        """epic-architect (tools: []) — universal fs grant means the no-tools
+        preamble is now ABSENT (it no longer has zero callable tools)."""
         spec = load_agent_spec("epic-architect")
         assert spec.tools == [], "precondition: epic-architect is a tools:[] agent"
 
         prompt, no_tools = _compose_as_create_runner_would("epic-architect")
-        assert no_tools is True
-        assert _NO_TOOLS_PREAMBLE in prompt
+        assert no_tools is False
+        assert _NO_TOOLS_PREAMBLE not in prompt
 
-    def test_preamble_positioned_first(self):
-        """The preamble frames everything: before guardrails AND the prompt body."""
+    def test_preamble_still_defined_and_would_be_positioned_first(self):
+        """The preamble constant is retained (forward surface) and, if composed
+        explicitly with ``no_tools=True``, is still ordered before guardrails and
+        the prompt body — the block's OWN ordering is unchanged even though no
+        live agent triggers it anymore."""
         spec = load_agent_spec("epic-architect")
         assert "agile" in spec.guardrails, "precondition: epic-architect carries agile"
 
-        prompt, _ = _compose_as_create_runner_would("epic-architect")
+        ctx = AgentContext(user_request="test request")
+        prompt = _compose_system_prompt(spec, ctx, no_tools=True)
         preamble_at = prompt.index(_NO_TOOLS_PREAMBLE)
         guardrail_at = prompt.index("## Guardrail: agile")
         body_at = prompt.index(spec.prompt_body[:80])
@@ -79,11 +86,10 @@ class TestNoToolsPreamblePresence:
         assert preamble_at == 0, "tool_availability is FIRST in the default order"
 
     def test_preamble_forbids_fabricated_tool_syntax(self):
-        """The preamble names the fabricated constructs the live failure produced."""
-        prompt, _ = _compose_as_create_runner_would("epic-architect")
+        """The preamble text itself still names the fabricated constructs the live
+        failure produced (unchanged content, even though it no longer fires)."""
         for construct in ("<function_calls>", "<invoke>", "write_todos"):
             assert construct in _NO_TOOLS_PREAMBLE, construct
-        assert _NO_TOOLS_PREAMBLE in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -210,14 +216,19 @@ _EXPECTED_SANITIZED = "## Epics\nProse kept.\n\nTail kept.\n"
 async def test_engine_pipeline_path_strips_fabricated_xml_from_authoritative_output(
     tmp_path, monkeypatch
 ):
-    """WR-01 regression: ``_run_agent`` builds output from ``chunk`` events — the
-    persisted/forwarded authoritative output must be SANITIZED on that path.
+    """WR-01 regression + ISS-004 (19-03) chunk-straddle sanitizer: ``_run_agent``
+    builds output from ``chunk`` events — the persisted/forwarded authoritative
+    output must be SANITIZED on that path. The chunk-straddle sanitizer (19-03,
+    ``_ChunkStreamSanitizer`` in engine.py) ALSO strips the fabricated span from
+    the streamed ``agent_chunk`` events themselves for tool-less agents (buffering
+    across a chunk boundary so a split span is still caught) — so both the UI
+    chunk stream and the authoritative output must come out clean.
 
     Drives the PUBLIC ``engine.execute()`` over two real tool-less user_stories
-    agents with a scripted model whose chunks carry a fabricated XML span. The
-    UI ``agent_chunk`` stream is deliberately unfiltered (parity); the
-    ``agent_complete.output_length`` and the run's ``final_output`` must reflect
-    the sanitized output.
+    agents with a scripted model whose raw chunk texts carry a fabricated XML
+    span. The ``agent_complete.output_length`` and the run's ``final_output``
+    must reflect the sanitized output, and no ``agent_chunk`` event may leak the
+    fabricated span either.
     """
     import agents.execution_engine.engine as engine_mod
     import agents.factory as factory_mod
@@ -274,15 +285,26 @@ async def test_engine_pipeline_path_strips_fabricated_xml_from_authoritative_out
     ):
         events.append(ev)
 
-    # The UI chunk stream is NOT filtered (parity — chunks flow as produced).
+    # precondition: the scripted fixture's RAW chunk texts actually carry the
+    # fabricated span (else this test would prove nothing about stripping).
+    assert any("<function_calls>" in t for t in _POLLUTED_CHUNKS), (
+        "precondition: the scripted fixture must carry the fabricated span"
+    )
+
+    # The UI chunk stream is ALSO sanitized (ISS-004 / 19-03 chunk-straddle
+    # sanitizer, engine.py ``_ChunkStreamSanitizer``) — no agent_chunk event
+    # for the tool-less polluted agent leaks the fabricated span.
     polluted_chunks = [
         e for e in events
         if e.get("type") == "agent_chunk"
         and e["data"]["agent_id"] == polluted_agent_id
     ]
-    assert any("<function_calls>" in e["data"]["chunk"] for e in polluted_chunks), (
-        "precondition: the scripted model streamed the fabricated span"
+    assert polluted_chunks, "precondition: chunks were streamed for the polluted agent"
+    assert not any("<function_calls>" in e["data"]["chunk"] for e in polluted_chunks), (
+        "agent_chunk stream must not leak the fabricated XML span "
+        "(chunk-straddle sanitizer)"
     )
+    assert not any("<invoke" in e["data"]["chunk"] for e in polluted_chunks)
 
     # The AUTHORITATIVE output (agent_complete.output_length) is sanitized.
     complete = next(

@@ -72,7 +72,7 @@ export interface LaunchDraft {
 /** The per-mode storage-key pair — the ONLY mode-driven difference. */
 const MODE_KEYS: Record<LaunchMode, { draftKey: string; pendingKey: string }> = {
   prototype: { draftKey: "prototype.draft", pendingKey: "od_prototype.pending" },
-  ppt: { draftKey: "ppt.draft", pendingKey: "od_ppt.pending" },
+  ppt: { draftKey: "ppt.draft", pendingKey: "ppt.pending" },
 };
 
 /**

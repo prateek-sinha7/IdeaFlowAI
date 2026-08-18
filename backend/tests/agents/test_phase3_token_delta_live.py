@@ -380,7 +380,16 @@ async def test_drive_live_does_not_hang_at_clarify_gate(monkeypatch) -> None:
 
     # The drive MUST return within the bound. Pre-fix this raised asyncio.TimeoutError
     # at the forced clarify gate; post-fix the clarify-off wrap lets it complete.
-    events = await asyncio.wait_for(_drive_live(compaction_on=True), timeout=10)
+    #
+    # HANG detector, not a latency assertion: the regression blocks forever waiting on
+    # a clarify answer that never arrives, so detection power is the same at any finite
+    # bound. The bound is therefore sized for false-positive immunity. At 10s this
+    # failed intermittently under ``-n auto`` — the drive runs REAL headless Chromium
+    # (``render_check`` -> ``page.goto``) four times (2 tasks x a 2-attempt validation
+    # fix loop), which does not fit a 10s budget on a loaded box; the run was still
+    # progressing through task 2/2 when the bound cancelled it. Do not lower this to
+    # "keep the test fast" — a slow-but-live drive is not the failure being guarded.
+    events = await asyncio.wait_for(_drive_live(compaction_on=True), timeout=120)
 
     assert isinstance(events, list), "the offline drive must return its event list"
 

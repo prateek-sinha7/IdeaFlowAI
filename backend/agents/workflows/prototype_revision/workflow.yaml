@@ -1,16 +1,10 @@
-# prototype_revision — revision agent + validation agent over a prior prototype.html.
-# Runs the same Both-validation as a smart-hybrid policy (validators declared;
-# fix-loop behavioral until Phase 7). gates: [validation] on the revision step
-# (post-edit validation gate). deliverable: single_file. context_providers:
-# [previous_run] seeds the parent run's spec/design. clarify.defaults fall to
-# engine._pipeline_defaults["custom"] (parity trap #2).
-# KAN-108: Added prototype-validate as a second step so blank pages, broken
-# navigation, missing components and DS-token issues introduced or left
-# unresolved by the revision agent are caught and fixed before delivery.
-# clarify.mode changed from auto to skip — the revision instruction is the
-# complete brief; a questionnaire round-trip adds friction with no value
-# (same fix applied to prototype/od_ppt in FIX-010/FIX-015).
 id: prototype_revision
+user_launchable: false
+is_beta: true
+display_name: Revise prototype
+short_name: Prototype Revision
+description: Apply a revision instruction to a prior interactive prototype.
+icon: Layout
 version: 1
 # ISS-050 / KAN-156: planner changed from run to skip. The derived alias
 # prototype_output → prototype_revision is reachable from the generic
@@ -23,45 +17,29 @@ version: 1
 planner: skip
 clarify:
   mode: skip
-  defaults: [target_audience, key_objectives, scope, priority]
+  defaults:
+  - target_audience
+  - key_objectives
+  - scope
+  - priority
 deliverable:
   strategy: single_file
   name: prototype.html
-  # DECLARED revision-intent (07-10 / WR-04/WR-06): this is the ONE workflow that
-  # edits an existing artifact (prototype.html) in place. The kernel keys the
-  # in-place-revision setup + the previous_run parent seed off THIS flag, not off
-  # the presence of the previous_run provider. The four other previous_run
-  # workflows (ppt/user_stories/app_builder/od_ppt revisions) leave it false —
-  # they regenerate the whole artifact, so they are not in-place revisions.
   revises_existing: true
-context_providers: [previous_run]
+context_providers:
+- previous_run
 seed_files: {}
 steps:
-  - agent: prototype-revision-agent
-    strategy: single_shot
-    gates: [validation]
-    validators: [html_static, html_render]
-    # require_render (quick-260701-erg / REQUIRE-RENDER-LOADBEARING): now TRUE and
-    # load-bearing. This step has gates:[validation], so a browserless render fails
-    # CLOSED — html_render emits one P0 (render unavailable), which the EXISTING
-    # ValidationGate block-critical policy turns into GATE_BLOCK. Static can never be
-    # silently sufficient alone when the browser is absent. The INV-3 goldens stay
-    # byte/event-identical because the offline golden harness pins every compiled
-    # step's require_render=False (the semantics the goldens were recorded at); the
-    # require_render=true production behavior is covered by test_nav_coverage 4a/4b.
-    require_render: true
-    # post_step (07-10 / CR-06): after the revision agent edits prototype.html in
-    # place, run the pre-edit baseline + post-edit Both-validation + bounded fix-
-    # loop. Relocated out of the kernel's "DELIBERATE EXCEPTION" block.
-    post_step: revision_validation
-
-  # KAN-108: Second visible step — the Revision Validation Agent performs
-  # comprehensive P0/P1 structural checks after the revision: fills empty
-  # pages, verifies navigation/routing, enforces DS tokens, ensures every
-  # button has a handler, and removes placeholder content. Dedicated agent
-  # with the correct consumes/injects contracts for this pipeline (uses
-  # workspace tools to read design.md and prototype.html from the sandbox
-  # seeded by previous_run; no opendesign injection needed).
-  - agent: prototype-revision-validate
-    strategy: single_shot
-    gates: []
+- agent: prototype-revision-agent
+  strategy: single_shot
+  gates:
+  - validation
+  validators:
+  - html_static
+  - html_render
+  require_render: true
+  post_step: revision_validation
+- agent: prototype-revision-validate
+  strategy: single_shot
+  gates: []
+name: Prototype Revision

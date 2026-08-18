@@ -4,9 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getWorkflowDefinitions, getRunFamily } from "@/lib/api";
 import type { WorkflowSummary } from "@/lib/api";
+import { useAppDispatch } from "@/store/hooks";
+import { signedIn, userLoaded, signedOut } from "@/store/slices/authSlice";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { RunConnectionPhase } from "@/hooks/useRunStream";
-import { useWorkflow } from "@/hooks/useWorkflow";
+import { applyTerminalStatus, useWorkflow } from "@/hooks/useWorkflow";
 // Phase 31 (CHATUI-01/02/03) — the chat-lane DATA layer + the nonce'd deep-link
 // seam + the app-level SSE connection. useRunChat folds the Phase-29 chat frames
 // into a transport-agnostic transcript; useTabDeepLink is the result-card →
@@ -16,7 +18,7 @@ import { useWorkflow } from "@/hooks/useWorkflow";
 import { useRunChat, type RunChatFrame } from "@/hooks/useRunChat";
 import { useTabDeepLink } from "@/hooks/useTabDeepLink";
 import { useRunConnection } from "@/providers/RunConnectionProvider";
-import { shouldApplyEvent, resetReplayState, isForeignRunFrame, isAgentScopedFrame } from "@/lib/wsReplayState";
+import { shouldApplyEvent, resetReplayState, isForeignRunFrame, isAgentScopedFrame, resolveFrameRunId } from "@/lib/wsReplayState";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, WorkflowType, User, WaveGroup, GenericDeliverable, ReviewGateReadyData } from "@/types/index";
 import { deriveDeliverableMimetype, resolveReopenMimetype } from "@/types/index";
@@ -70,6 +72,7 @@ const REOPEN_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "d
  */
 export default function DashboardPage() {
   const router = useRouter();
+  const dispatch = useAppDispatch();
   // Keep initial state false/null to match SSR — avoids hydration mismatch.
   // `mounted` flips to true after the first client render so we never show
   // the black loading screen; instead we show nothing until hydration is done.
@@ -229,6 +232,9 @@ export default function DashboardPage() {
       gateKey: string; agentId: string; agentName: string; output: string;
       pipelineRunId: string; redoable?: boolean; updateSpecsEligible?: boolean;
       artifactKind?: string;
+      // ISS-052: which spec-revision cycle this gate FIRING belongs to, and whether the
+      // pass is still on the stack. Two firings share a gateKey and their output bytes.
+      revisionCycle?: number; revisionInFlight?: boolean;
     } | null;
     activePipelineRunId: string | null;
   }
@@ -348,14 +354,6 @@ export default function DashboardPage() {
   // activePipelineRunId (cleared on cancel), this is NEVER cleared so handleResumeRun
   // in DashboardLayout can still find the run id after pipeline_cancelled fires.
   const [lastCancelledRunId, setLastCancelledRunId] = useState<string | null>(null);
-  // KAN-101 — spec revision cycle counter. Incremented each time an agent that
-  // was already "done" re-starts during an active pipeline run — the generic
-  // signal that update_specs fired and the specify→plan→analyze sub-pipeline is
-  // re-running. Reset to 0 on every pipeline_start (fresh or resumed run).
-  // SC-001/INV-1: keyed on generic "was already done" status, never an agent/
-  // workflow-name literal. INV-3: frontend-only, no backend event emitted.
-  const [specRevisionCount, setSpecRevisionCount] = useState(0);
-
   // Review gate state — set when review_gate_ready fires
   const [reviewGateData, setReviewGateData] = useState<{
     gateKey: string;
@@ -371,6 +369,9 @@ export default function DashboardPage() {
     // defensively (undefined when the backend omits them).
     updateSpecsEligible?: boolean;
     artifactKind?: string;
+    // ISS-052: the per-FIRING revision discriminator (see ReviewGateReadyData).
+    revisionCycle?: number;
+    revisionInFlight?: boolean;
   } | null>(null);
   // Pending od_prototype params — set when questionnaire is triggered, consumed by DashboardLayout.
   // `gateAgentIds` (Phase 6, T5b) flows into DashboardLayout's `gate_agent_ids`
@@ -400,13 +401,20 @@ export default function DashboardPage() {
     }
     setToken(storedToken);
     setIsAuthenticated(true);
+    // Signals the Redux store that the user is signed in — the agents
+    // slice's listener middleware reacts to this by fetching the agent
+    // library from GET /api/agents/library exactly once (store/listenerMiddleware.ts).
+    dispatch(signedIn({ token: storedToken }));
     // Fetch user profile (includes tier)
     getMe(storedToken)
-      .then((u) => setUser(u))
+      .then((u) => {
+        setUser(u);
+        dispatch(userLoaded(u));
+      })
       .catch(() => {
         // Non-fatal — tier defaults to "basic" if fetch fails
       });
-  }, [router]);
+  }, [router, dispatch]);
 
   // Stage an od_prototype run into a ref as soon as we're authenticated.
   // NOTE: We do NOT remove od_prototype.pending here — we remove it only
@@ -423,12 +431,18 @@ export default function DashboardPage() {
         agentIds?: string[];
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
-      // KAN-87: templateId is now optional (no-template mode). Only require designSystemId + brief.
-      if (!draft.designSystemId || !draft.brief) return;
+      // KAN-87: templateId is now optional (no-template mode). Only require designSystemId.
+      // FIX-216c: allow empty brief when chaining — for a chained run the context block
+      // IS the brief. ISS-155: dropping the `!draft.brief` clause here also dropped the
+      // type-narrowing it happened to provide, leaving `brief: draft.brief` assigning
+      // `string | undefined` to `string` — a real tsc error on the branch. Coerce
+      // EXPLICITLY: a staged draft may legitimately carry no brief, and an actually-empty
+      // one is refused at the ingress (`launch_run` → `empty_brief`), not silently here.
+      if (!draft.designSystemId) return;
       pendingOdProtoRef.current = {
         templateId: draft.templateId ?? "",  // empty string = no template
         designSystemId: draft.designSystemId,
-        brief: draft.brief,
+        brief: draft.brief ?? "",
         discovery,
         customDsBody: draft.customDsBody,
         customTemplateBody: draft.customTemplateBody,
@@ -449,7 +463,7 @@ export default function DashboardPage() {
   // makes the flow resilient to backend restarts between auth and connect.
   useEffect(() => {
     if (!isAuthenticated) return;
-    const pending = sessionStorage.getItem("od_ppt.pending");
+    const pending = sessionStorage.getItem("ppt.pending");
     if (!pending) return;
     try {
       const draft = JSON.parse(sessionStorage.getItem("ppt.draft") ?? "{}") as {
@@ -459,11 +473,14 @@ export default function DashboardPage() {
         images?: { name: string; mime_type: string; data: string }[];
         agentIds?: string[];
       };
-      if (!draft.templateId || !draft.brief) return;
+      // FIX-216c: allow empty brief when chaining (the chain context block IS the
+      // brief; wizard canContinue guard already validated it). Only require templateId.
+      // ISS-155: explicit coercion — see the od_prototype twin above.
+      if (!draft.templateId) return;
       pendingOdPptRef.current = {
         templateId: draft.templateId,
         designSystemId: draft.designSystemId ?? null,
-        brief: draft.brief,
+        brief: draft.brief ?? "",
         discovery: null,
         customDsBody: draft.customDsBody,
         customTemplateBody: draft.customTemplateBody,
@@ -497,10 +514,13 @@ export default function DashboardPage() {
   }, [isAuthenticated]);
 
   // Handle incoming WebSocket messages.
-  // `frameRunId` is the run the frame arrived ON (stamped by the SSE transport,
+  // `sourceRunId` is the run the frame arrived ON (stamped by the SSE transport,
   // or passed explicitly by the durable-replay caller) — used to run-scope the
-  // agent-state frames below.
-  const handleWebSocketMessage = useCallback((msg: StreamMessage, frameRunId?: string) => {
+  // agent-state frames below. Named distinctly from the per-frame `frameRunId`
+  // derived inside the pipeline-frame block: ISS-082 found that block SHADOWING
+  // this parameter, which silently disabled the store routing for every per-agent
+  // frame (see the note at its declaration).
+  const handleWebSocketMessage = useCallback((msg: StreamMessage, sourceRunId?: string) => {
     // ── Run-scope the per-agent frames (foreign-run bleed) ────────────────────
     // The SSE provider attaches ONE stream per live run and fans EVERY frame out
     // to this single subscriber. The agent-scoped payloads carry no
@@ -520,7 +540,7 @@ export default function DashboardPage() {
     // own run id and drive cross-run behaviour (revision, chaining, reopen).
     if (
       isAgentScopedFrame(msg.type as string) &&
-      isForeignRunFrame(frameRunId, trackedRunIdRef.current)
+      isForeignRunFrame(sourceRunId, trackedRunIdRef.current)
     ) {
       return;
     }
@@ -680,7 +700,7 @@ export default function DashboardPage() {
       // Phase 3 (T043/T044) — Thinking tab: agent_input carries inputPrompt +
       // contextSources; tool_call/tool_result carry tool execution data;
       // workflow_validated carries DAG edges for the dependency graph.
-      "agent_input", "tool_call", "tool_result", "workflow_validated",
+      "agent_input", "agent_skills", "tool_call", "tool_result", "workflow_validated",
       // task_progress — prototype build agent reports per-task completion
       "task_progress",
       // task_loop_progress — engine-level build loop iteration counter
@@ -717,6 +737,12 @@ export default function DashboardPage() {
           // _sourceRunId is injected per SSE stream — more reliable than data parsing
           (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
           ?? (msg.data as Record<string, unknown> | undefined)?.pipeline_run_id as string | undefined;
+        // ISS-080 — the page-side half of the same-run re-announce predicate the
+        // reducer uses (useWorkflow.ts `isSameRunReannounce`). Captured HERE, before
+        // the launch-window block below re-points `trackedRunIdRef` at a brand-new run
+        // — read after that assignment, a fresh launch would misread as "same run".
+        const isSameRunReannounce =
+          !!incomingRunId && trackedRunIdRef.current === incomingRunId;
         const isForeignRun =
           !!incomingRunId && (
             // KAN-125 MULTI-TAB: if this tab has never launched anything (empty set),
@@ -773,13 +799,25 @@ export default function DashboardPage() {
               runStoreSwitchViewToRef.current(incomingRunId);
             }
           }
-          resetReplayState({
-            seen: seenEventIdsRef.current,
-            setLastSeq: (n) => {
-              lastSeqRef.current = n;
-            },
-            setWaveGroups,
-          });
+          // ISS-080 — reset the per-run replay state only for a run we are NOT already
+          // showing. A same-run `pipeline_start` re-announces the run in progress (a
+          // resume, a restart while parked, or the durable replay's own copy), and
+          // wiping the seen-set there voids the CR-05 idempotency contract mid-replay:
+          // on a history reopen it discarded 24 783 ids, so the SSE replay re-applied
+          // every event the REST replay had already applied and the revision banner
+          // read 5 for 2 revisions. The seq cursor and the wave groups belong to that
+          // same run too, so keeping all three is what "same run" means.
+          // Scoped to `resetReplayState`: the four clears below are still wanted on a
+          // genuine resume and are deliberately left running.
+          if (!isSameRunReannounce) {
+            resetReplayState({
+              seen: seenEventIdsRef.current,
+              setLastSeq: (n) => {
+                lastSeqRef.current = n;
+              },
+              setWaveGroups,
+            });
+          }
           if (topEventId) seenEventIdsRef.current.add(topEventId);
           // KAN-89: clear any stale reviewGateData from a previous run so the
           // ReviewGatePanel never blocks the new pipeline's preview area.
@@ -796,10 +834,6 @@ export default function DashboardPage() {
           // KAN-120: clear the lastCancelledRunId so the resumed run's pipeline_start
           // removes the "Cancelled" state from history and the chat lane.
           setLastCancelledRunId(null);
-          // KAN-101: reset the spec revision cycle counter on every new run start.
-          setSpecRevisionCount(0);
-          // KAN-101: disarm the cycle detector on new run start.
-          revisionCycleArmedRef.current = false;
         }
       }
 
@@ -840,11 +874,13 @@ export default function DashboardPage() {
       // carry pipeline_run_id in their `data`. Previously these events bypassed the
       // `isForActiveRun` guard (via the `!frameRunId` pass-through), allowing them
       // from ALL concurrent runs to reach the shared pipelineState reducer.
-      const frameRunId =
-        // Prefer _sourceRunId (injected per SSE stream — covers all event types)
-        (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
-        // Fallback to pipeline_run_id in data (only events that explicitly carry it)
-        ?? (msg.data as Record<string, unknown> | undefined)?.pipeline_run_id as string | undefined;
+      // ISS-082: this was open-coded here as `_sourceRunId ?? data.pipeline_run_id`, which
+      // SHADOWED the `sourceRunId` parameter and dropped it — so every per-agent frame
+      // resolved to undefined on BOTH paths and the store-routing branch below never fired
+      // for one. `resolveFrameRunId` restores the parameter as the final fallback and, being
+      // a pure function in wsReplayState, is directly testable; the shadow cannot come back
+      // because there is no longer an inline expression to lose the argument from.
+      const frameRunId = resolveFrameRunId(msg as unknown as Record<string, unknown>, sourceRunId);
 
       // Layer 1: is this from a run this tab ever launched?
       // KAN-125 MULTI-TAB FIX: when launchedRunIdsRef is empty (brand-new tab that
@@ -900,19 +936,6 @@ export default function DashboardPage() {
       }
 
       if (!isForeignFrame && isForActiveRun) {
-        // KAN-101 — detect a spec revision cycle
-        if (msg.type === "agent_start") {
-          const agentId = (msg.data as Record<string, unknown> | undefined)?.agent_id as string | undefined
-            ?? (msg as unknown as Record<string, unknown>).agent_id as string | undefined;
-          if (agentId && revisionCycleArmedRef.current) {
-            const prevAgent = pipelineAgentsRef.current.find((a) => a.id === agentId);
-            if (prevAgent && prevAgent.status === "done") {
-              revisionCycleArmedRef.current = false;
-              setSpecRevisionCountRef.current((c) => c + 1);
-            }
-          }
-        }
-
         handlePipelineMsgRef.current?.({
           type: msg.type,
           ...(msg.data as Record<string, unknown> || {}),
@@ -1022,7 +1045,7 @@ export default function DashboardPage() {
         if (finalOutput && pipelineType) {
           if (pipelineType === "user_stories" || pipelineType === "user_stories_revision" || pipelineType === "app_builder" || pipelineType === "app_builder_revision") {
             setUserStoryContent(finalOutput);
-          } else if (pipelineType === "ppt" || pipelineType === "ppt_revision" || pipelineType === "od_ppt" || pipelineType === "od_ppt_revision") {
+          } else if (pipelineType === "ppt" || pipelineType === "ppt_revision") {
             setPptContent(finalOutput);
           } else if (pipelineType === "prototype" || pipelineType === "prototype_revision" || pipelineType === "od_prototype") {
             setPrototypeContent(finalOutput);
@@ -1191,9 +1214,28 @@ export default function DashboardPage() {
       // not clear THIS tab's questionnaire/reviewGate/activePipelineRunId.
       if (msg.type === "pipeline_cancelled" || msg.type === "pipeline_failed") {
         if (!isForeignFrame) {
+          // A terminal run is not awaiting clarification. laneClarifyOpen
+          // (DashboardLayout.tsx:1862) is the ONE lane branch NOT AND-ed with
+          // isRunning, so a lingering store questionnaireData outranks the
+          // terminal markers this frame already applied. The lane reads the
+          // STORE (page.tsx:2749) — the legacy setters below are invisible to
+          // it. Same write as the reopen reconciliation at :2300 (FIX-245).
+          // reviewGateData is deliberately NOT cleared in the store: that half
+          // is already masked by the gate branch's `&& isPipelineRunning`.
+          if (frameRunId) runStore.update(frameRunId, { questionnaireData: null });
           setReviewGateData(null);
           setQuestionnaireData(null);
           setActivePipelineRunId(null);
+          if (msg.type === "pipeline_cancelled") {
+            // Rescued from the unreachable switch arm this commit deletes
+            // below (ISS-139) — this is the first time these two calls ever
+            // execute on the live path.
+            const cancelledId = frameRunId ?? trackedRunIdRef.current;
+            if (cancelledId) {
+              setLastCancelledRunId(cancelledId);
+              detachRunRef.current?.(cancelledId);
+            }
+          }
         }
       }
 
@@ -1371,7 +1413,7 @@ export default function DashboardPage() {
         if (msg.data && "questions" in msg.data) {
           // Per-run map (FIX-201 / KAN-168): store questionnaire by run id, project only when viewed.
           const qSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
-            ?? frameRunId;
+            ?? sourceRunId;
           const qData = msg.data as { questions: { id: string; question: string; options: string[] }[] };
           if (qSrcRunId) {
             getRunViewState(qSrcRunId).questionnaireData = qData;
@@ -1396,7 +1438,7 @@ export default function DashboardPage() {
           // Resolve which run this questionnaire belongs to (priority order).
           const qRunId = data.pipeline_run_id
             ?? (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
-            ?? frameRunId;
+            ?? sourceRunId;
 
           const mapped = (data.questions || []).map((q) => ({
             id: q.question_id, question: q.question_text, options: q.options || [],
@@ -1441,7 +1483,7 @@ export default function DashboardPage() {
       case "questionnaire_complete": {
         // Per-run store: clear this run's questionnaire.
         const qcSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
-          ?? frameRunId;
+          ?? sourceRunId;
         if (qcSrcRunId) {
           runStore.update(qcSrcRunId, { questionnaireData: null });
           if (qcSrcRunId === trackedRunIdRef.current) setQuestionnaireData(null);
@@ -1464,7 +1506,7 @@ export default function DashboardPage() {
           const data = msg.data as unknown as ReviewGateReadyData;
           const gateRunId = data.pipeline_run_id
             ?? (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined
-            ?? frameRunId;
+            ?? sourceRunId;
 
           const gateData = {
             gateKey: data.gate_key, agentId: data.agent_id, agentName: data.agent_name,
@@ -1472,6 +1514,10 @@ export default function DashboardPage() {
             redoable: data.redoable ?? false,
             updateSpecsEligible: data.update_specs_eligible ?? false,
             artifactKind: data.artifact_kind,
+            // ISS-052: the only fields that differ between the analyze gate opened
+            // inside a spec-revision pass and the one re-opened after it returns.
+            revisionCycle: data.revision_cycle ?? 0,
+            revisionInFlight: data.revision_in_flight ?? false,
           };
 
           if (gateRunId) {
@@ -1501,7 +1547,7 @@ export default function DashboardPage() {
           retainAgentEdit(agentId, editedContent);
         }
         // Clear in the store too
-        const approvedSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined ?? frameRunId;
+        const approvedSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined ?? sourceRunId;
         if (approvedSrcRunId) {
           runStore.update(approvedSrcRunId, { reviewGateData: null });
         }
@@ -1513,43 +1559,6 @@ export default function DashboardPage() {
             .then(({ runs }) => setRecentRuns(runs))
             .catch(() => { /* non-fatal */ });
         }
-        break;
-      }
-
-      case "pipeline_cancelled":
-      case "pipeline_failed": {
-        // Per-run store: clear this run's gate/questionnaire state.
-        const termSrcRunId = (msg as unknown as Record<string, unknown>)._sourceRunId as string | undefined ?? frameRunId;
-        if (termSrcRunId) {
-          runStore.update(termSrcRunId, { reviewGateData: null, questionnaireData: null });
-        }
-        setReviewGateData(null);
-        // KAN-115: also clear stale questionnaire state — if the pipeline was
-        // cancelled/failed while the clarify gate was open, questionnaire_complete
-        // never fires, so questionnaireData stays populated. This keeps
-        // laneClarifyOpen=true in DashboardLayout, which forces runLaneState to
-        // "clarify" instead of "terminal" and leaves the AwaitingCard visible.
-        // Mirrors the identical pipeline_start clear (lines above).
-        setQuestionnaireData(null);
-        // KAN-120: preserve the run id so Run Again can resume it even when
-        // activePipelineRunId is about to be cleared.
-        if (msg.type === "pipeline_cancelled") {
-          const cancelledId = ((msg.data as Record<string, unknown>)?.pipeline_run_id as string | undefined)
-            ?? activePipelineRunId
-            ?? trackedRunIdRef.current;
-          if (cancelledId) setLastCancelledRunId(cancelledId);
-          // BUG-015 mirror for cancellation: release the sticky SSE focus so the
-          // RunStreamConnection unmounts when the server closes the stream after
-          // pipeline_cancelled. Without this, the stream close triggers
-          // scheduleReconnect() (sawNonLiveAttachRef = false for a live run),
-          // showing a yellow "Reconnecting…" banner after every Stop click.
-          // Mirrors the identical call in the pipeline_complete case above
-          // (~line 597). Safe: the durable run_events are already persisted and
-          // the chat transcript is already in state — unmounting the connection
-          // does not remove any rendered content.
-          if (cancelledId) detachRunRef.current?.(cancelledId);
-        }
-        setActivePipelineRunId(null);
         break;
       }
 
@@ -1595,7 +1604,7 @@ export default function DashboardPage() {
   const effectiveReconnect = runConnection.reattach;
 
   // Workflow pipeline state
-  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit } = useWorkflow();
+  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit, reconcileTerminalStatus } = useWorkflow();
   // KAN-98: store pending gate edits so review_gate_approved can apply them to
   // the live agent state (planAgent.output etc.) for the Thinking tab display.
   const pendingGateEditRef = useRef<{ agentId: string; editedContent: string } | null>(null);
@@ -1633,26 +1642,6 @@ export default function DashboardPage() {
     handlePipelineMsgRef.current = handlePipelineMsg;
   }, [handlePipelineMsg]);
 
-  // KAN-101 — keep refs to the live agents list and the spec revision counter setter
-  // so handleWebSocketMessage (a useCallback([])) can detect re-runs of already-done
-  // agents and increment the counter without closing over stale state.
-  const pipelineAgentsRef = useRef<import("@/types/index").AgentRunState[]>([]);
-  useEffect(() => {
-    pipelineAgentsRef.current = runStore.viewed.pipelineState.agents;
-    const agents = runStore.viewed.pipelineState.agents;
-    if (
-      runStore.viewed.pipelineState.isRunning &&
-      agents.length > 0 &&
-      agents.every((a) => a.status === "done")
-    ) {
-      revisionCycleArmedRef.current = true;
-    }
-  }, [runStore.viewed.pipelineState.agents, runStore.viewed.pipelineState.isRunning]);
-  const setSpecRevisionCountRef = useRef(setSpecRevisionCount);
-  // Armed = true once all agents are "done" mid-run (ready to detect next cycle).
-  // Flips to false when the first re-starting agent is detected → increments once.
-  const revisionCycleArmedRef = useRef(false);
-
   // BUG-005 — keep `trackedRunIdRef` pointed at the run this tab is driving/viewing
   // so the pipeline_start reset (handleWebSocketMessage) can run-scope itself. Sync
   // from activePipelineRunId (clarify-paused run) ?? contentSourceRunId (viewed/
@@ -1672,16 +1661,57 @@ export default function DashboardPage() {
   //   2. activelyBuildingRunIdRef — the run this tab is actively building
   // If either doesn't match (different run's state leaked into useWorkflow, or
   // user is watching a different run than is building), skip the sync.
+  //
+  // FIX-220 [dev]: coalesce rapid pipelineState changes via rAF to prevent the
+  // setViewedState→re-render→pipelineState-new-obj→effect→setViewedState loop.
+  // One store write per animation frame instead of 26× per SSE frame.
+  //
+  // ISS-138: the write is terminality-preserving rather than a WHOLESALE replace.
+  // `activelyBuildingRunIdRef` is only ever assigned, never cleared — and reopening a
+  // run from history assigns it (:2226) — so a TERMINAL run reaches this bridge with
+  // the legacy container still carrying `isRunning: true` from a terminal-less replay.
+  // A blind `() => snapshot` therefore resurrects a stood-down run: observed live in
+  // quick-260812-wir flipping the store back to `isRunning:true` ~4s after it was set
+  // false, with no handleFrame involved, and it cost a real false-green during FIX-245.
+  //
+  // The rule is OWNERSHIP, not a merge of every field: legacy owns live progress
+  // (agents, counts, tokens), the STORE owns terminality. The store's own verdict is
+  // re-applied on top of each snapshot through the SAME `applyTerminalStatus` both
+  // containers already share (INV-12 — "terminal" keeps exactly one definition), and
+  // that helper is ONE-WAY by construction: a non-terminal or unknown status returns
+  // its input untouched, so a fresh entry and a genuinely-live run both pass straight
+  // through. The terminal signal is explicit — the `cancelled`/`failed`/`degraded`
+  // markers, or the server's persisted status for a reopened run — never inferred from
+  // `isRunning:false`, which a not-yet-started entry also carries.
+  const syncRafRef = useRef<number | null>(null);
   useEffect(() => {
     const runId = pipelineState.pipelineRunId;
     if (!runId) return;
-    // Both guards: pipelineState must belong to exactly the run being viewed AND built
     if (runId !== activelyBuildingRunIdRef.current) return;
     if (runId !== runStore.viewedRunId) return;
-    // Push into store — project fires automatically since runId === viewedRunIdRef
-    runStore.updatePipelineState(runId, () => pipelineState);
+    // Cancel any pending rAF and schedule a new one with the latest snapshot.
+    if (syncRafRef.current !== null) cancelAnimationFrame(syncRafRef.current);
+    const snapshot = pipelineState;
+    const reopened = reopenedRunStatus;
+    syncRafRef.current = requestAnimationFrame(() => {
+      syncRafRef.current = null;
+      runStore.updatePipelineState(runId, (prev) => {
+        const storeTerminal =
+          prev.cancelled ? "cancelled"
+          : prev.failed ? "failed"
+          : prev.degraded ? "degraded"
+          : (reopened ?? "");
+        return applyTerminalStatus(snapshot, storeTerminal);
+      });
+    });
+    return () => {
+      if (syncRafRef.current !== null) {
+        cancelAnimationFrame(syncRafRef.current);
+        syncRafRef.current = null;
+      }
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipelineState]);
+  }, [pipelineState, reopenedRunStatus]);
 
   // ─── Phase 31 (CHATUI-01/02/03) — live chat transcript + deep-link seam ──────
 
@@ -1748,7 +1778,7 @@ export default function DashboardPage() {
     // blocks until the reply is persisted — the DEF-44-12-2 re-fetch then lands
     // after chat_reply exists and the Concierge reply renders on a completed run.
     sendCommand: async (runId, payload) => {
-      await runConnection.sendCommand(runId, payload);
+      return runConnection.sendCommand(runId, payload);
     },
     // SSE + REST is the sole transport (44-06) — the up-channel is sendCommand;
     // there is no legacy WS send.
@@ -1797,12 +1827,18 @@ export default function DashboardPage() {
           agentIds?: string[];
         };
         const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
-        // KAN-87: templateId is now optional (no-template mode). Only require designSystemId + brief.
-        if (!draft.designSystemId || !draft.brief) return;
+        // KAN-87: templateId is now optional (no-template mode). Only require designSystemId.
+        // ISS-155: the brief clause is GONE here so this reload/reconnect path agrees with
+        // the direct path at :426, which dropped it in FIX-216c. While the two disagreed a
+        // chained launch fired normally but SILENTLY never started if the user reloaded
+        // before SSE connected — same draft, two verdicts. An empty brief is now refused
+        // where refusing it is useful: the wizard (`LaunchWizard.canContinue`, with a
+        // visible "Add a brief" pill) and the ingress (`launch_run` → `empty_brief`).
+        if (!draft.designSystemId) return;
         pending = {
           templateId: draft.templateId ?? "",  // empty string = no template
           designSystemId: draft.designSystemId,
-          brief: draft.brief,
+          brief: draft.brief ?? "",   // ISS-155 — see the direct path at :426
           discovery,
           customDsBody: draft.customDsBody,
           customTemplateBody: draft.customTemplateBody,
@@ -1859,7 +1895,7 @@ export default function DashboardPage() {
     // Try ref first, then fall back to sessionStorage (handles reconnects)
     let pending = pendingOdPptRef.current;
     if (!pending) {
-      const flag = sessionStorage.getItem("od_ppt.pending");
+      const flag = sessionStorage.getItem("ppt.pending");
       if (!flag) return;
       try {
         const draft = JSON.parse(sessionStorage.getItem("ppt.draft") ?? "{}") as {
@@ -1869,11 +1905,14 @@ export default function DashboardPage() {
           images?: { name: string; mime_type: string; data: string }[];
           agentIds?: string[];
         };
-        if (!draft.templateId || !draft.brief) return;
+        // ISS-155: brief clause dropped to match the direct path at :463 (see the
+        // od_prototype twin above) — the reload path must not reach a different verdict
+        // on the same staged draft.
+        if (!draft.templateId) return;
         pending = {
           templateId: draft.templateId,
           designSystemId: draft.designSystemId ?? null,
-          brief: draft.brief,
+          brief: draft.brief ?? "",   // ISS-155 — see the direct path at :468
           discovery: null,
           customDsBody: draft.customDsBody,
           customTemplateBody: draft.customTemplateBody,
@@ -1889,7 +1928,7 @@ export default function DashboardPage() {
 
     // Consume — clear both ref and sessionStorage key
     pendingOdPptRef.current = null;
-    sessionStorage.removeItem("od_ppt.pending");
+    sessionStorage.removeItem("ppt.pending");
     sessionStorage.removeItem("ppt.draft");          // FIX-005: clear stale draft so next fresh wizard open starts empty
 
     setUserStoryContent("");
@@ -2080,22 +2119,12 @@ export default function DashboardPage() {
               runId,
             );
           }
-          // FIX-201: after durable replay, directly replay all pipeline frames
-          // through the store (bypassing seenEventIdsRef dedup) so the store
-          // gets the LATEST agent state. The durable replay via handleWebSocketMessage
-          // above may have dropped agent_start/complete frames (already in
-          // seenEventIdsRef from live SSE). The final switchViewTo below projects
-          // the correct current state.
-          // Skip pipeline_start in this pass if the store already has running agents
-          // (live SSE already set them — pipeline_start would reset to idle).
-          const existingEntry = runStore.get(runId);
-          const hasLiveAgents = existingEntry?.pipelineState?.agents?.some(
-            (a) => a.status !== "idle"
-          ) ?? false;
-          for (const frame of durableFrames) {
-            if (frame.type === "pipeline_start" && hasLiveAgents) continue;
-            runStoreHandleFrameRef.current(runId, { type: frame.type, ...(frame.data as Record<string, unknown> || {}) });
-          }
+          // ISS-082: FIX-201's second, UNDEDUPED replay pass is DELETED here. It existed
+          // only because the shadowed `frameRunId` (see handleWebSocketMessage) stopped
+          // the first, deduped pass above from routing agent_* frames to the store; with
+          // the parameter restored as the fallback, that pass now does the job and a
+          // second one would just feed every accumulating field a duplicate copy —
+          // exactly the double-delivery the reducer's identity gate now refuses.
           // Seed the chat transcript from the same frames so the left panel shows
           // the correct conversation (chat_message/chat_reply frames only).
           // seedRunChatTranscript resets the seen-set + messages then folds frames.
@@ -2125,12 +2154,16 @@ export default function DashboardPage() {
       launchCounterRef.current += 1;
       trackedRunIdRef.current = runId;
       activelyBuildingRunIdRef.current = runId;
+      // FIX-211: attach the SSE stream for the new child run so its pipeline_start
+      // / agent frames arrive. Also switch the store viewport immediately so the UI
+      // shows the new run rather than the parent. Without attachRun the child SSE
+      // stream is never connected; without switchViewTo the UI stays on the old run.
+      runStoreSwitchViewToRef.current(runId);
+      runConnection.attachRun(runId);
     },
-    // persistLaunchedIds is a stable function defined at component scope — not a
-    // dep. All other refs are stable. No reactive deps needed (mirrors the
-    // onStartPipeline .then() which also captures refs without listing them).
+    // runConnection is stable (memo'd in RunConnectionProvider). All others are refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [runConnection],
   );
 
   // Handle selecting a workflow run from sidebar/hub
@@ -2263,6 +2296,60 @@ export default function DashboardPage() {
                 fullRun.id,
               );
             }
+            // ISS-126 — reconcile the reopened run against its PERSISTED status.
+            //
+            // A terminal run never opens an SSE stream (the attachRun gate above),
+            // so this durable replay is the whole screen. When the log carries no
+            // terminal event — a run cancelled through one of the app-layer driver
+            // terminals (ISS-124), or one whose terminal row was destroyed by the
+            // pre-FIX-240 seq collision (ISS-121/ISS-123) — nothing here resolves
+            // `isRunning`, and the run renders as if it were still live: header
+            // "Awaiting approval", an armed Stop, armed gate cards.
+            //
+            // ORDER IS LOAD-BEARING: this must run AFTER the loop. Placed before
+            // it, the replayed review_gate_ready/pipeline_start would overwrite it.
+            //
+            // ONE-WAY: applyTerminalStatus no-ops on a non-terminal status, so a
+            // live run can never have a legitimately open gate cleared by this.
+            // Clearing reviewGateData instead would be WORSE than nothing —
+            // runLaneState would fall to "building" → header "Running", Stop still
+            // present. Resolving isRunning masks the stale gate row and fixes the
+            // header, the Stop button and the Steps gate cards together, because
+            // all three are AND-ed with isRunning.
+            //
+            // Writes the run STORE, not the legacy React setters: the lane reads
+            // `runStore.viewed.pipelineState` (displayedPipelineState).
+            if (REOPEN_TERMINAL_STATUSES.has(fullRun.status)) {
+              // BOTH containers, one vocabulary. The store alone is NOT enough — and
+              // this was proven in a real browser, not reasoned about. The FIX-201
+              // bridge (:1663-1672) copies the LEGACY useWorkflow.pipelineState into
+              // the store WHOLESALE once the viewport switches to this run (:2385).
+              // The legacy state accumulated the same terminal-less replay, so it
+              // still carries isRunning:true and silently clobbered a store-only
+              // patch a few hundred ms later — the screen went on showing "Awaiting
+              // approval" with a live Stop even though the store had been corrected.
+              // Reconciling the legacy state too makes that bridge idempotent
+              // instead of destructive.
+              reconcileTerminalStatus(fullRun.status);
+              runStore.updatePipelineState(fullRun.id, (prev) =>
+                applyTerminalStatus(prev, fullRun.status),
+              );
+              // A terminal run is not awaiting clarification. `laneClarifyOpen`
+              // (DashboardLayout:1862) is the ONE lane branch NOT AND-ed with
+              // isRunning — deliberately, because clarify happens BEFORE
+              // pipeline_start (on run 808612bf: questionnaire_ready @5,
+              // pipeline_start @11), so gating it on isRunning would break a LIVE
+              // clarify. That makes a lingering questionnaire outrank the terminal
+              // markers, so resolving isRunning alone left the header reading
+              // "Clarifying" with the Stop button still armed — observed in the
+              // browser, not predicted. On 808612bf the lingering panel is itself
+              // ISS-123 damage: its `questionnaire_complete` row (seq 7) is one of
+              // the 15 destroyed events, so the clear never replays.
+              // reviewGateData is deliberately NOT cleared: it is already masked by
+              // the gate branch's `&& isPipelineRunning`, and dropping it would
+              // erase the historical gate card from the reopened transcript.
+              runStore.update(fullRun.id, { questionnaireData: null });
+            }
             // KAN-154 (Gap 1): family-aware chat seed — also fetch chat_reply rows
             // from the run's revision family so the transcript shows the full history
             // of all versions, not just the selected run. getRunFamily returns members
@@ -2382,7 +2469,7 @@ export default function DashboardPage() {
         if (fullRun.output && isContentTerminal) {
           if (fullRun.type === "user_stories" || fullRun.type === "user_stories_revision") {
             setUserStoryContent(fullRun.output);
-          } else if (fullRun.type === "ppt" || fullRun.type === "ppt_revision" || fullRun.type === "od_ppt" || fullRun.type === "od_ppt_revision") {
+          } else if (fullRun.type === "ppt" || fullRun.type === "ppt_revision") {
             setPptContent(fullRun.output);
           } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision" || fullRun.type === "od_prototype") {
             setPrototypeContent(fullRun.output);
@@ -2494,8 +2581,9 @@ export default function DashboardPage() {
   // if the backend is unreachable.
   const handleLogout = useCallback(async () => {
     await logout(getToken() ?? "");
+    dispatch(signedOut());
     router.replace("/login");
-  }, [router]);
+  }, [router, dispatch]);
 
   if (!mounted || !isAuthenticated) {
     // Return null (not a loading screen) until the client has hydrated and
@@ -2553,9 +2641,10 @@ export default function DashboardPage() {
       reopenedFailedAgents={reopenedFailedAgents}
       reopenedAgentNameById={reopenedAgentNameById}
       submittedBrief={submittedBrief}
-      // KAN-101 — spec revision cycle counter, incremented when update_specs fires
-      // and the specify→plan→analyze sub-pipeline re-runs. Reset per new run.
-      specRevisionCount={specRevisionCount}
+      // ISS-063 — which spec-revision cycle this run is in. Derived per run inside
+      // the pipeline reducer from the accumulated agent restart counts, so the
+      // banner reads the same live, after a reload, and after a reconnect.
+      specRevisionCount={runStore.viewed.specRevisionCount}
       // Phase 31 (CHATUI-01/02/03) — the family-anchored transcript + the
       // transport-agnostic send, plus the nonce'd deep-link seam. The lane
       // (mounted in DashboardLayout) consumes messages/send/requestOpenTab;
@@ -2569,7 +2658,7 @@ export default function DashboardPage() {
       onRevisionLaunched={handleRevisionLaunched}
       onRequestOpenTab={runTabDeepLink.requestOpenTab}
       deepLinkTarget={runTabDeepLink.pending}
-      onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {
+      onStartPipeline={(type, message, agentIds, attachedHooks, extraParams) => {
         const isRevision = type.endsWith("_revision");
         // Workstream C1 (POR §1 gap-2): capture the run's input on every launch
         // (revision or fresh — it is the run's input either way), reset per run.
@@ -2646,7 +2735,7 @@ export default function DashboardPage() {
         launchCounterRef.current += 1;
         const thisLaunchSeq = launchCounterRef.current;
         void Promise.resolve(
-          startPipeline(type, message, agentIds, attachedSkills, attachedHooks, extraParams),
+          startPipeline(type, message, agentIds, attachedHooks, extraParams),
         ).then((launchedRunId) => {
           if (launchedRunId) {
             runConnection.attachRun(launchedRunId);

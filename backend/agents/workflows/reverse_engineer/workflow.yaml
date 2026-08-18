@@ -1,16 +1,23 @@
-# reverse_engineer — empty-plan stub (D-05). agents TBD (populated when AGENT.md
-# files are authored for this pipeline). steps: [] is valid (MAN-01) and compiles
-# to a CompiledWorkflow with no steps. Zero coverage-test exemptions: it loads +
-# compiles like every other manifest. clarify.defaults fall to the custom list.
 id: reverse_engineer
+user_launchable: true
+is_beta: true
+display_name: Reverse engineer a codebase
+short_name: Reverse Engineer
+description: Produce a structural analysis of an existing codebase.
+icon: Search
 version: 1
 planner: run
 clarify:
   mode: auto
-  defaults: [target_audience, key_objectives, scope, priority]
+  defaults:
+  - target_audience
+  - key_objectives
+  - scope
+  - priority
 deliverable:
   strategy: streamed_text
   name: analysis.md
 context_providers: []
 seed_files: {}
 steps: []
+name: Reverse Engineer

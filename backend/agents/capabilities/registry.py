@@ -83,6 +83,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("strategy", "task_loop"),
     ("strategy", "fanout_batch"),      # 11-01 / FANOUT-02 (user_allowed=True)
     ("strategy", "wave_scheduler"),    # 12-01 / WAVE-01 (user_allowed=True)
+    ("strategy", "parallel_group"),    # subagents.mode: parallel (user_allowed=True)
     ("merge", "copy_disjoint"),        # 11-03 / FANOUT-07 (user_allowed=True)
     ("merge", "git_3way"),             # 11-03 / FANOUT-07 (user_allowed=True)
     ("merge", "json"),                 # 11-03 / FANOUT-07 (user_allowed=True)
@@ -257,6 +258,9 @@ def discover() -> None:
         "agents.capabilities.strategies.task_loop",
         "agents.capabilities.strategies.fanout_batch",  # 11-01 / FANOUT-02
         "agents.capabilities.strategies.wave_scheduler",  # 12-01 / WAVE-01
+        # subagents.mode: parallel — the sibling-group dispatcher. A thin seam over
+        # the SAME run_fanout spawn path as fanout_batch/wave_scheduler (INV-12).
+        "agents.capabilities.strategies.parallel_group",
         # 11-03 / FANOUT-07 — the merge layer (port + 4 impls). Import-pure: each
         # reaches git ONLY via the ctx.runner handle, never a capability-side subprocess.
         "agents.capabilities.merge.copy_disjoint",

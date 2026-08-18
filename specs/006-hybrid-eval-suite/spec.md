@@ -4,9 +4,13 @@
 **Created**: 2026-07-22 (as `.investigations/revision-pipeline-thinking-issue/`)
 **Promoted to a spec**: 2026-07-29 — moved out of `.investigations/` so the suite that guards the
 revision pipeline sits alongside every other spec.
-**Status**: **Suite built (Phases 0–2), fix NOT started.** The eval suite exists, is green, and
-reproduces the defect. Phase 3 — the actual fix — was stopped by explicit user instruction on
-2026-07-22 and has not been resumed.
+**Status**: **OBSOLETE (2026-08-10).** Phases 0–2 built; Phase 3 — the actual fix — was stopped
+by explicit user instruction on 2026-07-22 and never resumed. The suite that reproduced the
+defect lived in `backend/evals/hybrid/`, which was deleted by
+[007-minimal-eval](../007-minimal-eval/spec.md), so nothing here is runnable. The underlying
+defect may or may not still exist — `THINKING_BUDGET_TOKENS` is still `0` in
+`app/core/config.py` — but any revival must be re-scoped against current code rather than
+resumed from this document. Read for history only.
 **Stack**: python | fastapi | (no frontend surface)
 
 ---

@@ -92,10 +92,17 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
       };
 
       recognition.onerror = (event: { error: string }) => {
-        console.error("Speech recognition error:", event.error);
-        if (event.error !== "no-speech") {
-          setIsListening(false);
+        // "no-speech": normal timeout — user didn't speak.
+        // "aborted": fired when recognition.abort() is called (cleanup, stop button,
+        //   or React strict-mode double-invoke) — not an error condition.
+        // "network": browser can't reach Google's speech servers (HTTP dev, offline).
+        if (event.error === "no-speech" || event.error === "aborted") return;
+        if (event.error === "network") {
+          console.warn("Speech recognition: network unavailable (check HTTPS / connectivity)");
+        } else {
+          console.error("Speech recognition error:", event.error);
         }
+        setIsListening(false);
       };
 
       recognition.onend = () => {

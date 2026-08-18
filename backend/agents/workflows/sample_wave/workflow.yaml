@@ -1,38 +1,13 @@
-# sample_wave — the SC-001 WAVE-SCHEDULER PROOF manifest (12-01).
-#
-# A BRAND-NEW, NON-prototype WAVE workflow defined by manifest + AGENT.md ONLY, using
-# ONLY already-registered capabilities (strategy: wave_scheduler, task_source.parser:
-# json_tasks, tool: spawn_subagents, deliverable: serialized_sandbox)
-# — proving a custom wave-scheduling workflow runs end-to-end with ZERO edits to
-# backend/agents/execution_engine/ (SC-001: the kernel knows no workflow by name; all
-# power lives in the registered capabilities). The 11-05 sample_fanout / 09-04
-# sample_brownfield real-manifest-home precedent: compile_for_run loads this dir with
-# zero engine edit.
-#
-# 2 agents: sample-wave-plan -> sample-wave-worker (the wave step).
-#   * sample-wave-plan emits a fenced ```json task list of 4 tasks with dependencies:
-#     - t1 writes part_a.txt, t2 writes part_b.txt — both depends_on NONE and have
-#       DISJOINT targets, so they parallelize in WAVE 1 (>=2 parallel workers);
-#     - t3 writes part_c.txt depends_on [t1]; t4 writes part_d.txt depends_on [t2] —
-#       so the scheduler runs >=2 waves (wave 1 = {t1,t2}, wave 2 = {t3,t4}).
-#   * the wave step (strategy: wave_scheduler) sources that plan from the DECLARED
-#     source_step (sample-wave-plan) via the json_tasks parser, topo-sorts it into
-#     waves, and runs each wave through the single kernel run_fanout spawn path. Each
-#     worker writes its assigned distinct file in its OWN isolated workspace; the
-#     engine-selected copy_disjoint merge integrates the disjoint files with NO
-#     conflict (deterministic).
-#
-# deliverable: serialized_sandbox — the workers write disjoint part_*.txt files,
-# copy_disjoint merges them into the run-sandbox base, and serialized_sandbox bundles
-# that merged base into the filename:-block deliverable. The declared deliverable
-# therefore resolves from files the workflow ACTUALLY PRODUCES (no single_file
-# fallback-to-streamed-output warning — UAT Gap 3, 12-10).
-#
-# tools.spawn_subagents is GRANTED at the wave step — the manifest is FILE-trusted
-# (compile trust='file'), so the privileged user_allowed=False grant is allowed (a
-# user/db manifest referencing spawn_subagents would be rejected by CAP-03; this is the
-# engineer-authored sample). No step grants exec/network/secrets (default OFF).
 id: sample_wave
+# NOT launchable: `sample-wave-plan` / `sample-wave-worker` have no AGENT.md on
+# disk, so a launch raises FileNotFoundError building the roster. Declared as
+# DATA rather than hidden by a name list (SC-001 / ADR-0005).
+user_launchable: false
+is_beta: true
+display_name: Wave-scheduled task batch
+short_name: Wave Batch
+description: Run dependency-ordered tasks in scheduled waves of parallel workers.
+icon: Waves
 version: 1
 planner: run
 clarify:
@@ -42,34 +17,32 @@ deliverable:
   strategy: serialized_sandbox
 context_providers: []
 seed_files: {}
-# The workflow-level named-worker allow-list (FANOUT-03). self×N needs no named worker,
-# but the allow-list is declared (pure data) so a heterogeneous wave could name
-# sample-wave-worker explicitly.
 allowed_workers:
-  - sample-wave-worker
+- sample-wave-worker
 steps:
-  - agent: sample-wave-plan
-    strategy: single_shot
-    gates: []
-    tools:
-      read_files: true
-      write_files: true
-      exec: false
-  - agent: sample-wave-worker
-    strategy: wave_scheduler
-    gates: []
-    on_conflict: human_gate
-    task_source:
-      kind: parsed
-      parser: json_tasks
-      target: tasks.json
-      source_step: sample-wave-plan
-    fanout:
-      mode: parallel
-      max_parallel: 4
-      agent: self
-    tools:
-      read_files: true
-      write_files: true
-      exec: false
-      spawn_subagents: true
+- agent: sample-wave-plan
+  strategy: single_shot
+  gates: []
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+- agent: sample-wave-worker
+  strategy: wave_scheduler
+  gates: []
+  on_conflict: human_gate
+  task_source:
+    kind: parsed
+    parser: json_tasks
+    target: tasks.json
+    source_step: sample-wave-plan
+  fanout:
+    mode: parallel
+    max_parallel: 4
+    agent: self
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+    spawn_subagents: true
+name: Wave Batch

@@ -21,6 +21,7 @@ import pytest
 from agents.workflows.manifest import (
     ManifestValidationError,
     WorkflowManifest,
+    build_manifest_from_dict,
     load_manifest,
 )
 
@@ -46,8 +47,20 @@ steps:
 """
 
 
-def _write_manifest(base_dir: Path, workflow_id: str, text: str) -> Path:
-    """Write ``<base_dir>/<workflow_id>/workflow.yaml`` and return the dir."""
+def _write_manifest(base_dir: Path, workflow_id: str = "w", text: str | None = None, **kwargs) -> Path:
+    """Write ``<base_dir>/<workflow_id>/workflow.yaml`` and return the dir.
+
+    Can be called in two ways:
+    1. _write_manifest(base_dir, workflow_id, text) — original signature
+    2. _write_manifest(base_dir, capabilities={...}) — build YAML from base + kwargs
+    """
+    if text is None:
+        # Build YAML from base template + kwargs
+        import yaml
+        doc = yaml.safe_load(_WELL_FORMED)
+        doc.update(kwargs)
+        text = yaml.dump(doc, sort_keys=False)
+
     wf_dir = base_dir / workflow_id
     wf_dir.mkdir(parents=True, exist_ok=True)
     (wf_dir / "workflow.yaml").write_text(text, encoding="utf-8")
@@ -253,6 +266,30 @@ steps: !!python/object/apply:os.system ["echo pwned"]
 
 
 # ---------------------------------------------------------------------------
+# Capabilities (Spec 012 / R-07, R-08) — optional, {internet: bool} only
+# ---------------------------------------------------------------------------
+
+
+def test_capabilities_internet_parses(tmp_path: Path):
+    # A manifest declaring capabilities: {internet: true} parses correctly.
+    _write_manifest(tmp_path, capabilities={"internet": True})
+    assert load_manifest("w", tmp_path).capabilities == {"internet": True}
+
+
+def test_capabilities_rejects_unknown_key(tmp_path: Path):
+    # A manifest declaring capabilities with an unknown key is rejected,
+    # naming the "capabilities" field.
+    _write_manifest(tmp_path, capabilities={"nope": 1})
+    with pytest.raises(ManifestValidationError, match="capabilities"):
+        load_manifest("w", tmp_path)
+
+
+def test_capabilities_absent_defaults_empty(tmp_path: Path):
+    # A manifest omitting capabilities defaults to {}.
+    assert load_manifest("w", _write_manifest(tmp_path)).capabilities == {}
+
+
+# ---------------------------------------------------------------------------
 # Missing file
 # ---------------------------------------------------------------------------
 
@@ -277,11 +314,12 @@ def test_non_mapping_top_level_rejected(tmp_path: Path):
 # renders each launchable workflow's authored `display_name`. The P20 BE coalesce
 # fix (workflows.py:230-237) carries ONLY the manifest's EXPLICIT display_name
 # (None unless a YAML declares one) so the FE fallback to getWorkflowLabel(id)
-# still wins where unauthored. These tests pin the authoring contract against the
-# REAL repo manifests (not synthetic) so a regression is caught:
-#   - every launchable workflow that SHOULD carry a friendly name authors one;
-#   - `custom` (the user-composed entry) intentionally stays unauthored so the
-#     composer-driven FE fallback label is used (BE display_name is None).
+# still wins where unauthored. This test pins the authoring contract against the
+# REAL repo manifests (not synthetic) so a regression is caught: every
+# launchable workflow authors a non-empty, professional display_name —
+# including `custom` (the user-composed entry), which now carries one too
+# (nothing in the catalog stays unauthored / falls back to a raw id or a
+# generic FE label).
 
 from agents.execution_engine.engine import _WORKFLOWS_DIR  # noqa: E402
 
@@ -293,11 +331,8 @@ _AUTHORED_DISPLAY_NAME = (
     "app_builder",
     "mulesoft_to_springboot",
     "dotnet_to_azure",
+    "custom",
 )
-
-# Launchable manifests intentionally left WITHOUT a display_name — the FE falls
-# back to its composer/getWorkflowLabel label (BE fallback null by design).
-_UNAUTHORED_DISPLAY_NAME = ("custom",)
 
 
 @pytest.mark.parametrize("workflow_id", _AUTHORED_DISPLAY_NAME)
@@ -312,12 +347,83 @@ def test_display_name_authored_on_real_launchable_manifest(workflow_id: str):
     )
 
 
-@pytest.mark.parametrize("workflow_id", _UNAUTHORED_DISPLAY_NAME)
-def test_display_name_null_where_intentionally_unauthored(workflow_id: str):
-    # The BE fallback stays None ONLY where deliberately unauthored — so the FE
-    # fallback label is used and the P20 coalesce fix is not defeated.
-    m = load_manifest(workflow_id, _WORKFLOWS_DIR)
-    assert m.display_name is None, (
-        f"{workflow_id} is intentionally unauthored; BE display_name must be "
-        f"None (FE fallback owns the label); got {m.display_name!r}"
+# ---------------------------------------------------------------------------
+# build_manifest_from_dict (Spec 012 / R-26, R-27, AC-14) — DB/file parity seam
+# ---------------------------------------------------------------------------
+
+
+def test_dict_and_file_produce_equal_manifests(tmp_path: Path):
+    # A dict manifest (as stored in workflows.manifest_json) and the equivalent
+    # YAML file must produce byte-for-byte equal WorkflowManifest objects — the
+    # whole point of the seam (R-26/AC-14): DB and file manifests pass through
+    # the identical validator.
+    import yaml
+
+    data = yaml.safe_load(_WELL_FORMED)
+
+    from_dict = build_manifest_from_dict(data, "workflow:some-uuid")
+
+    base = _write_manifest(tmp_path, "demo", _WELL_FORMED)
+    from_file = load_manifest("demo", base)
+
+    assert from_dict == from_file
+
+
+def test_build_manifest_from_dict_rejects_unknown_top_level_key():
+    import yaml
+
+    data = yaml.safe_load(_WELL_FORMED)
+    data["when"] = "something"
+
+    with pytest.raises(ManifestValidationError) as exc:
+        build_manifest_from_dict(data, "workflow:some-uuid")
+
+    assert "when" in str(exc.value)
+
+
+@pytest.mark.parametrize("missing", ["id", "steps", "deliverable", "planner", "clarify"])
+def test_build_manifest_from_dict_rejects_missing_required_field(missing: str):
+    import yaml
+
+    data = yaml.safe_load(_WELL_FORMED)
+    del data[missing]
+
+    with pytest.raises(ManifestValidationError) as exc:
+        build_manifest_from_dict(data, "workflow:some-uuid")
+
+    assert missing in str(exc.value), (
+        f"error message must name the missing field {missing!r}: {exc.value}"
     )
+
+
+def test_build_manifest_from_dict_rejects_wrong_type():
+    import yaml
+
+    data = yaml.safe_load(_WELL_FORMED)
+    data["steps"] = "not-a-list"
+
+    with pytest.raises(ManifestValidationError) as exc:
+        build_manifest_from_dict(data, "workflow:some-uuid")
+
+    assert "steps" in str(exc.value)
+
+
+def test_build_manifest_from_dict_error_names_source_label():
+    # A DB manifest's errors must still be locatable — the error message
+    # contains the source_label the caller passed, not a file path.
+    import yaml
+
+    data = yaml.safe_load(_WELL_FORMED)
+    data["steps"] = "not-a-list"
+
+    with pytest.raises(ManifestValidationError) as exc:
+        build_manifest_from_dict(data, "workflow:some-uuid")
+
+    assert "workflow:some-uuid" in str(exc.value), (
+        f"error message must contain the source_label: {exc.value}"
+    )
+
+
+def test_load_manifest_still_raises_file_not_found(tmp_path: Path):
+    with pytest.raises(FileNotFoundError):
+        load_manifest("does-not-exist", tmp_path)

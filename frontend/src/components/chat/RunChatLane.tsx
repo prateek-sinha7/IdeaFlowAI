@@ -54,6 +54,7 @@ import {
   Square,
   X,
 } from "lucide-react";
+import { getWorkflowIcon } from "@/lib/workflowIcons";
 
 import type {
   AgentEvent,
@@ -71,7 +72,10 @@ import {
 import type { ClarifyResponse } from "./InlineClarifyActions";
 import type { PendingAttachment } from "@/hooks/useChatAttachments";
 import type { ReplyStreamingState, SendMessageOptions } from "@/hooks/useRunChat";
+import { useWorkflowChaining, useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
+import { useAppSelector } from "@/store/hooks";
 import { formatDuration } from "@/lib/runStats";
+import { baseWorkflowType } from "@/lib/workflowChaining";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Badge } from "../ui/Badge";
@@ -109,13 +113,29 @@ export interface GateContext {
    * structurally from _AGENT_KIND_MAP (with "summary" as the generic fallback).
    */
   artifactKind?: string;
+  /**
+   * ISS-052 — the per-FIRING discriminator from the backend. `gateKey` names a gate
+   * SLOT, so the analyze gate opened INSIDE a spec-revision pass and the one re-opened
+   * after that pass returns share it AND their output bytes. `revisionCycle` is which
+   * cycle the firing belongs to (0 = none has run); `revisionInFlight` is whether the
+   * pass is still on the stack. SC-001: generic run state, never a workflow/agent name.
+   */
+  revisionCycle?: number;
+  revisionInFlight?: boolean;
 }
 
 /** A generic quick-reply suggestion chip (never a workflow-name literal). */
 export interface LaneSuggestion {
   id: string;
+  /** Heading: action text for this suggestion (e.g., "Ship the code") */
+  text?: string;
+  /** Subtitle: workflow name to chain into (e.g., "App Builder") */
   label: string;
   description?: string;
+  isBeta?: boolean;
+  display_name?: string;
+  short_name?: string;
+  icon?: string;
 }
 
 /**
@@ -136,6 +156,20 @@ export interface LaneProposal {
   params: Record<string, unknown>;
   /** Human-readable description of the consequential action (rendered escaped). */
   summary?: string;
+  /**
+   * The original ASK turn's message_id — required by the backend's
+   * `_load_pending_proposal` to locate the durable pending row via
+   * `concierge-proposal:{messageId}:{channel}`. Must be forwarded as
+   * `body.message_id` in the confirm turn so the backend H1 fence finds it.
+   */
+  messageId?: string;
+  /**
+   * The run id the proposal was written to. Used by handleConfirmProposal to
+   * POST the confirm turn to the correct run even after a view switch (e.g. a
+   * completed revision moves viewedRunId to the child run, but the proposal
+   * lives on the parent).
+   */
+  proposalRunId?: string;
 }
 
 export interface RunChatLaneProps {
@@ -267,32 +301,6 @@ export interface RunChatLaneProps {
   onCancelWorkflow?: () => void;
 }
 
-/**
- * GENERIC ask-vs-change classifier for a SETTLED-run free-text turn (43-02, the
- * A.1 CRUX / SC-001·INV-1). Keys ONLY on the generic text — NEVER a
- * workflow-name or agent-id literal. A CHANGE REQUEST (an imperative edit) still
- * launches the revision pipeline (onRevise); an ASK (a status/question turn) is
- * answered by the Concierge (`sendMessage(..., { concierge: true })`).
- *
- * Change-intent is weighed FIRST so a question-SHAPED change request
- * ("can you make the button bigger?") routes as a CHANGE, not an ask — a bare
- * question-mark heuristic would misroute it. Ambiguous settled free text falls
- * through to the historical default (a revision); misclassification is bounded —
- * the consequential path stays confirm-gated server-side (T-43-02-ROUTE).
- */
-const CHANGE_INTENT =
-  /\b(make|change|changed|add|added|remove|removed|delete|deleted|drop|update|fix|fixed|rename|reorder|move|resize|replace|swap|set|turn|redesign|restyle|recolor|tweak|adjust|convert|increase|decrease|reduce|expand|shrink|revise|revamp|modify|edit|improve|refactor|rework|redo|shorten|lengthen|simplify|bigger|smaller|larger|wider|narrower|taller|shorter|darker|lighter|bolder)\b/i;
-const ASK_INTENT =
-  /(^\s*(what|whats|what's|why|how|is|are|was|were|do|does|did|where|when|who|which|can|could|should|would|will)\b|\bstatus\b|\bexplain\b|\bprogress\b|\?\s*$)/i;
-// FIX-104: vague chain intent — the user wants to start a follow-up workflow but
-// hasn't named a specific target yet. Fires BEFORE change/ask so it isn't
-// swallowed by the revision hold. GENERIC (SC-001/INV-1) — no workflow-name literal.
-// Covers: "chain this", "chaining", "chained to", "chain it", "next workflow",
-// "build on this", "follow-up", "what can I do next", "continue with", etc.
-// Also covers "covert/convert this to X" style phrases that indicate chain intent.
-const CHAIN_INTENT =
-  /\b(chain(ing|ed|s)?(\s+this|\s+it|\s+into|\s+to|\s+from)?|next\s+workflow|follow.?up|build\s+on|what.?s\s+next|what\s+can\s+i|continue\s+with|extend\s+this|what\s+else|next\s+step|next\s+pipeline|pipeline\s+chain|chained?(\s+workflow)?|i\s+want\s+to\s+chain|convert?\s+this|covert\s+this)\b/i;
-
 // Safety-net window for the settled-run Concierge "reply pending" indicator.
 // Comfortably longer than a normal 2–8s reply so it only fires on a genuinely
 // failed / never-arriving reply (fire-and-forget send → no chat_reply to clear it).
@@ -337,21 +345,17 @@ function ReadingIndicator() {
           />
         ))}
       </span>
-      reading run data…
+      VelocityAI is Thinking…
     </div>
   );
 }
 
-function classifyFreeText(text: string): "ask" | "change" | "chain" {
-  const t = text.trim();
-  // FIX-104: chain intent is checked first so "chain this to a prototype" never
-  // falls through to the revision hold. Named-target phrases that also contain a
-  // transform verb are caught earlier by matchChainTarget; this handles the vague
-  // "I want to chain this" case where no target was named.
-  if (CHAIN_INTENT.test(t)) return "chain";
-  if (CHANGE_INTENT.test(t)) return "change";
-  if (ASK_INTENT.test(t)) return "ask";
-  return "change";
+function classifyFreeText(_text: string): "ask" | "change" | "chain" {
+  // FIX-210 (ISS-054): classifyFreeText is replaced by the Concierge.
+  // All run chat routes through sendMessage({concierge:true}) — the Concierge
+  // handles chain/revise/ask classification itself. This stub is kept only
+  // to avoid breaking any callers; it is no longer called from handleFreeText.
+  return "ask";
 }
 
 // A settled-run "<transform> into <target>" chain phrase (BUG-1, quick-260720-ec4):
@@ -525,12 +529,16 @@ function PipelineMini({
   building,
   completedCount,
   pipelineState,
+  hideHeader,
 }: {
   agents: AgentRunState[];
   onOpen?: () => void;
   building?: boolean;
   completedCount?: number;
   pipelineState?: import("@/types/index").PipelineRunState;
+  /** When true, suppress the internal "Pipeline · N agents" header row (used when
+   *  the component is embedded inside a collapsible toggle that already shows it). */
+  hideHeader?: boolean;
 }) {
   // FIX-182: same constructionComplete guard as AgentThinkingTab/StepsOverviewSpine —
   // prevents premature DONE checkmark on the build agent during task-loop iterations.
@@ -548,25 +556,11 @@ function PipelineMini({
     if (idx !== constructionIdx) return true;
     return !isRunning || (laterAgentStarted && allTasksDone);
   };
-  return (
-    <TranscriptCard
-      testid="lane-pipeline-mini"
-      onOpen={onOpen}
-      className="border-line-border bg-surface-card px-[14px] py-3 hover:border-line-faint"
-    >
-      <div className="mb-[10px] flex items-center justify-between">
-        <span className="font-sans text-[10.5px] font-semibold uppercase tracking-[0.11em] text-ink-300">
-          Pipeline · {agents.length} agents
-        </span>
-        {building ? (
-          <span className="inline-flex items-center gap-1.5 font-sans text-[11px] font-medium text-brand">
-            <span className="h-[6px] w-[6px] animate-pulse rounded-full bg-brand" />
-            {completedCount ?? 0} / {agents.length}
-          </span>
-        ) : (
-          <span className="font-sans text-[11px] font-medium text-brand">Open Steps →</span>
-        )}
-      </div>
+  // When hideHeader=true the agent rows live inside the collapsible toggle wrapper —
+  // skip TranscriptCard entirely and render a plain flush div so width matches the
+  // toggle button exactly (no double border, no indent mismatch).
+  const agentRows = (
+    <>
       {agents.map((a, agentIdx) => {
         const done = agentIsReallyDone(agentIdx);
         const running = !done && (a.status === "running" || a.status === "thinking");
@@ -608,6 +602,40 @@ function PipelineMini({
           Open Steps for the full live trace →
         </p>
       )}
+    </>
+  );
+
+  if (hideHeader) {
+    return (
+      <div
+        data-testid="lane-pipeline-mini"
+        className="rounded-b-[var(--radius-node)] border border-t-0 border-line-border bg-surface-card px-[14px] py-3"
+      >
+        {agentRows}
+      </div>
+    );
+  }
+
+  return (
+    <TranscriptCard
+      testid="lane-pipeline-mini"
+      onOpen={onOpen}
+      className="border-line-border bg-surface-card px-[14px] py-3 hover:border-line-faint"
+    >
+      <div className="mb-[10px] flex items-center justify-between">
+        <span className="font-sans text-[10.5px] font-semibold uppercase tracking-[0.11em] text-ink-300">
+          Pipeline · {agents.length} agents
+        </span>
+        {building ? (
+          <span className="inline-flex items-center gap-1.5 font-sans text-[11px] font-medium text-brand">
+            <span className="h-[6px] w-[6px] animate-pulse rounded-full bg-brand" />
+            {completedCount ?? 0} / {agents.length}
+          </span>
+        ) : (
+          <span className="font-sans text-[11px] font-medium text-brand">Open Steps →</span>
+        )}
+      </div>
+      {agentRows}
     </TranscriptCard>
   );
 }
@@ -867,13 +895,19 @@ function FreeTextComposer({
   hint,
 }: {
   placeholder: string;
-  onSend: (text: string, attachments: ChatAttachment[]) => void;
+  onSend: (text: string, attachments: ChatAttachment[], fileContents?: import("@/hooks/useChatAttachments").FileContentEntry[]) => void;
   hint?: string;
 }) {
   const [value, setValue] = useState("");
   // Remounting ChatAttachments (via key) clears its internal intake after a send.
   const [attachKey, setAttachKey] = useState(0);
   const pendingRef = useRef<PendingAttachment[]>([]);
+  // FIX-218 (KAN-170): track extracted file text entries alongside attachments.
+  const fileContentsRef = useRef<import("@/hooks/useChatAttachments").FileContentEntry[]>([]);
+  // FIX-218: track extraction state so send is disabled while a file is being read.
+  const [isExtracting, setIsExtracting] = useState(false);
+  // Mirror pendingRef length as state so the send button re-renders when attachments change.
+  const [attachmentCount, setAttachmentCount] = useState(0);
   const attachOpenRef = useRef<(() => void) | null>(null);
   // c72 — the textarea element, driven imperatively for the auto-grow (no value
   // effect, so the send-reset stays deterministic + jsdom-testable).
@@ -915,14 +949,19 @@ function FreeTextComposer({
 
   const handleSend = useCallback(() => {
     const text = value.trim();
-    if (!text) return;
-    onSend(text, pendingRef.current);
+    const hasAttachments = pendingRef.current.length > 0;
+    // Allow send if there is text OR attachments (but never if extracting).
+    if (!text && !hasAttachments) return;
+    if (isExtracting) return;
+    onSend(text, pendingRef.current, fileContentsRef.current);
     setValue("");
     pendingRef.current = [];
+    fileContentsRef.current = [];
+    setAttachmentCount(0);
     setAttachKey((k) => k + 1);
     // c72 — collapse the grown box back to a single row after send.
     if (taRef.current) taRef.current.style.height = "auto";
-  }, [value, onSend]);
+  }, [value, onSend, isExtracting]);
 
   return (
     <div className="space-y-2">
@@ -933,6 +972,13 @@ function FreeTextComposer({
         openRef={attachOpenRef}
         onChange={(a) => {
           pendingRef.current = a;
+          setAttachmentCount(a.length);
+        }}
+        onFileContentsChange={(fc) => {
+          fileContentsRef.current = fc;
+        }}
+        onExtractingChange={(extracting) => {
+          setIsExtracting(extracting);
         }}
       />
       <div className="flex items-center gap-[5px] rounded-[var(--radius-menu)] border border-line-control bg-surface-white py-[7px] pl-[13px] pr-[7px]">
@@ -998,8 +1044,9 @@ function FreeTextComposer({
           type="button"
           data-testid="chat-send"
           onClick={handleSend}
-          disabled={!value.trim()}
-          aria-label="Send message"
+          disabled={isExtracting || (!value.trim() && attachmentCount === 0)}
+          aria-label={isExtracting ? "Reading file…" : "Send message"}
+          title={isExtracting ? "Reading file — please wait" : undefined}
           className="grid h-8 w-8 flex-none place-items-center rounded-[9px] bg-brand text-white transition-colors hover:bg-brand-pressed disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
@@ -1047,6 +1094,26 @@ export function RunChatLane({
   onSkipClarify,
   onCancelWorkflow,
 }: RunChatLaneProps) {
+  // Hooks at top level (required by React)
+  const chainInto = useWorkflowChaining();
+  const getWorkflowLabel = useWorkflowLabels();
+  const allWorkflows = useAppSelector((state) => state.global.workflows);
+
+  // Compute chain suggestions from the backend-owned chaining data (Plan 34-01).
+  // The hook inverts every workflow's chained_from into "what can I chain into",
+  // returning a stable resolver. We compute suggestions directly here instead of
+  // relying on the prop-drilled suggestions from the caller.
+  const computedSuggestions: LaneSuggestion[] = runType
+    ? chainInto(baseWorkflowType(runType)).map((o) => ({
+        ...o,
+        isBeta: o.beta,
+      }))
+    : [];
+  // Use computed suggestions if the prop-drilled suggestions are missing, then sort.
+  const effectiveSuggestions = (suggestions ?? computedSuggestions).sort(
+    (a, b) => (a.isBeta ? 1 : 0) - (b.isBeta ? 1 : 0)
+  );
+
   // isRunning keys off the GENERIC runState only (SC-001) — no workflow branch.
   const isRunning =
     runState === "building" || runState === "clarify" || runState === "gate";
@@ -1089,6 +1156,9 @@ export function RunChatLane({
   // arrives) is covered by the safety-net timeout further below — so the spinner
   // can never stick on ANY path.
   const [replyPending, setReplyPending] = useState(false);
+  // Collapse the Pipeline mini when the user is chatting with the Concierge
+  // (replyPending=true) — auto-collapses on send, user must click to re-expand.
+  const [pipelineMiniCollapsed, setPipelineMiniCollapsed] = useState(false);
 
   // Clear the pending flag once the awaited assistant reply lands as the tail.
   useEffect(() => {
@@ -1096,6 +1166,12 @@ export function RunChatLane({
     const last = messages[messages.length - 1];
     if (last && last.role === "assistant") setReplyPending(false);
   }, [messages, replyPending]);
+
+  // Auto-collapse the Pipeline mini when the user sends a chat message so the
+  // Concierge reply is front-and-center. The user can re-expand it by clicking.
+  useEffect(() => {
+    if (replyPending) setPipelineMiniCollapsed(true);
+  }, [replyPending]);
 
   // Bind the flag to the VIEWED run: RunChatLane does NOT remount per run (no
   // key/runId in the parent — DashboardLayout), so a run switch before the reply
@@ -1176,145 +1252,70 @@ export function RunChatLane({
   // the classify-intent LLM call is in flight (~1–3s). When the result lands the
   // spinner clears and the revise/chain chip appears. Never a silent 10-second wait.
   const handleFreeText = useCallback(
-    (text: string, attachments: ChatAttachment[]) => {
+    (text: string, attachments: ChatAttachment[], fileContents?: import("@/hooks/useChatAttachments").FileContentEntry[]) => {
+      // FIX-218: when files are attached, the bubble renders the file chips from
+      // message.attachments (MessageBubble handles this). Pass empty string as text
+      // so the backend Concierge receives a clean turn — no synthetic text leaked.
+      const hasFiles = (fileContents && fileContents.length > 0) ||
+        attachments.some((a) => a.kind === "file");
+      const effectiveText = text.trim();
+      // Need at least one of text or files to send.
+      if (!effectiveText && !hasFiles) return;
+
       if (runState === "complete") {
         // Fast path: exact named-target chain (BUG-1 fix — no LLM round-trip needed).
-        const chainId = matchChainTarget(text, suggestions);
+        const chainId = matchChainTarget(effectiveText, suggestions);
         if (chainId && onSuggestion) {
           onSuggestion(chainId);
           return;
         }
 
-        // FIX-119: Echo the user's text as an optimistic bubble IMMEDIATELY,
-        // before the classify-intent LLM call. On a complete run, calling
-        // sendMessage() without { concierge: true } would route through
-        // CHANNEL_REVISION (mechanical router) and create a spurious revision run
-        // BEFORE the confirm chip appears — the double-version bug (FIX-118).
-        // addOptimisticMessage() adds a bubble to local state ONLY with no backend
-        // side-effect. The returned messageId is used to reconcile the bubble when
-        // the ask path later calls sendMessage with { existingMessageId }.
         const echoMessageId = addOptimisticMessage
-          ? addOptimisticMessage(text, attachments)
-          : undefined;
-
-        // Show TypingIndicator while classifying intent via LLM (~1–3s).
-        setReplyPending(true);
-
-        const runId = viewedRunId ?? "";
-        const chainHints = suggestions?.map((s) => ({ id: s.id, label: s.label }));
-
-        if (runId) {
-          import("@/lib/api").then(({ classifyIntent, getToken }) => {
-            const jwt = getToken() ?? "";
-            if (!jwt) {
-              setReplyPending(false);
-              if (onRevise) setHeldRefinement(text);
-              return;
-            }
-            classifyIntent(jwt, runId, text, chainHints).then((result) => {
-              setReplyPending(false);   // ← clears TypingIndicator when result arrives
-              if (result.intent === "chain") {
-                if (result.target_id && onSuggestion) {
-                  onSuggestion(result.target_id);
-                } else if (suggestions && suggestions.length > 0 && onSuggestion) {
-                  setChainPickerOpen(true);
-                } else if (onRevise) {
-                  setHeldRefinement(text);
-                }
-              } else if (result.intent === "ask") {
-                // Conversational question → send to Concierge.
-                // Reuse the existing optimistic bubble via existingMessageId so
-                // sendMessage reconciles it in place instead of adding a duplicate.
-                setReplyPending(true);
-                sendMessage(text, attachments, {
-                  concierge: true,
-                  ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
-                  ...(chainHints ? { chain_hints: chainHints } : {}),
-                });
-              } else {
-                // "revise" → show confirm chip (the optimistic bubble is already visible)
-                if (onRevise) setHeldRefinement(text);
-              }
-            }).catch(() => {
-              setReplyPending(false);
-              if (onRevise) setHeldRefinement(text);
-            });
-          });
-          return;
-        }
-
-        // No runId — fall back to revision hold
-        setReplyPending(false);
-        if (onRevise) setHeldRefinement(text);
-        return;
-      }
-
-      // FIX-193 — ISS-059: extend ask-vs-steer classification to the "building"
-      // composer mode. The backend's route_chat_turn escalation check (chat_router.py
-      // :203-204) is phase-independent — it routes to CHANNEL_CONCIERGE whenever
-      // turn.concierge is True, regardless of run phase. The FE never set that marker
-      // for "building", so every question during an active run silently became a
-      // steering note (no reply, HTTP 200, user confused).
-      //
-      // Pattern mirrors the "complete" branch exactly (FIX-116/FIX-119 precedent):
-      //   1. addOptimisticMessage — echo immediately so there's no stall
-      //   2. classifyIntent via the existing generic LLM endpoint (no run-status gate)
-      //   3. intent === "ask"  → sendMessage with {concierge: true} (Concierge reply)
-      //      anything else     → sendMessage with no concierge key  (steering, today's behavior)
-      //
-      // SAFE: every non-"ask" path is byte-identical to unmodified dev HEAD behavior.
-      // LOCKED: "clarify"/"gate"/"terminal" are NOT touched (Group-C decision, 42-03).
-      if (runState === "building") {
-        const echoMessageId = addOptimisticMessage
-          ? addOptimisticMessage(text, attachments)
+          ? addOptimisticMessage(effectiveText, attachments)
           : undefined;
 
         const runId = viewedRunId ?? "";
-        const sendOpts = echoMessageId ? { existingMessageId: echoMessageId } : undefined;
+        const chainHints = effectiveSuggestions?.map((s) => ({ id: s.id, label: s.label }));
 
-        if (!runId) {
-          // No runId — degrade to plain steering (identical to pre-fix behavior).
-          if (sendOpts) {
-            sendMessage(text, attachments, sendOpts);
-          } else {
-            sendMessage(text, attachments);
-          }
-          return;
-        }
-
-        // Show TypingIndicator while classifyIntent LLM call is in flight (~1–3s).
         setReplyPending(true);
-
-        import("@/lib/api").then(({ classifyIntent, getToken }) => {
-          const jwt = getToken() ?? "";
-          if (!jwt) {
-            setReplyPending(false);
-            if (sendOpts) { sendMessage(text, attachments, sendOpts); } else { sendMessage(text, attachments); }
-            return;
-          }
-          classifyIntent(jwt, runId, text).then((result) => {
-            if (result.intent === "ask") {
-              // Conversational question → Concierge. Keep replyPending=true so the
-              // TypingIndicator stays until the assistant turn arrives (mirrors
-              // the "complete" ask path — setReplyPending(false) is NOT called here).
-              sendMessage(text, attachments, { ...sendOpts, concierge: true });
-            } else {
-              // Steering instruction / change request — degrade to today's behavior.
-              setReplyPending(false);
-              if (sendOpts) { sendMessage(text, attachments, sendOpts); } else { sendMessage(text, attachments); }
-            }
-          }).catch(() => {
-            // Classify failure — degrade to today's behavior, never leave spinner stuck.
-            setReplyPending(false);
-            if (sendOpts) { sendMessage(text, attachments, sendOpts); } else { sendMessage(text, attachments); }
-          });
+        sendMessage(effectiveText, attachments, {
+          concierge: true,
+          ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
+          ...(chainHints ? { chain_hints: chainHints } : {}),
+          ...(fileContents && fileContents.length > 0 ? { file_contents: fileContents } : {}),
         });
         return;
       }
 
-      sendMessage(text, attachments);
+      if (runState === "building") {
+        const echoMessageId = addOptimisticMessage
+          ? addOptimisticMessage(effectiveText, attachments)
+          : undefined;
+        setReplyPending(true);
+        sendMessage(effectiveText, attachments, {
+          concierge: true,
+          ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
+          ...(fileContents && fileContents.length > 0 ? { file_contents: fileContents } : {}),
+        });
+        return;
+      }
+
+      if (runState === "clarify") {
+        const echoMessageId = addOptimisticMessage
+          ? addOptimisticMessage(effectiveText, attachments)
+          : undefined;
+        setReplyPending(true);
+        sendMessage(effectiveText, attachments, {
+          concierge: true,
+          ...(echoMessageId ? { existingMessageId: echoMessageId } : {}),
+          ...(fileContents && fileContents.length > 0 ? { file_contents: fileContents } : {}),
+        });
+        return;
+      }
+
+      sendMessage(effectiveText, attachments);
     },
-    [runState, onRevise, sendMessage, addOptimisticMessage, suggestions, onSuggestion, viewedRunId],
+    [runState, onRevise, sendMessage, addOptimisticMessage, effectiveSuggestions, onSuggestion, viewedRunId],
   );
 
   // Confirm the held refinement → launch the revision (the ONLY path that fires
@@ -1358,6 +1359,9 @@ export function RunChatLane({
   // default JSX escaping (no raw-HTML injection sink) — XSS-safe (T-33-04-02).
   // FIX-115: "chain" proposals confirm via onSuggestion(target_id) — the EXISTING
   // suggestion-chip seam — rather than a server round-trip (no new execution path).
+  // Track which proposal id is currently being confirmed (for loading state).
+  const [confirmingProposalId, setConfirmingProposalId] = useState<string | null>(null);
+
   const renderProposals = () => {
     if (!proposals || proposals.length === 0) return null;
     return (
@@ -1367,9 +1371,36 @@ export function RunChatLane({
           const isChain = p.channel === "chain";
           const chainTargetId = isChain ? String(p.params?.target_id ?? "") : "";
           const confirmLabel = isChain ? "Start this workflow" : "Confirm";
+          const isConfirming = confirmingProposalId === p.id;
           const handleConfirm = isChain
-            ? () => { if (chainTargetId && onSuggestion) onSuggestion(chainTargetId); }
-            : () => onConfirmProposal?.(p);
+            ? () => {
+                if (chainTargetId && onSuggestion) {
+                  setConfirmingProposalId(p.id);
+                  // Dismiss chip immediately from local state.
+                  onRejectProposal?.(p.id);
+                  // Fire onSuggestion to start the chain workflow.
+                  onSuggestion(chainTargetId);
+                  // Also post the confirm turn so the backend writes the resolved row —
+                  // without this the pending concierge_proposal row is never marked done
+                  // and the chip re-appears every time the user reopens the run.
+                  onConfirmProposal?.(p);
+                }
+              }
+            : () => {
+                if (isConfirming) return; // prevent double-click
+                setConfirmingProposalId(p.id);
+                // Dismiss the chip immediately — don't wait for the resolved event.
+                onRejectProposal?.(p.id);
+                // Add an optimistic message so the user sees something happening.
+                if (addOptimisticMessage) {
+                  addOptimisticMessage(
+                    p.channel === "revision"
+                      ? "Starting revision…"
+                      : "Confirming action…",
+                  );
+                }
+                onConfirmProposal?.(p);
+              };
           return (
           <Card
             key={p.id}
@@ -1391,19 +1422,27 @@ export function RunChatLane({
                 data-testid="chat-proposal-confirm"
                 data-proposal-id={p.id}
                 onClick={handleConfirm}
-                className="rounded-[var(--radius-pill)] bg-brand px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-brand-pressed"
+                disabled={isConfirming}
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] bg-brand px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-brand-pressed disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {confirmLabel}
+                {isConfirming ? (
+                  <>
+                    <span className="h-[9px] w-[9px] animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    {p.channel === "revision" ? "Starting…" : "Confirming…"}
+                  </>
+                ) : confirmLabel}
               </button>
-              <button
-                type="button"
-                data-testid="chat-proposal-reject"
-                data-proposal-id={p.id}
-                onClick={() => onRejectProposal?.(p.id)}
-                className="rounded-[var(--radius-pill)] border border-line-control bg-surface-white px-3 py-1.5 text-[11px] font-medium text-ink-500 transition-colors hover:border-ink-300 hover:text-ink-700"
-              >
-                Dismiss
-              </button>
+              {!isConfirming && (
+                <button
+                  type="button"
+                  data-testid="chat-proposal-reject"
+                  data-proposal-id={p.id}
+                  onClick={() => onRejectProposal?.(p.id)}
+                  className="rounded-[var(--radius-pill)] border border-line-control bg-surface-white px-3 py-1.5 text-[11px] font-medium text-ink-500 transition-colors hover:border-ink-300 hover:text-ink-700"
+                >
+                  Dismiss
+                </button>
+              )}
             </div>
           </Card>
           );
@@ -1455,34 +1494,74 @@ export function RunChatLane({
 
   // c72 — the settled-run chain-suggestion chips, restored ABOVE the chat input.
   // The `suggestions`/`onSuggestion` props already reach the lane (DashboardLayout
-  // computes `laneSuggestions` off the static CHAIN_OPTIONS allow-list); Phase 39
+  // computes `laneSuggestions` from `chainInto()`, backend-owned via
+  // useWorkflowChaining, Plan 34-01); Phase 39
   // deleted only the RENDER for mock fidelity. Rendered ONLY on a COMPLETED run
   // with suggestions present; each chip is an actionable <button> in the DS Pill
   // idiom (rounded-[var(--radius-pill)], border-line-control, bg-surface-white)
   // that fires the existing `onSuggestion(id)` chain action. GENERIC (SC-001/INV-1)
   // — the chip label + id come straight off the prop, never a workflow-name literal.
   const renderChainSuggestions = () => {
-    if (runState !== "complete" || !suggestions || suggestions.length === 0) {
+    if (runState !== "complete" || !effectiveSuggestions || effectiveSuggestions.length === 0) {
       return null;
     }
+    const activeChains = effectiveSuggestions.filter((s) => !s.isBeta);
+    const betaChains = effectiveSuggestions.filter((s) => s.isBeta);
+    const allChains = [...activeChains, ...betaChains];
+
     return (
-      <div data-testid="chat-chain-suggestions" className="space-y-1.5">
+      <div data-testid="chat-chain-suggestions" className="space-y-2.5">
         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-brand">
-          Chain into
+          Take this further
         </p>
-        <div className="flex flex-wrap gap-1.5">
-          {suggestions.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              data-testid="chat-chain-suggestion-chip"
-              data-suggestion-id={s.id}
-              onClick={() => onSuggestion?.(s.id)}
-              className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-line-control bg-surface-white px-2.5 py-1 font-sans text-[11px] font-medium leading-none text-ink-700 transition-colors hover:border-brand hover:text-brand"
-            >
-              {s.label}
-            </button>
-          ))}
+        <div className="flex flex-col gap-2">
+          {allChains.map((s) => {
+            const isBeta = s.isBeta ?? false;
+            const workflowDisplayName = s.display_name || getWorkflowLabel(s.id);
+            const workflow = allWorkflows.find((w) => w.id === s.id);
+            const WorkflowIcon = getWorkflowIcon(workflow?.icon);
+            return (
+              <button
+                key={`${isBeta ? "beta" : "full"}-${s.id}`}
+                type="button"
+                data-testid={isBeta ? "chat-chain-suggestion-chip-beta" : "chat-chain-suggestion-chip"}
+                data-suggestion-id={s.id}
+                disabled={isBeta}
+                onClick={() => !isBeta && onSuggestion?.(s.id)}
+                className={`group relative w-full flex items-center justify-between rounded-[var(--radius-card)] border px-4 py-3 transition-all ${
+                  isBeta
+                    ? "border-line-border bg-surface-card text-ink-600 cursor-not-allowed"
+                    : "border-line-control bg-surface-white text-ink-700 cursor-pointer hover:border-brand hover:bg-brand/5 hover:shadow-md hover:-translate-y-0.5 shimmer-effect"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className={`grid h-8 w-8 place-items-center rounded-[6px] flex-shrink-0 ${
+                    isBeta ? "bg-surface-warm text-ink-400" : "bg-brand-fill text-brand"
+                  }`}>
+                    <WorkflowIcon className="h-4 w-4" />
+                  </span>
+                  <div className="flex flex-col text-left">
+                    <span className="text-[12px] font-semibold">{s.text || s.label}</span>
+                    <span className={`text-[10px] mt-0.5 ${isBeta ? "text-ink-400" : "text-ink-500"}`}>
+                      {s.display_name || s.label}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isBeta && (
+                    <span className="text-[9px] font-semibold text-ink-400 uppercase tracking-[0.05em] px-1.5 py-0.5 rounded border border-line-border bg-surface-white">
+                      Soon
+                    </span>
+                  )}
+                  <ArrowRight className={`h-4 w-4 transition-all flex-shrink-0 ${
+                    isBeta
+                      ? "text-ink-300"
+                      : "text-ink-400 group-hover:text-brand group-hover:translate-x-1"
+                  }`} />
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
     );
@@ -1494,7 +1573,7 @@ export function RunChatLane({
   // action, so the user explicitly picks the next workflow. GENERIC (SC-001/INV-1)
   // — chip ids/labels come from the suggestions prop, never a workflow-name literal.
   const renderChainPicker = () => {
-    if (!chainPickerOpen || runState !== "complete" || !suggestions || suggestions.length === 0) {
+    if (!chainPickerOpen || runState !== "complete" || !effectiveSuggestions || effectiveSuggestions.length === 0) {
       return null;
     }
     return (
@@ -1513,16 +1592,22 @@ export function RunChatLane({
           </button>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {suggestions.map((s) => (
+          {effectiveSuggestions.map((s) => (
             <button
               key={s.id}
               type="button"
               data-testid="chat-chain-picker-chip"
               data-suggestion-id={s.id}
-              onClick={() => { setChainPickerOpen(false); onSuggestion?.(s.id); }}
-              className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-brand bg-white px-3 py-1.5 font-sans text-[11.5px] font-semibold text-brand transition-colors hover:bg-brand hover:text-white"
+              onClick={() => !s.isBeta && (setChainPickerOpen(false), onSuggestion?.(s.id))}
+              disabled={s.isBeta ?? false}
+              className={`inline-flex items-center gap-1 rounded-[var(--radius-pill)] border px-3 py-1.5 font-sans text-[11.5px] font-semibold transition-all ${
+                s.isBeta
+                  ? 'border-line-faint-row bg-surface-white text-ink-300 cursor-not-allowed opacity-50'
+                  : 'border-brand bg-white text-brand hover:bg-brand hover:text-white shadow-sm hover:shadow-md'
+              }`}
             >
               {s.label}
+              {s.isBeta && <span className="text-[9px]">Coming Soon</span>}
             </button>
           ))}
         </div>
@@ -1845,18 +1930,82 @@ export function RunChatLane({
     // Live — building: an answered note + the live pipeline mini (k/N, per-agent dots).
     if (runState === "building") {
       const answered = countClarifications(pipelineState?.clarifications);
-      if (answered === 0 && agents.length === 0) return null;
+      // While the planner runs (no agents yet), show an animated "Analyzing…"
+      // indicator so the chat lane doesn't look dead. Uses the same three-dot
+      // brand animation as ReadingIndicator — generic, no workflow name (SC-001).
+      if (answered === 0 && agents.length === 0) {
+        // Show the "Analyzing…" indicator while:
+        // (a) planner is actively running, OR
+        // (b) planner just finished but we're still in the gap before
+        //     clarify questions or agents arrive (executionGate = CLARIFY_REQUIRED
+        //     but questionnaire_ready hasn't fired yet, or pipeline_start hasn't
+        //     arrived yet). Condition: pipeline isRunning + nothing to show yet.
+        const plannerRunning = pipelineState?.plannerStatus === "running"
+          || (pipelineState?.isRunning && !pipelineState?.plannerStatus)
+          || (pipelineState?.isRunning && pipelineState?.plannerStatus === "complete");
+        if (!plannerRunning) return null;
+        return (
+          <div className="ml-[31px] flex items-center gap-[9px] font-sans text-[11.5px] font-medium text-ink-500">
+            <span className="flex items-center gap-[3px]">
+              {[0, 1, 2].map((i) => (
+                <motion.span
+                  key={i}
+                  className="h-[5px] w-[5px] rounded-full bg-brand"
+                  animate={{ opacity: [0.3, 0.9, 0.3] }}
+                  transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.15, ease: "easeInOut" }}
+                />
+              ))}
+            </span>
+            {pipelineState?.plannerStatus === "complete"
+              ? "Preparing your questions…"
+              : "Analyzing your brief…"}
+          </div>
+        );
+      }
       return (
         <div data-testid="lane-adornments" className="flex flex-col gap-4">
           {answered > 0 && <AnsweredNote count={answered} planApproved />}
           {agents.length > 0 && (
-            <PipelineMini
-              agents={agents}
-              onOpen={goSteps}
-              building
-              completedCount={pipelineState?.completedCount}
-              pipelineState={pipelineState}
-            />
+            <div className="flex flex-col">
+              {/* Collapse toggle header — acts as the card header */}
+              <button
+                type="button"
+                data-testid="lane-pipeline-mini-toggle"
+                onClick={() => setPipelineMiniCollapsed((v) => !v)}
+                className={`group flex w-full items-center gap-2 border border-line-border bg-surface-card px-[13px] py-[9px] text-left transition-colors hover:border-line-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${pipelineMiniCollapsed ? "rounded-[var(--radius-node)]" : "rounded-t-[var(--radius-node)]"}`}
+                aria-expanded={!pipelineMiniCollapsed}
+              >
+                {pipelineMiniCollapsed ? (
+                  <ChevronRight className="h-3.5 w-3.5 flex-none text-ink-500" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 flex-none text-ink-500" aria-hidden="true" />
+                )}
+                <span className="font-sans text-[10.5px] font-semibold uppercase tracking-[0.11em] text-ink-300">
+                  Pipeline · {agents.length} agents
+                </span>
+                <span className="inline-flex items-center gap-1.5 font-sans text-[11px] font-medium text-brand">
+                  <span className="h-[6px] w-[6px] animate-pulse rounded-full bg-brand" />
+                  {(pipelineState?.completedCount ?? 0)} / {agents.length}
+                </span>
+              </button>
+              {/* Animated body — PipelineMini without its own header */}
+              <motion.div
+                initial={false}
+                animate={{ height: pipelineMiniCollapsed ? 0 : "auto", opacity: pipelineMiniCollapsed ? 0 : 1 }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+                className="overflow-hidden"
+                aria-hidden={pipelineMiniCollapsed}
+              >
+                <PipelineMini
+                  agents={agents}
+                  onOpen={goSteps}
+                  building
+                  completedCount={pipelineState?.completedCount}
+                  pipelineState={pipelineState}
+                  hideHeader
+                />
+              </motion.div>
+            </div>
           )}
         </div>
       );
@@ -1902,18 +2051,22 @@ export function RunChatLane({
   const firstUserTurn = messages.find((m) => m.role === "user")?.content;
 
   // The run's input attachments — the mock's chip tray above the composer.
-  // Derived live from the transcript turns' attachments, deduped by name+kind
-  // (SC-001 / ND-D — never a seeded literal).
+  // Only shows attachments from the first user message that are `retained: true`
+  // (launch-brief images/files kept server-side). Mid-chat file sends (FIX-218)
+  // are always `retained: false` — excluded here so they never bleed into the tray.
   const runAttachments = (() => {
     const seen = new Set<string>();
     const out: ChatAttachment[] = [];
-    for (const m of messages) {
-      for (const a of m.attachments ?? []) {
-        const key = `${a.kind}:${a.name}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(a);
-      }
+    const firstUserMsg = messages.find((m) => m.role === "user");
+    if (!firstUserMsg) return out;
+    for (const a of firstUserMsg.attachments ?? []) {
+      // Only show retained attachments in the tray — non-retained refs are honest
+      // "not kept" placeholders and should not persist above the composer.
+      if (!a.retained) continue;
+      const key = `${a.kind}:${a.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(a);
     }
     return out;
   })();

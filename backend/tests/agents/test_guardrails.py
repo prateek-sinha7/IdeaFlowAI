@@ -172,7 +172,7 @@ def _compose_blocks_for(spec, ctx: AgentContext) -> dict:
         _compose_injection,
         _inject_constitution,
     )
-    from agents.capabilities.skills.providers import UiSkillProvider
+    from agents.capabilities.skills.providers import extract_ui_skill_blocks
     from agents.capabilities.hooks.behavioral import BehavioralHookProvider
 
     blocks: dict = {}
@@ -194,10 +194,23 @@ def _compose_blocks_for(spec, ctx: AgentContext) -> dict:
     if guardrail_items:
         blocks["guardrails"] = guardrail_items
 
-    skill_blocks = asyncio.run(UiSkillProvider().provide(ctx))
-    skill_contents = [b.content for b in skill_blocks if b.content]
-    if skill_contents:
-        blocks["skills"] = skill_contents
+    # spec 011 R-03: run-attached skill BODIES are staged to disk, not injected — the
+    # ONLY eager skills source left is ctx.disk_skill (D6). Mirrors
+    # ``_compose_system_prompt``'s current skills-block construction exactly.
+    disk_skill = getattr(ctx, "disk_skill", None)
+    skill_blocks = extract_ui_skill_blocks([{"content": disk_skill}] if disk_skill else [])
+    skill_entries = [b for b in skill_blocks if b.content]
+    if skill_entries:
+        rendered_skills = [
+            f"--- SKILL {b.name.upper() or 'UNKNOWN'} ---\n"
+            f"id: \n"
+            f"name: {b.name}\n"
+            f"when: \n"
+            f"prompt: {b.content}"
+            f"--- END SKILL {b.name.upper() or 'UNKNOWN'} ---\n"
+            for b in skill_entries
+        ]
+        blocks["skills"] = "=== SKILLS ===\n\n" + "\n\n".join(rendered_skills) + "=== END SKILLS ==="
 
     hook_blocks = asyncio.run(BehavioralHookProvider().provide(ctx))
     hook_contents = [b.content for b in hook_blocks if b.content]
@@ -225,9 +238,13 @@ class TestPromptAssemblyPolicyParity:
         policy = self._policy()
         assert policy.name == "default"
         assert tuple(policy.order) == (
-            # tool_availability (13-02 / F4) is FIRST: the no-tools anti-fabrication
-            # preamble frames everything that follows. Emitted ONLY for agents
-            # resolved to zero callable tools — tool-having compositions unchanged.
+            # tool_availability (13-02 / F4) is FIRST: the anti-fabrication
+            # no-tools preamble must frame everything after it. Emitted ONLY for
+            # agents resolved to zero callable tools, so it is absent from the
+            # byte-identical baseline.
+            # skill_directive (spec 012 / R-13) was removed — deepagents'
+            # SKILLS_SYSTEM_PROMPT already names each staged skill and its exact
+            # read path; see tests/agents/test_skill_directive_block.py.
             "tool_availability",
             "injects",
             "guardrails",
@@ -246,17 +263,17 @@ class TestPromptAssemblyPolicyParity:
         assert actual == expected
 
     def test_policy_byte_identical_with_skills_and_hooks(self):
-        """An agent WITH attached skills + behavioral hooks composes byte-identically.
+        """An agent WITH a disk skill + behavioral hooks composes byte-identically.
 
         Exercises the skills + hooks slots together so the policy's ordered join is
-        proven against the inline path with every category present."""
+        proven against the inline path with every category present. Run-attached
+        skill BODIES (``ctx.attached_skills``) are staged to disk rather than injected
+        (spec 011 R-03) — ``ctx.disk_skill`` (D6) is the only eager skills source left,
+        so it is what exercises the ``skills`` slot here."""
         spec = load_agent_spec("domain-analyst")
         ctx = AgentContext(
             user_request="full-block parity",
-            attached_skills=[
-                {"name": "brand", "content": "Use the brand voice.", "version": "1.2"},
-                {"name": "empty", "content": ""},  # dropped (byte-parity guard)
-            ],
+            disk_skill="Use the brand voice.",
             attached_hooks=[
                 {"name": "concise", "event": "on_response", "description": "Be concise."},
                 {"name": "", "event": "x", "description": "no name → skipped"},

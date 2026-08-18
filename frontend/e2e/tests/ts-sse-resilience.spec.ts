@@ -25,6 +25,7 @@
  */
 import { test, expect } from "../fixtures/test";
 import { SSE_URL_RE } from "../fixtures/mockSse";
+import { AGENTS } from "../fixtures/scenarios";
 
 interface WireEvent {
   seq: number;
@@ -261,5 +262,113 @@ test.describe("TS-SSE-RESILIENCE — sse-resilience transport (D-14)", () => {
     expect(a.map((e) => e.data.event_id)).toEqual(b.map((e) => e.data.event_id));
 
     await tab2.close();
+  });
+
+  /**
+   * TS-SSE-RESILIENCE-06 — the MOUNTED app, not a modeled consumer.
+   *
+   * The narrator's "Delivered" milestone card is projected AFTER the
+   * `pipeline_complete` it is derived from, and the server's live drain returns the
+   * moment `pipeline_complete` is drained — so the card is never delivered live on
+   * that connection. `useRunStream` does not treat `pipeline_complete` as a
+   * non-live attach, so the close schedules a RECONNECT carrying
+   * `Last-Event-ID = <complete seq>`, and the server REPLAYS the card row off the
+   * durable tail. In parallel the completion backfill (page.tsx → getRunEvents)
+   * reads the same row from the durable REST twin.
+   *
+   * Those two deliveries must key IDENTICALLY. They only do so if the replay
+   * serves the row's `event_id`/`seq` COLUMNS (the REST twin always has) — a
+   * narrator card embeds NO identity in its payload, so an anonymous replay is
+   * re-keyed by `upsertNarratorMessage`'s `chat-reply:{message_id}` fallback and
+   * the card renders TWICE.
+   *
+   * NOT the naive "emit card, drop, assert" shape: `useRunStream` advances its
+   * cursor from every dispatched frame, so a card already processed live is never
+   * replayed and no duplicate can exist.
+   *
+   * The reconnect also needs one precondition that is easy to miss. On
+   * `pipeline_complete` the page calls `detachRun` (page.tsx), which — see
+   * `RunConnectionProvider.detachRun` — clears ONLY the sticky focus. Membership in
+   * `liveRunIds` is `union(autoIdsRef, focusedRunIdRef)`, so a run that is ALSO in
+   * `autoIdsRef` keeps its connection mounted and DOES reconnect after the terminal
+   * close. `autoIdsRef` is populated only by `refreshLiveRuns()`, which requires
+   * BOTH an AUTO_STREAM_STATUSES status from `GET /api/runs` AND the run id in
+   * `sessionStorage["tab_launched_run_ids"]`; it runs on boot (too early) and on
+   * `online`/`visibilitychange` (the one that matters). So the run must be launched
+   * through the REAL flow and a wake fired WHILE it is still running — which is
+   * exactly what a mid-run network blip does on the live stack.
+   */
+  test("TS-SSE-RESILIENCE-06 a narrator milestone card replayed after the terminal close renders exactly ONCE", async ({
+    dashboard,
+    mockSse,
+    page,
+  }) => {
+    const MARKER = "3WO-DELIVERED-MARKER";
+    const agents = AGENTS.user_stories;
+
+    // Mount the real app on a live run (the launch→watch flow) — autoAttach stays
+    // true so RunConnectionProvider/useRunStream/useRunChat are the real consumers.
+    await dashboard.goto();
+    await dashboard.runWith({
+      workflow: "Generate product requirements",
+      idea: "Generate epics for a refunds workflow",
+    });
+    mockSse.start(agents, { pipelineType: "user_stories" });
+    await expect(page.getByTestId("run-chat-lane")).toBeVisible();
+    // The stream must be genuinely ATTACHED and caught up before the terminal, so
+    // pipeline_complete is delivered LIVE (production ordering) rather than as part
+    // of a late catch-up replay.
+    await mockSse.ready();
+
+    // Precondition (b): the REAL launch flow above registered this run as
+    // tab-owned. Read it back rather than assuming — without it `refreshLiveRuns`
+    // filters the run out and `autoIdsRef` stays empty.
+    const tabOwned = await page.evaluate(() =>
+      JSON.parse(sessionStorage.getItem("tab_launched_run_ids") ?? "[]"),
+    );
+    expect(tabOwned).toContain(mockSse.currentRunId);
+
+    for (const a of agents) {
+      mockSse.agentStart(a.id);
+      mockSse.agentComplete(a.id);
+    }
+    await expect(dashboard.stepsAgentRow(agents[agents.length - 1].name)).toBeVisible();
+
+    // A mid-run network blip (what DROP=1 does on the live stack): `online` fires
+    // `refreshLiveRuns()` WHILE the run is still `running`, which is what puts it in
+    // `autoIdsRef` — the membership path `detachRun` cannot clear. Proven by the
+    // resulting GET /api/runs round-trip, not by the dispatch alone.
+    const listFetchesBeforeWake = mockSse.runListFetchCount;
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect
+      .poll(() => mockSse.runListFetchCount, { timeout: 15_000 })
+      .toBeGreaterThan(listFetchesBeforeWake);
+
+    const attachesBeforeTerminal = mockSse.connectionCount;
+
+    // The terminal frame ships ALONE (mockSse batches it separately), and the
+    // narrator card is queued in the SAME tick — so it lands on the durable tail
+    // strictly AFTER the terminal frame was selected for delivery, exactly as the
+    // engine queues the card after the live drain has already returned.
+    mockSse.complete({ pipelineType: "user_stories", finalOutput: "# Product Backlog\n" });
+    mockSse.chatReply({ cardKind: "deliverable", text: MARKER });
+
+    await expect(dashboard.doneBadge()).toBeVisible();
+
+    // Both delivery paths must have run before the count is meaningful:
+    //   (1) the post-terminal RECONNECT replayed the card off the durable tail,
+    //   (2) the completion backfill read the same row from the REST twin.
+    await expect
+      .poll(() => mockSse.connectionCount, { timeout: 20_000 })
+      .toBeGreaterThan(attachesBeforeTerminal);
+    await expect.poll(() => mockSse.eventsFetchCount, { timeout: 20_000 }).toBeGreaterThan(0);
+
+    const cards = page.getByTestId("chat-result-card").filter({ hasText: MARKER });
+    await expect(cards.first()).toBeVisible();
+    // A duplicate arrives on the OTHER path, so proving its absence needs a bounded
+    // settle — a web-first retry would otherwise pass the instant the first copy
+    // committed (mirrors how -03 sequences its own transport steps).
+    await page.waitForTimeout(1500);
+    await expect(cards).toHaveCount(1);
   });
 });

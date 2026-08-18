@@ -460,8 +460,20 @@ export function RunConnectionProvider({
           }
           // Flush any trailing block (server closed without a terminal blank line).
           if (buf.trim()) drain(buf);
+          // SSE path: no run_id to return (frames already dispatched via fanout).
+          return null;
         }
-        return null;
+        // Non-SSE /messages response (e.g. confirm-proposal JSON). Parse it to
+        // extract the revision_run_id when a concierge-confirmed revision launched
+        // a child run — this lets the caller attachRun + switchViewTo the new run.
+        try {
+          const body = (await res.json()) as Record<string, unknown> | null;
+          const proposal = body?.proposal as Record<string, unknown> | undefined;
+          const revisionRunId = proposal?.revision_run_id as string | undefined;
+          return revisionRunId ?? null;
+        } catch {
+          return null;
+        }
       }
       // Launch (POST /api/runs): parse the created run_id so the caller can
       // attachRun it (W1/R4). A non-2xx create yields no id to attach.

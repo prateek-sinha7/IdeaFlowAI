@@ -301,3 +301,104 @@ def test_range(env):
     r_bad = _get(env, range="zzz")
     assert r_bad.status_code == 200
     assert r_bad.json()["kpis"]["total"] == 2
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# ISS-034 — the SIGNED prompt-cache delta, and the legacy row that would
+# otherwise print a catastrophic number.
+#
+# ``_num`` coerces an absent field to 0.0. EVERY row persisted before ISS-034
+# landed lacks ``estimated_cost_full_usd`` (verified: 0 of 11 rows in the live
+# dev.db carry it). Summing it raw would price every legacy run as if an
+# uncached run were FREE, making spend_full $0.00 against a real $17.69 and
+# rendering "prompt caching cost you $17.69 more (-100%)" on day one.
+#
+# The contract is: an UNMEASURED run contributes NOTHING to the delta — never a
+# fabricated $0 baseline.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def _token_usage_metered(
+    cost: float, cost_full: float, inp: int, out: int, cache_read: int = 0, cache_write: int = 0
+) -> str:
+    """A post-ISS-034 blob — the legacy ``_token_usage`` shape plus the counterfactual."""
+    blob = json.loads(_token_usage(cost, inp, out, cache_read, cache_write))
+    blob["estimated_cost_full_usd"] = cost_full
+    return json.dumps(blob)
+
+
+def test_legacy_rows_contribute_zero_delta_not_a_zero_baseline(env):
+    """A window of ONLY pre-ISS-034 rows reports NO saving and NO loss."""
+    a = _seed_user(env)
+    for _ in range(3):
+        _seed_run(env, a.id, token_usage=_token_usage(5.00, 100, 50))
+
+    env["state"]["user"] = a
+    body = _get(env, range="all").json()
+
+    assert body["spend"] == pytest.approx(15.00)
+    # The guard: spend_full falls back to spend per-row, so the delta is EXACTLY
+    # zero. Without it this is 0.0 and the FE renders "-100%".
+    assert body["spend_full"] == pytest.approx(15.00)
+    assert body["spend_full"] - body["spend"] == pytest.approx(0.0)
+    # ...and the window is honestly reported as entirely unmeasured.
+    assert body["metered_runs"] == 0
+
+
+def test_metered_negative_run_reports_caching_cost_more(env):
+    """Observed run a7dba362: cache written, never re-read → caching COST money."""
+    a = _seed_user(env)
+    _seed_run(
+        env,
+        a.id,
+        token_usage=_token_usage_metered(0.344028, 0.320110, 90159, 40170, 0, 86976),
+    )
+
+    env["state"]["user"] = a
+    body = _get(env, range="all").json()
+
+    assert body["spend"] == pytest.approx(0.344028)
+    assert body["spend_full"] == pytest.approx(0.320110)
+    # NEGATIVE delta — the uncached counterfactual is CHEAPER than what we paid.
+    assert body["spend_full"] < body["spend"]
+    assert body["metered_runs"] == 1
+
+
+def test_metered_positive_run_reports_caching_saved(env):
+    """Observed run 6e38b9a7: 35.8M cache-reads → caching SAVED money."""
+    a = _seed_user(env)
+    _seed_run(
+        env,
+        a.id,
+        token_usage=_token_usage_metered(
+            7.068750, 42.196866, 37069667, 258224, 35827675, 1241027
+        ),
+    )
+
+    env["state"]["user"] = a
+    body = _get(env, range="all").json()
+
+    assert body["spend_full"] > body["spend"]
+    assert body["metered_runs"] == 1
+
+
+def test_mixed_window_counts_only_the_metered_run_in_the_delta(env):
+    """A legacy row in the same window must not dilute or invert the delta."""
+    a = _seed_user(env)
+    _seed_run(env, a.id, token_usage=_token_usage(2.00, 100, 50))  # legacy
+    _seed_run(
+        env,
+        a.id,
+        token_usage=_token_usage_metered(0.344028, 0.320110, 90159, 40170, 0, 86976),
+    )
+
+    env["state"]["user"] = a
+    body = _get(env, range="all").json()
+
+    assert body["spend"] == pytest.approx(2.344028)
+    # The legacy row contributes its own cost to BOTH sides, so the delta is
+    # exactly the metered run's delta — unchanged by the unmeasured neighbour.
+    assert body["spend_full"] == pytest.approx(2.320110)
+    assert body["spend_full"] - body["spend"] == pytest.approx(0.320110 - 0.344028)
+    assert body["metered_runs"] == 1
+    assert body["kpis"]["total"] == 2

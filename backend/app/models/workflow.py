@@ -14,7 +14,13 @@ class WorkflowRun(Base):
     """Workflow run model — represents a single pipeline execution."""
 
     __tablename__ = "workflow_runs"
-    __table_args__ = (Index("ix_workflow_runs_parent", "parent_run_id"),)
+    __table_args__ = (
+        Index("ix_workflow_runs_parent", "parent_run_id"),
+        # KAN-131: fast history-list queries filter by user_id, order by created_at
+        # DESC (migration 0030). Declared here so `alembic check` / test_alembic.py
+        # see the model and the migration agree.
+        Index("ix_workflow_runs_user_created", "user_id", "created_at"),
+    )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
@@ -89,6 +95,24 @@ class WorkflowRun(Base):
     # template/DS context. Nullable: every non-OD run stays NULL → od_context=None
     # passed to _execute_impl, the pre-fix behavior (INV-3 byte/event parity).
     od_context_json = Column(JSON, nullable=True)
+
+    # Added additively by migration 0031. The launch-time per-run gate selection
+    # — the list of agent ids that pause for the Human review gate this run,
+    # overriding the static ``gate: Human_Gate`` declarations in AGENT.md.
+    # Persisted at run CREATION for exactly the reason selections_json and
+    # od_context_json are: resume_run rebuilds the ExecutionContext from this row,
+    # and anything not on the row is gone. Without it, a gate that exists ONLY via
+    # the per-run override silently stops existing after a backend restart —
+    # _should_gate falls back to the static set, the reconstructed step is treated
+    # as already-approved, and a pending redo (with the user's revision text) is
+    # discarded with no error.
+    #
+    # THREE-VALUED, and the distinction matters: NULL ⇒ use the static AGENT.md
+    # defaults; ``[]`` ⇒ this run has no gates at all; a non-empty list ⇒ gate
+    # exactly these. A JSON column preserves all three; a nullable ARRAY would
+    # collapse the first two. Every legacy run stays NULL → gate_agent_ids=None
+    # on resume, the pre-fix behavior (INV-3 parity).
+    gate_agent_ids_json = Column(JSON, nullable=True)
 
     user = relationship("User", back_populates="workflow_runs")
     parent_run = relationship("WorkflowRun", remote_side=[id])

@@ -10,7 +10,8 @@ import { ResultCard } from "./ResultCard";
 // ─── ResultCard — narrator result cards (5 kinds) + nonce'd deep-link ─────────
 // Renders a chat_reply narrator turn BY its generic cardKind (SC-001) and fires
 // onRequestOpenTab (the plan-03 seam) into a generic run tab. LOCK-F: the
-// deliverable card says "Deliverable". spec_revision → "Revising spec — cycle N".
+// deliverable card says "Deliverable". The spec_revision header is the static
+// "Revising spec"; its cycle number lives in the narrator text only (ISS-083).
 
 function narrator(
   cardKind: NonNullable<ChatMessage["cardKind"]>,
@@ -57,15 +58,26 @@ describe("ResultCard", () => {
     expect(screen.getByText("Open in Preview")).toBeInTheDocument();
   });
 
-  it("renders the spec_revision loop-back label 'Revising spec — cycle N'", () => {
+  it("renders the revision cycle exactly once, from the narrator text (ISS-083)", () => {
     render(
       <ResultCard
-        message={narrator("spec_revision")}
+        message={narrator("spec_revision", { content: "Revising spec — cycle 2" })}
         onRequestOpenTab={vi.fn()}
-        cycle={3}
       />,
     );
-    expect(screen.getByText("Revising spec — cycle 3")).toBeInTheDocument();
+    const hits = screen.getAllByText(/Revising spec — cycle \d+/);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toHaveTextContent("Revising spec — cycle 2");
+  });
+
+  it("locks the spec_revision header to the static CARD_SPECS title (ISS-083)", () => {
+    render(
+      <ResultCard
+        message={narrator("spec_revision", { content: "Revising spec — cycle 2" })}
+        onRequestOpenTab={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Revising spec")).toBeInTheDocument();
   });
 
   it("honours the stored deepLink tab over the kind default", () => {
@@ -140,5 +152,14 @@ describe("ResultCard", () => {
     expect(
       /"prototype"|od_ppt|app_builder|user_stories|ppt_revision/.test(src),
     ).toBe(false);
+  });
+
+  it("holds no dormant `cycle` prop (ISS-083)", () => {
+    const src = readFileSync(
+      join(process.cwd(), "src/components/chat/ResultCard.tsx"),
+      "utf8",
+    );
+    expect(src).not.toMatch(/cycle\?:\s*number/);
+    expect(src).not.toMatch(/cycle\s*\?\?/);
   });
 });

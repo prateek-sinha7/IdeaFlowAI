@@ -24,7 +24,7 @@ WHAT THIS FILE CONTAINS (and how it maps to the task)
   each pipeline a sensible brief + fixtures, parameterised on ``model`` so each can
   be driven live (``None``) or scripted. Covered: ``prototype`` (build),
   ``prototype_revision`` (chained off a prior prototype run via ``parent_run_id``),
-  ``app_builder``, ``user_stories``, ``od_ppt`` (+ ``ppt`` note), free-``chat``,
+  ``app_builder``, ``user_stories``, ``ppt``, free-``chat``,
   ``handoff`` (coding + test).
 * **LIVE cases** (``TestLivePipelines`` / ``TestLiveHITL``) — ``skipif`` on
   :func:`live_skip_reason`; one test per pipeline driving the REAL model and
@@ -38,7 +38,7 @@ WHAT THIS FILE CONTAINS (and how it maps to the task)
   flavour and a scripted-offline flavour.
 * **OFFLINE PROOF (ungated, MUST pass with zero Bedrock)** — a representative
   subset (``user_stories`` [shared instance], ``prototype`` [per-agent factory],
-  ``od_ppt``, ``app_builder``, ``prototype_revision`` [chained], ``chat``,
+  ``ppt``, ``app_builder``, ``prototype_revision`` [chained], ``chat``,
   ``handoff`` coding + test) driven through the SAME helpers + ``assert_capture``.
 * **Collection/skip self-check** — proves the file imports cleanly, the live cases
   SKIP (not error) without creds, and the offline-proof cases PASS.
@@ -51,9 +51,9 @@ The repo-input code-gen pipelines ``mulesoft_to_springboot`` / ``dotnet_to_azure
 to inventory/migrate — there is no synthetic brief that produces a faithful
 ``filename:`` deliverable the way ``app_builder`` does from a prose brief. They are
 covered by a LIVE case (with a minimal fixture brief) but SKIPPED-with-reason in the
-offline proof (:func:`_skip_codegen_offline`) rather than faked. ``ppt`` (the alias
-whose agents are tagged ``od_ppt`` → ``get_pipeline_agents("ppt") == []``) is driven
-via its real-agent twin ``od_ppt``; see :func:`_run_od_ppt`.
+offline proof (:func:`_skip_codegen_offline`) rather than faked. ``ppt`` is now an
+ordinary, non-aliased pipeline (the collapse retired the old ``od_ppt`` twin); see
+:func:`_run_ppt`.
 
 CONSTRAINTS honoured: no production code touched (read-only under app/ + agents/);
 ``live_harness`` / ``live_contract`` / ``_scripted_model`` consumed, never modified
@@ -350,24 +350,25 @@ async def _run_app_builder(
     )
 
 
-async def _run_od_ppt(
+async def _run_ppt(
     model: ModelArg = None,
     *,
     fake_planner: bool = False,
     **kw,
 ) -> CaptureResult:
-    """``od_ppt`` — the deck pipeline (text family; deliverable = non-empty).
+    """``ppt`` — the deck pipeline (text family; deliverable = non-empty).
 
-    NOTE on ``ppt`` vs ``od_ppt``: the ``ppt`` pipeline is an ALIAS whose agents are
-    tagged ``pipeline_type: od_ppt`` in their AGENT.md, so
-    ``get_pipeline_agents("ppt") == []`` (a known, harmless static-frontend quirk —
-    plan §9). Driving ``ppt`` would run zero agents and produce no deliverable, so
-    the live + offline coverage for the PPT pipeline goes through its real-agent twin
-    ``od_ppt`` (same three agents, own runner). od_context supplies the template/DS
-    the od_ppt agents' ``injects`` require.
+    POST-COLLAPSE NOTE: ``ppt`` used to be an alias whose agents were tagged
+    ``pipeline_type: od_ppt`` in their AGENT.md, so ``get_pipeline_agents("ppt")
+    == []`` (a known, harmless static-frontend quirk — plan §9), and live/offline
+    coverage went through the real-agent twin ``od_ppt``. The collapse retired
+    ``od_ppt`` entirely: the AGENT.md frontmatter now declares
+    ``pipeline_type: ppt`` directly, so ``ppt`` is driven here as an ordinary,
+    non-aliased pipeline. od_context still supplies the template/DS the ppt
+    agents' ``injects`` require.
     """
     return await drive_engine_pipeline(
-        "od_ppt",
+        "ppt",
         model=model,
         brief="Create a 6-slide investor pitch deck for a B2B analytics startup.",
         od_context=_OD_PPT_CONTEXT,
@@ -505,8 +506,8 @@ class TestLivePipelines(_LiveCredsRecheckMixin):
         assert_capture(result, require_tokens=True)
 
     @pytest.mark.asyncio
-    async def test_live_od_ppt(self) -> None:
-        result = await _run_od_ppt(model=None)
+    async def test_live_ppt(self) -> None:
+        result = await _run_ppt(model=None)
         self._record(result)
         assert_capture(result, require_tokens=True)
 
@@ -743,9 +744,9 @@ class TestOfflineProof:
         assert_capture(result, require_tokens=False)
 
     @pytest.mark.asyncio
-    async def test_od_ppt_offline(self) -> None:
-        """od_ppt via the PER-AGENT factory (text agents → non-empty deliverable)."""
-        result = await _run_od_ppt(model=_per_agent_factory, fake_planner=True)
+    async def test_ppt_offline(self) -> None:
+        """ppt via the PER-AGENT factory (text agents → non-empty deliverable)."""
+        result = await _run_ppt(model=_per_agent_factory, fake_planner=True)
         assert result.completed and result.error is None
         assert result.deliverable and result.deliverable.strip()
         assert_capture(result, require_tokens=False)

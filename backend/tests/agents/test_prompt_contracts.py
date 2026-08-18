@@ -8,7 +8,7 @@ lines, so a future prompt rewrite could silently drop them. This module makes
 the Phase-15 contract lines durable:
 
   * ``test_od_ppt_validator_deck_reemission_contract`` — LV-02 (D-01): the
-    od-ppt-validator body carries the exactly-ONE-artifact complete-deck
+    ppt-validator body carries the exactly-ONE-artifact complete-deck
     re-emission contract, positioned ABOVE the validation checklist, with no
     duplicate contract heading (the old bottom contract was deleted).
   * ``test_sdlc_governance_anti_fabrication_contract`` — F4-residual (D-02):
@@ -24,7 +24,7 @@ the Phase-15 contract lines durable:
     durable: the five edited agents' behavior-bearing frontmatter (order /
     pipeline_type / tools / guardrails / context_from / max_tokens / injects /
     gate) is frozen; 15-01 was bodies-only.
-  * ``test_od_ppt_deck_resolution_with_contract_shaped_validator`` — the LV-02
+  * ``test_ppt_deck_resolution_with_contract_shaped_validator`` — the LV-02
     composition pin: a contract-shaped scripted validator (multi-sentence QA
     narration FIRST, then a single artifact-wrapped COMPLETE deck — the live
     LV-02 evidence shape) driven through the REAL engine + REAL PptResolver +
@@ -50,17 +50,17 @@ from agents.loader import load_agent_spec
 
 
 # ===========================================================================
-# LV-02 (D-01) — od-ppt-validator deck re-emission contract.
+# LV-02 (D-01) — ppt-validator deck re-emission contract.
 # ===========================================================================
 
 
 def test_od_ppt_validator_deck_reemission_contract() -> None:
     """The validator body demands exactly ONE artifact = the complete deck."""
-    body = load_agent_spec("od-ppt-validator").prompt_body
+    body = load_agent_spec("ppt-validator").prompt_body
 
     # The exactly-one-artifact rule (unwrap_artifact is FIRST-match — a small
     # status artifact before the deck would win the unwrap; RESEARCH Pitfall 2).
-    assert "exactly ONE <artifact>" in body
+    assert "exactly ONE `<artifact>` block" in body
     # The artifact content is the full corrected deck...
     assert "complete corrected HTML deck" in body
     # ...even on a clean pass (re-emit, never report).
@@ -69,7 +69,7 @@ def test_od_ppt_validator_deck_reemission_contract() -> None:
     # Positional prominence: the contract sits ABOVE the validation checklist
     # (live evidence showed a bottom-of-body contract losing to the checklist
     # framing above it).
-    assert body.index("exactly ONE <artifact>") < body.index("## VALIDATION CHECKLIST")
+    assert body.index("exactly ONE `<artifact>` block") < body.index("## VALIDATION CHECKLIST")
 
     # No dual-contract drift: the old bottom `## OUTPUT CONTRACT` was deleted;
     # exactly one contract heading exists.
@@ -239,7 +239,7 @@ def test_getdatabase_accessor_contract_shared() -> None:
 # Frontmatter freeze — T-15-01 mitigation made durable.
 # 15-01 edited bodies ONLY; the five agents' identity/ordering/tool grants are
 # frozen here so a future "cleanup" cannot silently change behavior.
-# NOTE: od-ppt-validator's tools=[workspace] is INTENTIONAL (frontmatter is
+# NOTE: ppt-validator's tools=[workspace] is INTENTIONAL (frontmatter is
 # authoritative); do not "normalize" it to [] (RESEARCH Pitfall 4).
 # ===========================================================================
 
@@ -250,9 +250,9 @@ def test_getdatabase_accessor_contract_shared() -> None:
 # message as context" actually contains; max_tokens / injects / gate change
 # output limits, template injection, and gating identity.
 _FROZEN_FRONTMATTER = {
-    "od-ppt-validator": {
+    "ppt-validator": {
         "order": 3,
-        "pipeline_type": "od_ppt",
+        "pipeline_type": "ppt",
         "tools": ["workspace"],
         "guardrails": [],
         "context_from": ["$previous"],
@@ -350,7 +350,7 @@ def test_contract_agents_frontmatter_frozen(agent_id: str) -> None:
 # QA narration FIRST, single artifact-wrapped COMPLETE deck second — and
 # asserts the narration does NOT win the unwrap.
 #
-# ZERO edits to _scripted_model.py / live_harness.py (the od_ppt goldens pin
+# ZERO edits to _scripted_model.py / live_harness.py (the ppt goldens pin
 # that module's validator bytes — RESEARCH Pitfall 1): the contract-shaped
 # validator is a PER-TEST model injected via the per-agent model factory.
 # ===========================================================================
@@ -371,7 +371,7 @@ _DECK = (
 # Contains no `<artifact` token, so it cannot win the first-match unwrap.
 _NARRATION = "Running the final QA pass. P0 checks complete - one fix applied.\n"
 
-# The od_ppt agents declare injects=[template, design_system]; seed the
+# The ppt agents declare injects=[template, design_system]; seed the
 # od_context exactly as _scripted_model._drive does so _compose_injection does
 # not raise TemplateMissingError. Shared across all three composition pins.
 _OD_PPT_CONTEXT = {
@@ -386,7 +386,7 @@ _OD_PPT_CONTEXT = {
 
 def _model_for(agent_id: str) -> ScriptedFakeChatModel:
     """Per-agent factory: contract-shaped validator, stock scripts otherwise."""
-    if agent_id == "od-ppt-validator":
+    if agent_id == "ppt-validator":
         return ScriptedFakeChatModel(
             [
                 _ScriptedTurn(
@@ -404,10 +404,10 @@ def _model_for(agent_id: str) -> ScriptedFakeChatModel:
 
 
 @pytest.mark.asyncio
-async def test_od_ppt_deck_resolution_with_contract_shaped_validator() -> None:
+async def test_ppt_deck_resolution_with_contract_shaped_validator() -> None:
     """Contract-shaped validator output → resolved final_output IS the deck."""
     result = await drive_engine_pipeline(
-        "od_ppt",
+        "ppt",
         model=_model_for,
         fake_planner=True,
         gate_agent_ids=(),
@@ -429,7 +429,7 @@ async def test_od_ppt_deck_resolution_with_contract_shaped_validator() -> None:
 
 
 # ===========================================================================
-# LV-02 NEGATIVE composition pins — DOCUMENT the failure mode the od-ppt-validator
+# LV-02 NEGATIVE composition pins — DOCUMENT the failure mode the ppt-validator
 # OUTPUT CONTRACT must prevent, by driving the REAL engine + REAL PptResolver +
 # REAL prompts with a validator that VIOLATES the contract. These make the
 # contract's necessity test-visible: the positive pin above passes even if the
@@ -455,7 +455,7 @@ def _model_narration_only(agent_id: str) -> ScriptedFakeChatModel:
     token in the stream, `unwrap_artifact` returns the text unchanged
     (`_artifact.py:38`) — so the narration, not a deck, becomes `final_output`.
     """
-    if agent_id == "od-ppt-validator":
+    if agent_id == "ppt-validator":
         return ScriptedFakeChatModel(
             [
                 _ScriptedTurn(
@@ -478,7 +478,7 @@ def _model_status_artifact_first(agent_id: str) -> ScriptedFakeChatModel:
     (`_artifact.py:35`, `re.search`), so a small leading `<artifact>QA pass…`
     wins the unwrap and the real deck that follows is discarded.
     """
-    if agent_id == "od-ppt-validator":
+    if agent_id == "ppt-validator":
         return ScriptedFakeChatModel(
             [
                 _ScriptedTurn(
@@ -496,15 +496,15 @@ def _model_status_artifact_first(agent_id: str) -> ScriptedFakeChatModel:
 
 
 @pytest.mark.asyncio
-async def test_od_ppt_narration_only_validator_does_not_resolve_to_deck() -> None:
+async def test_ppt_narration_only_validator_does_not_resolve_to_deck() -> None:
     """Narration-only validator (no `<artifact>`) → final_output is NOT a deck.
 
-    This DOCUMENTS the LV-02 failure mode the od-ppt-validator OUTPUT CONTRACT
+    This DOCUMENTS the LV-02 failure mode the ppt-validator OUTPUT CONTRACT
     exists to prevent: when the validator emits no `<artifact>`, the resolver has
     no deck to unwrap and the QA narration leaks through as the deliverable.
     """
     result = await drive_engine_pipeline(
-        "od_ppt",
+        "ppt",
         model=_model_narration_only,
         fake_planner=True,
         gate_agent_ids=(),
@@ -528,7 +528,7 @@ async def test_od_ppt_narration_only_validator_does_not_resolve_to_deck() -> Non
 
 
 @pytest.mark.asyncio
-async def test_od_ppt_status_artifact_first_wins_unwrap_over_deck() -> None:
+async def test_ppt_status_artifact_first_wins_unwrap_over_deck() -> None:
     """A leading STATUS `<artifact>` wins the FIRST-match unwrap over the deck.
 
     Proves WHY the contract's "exactly ONE artifact / never a status artifact"
@@ -536,7 +536,7 @@ async def test_od_ppt_status_artifact_first_wins_unwrap_over_deck() -> None:
     artifact emitted BEFORE the real deck is extracted and the deck is dropped.
     """
     result = await drive_engine_pipeline(
-        "od_ppt",
+        "ppt",
         model=_model_status_artifact_first,
         fake_planner=True,
         gate_agent_ids=(),

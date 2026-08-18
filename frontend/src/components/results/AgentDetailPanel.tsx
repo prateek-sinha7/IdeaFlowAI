@@ -19,10 +19,13 @@ import {
   Brain, Wrench, ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, XCircle,
   Clock, Cpu, FileText, Copy, Check, Eye, EyeOff, AlertTriangle, Pencil,
   Layers, Zap, FileCode, BookText, GitBranch, ArrowDown, CheckCircle2 as CheckBadge,
+  Sparkles,
 } from "lucide-react";
-import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup } from "@/types/index";
+import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup, AttachedSkillEntry, AttachedHookEntry } from "@/types/index";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
-import { discriminateArtifact, AnalysisPreview, parseSpecSections, parseSpecOverview } from "./artifactPreview";
+import { discriminateArtifact, AnalysisPreview, parseSpecSections, parseSpecOverview, parseTasks } from "./artifactPreview";
+import { ArtifactVersionPicker } from "./ArtifactVersionPicker";
+import { ReadOnlyVersionBanner } from "@/components/preview/ReadOnlyVersionBanner";
 
 // ─── Shared context-source formatting (INV-12 — the single derivation the sticky
 //     panel + any future consumer share; was inline in the retired ContextSourcesRow).
@@ -66,14 +69,13 @@ export function formatContextSource(src: ContextSource): { name: string; meta: s
 // tag, never a workflow/agent-name literal — SC-001). Every branch keys on
 // GENERIC in-state data; nothing keys on the agent's id/name. Cards are
 // CONDITIONAL — an agent whose output carries no recognized artifact tag (and a
-// tasks agent with no completed tasks, e.g. single_shot) renders NO card, exactly
-// as today. All data flows on the §9-verified FRONTEND-ONLY path (protoCompletedTasks
-// / validation* / dagEdges) — zero backend/golden/transport dependency.
+// tasks agent whose body contains no `## Task N:` rows) renders NO card. All data
+// flows on the FRONTEND-ONLY path (the artifact body / validation* / dagEdges) —
+// zero backend/golden/transport dependency.
 
-/** In-state pipeline data the artifact cards + handoff consume (all §9-verified). */
+/** Run-scoped pipeline data the handoff line consumes. The artifact CARDS take no
+ *  run state: their content is the artifact on screen (ISS-087). */
 export interface ArtifactCardData {
-  protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
-  protoCompletedTaskCount?: number;
   dagEdges?: Array<{ from: string; to: string; artifact_type: string }>;
 }
 
@@ -83,13 +85,13 @@ export interface ArtifactCardModel {
   kind: "spec" | "tasks" | "analysis" | null;
   /** pages/sections card (spec output present). */
   showPages: boolean;
-  /** tasks card (tasks output AND protoCompletedTasks non-empty). */
+  /** tasks card (tasks output whose body contains at least one `## Task N:` row). */
   showTasks: boolean;
   /** checks card (analysis output). */
   showChecks: boolean;
-  /** tasks-card rows from protoCompletedTasks (empty unless showTasks). */
+  /** tasks-card rows parsed from the artifact body (empty unless showTasks). */
   tasks: Array<{ number: number; title: string }>;
-  /** "N planned" count for the tasks card. */
+  /** "N planned" count — the size of the plan on screen. */
   taskCount: number;
   /** checks-card verdict: pass/fail derived from validationPassed/validationIssues. */
   checksPassed: boolean;
@@ -118,7 +120,10 @@ function deriveHandoff(
 
 /** Pure derivation (exported for the test): pick the card kind via the shared
  *  discriminator, derive its data from in-state fields, and resolve the handoff.
- *  Keys ONLY on generic state/props — never `agent.id`/`agent.name`. */
+ *  Keys ONLY on generic state/props — never `agent.id`/`agent.name`.
+ *  ISS-085: `agent.output` must be the version ON SCREEN, not necessarily the
+ *  newest — the artifact's TYPE is a property of that artifact, so an older
+ *  version of a different shape has to reach its own renderer. */
 export function deriveArtifactCardModel(
   agent: AgentRunState,
   index: number,
@@ -127,12 +132,16 @@ export function deriveArtifactCardModel(
 ): ArtifactCardModel {
   const kind = discriminateArtifact(agent.output || "");
 
-  // tasks card — a tasks-artifact agent WITH completed tasks in state. Empty
-  // protoCompletedTasks (single_shot workflows) → NO card (correct, generic).
-  const allTasks = data.protoCompletedTasks ?? [];
-  const showTasks = kind === "tasks" && allTasks.length > 0;
-  const tasks = showTasks ? allTasks.map(t => ({ number: t.number, title: t.title })) : [];
-  const taskCount = showTasks ? (data.protoCompletedTaskCount ?? allTasks.length) : 0;
+  // tasks card — the plan's own rows, parsed from the artifact body ON SCREEN.
+  // ISS-087: this read the build agent's `task_progress` completed-task stream, so a
+  // card labelled "N planned" rendered the number COMPLETED (wrong even at the latest
+  // version) and stayed pinned to the run while the version picker moved everything
+  // around it. The plan's size is a property of the plan, so it comes from the plan.
+  // A `<tasks>` body with no `## Task N:` rows → NO card (generic degrade).
+  const plannedTasks = kind === "tasks" ? parseTasks(agent.output || "") : [];
+  const showTasks = plannedTasks.length > 0;
+  const tasks = plannedTasks.map(t => ({ number: t.number, title: t.title }));
+  const taskCount = plannedTasks.length;
 
   // checks card — an analysis-artifact agent; badge from validation* (structured).
   const showChecks = kind === "analysis";
@@ -164,25 +173,187 @@ function ReasoningCard({ text, live, label = "Reasoning" }: { text: string; live
     if (live && open && bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
   }, [text, live, open]);
   return (
-    <div className="rounded-[11px] border border-[#E4E0F5] bg-[#F4F2FB] overflow-hidden">
+    <div className="rounded-[11px] border border-brand-border bg-brand-violet-tint overflow-hidden">
       <button
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}
         className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left"
       >
         <span className="w-[22px] h-[22px] flex-none rounded-md bg-brand-fill grid place-items-center">
-          <Brain className="h-3 w-3 text-[#6E5EDA]" />
+          <Brain className="h-3 w-3 text-brand" />
         </span>
-        <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#5A4FC0]">
+        <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-brand">
           {live ? `${label} (live)` : label}
         </span>
-        <ChevronDown className={`h-3.5 w-3.5 text-[#9A93C8] transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown className={`h-3.5 w-3.5 text-brand/60 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <p ref={bodyRef} className="m-0 px-11 pb-3 text-[13px] leading-[1.6] text-[#4A4680] font-[Heebo] whitespace-pre-wrap max-h-[340px] overflow-y-auto">
+        <p ref={bodyRef} className="m-0 px-11 pb-3 text-[13px] leading-[1.6] text-ink-700 font-[Heebo] whitespace-pre-wrap max-h-[340px] overflow-y-auto">
           {text}
           {live && <span className="animate-pulse">▌</span>}
         </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Attached skills (card, collapsed — mirrors ToolCallsSection's row layout) ─
+// From the `agent_skills` SSE event (engine.py). Skills are now ADVERTISED, not
+// injected: only a name + description (~66 tokens) was announced to the model
+// for each skill below — the model reads a skill's full body via read_file only
+// if it decides it needs it. The body shown in the expanded row below is what
+// WOULD be read, for a human inspecting the run; there is no guarantee the
+// model actually read it. `loadErrors` (skills that failed to stage or were
+// clamped) render as an always-visible banner — never buried behind the
+// collapsed toggle, since a silent staging failure is the main failure mode of
+// this design.
+export function AttachedSkillsSection({
+  skills,
+  loadErrors,
+  estimatedTokens,
+}: {
+  skills: AttachedSkillEntry[];
+  loadErrors?: string[];
+  estimatedTokens?: number;
+}) {
+  const [sectionOpen, setSectionOpen] = useState(skills.length <= 5);
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const hasLoadErrors = !!loadErrors && loadErrors.length > 0;
+  return (
+    <div className="mt-3 bg-surface-card border border-line-border rounded-[11px] overflow-hidden">
+      <button
+        onClick={() => setSectionOpen(v => !v)}
+        aria-expanded={sectionOpen}
+        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left"
+      >
+        <span className="w-[22px] h-[22px] flex-none rounded-md bg-[#EFEDE6] grid place-items-center">
+          <Sparkles className="h-3 w-3 text-ink-500" />
+        </span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-500">Advertised skills</span>
+        <span className="text-[10.5px] text-ink-200 font-mono">{skills.length}</span>
+        {estimatedTokens != null && (
+          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-surface-warm text-ink-400 border border-line-faint-row">
+            ~{estimatedTokens} tok
+          </span>
+        )}
+        <span className="flex-1" />
+        <ChevronDown className={`h-3.5 w-3.5 text-ink-300 transition-transform ${sectionOpen ? "rotate-180" : ""}`} />
+      </button>
+      {hasLoadErrors && (
+        <div className="mx-3.5 mb-2.5 rounded-lg border border-status-amber-border bg-status-amber-fill px-2.5 py-1.5">
+          <div className="flex items-center gap-1.5 mb-1">
+            <AlertTriangle className="h-3 w-3 text-status-amber flex-none" />
+            <span className="text-[9px] font-bold uppercase tracking-widest text-status-amber">
+              {loadErrors!.length} skill{loadErrors!.length !== 1 ? "s" : ""} failed to attach
+            </span>
+          </div>
+          <div className="space-y-0.5">
+            {loadErrors!.map((err, i) => (
+              <p key={i} className="text-[10px] text-status-amber leading-snug">{err}</p>
+            ))}
+          </div>
+        </div>
+      )}
+      {sectionOpen && (
+        <div className="px-3 pb-2.5 space-y-1.5">
+          {skills.map((s, i) => (
+            <div key={`skill-${i}`} className="rounded-[9px] border border-line-faint-row overflow-hidden bg-surface-white">
+              <button
+                onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-left"
+              >
+                <span className="w-5 h-5 flex-none rounded-[5px] border border-line-control bg-surface-warm grid place-items-center">
+                  <ChevronRight className={`h-2.5 w-2.5 text-ink-500 transition-transform ${expandedIdx === i ? "rotate-90" : ""}`} />
+                </span>
+                <span className="text-[12.5px] font-medium text-ink-800">{s.name || "(unnamed skill)"}</span>
+                {s.source && (
+                  <span className="text-[9px] font-mono text-ink-300 truncate flex-1 min-w-0">{s.source}</span>
+                )}
+              </button>
+              {expandedIdx === i && (
+                <div className="border-t border-line-faint-row bg-surface-warm/60 px-3 py-2">
+                  {s.content ? (
+                    <>
+                      <p className="text-[9px] font-semibold text-ink-400 uppercase tracking-wider mb-1">Skill content (available on demand — not automatically in context)</p>
+                      <pre className="text-[9px] text-ink-600 font-mono whitespace-pre-wrap leading-relaxed max-h-[240px] overflow-y-auto">{s.content}</pre>
+                    </>
+                  ) : (
+                    <p className="text-[9px] text-ink-400">No content available.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Attached hooks (card, collapsed — mirrors ToolCallsSection's row layout) ──
+// Same source event as AttachedSkillsSection.
+export function AttachedHooksSection({ hooks }: { hooks: AttachedHookEntry[] }) {
+  const [sectionOpen, setSectionOpen] = useState(hooks.length <= 5);
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  return (
+    <div className="mt-3 bg-surface-card border border-line-border rounded-[11px] overflow-hidden">
+      <button
+        onClick={() => setSectionOpen(v => !v)}
+        aria-expanded={sectionOpen}
+        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left"
+      >
+        <span className="w-[22px] h-[22px] flex-none rounded-md bg-[#EFEDE6] grid place-items-center">
+          <Zap className="h-3 w-3 text-ink-500" />
+        </span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-500">Attached hooks</span>
+        <span className="text-[10.5px] text-ink-200 font-mono">{hooks.length}</span>
+        <span className="flex-1" />
+        <ChevronDown className={`h-3.5 w-3.5 text-ink-300 transition-transform ${sectionOpen ? "rotate-180" : ""}`} />
+      </button>
+      {sectionOpen && (
+        <div className="px-3 pb-2.5 space-y-1.5">
+          {hooks.map((h, i) => (
+            <div key={`hook-${i}`} className="rounded-[9px] border border-line-faint-row overflow-hidden bg-surface-white">
+              <button
+                onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-left"
+              >
+                <span className="w-5 h-5 flex-none rounded-[5px] border border-line-control bg-surface-warm grid place-items-center">
+                  <ChevronRight className={`h-2.5 w-2.5 text-ink-500 transition-transform ${expandedIdx === i ? "rotate-90" : ""}`} />
+                </span>
+                <span className="text-[12.5px] font-medium text-ink-800">{h.name || "(unnamed hook)"}</span>
+                {h.event && (
+                  <span className="text-[9px] font-mono text-ink-300 truncate flex-1 min-w-0">{h.event}</span>
+                )}
+              </button>
+              {expandedIdx === i && (
+                <div className="border-t border-line-faint-row bg-surface-warm/60 px-3 py-2 space-y-1.5">
+                  {h.event && (
+                    <div>
+                      <p className="text-[9px] font-semibold text-ink-400 uppercase tracking-wider mb-0.5">Event</p>
+                      <p className="text-[10.5px] text-ink-600">{h.event}</p>
+                    </div>
+                  )}
+                  {h.trigger && (
+                    <div>
+                      <p className="text-[9px] font-semibold text-ink-400 uppercase tracking-wider mb-0.5">Trigger</p>
+                      <p className="text-[10.5px] text-ink-600">{h.trigger}</p>
+                    </div>
+                  )}
+                  {h.description && (
+                    <div>
+                      <p className="text-[9px] font-semibold text-ink-400 uppercase tracking-wider mb-0.5">Description</p>
+                      <p className="text-[10.5px] text-ink-600 leading-relaxed">{h.description}</p>
+                    </div>
+                  )}
+                  {!h.event && !h.trigger && !h.description && (
+                    <p className="text-[9px] text-ink-400">No details available.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -291,17 +462,17 @@ export function OutputPreviewSection({ output }: { output: string }) {
   const isHtml = /<!DOCTYPE|<html/i.test(output) || output.includes("<artifact>");
   const preview = isHtml ? "[HTML artifact — click to expand]" : output.slice(0, 160) + (output.length > 160 ? "…" : "");
   return (
-    <div className="mt-2.5 bg-[#F4F2FB] border border-[#E4E0F5] rounded-[11px] overflow-hidden">
+    <div className="mt-2.5 bg-brand-violet-tint border border-brand-border rounded-[11px] overflow-hidden">
       <button onClick={() => setOpen(v => !v)} aria-expanded={open} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
         <span className="w-[22px] h-[22px] flex-none rounded-md bg-brand-fill grid place-items-center">
-          {open ? <EyeOff className="h-3 w-3 text-[#5A4FC0]" /> : <Eye className="h-3 w-3 text-[#5A4FC0]" />}
+          {open ? <EyeOff className="h-3 w-3 text-brand" /> : <Eye className="h-3 w-3 text-brand" />}
         </span>
-        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#5A4FC0]">Agent output</span>
-        <span className="text-[10.5px] text-[#9A93C8] font-mono">{(output.length / 1000).toFixed(1)}k chars</span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-brand">Agent output</span>
+        <span className="text-[10.5px] text-brand/60 font-mono">{(output.length / 1000).toFixed(1)}k chars</span>
         <span className="flex-1" />
-        <ChevronDown className={`h-3.5 w-3.5 text-[#9A93C8] transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown className={`h-3.5 w-3.5 text-brand/60 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
-      <p className={`m-0 px-11 pb-3 text-[12px] leading-[1.6] text-[#4A4680] whitespace-pre-wrap font-[Heebo] ${open ? "max-h-[500px] overflow-y-auto" : "line-clamp-2"}`}>
+      <p className={`m-0 px-11 pb-3 text-[12px] leading-[1.6] text-ink-700 whitespace-pre-wrap font-[Heebo] ${open ? "max-h-[500px] overflow-y-auto" : "line-clamp-2"}`}>
         {open ? output : preview}
       </p>
     </div>
@@ -603,11 +774,15 @@ function ContextReceivedPanel({ sources }: { sources: ContextSource[] }) {
 //   Both are backend/additive — OUTSIDE this plan's FRONTEND-ONLY fence
 //   (SC-001/LOCK-B): a card needing them means OUT OF SCOPE → flag, never build.
 //   Recorded in 42-09-SUMMARY (deferred-items) for the 42-11 phase reconcile.
-function SettledArtifactCards({ agent, model }: { agent: AgentRunState; model: ArtifactCardModel }) {
+//
+// ISS-085 — this takes the artifact CONTENT on screen, never the agent: rendering
+// an older version while these cards re-parsed `agent.output` is what made the
+// version picker look inert. `model` carries the un-versioned agent facts.
+function SettledArtifactCards({ output, model }: { output: string; model: ArtifactCardModel }) {
   const hasCard = model.showPages || model.showTasks || model.showChecks;
   if (!hasCard) return null;
-  const pages = model.showPages ? parseSpecSections(agent.output) : [];
-  const pagesOverview = model.showPages ? parseSpecOverview(agent.output) : "";
+  const pages = model.showPages ? parseSpecSections(output) : [];
+  const pagesOverview = model.showPages ? parseSpecOverview(output) : "";
   return (
     <>
       {/* PAGES / SECTIONS card — the mock's 3-col page-thumbnail grid, built from the
@@ -634,7 +809,7 @@ function SettledArtifactCards({ agent, model }: { agent: AgentRunState; model: A
         </div>
       )}
 
-      {/* TASKS card — "N planned" + a row per task from protoCompletedTasks. */}
+      {/* TASKS card — "N planned" + a row per task in the plan on screen. */}
       {model.showTasks && (
         <div className="mt-3 rounded-[11px] border border-line-border bg-surface-white p-3.5">
           <div className="flex items-center gap-2 mb-2">
@@ -682,7 +857,7 @@ function SettledArtifactCards({ agent, model }: { agent: AgentRunState; model: A
               </span>
             )}
           </div>
-          <AnalysisPreview content={agent.output} />
+          <AnalysisPreview content={output} />
         </div>
       )}
 
@@ -714,24 +889,57 @@ export interface AgentDetailPanelProps {
   };
   onOpenTask?: (taskIndex: number) => void;
   // 42-09 — the ordered agent list + this agent's index for the handoff fallback,
-  // plus the in-state artifact-card data (protoCompletedTasks / dagEdges). All
-  // optional: absent → no cards (SC-001 generic degrade).
+  // plus the run's DAG edges for the handoff label. All optional: absent → no
+  // handoff (SC-001 generic degrade). The artifact cards need no run state.
   agents?: AgentRunState[];
   agentIndex?: number;
-  protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
-  protoCompletedTaskCount?: number;
   dagEdges?: Array<{ from: string; to: string; artifact_type: string }>;
+  // ISS-065 — the run whose artifact_refs back this agent's output, so an earlier
+  // version can be read after an update_specs cycle overwrote it in memory.
+  // Optional: absent → no picker, and the panel renders exactly as before.
+  runId?: string | null;
 }
 
 export function AgentDetailPanel({
   agent, onBack, construction, onOpenTask,
-  agents, agentIndex, protoCompletedTasks, protoCompletedTaskCount, dagEdges,
+  agents, agentIndex, dagEdges,
+  runId,
 }: AgentDetailPanelProps) {
+  // ISS-065 — the older artifact version currently on screen, if any.
+  const [viewed, setViewed] = useState<{ index: number; content: string } | null>(null);
+  useEffect(() => { setViewed(null); }, [agent.id]);
+  // ISS-085 — this agent AS OF the version on screen. Every consumer of the
+  // artifact reads from here, so one selection moves the whole panel; deriving the
+  // cards from `agent.output` while the output section read the selected version
+  // is what made the picker look like it did nothing. Only `output` is swapped —
+  // validation, handoff and task state are run facts, not artifact versions.
+  const displayed = viewed ? { ...agent, output: viewed.content } : agent;
+  const shownOutput = displayed.output ?? "";
   const isRunning = agent.status === "running" || agent.status === "thinking";
   const isDone = agent.status === "done";
   const isError = agent.status === "error";
   const reasoning = agent.thinkingText || agent.thinking || "";
-  const sources = agent.contextSources ?? [];
+
+  // FIX-218: extract attached filenames from the revision instruction block so
+  // they appear in the "Context received" panel. The instruction contains
+  // === ATTACHED FILE: {name} === markers when files were attached in chat.
+  // Parse them and add as synthetic run_input ContextSource entries.
+  const attachedFileSources: import("@/types/index").ContextSource[] = [];
+  const prompt = agent.inputPrompt || "";
+  if (prompt.includes("=== ATTACHED FILE:")) {
+    const filePattern = /===\s*ATTACHED FILE:\s*(.+?)\s*===/g;
+    let m: RegExpExecArray | null;
+    const seen = new Set<string>();
+    while ((m = filePattern.exec(prompt)) !== null) {
+      const fname = m[1].trim();
+      if (fname && !seen.has(fname)) {
+        seen.add(fname);
+        attachedFileSources.push({ type: "run_input", label: fname });
+      }
+    }
+  }
+
+  const sources = [...(agent.contextSources ?? []), ...attachedFileSources];
   // The revision diagnostics ("Revision request" + "Changes applied") are
   // revision-only — the mock's fresh-run detail has no such cards. Gate them on
   // the run carrying an actual revision marker (RevisionInstructionCard self-gates
@@ -743,10 +951,10 @@ export function AgentDetailPanel({
   // the shared name-free discriminator. Renders conditionally between reasoning and
   // tool calls; the KEEP construction card (build agent) is a separate block.
   const cardModel = deriveArtifactCardModel(
-    agent,
+    displayed,
     agentIndex ?? agent.index,
     agents ?? [],
-    { protoCompletedTasks, protoCompletedTaskCount, dagEdges },
+    { dagEdges },
   );
 
   const metaBits = [
@@ -790,6 +998,15 @@ export function AgentDetailPanel({
                 </div>
                 <p className="m-0 text-[11px] text-ink-400 truncate">{agent.role}</p>
               </div>
+              {/* ISS-065 — per-artifact version picker. Renders nothing unless this
+                  agent produced more than one distinct artifact version, so every
+                  un-revised run looks exactly as it did before. */}
+              <ArtifactVersionPicker
+                runId={runId}
+                agentId={agent.id}
+                selectedIndex={viewed?.index}
+                onSelect={setViewed}
+              />
               {metaBits.length > 0 && (
                 <span className="flex items-center gap-1 text-[11px] text-ink-200 font-mono flex-none">
                   {metaBits.includes(`${formatTokenCount(agent.totalTokens ?? 0)} tok`) && <Cpu className="h-2.5 w-2.5" />}
@@ -810,14 +1027,17 @@ export function AgentDetailPanel({
                     emits no separate reasoning/thinking stream, so agent.thinkingText is
                     always empty; surface the live output so every running agent
                     (spec-writer, plan, analyze, build…) shows its work instead of a
-                    blank cursor. The completed output is shown by OutputPreviewSection. */}
+                    blank cursor. The completed output is shown by OutputPreviewSection.
+                    ISS-085 exception: this one card reads `agent.output`, NOT the
+                    selected version — it is labelled "(live)" and pinning it to an
+                    older version would leave no way to watch the re-run it announces. */}
                 {reasoning.trim().length > 0 && <ReasoningCard text={reasoning} live={isRunning} />}
                 {reasoning.trim().length === 0 && isRunning && <ReasoningCard text={agent.output || ""} live label="Output" />}
 
                 {/* settled artifact cards (pages/sections · tasks · checks) + handoff
                     line — conditional, generically keyed (42-09). Distinct from the
                     KEEP construction card below. */}
-                <SettledArtifactCards agent={agent} model={cardModel} />
+                <SettledArtifactCards output={shownOutput} model={cardModel} />
 
                 {/* construction fan-out (build agent) */}
                 {construction && (
@@ -831,14 +1051,36 @@ export function AgentDetailPanel({
                   />
                 )}
 
+                {/* advertised skills */}
+                {agent.attachedSkills && agent.attachedSkills.length > 0 && (
+                  <AttachedSkillsSection
+                    skills={agent.attachedSkills}
+                    loadErrors={agent.skillsLoadErrors}
+                    estimatedTokens={agent.estimatedTokens}
+                  />
+                )}
+
+                {/* attached hooks */}
+                {agent.attachedHooks && agent.attachedHooks.length > 0 && (
+                  <AttachedHooksSection hooks={agent.attachedHooks} />
+                )}
+
                 {/* tool calls */}
                 {agent.toolCalls && agent.toolCalls.length > 0 && <ToolCallsSection toolCalls={agent.toolCalls} />}
 
                 {/* full input */}
                 {agent.inputPrompt && <InputPromptSection prompt={agent.inputPrompt} />}
 
-                {/* output */}
-                {isDone && agent.output && agent.output.trim().length > 0 && <OutputPreviewSection output={agent.output} />}
+                {/* output — an older artifact version when one is selected, else the
+                    agent's live/settled output. ISS-065: the `isDone` gate is widened
+                    for `viewed` because the whole point is reading v1 while v3 is
+                    being rewritten, i.e. while this agent is back in "running". */}
+                {viewed && (
+                  <div className="mt-3">
+                    <ReadOnlyVersionBanner versionNumber={viewed.index} onBackToLatest={() => setViewed(null)} />
+                  </div>
+                )}
+                {(isDone || viewed) && shownOutput.trim().length > 0 && <OutputPreviewSection output={shownOutput} />}
 
                 {/* failed reason card */}
                 {isError && agent.error && (

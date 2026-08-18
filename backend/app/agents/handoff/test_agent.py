@@ -18,30 +18,10 @@ import logging
 import re
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
-
+from app.agents.cached_invoke import cached_invoke
 from app.agents.model_factory import build_model
 
 logger = logging.getLogger("app.agents.handoff.test")
-
-
-def _extract_text(content: Any) -> str:
-    """Pull plain text out of a chat-model response ``content`` payload.
-
-    Anthropic returns a ``str``; Bedrock returns a list of content blocks
-    (e.g. ``[{"type": "text", "text": "..."}]``). Mirrors
-    ``app.agents.deep_agent_runner._extract_text`` so this one-shot call decodes
-    model output identically to the agent runtime.
-    """
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "".join(
-            block.get("text", "")
-            for block in content
-            if isinstance(block, dict) and block.get("type") == "text"
-        )
-    return ""
 
 
 _TEST_SYSTEM_PROMPT = """You are a senior test engineer producing a test-coverage analysis report.
@@ -126,9 +106,12 @@ def _extract_json(raw: str) -> dict[str, Any]:
 class TestAgent:
     """Test-coverage analysis agent (Haiku, structured JSON output)."""
 
-    def __init__(self) -> None:
+    def __init__(self, usage_sink=None) -> None:
         self._max_tokens = 8000
         self.system_prompt = _TEST_SYSTEM_PROMPT
+        # ISS-033: optional run-usage sink so this analysis' model-call tokens are
+        # counted (via the shared cached_invoke) instead of silently dropped.
+        self._usage_sink = usage_sink
 
     async def analyse(
         self,
@@ -152,14 +135,17 @@ class TestAgent:
         if not test_files:
             parts.append("\n=== NO TEST FILES PROVIDED ===\nReport this as the dominant missing-coverage item.")
 
+        # ISS-033: route the direct ainvoke through the ONE shared cached-invoke helper
+        # — the stable system prompt is the cache-eligible prefix and the tokens are
+        # counted. build_model stays here (unchanged) so the model is built exactly as
+        # before; only the invoke path is replaced (cache-point placement + counting).
         llm = build_model(max_tokens=self._max_tokens)
-        resp = await llm.ainvoke(
-            [
-                SystemMessage(content=self.system_prompt),
-                HumanMessage(content="\n".join(parts)),
-            ]
+        raw, _usage = await cached_invoke(
+            "\n".join(parts),
+            system=self.system_prompt,
+            model=llm,
+            usage_sink=self._usage_sink,
         )
-        raw = _extract_text(resp.content)
         try:
             report = _extract_json(raw)
         except (json.JSONDecodeError, ValueError) as exc:

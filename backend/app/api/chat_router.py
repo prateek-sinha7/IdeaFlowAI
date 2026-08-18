@@ -206,9 +206,17 @@ def route_chat_turn(run_state: RunState, turn: ChatTurn) -> Dispatch:
     if phase == PHASE_CLARIFY_WAITING:
         # The composer is the clarify ANSWER channel. Structured responses ride
         # verbatim; a bare free-text turn maps to the "freeform" note the FE emits.
+        # SAFETY: a plain text turn with NO structured responses AND no concierge
+        # flag must NOT be auto-submitted as a freeform clarify answer — the user
+        # may be asking a question, not answering the clarification. Route plain
+        # text without responses to CHANNEL_CONCIERGE so the user gets a reply.
+        # Only structured responses (from the actual clarify form) proceed to ANSWERS.
         responses = list(turn.responses or [])
-        if not responses and turn.text:
-            responses = [{"question_id": "freeform", "answer": turn.text}]
+        if not responses:
+            # No structured responses — treat as a question to the Concierge, not
+            # a clarify answer. This prevents plain chat text from unblocking
+            # the questionnaire gate without the user explicitly answering.
+            return Dispatch(channel=CHANNEL_CONCIERGE, instruction=turn.text)
         return Dispatch(
             channel=CHANNEL_ANSWERS,
             responses=responses,
@@ -216,10 +224,17 @@ def route_chat_turn(run_state: RunState, turn: ChatTurn) -> Dispatch:
         )
 
     if phase == PHASE_GATE_PAUSED:
-        # A gate action (default approve). update_specs carries the analysis report;
-        # redo carries free-text instructions. All ride store.set_review_response —
-        # update_specs routes to the shipped KAN-101 loop (never rebuilt here).
-        action = turn.action if turn.action in GATE_ACTIONS else "approve"
+        # A gate action (approve/reject/redo/update_specs). ONLY execute a gate
+        # action when turn.action is EXPLICITLY one of the four gate actions — a
+        # plain free-text turn with no action (e.g. a user typing a question in the
+        # chat during a review gate pause) must NOT default to "approve".
+        # A concierge=True turn is already routed to CHANNEL_CONCIERGE above.
+        # A plain text turn with no explicit action routes to CHANNEL_CONCIERGE so
+        # the user gets a Concierge answer instead of a silent gate approval.
+        if turn.action not in GATE_ACTIONS:
+            # No explicit gate action — treat as a Concierge question about the gate.
+            return Dispatch(channel=CHANNEL_CONCIERGE, instruction=turn.text)
+        action = turn.action
         if action == "update_specs":
             instructions = turn.analysis_report or turn.text or ""
         else:

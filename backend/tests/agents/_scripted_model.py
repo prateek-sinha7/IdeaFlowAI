@@ -289,19 +289,19 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
         return [_ScriptedTurn(texts=[f"{agent_id} output line one. ", "line two."], usage=(12, 7))]
 
     # ── od_ppt / ppt agents (tools=[], text-only). ───────────────────────────
-    # The three deck agents (od-ppt-brief-analyst / od-ppt-composer /
-    # od-ppt-validator) are text-only (no filesystem tools), so the deck is a
+    # The three deck agents (ppt-brief-analyst / ppt-composer /
+    # ppt-validator) are text-only (no filesystem tools), so the deck is a
     # streamed-text deliverable — NOT a file on disk. _resolve_final_output's
     # text/PPT branch takes the LAST agent's streamed output as the deliverable
     # (the validator here), unwrapping a single <artifact>…</artifact> wrapper.
     # So the deck the characterization test snapshots is whatever the VALIDATOR
     # streams. Keep each turn's text + usage FIXED for determinism.
     #
-    # od-ppt-brief-analyst declares injects=['template'] and od-ppt-composer
+    # ppt-brief-analyst declares injects=['template'] and ppt-composer
     # declares injects=['template','design_system']; _drive seeds an od_context
     # for od_ppt/ppt (below) so _compose_injection does not raise
     # TemplateMissingError. (D-02 / PATTERNS S2.)
-    if agent_id == "od-ppt-brief-analyst":
+    if agent_id == "ppt-brief-analyst":
         return [
             _ScriptedTurn(
                 texts=[
@@ -311,7 +311,7 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
                 usage=(18, 12),
             )
         ]
-    if agent_id == "od-ppt-composer":
+    if agent_id == "ppt-composer":
         # The composer narrates building the deck; its text is consumed by the
         # validator (last agent), whose output is the actual deliverable.
         return [
@@ -320,7 +320,7 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
                 usage=(40, 30),
             )
         ]
-    if agent_id == "od-ppt-validator":
+    if agent_id == "ppt-validator":
         # LAST agent → its streamed output IS the deliverable (text/PPT class).
         # Emit the final deck wrapped in a single <artifact> tag so
         # _resolve_final_output unwraps it to the raw deck HTML (deterministic,
@@ -342,17 +342,16 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
             )
         ]
 
-    # ── Phase-14 revision agents (tools=[], text-only): deterministic turns ──
-    # for the run_revision dispatch tests (od_ppt_revision / ppt_revision are
-    # the two manifests the FE run_revision frame dispatches through execute()).
-    # Same discipline as the od-ppt block above: the LAST agent of each pipeline
-    # emits the deliverable wrapped in a single <artifact> tag, plain markup the
-    # carousel sanitizer passes through (no translateX/vw, no .stage/.slide),
-    # FIXED text + usage per turn. The REVISED decks are byte-distinct from the
-    # od-ppt-validator parent deck (and from each other) so unwrap + lineage
-    # assertions can tell parent vs revision content apart.
-    if agent_id == "od-ppt-revision-agent":
-        # The ONLY step of od_ppt_revision → its streamed output IS the
+    # ── Phase-14 revision agent (tools=[], text-only): deterministic turns ──
+    # for the run_revision dispatch tests (ppt_revision is the manifest the FE
+    # run_revision frame dispatches through execute()).
+    # Same discipline as the ppt block above: the agent emits the deliverable
+    # wrapped in a single <artifact> tag, plain markup the carousel sanitizer
+    # passes through (no translateX/vw, no .stage/.slide), FIXED text + usage
+    # per turn. The REVISED deck is byte-distinct from the ppt-validator
+    # parent deck so unwrap + lineage assertions can tell them apart.
+    if agent_id == "ppt-revision-agent":
+        # The ONLY step of ppt_revision → its streamed output IS the
         # deliverable (strategy: ppt takes the last agent's streamed text).
         revised = (
             "<!doctype html><html><head><title>Revised Deck</title></head>"
@@ -369,33 +368,10 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
                 usage=(24, 16),
             )
         ]
-    if agent_id == "ppt-revision-agent":
-        # First of two ppt_revision steps — narration only (no artifact tag);
-        # its text feeds the assembler, whose output is the deliverable.
-        return [
-            _ScriptedTurn(
-                texts=["Applying the requested slide edits to the deck code."],
-                usage=(30, 18),
-            )
-        ]
-    if agent_id == "ppt-revision-assembler":
-        # LAST ppt_revision step → its streamed output IS the deliverable.
-        # Deck bytes distinct from BOTH the od-ppt-validator deck and the
-        # od-ppt-revision-agent deck above.
-        revised = (
-            "<!doctype html><html><head><title>Revised Assembly</title></head>"
-            "<body>"
-            "<section class='deck-slide'>Revised Opening</section>"
-            "<section class='deck-slide'>Revised Body</section>"
-            "<section class='deck-slide'>Revised Close</section>"
-            "</body></html>"
-        )
-        return [
-            _ScriptedTurn(
-                texts=[f"Assembled the revised deck.\n<artifact>{revised}</artifact>"],
-                usage=(26, 15),
-            )
-        ]
+    # (The legacy 2-agent ppt_revision pipeline — ppt-revision-agent +
+    # ppt-revision-assembler, pre-collapse — is archived; agents/prompts/
+    # .archive/ppt-revision-{agent,assembler}/. Those ids are no longer
+    # scanned/dispatchable, so their scripted branches were removed.)
 
     # ── prototype-build (tools=prototype_emit_only): runs once per task. ──────
     # NEW world: write_file(file_path="prototype.html", content=…) +
@@ -524,10 +500,10 @@ async def _drive(pipeline_type: str, world: str = "new", **execute_kwargs) -> li
     # WS ``run_pipeline`` handler resolves the alias for the agent lookup but
     # forwards the UNALIASED label to ``execute()`` (engine.py keeps both
     # spellings on the prototype deliverable path — see _PROTOTYPE_PIPELINE_TYPES).
-    # We replicate exactly that: look up specs under the base, drive under the
-    # original label. ``ppt`` is likewise an alias of ``od_ppt`` (the deck agents
-    # declare ``pipeline_type: od_ppt``); ``od_ppt`` itself IS a real registry key.
-    _OD_ALIAS_FOR_LOOKUP = {"od_prototype": "prototype", "ppt": "od_ppt"}
+    # We replicate exactly that. ``ppt``'s deck agents now declare
+    # ``pipeline_type: ppt`` directly (the former od_ppt/ppt alias is closed —
+    # see agents/registry.py), so no lookup remap is needed for it anymore.
+    _OD_ALIAS_FOR_LOOKUP = {"od_prototype": "prototype"}
     _lookup_type = _OD_ALIAS_FOR_LOOKUP.get(pipeline_type, pipeline_type)
 
     # ── Force RUNS_ROOT to our temp dir at RUNTIME ────────────────────────────
@@ -629,7 +605,7 @@ async def _drive(pipeline_type: str, world: str = "new", **execute_kwargs) -> li
     # minimal od_context so injection succeeds and the build/task_progress path
     # actually runs.
     od_context = None
-    if pipeline_type in ("prototype", "od_prototype", "od_ppt", "ppt"):
+    if pipeline_type in ("prototype", "od_prototype", "ppt"):
         od_context = {
             "template_body": "## Workflow\nUse .card and .grid classes. Build pages into <section data-page>.",
             "template_id": "web-prototype",

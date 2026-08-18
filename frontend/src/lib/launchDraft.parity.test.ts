@@ -34,7 +34,7 @@ describe("launch-contract parity — buildLaunchDraft is byte-identical to the r
     expect(proto.draftKey).toBe("prototype.draft");
     expect(ppt.draftKey).toBe("ppt.draft");
     expect(proto.pendingKey).toBe("od_prototype.pending");
-    expect(ppt.pendingKey).toBe("od_ppt.pending");
+    expect(ppt.pendingKey).toBe("ppt.pending");
   });
 });
 

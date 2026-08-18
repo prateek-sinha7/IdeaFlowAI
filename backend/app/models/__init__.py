@@ -11,6 +11,9 @@ from app.models.revoked_token import RevokedToken, cleanup_expired_revocations
 from app.models.workflow_clarification import WorkflowClarification  # noqa: F401
 from app.models.workflow_memory import WorkflowMemory  # noqa: F401
 from app.models.workflow_definition import WorkflowDefinition  # noqa: F401
+# Saved user-authored custom agents (0031) — imported here so Base.metadata
+# sees the table for create_all in tests/dev.
+from app.models.user_agent import UserAgent  # noqa: F401
 # Phase 5 typed-artifacts / persistence / ownership models — must be imported
 # here so Base.metadata sees them for Alembic autogenerate/check (Pitfall 5).
 from app.models.artifact_ref import ArtifactRef  # noqa: F401
@@ -71,6 +74,7 @@ __all__ = [
     "ChatSession",
     "Message",
     "WorkflowRun",
+    "UserAgent",
     "ArtifactRef",
     "Workspace",
     "RunEvent",

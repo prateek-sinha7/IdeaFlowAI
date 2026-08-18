@@ -169,6 +169,23 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
   const tokenTotals = summary?.token_totals;
   const spend = summary?.spend ?? 0;
 
+  // ── ISS-034: the SIGNED effect of Bedrock prompt caching on this window ──────
+  // Both figures come from the backend (INV-12 — no FE rate table, no per-model
+  // math); this is a subtraction of two backend dollars, which FIX-037 permits.
+  // The sign is the product of the DATA, never baked into the copy: a run that
+  // writes cache entries it never re-reads pays the 1.25x cache_write premium for
+  // nothing, and 6 of the 11 runs measured when this shipped were net-negative.
+  // Zero (including a window of only pre-ISS-034 rows, which fold to a zero delta
+  // server-side) renders NOTHING — a "0%" would imply caching ran and broke even.
+  const spendFull = summary?.spend_full ?? 0;
+  const meteredRuns = summary?.metered_runs ?? 0;
+  const cacheDelta = spendFull - spend;
+  const cacheDeltaPct = spendFull > 0 ? Math.abs(cacheDelta / spendFull) * 100 : 0;
+  const cacheSaved = cacheDelta > 0;
+  // Gate on the PERCENTAGE, not the dollar: a short run's delta can be a fraction
+  // of a cent and still be a real -8.9% regression worth seeing.
+  const showCacheDelta = spendFull > 0 && cacheDeltaPct >= 0.5;
+
   const totalTokens = tokenTotals?.total ?? 0;
   const inputTokens = tokenTotals?.input ?? 0;
   const outputTokens = tokenTotals?.output ?? 0;
@@ -539,6 +556,41 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
                     <span className="text-[11.5px] text-ink-600 font-medium">Total spend ({DATE_LABELS[dateFilter]})</span>
                     <span className="text-[14px] font-bold text-brand tabular-nums">{formatCost(spend)}</span>
                   </div>
+                )}
+                {/* ISS-034 — signed prompt-cache delta. Percentage is the primary
+                    figure (stable under scaling of an incomplete token base); the
+                    dollar is secondary. A net LOSS is amber, not red: it is a
+                    configuration finding, not an error. */}
+                {showCacheDelta && (
+                  <div
+                    data-testid="cache-delta"
+                    className={`mt-2 rounded-[9px] px-3 py-2.5 flex items-center justify-between border ${
+                      cacheSaved
+                        ? "bg-surface-white border-line-faint-row"
+                        : "bg-[var(--status-amber-fill)] border-[var(--status-amber-border)]"
+                    }`}
+                  >
+                    <span className="text-[11.5px] text-ink-600 font-medium">
+                      {cacheSaved ? "Prompt caching saved" : "Prompt caching cost more"}
+                    </span>
+                    <span className="flex items-baseline gap-1.5">
+                      <span className={`text-[14px] font-bold tabular-nums ${cacheSaved ? "text-ink-900" : "text-[var(--status-amber)]"}`}>
+                        {Math.round(cacheDeltaPct)}%
+                      </span>
+                      <span className="text-[11px] text-ink-400 tabular-nums">
+                        {formatCost(Math.abs(cacheDelta))}
+                      </span>
+                    </span>
+                  </div>
+                )}
+                {showCacheDelta && (
+                  <p className="mt-1.5 text-[10px] leading-[1.45] text-ink-300">
+                    {meteredRuns < totalCount
+                      ? `Measured on ${meteredRuns} of ${totalCount} runs. `
+                      : ""}
+                    Engine agent tokens only — Concierge chat is recorded per message
+                    but not included here; handoff runs are not metered.
+                  </p>
                 )}
               </div>
             </div>

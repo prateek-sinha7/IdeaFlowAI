@@ -5,6 +5,7 @@ consumes:
 context_from:
 - dotnet-inventory
 - dotnet-user-stories
+description: Maps each .NET project to the right Azure service (App Service, AKS, Functions, SQL) with effort estimates.
 estimated_duration: 8.0
 guardrails:
 - dotnet

@@ -1,0 +1,121 @@
+### COMPOSE REVISION — documents the revision gap for composed/custom runs.
+#
+# FINDING (2026-08-14, composed-workflow-execution signoff): revisioning a
+# composed/custom-pipeline run is NOT supported anywhere in the stack today:
+#   - backend/app/api/run_commands.py::_mint_revision_row derives
+#     revision_pipeline_type = f"{target_artifact_type.removesuffix('_output')}_revision"
+#     -> "custom_revision" for a composed run.
+#   - backend/app/core/entitlements.py's TIER_PIPELINES has no "custom_revision"
+#     entry for ANY tier (including enterprise, which DOES have "custom") ->
+#     can_run_pipeline() always returns False -> 403 pipeline_not_entitled,
+#     even before any registry/manifest lookup happens.
+#   - There is no agents/workflows/custom_revision/ manifest either, so even
+#     entitling it would immediately 404/FileNotFoundError at compile time.
+#   - frontend/src/components/layout/DashboardLayout.tsx's revise-handler
+#     dispatch (~line 1787) only maps ppt/user_stories/prototype/app_builder
+#     effectiveReviseType values to a handler — "custom" falls through to
+#     nothing, so there is no Revise UI entry point for a composed run either.
+# This file exercises BOTH sides of that finding:
+#   1. Revision on a completed OLD-pipeline run (user_stories) — the CONTROL,
+#      proves the /revisions endpoint itself works.
+#   2. Revision on a completed COMPOSED-workflow run with
+#      target_artifact_type "custom" — the EXPECTED 403, not a script bug.
+#      Re-run this after the gap is closed (add "custom_revision" to
+#      TIER_PIPELINES + agents/workflows/custom_revision/workflow.yaml +
+#      a frontend revise-handler) to confirm it flips to 200.
+#
+# Run with: httpyac send --all -e local tools/api/runs/composed-workflow-signoff/run.compose_revision.http
+# Or via the wrapper: ./run-http.sh compose_revision
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	exports.jwt = response.parsedBody.token;
+	apiLine('POST /api/auth/login -> ' + response.statusCode + ' ' + response.parsedBody.user.email);
+}}
+
+### 2. List recent runs to find a completed user_stories run and a completed
+# composed/custom run to revise (override with env vars if your seed data
+# differs; USER_STORIES_RUN_ID defaults to none -> this file will report
+# which ids it needs if left unset).
+{{
+	exports.userStoriesRunId = process.env.USER_STORIES_RUN_ID || '';
+	exports.composedRunId = process.env.COMPOSED_RUN_ID || '';
+}}
+GET {{apiRoot}}/api/runs?type=user_stories&status_filter=completed&limit=1
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	const body = response.parsedBody;
+	if (!userStoriesRunId && Array.isArray(body) && body.length) {
+		exports.userStoriesRunId = body[0].id;
+	}
+	apiLine('user_stories run to revise: ' + (userStoriesRunId || '(none found -- set USER_STORIES_RUN_ID)'));
+}}
+
+### 2b. Same lookup for a completed composed/custom run
+GET {{apiRoot}}/api/runs?type=custom&status_filter=completed&limit=1
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	const body = response.parsedBody;
+	if (!composedRunId && Array.isArray(body) && body.length) {
+		exports.composedRunId = body[0].id;
+	}
+	apiLine('composed run to revise: ' + (composedRunId || '(none found -- set COMPOSED_RUN_ID, or run run.compose_build_and_run.http first)'));
+}}
+
+### 3. CONTROL — revision on the old-pipeline (user_stories) run. Expect 200.
+# @disabled !userStoriesRunId
+POST {{apiRoot}}/api/runs/{{userStoriesRunId}}/revisions
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"target_artifact_type": "user_stories",
+	"instruction": "Add a story for recurring/repeating tasks."
+}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	if (response.statusCode === 200) {
+		apiLine('OK (control): user_stories revision started -> run ' + response.parsedBody.run_id);
+	} else {
+		apiLine('UNEXPECTED: control revision (old pipeline) failed -- ' + response.statusCode + ' ' + JSON.stringify(response.parsedBody), 'error');
+	}
+}}
+
+### 4. EXPECTED-FAILING — revision on the composed/custom run. Expect 403
+# pipeline_not_entitled (see FINDING above) — this is the documented gap,
+# not a script error.
+# @disabled !composedRunId
+POST {{apiRoot}}/api/runs/{{composedRunId}}/revisions
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"target_artifact_type": "custom",
+	"instruction": "Make the final summary more upbeat and add a closing exclamation."
+}
+
+{{
+	const apiLine = require('../lib/api-line.js');
+	const body = response.parsedBody;
+	if (response.statusCode === 403 && body && body.detail && body.detail.code === 'pipeline_not_entitled') {
+		apiLine('Got the EXPECTED 403 pipeline_not_entitled -- composed-run revision is not implemented yet (see header FINDING).', 'warn');
+	} else if (response.statusCode === 200) {
+		apiLine('Composed-run revision SUCCEEDED (' + body.run_id + ') -- the gap has been closed! Update the header FINDING / report.md.', 'warn');
+	} else {
+		apiLine('UNEXPECTED failure shape: ' + response.statusCode + ' ' + JSON.stringify(body), 'error');
+	}
+}}

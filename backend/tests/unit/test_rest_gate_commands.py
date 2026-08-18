@@ -336,6 +336,101 @@ def test_no_pending_gate_is_clean_not_found(env):
 
 
 # ────────────────────────────────────────────────────────────────────────────
+# ISS-070 / FIX-241 — the action discriminator is a CLOSED domain and the
+# dispatch fails CLOSED. An unrecognised action must never resolve a HITL gate.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def _gate_still_armed(env, gate_key: str) -> bool:
+    """True iff the review event is still armed-and-unset — i.e. the pause is
+    intact and the user can still decide. ``set_review_response`` sets it."""
+    return not env["store"]._resume_events[f"review:{gate_key}"].is_set()
+
+
+def test_unknown_gate_action_is_refused_not_approved(env):
+    """ISS-070: a typo'd action must be REFUSED, not silently resolved.
+
+    Refusal — not a degrade to reject: FIX-232 makes a rejection terminal, so
+    turning a malformed request into a rejection would destroy the run. Keeping
+    the gate armed is the only degrade that preserves every legitimate option.
+    """
+    owner = _seed_user(env, "owner")
+    run_id = _seed_run(env, owner.id)
+    gate_key = f"{run_id}:prototype-specify"
+    _arm_gate(env, gate_key)
+    env["state"]["user"] = owner
+
+    resp = _post_gate(env, run_id, gate_key, action="rejct")
+    assert resp.status_code in (400, 422), resp.text
+    assert _recorded(env, gate_key) is None, "an unknown action wrote to the store"
+    assert _gate_still_armed(env, gate_key), "an unknown action resolved the pause"
+
+
+@pytest.mark.parametrize(
+    "action",
+    ["Reject", "REJECT", " reject", "reject\n", "rejct",
+     "no", "deny", "Redo", "redo ", "update-specs"],
+)
+def test_case_and_whitespace_variants_of_reject_never_approve(env, action):
+    """The sharpest case: every near-miss of a DENIAL used to APPROVE.
+
+    ``resolve_gate``'s dispatch is case-sensitive and does not strip whitespace,
+    so ``"Reject"``, ``" reject"``, ``"rejct"``, ``"no"``, ``"deny"`` all fell to
+    ``else: # approve (default)``. The user believes they stopped the run; the
+    run continued spending (od_prototype: 5-21M tokens).
+    """
+    owner = _seed_user(env, "owner")
+    run_id = _seed_run(env, owner.id)
+    gate_key = f"{run_id}:prototype-specify"
+    _arm_gate(env, gate_key)
+    env["state"]["user"] = owner
+
+    resp = _post_gate(env, run_id, gate_key, action=action)
+    assert resp.status_code in (400, 422), (
+        f"action={action!r} was accepted: {resp.text}"
+    )
+    rec = _recorded(env, gate_key)
+    assert rec is None, f"action={action!r} wrote {rec}"
+    assert _gate_still_armed(env, gate_key), f"action={action!r} resolved the pause"
+
+
+def test_bare_gate_post_still_defaults_to_approve(env):
+    """REGRESSION PIN — ``action`` stays OPTIONAL with its ``approve`` default.
+
+    ``tests/agents/test_attach_replay_matrix.py:551`` posts ``{"gate_key": ...}``
+    with no ``action`` key at all, and the published OpenAPI contract carries
+    ``"default": "approve"``. Constraining the DOMAIN must not make the field
+    required. Green before AND after the ISS-070 fix.
+    """
+    owner = _seed_user(env, "owner")
+    run_id = _seed_run(env, owner.id)
+    gate_key = f"{run_id}:prototype-specify"
+    _arm_gate(env, gate_key)
+    env["state"]["user"] = owner
+
+    resp = env["client"].post(f"/api/runs/{run_id}/gate", json={"gate_key": gate_key})
+    assert resp.status_code == 200, resp.text
+    assert _recorded(env, gate_key)["approved"] is True
+
+
+def test_gate_action_literal_matches_the_single_vocabulary_authority():
+    """INV-12: ``chat_router.GATE_ACTIONS`` is the ONE authority for what a gate
+    action is. ``Literal`` needs static values, so the schema necessarily spells
+    them out — this pins the two together so a fifth action cannot be added to
+    one home and silently diverge from the other."""
+    from typing import get_args
+
+    from app.api.chat_router import GATE_ACTIONS
+    from app.api.run_commands import GateCommand
+
+    literal_members = set(get_args(GateCommand.model_fields["action"].annotation))
+    assert literal_members == set(GATE_ACTIONS), (
+        "GateCommand.action's Literal drifted from chat_router.GATE_ACTIONS "
+        f"({literal_members} != {set(GATE_ACTIONS)})"
+    )
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # Source-order wiring pin — ownership predicate gates set_review_response
 # (grep-ratchet style, ported from the WS suite's #5 test onto run_commands.py)
 # ────────────────────────────────────────────────────────────────────────────

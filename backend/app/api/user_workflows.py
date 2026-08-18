@@ -36,10 +36,13 @@ direction). It MUST NOT import ``agents.execution_engine``.
 from __future__ import annotations
 
 import json
+import logging
+import re
 from datetime import datetime
 
+import yaml
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user
@@ -48,7 +51,150 @@ from app.models.database import get_db
 from app.models.user import User
 from app.models.workflow_definition import WorkflowDefinition
 
+logger = logging.getLogger("app.api.user_workflows")
+
 router = APIRouter(prefix="/api/user-workflows", tags=["user-workflows"])
+
+
+def _reject_both(body):
+    """Refuse a request carrying BOTH ``manifest`` and ``selections`` (T36).
+
+    They persist into the same ``manifest_json`` column, so accepting both means
+    silently dropping one — the caller would get a 200 and a row that disagrees
+    with what it sent. Naming both fields makes the conflict actionable.
+    """
+    if body.manifest is not None and body.selections is not None:
+        raise ValueError(
+            "'manifest' and 'selections' are mutually exclusive — they persist "
+            "into the same column. Send the full step manifest, or the compact "
+            "selections map, not both."
+        )
+    return body
+
+
+_INSTANCE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def _compile_check_manifest(manifest: dict, source_label: str) -> None:
+    """Compile the manifest the way the ENGINE will — reject it here if it won't.
+
+    Not a re-implementation of any compiler rule: the manifest is handed to the
+    real ``build_manifest_from_dict`` + ``WorkflowCompiler.compile`` pair, so the
+    DAG topo-validation (``_validate_dag`` — duplicate agent ids, cycles), the
+    fan-out upstream guard, the per-step capability checks and every other rule
+    run exactly once, in the compiler, and can never drift from what the launch
+    path enforces.
+
+    The four top-level keys a canvas manifest never carries (``id`` /
+    ``deliverable`` / ``planner`` / ``clarify``) are synthesized here with the
+    SAME fallbacks the launch path uses (``run_commands.py`` — the
+    USER_WORKFLOW_MANIFEST branch), which is what makes compiling at save time
+    possible at all. ``trust="db"`` matches the launch path too, so a save can
+    never pass a check the run would fail.
+    """
+    from agents.execution_engine.engine import (
+        _CAPABILITY_REGISTRY,
+        _WORKFLOW_COMPILER,
+    )
+    from agents.workflows.compiler import CompilerError
+    from agents.workflows.manifest import (
+        ManifestValidationError,
+        build_manifest_from_dict,
+    )
+
+    raw = dict(manifest)
+    raw.setdefault("id", "user-workflow-validate")
+    raw.setdefault("deliverable", {"strategy": "streamed_text", "name": "output.md"})
+    raw.setdefault("planner", "skip")
+    raw.setdefault("clarify", {"mode": "skip", "defaults": []})
+    raw.setdefault("capabilities", {})
+
+    step_count = len(raw.get("steps") or [])
+    try:
+        parsed = build_manifest_from_dict(raw, source_label)
+        _WORKFLOW_COMPILER.compile(parsed, _CAPABILITY_REGISTRY, trust="db")
+    except (ManifestValidationError, CompilerError) as exc:
+        # WARNING, not exception(): a refused save is the gate working, not a
+        # crash — the user gets the same message in the 422. Log the compiler's
+        # reason and the manifest SHAPE only; step prompts are user content and
+        # must never reach the logs (LOG_LEVEL_APP / prod-INFO discipline).
+        logger.warning(
+            "manifest rejected at save: source=%s steps=%d reason=%s: %s",
+            source_label,
+            step_count,
+            type(exc).__name__,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"invalid workflow manifest ({source_label}): {exc}",
+        ) from exc
+    logger.debug(
+        "manifest compiled at save: source=%s steps=%d", source_label, step_count
+    )
+
+
+def _validated_manifest(manifest: dict | None, source_label: str) -> dict | None:
+    """Structurally validate a 012 step manifest before storing it (T36).
+
+    Deliberately NOT a full ``build_manifest_from_dict`` round-trip. That parser
+    requires ``id``/``deliverable``/``planner``/``clarify``, and what the canvas
+    saves — like what T23's migration writes — is the partial ``{"steps": [...]}``
+    shape; the missing keys are synthesized at LAUNCH from the base pipeline,
+    which is the only point where they are known. Compiling here would reject
+    every legitimate save.
+
+    What IS checked here is the part that must not reach disk unvalidated:
+    ``instance_id`` is the token ``artifact_name`` builds a filename from and the
+    compiler mints ``custom-agent:<instance_id>`` from, so a traversal or a colon
+    in it is F-02. ``artifact_name`` refuses those too — this is the earlier of
+    the two gates, so the user sees it at save time.
+    """
+    if not manifest:
+        return None
+    steps = manifest.get("steps")
+    if not isinstance(steps, list) or not steps:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"invalid workflow manifest ({source_label}): "
+            "'steps' must be a non-empty list",
+        )
+
+    def _check(step: object, depth: int = 0) -> None:
+        if not isinstance(step, dict):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"invalid workflow manifest ({source_label}): "
+                "every step must be a mapping",
+            )
+        instance_id = step.get("instance_id")
+        if instance_id is not None and (
+            not isinstance(instance_id, str) or not _INSTANCE_ID_RE.match(instance_id)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"invalid workflow manifest ({source_label}): "
+                f"instance_id {instance_id!r} must match ^[a-z0-9][a-z0-9-]*$",
+            )
+        subagents = step.get("subagents")
+        # Walk exactly as deep as the compiler will accept, no deeper: the compiler
+        # rejects anything past _MAX_SUBAGENTS_DEPTH nesting levels a moment later in
+        # _compile_check_manifest, so recursing further here only risks the two bounds
+        # drifting apart. Reading its constant rather than repeating the number is what
+        # keeps them from drifting.
+        from agents.workflows.compiler import _MAX_SUBAGENTS_DEPTH
+
+        if isinstance(subagents, dict) and depth < _MAX_SUBAGENTS_DEPTH:
+            for child in subagents.get("steps") or []:
+                _check(child, depth + 1)
+
+    for step in steps:
+        _check(step)
+    # A manifest that would fail the compiler's topo-validation must never reach
+    # disk: the save would 200 and the FIRST RUN would be the thing that failed,
+    # long after the edit that caused it.
+    _compile_check_manifest(manifest, source_label)
+    return manifest
 
 
 # --- Request / Response Schemas -------------------------------------------
@@ -73,6 +219,22 @@ class SaveUserWorkflowRequest(BaseModel):
     # (and again at LAUNCH) by compiling the synthesized manifest with
     # ``trust="user"`` — the CAP-03 server backstop (the FE lock is advisory only).
     selections: dict[str, dict] | None = None
+    # Spec 012 (R-27/R-29, T36): the full step-based manifest ``{"steps": [...]}``
+    # produced by the canvas once a node carries a skill, a prompt, or children.
+    # It is a SIBLING of ``selections``, not a widening of it: both write the same
+    # ``manifest_json`` column, but they are different shapes with different
+    # validators, and one field carrying both told apart by sniffing is the
+    # ambiguity FINDING-02 records. Supplying both is a 422 (see the validator).
+    manifest: dict | None = None
+    # Persisted UI-attached skills/hooks — same shape as the launch path's
+    # attached_skills/attached_hooks (list[dict], see app/api/run_commands.py).
+    # None/absent == none attached.
+    attached_skills: list[dict] | None = None
+    attached_hooks: list[dict] | None = None
+
+    @model_validator(mode="after")
+    def _reject_manifest_and_selections(self) -> SaveUserWorkflowRequest:
+        return _reject_both(self)
 
 
 class UpdateUserWorkflowRequest(BaseModel):
@@ -88,6 +250,14 @@ class UpdateUserWorkflowRequest(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     model_overrides: dict[str, str] | None = None
     selections: dict[str, dict] | None = None
+    # T36 — see SaveUserWorkflowRequest.manifest.
+    manifest: dict | None = None
+    attached_skills: list[dict] | None = None
+    attached_hooks: list[dict] | None = None
+
+    @model_validator(mode="after")
+    def _reject_manifest_and_selections(self) -> UpdateUserWorkflowRequest:
+        return _reject_both(self)
 
 
 class UserWorkflowResponse(BaseModel):
@@ -102,6 +272,13 @@ class UserWorkflowResponse(BaseModel):
     # EMP-03: the round-tripped compact selections map (None when the row never
     # persisted any — ``manifest_json IS NULL``).
     selections: dict[str, dict] | None = None
+    # T36: the 012 manifest shape, populated when ``manifest_json`` holds a
+    # step-based manifest instead of a selections map. Exactly one of
+    # ``selections`` / ``manifest`` is ever non-None — they are the two shapes
+    # the one column can hold.
+    manifest: dict | None = None
+    attached_skills: list[dict] | None = None
+    attached_hooks: list[dict] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -207,8 +384,16 @@ def _project(row: WorkflowDefinition) -> UserWorkflowResponse:
     except (ValueError, TypeError):
         agent_ids = []
     # EMP-03: the compact selections map round-trips through ``manifest_json``
-    # (NULL → None == no selections).
-    selections = row.manifest_json if isinstance(row.manifest_json, dict) else None
+    # (NULL → None == no selections). Spec 012 (R-27/R-29) overloads the SAME
+    # column with a full step-based manifest ({"steps": [...]}) once a per-step
+    # migration (T23) or a custom-agent save has populated it — that shape is
+    # NOT a `dict[str, dict]` selections map, so it is excluded here rather than
+    # raising a pydantic validation error on this response field. The full
+    # manifest is exposed separately via the ``workflow.yaml`` export (T22).
+    stored = row.manifest_json
+    _is_manifest = isinstance(stored, dict) and "steps" in stored
+    selections = stored if isinstance(stored, dict) and not _is_manifest else None
+    manifest = stored if _is_manifest else None
     return UserWorkflowResponse(
         id=row.id,
         name=row.name,
@@ -217,6 +402,9 @@ def _project(row: WorkflowDefinition) -> UserWorkflowResponse:
         agent_ids=agent_ids,
         model_overrides=row.model_overrides,
         selections=selections,
+        manifest=manifest,
+        attached_skills=row.attached_skills,
+        attached_hooks=row.attached_hooks,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -239,6 +427,61 @@ def _owned(db: Session, workflow_id: str, user: User) -> WorkflowDefinition:
             detail="Saved workflow not found",
         )
     return row
+
+
+def _migrate_attached_skills_to_steps(db: Session, row: WorkflowDefinition) -> None:
+    """R-29 / AC-15 / F-07 — one-time fan-out of the legacy run-level
+    ``attached_skills`` into every step's per-step ``skills`` list inside
+    ``manifest_json``.
+
+    Guard (F-07, the whole idempotency story): migrate ONLY when
+    ``row.attached_skills`` is non-empty AND every step in ``manifest_json``
+    has no ``skills`` key yet. That guard is what makes this safe to call on
+    every read — a legacy row migrates exactly once (the first read adds the
+    key to every step, so the second read's "every step absent" check fails
+    and it becomes a no-op), and a row that already carries per-step skills
+    (partially or fully) is left completely untouched.
+
+    ``attached_skills`` is list[dict] (``{"id", "name", "content"}``, the
+    run-level payload shape — see ``app/agents/skill_staging.py``); per-step
+    ``manifest_json["steps"][i]["skills"]`` is list[str] of skill IDS (see
+    ``agents/workflows/compiler.py`` and ``agents/factory.py::_resolve_step_skills``).
+    The migration maps the former to the latter by pulling each payload's
+    ``"id"``.
+
+    ``attached_skills`` is RETAINED on the row afterwards (never dropped or
+    nulled) but is no longer read at launch once migrated — per-step
+    ``skills`` is authoritative from here on (Q3).
+    """
+    if not row.attached_skills:
+        return
+    manifest = row.manifest_json
+    if not isinstance(manifest, dict):
+        return
+    steps = manifest.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return
+    if not all(isinstance(step, dict) and "skills" not in step for step in steps):
+        return  # at least one step already carries a `skills` key — no-op (F-07)
+
+    skill_ids = [
+        payload["id"]
+        for payload in row.attached_skills
+        if isinstance(payload, dict) and payload.get("id")
+    ]
+    if not skill_ids:
+        return
+
+    new_steps = [
+        {**step, "skills": list(skill_ids)} if isinstance(step, dict) else step
+        for step in steps
+    ]
+    # Reassign a NEW dict (not mutate in place): the ORM's JSON column only
+    # detects change via attribute reassignment, not in-place mutation of the
+    # existing Python object.
+    row.manifest_json = {**manifest, "steps": new_steps}
+    db.commit()
+    db.refresh(row)
 
 
 # --- Endpoints -------------------------------------------------------------
@@ -268,21 +511,31 @@ def create_user_workflow(
     # Entitlement gate (custom needs enterprise) — fail-fast before insert.
     # Normalise od_* aliases to their base type (mirrors websocket.py behaviour).
     _tier_check_type = {
-        "od_ppt": "od_ppt",
         "od_prototype": "od_prototype",
     }.get(body.base_pipeline_type, body.base_pipeline_type)
     allowed, reason = can_run_pipeline(current_user.tier, _tier_check_type)
     if not allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
 
-    # agent_ids ⊆ allowed_custom_agent_ids(base) (launch predicate).
-    allowed_ids = allowed_custom_agent_ids(body.base_pipeline_type)
-    rejected = [aid for aid in body.agent_ids if aid not in allowed_ids]
-    if rejected:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"agent_ids not allowed for {body.base_pipeline_type!r}: {rejected}",
-        )
+    # agent_ids ⊆ allowed_custom_agent_ids(base) (launch predicate) — ONLY for an
+    # agent_ids-backed row. A manifest-backed composition (spec 012: custom-agent
+    # template instances, sub-agent trees) carries SYNTHETIC instance ids
+    # (`agent-1`, `agent-2`, ...) minted client-side (`generateInstanceId`) —
+    # they were never meant to satisfy this coarse "is this a real catalog
+    # agent" allow-list, and rejecting them here made every composition with a
+    # blank custom-agent node un-savable. The manifest's own steps are the real
+    # security boundary for that shape (`_validated_manifest` here, and the
+    # compiler's `trust="user"` step-by-step capability checks at launch) — this
+    # allow-list stays load-bearing for the OTHER shape (a flat `agent_ids` list
+    # naming real library agents directly), where it's the only check there is.
+    if body.manifest is None:
+        allowed_ids = allowed_custom_agent_ids(body.base_pipeline_type)
+        rejected = [aid for aid in body.agent_ids if aid not in allowed_ids]
+        if rejected:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"agent_ids not allowed for {body.base_pipeline_type!r}: {rejected}",
+            )
 
     # model_overrides — same two-check allow-list as launch.
     err = _validate_model_overrides(body.model_overrides or {}, set(body.agent_ids))
@@ -308,17 +561,26 @@ def create_user_workflow(
     # death. The guard lives at CREATE + LAUNCH; the PATCH sibling cannot change
     # agent order (its request model omits agent_ids), so there is nothing to
     # reorder there.
-    from app.api.composition_order import (
-        UnsatisfiableComposition,
-        presort_agent_ids,
-    )
+    # `presort_agent_ids` resolves every id through `load_agent_spec` (a real
+    # `AGENT.md` disk lookup) to read its produces/consumes for the DAG sort —
+    # the same reason the allow-list above is skipped for a manifest-backed row,
+    # this would raise on a synthetic `agent-1` id too. The manifest's own
+    # `steps` order (as arranged in the canvas) is already the run order; there
+    # is no separate producer/consumer resort to do for this shape.
+    if body.manifest is None:
+        from app.api.composition_order import (
+            UnsatisfiableComposition,
+            presort_agent_ids,
+        )
 
-    try:
-        sorted_ids = presort_agent_ids(body.agent_ids)
-    except UnsatisfiableComposition as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
+        try:
+            sorted_ids = presort_agent_ids(body.agent_ids)
+        except UnsatisfiableComposition as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            ) from exc
+    else:
+        sorted_ids = body.agent_ids
 
     # Per-user name uniqueness (API-level; the shared table also holds file rows).
     existing = (
@@ -352,7 +614,16 @@ def create_user_workflow(
         model_overrides=body.model_overrides,
         # EMP-03 (D-11): persist the compact selections map into the reused
         # dormant ``manifest_json`` column (zero migration). NULL == no selections.
-        manifest_json=(body.selections or None),
+        # T36: the column holds EITHER the compact selections map (EMP-03) or a
+        # full step manifest (012). The request validator guarantees at most one
+        # was supplied, so this `or` chain can never silently discard the other.
+        manifest_json=(
+            _validated_manifest(body.manifest, f"workflow:{body.name}")
+            or body.selections
+            or None
+        ),
+        attached_skills=(body.attached_skills or None),
+        attached_hooks=(body.attached_hooks or None),
     )
     db.add(row)
     db.commit()
@@ -385,7 +656,33 @@ def get_user_workflow(
     db: Session = Depends(get_db),
 ):
     """Read one saved workflow; cross-owner / missing → 404 (IDOR→404)."""
-    return _project(_owned(db, workflow_id, current_user))
+    row = _owned(db, workflow_id, current_user)
+    _migrate_attached_skills_to_steps(db, row)
+    return _project(row)
+
+
+@router.get("/{workflow_id}/workflow.yaml")
+def export_user_workflow_yaml(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Render the stored manifest as YAML for viewing/download (R-28).
+
+    Same ownership/authz guard as ``GET /{workflow_id}`` (``_owned`` — IDOR→404).
+    A row with no ``manifest_json`` returns an empty YAML document (``""``)
+    rather than 404 — the row itself exists and is owned by the caller, it
+    simply has nothing to export yet (e.g. a workflow saved via
+    ``agent_ids``/``selections`` only, before any per-step manifest was
+    synthesized).
+    """
+    row = _owned(db, workflow_id, current_user)
+    _migrate_attached_skills_to_steps(db, row)
+    if not row.manifest_json:
+        body = ""
+    else:
+        body = yaml.safe_dump(row.manifest_json, sort_keys=False)
+    return Response(content=body, media_type="text/yaml")
 
 
 @router.patch("/{workflow_id}", response_model=UserWorkflowResponse)
@@ -447,6 +744,17 @@ def update_user_workflow(
             body.selections,
         )
         row.manifest_json = body.selections or None
+
+    if body.manifest is not None:
+        # T36: a manifest edit replaces the column outright. An empty dict clears
+        # it, mirroring the selections branch above.
+        row.manifest_json = _validated_manifest(body.manifest, f"workflow:{row.id}")
+
+    if body.attached_skills is not None:
+        row.attached_skills = body.attached_skills or None
+
+    if body.attached_hooks is not None:
+        row.attached_hooks = body.attached_hooks or None
 
     db.commit()
     db.refresh(row)

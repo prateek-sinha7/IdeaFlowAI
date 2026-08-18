@@ -55,6 +55,11 @@ export const SSE_URL_RE = /\/api\/runs\/[^/]+\/events\/stream(\?|$)/;
 /** The per-run command endpoints (POST up-channel). */
 const COMMAND_RE = /\/api\/runs\/([^/]+)\/(answers|cancel|gate|revisions|messages)$/;
 
+/** GET /api/runs/{id}/events — the DURABLE REST twin of the stream (the read-only
+ *  `runs.py::get_run_events`), which `api.ts::getRunEvents` calls on the completion
+ *  backfill. Distinct from `SSE_URL_RE` (`…/events/stream`). */
+const EVENTS_RE = /\/api\/runs\/([^/]+)\/events$/;
+
 /** A frame on the durable tail — same shape the WS emit() produced under `data`. */
 export interface SseFrame {
   type: string;
@@ -120,6 +125,14 @@ export class MockSse implements SeqSource {
   readonly frames: SseFrame[] = [];
   /** Number of times a consumer attached to the stream (reconnect counting). */
   connectionCount = 0;
+  /** Number of times the DURABLE REST twin (GET /api/runs/{id}/events) was served
+   *  — the observable settle point for the completion backfill (page.tsx →
+   *  getRunEvents), the counterpart of `connectionCount` for the stream. */
+  eventsFetchCount = 0;
+  /** Number of times the live-run list (GET /api/runs) was served — the observable
+   *  proof that `RunConnectionProvider.refreshLiveRuns()` actually ran (it is the
+   *  only thing that populates `autoIdsRef`, the auto-attach membership path). */
+  runListFetchCount = 0;
   /** The `Last-Event-ID` cursor of the most recent attach (null = full tail). */
   lastAttachCursor: number | null = null;
 
@@ -437,7 +450,17 @@ export class MockSse implements SeqSource {
         const top = f as unknown as Record<string, unknown>;
         if (top.chunk !== undefined) extras.chunk = top.chunk;
         if (top.section !== undefined) extras.section = top.section;
-        const dataObj = { ...f.data, ...extras };
+        // INVARIANT (server-side guarantee, `backend/app/api/run_stream.py`): EVERY
+        // frame carries `event_id` + `seq` inside its `data` — including a DURABLE
+        // REPLAY frame, whose identity the server merges from the row's authoritative
+        // COLUMNS over `payload_json`. That matters for the four app-layer types
+        // (`chat_reply`/`chat_message`/`chat_usage`/`run_resuming`) which persist NO
+        // identity inside the payload: without the merge they arrive anonymous, the
+        // consumer re-keys them, and a narrator card that is ALSO delivered by the
+        // durable REST twin renders twice (TS-SSE-RESILIENCE-06). The mock's frames
+        // are identity-stamped at emit(), so serving `f.data` as-is models the fixed
+        // server exactly.
+        const dataObj: Record<string, unknown> = { ...f.data, ...extras };
         // The REAL backend wire (sse-starlette): NO `event:` line — the frame's
         // type is nested inside the `data:` JSON as `{type, data}`, and frames are
         // CRLF-separated (`\r\n\r\n`). event_id/seq/chunk/section live INSIDE the
@@ -456,6 +479,11 @@ export class MockSse implements SeqSource {
 
     if (method === "GET" && SSE_URL_RE.test(path)) return this.handleStream(route);
 
+    if (method === "GET") {
+      const ev = path.match(EVENTS_RE);
+      if (ev) return this.handleRunEvents(route, ev[1]);
+    }
+
     if (method === "POST") {
       if (path.endsWith("/api/runs")) return this.handleLaunch(route);
       const m = path.match(COMMAND_RE);
@@ -472,9 +500,41 @@ export class MockSse implements SeqSource {
   /** GET /api/runs — merge the live-run registry on top of the REST backend list
    *  so the provider's boot/reattach query finds the active run and streams it. */
   private async handleRunList(route: Route): Promise<void> {
+    this.runListFetchCount += 1;
     const base = this.api ? this.api.runs : [];
     const merged = [...this.liveRuns, ...base];
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(merged) });
+  }
+
+  /**
+   * GET /api/runs/{id}/events?after=N — the DURABLE REST twin of the stream.
+   *
+   * Mirrors `runs.py::get_run_events`: rows past the `after` cursor in the durable
+   * shape `{seq, event_id, type, payload_json}`, with the identity living in the
+   * COLUMNS and `payload_json` holding everything else — exactly how the server
+   * stores an app-layer row — so `api.ts::getRunEvents` merges the columns back on
+   * read. Without this route the request fell through to mockApi (which does not
+   * implement it), so the completion backfill (`page.tsx` → `getRunEvents`) was a
+   * silent no-op and this whole class of durable/live keying bug was invisible to
+   * the mocked suite.
+   */
+  private async handleRunEvents(route: Route, runId: string): Promise<void> {
+    this.eventsFetchCount += 1;
+    const after = Number(new URL(route.request().url()).searchParams.get("after") ?? 0) || 0;
+    // The mock owns exactly one run's durable tail; another run's log is empty here
+    // (the real endpoint is per-run + owner-scoped).
+    const tail = runId === this.runId ? this.frames : [];
+    const events = tail
+      .filter((f) => (f.data.seq as number) > after)
+      .map((f) => {
+        const { event_id, seq, ...payload } = f.data;
+        return { seq, event_id, type: f.type, payload_json: payload };
+      });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ workflow_id: runId, after, events }),
+    });
   }
 
   /** POST /api/runs — record the launch command + return the created run_id. */

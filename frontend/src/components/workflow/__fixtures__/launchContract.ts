@@ -25,7 +25,7 @@ export const PROTO_AGENTS = [
 ];
 
 /** The default ppt pipeline agent lineup (AgentLibraryData, order 1..3). */
-export const PPT_AGENTS = ["od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator"];
+export const PPT_AGENTS = ["ppt-brief-analyst", "ppt-composer", "ppt-validator"];
 
 export interface DraftScenario {
   name: string;
@@ -41,7 +41,7 @@ export interface DraftScenario {
 }
 
 const PROTO_KEYS = { draftKey: "prototype.draft", pendingKey: "od_prototype.pending" };
-const PPT_KEYS = { draftKey: "ppt.draft", pendingKey: "od_ppt.pending" };
+const PPT_KEYS = { draftKey: "ppt.draft", pendingKey: "ppt.pending" };
 
 export const DRAFT_SCENARIOS: DraftScenario[] = [
   // ── Prototype ──────────────────────────────────────────────────────────
@@ -149,7 +149,7 @@ export const DRAFT_SCENARIOS: DraftScenario[] = [
     expected: {
       ...PPT_KEYS,
       draftJson:
-        '{"templateId":"pitch","designSystemId":"midnight","brief":"Pitch deck","agentIds":["od-ppt-brief-analyst","od-ppt-composer","od-ppt-validator"]}',
+        '{"templateId":"pitch","designSystemId":"midnight","brief":"Pitch deck","agentIds":["ppt-brief-analyst","ppt-composer","ppt-validator"]}',
     },
   },
   {
@@ -165,7 +165,7 @@ export const DRAFT_SCENARIOS: DraftScenario[] = [
     expected: {
       ...PPT_KEYS,
       draftJson:
-        '{"templateId":"onepager","designSystemId":null,"brief":"Pitch deck","agentIds":["od-ppt-brief-analyst","od-ppt-composer","od-ppt-validator"]}',
+        '{"templateId":"onepager","designSystemId":null,"brief":"Pitch deck","agentIds":["ppt-brief-analyst","ppt-composer","ppt-validator"]}',
     },
   },
   {
@@ -185,14 +185,14 @@ export const DRAFT_SCENARIOS: DraftScenario[] = [
       sourceRunId: "run-9",
       gatesTouched: true,
       gateAgentIds: [],
-      modelOverrides: { "od-ppt-composer": "claude-x" },
-      selections: { "od-ppt-composer": { retryLimit: 3 } },
+      modelOverrides: { "ppt-composer": "claude-x" },
+      selections: { "ppt-composer": { retryLimit: 3 } },
       agentIds: PPT_AGENTS,
     },
     expected: {
       ...PPT_KEYS,
       draftJson:
-        '{"templateId":"pitch","designSystemId":"cds1","brief":"Rich deck","customDsBody":"/* custom ds */","sourceRunId":"run-9","gateAgentIds":[],"modelOverrides":{"od-ppt-composer":"claude-x"},"selections":{"od-ppt-composer":{"retryLimit":3}},"agentIds":["od-ppt-brief-analyst","od-ppt-composer","od-ppt-validator"]}',
+        '{"templateId":"pitch","designSystemId":"cds1","brief":"Rich deck","customDsBody":"/* custom ds */","sourceRunId":"run-9","gateAgentIds":[],"modelOverrides":{"ppt-composer":"claude-x"},"selections":{"ppt-composer":{"retryLimit":3}},"agentIds":["ppt-brief-analyst","ppt-composer","ppt-validator"]}',
     },
   },
   {
@@ -215,7 +215,7 @@ export const DRAFT_SCENARIOS: DraftScenario[] = [
     expected: {
       ...PPT_KEYS,
       draftJson:
-        '{"templateId":"ct1","designSystemId":null,"brief":"Custom deck","customTemplateBody":"<html>custom</html>","agentIds":["od-ppt-brief-analyst","od-ppt-composer","od-ppt-validator"]}',
+        '{"templateId":"ct1","designSystemId":null,"brief":"Custom deck","customTemplateBody":"<html>custom</html>","agentIds":["ppt-brief-analyst","ppt-composer","ppt-validator"]}',
     },
   },
 ];

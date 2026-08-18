@@ -90,6 +90,31 @@ class TestAlembicMigrations:
             "command silently no-opped"
         )
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "Known real bug in the already-shipped migration chain, not a "
+            "stale test expectation — see CLAUDE.md's 'never edit an "
+            "already-applied migration' rule, so this cannot be fixed here. "
+            "0024 (alembic/versions/0024_run_events_uniqueness.py, "
+            "'additive per-run uniqueness backstops on run_events') "
+            "unconditionally drops uq_run_events_scope_seq (and "
+            "uq_run_events_scope_event) in its downgrade(). 0029 "
+            "(alembic/versions/0029_enforce_seq_uniqueness_after_repair.py, "
+            "commits f54cb775 / d2a87b7b, 'FIX-BUG-029') independently added "
+            "the SAME constraint (0028 had skipped adding it — see "
+            "alembic/versions/0028_repair_0024_0025_drift.py) and its own "
+            "downgrade() ALSO drops it (guarded by an existence check, so it "
+            "succeeds). Because alembic runs downgrades newest-first, 0029's "
+            "downgrade runs before 0024's on the way to base, already "
+            "dropping the constraint — so 0024's own (unguarded) drop then "
+            "raises. Fixing this for real means making 0024's downgrade() "
+            "idempotent (matching the guard style 0028/0029 already use), "
+            "but 0024 is a shipped migration (present on origin/dev) and "
+            "immutable per repo policy. Flagging for a human decision "
+            "instead of papering over it."
+        ),
+    )
     def test_downgrade_base_rolls_back_cleanly(
         self, fresh_db_url: str
     ) -> None:

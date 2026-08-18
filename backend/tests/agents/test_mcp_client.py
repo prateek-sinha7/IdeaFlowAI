@@ -116,11 +116,12 @@ def test_factory_unions_prewarmed_mcp_tools_without_awaiting() -> None:
 
 
 def test_factory_empty_tools_and_no_mcp_is_pure_text() -> None:
-    """Parity: no tools + no MCP scope ⇒ pure-text agent (([], True)) — unchanged."""
+    """spec 012 / R-22, D-07: no tools + no MCP scope still gets the universal fs
+    grant (([], False)) — a text-only agent no longer loses the native fs tools."""
     from agents.factory import AgentContext, _resolve_runner_tools
 
     class _Spec:
         tools: list = []
 
     ctx = AgentContext(user_request="x")  # prewarmed_mcp_tools defaults to []
-    assert _resolve_runner_tools(_Spec(), ctx) == ([], True)
+    assert _resolve_runner_tools(_Spec(), ctx) == ([], False)

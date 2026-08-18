@@ -1,14 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  X, Plus, ArrowRight, Lock, GripVertical, Info,
+  X, Plus, Lock, GripVertical, Info,
   Clock, Zap, BookMarked, CheckCircle2, ChevronRight, ChevronDown,
   Puzzle, Webhook, Search, Check, Sliders, AlertCircle, Settings2, Cpu,
   FileText, Edit3, RotateCcw,
 } from "lucide-react";
 import { AgentLibrary } from "./AgentLibrary";
+import { CanvasView } from "./composer/CanvasView";
+import { useBriefAttachments } from "./IdeaInputPage";
+import { addChildInTree, collectAgentIds, findAgentInTree, instantiateIfTemplate } from "@/store/api/userWorkflows";
+import type { HookDef } from "@/store/api/hooks";
 // NOTE: the API fetcher `getCapabilities` is aliased to `fetchCapabilities` to
 // avoid the NAME COLLISION with the local `getCapabilities(agent)` helper below
 // (the local one derives display strings from an agent description; the import
@@ -25,11 +29,13 @@ import {
   type AgentPromptData,
 } from "@/lib/api";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
-import type { AgentDef, WorkflowType, AttachedSkill, AttachedHook } from "@/types/index";
-import { SKILLS, SKILL_CATEGORIES, type SkillDef } from "@/data/skills";
-import { HOOKS, HOOK_EVENTS, type HookDef } from "@/data/hooks";
+import type { AgentDef, WorkflowType, AttachedHook } from "@/types/index";
+import { useHooksCatalog } from "@/hooks/useHooksCatalog";
+import { useSkillsCatalog } from "@/hooks/useSkillsCatalog";
+import { AgentSkillsPicker } from "@/components/workflow/composer/AgentSkillsPicker";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import { Tabs } from "@/components/ui/Tabs";
+import { useAppSelector } from "@/store/hooks";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -42,10 +48,7 @@ interface AgentsPopupProps {
   onRemoveAgent?: (agentId: string) => void;
   onReorder?: (agents: AgentDef[]) => void;
   canAddMore?: boolean;
-  attachedSkills?: AttachedSkill[];
   attachedHooks?: AttachedHook[];
-  onAttachSkill?: (skill: AttachedSkill) => void;
-  onDetachSkill?: (skillId: string) => void;
   onAttachHook?: (hook: AttachedHook) => void;
   onDetachHook?: (hookId: string) => void;
   /**
@@ -100,7 +103,7 @@ const LOCKED_AGENT_IDS = new Set([
   "mulesoft-inventory", "mulesoft-sdlc-governance",
   "dotnet-inventory", "dotnet-sdlc-governance",
   // od_ppt pipeline agents — all core, none removable
-  "od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator",
+  "ppt-brief-analyst", "ppt-composer", "ppt-validator",
   // od_prototype pipeline agents — all core, none removable
   "prototype-specify", "prototype-plan", "prototype-analyze", "prototype-build", "prototype-validate",
 ]);
@@ -139,7 +142,7 @@ export function getRole(agentId: string, pipelineType: WorkflowType): AgentRole 
   const pipelinePrefixes: Record<string, string[]> = {
     user_stories: ["domain-analyst", "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer", "backlog-compiler"],
     ppt: ["ppt-content-strategist", "ppt-slide-architect", "ppt-code-generator", "ppt-assembler",
-          "od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator"],
+          "ppt-brief-analyst", "ppt-composer", "ppt-validator"],
     prototype: ["requirements-analyst", "html-prototype-builder", "prototype-polisher", "prototype-finalizer",
                 "prototype-specify", "prototype-plan", "prototype-analyze", "prototype-build", "prototype-validate"],
     app_builder: [
@@ -178,6 +181,7 @@ export const PIPELINE_LABEL: Record<string, string> = {
   user_stories: "User Stories", ppt: "Presentation", prototype: "Prototype",
   app_builder: "App Builder", custom: "Custom",
   mulesoft_to_springboot: "Mulesoft → Spring Boot", dotnet_to_azure: ".NET → Azure",
+  hello_html: "Hello HTML",
 };
 
 const ICON_STYLES = [
@@ -374,24 +378,24 @@ export function AgentPromptSection({
                         value={draftContent}
                         onChange={e => setDraftContent(e.target.value)}
                         rows={12}
-                        className="w-full px-3 py-2 text-[11px] font-mono bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 resize-none leading-relaxed transition-colors"
+                        className="w-full px-3 py-2 text-[11px] font-mono bg-surface-white text-ink-900 border border-line-control rounded-lg focus:outline-none focus:border-ink-400 resize-none leading-relaxed transition-colors"
                         placeholder="Enter custom prompt instructions…"
                       />
-                      <p className="text-[9px] text-gray-400">{draftContent.length} chars · max 32,768</p>
+                      <p className="text-[9px] text-ink-400">{draftContent.length} chars · max 32,768</p>
                       {saveError && (
-                        <p className="text-[11px] text-red-500">{saveError}</p>
+                        <p className="text-[11px] text-status-failed">{saveError}</p>
                       )}
                       <div className="flex items-center gap-2 justify-end">
                         <button
                           onClick={() => { setEditMode(false); setSaveError(null); }}
-                          className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-500 hover:bg-gray-100 transition-colors"
+                          className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-ink-500 hover:bg-line-faint-row transition-colors"
                         >
                           Cancel
                         </button>
                         <button
                           onClick={handleSave}
                           disabled={saving || !draftContent.trim()}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-900 text-white text-[11px] font-semibold hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-[11px] font-semibold hover:bg-brand-pressed transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           {saving ? "Saving…" : <><Check className="h-3 w-3" /> Save override</>}
                         </button>
@@ -417,8 +421,9 @@ export function AgentPromptSection({
 
 export function AgentCapabilitiesModal({
   agent, agentIndex, onClose,
-  attachedSkills: propSkills, attachedHooks: propHooks,
-  onAttachSkill: propAttachSkill, onAttachHook: propAttachHook,
+  attachedHooks: propHooks,
+  onAttachHook: propAttachHook,
+  onSkillsChange,
   onSelectionsChange, initialSelections, token,
   priorAgents,
   asDrawer = false,
@@ -426,10 +431,17 @@ export function AgentCapabilitiesModal({
   agent: AgentDef;
   agentIndex: number;
   onClose: () => void;
-  attachedSkills?: AttachedSkill[];
   attachedHooks?: AttachedHook[];
-  onAttachSkill?: (skill: AttachedSkill) => void;
   onAttachHook?: (hook: AttachedHook) => void;
+  /**
+   * ADR-0010 — per-agent skill attachment. When supplied, the Skills tab writes
+   * the agent's new skill-id list back through this callback (the composer then
+   * stores it on the step). When OMITTED there is no step to write to — the
+   * Library page opens this drawer for a catalog agent that belongs to no
+   * pipeline — and the Skills tab renders read-only rather than offering
+   * controls that discard the click.
+   */
+  onSkillsChange?: (agentId: string, skills: string[]) => void;
   /** Pass-through to AdvancedExpander for per-agent config levers */
   onSelectionsChange?: (selections: SelectionsMap) => void;
   initialSelections?: SelectionsMap;
@@ -448,11 +460,12 @@ export function AgentCapabilitiesModal({
    */
   asDrawer?: boolean;
 }) {
-  // Always use context — works from Library page, Add agent modal, and AgentsPopup
+  const { hooks: HOOKS, events: HOOK_EVENTS } = useHooksCatalog();
+  // Always use context — works from Library page, Add agent modal, and AgentsPopup.
+  // HOOKS ONLY since ADR-0010; skills come from `agent.skills` and are written
+  // back through `onSkillsChange`, not through this context.
   const ctx = useSkillsHooks();
-  const attachedSkills = ctx.attachedSkills;
   const attachedHooks = ctx.attachedHooks;
-  const onAttachSkill = ctx.attachSkill;
   const onAttachHook = ctx.attachHook;
 
   // SHELL-04 (37-06): the drawer is a 4-tab inspector. Overview is the default
@@ -476,6 +489,33 @@ export function AgentCapabilitiesModal({
   // initialSelections on mount and updated by every lever change or Save call.
   const effectiveSelections = localSelections;
 
+  // Spec 012 — the same mirror for the Skills tab when the caller supplies
+  // onSkillsChange (the drawer mounts: AgentLibrary add-agent modal, LibraryPage).
+  // AgentSkillsPicker derives from `agent.skills`, but those mounts pass a STATIC
+  // catalog agent, so without local state a toggle would never re-render checked
+  // and the next toggle would recompute from the stale set — silently dropping
+  // the previous pick. Mirror here, seeded from `agent.skills`, and report every
+  // change both locally (re-render) and up (onSkillsChange → composer/ref).
+  const [localSkills, setLocalSkills] = useState<string[] | undefined>(
+    onSkillsChange ? agent.skills : undefined,
+  );
+  const effectiveOnSkillsChange = (agentId: string, skills: string[]) => {
+    setLocalSkills(skills);
+    onSkillsChange?.(agentId, skills);
+  };
+  const skillsAgent = localSkills !== undefined ? { ...agent, skills: localSkills } : agent;
+
+  // Skill id → name resolution for the Overview tab's Attached-skills chips.
+  const { skills: SKILLS } = useSkillsCatalog();
+  const attachedSkillNames = useMemo(
+    () =>
+      (skillsAgent.skills ?? []).map((id) => ({
+        id,
+        name: SKILLS.find((s) => s.id === id)?.name ?? id,
+      })),
+    [skillsAgent.skills, SKILLS],
+  );
+
   // resetKey: incrementing this remounts ConfigLeversFlat (key prop), which
   // re-seeds its localSel from the now-empty effectiveSelections — the correct
   // React-idiomatic way to reset child state from a parent.
@@ -483,34 +523,18 @@ export function AgentCapabilitiesModal({
   // saved: brief "Saved ✓" feedback on the Save button before closing.
   const [saved, setSaved] = useState(false);
 
-  // Custom skill editor state
-  const [customSkillOpen, setCustomSkillOpen] = useState(false);
-  const [customSkillName, setCustomSkillName] = useState("");
-  const [customSkillContent, setCustomSkillContent] = useState("");
-  const [customAttached, setCustomAttached] = useState(false);
   const iconStyle = ICON_STYLES[agentIndex % ICON_STYLES.length];
   const capabilities = getCapabilities(agent);
   const pipelineLabel = PIPELINE_LABEL[agent.pipeline_type] ?? agent.pipeline_type;
 
-  const suggestedSkills = SKILLS.filter(s => s.compatible_agents.includes(agent.id)).slice(0, 3);
   const suggestedHooks = HOOKS.filter(h => h.compatible_agents.includes(agent.id)).slice(0, 3);
 
-  const isSkillAttached = (id: string) => attachedSkills.some(s => s.id === id);
   const isHookAttached = (id: string) => attachedHooks.some(h => h.id === id);
-
-  const handleAttachSkill = (skill: SkillDef) => {
-    if (isSkillAttached(skill.id)) return;
-    onAttachSkill?.({
-      id: skill.id, name: skill.name, source: skill.source,
-      sourceLabel: skill.sourceLabel, category: skill.category, content: skill.content,
-    });
-  };
 
   const handleAttachHook = (hook: HookDef) => {
     if (isHookAttached(hook.id)) return;
     onAttachHook?.({
-      id: hook.id, name: hook.name, source: hook.source,
-      sourceLabel: hook.sourceLabel, event: hook.event, trigger: hook.trigger,
+      id: hook.id, name: hook.name, event: hook.event, trigger: hook.trigger,
       description: hook.description,
     });
   };
@@ -537,10 +561,10 @@ export function AgentCapabilitiesModal({
         onClick={e => e.stopPropagation()}
         className={asDrawer
           ? "bg-surface-paper shadow-[-24px_0_60px_rgba(17,17,20,0.22)] w-[472px] max-w-full h-full overflow-hidden flex flex-col"
-          : "bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col"}
+          : "bg-surface-white rounded-2xl shadow-2xl border border-line-control w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col"}
       >
         {/* Header */}
-        <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">
+        <div className="px-6 pt-6 pb-4 border-b border-line-divider flex-shrink-0">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 text-[13px] font-bold"
@@ -548,11 +572,11 @@ export function AgentCapabilitiesModal({
                 {getAgentInitials(agent.name)}
               </div>
               <div>
-                <h2 className="text-[15px] font-bold text-gray-900 leading-tight">{agent.name}</h2>
-                <p className="text-[11px] text-gray-500 mt-0.5">{agent.role}</p>
+                <h2 className="text-[15px] font-bold text-ink-900 leading-tight">{agent.name}</h2>
+                <p className="text-[11px] text-ink-500 mt-0.5">{agent.role}</p>
               </div>
             </div>
-            <button onClick={onClose} className="h-7 w-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all flex-shrink-0">
+            <button onClick={onClose} className="h-7 w-7 flex items-center justify-center rounded-lg text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-all flex-shrink-0">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -583,12 +607,12 @@ export function AgentCapabilitiesModal({
               bound to the agent's REAL has_skill (SC-001/ND-D: never fabricate —
               the chip is omitted when the agent declares no skill support). */}
           <div className="flex items-center flex-wrap gap-2">
-            <span className="flex items-center gap-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 px-2.5 py-1 rounded-full">
+            <span className="flex items-center gap-1 text-[11px] font-medium text-ink-600 bg-surface-white border border-line-control px-2.5 py-1 rounded-full">
               <Clock className="h-3 w-3" />~{agent.estimated_duration}s
             </span>
-            <span className="text-[11px] font-medium text-gray-700 bg-white border border-gray-200 px-2.5 py-1 rounded-full">{pipelineLabel}</span>
+            <span className="text-[11px] font-medium text-ink-700 bg-surface-white border border-line-control px-2.5 py-1 rounded-full">{pipelineLabel}</span>
             {agent.has_skill && (
-              <span className="flex items-center gap-1 text-[11px] font-medium text-gray-700 bg-white border border-gray-200 px-2.5 py-1 rounded-full">
+              <span className="flex items-center gap-1 text-[11px] font-medium text-ink-700 bg-surface-white border border-line-control px-2.5 py-1 rounded-full">
                 <BookMarked className="h-2.5 w-2.5" />Skill support
               </span>
             )}
@@ -597,14 +621,14 @@ export function AgentCapabilitiesModal({
           {/* 1. What it does (mock heading) */}
           <div>
             <div className="flex items-center gap-2 mb-2.5">
-              <Zap className="h-3.5 w-3.5 text-gray-400" />
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">What it does</p>
+              <Zap className="h-3.5 w-3.5 text-ink-400" />
+              <p className="text-[10px] font-semibold text-ink-500 uppercase tracking-wide">What it does</p>
             </div>
             <div className="space-y-2">
               {capabilities.map((cap, i) => (
                 <div key={i} className="flex items-start gap-2.5">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-gray-400 flex-shrink-0 mt-0.5" />
-                  <p className="text-[12px] text-gray-700 leading-relaxed">{cap}</p>
+                  <CheckCircle2 className="h-3.5 w-3.5 text-ink-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-[12px] text-ink-700 leading-relaxed">{cap}</p>
                 </div>
               ))}
             </div>
@@ -612,14 +636,37 @@ export function AgentCapabilitiesModal({
 
           {/* 2. Role in pipeline — the agent's ROLE NAME (matches the mock's
               "ROLE IN PIPELINE" block; the generic step index is dropped). */}
-          <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Role in pipeline</p>
+          <div className="rounded-xl border border-line-divider bg-surface-warm px-4 py-3">
+            <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5">Role in pipeline</p>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-medium px-2 py-0.5 rounded-md border bg-gray-100 text-gray-600 border-gray-200">{pipelineLabel}</span>
-              <ChevronRight className="h-3 w-3 text-gray-300" />
-              <span className="text-[11px] text-gray-600 font-medium">{agent.role}</span>
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded-md border bg-line-faint-row text-ink-600 border-line-control">{pipelineLabel}</span>
+              <ChevronRight className="h-3 w-3 text-ink-300" />
+              <span className="text-[11px] text-ink-600 font-medium">{agent.role}</span>
             </div>
           </div>
+
+          {/* 2b. Attached skills — the ticked set from the Skills tab, rendered
+              as chips. Derives from `skillsAgent` (the local mirror) so a toggle
+              in the Skills tab updates this live, no remount needed. */}
+          {attachedSkillNames.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-2.5">
+                <Puzzle className="h-3.5 w-3.5 text-ink-400" />
+                <p className="text-[10px] font-semibold text-ink-500 uppercase tracking-wide">Attached skills</p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {attachedSkillNames.map((s) => (
+                  <span
+                    key={s.id}
+                    title={s.name}
+                    className="flex items-center gap-1 rounded-full border border-brand-border bg-brand-fill px-2.5 py-1 text-[11px] font-medium text-brand"
+                  >
+                    {s.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 3. System prompt — full edit affordances (Edit / Save / Revert) moved
               here from Config so users can read AND edit the prompt in one place
@@ -680,7 +727,7 @@ export function AgentCapabilitiesModal({
               disabled={saved}
               className={`flex-[2] rounded-[10px] px-4 py-2.5 font-sans text-[13px] font-semibold text-white ${
                 saved
-                  ? "bg-green-600 cursor-default"
+                  ? "bg-status-done cursor-default"
                   : "bg-brand hover:bg-brand-pressed"
               }`}
             >
@@ -690,54 +737,6 @@ export function AgentCapabilitiesModal({
           </>
           )}
 
-          {/* Skills tab — Suggested Skills + Custom skill */}
-          {drawerTab === "skills" && (
-          <>
-          {/* Suggested Skills */}
-          {suggestedSkills.length > 0 ? (
-            <div>
-              <div className="flex items-center gap-2 mb-2.5">
-                <Puzzle className="h-3.5 w-3.5 text-gray-400" />
-                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Suggested Skills</p>
-              </div>
-              <div className="space-y-1.5">
-                {suggestedSkills.map(skill => {
-                  const attached = isSkillAttached(skill.id);
-                  return (
-                    <div key={skill.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                          <p className="text-[11px] font-semibold text-gray-800 truncate">{skill.name}</p>
-                        </div>
-                        <p className="text-[10px] text-gray-500 leading-relaxed line-clamp-1">{skill.description}</p>
-                      </div>
-                      <button
-                        onClick={() => handleAttachSkill(skill)}
-                        disabled={attached}
-                        className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-colors ${
-                          attached
-                            ? "bg-gray-100 text-gray-400 cursor-default"
-                            : "bg-gray-900 text-white hover:bg-gray-700 cursor-pointer"
-                        }`}
-                      >
-                        {attached ? <><Check className="h-2.5 w-2.5" /> Added</> : <><Plus className="h-2.5 w-2.5" /> Attach</>}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <Puzzle className="h-8 w-8 text-gray-200 mb-3" />
-              <p className="text-[13px] font-medium text-gray-500">No suggested skills</p>
-              <p className="text-[11px] text-gray-400 mt-1 leading-relaxed max-w-[220px]">
-                No pre-built skills for this agent. Write a custom skill below.
-              </p>
-            </div>
-          )}
-          </>
-          )}
 
           {/* Hooks tab — Suggested Hooks */}
           {drawerTab === "hooks" && (
@@ -746,28 +745,28 @@ export function AgentCapabilitiesModal({
           {suggestedHooks.length > 0 ? (
             <div>
               <div className="flex items-center gap-2 mb-2.5">
-                <Webhook className="h-3.5 w-3.5 text-gray-400" />
-                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Suggested Hooks</p>
+                <Webhook className="h-3.5 w-3.5 text-ink-400" />
+                <p className="text-[10px] font-semibold text-ink-500 uppercase tracking-wide">Suggested Hooks</p>
               </div>
               <div className="space-y-1.5">
                 {suggestedHooks.map(hook => {
                   const attached = isHookAttached(hook.id);
                   return (
-                    <div key={hook.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                    <div key={hook.id} className="flex items-center justify-between gap-3 rounded-lg border border-line-divider bg-surface-warm px-3 py-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 mb-0.5">
-                          <p className="text-[11px] font-semibold text-gray-800 truncate">{hook.name}</p>
-                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-200 text-gray-500 flex-shrink-0">{hook.event}</span>
+                          <p className="text-[11px] font-semibold text-ink-800 truncate">{hook.name}</p>
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-line-control text-ink-500 flex-shrink-0">{hook.event}</span>
                         </div>
-                        <p className="text-[10px] text-gray-500 leading-relaxed line-clamp-1">{hook.description}</p>
+                        <p className="text-[10px] text-ink-500 leading-relaxed line-clamp-1">{hook.description}</p>
                       </div>
                       <button
                         onClick={() => handleAttachHook(hook)}
                         disabled={attached}
                         className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-colors ${
                           attached
-                            ? "bg-gray-100 text-gray-400 cursor-default"
-                            : "bg-gray-900 text-white hover:bg-gray-700 cursor-pointer"
+                            ? "bg-line-faint-row text-ink-400 cursor-default"
+                            : "bg-brand text-white hover:bg-brand-pressed cursor-pointer"
                         }`}
                       >
                         {attached ? <><Check className="h-2.5 w-2.5" /> Added</> : <><Plus className="h-2.5 w-2.5" /> Attach</>}
@@ -779,9 +778,9 @@ export function AgentCapabilitiesModal({
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-8 text-center">
-              <Webhook className="h-8 w-8 text-gray-200 mb-3" />
-              <p className="text-[13px] font-medium text-gray-500">No suggested hooks</p>
-              <p className="text-[11px] text-gray-400 mt-1 leading-relaxed max-w-[220px]">
+              <Webhook className="h-8 w-8 text-ink-200 mb-3" />
+              <p className="text-[13px] font-medium text-ink-500">No suggested hooks</p>
+              <p className="text-[11px] text-ink-400 mt-1 leading-relaxed max-w-[220px]">
                 There are no pre-built hooks recommended for this agent.
               </p>
             </div>
@@ -789,97 +788,23 @@ export function AgentCapabilitiesModal({
           </>
           )}
 
-          {/* Skills tab (cont.) — Custom skill authoring */}
+          {/* Skills tab — the SHARED per-agent picker (ADR-0010).
+
+              This tab used to offer two RUN-LEVEL attach paths: a catalog list
+              and a "write a custom skill" editor, both calling ctx.attachSkill
+              so the skill landed on every agent in the launch rather than on
+              this one. Both are gone.
+
+              The custom-skill editor has no per-agent equivalent and was NOT
+              ported: `Step.skills` is a list of catalog skill IDs, and there is
+              nowhere to put ad-hoc inline `content`. Authoring a new skill is a
+              skills-catalog concern, not an agent-inspector one. */}
           {drawerTab === "skills" && (
-          <>
-          {/* Custom skill — available for all agents (no has_skill gate) */}
-          <div className="rounded-xl overflow-hidden">
-              {/* Header — dashed full-width button; click toggles the editor open/closed */}
-              <button
-                onClick={() => { setCustomSkillOpen(v => !v); setCustomAttached(false); }}
-                className="w-full flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl border border-dashed border-gray-300 hover:border-gray-400 hover:bg-gray-50 text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                <Plus className="h-3.5 w-3.5 flex-shrink-0" />
-                <span className="text-[12px] font-medium">Write a custom skill</span>
-              </button>
-
-              {/* Inline editor — expands when open */}
-              <AnimatePresence>
-                {customSkillOpen && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.18 }}
-                    className="overflow-hidden mt-2 rounded-xl"
-                  >
-                    <div className="px-4 py-4 space-y-3 bg-surface-near-black rounded-xl">
-                      {/* Skill name */}
-                      <div>
-                        <label className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide block mb-1">Skill name</label>
-                        <input
-                          type="text"
-                          value={customSkillName}
-                          onChange={e => setCustomSkillName(e.target.value)}
-                          placeholder={`e.g. ${agent.name} domain rules`}
-                          className="w-full px-3 py-2 text-[12px] text-white bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:border-white/40 placeholder-white/30 transition-colors"
-                        />
-                      </div>
-                      {/* Skill content */}
-                      <div>
-                        <label className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide block mb-1">
-                          Instructions <span className="text-ink-400 normal-case font-normal">(paste your SKILL.md content or write custom instructions)</span>
-                        </label>
-                        <textarea
-                          value={customSkillContent}
-                          onChange={e => setCustomSkillContent(e.target.value)}
-                          placeholder={`# ${agent.name} Custom Skill\n\nWrite domain-specific instructions here.\nThese will be injected into this agent's prompt.\n\n## Rules\n- Rule 1\n- Rule 2`}
-                          rows={7}
-                          className="w-full px-3 py-2 text-[13px] text-white font-sans bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:border-white/40 placeholder-white/30 resize-none leading-relaxed transition-colors"
-                        />
-                        <p className="text-[9px] text-ink-400 mt-1">{customSkillContent.length} characters</p>
-                      </div>
-                      {/* Attach button */}
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-[11px] text-ink-400 leading-relaxed">
-                          This skill will be injected into the agent&apos;s prompt when the pipeline runs.
-                        </p>
-                        <button
-                          onClick={() => {
-                            if (!customSkillName.trim() || !customSkillContent.trim()) return;
-                            onAttachSkill({
-                              id: `custom-${agent.id}-${Date.now()}`,
-                              name: customSkillName.trim(),
-                              source: "ecc",
-                              sourceLabel: "Custom",
-                              category: "workflow",
-                              content: customSkillContent.trim(),
-                            });
-                            setCustomAttached(true);
-                            setCustomSkillOpen(false);
-                            setCustomSkillName("");
-                            setCustomSkillContent("");
-                          }}
-                          disabled={!customSkillName.trim() || !customSkillContent.trim()}
-                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white text-gray-900 text-[11px] font-semibold hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
-                        >
-                          {customAttached ? <><Check className="h-3 w-3" /> Attached</> : <><Plus className="h-3 w-3" /> Attach skill</>}
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Success state */}
-              {customAttached && !customSkillOpen && (
-                <div className="px-4 py-2 mt-2 rounded-xl bg-surface-near-black flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-ink-400" />
-                  <p className="text-[11px] text-white font-medium">Custom skill attached</p>
-                </div>
-              )}
-            </div>
-          </>
+            <AgentSkillsPicker
+              agent={skillsAgent}
+              onSkillsChange={effectiveOnSkillsChange}
+              readOnly={!onSkillsChange}
+            />
           )}
 
         </div>
@@ -889,30 +814,27 @@ export function AgentCapabilitiesModal({
 }
 
 
-// ─── SkillsHooksTab ───────────────────────────────────────────────────────────
+// ─── HooksTab ─────────────────────────────────────────────────────────────────
 
-// EXPORTED (41-04): the Composer's "Skills & hooks" card reuses this whole
-// section (skills + hooks pickers) — bound to the shared SkillsHooksContext, so
-// the modal and the composer share ONE attached-skills/hooks source of truth.
-export function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
-  const { attachedSkills, attachedHooks, attachSkill, detachSkill, attachHook, detachHook } = useSkillsHooks();
-  const [skillsOpen, setSkillsOpen] = useState(false);
+// EXPORTED (41-04): the Composer's "Hooks" card reuses this whole section —
+// bound to the shared SkillsHooksContext, so the modal and the composer share
+// ONE attached-hooks source of truth.
+//
+// ADR-0010: this used to be `SkillsHooksTab` and rendered a SKILLS picker above
+// the hooks picker. That picker attached skills at the RUN level — one bag
+// applied to every agent in the launch — which is a second source of truth for
+// the same thing as per-agent `Step.skills`. Skills are now attached to an agent
+// via `composer/AgentSkillsPicker`, and this tab is hooks-only. Hooks stay
+// run-level because no per-step hooks field exists in the manifest to move them
+// to.
+export function HooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
+  const { hooks: HOOKS, events: HOOK_EVENTS } = useHooksCatalog();
+  const { attachedHooks, attachHook, detachHook } = useSkillsHooks();
   const [hooksOpen, setHooksOpen] = useState(false);
-  const [skillSearch, setSkillSearch] = useState("");
-  const [skillCategory, setSkillCategory] = useState("all");
   const [hookSearch, setHookSearch] = useState("");
   const [hookEvent, setHookEvent] = useState("all");
 
-  const isSkillAttached = (id: string) => attachedSkills.some(s => s.id === id);
   const isHookAttached = (id: string) => attachedHooks.some(h => h.id === id);
-
-  const filteredSkills = SKILLS.filter(s => {
-    const matchCat = skillCategory === "all" || s.category === skillCategory;
-    const matchSearch = !skillSearch ||
-      s.name.toLowerCase().includes(skillSearch.toLowerCase()) ||
-      s.description.toLowerCase().includes(skillSearch.toLowerCase());
-    return matchCat && matchSearch;
-  });
 
   const filteredHooks = HOOKS.filter(h => {
     const matchEvent = hookEvent === "all" || h.event === hookEvent;
@@ -925,133 +847,19 @@ export function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType })
   return (
     <div className="flex-1 overflow-y-auto p-5 space-y-5">
 
-      {/* ── SKILLS SECTION ── */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Puzzle className="h-4 w-4 text-gray-400" />
-            <span className="text-[13px] font-semibold text-gray-800">Skills</span>
-            {attachedSkills.length > 0 && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-900 text-white">{attachedSkills.length}</span>
-            )}
-          </div>
-          <button
-            onClick={() => setSkillsOpen(v => !v)}
-            className="flex items-center gap-1 text-[11px] font-semibold text-gray-500 hover:text-gray-900 transition-colors"
-          >
-            <Plus className="h-3.5 w-3.5" /> Add skill
-          </button>
-        </div>
-
-        {/* Attached skills */}
-        {attachedSkills.length > 0 && (
-          <div className="space-y-1.5 mb-3">
-            {attachedSkills.map(skill => (
-              <div key={skill.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
-                  <span className="text-[12px] font-semibold text-gray-800 truncate">{skill.name}</span>
-                </div>
-                <button onClick={() => detachSkill(skill.id)} className="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors">
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {attachedSkills.length === 0 && !skillsOpen && (
-          <div className="rounded-lg border border-dashed border-gray-200 px-4 py-3 text-center">
-            <p className="text-[11px] text-gray-400">No skills attached · click &quot;Add skill&quot; to browse</p>
-          </div>
-        )}
-
-        {/* Skills picker */}
-        {skillsOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="rounded-xl border border-gray-200 bg-white overflow-hidden"
-          >
-            {/* Search + filter */}
-            <div className="p-3 border-b border-gray-100 space-y-2">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
-                <input
-                  value={skillSearch}
-                  onChange={e => setSkillSearch(e.target.value)}
-                  placeholder="Search skills..."
-                  className="w-full pl-7 pr-3 py-1.5 text-[11px] bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 placeholder-gray-400"
-                />
-              </div>
-              <div className="flex gap-1 flex-wrap">
-                {SKILL_CATEGORIES.map(cat => (
-                  <button
-                    key={cat.id}
-                    onClick={() => setSkillCategory(cat.id)}
-                    className={`px-2 py-0.5 rounded-full text-[9px] font-semibold transition-colors ${
-                      skillCategory === cat.id
-                        ? "bg-gray-900 text-white"
-                        : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                    }`}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {/* Skill list */}
-            <div className="max-h-[240px] overflow-y-auto divide-y divide-gray-50">
-              {filteredSkills.length === 0 ? (
-                <p className="text-[11px] text-gray-400 text-center py-4">No skills found</p>
-              ) : filteredSkills.map(skill => {
-                const attached = isSkillAttached(skill.id);
-                return (
-                  <div key={skill.id} className="flex items-start justify-between gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <p className="text-[11px] font-semibold text-gray-800">{skill.name}</p>
-                        <span className="text-[9px] text-gray-400 capitalize">{skill.category}</span>
-                      </div>
-                      <p className="text-[10px] text-gray-500 leading-relaxed line-clamp-2">{skill.description}</p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        if (!attached) {
-                          attachSkill({ id: skill.id, name: skill.name, source: skill.source, sourceLabel: skill.sourceLabel, category: skill.category, content: skill.content });
-                        }
-                      }}
-                      disabled={attached}
-                      className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-colors mt-0.5 ${
-                        attached ? "bg-gray-100 text-gray-400 cursor-default" : "bg-gray-900 text-white hover:bg-gray-700"
-                      }`}
-                    >
-                      {attached ? <><Check className="h-2.5 w-2.5" /> Added</> : <><Plus className="h-2.5 w-2.5" /> Add</>}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="p-2 border-t border-gray-100 flex justify-end">
-              <button onClick={() => setSkillsOpen(false)} className="text-[10px] text-gray-400 hover:text-gray-700 px-2 py-1">Done</button>
-            </div>
-          </motion.div>
-        )}
-      </div>
-
       {/* ── HOOKS SECTION ── */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Webhook className="h-4 w-4 text-gray-400" />
-            <span className="text-[13px] font-semibold text-gray-800">Hooks</span>
+            <Webhook className="h-4 w-4 text-ink-400" />
+            <span className="text-[13px] font-semibold text-ink-800">Hooks</span>
             {attachedHooks.length > 0 && (
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-900 text-white">{attachedHooks.length}</span>
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-brand text-white">{attachedHooks.length}</span>
             )}
           </div>
           <button
             onClick={() => setHooksOpen(v => !v)}
-            className="flex items-center gap-1 text-[11px] font-semibold text-gray-500 hover:text-gray-900 transition-colors"
+            className="flex items-center gap-1 text-[11px] font-semibold text-ink-500 hover:text-ink-900 transition-colors"
           >
             <Plus className="h-3.5 w-3.5" /> Add hook
           </button>
@@ -1061,13 +869,13 @@ export function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType })
         {attachedHooks.length > 0 && (
           <div className="space-y-1.5 mb-3">
             {attachedHooks.map(hook => (
-              <div key={hook.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+              <div key={hook.id} className="flex items-center justify-between gap-3 rounded-lg border border-line-control bg-surface-white px-3 py-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
-                  <span className="text-[12px] font-semibold text-gray-800 truncate">{hook.name}</span>
-                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0">{hook.event}</span>
+                  <CheckCircle2 className="h-3.5 w-3.5 text-ink-500 flex-shrink-0" />
+                  <span className="text-[12px] font-semibold text-ink-800 truncate">{hook.name}</span>
+                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-line-faint-row text-ink-500 flex-shrink-0">{hook.event}</span>
                 </div>
-                <button onClick={() => detachHook(hook.id)} className="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors">
+                <button onClick={() => detachHook(hook.id)} className="flex-shrink-0 text-ink-300 hover:text-status-failed transition-colors">
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -1076,8 +884,8 @@ export function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType })
         )}
 
         {attachedHooks.length === 0 && !hooksOpen && (
-          <div className="rounded-lg border border-dashed border-gray-200 px-4 py-3 text-center">
-            <p className="text-[11px] text-gray-400">No hooks attached · click &quot;Add hook&quot; to browse</p>
+          <div className="rounded-lg border border-dashed border-line-control px-4 py-3 text-center">
+            <p className="text-[11px] text-ink-400">No hooks attached · click &quot;Add hook&quot; to browse</p>
           </div>
         )}
 
@@ -1086,16 +894,16 @@ export function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType })
           <motion.div
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
-            className="rounded-xl border border-gray-200 bg-white overflow-hidden"
+            className="rounded-xl border border-line-control bg-surface-card overflow-hidden"
           >
-            <div className="p-3 border-b border-gray-100 space-y-2">
+            <div className="p-3 border-b border-line-divider space-y-2">
               <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-ink-400" />
                 <input
                   value={hookSearch}
                   onChange={e => setHookSearch(e.target.value)}
                   placeholder="Search hooks..."
-                  className="w-full pl-7 pr-3 py-1.5 text-[11px] bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 placeholder-gray-400"
+                  className="w-full pl-7 pr-3 py-1.5 text-[11px] bg-surface-warm border border-line-control rounded-lg focus:outline-none focus:border-ink-400 placeholder-ink-400"
                 />
               </div>
               <div className="flex gap-1 flex-wrap">
@@ -1105,8 +913,8 @@ export function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType })
                     onClick={() => setHookEvent(ev.id)}
                     className={`px-2 py-0.5 rounded-full text-[9px] font-semibold transition-colors ${
                       hookEvent === ev.id
-                        ? "bg-gray-900 text-white"
-                        : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                        ? "bg-brand text-white"
+                        : "bg-line-faint-row text-ink-500 hover:bg-line-control"
                     }`}
                   >
                     {ev.label}
@@ -1114,30 +922,30 @@ export function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType })
                 ))}
               </div>
             </div>
-            <div className="max-h-[240px] overflow-y-auto divide-y divide-gray-50">
+            <div className="max-h-[240px] overflow-y-auto divide-y divide-line-divider">
               {filteredHooks.length === 0 ? (
-                <p className="text-[11px] text-gray-400 text-center py-4">No hooks found</p>
+                <p className="text-[11px] text-ink-400 text-center py-4">No hooks found</p>
               ) : filteredHooks.map(hook => {
                 const attached = isHookAttached(hook.id);
                 return (
-                  <div key={hook.id} className="flex items-start justify-between gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors">
+                  <div key={hook.id} className="flex items-start justify-between gap-3 px-3 py-2.5 hover:bg-surface-warm transition-colors">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
-                        <p className="text-[11px] font-semibold text-gray-800">{hook.name}</p>
-                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{hook.event}</span>
+                        <p className="text-[11px] font-semibold text-ink-800">{hook.name}</p>
+                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-line-faint-row text-ink-500">{hook.event}</span>
                       </div>
-                      <p className="text-[10px] text-gray-500 leading-relaxed line-clamp-2">{hook.description}</p>
-                      <p className="text-[9px] text-gray-400 mt-0.5 italic">{hook.trigger}</p>
+                      <p className="text-[10px] text-ink-500 leading-relaxed line-clamp-2">{hook.description}</p>
+                      <p className="text-[9px] text-ink-400 mt-0.5 italic">{hook.trigger}</p>
                     </div>
                     <button
                       onClick={() => {
                         if (!attached) {
-                          attachHook({ id: hook.id, name: hook.name, source: hook.source, sourceLabel: hook.sourceLabel, event: hook.event, trigger: hook.trigger, description: hook.description });
+                          attachHook({ id: hook.id, name: hook.name, event: hook.event, trigger: hook.trigger, description: hook.description });
                         }
                       }}
                       disabled={attached}
                       className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-colors mt-0.5 ${
-                        attached ? "bg-gray-100 text-gray-400 cursor-default" : "bg-gray-900 text-white hover:bg-gray-700"
+                        attached ? "bg-line-faint-row text-ink-400 cursor-default" : "bg-brand text-white hover:bg-brand-pressed"
                       }`}
                     >
                       {attached ? <><Check className="h-2.5 w-2.5" /> Added</> : <><Plus className="h-2.5 w-2.5" /> Add</>}
@@ -1146,18 +954,18 @@ export function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType })
                 );
               })}
             </div>
-            <div className="p-2 border-t border-gray-100 flex justify-end">
-              <button onClick={() => setHooksOpen(false)} className="text-[10px] text-gray-400 hover:text-gray-700 px-2 py-1">Done</button>
+            <div className="p-2 border-t border-line-divider flex justify-end">
+              <button onClick={() => setHooksOpen(false)} className="text-[10px] text-ink-400 hover:text-ink-700 px-2 py-1">Done</button>
             </div>
           </motion.div>
         )}
       </div>
 
       {/* Info note */}
-      <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-        <p className="text-[10px] text-gray-500 leading-relaxed">
-          <span className="font-semibold text-gray-700">Skills</span> inject domain-specific instructions into agent prompts.{" "}
-          <span className="font-semibold text-gray-700">Hooks</span> define pre/post behaviours that guide agent execution.
+      <div className="rounded-xl border border-line-divider bg-surface-warm px-4 py-3">
+        <p className="text-[10px] text-ink-500 leading-relaxed">
+          <span className="font-semibold text-ink-700">Skills</span> inject domain-specific instructions into agent prompts.{" "}
+          <span className="font-semibold text-ink-700">Hooks</span> define pre/post behaviours that guide agent execution.
         </p>
       </div>
     </div>
@@ -1273,7 +1081,7 @@ export function CapabilityPaletteSection({
     <div className="flex flex-col">
       <div className="flex items-center gap-1.5 mb-2">
         <Sliders className="h-3.5 w-3.5 text-brand" />
-        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
+        <p className="text-[10px] font-semibold text-ink-500 uppercase tracking-widest">
           Capabilities
         </p>
       </div>
@@ -1288,10 +1096,10 @@ export function CapabilityPaletteSection({
           <div className="space-y-0.5">
             {declaredCapabilities.map((d) => (
               <div key={d.step} className="flex items-start gap-1.5 text-[10px]">
-                <span className="font-semibold text-gray-700 truncate max-w-[120px]">
+                <span className="font-semibold text-ink-700 truncate max-w-[120px]">
                   {d.step}
                 </span>
-                <span className="text-gray-500 flex-1 min-w-0">
+                <span className="text-ink-500 flex-1 min-w-0">
                   {d.capabilities.join(" · ")}
                 </span>
               </div>
@@ -1301,11 +1109,11 @@ export function CapabilityPaletteSection({
       )}
 
       {loading && (
-        <p className="text-[11px] text-gray-400 py-2">Loading capabilities…</p>
+        <p className="text-[11px] text-ink-400 py-2">Loading capabilities…</p>
       )}
 
       {error && (
-        <div className="flex items-center gap-1.5 text-[11px] text-red-600 bg-red-50 rounded-lg px-2.5 py-1.5">
+        <div className="flex items-center gap-1.5 text-[11px] text-status-failed bg-status-failed-fill rounded-lg px-2.5 py-1.5">
           <AlertCircle className="h-3 w-3 flex-shrink-0" />
           {error}
         </div>
@@ -1313,10 +1121,10 @@ export function CapabilityPaletteSection({
 
       {!loading && !error && capabilities.length === 0 && (
         <div className="py-2">
-          <p className="text-[11px] font-semibold text-gray-500">
+          <p className="text-[11px] font-semibold text-ink-500">
             No capabilities available
           </p>
-          <p className="text-[10px] text-gray-400">
+          <p className="text-[10px] text-ink-400">
             The capability registry returned nothing. Reload, or contact support
             if this persists.
           </p>
@@ -1327,7 +1135,7 @@ export function CapabilityPaletteSection({
         <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1">
           {groups.map((group) => (
             <div key={group.kind} role="group" aria-label={titleCaseKind(group.kind)}>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-1">
+              <p className="text-[10px] font-semibold text-ink-500 uppercase tracking-widest mb-1">
                 {titleCaseKind(group.kind)}
               </p>
               <div className="space-y-1.5">
@@ -1366,28 +1174,28 @@ export function CapabilityPaletteSection({
                       }
                       className={`rounded-lg border px-2.5 py-1.5 ${
                         locked
-                          ? "bg-gray-50 border-gray-100 opacity-80 cursor-not-allowed"
-                          : "bg-gray-50 border-gray-100"
+                          ? "bg-surface-warm border-line-divider opacity-80 cursor-not-allowed"
+                          : "bg-surface-warm border-line-divider"
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         {locked && (
-                          <Lock className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                          <Lock className="h-3 w-3 text-ink-400 flex-shrink-0" />
                         )}
                         <p
                           className={`text-[11px] font-semibold truncate flex-1 min-w-0 ${
-                            locked ? "text-gray-400" : "text-gray-800"
+                            locked ? "text-ink-400" : "text-ink-800"
                           }`}
                         >
                           {cap.name}
                         </p>
                         {locked && (
-                          <span className="text-[10px] text-gray-400 flex-shrink-0">
+                          <span className="text-[10px] text-ink-400 flex-shrink-0">
                             Engineer-only
                           </span>
                         )}
                         {cap.security_gated && !locked && (
-                          <Lock className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                          <Lock className="h-3 w-3 text-ink-400 flex-shrink-0" />
                         )}
                         {hasSchema && (
                           <button
@@ -1395,7 +1203,7 @@ export function CapabilityPaletteSection({
                             onClick={() => toggle(rowKey)}
                             aria-expanded={isOpen}
                             aria-label={`Configuration for ${cap.name}`}
-                            className="flex items-center justify-center h-5 w-5 rounded text-gray-400 hover:text-brand flex-shrink-0"
+                            className="flex items-center justify-center h-5 w-5 rounded text-ink-400 hover:text-brand flex-shrink-0"
                           >
                             <Settings2 className="h-3 w-3" />
                             {isOpen ? (
@@ -1409,14 +1217,14 @@ export function CapabilityPaletteSection({
                       {cap.description && (
                         <p
                           className={`text-[11px] ${
-                            locked ? "text-gray-400" : "text-gray-500"
+                            locked ? "text-ink-400" : "text-ink-500"
                           }`}
                         >
                           {cap.description}
                         </p>
                       )}
                       {hasSchema && isOpen && (
-                        <div className="mt-1 rounded-md bg-white border border-gray-100 px-2 py-1 space-y-0.5">
+                        <div className="mt-1 rounded-md bg-surface-card border border-line-divider px-2 py-1 space-y-0.5">
                           {Object.entries(cap.config_schema).map(
                             ([field, desc]) => {
                               // `desc` is typed `unknown` (config_schema is
@@ -1440,16 +1248,17 @@ export function CapabilityPaletteSection({
                               return (
                                 <p
                                   key={field}
-                                  className="text-[10px] text-gray-500 font-mono"
+                                  className="text-[10px] text-ink-500 font-mono"
                                 >
                                   {field}
-                                  {/* Required marker — gray scale only, never
-                                      navy/red (preserve locked-row neutrality). */}
+                                  {/* Required marker — neutral ink scale only,
+                                      never brand/red (preserve locked-row
+                                      neutrality). */}
                                   {isRequired && (
-                                    <span className="text-gray-400">*</span>
+                                    <span className="text-ink-400">*</span>
                                   )}
                                   {fieldType && (
-                                    <span className="ml-1 text-[9px] text-gray-400">
+                                    <span className="ml-1 text-[9px] text-ink-400">
                                       {fieldType}
                                     </span>
                                   )}
@@ -1905,13 +1714,13 @@ export function AdvancedExpander({
   if (loading) {
     return (
       <div className="flex flex-col">
-        <p className="text-[11px] text-gray-400 py-2">Loading levers…</p>
+        <p className="text-[11px] text-ink-300 py-2">Loading levers…</p>
       </div>
     );
   }
   if (error) {
     return (
-      <div className="flex items-center gap-1.5 text-[11px] text-red-600 bg-red-50 rounded-lg px-2.5 py-1.5">
+      <div className="flex items-center gap-1.5 text-[11px] text-status-failed bg-status-failed-fill rounded-lg px-2.5 py-1.5">
         <AlertCircle className="h-3 w-3 flex-shrink-0" />
         {error}
       </div>
@@ -1919,7 +1728,7 @@ export function AdvancedExpander({
   }
   if (agents.length === 0) {
     return (
-      <p className="text-[11px] text-gray-400 py-2">
+      <p className="text-[11px] text-ink-300 py-2">
         Add agents to assign per-agent levers.
       </p>
     );
@@ -1941,7 +1750,7 @@ export function AdvancedExpander({
               onClick={() => toggle(agent.id)}
               aria-expanded={isOpen}
               aria-controls={region}
-              className="flex items-center gap-1.5 text-left text-[11px] font-semibold text-gray-700 hover:text-brand py-1"
+              className="flex items-center gap-1.5 text-left text-[11px] font-semibold text-ink-700 hover:text-brand py-1"
             >
               {isOpen ? (
                 <ChevronDown className="h-3 w-3 flex-shrink-0" />
@@ -1952,7 +1761,7 @@ export function AdvancedExpander({
               <span className="truncate flex-1 min-w-0">
                 Advanced — {agent.name}
               </span>
-              <span className="text-[9px] text-gray-400 flex-shrink-0">
+              <span className="text-[9px] text-ink-300 flex-shrink-0">
                 Validator · Gate · Model · Retry
               </span>
             </button>
@@ -1960,10 +1769,10 @@ export function AdvancedExpander({
             {isOpen && (
               <div id={region} className="space-y-1.5 pl-4">
                 {/* Validator lever (EMP-01) */}
-                <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                <div className="flex items-center gap-2 bg-surface-warm border border-line-faint-row rounded-lg px-2.5 py-1.5">
                   <label
                     htmlFor={`${region}-validator`}
-                    className="text-[11px] font-semibold text-gray-700 flex-1 min-w-0"
+                    className="text-[11px] font-semibold text-ink-700 flex-1 min-w-0"
                   >
                     Validator
                   </label>
@@ -1976,7 +1785,7 @@ export function AdvancedExpander({
                         validators: e.target.value ? [e.target.value] : [],
                       })
                     }
-                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
+                    className="text-[10px] text-ink-700 bg-surface-white border border-line-control rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
                   >
                     <option value="">Default</option>
                     {validatorOptions.map((name) => (
@@ -1988,10 +1797,10 @@ export function AdvancedExpander({
                 </div>
 
                 {/* Gate lever (EMP-01) */}
-                <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                <div className="flex items-center gap-2 bg-surface-warm border border-line-faint-row rounded-lg px-2.5 py-1.5">
                   <label
                     htmlFor={`${region}-gate`}
-                    className="text-[11px] font-semibold text-gray-700 flex-1 min-w-0"
+                    className="text-[11px] font-semibold text-ink-700 flex-1 min-w-0"
                   >
                     Gate
                   </label>
@@ -2012,7 +1821,7 @@ export function AdvancedExpander({
                         : keepCoupled;
                       updateLever(agent.id, { gates });
                     }}
-                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
+                    className="text-[10px] text-ink-700 bg-surface-white border border-line-control rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
                   >
                     <option value="">Default</option>
                     {gateOptions.map((name) => (
@@ -2024,11 +1833,11 @@ export function AdvancedExpander({
                 </div>
 
                 {/* Model lever (EMP-01 / DECIDE-02) */}
-                <div className="flex flex-col gap-1.5 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                <div className="flex flex-col gap-1.5 bg-surface-warm border border-line-faint-row rounded-lg px-2.5 py-1.5">
                   <div className="flex items-center gap-2">
                     <label
                       htmlFor={`${region}-model`}
-                      className="text-[11px] font-semibold text-gray-700 flex-1 min-w-0"
+                      className="text-[11px] font-semibold text-ink-700 flex-1 min-w-0"
                     >
                       Model
                     </label>
@@ -2039,7 +1848,7 @@ export function AdvancedExpander({
                       onChange={(e) =>
                         updateLever(agent.id, { model: e.target.value })
                       }
-                      className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand min-w-[160px] max-w-[200px]"
+                      className="text-[10px] text-ink-700 bg-surface-white border border-line-control rounded-md px-1.5 py-1 focus:outline-none focus:border-brand min-w-[160px] max-w-[200px]"
                     >
                       <option value="">Default</option>
                       {modelOptions.map((m) => (
@@ -2057,19 +1866,19 @@ export function AdvancedExpander({
                       ? `${(picked.context_window / 1_000_000).toFixed(0)}M`
                       : `${Math.round(picked.context_window / 1000)}K`;
                     const tierColor: Record<string, string> = {
-                      fast: "bg-green-50 text-green-700 border-green-200",
-                      balanced: "bg-blue-50 text-blue-700 border-blue-200",
-                      powerful: "bg-purple-50 text-purple-700 border-purple-200",
+                      fast: "bg-brand-fill text-brand border-brand-border",
+                      balanced: "bg-brand-fill text-brand border-brand-border",
+                      powerful: "bg-brand-fill text-brand border-brand-border",
                     };
                     return (
                       <div className="flex items-start gap-1.5 pt-0.5">
-                        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border flex-shrink-0 uppercase tracking-wide ${tierColor[picked.tier] ?? "bg-gray-50 text-gray-600 border-gray-200"}`}>
+                        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border flex-shrink-0 uppercase tracking-wide ${tierColor[picked.tier] ?? "bg-surface-warm text-ink-500 border-line-control"}`}>
                           {picked.tier}
                         </span>
-                        <span className="text-[9px] text-gray-400 flex-shrink-0">
+                        <span className="text-[9px] text-ink-300 flex-shrink-0">
                           {ctxK} ctx
                         </span>
-                        <span className="text-[9px] text-gray-500 leading-tight line-clamp-2 min-w-0">
+                        <span className="text-[9px] text-ink-400 leading-tight line-clamp-2 min-w-0">
                           {picked.description}
                         </span>
                       </div>
@@ -2078,10 +1887,10 @@ export function AdvancedExpander({
                 </div>
 
                 {/* Retry lever (EMP-01) */}
-                <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                <div className="flex items-center gap-2 bg-surface-warm border border-line-faint-row rounded-lg px-2.5 py-1.5">
                   <label
                     htmlFor={`${region}-retry`}
-                    className="text-[11px] font-semibold text-gray-700 flex-1 min-w-0"
+                    className="text-[11px] font-semibold text-ink-700 flex-1 min-w-0"
                   >
                     Retry
                   </label>
@@ -2096,7 +1905,7 @@ export function AdvancedExpander({
                           : undefined,
                       })
                     }
-                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
+                    className="text-[10px] text-ink-700 bg-surface-white border border-line-control rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
                   >
                     <option value="">Default</option>
                     {RETRY_OPTIONS.map((n) => (
@@ -2138,11 +1947,11 @@ export function AdvancedExpander({
                   const sourceKnown =
                     !!currentSource && KNOWN_PRODUCERS.includes(currentSource);
                   return (
-                    <div className="flex flex-col gap-1.5 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                    <div className="flex flex-col gap-1.5 bg-surface-warm border border-line-faint-row rounded-lg px-2.5 py-1.5">
                       <div className="flex items-center gap-2">
                         <label
                           htmlFor={`${region}-fanout`}
-                          className="text-[11px] font-semibold text-gray-700 flex-1 min-w-0"
+                          className="text-[11px] font-semibold text-ink-700 flex-1 min-w-0"
                         >
                           Fan out over a list
                         </label>
@@ -2176,7 +1985,7 @@ export function AdvancedExpander({
 
                       {/* No upstream → the toggle can't source a list (D9). */}
                       {!canFanout && (
-                        <p className="text-[10px] text-gray-400 leading-tight">
+                        <p className="text-[10px] text-ink-300 leading-tight">
                           Add an earlier step that outputs a task list to fan out
                           over.
                         </p>
@@ -2188,7 +1997,7 @@ export function AdvancedExpander({
                           <div className="flex items-center gap-2">
                             <label
                               htmlFor={`${region}-fanout-source`}
-                              className="text-[11px] text-gray-600 flex-1 min-w-0"
+                              className="text-[11px] text-ink-500 flex-1 min-w-0"
                             >
                               Source list from
                             </label>
@@ -2205,7 +2014,7 @@ export function AdvancedExpander({
                                   },
                                 })
                               }
-                              className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
+                              className="text-[10px] text-ink-700 bg-surface-white border border-line-control rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
                             >
                               {earlier.map((a) => (
                                 <option key={a.id} value={a.id}>
@@ -2219,7 +2028,7 @@ export function AdvancedExpander({
                               steer to INSERT a dedicated `## Task N:` producer;
                               the compile guard (51-02) is the server backstop. */}
                           {!sourceKnown && (
-                            <p className="flex items-start gap-1.5 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 leading-tight">
+                            <p className="flex items-start gap-1.5 text-[10px] text-status-amber bg-status-amber-fill border border-status-amber-border rounded-md px-2 py-1 leading-tight">
                               <AlertCircle className="h-3 w-3 flex-shrink-0 mt-0.5" />
                               <span>
                                 This step fans out one worker per{" "}
@@ -2258,20 +2067,32 @@ export function AdvancedExpander({
 
 // ─── AgentsPopup (main) ───────────────────────────────────────────────────────
 
-const COLS = 3;
-
 export function AgentsPopup({
   isOpen, onClose, agents, pipelineType,
   onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
   onSelectionsChange, initialSelections,
   declaredCapabilities,
 }: AgentsPopupProps) {
-  const { attachedSkills, attachedHooks } = useSkillsHooks();
+  const { attachedHooks } = useSkillsHooks();
+  const workflows = useAppSelector((state) => state.global.workflows);
+  const workflow = workflows.find((w) => w.id === pipelineType);
+  const workflowName = workflow?.name || workflow?.display_name || pipelineType;
+
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-  const [capAgent, setCapAgent] = useState<{ agent: AgentDef; index: number } | null>(null);
   const [activeTab, setActiveTab] = useState<"agents" | "skills-hooks">("agents");
+  // Bumped by the Save button — see CanvasView's resetLayoutSignal doc.
+  const [canvasResetLayoutSignal, setCanvasResetLayoutSignal] = useState(0);
+  // The Canvas's Brief node is purely a display affordance in this modal — the
+  // real run instruction lives on IdeaInputPage outside this popup — so its
+  // text is local-only, never read or persisted from here.
+  const [canvasBriefText, setCanvasBriefText] = useState("");
+  // Local-only, same reason as canvasBriefText above — decorative in this
+  // modal, not read/persisted from here.
+  const canvasBriefAttachments = useBriefAttachments();
+  // Mirrors ComposerPage's CanvasView "+ Sub-agent" wiring (Spec 012/R-35):
+  // set by onRequestAddSubAgent, consumed by addSubAgent, cleared whenever
+  // the library closes without a pick.
+  const [subAgentParentId, setSubAgentParentId] = useState<string | null>(null);
 
   // ── Save-to-catalogue (Phase 21 / ND-12) ──────────────────────────────────
   // The footer "Save workflow" persists the composed workflow to the OWNER-scoped
@@ -2303,6 +2124,7 @@ export function AgentsPopup({
       }
       setSaving(true);
       setSaveError(null);
+      setCanvasResetLayoutSignal((n) => n + 1);
       try {
         await createUserWorkflow(token, {
           name,
@@ -2334,63 +2156,48 @@ export function AgentsPopup({
     onRemoveAgent?.(agentId);
   }, [onRemoveAgent, pipelineType]);
 
-  const handleDragStart = useCallback((idx: number) => {
-    if (getRole(agents[idx].id, pipelineType) === "locked") return;
-    setDraggedIdx(idx);
-  }, [agents, pipelineType]);
+  // ComposerPage's addSubAgent (Spec 012/R-35), reused here so the embedded
+  // canvas's "+ Sub-agent" opens the library to pick a real agent instead of
+  // falling back to CanvasView's blank-node mint.
+  const addSubAgent = useCallback(
+    (agent: AgentDef) => {
+      if (!subAgentParentId) return;
+      const node = instantiateIfTemplate(agent, collectAgentIds(agents));
+      onReorder?.(addChildInTree(agents, subAgentParentId, node));
+      setSubAgentParentId(null);
+      setLibraryOpen(false);
+    },
+    [subAgentParentId, agents, onReorder],
+  );
 
-  const handleDragOver = useCallback((e: React.DragEvent, idx: number) => {
-    e.preventDefault();
-    if (getRole(agents[idx].id, pipelineType) === "locked") return;
-    setDragOverIdx(idx);
-  }, [agents, pipelineType]);
-
-  const handleDrop = useCallback((idx: number) => {
-    if (draggedIdx === null || draggedIdx === idx) { setDraggedIdx(null); setDragOverIdx(null); return; }
-    if (getRole(agents[idx].id, pipelineType) === "locked") { setDraggedIdx(null); setDragOverIdx(null); return; }
-    const updated = [...agents];
-    const [moved] = updated.splice(draggedIdx, 1);
-    updated.splice(idx, 0, moved);
-    onReorder?.(updated);
-    setDraggedIdx(null);
-    setDragOverIdx(null);
-  }, [draggedIdx, agents, onReorder, pipelineType]);
-
-  const handleDragEnd = useCallback(() => { setDraggedIdx(null); setDragOverIdx(null); }, []);
+  // CanvasView reports the whole selections map already keyed by agent —
+  // ComposerPage's handleAgentSelection pattern, reused here.
+  const handleCanvasSelection = useCallback(
+    (agentId: string, sel: StepSelection | undefined) => {
+      const next = { ...liveSelections };
+      if (sel && Object.keys(sel).length > 0) next[agentId] = sel;
+      else delete next[agentId];
+      handleSelectionsChange(next);
+    },
+    [liveSelections, handleSelectionsChange],
+  );
 
   const pipelineLabel = PIPELINE_LABEL[pipelineType] || pipelineType;
-  const defaultAgentIds = new Set(
-    agents.filter(a => {
-      const pipelinePrefixes: Record<string, string[]> = {
-        user_stories: ["domain-analyst", "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer", "backlog-compiler"],
-        ppt: ["ppt-content-strategist", "ppt-slide-architect", "ppt-code-generator", "ppt-assembler"],
-        prototype: ["requirements-analyst", "html-prototype-builder", "prototype-polisher", "prototype-finalizer"],
-        app_builder: [
-          "material-analyzer", "app-user-stories", "app-system-design", "app-security-architecture",
-          "app-ux-design", "app-api-design", "app-database-design", "app-code-generator",
-          "app-feature-implementation", "app-infra-generator", "app-code-compliance",
-          "app-test-implementation", "app-test-compliance", "app-devops", "app-sdlc-governance",
-        ],
-        custom: [],
-      };
-      return (pipelinePrefixes[pipelineType] || []).includes(a.id);
-    }).map(a => a.id)
-  );
-  const optionalCount = agents.filter(a => !defaultAgentIds.has(a.id) && getRole(a.id, pipelineType) === "optional").length;
-  const maxOptional = pipelineType === "custom" ? 8 : 5;
-  const slotsLeft = maxOptional - optionalCount;
-  const allCells: Array<AgentDef | "add"> = [...agents, ...(canAddMore ? ["add" as const] : [])];
-  const rows: Array<Array<AgentDef | "add">> = [];
-  for (let i = 0; i < allCells.length; i += COLS) rows.push(allCells.slice(i, i + COLS));
+  const flatDeclaredCapabilities = useMemo(() => {
+    const set = new Set<string>();
+    (declaredCapabilities ?? []).forEach((d) => d.capabilities.forEach((c) => set.add(c)));
+    return Array.from(set);
+  }, [declaredCapabilities]);
 
-  const totalAttached = attachedSkills.length + attachedHooks.length;
+  // ADR-0010: hooks only — run-level skill attachment is retired.
+  const totalAttached = attachedHooks.length;
 
   return (
     <AnimatePresence>
       {isOpen && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center py-3"
         >
           <motion.div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
 
@@ -2399,45 +2206,48 @@ export function AgentsPopup({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.98 }}
             transition={{ duration: 0.18 }}
-            className="relative w-full max-w-[780px] bg-white rounded-2xl shadow-2xl flex flex-col"
-            style={{ maxHeight: "90vh" }}
+            className="relative w-[96vw] bg-surface-white rounded-2xl shadow-2xl flex flex-col"
+            style={{ height: "95vh" }}
           >
             {/* Header */}
             <div className="px-8 pt-6 pb-0 flex-shrink-0">
               <div className="flex items-start justify-between mb-1">
-                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.18em]">Advanced</p>
-                <button onClick={onClose} className="h-7 w-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all">
+                <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-[0.18em]">Advanced</p>
+                <button onClick={onClose} className="h-7 w-7 flex items-center justify-center rounded-lg text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-all">
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <h2 className="text-[20px] font-bold text-gray-900 mb-3">Workflow configuration</h2>
+              <div className="mb-3">
+                <p className="text-[11px] text-ink-500 mb-1">{workflowName}</p>
+                <h2 className="text-[20px] font-bold text-ink-900">Workflow configuration</h2>
+              </div>
 
               {/* Tabs */}
-              <div className="flex items-center gap-1 pb-0 border-b border-gray-100">
+              <div className="flex items-center gap-1 pb-0 border-b border-line-divider">
                 <button
                   onClick={() => setActiveTab("agents")}
                   className={`flex items-center gap-1.5 px-4 py-2.5 text-[12px] font-semibold transition-colors border-b-2 -mb-px ${
                     activeTab === "agents"
-                      ? "border-gray-900 text-gray-900"
-                      : "border-transparent text-gray-400 hover:text-gray-700"
+                      ? "border-ink-900 text-ink-900"
+                      : "border-transparent text-ink-400 hover:text-ink-700"
                   }`}
                 >
                   <GripVertical className="h-3.5 w-3.5" />
                   Agents
-                  <span className="text-[10px] font-medium text-gray-400 ml-0.5">({agents.length})</span>
+                  <span className="text-[10px] font-medium text-ink-400 ml-0.5">({agents.length})</span>
                 </button>
                 <button
                   onClick={() => setActiveTab("skills-hooks")}
                   className={`flex items-center gap-1.5 px-4 py-2.5 text-[12px] font-semibold transition-colors border-b-2 -mb-px ${
                     activeTab === "skills-hooks"
-                      ? "border-gray-900 text-gray-900"
-                      : "border-transparent text-gray-400 hover:text-gray-700"
+                      ? "border-ink-900 text-ink-900"
+                      : "border-transparent text-ink-400 hover:text-ink-700"
                   }`}
                 >
                   <Puzzle className="h-3.5 w-3.5" />
                   Workflow
                   {totalAttached > 0 && (
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gray-900 text-white ml-0.5">{totalAttached}</span>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-brand text-white ml-0.5">{totalAttached}</span>
                   )}
                 </button>
               </div>
@@ -2448,140 +2258,43 @@ export function AgentsPopup({
               <>
                 {/* Agents sub-header */}
                 <div className="px-8 pt-3 pb-2 flex-shrink-0 flex items-center justify-between">
-                  <div className="flex items-center gap-3 text-[10px] font-semibold text-gray-400 uppercase tracking-widest flex-wrap">
+                  <div className="flex items-center gap-3 text-[10px] font-semibold text-ink-400 uppercase tracking-widest flex-wrap">
                     <span>{agents.length} agents · {pipelineLabel}</span>
-                    <span className="flex items-center gap-1 text-gray-300"><Lock className="h-2.5 w-2.5" /> Core = locked</span>
-                    <span className="text-gray-300">· Drag to reorder · × to remove</span>
+                    <span className="flex items-center gap-1 text-ink-300"><Lock className="h-2.5 w-2.5" /> Core = locked</span>
                   </div>
-                  <button onClick={() => setLibraryOpen(true)} className="text-[10px] font-semibold text-gray-400 hover:text-brand uppercase tracking-widest transition-colors flex-shrink-0 ml-4">
+                  <button onClick={() => { setSubAgentParentId(null); setLibraryOpen(true); }} className="text-[10px] font-semibold text-ink-400 hover:text-brand uppercase tracking-widest transition-colors flex-shrink-0 ml-4">
                     Browse agent library →
                   </button>
                 </div>
 
-                {/* Single scrollable body — flow grid + model picker + advanced + capabilities.
-                    All four sections share one overflow-y-auto flex-1 region so they are
-                    always reachable regardless of screen height (KAN-68 fix). */}
-                <div className="flex-1 overflow-y-auto min-h-0">
-
-                {/* Flow grid — capped to a responsive max-height so it never eats the
-                    full available space and squeezes out the sections below. */}
-                <div className="mx-6 mb-4 rounded-xl overflow-y-auto flex-shrink-0" style={{
-                  maxHeight: "min(45vh, 240px)",
-                  background: "#f7f6f3",
-                  backgroundImage: "radial-gradient(#d4d0ca 1px, transparent 1px)",
-                  backgroundSize: "20px 20px",
-                }}>
-                  <div className="p-4 space-y-2.5">
-                    {rows.map((row, rowIdx) => (
-                      <div key={rowIdx} className="flex items-stretch">
-                        {row.map((cell, colIdx) => {
-                          const globalIdx = rowIdx * COLS + colIdx;
-                          const isLastInRow = colIdx === row.length - 1;
-                          const isLastCell = globalIdx === allCells.length - 1;
-
-                          if (cell === "add") {
-                            return (
-                              <div key="add" className="flex items-center">
-                                {colIdx > 0 && (
-                                  <div className="flex items-center w-7 flex-shrink-0">
-                                    <div className="flex-1 border-t-2 border-dashed border-gray-300" />
-                                    <ArrowRight className="h-3 w-3 text-gray-300 -ml-1" />
-                                  </div>
-                                )}
-                                <button
-                                  onClick={() => setLibraryOpen(true)}
-                                  className="flex flex-col items-center justify-center gap-1 bg-white border-2 border-dashed border-gray-300 rounded-lg text-[10px] font-medium text-gray-400 hover:text-gray-700 hover:border-gray-400 hover:bg-gray-50 transition-all"
-                                  style={{ width: "130px", height: "68px" }}
-                                >
-                                  <Plus className="h-3.5 w-3.5" />
-                                  {slotsLeft > 0 ? `+ Add agent (${slotsLeft} left)` : "Limit reached"}
-                                </button>
-                              </div>
-                            );
-                          }
-
-                          const agent = cell as AgentDef;
-                          const role = getRole(agent.id, pipelineType);
-                          const locked = role === "locked";
-                          const optional = role === "optional";
-                          const isDragging = draggedIdx === globalIdx;
-                          const isDragOver = dragOverIdx === globalIdx;
-
-                          return (
-                            <div key={agent.id} className="flex items-center">
-                              {colIdx > 0 && (
-                                <div className="flex items-center w-7 flex-shrink-0">
-                                  <div className="flex-1 border-t-2 border-dashed border-gray-300" />
-                                  <ArrowRight className="h-3 w-3 text-gray-300 -ml-1" />
-                                </div>
-                              )}
-                              <motion.div
-                                initial={{ opacity: 0, scale: 0.96 }}
-                                animate={{ opacity: isDragging ? 0.4 : 1, scale: isDragOver ? 1.02 : 1 }}
-                                transition={{ delay: globalIdx * 0.03 }}
-                                draggable={!locked}
-                                onDragStart={() => handleDragStart(globalIdx)}
-                                onDragOver={e => handleDragOver(e, globalIdx)}
-                                onDrop={() => handleDrop(globalIdx)}
-                                onDragEnd={handleDragEnd}
-                                className={`group relative bg-white rounded-lg border px-3 py-2.5 shadow-sm transition-all ${
-                                  isDragOver ? "border-brand shadow-md" :
-                                  locked ? "border-gray-200 opacity-80" :
-                                  "border-gray-200 hover:border-gray-300 hover:shadow-md"
-                                } ${!locked ? "cursor-grab active:cursor-grabbing" : ""}`}
-                                style={{ width: "130px" }}
-                              >
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <div>
-                                    {locked ? <Lock className="h-2.5 w-2.5 text-gray-300" /> : <GripVertical className="h-3 w-3 text-gray-400" />}
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    {locked && <span className="text-[7px] font-semibold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded uppercase tracking-wide">Core</span>}
-                                    {role === "required" && <span className="text-[7px] font-semibold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded uppercase tracking-wide">Required</span>}
-                                <button
-                                      onClick={e => { e.stopPropagation(); setCapAgent({ agent, index: globalIdx }); }}
-                                      className="flex items-center justify-center w-5 h-5 rounded bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors"
-                                      title="View capabilities & configure"
-                                    >
-                                      <Info className="h-3 w-3 text-gray-400" />
-                                    </button>
-                                    {optional && (
-                                      <button
-                                        onClick={e => { e.stopPropagation(); handleRemove(agent.id); }}
-                                        className="flex items-center justify-center w-5 h-5 rounded bg-red-50 border border-red-200 hover:bg-red-100 transition-colors"
-                                        title="Remove agent"
-                                      >
-                                        <X className="h-3 w-3 text-red-500" />
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="w-6 h-6 rounded-md bg-gray-100 border border-gray-200 flex items-center justify-center mb-2">
-                                  <span className="text-[9px] font-bold text-gray-500 select-none">
-                                    {agent.name.split(" ").map(w => w[0]).slice(0, 2).join("")}
-                                  </span>
-                                </div>
-                                <p className="text-[11px] font-semibold text-gray-900 leading-snug mb-0.5 line-clamp-2">{agent.name}</p>
-                                <p className="text-[8px] font-semibold text-gray-400 uppercase tracking-wider">{pipelineLabel}</p>
-                              </motion.div>
-                              {isLastInRow && !isLastCell && (
-                                <div className="w-4 flex-shrink-0 ml-1 border-t-2 border-dashed border-gray-300" />
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* End of shared scroll container (KAN-68 fix) */}
+                {/* Same node-graph editor as the Composer's Canvas view (D-04),
+                    embedded here without its page-level header (name/description/
+                    save/run — this modal's own header + footer already cover
+                    those). flex-1 so it fills the rest of the now-fixed-height
+                    modal instead of a fixed vh guess. */}
+                <div className="mx-8 mb-6 min-h-0 flex-1 overflow-hidden rounded-xl border border-line-control">
+                  <CanvasView
+                    pipelineAgents={agents}
+                    selections={liveSelections}
+                    pipelineType={pipelineType}
+                    onSelection={handleCanvasSelection}
+                    onRemoveAgent={handleRemove}
+                    onAddAgent={() => { setSubAgentParentId(null); setLibraryOpen(true); }}
+                    canAddMore={canAddMore}
+                    declaredCapabilities={flatDeclaredCapabilities}
+                    onTreeChange={onReorder}
+                    onRequestAddSubAgent={(parentId) => { setSubAgentParentId(parentId); setLibraryOpen(true); }}
+                    briefText={canvasBriefText}
+                    onBriefTextChange={setCanvasBriefText}
+                    resetLayoutSignal={canvasResetLayoutSignal}
+                    briefAttachments={canvasBriefAttachments}
+                  />
                 </div>
               </>
             ) : (
               /* Workflow tab: Skills, Hooks, and Capabilities */
               <div className="flex-1 overflow-y-auto min-h-0">
-                <SkillsHooksTab pipelineType={pipelineType} />
+                <HooksTab pipelineType={pipelineType} />
                 {/* Capabilities palette at the bottom of the Workflow tab */}
                 <div className="mx-5 mb-5 px-1">
                   <CapabilityPaletteSection
@@ -2592,7 +2305,7 @@ export function AgentsPopup({
             )}
 
             {/* Footer */}
-            <div className="px-8 pb-6 flex-shrink-0 flex items-center justify-end gap-3 border-t border-gray-100 pt-4">
+            <div className="px-8 pb-6 flex-shrink-0 flex items-center justify-end gap-3 border-t border-line-divider pt-4">
               {saveError && (
                 <span role="alert" className="text-[11px] text-status-failed mr-auto">
                   {saveError}
@@ -2603,7 +2316,7 @@ export function AgentsPopup({
               </button>
               <button
                 onClick={() => { setSaveError(null); setSaveModalOpen(true); }}
-                className="px-5 py-2.5 rounded-xl bg-ink-900 text-[12px] font-semibold text-surface-white hover:bg-ink-800 transition-colors"
+                className="px-5 py-2.5 rounded-xl bg-brand text-[12px] font-semibold text-surface-white hover:bg-brand-pressed transition-colors"
               >
                 Save workflow
               </button>
@@ -2624,29 +2337,16 @@ export function AgentsPopup({
 
           <AgentLibrary
             isOpen={libraryOpen}
-            onClose={() => setLibraryOpen(false)}
+            onClose={() => { setLibraryOpen(false); setSubAgentParentId(null); }}
             onAddAgent={onAddAgent}
+            onAddAsSubAgent={subAgentParentId ? addSubAgent : undefined}
+            subAgentParentName={
+              subAgentParentId ? findAgentInTree(agents, subAgentParentId)?.name : undefined
+            }
             currentPipelineType={pipelineType}
             canAddMore={canAddMore}
-            existingAgentIds={agents.map(a => a.id)}
+            existingAgentIds={collectAgentIds(agents)}
           />
-
-          <AnimatePresence>
-            {capAgent && (
-              <AgentCapabilitiesModal
-                agent={capAgent.agent}
-                agentIndex={capAgent.index}
-                onClose={() => setCapAgent(null)}
-                onSelectionsChange={handleSelectionsChange}
-                initialSelections={initialSelections}
-                // 51-06 — the upstream steps feed the fan-out source picker so a
-                // mid-pipeline step can fan out over an earlier producer's list.
-                priorAgents={agents
-                  .slice(0, capAgent.index)
-                  .map((a) => ({ id: a.id, name: a.name }))}
-              />
-            )}
-          </AnimatePresence>
         </motion.div>
       )}
     </AnimatePresence>
