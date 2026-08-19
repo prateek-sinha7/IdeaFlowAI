@@ -23,7 +23,6 @@ import type { WorkflowType } from "@/types/index";
 
 export function baseWorkflowType(t: WorkflowType | string): string {
   const base = t.replace(/_revision$/, "");
-  if (base === "od_prototype") return "prototype";
   return base;
 }
 

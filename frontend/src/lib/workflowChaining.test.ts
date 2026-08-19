@@ -33,8 +33,12 @@ describe("baseWorkflowType", () => {
     expect(baseWorkflowType("dotnet_to_azure")).toBe("dotnet_to_azure");
   });
 
-  it("maps od_prototype to prototype", () => {
-    expect(baseWorkflowType("od_prototype")).toBe("prototype");
+  it("leaves a retired label alone — there is nothing left to map", () => {
+    // Was "maps od_prototype to prototype". The label was collapsed onto
+    // prototype everywhere (registry alias table, manifests, entitlements, and
+    // the persisted rows), so this normaliser has no special case to apply and
+    // the generic _revision strip is its whole job.
+    expect(baseWorkflowType("od_prototype")).toBe("od_prototype");
   });
 
   it("does not match `_revision` in the middle of a string", () => {

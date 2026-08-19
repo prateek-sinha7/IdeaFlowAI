@@ -12,7 +12,7 @@ description: >
   Headroom-style sticky nav are wired automatically.
 triggers:
   - landing page
-  - 落地页
+  - landing site
   - editorial site
   - magazine layout
   - hero collage

@@ -8,7 +8,7 @@ description: |
   couple of annotation callouts. Reads like an app flow pinned to a
   whiteboard before any pixels are committed. Use when the brief asks for
   "mobile wireframe", "app flow", "user flow wireframe", "lo-fi mobile",
-  "low fidelity", "线框图", "移动端线框", or "App 流程".
+  "low fidelity", "wireframe diagram", "mobile wireframe", or "app flow diagram".
 triggers:
   - "mobile wireframe"
   - "app flow"
@@ -16,8 +16,8 @@ triggers:
   - "lo-fi mobile"
   - "wireframe"
   - "low fidelity"
-  - "移动端线框"
-  - "App 流程图"
+  - "mobile-side wireframe"
+  - "app flow diagram"
 od:
   mode: prototype
   platform: auto

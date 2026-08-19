@@ -8,7 +8,7 @@ triggers:
   - "micro interaction"
   - "interaction animation"
   - "tasteful animation"
-  - "动效润色"
+  - "motion polish pass"
 od:
   mode: prototype
   surface: web

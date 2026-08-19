@@ -1,5 +1,5 @@
 #!/bin/bash
-# 龙虾灵魂抽卡机 - 薄壳脚本
-# 实际逻辑在 gacha.py 中（Python secrets 模块保证真随机）
+# Lobster Soul Gacha Machine - thin shell wrapper
+# Actual logic lives in gacha.py (Python secrets module guarantees true randomness)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 exec python3 "${SCRIPT_DIR}/gacha.py" "$@"

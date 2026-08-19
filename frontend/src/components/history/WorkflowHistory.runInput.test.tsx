@@ -1,9 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import type { WorkflowRun, RunFamily } from "@/types/index";
 import type { RunArtifactsResponse } from "@/lib/api";
-
+import { renderWithProviders } from "@/test/renderWithProviders";
 // ─────────────────────────────────────────────────────────────────
 // Workstream C2 (POR §5 D3+D4 / §6.6) — the REOPEN mount. On detail-open
 // WorkflowHistory fetches getRunArtifacts(kind="clarifications") and threads
@@ -11,16 +11,14 @@ import type { RunArtifactsResponse } from "@/lib/api";
 // AgentThinkingTab renders StartingPointCard + ClarificationsCard. Cloned from
 // the WorkflowHistory.family.test harness with getRunArtifacts in the mock.
 // ─────────────────────────────────────────────────────────────────
-
 const mockGetToken = vi.fn(() => "test-token");
-const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<WorkflowRun[]>>();
+const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<{ runs: WorkflowRun[]; total: number }>>();
 const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<WorkflowRun>>();
 const mockDeleteWorkflow = vi.fn<(token: string, id: string) => Promise<void>>();
 const mockGetRunFamily = vi.fn<(token: string, id: string) => Promise<RunFamily>>(
   () => Promise.resolve({ root_id: "", members: [] }),
 );
 const mockGetRunArtifacts = vi.fn<(token: string, id: string, opts?: { kind?: string; includeContent?: boolean }) => Promise<RunArtifactsResponse>>();
-
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getWorkflows: (token: string, opts?: { limit?: number }) => mockGetWorkflows(token, opts),
@@ -32,14 +30,38 @@ vi.mock("@/lib/api", () => ({
   // benign rejection lands RunDetailPage in its graceful error state.
   getRunSummary: () => Promise.reject(new Error("no summary in this suite")),
 }));
-
 vi.mock("@/components/preview/PPTPreview", () => ({ PPTPreview: () => <div /> }));
 vi.mock("@/components/preview/UserStoryPreview", () => ({ UserStoryPreview: () => <div /> }));
 vi.mock("@/components/preview/PrototypePreview", () => ({ PrototypePreview: () => <div data-testid="proto-preview" /> }));
 vi.mock("@/components/preview/MarkdownPreview", () => ({ MarkdownPreview: () => <div /> }));
-vi.mock("@/components/results/FilesTab", () => ({ FilesTab: () => <div data-testid="files-tab" /> }));
+vi.mock("@/components/results/FilesTab", () => ({
+  FilesTab: () => <div data-testid="files-tab" />,
+  deriveDeliverableFilename: (workflowType: string, content?: string, fallback?: string) => {
+    // Simple stub: matches the real function's behavior for common types
+    if (workflowType.includes("user_stories")) {
+      if (content) {
+        const h = content.match(/^#\s+(.+)/m);
+        return h ? `${h[1].toLowerCase().replace(/[^a-z0-9]/g, "-")}.md` : "user-stories.md";
+      }
+      return fallback || "user-stories.md";
+    }
+    if (workflowType.includes("ppt")) {
+      return fallback || "presentation.html";
+    }
+    if (workflowType.includes("prototype")) {
+      return fallback || "prototype.html";
+    }
+    if (workflowType === "custom") {
+      return fallback || "custom-output.md";
+    }
+    if (workflowType.includes("app_builder")) {
+      return "project.zip";
+    }
+    return fallback || "deliverable";
+  },
+  downloadBlob: vi.fn(),
+}));
 vi.mock("@/components/workflow/TokenUsageSummary", () => ({ TokenUsageSummary: () => <div data-testid="token-usage" /> }));
-
 const STRIPPED_MOTION_PROPS = new Set([
   "initial", "animate", "exit", "transition", "whileHover",
   "whileTap", "whileFocus", "whileInView", "viewport", "layout",
@@ -60,9 +82,7 @@ vi.mock("motion/react", () => ({
   ),
   AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
-
 import { WorkflowHistory } from "./WorkflowHistory";
-
 function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
   return {
     id: "solo",
@@ -80,7 +100,6 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     ...overrides,
   };
 }
-
 function clarifyArtifacts(): RunArtifactsResponse {
   return {
     workflow_id: "solo",
@@ -90,7 +109,6 @@ function clarifyArtifacts(): RunArtifactsResponse {
     ] as unknown as RunArtifactsResponse["artifacts"],
   };
 }
-
 beforeEach(() => {
   mockGetToken.mockReset().mockReturnValue("test-token");
   mockGetWorkflows.mockReset();
@@ -99,26 +117,20 @@ beforeEach(() => {
   mockGetRunFamily.mockReset().mockResolvedValue({ root_id: "", members: [] });
   mockGetRunArtifacts.mockReset();
 });
-
 describe("WorkflowHistory reopen — clarify fetch + Starting point (C2)", () => {
   it("fetches getRunArtifacts(kind=clarifications) and renders the brief + clarify round on the Thinking tab", async () => {
-    mockGetWorkflows.mockResolvedValue([makeRun()]);
+    mockGetWorkflows.mockResolvedValue({ runs: [makeRun()], total: 1 });
     mockGetWorkflow.mockResolvedValue(makeRun());
     mockGetRunArtifacts.mockResolvedValue(clarifyArtifacts());
-
-    render(<WorkflowHistory onBack={vi.fn()} />);
-
+    renderWithProviders(<WorkflowHistory onBack={vi.fn()} />);
     // Open the run's detail.
     fireEvent.click(await screen.findByText("Landing page run"));
-
     // The reopen effect fetches the clarify artifacts with the expected filter.
     await waitFor(() =>
       expect(mockGetRunArtifacts).toHaveBeenCalledWith("test-token", "solo", { kind: "clarifications", includeContent: true }),
     );
-
     // Switch to the Thinking tab → real AgentThinkingTab renders both C2 cards.
     fireEvent.click(screen.getByText("Thinking"));
-
     // StartingPointCard renders the run's brief (from selectedRun.input).
     await waitFor(() => expect(screen.getAllByText("Build a plain landing page brief.").length).toBeGreaterThan(0));
     // ClarificationsCard renders the fetched round (Phase 39 plan 02: collapsed
@@ -128,24 +140,19 @@ describe("WorkflowHistory reopen — clarify fetch + Starting point (C2)", () =>
     expect(screen.getByText("Auth method?")).toBeInTheDocument();
     expect(screen.getByText("OAuth")).toBeInTheDocument();
   });
-
   it("shows NO ClarificationsCard for a PROCEED reopen (empty artifacts)", async () => {
-    mockGetWorkflows.mockResolvedValue([makeRun()]);
+    mockGetWorkflows.mockResolvedValue({ runs: [makeRun()], total: 1 });
     mockGetWorkflow.mockResolvedValue(makeRun());
     mockGetRunArtifacts.mockResolvedValue({ workflow_id: "solo", artifacts: [] });
-
-    render(<WorkflowHistory onBack={vi.fn()} />);
+    renderWithProviders(<WorkflowHistory onBack={vi.fn()} />);
     fireEvent.click(await screen.findByText("Landing page run"));
     await waitFor(() => expect(mockGetRunArtifacts).toHaveBeenCalled());
-
     fireEvent.click(screen.getByText("Thinking"));
-
     // Starting point still renders; Clarifications card is absent (PROCEED run).
     await waitFor(() => expect(screen.getAllByText("Build a plain landing page brief.").length).toBeGreaterThan(0));
     expect(screen.queryByText("Clarifications")).toBeNull();
   });
 });
-
 // ─────────────────────────────────────────────────────────────────
 // C-FLAG-1 + C-FLAG-2 (260703-174) — the REOPEN mount now threads
 // revisionParentVersion (computed from the fetched family + selectedRun.parentRunId)
@@ -165,7 +172,7 @@ describe("WorkflowHistory reopen — revision chip + Original-brief expander (C-
       parentRunId: "root",
       rootRunId: "root",
     });
-    mockGetWorkflows.mockResolvedValue([revisionRun]);
+    mockGetWorkflows.mockResolvedValue({ runs: [revisionRun], total: 1 });
     mockGetWorkflow.mockResolvedValue(revisionRun);
     mockGetRunFamily.mockResolvedValue({
       root_id: "root",
@@ -176,16 +183,12 @@ describe("WorkflowHistory reopen — revision chip + Original-brief expander (C-
     } as unknown as RunFamily);
     // Empty clarify artifacts — isolates the chip/expander under test.
     mockGetRunArtifacts.mockResolvedValue({ workflow_id: "r1", artifacts: [] });
-
-    render(<WorkflowHistory onBack={vi.fn()} />);
+    renderWithProviders(<WorkflowHistory onBack={vi.fn()} />);
     fireEvent.click(await screen.findByText("Revised run"));
-
     // The reopen family fetch (keyed on the STABLE rootRunId) resolves →
     // revisionParentVersion becomes computable.
     await waitFor(() => expect(mockGetRunFamily).toHaveBeenCalledWith("test-token", "root"));
-
     fireEvent.click(screen.getByText("Thinking"));
-
     // Parent "root" is family index 0 → 1-based v1 → "revision of v1" chip.
     await waitFor(() => expect(screen.getByText(/revision of v1/i)).toBeInTheDocument());
     // Live/reopen symmetry — the Original-brief (v1) expander is present.

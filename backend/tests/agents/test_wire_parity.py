@@ -45,10 +45,11 @@ from tests.agents.characterization._sse_projection import (
     ws_frame_from_engine_event,
 )
 
-# The 5 INV-3 golden pipelines the transport cutover must preserve.
+# The 4 INV-3 golden pipelines the transport cutover must preserve. Was 5:
+# ``od_prototype`` drove the same plan under the retired alias and its golden was
+# byte-identical to prototype's after the label rename, so it was a duplicate.
 _PIPELINES = [
     "prototype",
-    "od_prototype",
     "ppt",
     "prototype_revision",
     "app_builder",

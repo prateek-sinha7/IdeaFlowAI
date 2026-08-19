@@ -8,7 +8,7 @@ description: |
   This is the "wireframe + redline spec" style — clean, flat, low-fidelity, NOT
   hand-drawn. Use when the brief asks for "annotated wireframe", "redline
   wireframe", "wireframe with spec", "lo-fi landing wireframe", "low fidelity",
-  "线框图", "标注线框", or "redline".
+  "wireframe diagram", "annotated wireframe", or "redline".
 triggers:
   - "annotated wireframe"
   - "redline"
@@ -16,8 +16,8 @@ triggers:
   - "lo-fi landing"
   - "wireframe"
   - "low fidelity"
-  - "标注线框图"
-  - "redline 标注"
+  - "annotated wireframe diagram"
+  - "redline annotation"
 od:
   mode: prototype
   platform: desktop

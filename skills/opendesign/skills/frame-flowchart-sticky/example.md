@@ -1,13 +1,13 @@
-# 新用户上手流程 · HTML Anything
+# New User Onboarding Flow · HTML Anything
 
-> 白板风便利贴流程图, 6 节点, 1 个分支
+> Whiteboard-style sticky-note flowchart, 6 nodes, 1 branch
 
-## 流程
-1. **打开 localhost:3456** — 浏览器进入主界面
-2. **自动识别本地 agent** — 扫描 PATH, 列出已登录的 CLI
-3. **选模板** — 75 个模板按场景分类
-4. **粘贴内容 / 上传文件** — Markdown / CSV / Excel 都支持
-5. **⌘+Enter 转换** — 流式调用 agent → SSE → 实时刷新预览
-6. **一键复制 / 下载** — 公众号 / 推特 / 知乎 / PNG / HTML
+## Flow
+1. **Open localhost:3456** — Browser loads the main interface
+2. **Auto-detect local agents** — Scan PATH, list the CLIs that are logged in
+3. **Pick a template** — 75 templates organized by scenario
+4. **Paste content / upload a file** — Markdown / CSV / Excel all supported
+5. **⌘+Enter to convert** — Streaming call to the agent → SSE → live preview refresh
+6. **One-click copy / download** — WeChat / Twitter / Zhihu / PNG / HTML
 
-分支: 若无本地 agent → 引导安装 (Claude / Cursor / Codex)
+Branch: if no local agent is found → guide the user through installing one (Claude / Cursor / Codex)

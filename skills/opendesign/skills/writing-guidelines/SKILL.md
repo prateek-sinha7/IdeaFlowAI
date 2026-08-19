@@ -8,7 +8,7 @@ triggers:
   - "audit prose"
   - "review docs voice and tone"
   - "writing handbook"
-  - "文档审查"
+  - "document review"
 metadata:
   author: vercel
   version: "1.0.0"

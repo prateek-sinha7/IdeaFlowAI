@@ -503,8 +503,9 @@ async def _drive(pipeline_type: str, world: str = "new", **execute_kwargs) -> li
     # We replicate exactly that. ``ppt``'s deck agents now declare
     # ``pipeline_type: ppt`` directly (the former od_ppt/ppt alias is closed —
     # see agents/registry.py), so no lookup remap is needed for it anymore.
-    _OD_ALIAS_FOR_LOOKUP = {"od_prototype": "prototype"}
-    _lookup_type = _OD_ALIAS_FOR_LOOKUP.get(pipeline_type, pipeline_type)
+    # The od_prototype alias is closed too now (registry._OD_ALIAS_BASE is empty),
+    # so no lookup remap is needed for any label — the run type IS the manifest id.
+    _lookup_type = pipeline_type
 
     # ── Force RUNS_ROOT to our temp dir at RUNTIME ────────────────────────────
     # The env var is set at import, but ``app.core.config.settings`` may have been
@@ -605,7 +606,7 @@ async def _drive(pipeline_type: str, world: str = "new", **execute_kwargs) -> li
     # minimal od_context so injection succeeds and the build/task_progress path
     # actually runs.
     od_context = None
-    if pipeline_type in ("prototype", "od_prototype", "ppt"):
+    if pipeline_type in ("prototype", "ppt"):
         od_context = {
             "template_body": "## Workflow\nUse .card and .grid classes. Build pages into <section data-page>.",
             "template_id": "web-prototype",

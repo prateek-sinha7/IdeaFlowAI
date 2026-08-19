@@ -15,8 +15,8 @@ triggers:
   - "essay"
   - "manifesto"
   - "long-form poster"
-  - "杂志海报"
-  - "报纸版式"
+  - "magazine poster"
+  - "newspaper layout"
 od:
   mode: prototype
   platform: desktop

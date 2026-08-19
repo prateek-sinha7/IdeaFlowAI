@@ -28,8 +28,8 @@ vi.stubGlobal("localStorage", localStorageMock);
 
 const RUN_A = "run-A";
 const RUN_B = "run-B";
-const NOTIF_STORAGE_KEY = "flowin.notifications.v2";
-const DISMISSED_STORAGE_KEY = "flowin.notifications.dismissed.v2";
+const NOTIF_STORAGE_KEY = "flowin.notifications.v3";
+const DISMISSED_STORAGE_KEY = "flowin.notifications.dismissed.v3";
 
 beforeEach(() => {
   localStorageMock.clear();
@@ -46,6 +46,8 @@ describe("FIX-202-A — localStorage hydration", () => {
     const { result } = renderHook(() => useNotifications());
     act(() => {
       result.current.addRunningNotification(RUN_A, "prototype", "My run", 4);
+      // FIX-204: only terminal notifications are persisted; running/gate are ephemeral.
+      result.current.markCompleted(RUN_A);
     });
     expect(result.current.notifications.length).toBe(1);
     // Unmount and re-mount WITHOUT pre-seeding storage → should reload from storage.
@@ -60,6 +62,8 @@ describe("FIX-202-A — localStorage hydration", () => {
     const { result } = renderHook(() => useNotifications());
     act(() => {
       result.current.addRunningNotification(RUN_A, "prototype", "My run", 4);
+      // FIX-204: only terminal notifications are persisted; running/gate are ephemeral.
+      result.current.markCompleted(RUN_A);
     });
     const raw = localStorageMock.getItem(NOTIF_STORAGE_KEY);
     expect(raw).not.toBeNull();
@@ -242,6 +246,9 @@ describe("FIX-202-E — existing transitions still work after persistence layer"
     const { result } = renderHook(() => useNotifications());
     act(() => { result.current.addRunningNotification(RUN_A, "prototype", "A", 5); });
     act(() => { result.current.updateProgress(RUN_A, 3); });
+    // FIX-204: only terminal notifications are persisted; running/gate are ephemeral.
+    // Transition to completed so updateProgress is visible in storage.
+    act(() => { result.current.markCompleted(RUN_A); });
 
     const raw = localStorageMock.getItem(NOTIF_STORAGE_KEY);
     const parsed = JSON.parse(raw!) as PipelineNotification[];

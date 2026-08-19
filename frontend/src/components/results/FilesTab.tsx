@@ -330,8 +330,7 @@ export function deriveDeliverableFilename(
 
   // ── Prototype ─────────────────────────────────────────────────────────────
   if (
-    workflowType === "prototype" || workflowType === "prototype_revision" ||
-    workflowType === "od_prototype"
+    workflowType === "prototype" || workflowType === "prototype_revision"
   ) {
     if (content) {
       const t = content.match(/<title>(.+?)<\/title>/i);
@@ -396,7 +395,7 @@ function deriveDeliverableFiles(
   }
 
   // ── Prototype ─────────────────────────────────────────────────────────────
-  if ((workflowType === "prototype" || workflowType === "prototype_revision" || workflowType === "od_prototype") && prototypeContent) {
+  if ((workflowType === "prototype" || workflowType === "prototype_revision") && prototypeContent) {
     let name = "prototype";
     const t = prototypeContent.match(/<title>(.+?)<\/title>/i);
     if (t) name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
@@ -842,6 +841,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
             <button
               key={f.id}
               onClick={() => handleDownload(f)}
+              aria-label={`download ${f.name}`}
               className="flex flex-1 items-center gap-[11px] rounded-[var(--radius-list-row)] border border-line-divider bg-transparent px-[13px] py-[11px] text-left transition-colors hover:border-line-control hover:bg-surface-card"
             >
               <Icon className="h-[17px] w-[17px] flex-none text-ink-300" strokeWidth={1.6} />

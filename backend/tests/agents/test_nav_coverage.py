@@ -434,7 +434,7 @@ def test_scenario7_producer_classification_failure_not_skip():
 # ════════════════════════════════════════════════════════════════════════════
 
 
-@pytest.mark.parametrize("name", ["prototype", "od_prototype", "prototype_revision"])
+@pytest.mark.parametrize("name", ["prototype", "prototype_revision"])
 def test_scenario8_static_zero_new_issues_on_goldens(name):
     """static_check raises zero NEW issues on the golden templates (INV-3)."""
     g = static_check(_GOLDEN_DIR / f"{name}.html")
@@ -444,7 +444,7 @@ def test_scenario8_static_zero_new_issues_on_goldens(name):
     assert not any("onclick/navigateTo" in i for i in g.issues)
 
 
-@pytest.mark.parametrize("name", ["prototype", "od_prototype", "prototype_revision"])
+@pytest.mark.parametrize("name", ["prototype", "prototype_revision"])
 def test_scenario8_render_zero_new_issues_on_goldens(name, tmp_path):
     """render_check raises no NEW issues on the goldens — the >=2-section coverage rule
     never trips on a single/no-section golden (browser-gated, INV-3)."""

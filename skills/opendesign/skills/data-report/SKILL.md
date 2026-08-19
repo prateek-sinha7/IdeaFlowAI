@@ -1,19 +1,19 @@
 ---
 name: data-report
-zh_name: "数据可视化报告"
+zh_name: "Data Visualization Report"
 en_name: "Data Visualization Report"
 emoji: "📊"
-description: "把 CSV/Excel/JSON 数据转成漂亮的可视化报告页"
+description: "Turn CSV/Excel/JSON data into a polished visualization report page"
 category: data
 scenario: finance
-aspect_hint: "桌面长页面"
+aspect_hint: "desktop long page"
 featured: 10
-tags: ["data", "report", "chart", "数据", "报告"]
+tags: ["data", "report", "chart", "data visualization", "analytics report"]
 example_id: sample-data-weekly-report
-example_name: "数据报告 · 周报"
+example_name: "Data Report · Weekly Report"
 example_format: csv
-example_tagline: "KPI 卡 + Chart.js 图表 + 表格"
-example_desc: "9 个月增长数据自动渲染成可视化报告, 内联 Chart.js"
+example_tagline: "KPI cards + Chart.js charts + table"
+example_desc: "Nine months of growth data automatically rendered into a visualization report, with inline Chart.js"
 od:
   mode: prototype
   surface: web
@@ -27,16 +27,16 @@ od:
     reload: debounce-100
   design_system:
     requires: false
-  example_prompt: "用「数据可视化报告」模板把我的内容做成一份「把 CSV/Excel/JSON 数据转成漂亮的可视化报告页」。保持模板的视觉签名，使用真实内容和数据，避免 lorem ipsum 和占位图片。"
+  example_prompt: "Use the 'Data Visualization Report' template to turn my content into a 'page that turns CSV/Excel/JSON data into a polished visualization report'. Keep the template's visual signature, use real content and data, and avoid lorem ipsum and placeholder images."
 ---
 
-【模板: 数据可视化报告】
-- 头部: 报告标题 + 时间区间 + 数据来源说明。
-- KPI 卡片网格: 3-5 个最重要指标, 每个卡片显示数值 + 同比变化 + 微型趋势线。
-- 主图表区: 至少 2 个图表 (柱状 / 折线 / 饼 / 散点), 使用 Chart.js 或 ECharts (jsdelivr CDN 引入), 数据从用户输入解析得到。
-- **图表容器必须有固定高度**: 每个 `<canvas>` 外层包一个 `<div style="position:relative;height:NNNpx">` (KPI 迷你图 ~40px, 主图表 ~240–280px)。Chart.js 用 `responsive:true, maintainAspectRatio:false` 时若父容器没有显式高度, 会陷入 ResizeObserver 死循环, 图表无限增高直至卡死浏览器。**绝对不要**直接给 canvas 写 `height=` 属性当布局, 那个只是初始值。
-- 数据表格: 用户原始数据节选, 使用 `<table>` + 现代化样式 (zebra stripe, hover, sticky header)。
-- 洞察块: 3-5 条文字洞察, 用 emoji 开头, 像产品周报。
-- 底部"方法论"折叠区。
-- 配色克制专业: 主色 1 + 中性色阶, 图表用调色板。
-- **必须解析用户提供的实际数据**, 不要捏造。
+[Template: Data Visualization Report]
+- Header: report title + time range + data source description.
+- KPI card grid: 3-5 of the most important metrics, each card showing the value + year-over-year change + a mini trend line.
+- Main chart area: at least 2 charts (bar / line / pie / scatter), using Chart.js or ECharts (loaded via jsdelivr CDN), with data parsed from user input.
+- **Chart containers must have a fixed height**: wrap each `<canvas>` in a `<div style="position:relative;height:NNNpx">` (KPI mini-charts ~40px, main charts ~240-280px). When Chart.js uses `responsive:true, maintainAspectRatio:false` without an explicit height on the parent container, it falls into a ResizeObserver infinite loop, growing the chart until it freezes the browser. **Never** set a `height=` attribute directly on the canvas as layout — that is only an initial value.
+- Data table: an excerpt of the user's raw data, using `<table>` with modern styling (zebra stripes, hover, sticky header).
+- Insights block: 3-5 text insights, each starting with an emoji, styled like a product weekly report.
+- A collapsible "Methodology" section at the bottom.
+- Restrained, professional color palette: 1 primary color + a neutral scale, with a chart palette.
+- **Must parse the actual data the user provides** — do not fabricate it.

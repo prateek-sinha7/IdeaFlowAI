@@ -12,8 +12,8 @@ triggers:
   - "essay"
   - "case study"
   - "newsletter"
-  - "博客"
-  - "文章"
+  - "blog site"
+  - "written article"
 od:
   mode: prototype
   platform: desktop

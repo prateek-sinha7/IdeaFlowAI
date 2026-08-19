@@ -51,7 +51,6 @@ const WORKFLOW_TYPE_ICONS: Record<string, string> = {
   ppt_revision: "Presentation",
   prototype: "Layout",
   prototype_revision: "Layout",
-  od_prototype: "Layout",
   app_builder: "Rocket",
   app_builder_revision: "Rocket",
   custom: "Puzzle",

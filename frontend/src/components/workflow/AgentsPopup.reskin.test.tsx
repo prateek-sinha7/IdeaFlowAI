@@ -23,7 +23,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { renderWithProviders, screen, waitFor, within } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -123,7 +123,7 @@ describe("AgentsPopup reskin — token gate", () => {
 describe("AgentsPopup reskin — AdvancedExpander preserved contracts", () => {
   it("EMP-04: selecting a validator auto-attaches the coupled `validation` gate", async () => {
     const onSelectionsChange = vi.fn();
-    render(
+    renderWithProviders(
       <AdvancedExpander agents={AGENTS} onSelectionsChange={onSelectionsChange} />,
     );
     await userEvent.click(
@@ -145,7 +145,7 @@ describe("AgentsPopup reskin — AdvancedExpander preserved contracts", () => {
 
   it("WIRE-02: the retry lever offers ints [1,2,3] (not a bool toggle)", async () => {
     const onSelectionsChange = vi.fn();
-    render(
+    renderWithProviders(
       <AdvancedExpander agents={AGENTS} onSelectionsChange={onSelectionsChange} />,
     );
     await userEvent.click(
@@ -169,7 +169,7 @@ describe("AgentsPopup reskin — AdvancedExpander preserved contracts", () => {
 // ── 4. CapabilityPaletteSection reads the LIVE registry (user_allowed lock) ──────
 describe("AgentsPopup reskin — CapabilityPaletteSection live registry", () => {
   it("SC-001: a user_allowed=false capability renders locked (Engineer-only)", async () => {
-    render(<CapabilityPaletteSection />);
+    renderWithProviders(<CapabilityPaletteSection />);
     // Whole payload rendered from the mocked live registry.
     await screen.findByText("code_test");
     // The locked cap is present AND flagged Engineer-only (never hidden).
@@ -230,7 +230,7 @@ describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
       agent_ids: ["requirements-analyst"],
     });
 
-    render(
+    renderWithProviders(
       <SkillsHooksProvider>
         <AgentsPopup
           isOpen
@@ -268,7 +268,7 @@ describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
       agent_ids: ["requirements-analyst"],
     });
 
-    render(
+    renderWithProviders(
       <SkillsHooksProvider>
         <AgentsPopup
           isOpen
@@ -315,7 +315,7 @@ describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
       },
     };
 
-    render(
+    renderWithProviders(
       <SkillsHooksProvider>
         <AgentsPopup
           isOpen
@@ -345,7 +345,7 @@ describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
       agent_ids: ["requirements-analyst"],
     });
 
-    render(
+    renderWithProviders(
       <SkillsHooksProvider>
         <AgentsPopup
           isOpen

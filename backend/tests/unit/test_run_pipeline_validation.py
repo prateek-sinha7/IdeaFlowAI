@@ -484,15 +484,19 @@ class TestHandlerRejectionLogic:
         rejected = [aid for aid in agent_ids if aid not in allowed]
         assert rejected == ["market-research-agent", "ppt-composer"]
 
-    def test_od_prototype_alias_resolves_and_accepts_real_prototype_ids(self) -> None:
-        """The WS handler resolves ``od_prototype`` → ``prototype`` before the
-        allow-list check; the real helper resolves the same alias internally. A
-        real prototype id therefore passes under the alias.
+    def test_prototype_accepts_its_own_real_agent_ids(self) -> None:
+        """A real prototype agent id passes the allow-list under the plain name.
+
+        Was ``test_od_prototype_alias_resolves_and_accepts_real_prototype_ids``: the
+        allow-list used to be reached via the ``od_prototype`` alias, which resolved
+        to ``prototype`` internally. With the alias collapsed there is one name, and
+        a retired label must now resolve to NOTHING rather than silently inherit the
+        prototype roster.
         """
-        allowed = allowed_custom_agent_ids("od_prototype")
-        assert allowed == allowed_custom_agent_ids("prototype")
+        allowed = allowed_custom_agent_ids("prototype")
         rejected = [aid for aid in ["prototype-build"] if aid not in allowed]
         assert rejected == []
+        assert allowed_custom_agent_ids("od_prototype") == set()
 
     def test_unknown_pipeline_type_rejects_every_agent_id(self) -> None:
         """When the pipeline type is unknown the helper returns an empty set so

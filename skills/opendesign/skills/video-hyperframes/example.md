@@ -1,25 +1,25 @@
-# Hyperframes 视频脚本: AI workflow 三件套
+# Hyperframes Video Script: AI Workflow Trio
 
-## 帧 1 (hook, 3s)
-80% 的 AI 工具用户, 都没用对 prompt。
+## Frame 1 (hook, 3s)
+80% of AI tool users never get the prompt right.
 
-## 帧 2 (3s)
-不是因为 prompt 难写。
+## Frame 2 (3s)
+It's not because prompts are hard to write.
 
-## 帧 3 (3s)
-是因为他们一直在重写。
+## Frame 3 (3s)
+It's because they keep rewriting.
 
-## 帧 4 (4s)
-真正高效的人, 用模板。
+## Frame 4 (4s)
+Truly efficient people use templates.
 
-## 帧 5 (4s)
-模板 = 提示词 + 设计 system + 输出格式
+## Frame 5 (4s)
+Template = prompt + design system + output format
 
-## 帧 6 (5s)
-HTML Anything 把这三件事打包好了。
+## Frame 6 (5s)
+HTML Anything packages all three of these together.
 
-## 帧 7 (5s)
-9 套模板, 一个动作: ⌘+Enter
+## Frame 7 (5s)
+9 templates, one action: ⌘+Enter
 
-## 帧 8 (CTA, 3s)
+## Frame 8 (CTA, 3s)
 github.com/your-org/html-anything

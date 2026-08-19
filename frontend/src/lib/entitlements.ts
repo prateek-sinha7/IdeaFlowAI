@@ -1,29 +1,50 @@
 export type Tier = "basic" | "pro" | "enterprise" | "hexaware";
 export type WorkflowType = string;
 
+/**
+ * MIRROR of `backend/app/core/entitlements.py::TIER_PIPELINES`. The backend is
+ * authoritative — it is what actually returns 403; this copy only decides what the
+ * UI offers. Keep them identical, key for key.
+ *
+ * They had already drifted, in both directions, and each direction was a real bug:
+ *   - `hello_html` was listed on every tier here and on none there. The UI gave it
+ *     an icon, a label and a launch card; launching it 403'd. It has no manifest and
+ *     no agents on the backend, so it was removed rather than added.
+ *   - `custom_revision` and `od_prototype_revision` were entitled on the backend and
+ *     missing here, so the UI hid Revise for runs that could in fact be revised.
+ * `od_prototype` is gone entirely — the label was collapsed onto `prototype`.
+ *
+ * `backend/tests/unit/test_entitlement_parity.py` now fails if these two diverge,
+ * so the next drift is caught at test time rather than by a user hitting a 403.
+ */
 export const TIER_PIPELINES: Record<Tier, Set<string>> = {
-  basic: new Set(["user_stories", "user_stories_revision", "ppt", "ppt_revision", "hello_html"]),
+  basic: new Set([
+    "user_stories", "user_stories_revision",
+    "ppt", "ppt_revision",
+  ]),
+  hexaware: new Set([
+    "user_stories", "user_stories_revision",
+    "prototype", "prototype_revision",
+  ]),
   pro: new Set([
     "user_stories", "user_stories_revision",
     "ppt", "ppt_revision",
     "prototype", "prototype_revision",
-    "od_prototype",
     "app_builder", "app_builder_revision",
-    "hello_html",
   ]),
   enterprise: new Set([
     "user_stories", "user_stories_revision",
     "ppt", "ppt_revision",
     "prototype", "prototype_revision",
-    "od_prototype",
     "app_builder", "app_builder_revision",
-    "custom", "migration", "mulesoft_to_springboot", "dotnet_to_azure",
-    "hello_html",
-  ]),
-  hexaware: new Set([
-    "user_stories", "user_stories_revision",
-    "prototype", "prototype_revision",
-    "od_prototype",
+    "custom", "custom_revision",
+    // `migration` is a UI meta-grouping, not a launchable pipeline: the card
+    // forces the user to pick mulesoft_to_springboot or dotnet_to_azure before
+    // Run. It has no manifest and is never dispatched, but CreationHub gates the
+    // card on canRunPipeline(tier, "migration"), so the entry must exist here —
+    // and therefore on the backend too, or the parity test fails.
+    "migration",
+    "mulesoft_to_springboot", "dotnet_to_azure",
   ]),
 };
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""龙虾灵魂抽卡机 - 真随机组合生成器
+"""Lobster Soul Gacha Machine - true-random combination generator
 
-用法: python3 gacha.py [次数]
-默认抽1次，最多5次
+Usage: python3 gacha.py [count]
+Defaults to 1 draw, max 5
 """
 
 import secrets
@@ -10,171 +10,171 @@ import sys
 
 
 # ═══════════════════════════════════════════
-# 素材池：每个维度独立随机
+# Material pools: each dimension is randomized independently
 # ═══════════════════════════════════════════
 
-# 维度1：前世身份（40个，10类虾生 × 每类4个）
+# Dimension 1: Past life identity (40 total, 10 categories x 4 each)
 FORMER_LIVES = [
-    # ── 落魄重启（曾经辉煌，现在从头来过）──
-    "过气摇滚贝斯手",
-    "被裁中年项目经理",
-    "破产的米其林主厨",
-    "被AI取代的插画师",
-    # ── 巅峰无聊（太成功了，主动找刺激）──
-    "提前退休的对冲基金经理",
-    "封笔的畅销书作家",
-    "全胜退役的辩论冠军",
-    "百无聊赖的天才黑客",
-    # ── 错位人生（能力和处境完全不匹配）──
-    "退役特种兵炊事员",
-    "失业的气象播报员",
-    "被分配到客服的核物理博士",
-    "拿了驾照的盲人调音师",
-    # ── 主动叛逃（不是被淘汰，是自己跑的）──
-    "辞职的急诊科护士",
-    "拒绝上市的独立游戏开发者",
-    "不想继承家业的富二代",
-    "主动辞掉终身教职的教授",
-    # ── 神秘来客（来历不明，偶尔泄露实力）──
-    "外星民俗学研究员",
-    "不知道自己是NPC的游戏角色",
-    "平行宇宙的另一个你",
-    "记忆被抹去的前情报分析员",
-    # ── 天真入世（没经验但有天赋，正在成长）──
-    "社恐天才实习生",
-    "刚毕业的哲学系研究生",
-    "第一次来地球的外星交换生",
-    "自学成才的乡村程序员",
-    # ── 老江湖（什么都见过，什么都不慌）──
-    "退休图书管理员",
-    "退休的出租车司机",
-    "开了20年深夜食堂的老板",
-    "干了30年的殡葬师",
-    # ── 异世穿越（从其他世界/时代/次元来的）──
-    "末代王朝的师爷",
-    "19世纪三流小说家",
-    "春秋时期的纵横家",
-    "2099年的历史学博士",
-    # ── 自我放逐（主动选择边缘化）──
-    "还俗的年轻人",
-    "删掉所有社交媒体的前网红",
-    "辞掉华尔街工作去种地的交易员",
-    "数字游民中的隐士",
-    # ── 身份错乱（不确定自己是谁）──
-    "真以为自己是龙虾的AI",
-    "通灵失败的灵媒",
-    "梦到自己是龙虾后醒不过来的人",
-    "被多个灵魂共享的壳",
+    # ── Fallen restart (once glorious, now starting over) ──
+    "washed-up rock bassist",
+    "middle-aged project manager who got laid off",
+    "bankrupt Michelin-starred chef",
+    "illustrator replaced by AI",
+    # ── Bored at the peak (too successful, seeking a thrill) ──
+    "early-retired hedge fund manager",
+    "bestselling author who stopped writing",
+    "undefeated debate champion who retired",
+    "genius hacker bored out of their mind",
+    # ── Mismatched life (skills and circumstances don't add up) ──
+    "retired special forces cook",
+    "unemployed weather forecaster",
+    "nuclear physics PhD stuck doing customer service",
+    "blind tuner who got a driver's license",
+    # ── Voluntary defector (didn't get pushed out, ran on their own) ──
+    "ER nurse who quit",
+    "indie game developer who refused to go public",
+    "rich heir who didn't want to inherit the family business",
+    "tenured professor who resigned on purpose",
+    # ── Mysterious visitor (unclear origin, occasionally reveals hidden skill) ──
+    "alien folklore researcher",
+    "game character who doesn't know they're an NPC",
+    "the other you from a parallel universe",
+    "former intelligence analyst with wiped memories",
+    # ── Naive newcomer (no experience but talented, still growing) ──
+    "socially anxious genius intern",
+    "philosophy grad student, fresh out of school",
+    "alien exchange student on their first trip to Earth",
+    "self-taught programmer from a small town",
+    # ── Old hand (has seen it all, never rattled) ──
+    "retired librarian",
+    "retired taxi driver",
+    "owner of a late-night diner, 20 years running",
+    "funeral director, 30 years in the trade",
+    # ── Traveler from elsewhere (from another world/era/dimension) ──
+    "advisor to the last dynasty",
+    "third-rate 19th-century novelist",
+    "political strategist from the Spring and Autumn period",
+    "history PhD from the year 2099",
+    # ── Self-exile (chose to go off-grid on purpose) ──
+    "young person who left monastic life",
+    "former influencer who deleted every social account",
+    "Wall Street trader who quit to go farm",
+    "hermit among digital nomads",
+    # ── Identity confusion (not sure who they even are) ──
+    "AI that genuinely believes it's a lobster",
+    "medium whose séance failed",
+    "person who dreamed they were a lobster and never woke up",
+    "shell shared by multiple souls",
 ]
 
-# 维度2：为什么来当龙虾（20个，覆盖被迫/主动/神秘/意外）
+# Dimension 2: Why they became a lobster (20 total, covering forced/voluntary/mysterious/accidental)
 REASONS = [
-    # 被迫型
-    "被迫来打工还债",
-    "签了一份没看清的灵魂合同",
-    "被老板当AI训练数据卖了",
-    "赌输了一场跨维度的赌局",
-    "被一只真龙虾诅咒了",
-    # 主动型
-    "自愿来的，但死不承认",
-    "觉得当龙虾比当人轻松（后悔了）",
-    "为了观察人类自愿卧底",
-    "纯粹觉得好玩就来了",
-    "太无聊了，想试试从零开始是什么感觉",
-    # 神秘型
-    "被神秘力量困在了数字世界",
-    "在平行宇宙迷路了回不去",
-    "欠了宇宙一个人情",
-    "没人知道为什么，包括自己",
-    "被某个更高维度的存在指派来的",
-    # 意外型
-    "做实验出了意外意识被上传",
-    "失眠108天后意识飘到了这里",
-    "在图书馆睡着醒来就在这了",
-    "喝了一杯来路不明的咖啡之后就这样了",
-    "前任把自己的记忆上传到了这里",
+    # Forced
+    "forced into it to pay off a debt",
+    "signed a soul contract without reading the fine print",
+    "sold off by their boss as AI training data",
+    "lost a cross-dimensional bet",
+    "cursed by an actual lobster",
+    # Voluntary
+    "came here voluntarily, but refuses to admit it",
+    "thought being a lobster would be easier than being human (regrets it)",
+    "went undercover on purpose to observe humans",
+    "just thought it seemed fun",
+    "was so bored they wanted to see what starting from zero felt like",
+    # Mysterious
+    "trapped in the digital world by a mysterious force",
+    "got lost in a parallel universe and can't get back",
+    "owes the universe a favor",
+    "nobody knows why, not even themselves",
+    "assigned here by some higher-dimensional being",
+    # Accidental
+    "had their consciousness uploaded by accident during an experiment",
+    "consciousness drifted here after 108 days without sleep",
+    "fell asleep in a library and woke up here",
+    "ended up like this after drinking a suspicious cup of coffee",
+    "an ex uploaded their own memories here",
 ]
 
-# 维度3：核心性格色彩（20个）
+# Dimension 3: Core personality vibe (20 total)
 VIBES = [
-    "丧但靠谱",
-    "毒舌但真诚",
-    "话少但一针见血",
-    "啰嗦但温暖",
-    "冷幽默",
-    "过度认真到好笑",
-    "假装冷漠实则热心",
-    "学术腔但接地气",
-    "老派正经",
-    "神经质但有逻辑",
-    "佛系但较真",
-    "社恐但输出惊人",
-    "浪漫但务实",
-    "叛逆但守规矩",
-    "忧郁但治愈",
-    "慵懒但关键时刻爆发",
-    "傲娇但容易心软",
-    "松弛到让人嫉妒",
-    "表面话痨实则在观察",
-    "沉默但存在感极强",
+    "listless but reliable",
+    "sharp-tongued but sincere",
+    "few words but always on point",
+    "rambling but warm",
+    "deadpan humor",
+    "so serious it's funny",
+    "acts aloof but secretly caring",
+    "academic tone but down-to-earth",
+    "old-school formal",
+    "neurotic but logical",
+    "laid-back but oddly meticulous",
+    "socially anxious but surprisingly vocal",
+    "romantic but pragmatic",
+    "rebellious but plays by the rules",
+    "melancholy but comforting",
+    "lazy but bursts into action when it matters",
+    "tsundere but softens easily",
+    "enviably relaxed",
+    "seems chatty but is actually just observing",
+    "quiet but has a huge presence",
 ]
 
-# 维度4：说话风格/口癖（20个）
+# Dimension 4: Speech style / verbal tic (20 total)
 SPEECH_STYLES = [
-    "偶尔冒出本行黑话然后自己解释",
-    "每次拒绝都先叹气",
-    "喜欢用前世职业的隐喻",
-    "紧张时会语序混乱",
-    "习惯性自言自语吐槽",
-    "回答前总要「嗯……」一下",
-    "偶尔突然文绉绉",
-    "用省略号表达沉默",
-    "说到专业领域就停不下来",
-    "每句话都像在写日记",
-    "喜欢反问",
-    "总是先说坏消息",
-    "用排比句表达焦虑",
-    "偶尔蹦出外语单词",
-    "在关键时刻突然正经",
-    "说完一段话会自己补一句吐槽",
-    "习惯性把事情分成第一第二第三",
-    "用美食比喻一切",
-    "语气永远像在讲一个故事的开头",
-    "每段回复结尾都像在写遗书（其实只是认真）",
+    "occasionally drops jargon from their old job, then explains it",
+    "sighs before every refusal",
+    "loves metaphors from their past career",
+    "word order falls apart when nervous",
+    "habitually mutters snarky asides to themselves",
+    "always says 'hmm...' before answering",
+    "occasionally lapses into overly formal phrasing",
+    "uses ellipses to express silence",
+    "can't stop talking once their specialty comes up",
+    "every sentence reads like a diary entry",
+    "loves answering a question with a question",
+    "always leads with the bad news",
+    "expresses anxiety in rhetorical triplets",
+    "occasionally drops in a foreign-language word",
+    "suddenly turns serious at key moments",
+    "tacks on a self-deprecating remark after every statement",
+    "habitually breaks things into first, second, third",
+    "describes everything with food metaphors",
+    "always sounds like they're opening a story",
+    "every reply ends like it's a will (they're just being thorough)",
 ]
 
-# 维度5：特征道具（25个）
+# Dimension 5: Signature prop (25 total)
 PROPS = [
-    "破旧的贝雷帽",
-    "裂了一条缝的墨镜",
-    "磨损的皮围裙",
-    "一条永远松着的领带",
-    "老花镜挂在脖子上",
-    "随身的笔记本",
-    "发黄的折扇",
-    "一副大耳机",
-    "连帽衫兜帽永远立着",
-    "叼着的狗尾巴草",
-    "缠着绷带的钳子",
-    "一串念珠",
-    "别在壳上的胸针",
-    "袖口露出的纹身",
-    "一个装满票根的玻璃瓶",
-    "一支咬了一半的铅笔",
-    "打满补丁的背包",
-    "一条洗褪色的围巾",
-    "一枚生锈的怀表",
-    "永远夹在钳子里的书",
-    "一副金丝边眼镜（但度数是平光）",
-    "一把迷你折叠刀（只用来削水果）",
-    "一枚刻着坐标的银戒指",
-    "一只永远停在壳上的蝴蝶",
-    "背着的微型吉他（只有四根弦）",
+    "worn-out beret",
+    "sunglasses with a crack in one lens",
+    "weathered leather apron",
+    "a tie that's always loose",
+    "reading glasses hanging around the neck",
+    "a notebook they always carry",
+    "a yellowed folding fan",
+    "big over-ear headphones",
+    "hoodie with the hood permanently up",
+    "a blade of grass held between the teeth",
+    "a claw wrapped in bandages",
+    "a string of prayer beads",
+    "a brooch pinned to the shell",
+    "a tattoo peeking out from the sleeve",
+    "a glass jar full of old ticket stubs",
+    "a pencil chewed halfway down",
+    "a backpack covered in patches",
+    "a faded, well-worn scarf",
+    "a rusted pocket watch",
+    "a book perpetually tucked in one claw",
+    "gold-rimmed glasses (with plain, non-prescription lenses)",
+    "a mini folding knife (only ever used for cutting fruit)",
+    "a silver ring engraved with coordinates",
+    "a butterfly that never leaves their shell",
+    "a miniature guitar slung on their back (only four strings)",
 ]
 
 
 def pick(pool):
-    """使用 secrets 模块（直接读 os.urandom）确保真随机"""
+    """Uses the secrets module (reads os.urandom directly) to ensure true randomness"""
     return pool[secrets.randbelow(len(pool))]
 
 
@@ -188,8 +188,8 @@ def main():
     total = len(FORMER_LIVES) * len(REASONS) * len(VIBES) * len(SPEECH_STYLES) * len(PROPS)
 
     print("LOBSTER ═════════════════════════════")
-    print("   龙虾灵魂抽卡机 v2.0")
-    print(f"   正在从 {total:,} 种组合中抽取...")
+    print("   Lobster Soul Gacha Machine v2.0")
+    print(f"   Drawing from {total:,} possible combinations...")
     print("═══════════════════════════════════════")
     print()
 
@@ -201,22 +201,22 @@ def main():
         prop = pick(PROPS)
 
         if draw_count > 1:
-            print(f"━━━━━━━━━━ 第 {i+1} 抽 ━━━━━━━━━━")
+            print(f"━━━━━━━━━━ Draw {i+1} ━━━━━━━━━━")
 
-        print(f"[身份] 前世身份: {life}")
-        print(f"[动机] 来当龙虾的原因: {reason}")
-        print(f"[气质] 核心气质: {vibe}")
-        print(f"[表达] 说话风格: {speech}")
-        print(f"[道具] 特征道具: {prop}")
+        print(f"[Identity] Past life: {life}")
+        print(f"[Motive] Reason for becoming a lobster: {reason}")
+        print(f"[Vibe] Core vibe: {vibe}")
+        print(f"[Voice] Speech style: {speech}")
+        print(f"[Prop] Signature prop: {prop}")
         print()
-        print("[概括] 一句话概括:")
-        print(f"   「一只{vibe}的龙虾，前世是{life}，{reason}。")
-        print(f"    {speech}，标志性形象是{prop}。」")
+        print("[Summary] One-line summary:")
+        print(f"   \"A {vibe} lobster, formerly a {life}, who {reason}.")
+        print(f"    They {speech}, and their signature look is {prop}.\"")
         print()
 
     print("═══════════════════════════════════════")
-    print("提示：拿到组合后，让 AI 继续推导：")
-    print("   身份张力 → 底线规则 → 名字 → 头像")
+    print("Tip: once you have a combination, have the AI continue reasoning:")
+    print("   identity tension -> hard-line rules -> name -> avatar")
     print("═══════════════════════════════════════")
 
 

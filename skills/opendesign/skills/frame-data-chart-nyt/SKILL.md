@@ -1,19 +1,19 @@
 ---
 name: frame-data-chart-nyt
-zh_name: "NYT 风数据图表帧"
+zh_name: "NYT-Style Data Chart Frame"
 en_name: "NYT-Style Data Chart Frame"
 emoji: "📈"
-description: "NYT-newsroom 排版 + 错峰揭示动画 + 编辑级图表 (折线/柱/范围带)"
+description: "NYT-newsroom layout + staggered reveal animation + editorial-grade charts (line/bar/range band)"
 category: video
 scenario: video
 aspect_hint: "1920×1080 (16:9)"
 featured: 46
 tags: ["data", "chart", "nyt", "editorial", "frame"]
 example_id: sample-frame-data-chart-nyt
-example_name: "NYT 风折线图 · 全球用户量"
+example_name: "NYT-style line chart · global user count"
 example_format: markdown
-example_tagline: "编辑级图表 + 错峰揭示"
-example_desc: "8 年周活跃用户折线 + NYT red accent + 注释 mono"
+example_tagline: "Editorial-grade chart + staggered reveal"
+example_desc: "8-year weekly active user line + NYT red accent + mono annotations"
 example_source_url: "https://hyperframes.heygen.com/catalog"
 example_source_label: "hyperframes · data-chart"
 od:
@@ -28,29 +28,29 @@ od:
     reload: debounce-100
   design_system:
     requires: false
-  example_prompt: "用「NYT 风数据图表帧」模板把我的内容做成一段「NYT-newsroom 排版 + 错峰揭示动画 + 编辑级图表 (折线/柱/范围带)」。保持模板的视觉签名，使用真实内容和数据，避免 lorem ipsum 和占位图片。"
+  example_prompt: "Use the 'NYT-Style Data Chart Frame' template to turn my content into an 'NYT-newsroom layout + staggered reveal animation + editorial-grade chart (line/bar/range band)'. Keep the template's visual signature, use real content and data, avoid lorem ipsum and placeholder images."
 ---
 
-【模板: NYT 风数据图表帧】
-【意图】把一段数据 (CSV / JSON / 一句结论) 做成《纽约时报》专栏感的单帧/动画图表, 适合视频片段或推特卡。Inspired by hyperframes data-chart。
+[Template: NYT-Style Data Chart Frame]
+[Intent]Turn a piece of data (CSV / JSON / a one-line conclusion) into a New-York-Times-column-style single frame / animated chart, suitable for video clips or Twitter cards. Inspired by hyperframes data-chart.
 
-【画布】1920×1080, 暖白底 `#f7f5ee` 或墨黑底 `#0e0e0e` 二选一; 文字色和背景相反。
+[Canvas]1920×1080, pick either a warm-white background `#f7f5ee` or an ink-black background `#0e0e0e`; text color is the inverse of the background.
 
-【布局】
-- **顶部 kicker** (11px uppercase letterspace 0.14em, 颜色 = accent 红 `#a91d1d` 或 mint `#5fb38a`): 数据来源 + 类目, 如 "GLOBAL · WEEKLY ACTIVE USERS · 2018–2026"。
-- **大字标题** (Cheltenham / Playfair / Source Serif Pro, 5.6vw, italic 副标可选): 一句结论。**结论必须从用户数据中提炼**, 不是描述图。
-- **图表区** (占画布 55-65%):
-  - 折线: 1-2 条线, 主线 ink 实心 2.5px, 次线 dashed 1.5px; 数据点用 6px 实心圆; 关键点旁标注 `2024 · 412M` 黑色 mono 小字。
-  - 柱状: 全部 ink 单色或加 1 道 accent 高亮柱; 柱顶大数字; 柱底类目斜体 (Cheltenham italic)。
-  - 范围带 (range band): 浅灰填充 `#e6e2d2` 包络 + 中线 ink。
-- **底部 source + footnote** (10px mono, opacity 0.6): "Source: 用户数据 · Chart by html-anything"。
-- **错峰揭示动画**: 标题 fade-in (0s), kicker (200ms), 折线 stroke-dashoffset 1.2s ease-out (400ms), 数据标签依次 100ms 间隔。可被 `prefers-reduced-motion` 关闭。
+[Layout]
+- **Top kicker** (11px uppercase letterspace 0.14em, color = accent red `#a91d1d` or mint `#5fb38a`): data source + category, e.g. "GLOBAL · WEEKLY ACTIVE USERS · 2018–2026".
+- **Large title** (Cheltenham / Playfair / Source Serif Pro, 5.6vw, optional italic subtitle): one-sentence conclusion. **The conclusion must be distilled from the user's data**, not a description of the chart.
+- **Chart area** (55-65% of canvas):
+  - Line: 1-2 lines, primary line solid ink 2.5px, secondary line dashed 1.5px; data points as 6px solid circles; annotate key points with small black mono text like `2024 · 412M`.
+  - Bar: all ink monochrome, or add 1 accent highlight bar; large number above each bar; italic category label below each bar (Cheltenham italic).
+  - Range band: light gray fill `#e6e2d2` envelope + ink center line.
+- **Bottom source + footnote** (10px mono, opacity 0.6): "Source: user data · Chart by html-anything".
+- **Staggered reveal animation**: title fade-in (0s), kicker (200ms), line stroke-dashoffset 1.2s ease-out (400ms), data labels revealed one by one at 100ms intervals. Can be disabled via `prefers-reduced-motion`.
 
-【设计细节】
-- **绝不**: 使用 chart.js / d3 库 (除非 jsdelivr CDN 引入); 推荐手写 SVG, 不超过 80 行 inline。
-- 字体: 标题 `Source Serif Pro` 或 `Cheltenham` (无则用 `Playfair Display`); body `IBM Plex Sans` 或 `Inter`; 数据标签 `IBM Plex Mono`。
-- 1 个主色 (ink) + 1 个 accent (NYT red `#a91d1d` / 编辑 mint `#5fb38a` / 暖橙 `#d97757` 三选一)。
-- Y 轴刻度仅 hairline + 3-4 个 tick, 标签在轴外侧 mono 字。
-- 严禁 grid 全屏铺线、阴影、3D 立体柱; 严禁 emoji。
-- 必须用用户提供的数据。如果输入是文本结论, 自动估算合理坐标 (但要标注 "schematic"); 如果是 CSV/JSON, 直接绘制。
-- 单文件 HTML; 数据点旁注释格式: `<text class="annot">2024 · 412M</text>`。
+[Design Details]
+- **Never**: use the chart.js / d3 library (unless imported via jsdelivr CDN); hand-written SVG is preferred, no more than 80 inline lines.
+- Fonts: title in `Source Serif Pro` or `Cheltenham` (fall back to `Playfair Display`); body in `IBM Plex Sans` or `Inter`; data labels in `IBM Plex Mono`.
+- 1 primary color (ink) + 1 accent (pick one of NYT red `#a91d1d` / editorial mint `#5fb38a` / warm orange `#d97757`).
+- Y-axis ticks are hairline only, 3-4 ticks, labels outside the axis in mono.
+- Strictly forbidden: full-screen grid lines, shadows, 3D bars; strictly forbidden: emoji.
+- Must use the data provided by the user. If the input is a text conclusion, auto-estimate reasonable coordinates (but label it "schematic"); if it's CSV/JSON, plot it directly.
+- Single-file HTML; annotation format next to data points: `<text class="annot">2024 · 412M</text>`.

@@ -225,7 +225,7 @@ Run these commands FIRST before any code review:
 ### The Workflow
 
 ```
-User: "バグチェックして" (or "/bug-check")
+User: "check for bugs" (or "/bug-check")
   │
   ├─ Step 1: npm run test
   │   ├─ FAIL → Bug found mechanically (no AI judgment needed)
@@ -335,7 +335,7 @@ const handleRemove = async (id: string) => {
     if (!res.ok) throw new Error("API error");
   } catch {
     setItems(prevItems);  // Rollback
-    alert("削除に失敗しました");
+    alert("Failed to delete");
   }
 };
 ```

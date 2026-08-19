@@ -1351,28 +1351,16 @@ async def _dispose_concierge_proposal(
         # Strip any trailing "_revision" suffix from wr_type to get the base artifact
         # family (e.g. "user_stories") before constructing the fallback target.
         base_type = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
-        # FIX-216b (corrected): od_prototype_revision is excluded from hexaware tier
-        # and has no agents, so od_prototype on hexaware must fall back to prototype_revision.
-        # Only apply the OD→base fallback when the natural od_*_revision is not entitled.
-        _OD_FALLBACK_MAP = {"od_prototype": "prototype"}
-        if base_type in _OD_FALLBACK_MAP:
-            natural_revision = f"{base_type}_revision"
-            if not can_run_pipeline(current_user.tier, natural_revision)[0]:
-                base_type = _OD_FALLBACK_MAP[base_type]
+        # Two OD remap tables used to sit here (_OD_FALLBACK_MAP, _OD_TARGET_REMAP),
+        # rewriting od_prototype/od_ppt targets onto their real revision pipelines.
+        # They were a workaround for an incomplete alias table — the alias covered
+        # the BASE label but never the ``_revision`` variant — and because they lived
+        # in this handler only, the REST ``POST /runs/{id}/revisions`` entry point
+        # skipped them entirely: the same revision succeeded from chat and failed
+        # from REST. Both labels are now collapsed at the root (registry, manifests,
+        # entitlements, and the persisted rows), so the derivation below needs no
+        # correction and both entry points agree by construction.
         target = params.get("target") or f"{base_type}_output"
-        # OD target remapping: od_prototype_output → prototype_output unconditionally.
-        # od_prototype_revision has no registered agents so it can never be dispatched.
-        # This applies whether the Concierge stored the target explicitly or the fallback
-        # derived it — both paths must produce a dispatchable revision pipeline type.
-        # od_ppt_output stays as-is (od_ppt_revision has agents and is entitled).
-        _OD_TARGET_REMAP = {"od_prototype_output": "prototype_output"}
-        target = _OD_TARGET_REMAP.get(target, target)
-        # Stale-proposal correction: a proposal created before FIX-216b may have
-        # stored target="ppt_output" for an od_ppt parent run. Remap to the correct
-        # od_ppt_output so the revision uses od_ppt_revision (1 agent), not ppt_revision.
-        _base_for_correction = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
-        if _base_for_correction == "od_ppt" and target == "ppt_output":
-            target = "od_ppt_output"
         instruction = params.get("instruction", "")
         # FIX-218: when files were attached on this Concierge turn, frame them as
         # supplementary reference material. The user's chat instruction always takes
@@ -2431,13 +2419,30 @@ async def launch_run(
     # merely include a template-injecting agent skip this (factory _compose_injection
     # degrades gracefully when od_context is empty).
     # `agents or []`: Case 3 (USER_WORKFLOW_MANIFEST) leaves `agents` as None —
-    # harmless here since its pipeline_type is always "custom", never one of
-    # the template-requiring types below, so `_needs_template` is always False
-    # for it regardless of this list's contents.
+    # harmless here since its pipeline_type is always "custom", which does not
+    # declare `opendesign`, so `_needs_template` is False for it.
     _template_injecting = [
         spec.id for spec in (agents or []) if "template" in (getattr(spec, "injects", None) or [])
     ]
-    _needs_template = pipeline_type in ("prototype", "ppt", "od_prototype")
+    # The second half of the predicate was a pipeline-name allow-list —
+    # ``pipeline_type in ("prototype", "ppt", "od_prototype")`` — which is exactly
+    # the SC-001 leak this block's own comment above disclaims, sitting three lines
+    # under it. The manifest already declares the thing being tested: a deliverable
+    # that needs template/design-system context says so with
+    # ``context_providers: [opendesign]``. That is what separates prototype/ppt from
+    # a `custom` composition that merely happens to include a template-injecting
+    # agent, and it means a new template-driven deliverable is covered by declaring
+    # one manifest line instead of editing this tuple.
+    from agents.execution_engine.engine import compile_for_run as _compile_for_run
+
+    try:
+        _needs_template = "opendesign" in (
+            _compile_for_run(base_pipeline_type).context_providers or []
+        )
+    except FileNotFoundError:
+        # No manifest for this id — the SUPPORTED_PIPELINE_TYPES gate above already
+        # rejected it, or will; fail closed rather than demand a template.
+        _needs_template = False
     if (
         _template_injecting
         and _needs_template
@@ -2447,8 +2452,8 @@ async def launch_run(
         raise _reject(
             "missing_template_context",
             f"Pipeline {pipeline_type!r} agents {_template_injecting} declare template "
-            "injection, so the run requires a template (template_id) or an od_* alias — "
-            "no template body could be loaded.",
+            "injection, so the run requires a template (template_id) — no template "
+            "body could be loaded.",
         )
 
     # ── model_overrides ingress validation (D-07, MODEL-03) ────────────────────
@@ -3030,6 +3035,30 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
     pipeline_run_id = str(_uuid.uuid4())
     revision_pipeline_type = f"{target_artifact_type.removesuffix('_output')}_revision"
 
+    # ── Existence gate — BEFORE the entitlement gate, and that order matters ───
+    # Some pipelines have no revision implementation at all: `dotnet_to_azure` and
+    # `mulesoft_to_springboot` are launchable and produce a deliverable, but neither
+    # has a *_revision manifest, agents, or a tier entry. Reaching the entitlement
+    # gate first meant the user was told "This pipeline is not available on your
+    # current plan" — on enterprise, where UPGRADE_PATH is None and so no upgrade is
+    # even offered. The plan was never the problem and no plan change could fix it.
+    #
+    # Answer the question that is actually true first: the feature does not exist.
+    # A 400 (not 403) because this is not an authorization outcome.
+    #
+    # The predicate is ``get_pipeline_agents`` — the SAME one the engine uses for its
+    # own pre-dispatch guard (engine.py, "No revision pipeline is registered"). Using
+    # the registry rather than a directory probe keeps one definition of "this
+    # pipeline exists" and moves the engine's check earlier, before the row is minted.
+    _rev_agents = get_pipeline_agents(revision_pipeline_type)
+    if not _rev_agents:
+        raise _reject(
+            "revision_unsupported",
+            f"Revisions aren't available for this workflow yet — {revision_pipeline_type!r} "
+            f"has no pipeline behind it. Launch a new run instead.",
+            http_status=status.HTTP_400_BAD_REQUEST,
+        )
+
     # ── Entitlement gate (tier) — KAN-161 / ISS-055 ────────────────────────────
     # Single insertion covers all 3 production call sites (create_revision,
     # CHANNEL_REVISION in post_message, Concierge "revision" disposal). Fails fast
@@ -3040,7 +3069,6 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
     if not _rev_allowed:
         raise _reject("pipeline_not_entitled", _rev_reason, http_status=status.HTTP_403_FORBIDDEN)
 
-    _rev_agents = get_pipeline_agents(revision_pipeline_type)
     # Inherit workspace_id from the parent run (required — run_events.workspace_id
     # is NOT NULL; a revision row without it fails on the first event write).
     parent_wr = db.query(WorkflowRun).filter(WorkflowRun.id == parent_run_id).first()

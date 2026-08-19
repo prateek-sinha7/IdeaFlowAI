@@ -1,21 +1,19 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { renderWithProviders } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import type { WorkflowRun } from "@/types/index";
-
 // ─────────────────────────────────────────────────────────────────
 // Revision Families (B1): the EMIT side of the history-revision linkage
 // fix — a history-launched revision must forward selectedRun.id as the 3rd
 // arg (sourceRunId) so the backend links the parent. Previously history
 // revisions sent nothing → orphan runs. Scaffold mirrors WorkflowHistory.test.tsx.
 // ─────────────────────────────────────────────────────────────────
-
 const mockGetToken = vi.fn(() => "test-token");
 const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<WorkflowRun[]>>();
 const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<WorkflowRun>>();
 const mockDeleteWorkflow = vi.fn<(token: string, id: string) => Promise<void>>();
-
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getWorkflows: (token: string, opts?: { limit?: number }) => mockGetWorkflows(token, opts),
@@ -31,7 +29,6 @@ vi.mock("@/lib/api", () => ({
   // benign rejection lands RunDetailPage in its graceful error state.
   getRunSummary: () => Promise.reject(new Error("no summary in this suite")),
 }));
-
 vi.mock("@/components/preview/PPTPreview", () => ({
   PPTPreview: ({ content }: { content: string }) => <div data-testid="ppt-preview">{content.slice(0, 20)}</div>,
 }));
@@ -46,8 +43,25 @@ vi.mock("@/components/preview/MarkdownPreview", () => ({
 }));
 vi.mock("@/components/results/FilesTab", () => ({
   FilesTab: () => <div data-testid="files-tab" />,
+  deriveDeliverableFilename: (workflowType: string, content?: string, fallback?: string) => {
+    if (workflowType === "user_stories" || workflowType === "user_stories_revision") {
+      return fallback || "user-stories.md";
+    }
+    if (workflowType === "ppt" || workflowType === "ppt_revision") {
+      return fallback || "presentation.html";
+    }
+    if (workflowType === "prototype" || workflowType === "prototype_revision") {
+      return fallback || "prototype.html";
+    }
+    if (workflowType === "custom") {
+      return fallback || "custom-output.md";
+    }
+    if (workflowType === "app_builder" || workflowType === "app_builder_revision") {
+      return "project.zip";
+    }
+    return fallback || "deliverable";
+  }
 }));
-
 const STRIPPED_MOTION_PROPS = new Set([
   "initial", "animate", "exit", "transition", "whileHover",
   "whileTap", "whileFocus", "whileInView", "viewport", "layout",
@@ -63,14 +77,12 @@ vi.mock("motion/react", () => ({
             Object.entries(rest).filter(([k]) => !STRIPPED_MOTION_PROPS.has(k)),
           );
           return React.createElement(prop, cleaned, children);
-        },
-    },
+        }
+    }
   ),
   AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
-
 import { WorkflowHistory } from "./WorkflowHistory";
-
 function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
   return {
     id: "hist-7",
@@ -88,40 +100,32 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     ...overrides,
   };
 }
-
 beforeEach(() => {
   mockGetToken.mockReset().mockReturnValue("test-token");
   mockGetWorkflows.mockReset();
   mockGetWorkflow.mockReset();
   mockDeleteWorkflow.mockReset();
 });
-
 describe("WorkflowHistory revision linkage (B1)", () => {
   it("forwards selectedRun.id as the 3rd arg to onRevisePrototype", async () => {
     const run = makeRun();
-    mockGetWorkflows.mockResolvedValue([run]);
+    mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
     mockGetWorkflow.mockResolvedValue(run);
     const onRevisePrototype = vi.fn();
-
-    render(<WorkflowHistory onBack={vi.fn()} onRevisePrototype={onRevisePrototype} />);
-
+    renderWithProviders(<WorkflowHistory onBack={vi.fn()} onRevisePrototype={onRevisePrototype} />);
     // Open the run detail.
     const item = await screen.findByText(run.title);
     await userEvent.click(item);
     await waitFor(() => expect(screen.getAllByText(run.title).length).toBeGreaterThan(0));
-
     // Open the revise affordance ("Revise Prototype"), type an instruction, send.
     const reviseButton = await screen.findByText("Revise Prototype");
     await userEvent.click(reviseButton);
-
     const textarea = await screen.findByPlaceholderText("Describe what you'd like to change...");
     // fireEvent.change sets the controlled value in one shot — robust against the
     // detail view's per-keystroke re-render churn.
     fireEvent.change(textarea, { target: { value: "make the header blue" } });
-
     const sendButton = screen.getByRole("button", { name: /Send/i });
     await userEvent.click(sendButton);
-
     expect(onRevisePrototype).toHaveBeenCalledTimes(1);
     expect(onRevisePrototype).toHaveBeenCalledWith(
       "make the header blue",

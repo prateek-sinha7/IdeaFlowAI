@@ -1,18 +1,18 @@
 ---
 name: card-twitter
-zh_name: "Twitter 分享卡"
+zh_name: "Twitter Share Card"
 en_name: "Twitter Share Card"
 emoji: "🐦"
-description: "推特金句 / 数据卡, 适合配推文"
+description: "Twitter quote / data card, great for pairing with a tweet"
 category: card
 scenario: marketing
 aspect_hint: "1600×900 (16:9)"
-tags: ["twitter", "x", "quote", "金句"]
+tags: ["twitter", "x", "quote", "quote-card"]
 example_id: sample-twitter-quote
-example_name: "推特卡 · 金句"
+example_name: "Twitter Card · Quote"
 example_format: text
-example_tagline: "16:9 暗色金句卡, 截图直接配推文"
-example_desc: "高对比金句模板, 含 grid 网格 + 渐变光晕背景"
+example_tagline: "16:9 dark quote card, screenshot straight into a tweet"
+example_desc: "High-contrast quote template with a grid pattern + gradient glow background"
 od:
   mode: prototype
   surface: web
@@ -25,14 +25,14 @@ od:
     reload: debounce-100
   design_system:
     requires: false
-  example_prompt: "用「Twitter 分享卡」模板把我的内容做成一份「推特金句 / 数据卡, 适合配推文」。保持模板的视觉签名，使用真实内容和数据，避免 lorem ipsum 和占位图片。"
+  example_prompt: "Use the 'Twitter Share Card' template to turn my content into a 'Twitter quote / data card, great for pairing with a tweet'. Keep the template's visual signature, use real content and data, and avoid lorem ipsum and placeholder images."
 ---
 
-【模板: Twitter 分享卡】
-- 容器 `w-[1600px] h-[900px]`, 暗色 / 亮色二选一根据内容情绪。
-- 中央一句 hero 金句 (text-6xl, font-semibold, 限 2-3 行)。
-- 下方作者署名 + 头像占位 + handle。
-- 左上角小标签 (类型: "Insight" / "Data" / "Quote")。
-- 右下角品牌水印。
-- 整张卡片有微妙的纹理 (grid 网格 / noise / dot pattern)。
-- 截图后可直接配推文发出, 视觉简洁有力。
+[Template: Twitter Share Card]
+- Container `w-[1600px] h-[900px]`, dark / light — pick one based on the content's mood.
+- A single hero quote centered (text-6xl, font-semibold, limited to 2-3 lines).
+- Below it, author byline + avatar placeholder + handle.
+- Small tag top-left (type: "Insight" / "Data" / "Quote").
+- Brand watermark bottom-right.
+- The whole card has a subtle texture (grid pattern / noise / dot pattern).
+- Screenshot it and post directly alongside a tweet — visually clean and punchy.

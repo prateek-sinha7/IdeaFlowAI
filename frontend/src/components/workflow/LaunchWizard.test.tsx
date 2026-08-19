@@ -13,9 +13,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
-import { DRAFT_SCENARIOS } from "./__fixtures__/launchContract";
+import { DRAFT_SCENARIOS, PROTO_AGENTS, PPT_AGENTS } from "./__fixtures__/launchContract";
+import type { AgentDef } from "@/types/index";
 
 const pushMock = vi.fn();
 const createUserWorkflowMock = vi.fn().mockResolvedValue({ id: "wf-1" });
@@ -110,6 +111,23 @@ const golden = (name: string) => {
   return s.expected;
 };
 
+// Create test agents matching the expected library
+const createTestAgents = (): AgentDef[] => {
+  const protoAgents: AgentDef[] = PROTO_AGENTS.map((id, idx) => ({
+    id,
+    name: id,
+    pipeline_type: "prototype",
+    order: idx + 1,
+  }));
+  const pptAgents: AgentDef[] = PPT_AGENTS.map((id, idx) => ({
+    id,
+    name: id,
+    pipeline_type: "ppt",
+    order: idx + 1,
+  }));
+  return [...protoAgents, ...pptAgents];
+};
+
 beforeEach(() => {
   sessionStorage.clear();
   pushMock.mockClear();
@@ -119,7 +137,9 @@ beforeEach(() => {
 describe("LaunchWizard — real-component launch parity (byte-identical per mode)", () => {
   it("prototype base launch writes the golden draft + pending and routes to /dashboard", async () => {
     const user = userEvent.setup();
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, {
+      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+    });
     await user.type(await screen.findByLabelText("Brief"), "Build a kanban board");
     await user.click(screen.getByTestId("pick-web"));
     await user.click(await screen.findByTestId("pick-ds"));
@@ -127,13 +147,15 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
 
     const g = golden("prototype · base (template + ds + brief)");
     expect(sessionStorage.getItem("prototype.draft")).toBe(g.draftJson);
-    expect(sessionStorage.getItem("od_prototype.pending")).toBe("true");
+    expect(sessionStorage.getItem("prototype.pending")).toBe("true");
     expect(pushMock).toHaveBeenCalledWith("/dashboard");
   });
 
   it("prototype blank-canvas launch writes templateId:null", async () => {
     const user = userEvent.setup();
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, {
+      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+    });
     await user.type(await screen.findByLabelText("Brief"), "Build a kanban board");
     await user.click(screen.getByTestId("pick-web-blank"));
     await user.click(await screen.findByTestId("pick-ds"));
@@ -146,7 +168,9 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
 
   it("ppt base launch writes the golden draft + pending", async () => {
     const user = userEvent.setup();
-    render(<LaunchWizard initialMode="ppt" />);
+    renderWithProviders(<LaunchWizard initialMode="ppt" />, {
+      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+    });
     await user.type(await screen.findByLabelText("Brief"), "Pitch deck");
     await user.click(screen.getByTestId("pick-deck")); // pitch → dsRequired
     await user.click(await screen.findByTestId("pick-ds"));
@@ -159,7 +183,9 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
 
   it("ppt template not requiring a design system writes designSystemId:null", async () => {
     const user = userEvent.setup();
-    render(<LaunchWizard initialMode="ppt" />);
+    renderWithProviders(<LaunchWizard initialMode="ppt" />, {
+      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+    });
     await user.type(await screen.findByLabelText("Brief"), "Pitch deck");
     await user.click(screen.getByTestId("pick-deck-onepager"));
     await user.click(screen.getByRole("button", { name: "Continue" }));
@@ -171,7 +197,9 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
 
   it("WR-06: ppt custom template launches customTemplateBody with designSystemId:null (no DS required)", async () => {
     const user = userEvent.setup();
-    render(<LaunchWizard initialMode="ppt" />);
+    renderWithProviders(<LaunchWizard initialMode="ppt" />, {
+      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+    });
     await user.type(await screen.findByLabelText("Brief"), "Custom deck");
     // A deck custom template has no registry entry → dsRequired=false → the
     // launch must succeed WITHOUT a design-system pick and emit designSystemId:null.
@@ -187,7 +215,9 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
 describe("LaunchWizard — SC-001 Web/Deck deliverable-mode toggle", () => {
   it("toggling to Deck switches the agent pipeline + launch target to ppt", async () => {
     const user = userEvent.setup();
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, {
+      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+    });
     expect(await screen.findByTestId("agents-pipeline")).toHaveTextContent("prototype");
 
     await user.click(screen.getByTestId("toggle-deck"));
@@ -206,7 +236,7 @@ describe("LaunchWizard — SC-001 Web/Deck deliverable-mode toggle", () => {
 
   it("WR-05: page chrome (header title + brief label + save-modal title) follows the LIVE mode after toggle", async () => {
     const user = userEvent.setup();
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
     // Prototype chrome initially.
     expect(await screen.findByRole("heading", { name: "Configure your prototype" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Describe what you're building" })).toBeInTheDocument();
@@ -227,7 +257,7 @@ describe("LaunchWizard — SC-001 Web/Deck deliverable-mode toggle", () => {
 describe("LaunchWizard — ported behaviors", () => {
   it("review gates: touching gates threads gateAgentIds into the draft", async () => {
     const user = userEvent.setup();
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
     await user.type(await screen.findByLabelText("Brief"), "Gated brief");
     await user.click(screen.getByTestId("pick-web"));
     await user.click(await screen.findByTestId("pick-ds"));
@@ -240,7 +270,7 @@ describe("LaunchWizard — ported behaviors", () => {
 
   it("discovery: filling a discovery answer writes prototype.discovery; empty clears it", async () => {
     const user = userEvent.setup();
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
     await user.type(await screen.findByLabelText("Brief"), "Discovery brief");
     await user.click(screen.getByTestId("pick-web"));
     await user.click(await screen.findByTestId("pick-ds"));
@@ -254,7 +284,7 @@ describe("LaunchWizard — ported behaviors", () => {
 
   it("discovery: no answers → no prototype.discovery key written", async () => {
     const user = userEvent.setup();
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
     await user.type(await screen.findByLabelText("Brief"), "No discovery");
     await user.click(screen.getByTestId("pick-web"));
     await user.click(await screen.findByTestId("pick-ds"));
@@ -265,7 +295,7 @@ describe("LaunchWizard — ported behaviors", () => {
 
   it("example-prompt: clicking 'Use template example' fills the brief", async () => {
     const user = userEvent.setup();
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
     await screen.findByLabelText("Brief");
     await user.click(screen.getByTestId("pick-web")); // selects kanban (has example_prompt)
     await user.click(await screen.findByRole("button", { name: /use template example/i }));
@@ -274,7 +304,9 @@ describe("LaunchWizard — ported behaviors", () => {
 
   it("save-workflow: composes base_pipeline_type + _wizard config", async () => {
     const user = userEvent.setup();
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />, {
+      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+    });
     await user.type(await screen.findByLabelText("Brief"), "Savable");
     await user.click(screen.getByTestId("pick-web"));
     await user.click(await screen.findByTestId("pick-ds"));
@@ -293,7 +325,7 @@ describe("LaunchWizard — ported behaviors", () => {
       "prototype.draft",
       JSON.stringify({ templateId: "kanban", designSystemId: "midnight", brief: "restored", agentIds: [] }),
     );
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
     const briefField = (await screen.findByLabelText("Brief")) as HTMLTextAreaElement;
     await waitFor(() => expect(briefField.value).toBe("restored"));
     // FIX-005: the one-shot draft is cleared after hydration.
@@ -313,7 +345,7 @@ describe("LaunchWizard — ported behaviors", () => {
         agentIds: [],
       }),
     );
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
     const briefField = (await screen.findByLabelText("Brief")) as HTMLTextAreaElement;
     await waitFor(() => expect(briefField.value).toBe("restored"));
     await user.click(screen.getByRole("button", { name: "Continue" }));
@@ -328,7 +360,7 @@ describe("LaunchWizard — ported behaviors", () => {
   it("chaining: pre-fills the brief and hides the brief editor (topic from prior run)", async () => {
     sessionStorage.setItem("chain.from", "user_stories");
     sessionStorage.setItem("chain.brief", "chained topic");
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
     // Brief editor is hidden when chaining; the chain banner is shown instead.
     await waitFor(() => expect(screen.queryByLabelText("Brief")).not.toBeInTheDocument());
     expect(screen.getByText(/Continuing from your/i)).toBeInTheDocument();
@@ -339,7 +371,7 @@ describe("LaunchWizard — ported behaviors", () => {
     sessionStorage.setItem("chain.from", "user_stories");
     sessionStorage.setItem("chain.context_block", "PRIOR CONTEXT");
     sessionStorage.setItem("chain.source_run_id", "run-42");
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
     // Brief editor hidden when chaining — the topic comes from the prior run.
     await waitFor(() => expect(screen.queryByLabelText("Brief")).not.toBeInTheDocument());
     // A prototype still needs a design system; pick one, then click Continue.
@@ -349,11 +381,11 @@ describe("LaunchWizard — ported behaviors", () => {
     const draft = JSON.parse(sessionStorage.getItem("prototype.draft")!);
     expect(draft.brief).toBe("PRIOR CONTEXT"); // isChaining && contextBlock → finalBrief = contextBlock
     expect(draft.sourceRunId).toBe("run-42"); // pulled from chain.source_run_id
-    expect(sessionStorage.getItem("od_prototype.pending")).toBe("true");
+    expect(sessionStorage.getItem("prototype.pending")).toBe("true");
   });
 
   it("a11y: the brief and back control expose accessible names", async () => {
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
     expect(await screen.findByLabelText("Brief")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back to dashboard" })).toBeInTheDocument();
   });
@@ -365,7 +397,7 @@ describe("LaunchWizard — BUG-014: chain.source_run_id must not leak into a fre
     // A stale source id lingers from a previously-viewed/chained run — but this
     // launch is a fresh Home entry (no chain.from → isChaining=false).
     sessionStorage.setItem("chain.source_run_id", "stale-run");
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
     await user.type(await screen.findByLabelText("Brief"), "Build a kanban board");
     await user.click(screen.getByTestId("pick-web"));
     await user.click(await screen.findByTestId("pick-ds"));
@@ -383,7 +415,7 @@ describe("LaunchWizard — BUG-014: chain.source_run_id must not leak into a fre
     sessionStorage.setItem("chain.from", "user_stories");
     sessionStorage.setItem("chain.context_block", "PRIOR CONTEXT");
     sessionStorage.setItem("chain.source_run_id", "run-42");
-    render(<LaunchWizard initialMode="prototype" />);
+    renderWithProviders(<LaunchWizard initialMode="prototype" />);
     // Brief editor hidden when chaining — the topic comes from the prior run.
     await waitFor(() => expect(screen.queryByLabelText("Brief")).not.toBeInTheDocument());
     await user.click(await screen.findByTestId("pick-ds"));

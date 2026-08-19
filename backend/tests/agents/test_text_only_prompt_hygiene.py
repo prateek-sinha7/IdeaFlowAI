@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import uuid
 
+import dataclasses
+
 import pytest
 
 from agents.factory import (
@@ -243,10 +245,22 @@ async def test_engine_pipeline_path_strips_fabricated_xml_from_authoritative_out
     _orig_compile = engine_mod.compile_for_run
 
     def _patched_compile(pipeline_type, _orig=_orig_compile):
+        # COPY, never mutate. ``compile_for_run`` is @lru_cache'd, so ``_orig(...)``
+        # hands back the SHARED CompiledWorkflow instance — the very object every
+        # other test and the engine itself reads. Setting ``.planner`` / ``.clarify``
+        # on it leaked process-wide: monkeypatch restores this FUNCTION on teardown,
+        # but nothing undoes a mutation to the cached object, so ``user_stories``
+        # stayed ``planner="skip"`` / ``clarify.mode="off"`` for the rest of the run.
+        # That silently failed five tests in other files
+        # (test_id_alias_resolver[user_stories], test_live_contract,
+        # test_live_harness, test_iss033 ×2) — but only when this file ran first,
+        # which is why they passed in isolation and moved around between runs.
         compiled = _orig(pipeline_type)
-        compiled.planner = "skip"
-        compiled.clarify.mode = "off"
-        return compiled
+        return dataclasses.replace(
+            compiled,
+            planner="skip",
+            clarify=dataclasses.replace(compiled.clarify, mode="off"),
+        )
 
     monkeypatch.setattr(engine_mod, "compile_for_run", _patched_compile)
 

@@ -30,9 +30,11 @@ context_providers:
 seed_files: {}
 steps:
 - agent: custom-revision-planner
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: custom-revision-builder
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 name: Composed Workflow Revision

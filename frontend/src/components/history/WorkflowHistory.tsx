@@ -98,11 +98,8 @@ const TYPE_META: Record<string, { icon: typeof FileText; label: string }> = {
   user_stories_revision: { icon: FileText, label: "User Stories (Revised)" },
   ppt: { icon: Presentation, label: "Presentation" },
   ppt_revision: { icon: Presentation, label: "Presentation (Revised)" },
-  od_ppt: { icon: Presentation, label: "Presentation" },
-  od_ppt_revision: { icon: Presentation, label: "Presentation (Revised)" },
   prototype: { icon: Layout, label: "Prototype" },
   prototype_revision: { icon: Layout, label: "Prototype (Revised)" },
-  od_prototype: { icon: Layout, label: "Prototype" },
   app_builder: { icon: Layout, label: "App Builder" },
   app_builder_revision: { icon: Layout, label: "App Builder (Revised)" },
   custom: { icon: FileText, label: "Custom" },
@@ -446,7 +443,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const isUserStory = workflowType === "user_stories" || workflowType === "user_stories_revision";
     const isAppBuilder = detailIsAppBuilder;
     const isPpt = workflowType === "ppt" || workflowType === "ppt_revision";
-    const isPrototype = workflowType === "prototype" || workflowType === "prototype_revision" || workflowType === "od_prototype";
+    const isPrototype = workflowType === "prototype" || workflowType === "prototype_revision";
     // ─── ISS-021 (18-03) — 2nd facet: the reopen generic fallback ─────────────
     // The OLD `isMarkdown = isCustom` swallowed HTML deliverables into
     // MarkdownPreview (escaped HTML). Replace it with a structural "no known
@@ -746,7 +743,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                   {isGenericPpt && selectedOutput && (
                     <PPTPreview
                       content={selectedOutput}
-                      pipelineType="od_ppt"
+                      pipelineType="ppt"
                       onRevise={undefined}
                     />
                   )}

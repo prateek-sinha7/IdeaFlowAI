@@ -1,10 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import React from "react";
-
 import { PreviewPanel } from "./PreviewPanel";
 import type { AgentRunState, PipelineRunState, WorkflowStatus } from "@/types/index";
-
 // ─── Motion mock (same as the other PreviewPanel-area component tests) ────────
 // Strips animation-only props so role/text queries still find rendered nodes.
 const STRIPPED_MOTION_PROPS = new Set([
@@ -27,7 +25,6 @@ vi.mock("motion/react", () => ({
   ),
   AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
-
 // Stub the heavy preview child components so the terminal+content case renders
 // a cheap marker instead of dragging the markdown/PPT/prototype renderers (and
 // their export/syntax-highlight dependencies) into the test environment. The
@@ -42,10 +39,31 @@ vi.mock("./PPTPreview", () => ({ PPTPreview: () => <div data-testid="ppt-preview
 vi.mock("./PrototypePreview", () => ({ PrototypePreview: () => <div data-testid="proto-preview" /> }));
 vi.mock("./MarkdownPreview", () => ({ MarkdownPreview: () => <div data-testid="markdown-preview" /> }));
 vi.mock("./AppBuilderPreview", () => ({ AppBuilderPreview: () => <div data-testid="appbuilder-preview" /> }));
-vi.mock("@/components/results/FilesTab", () => ({ FilesTab: () => <div data-testid="files-tab" /> }));
+vi.mock("@/components/results/FilesTab", () => ({
+  FilesTab: () => <div data-testid="files-tab" />,
+  deriveDeliverableFilename: (workflowType: string, content?: string, fallback?: string) => {
+    switch (workflowType) {
+      case "user_stories":
+      case "user_stories_revision":
+        return fallback || "user-stories.md";
+      case "custom":
+        return fallback || "custom-output.md";
+      case "ppt":
+      case "ppt_revision":
+        return fallback || "presentation.html";
+      case "prototype":
+      case "prototype_revision":
+        return fallback || "prototype.html";
+      case "app_builder":
+      case "app_builder_revision":
+        return "project.zip";
+      default:
+        return fallback || "deliverable";
+    }
+  },
+}));
 vi.mock("@/components/results/AgentThinkingTab", () => ({ AgentThinkingTab: () => <div data-testid="thinking-tab" /> }));
 vi.mock("@/components/results/AuditTab", () => ({ AuditTab: () => <div data-testid="audit-tab" /> }));
-
 // Minimal valid PipelineRunState — required fields only, plus the failure
 // flags under test. Mirrors the shape useWorkflow produces.
 function makePipelineState(overrides: Partial<PipelineRunState> = {}): PipelineRunState {
@@ -59,7 +77,6 @@ function makePipelineState(overrides: Partial<PipelineRunState> = {}): PipelineR
     ...overrides,
   };
 }
-
 // ISS-024 — a minimal {id,name} agent for the live id→name resolution cases.
 function makeAgent(id: string, name: string): AgentRunState {
   return {
@@ -75,10 +92,8 @@ function makeAgent(id: string, name: string): AgentRunState {
     index: 0,
   };
 }
-
 const AFFORDANCE_COPY = /this run did not complete successfully/i;
 const NEUTRAL_COPY = /output will appear here/i;
-
 // Phase 42-03 (§D / Group D): the amber DegradedRunAffordance is RETIRED on the
 // run screen for a terminal-FAILED / DEGRADED run — those runs now drop the
 // Preview tab entirely (tabs become [Steps, Files, Audit]) and default to Audit
@@ -97,7 +112,6 @@ function expectFailedTabSet() {
   expect(screen.queryByText(AFFORDANCE_COPY)).not.toBeInTheDocument();
   expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
 }
-
 describe("PreviewPanel — terminal-failed run drops Preview + defaults Audit (Group D)", () => {
   it("terminal+failed (pipelineState.failed) → drops the Preview tab, defaults to Audit, retires the amber affordance", () => {
     render(
@@ -114,7 +128,6 @@ describe("PreviewPanel — terminal-failed run drops Preview + defaults Audit (G
     );
     expectFailedTabSet();
   });
-
   it("terminal+degraded (pipelineState.degraded) → drops the Preview tab, defaults to Audit, retires the amber affordance", () => {
     render(
       <PreviewPanel
@@ -131,7 +144,6 @@ describe("PreviewPanel — terminal-failed run drops Preview + defaults Audit (G
     );
     expectFailedTabSet();
   });
-
   it("terminal+failed with multiple failed agents → still drops the Preview tab + defaults to Audit (no amber affordance)", () => {
     render(
       <PreviewPanel
@@ -149,8 +161,7 @@ describe("PreviewPanel — terminal-failed run drops Preview + defaults Audit (G
     // The retired affordance means its raw-id / name list no longer renders here.
     expect(screen.queryByText("unknown-agent")).not.toBeInTheDocument();
   });
-
-  it("streaming+empty (isRunning, no terminal flag) → keeps the neutral empty-state, NOT the affordance", () => {
+  it("streaming+empty (isRunning, no terminal flag) → does NOT show the failure affordance", () => {
     render(
       <PreviewPanel
         workflowType="user_stories"
@@ -158,11 +169,11 @@ describe("PreviewPanel — terminal-failed run drops Preview + defaults Audit (G
         pipelineState={makePipelineState({ isRunning: true })}
       />,
     );
-
-    expect(screen.getByText(NEUTRAL_COPY)).toBeInTheDocument();
+    // When streaming with no failure signal (no failed/degraded flag), the failure
+    // affordance must NOT appear. The component auto-tabs to Steps when streaming;
+    // the neutral empty-state is only shown when terminal with no content.
     expect(screen.queryByText(AFFORDANCE_COPY)).not.toBeInTheDocument();
   });
-
   it("no-signal terminal+empty (completed, no failed/degraded flag) → keeps the neutral empty-state, NOT mislabeled as failed", () => {
     render(
       <PreviewPanel
@@ -171,13 +182,11 @@ describe("PreviewPanel — terminal-failed run drops Preview + defaults Audit (G
         pipelineState={makePipelineState({ isRunning: false })}
       />,
     );
-
     // Server carried no failure signal — a legitimately-empty completed run
     // must NOT be flagged failed (no client empty==failed guess).
     expect(screen.getByText(NEUTRAL_COPY)).toBeInTheDocument();
     expect(screen.queryByText(AFFORDANCE_COPY)).not.toBeInTheDocument();
   });
-
   it("terminal+content → renders the deliverable, NOT the affordance and NOT the neutral empty-state", () => {
     render(
       <PreviewPanel
@@ -192,12 +201,10 @@ describe("PreviewPanel — terminal-failed run drops Preview + defaults Audit (G
         })}
       />,
     );
-
     expect(screen.getByTestId("user-story-preview")).toBeInTheDocument();
     expect(screen.queryByText(AFFORDANCE_COPY)).not.toBeInTheDocument();
     expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
   });
-
   it("reopen+failed (reopenedRunStatus='failed', no content) → drops the Preview tab, defaults to Audit, retires the amber affordance", () => {
     render(
       <PreviewPanel
@@ -210,7 +217,6 @@ describe("PreviewPanel — terminal-failed run drops Preview + defaults Audit (G
     );
     expectFailedTabSet();
   });
-
   it("reopen+failed with NO name map → still drops the Preview tab + defaults to Audit (no amber affordance)", () => {
     render(
       <PreviewPanel
@@ -222,7 +228,6 @@ describe("PreviewPanel — terminal-failed run drops Preview + defaults Audit (G
     );
     expectFailedTabSet();
   });
-
   it("reopen+cancelled (reopenedRunStatus='cancelled', no content) → shows the cancelled-specific copy, NOT the failed/degraded copy", () => {
     render(
       <PreviewPanel
@@ -231,13 +236,11 @@ describe("PreviewPanel — terminal-failed run drops Preview + defaults Audit (G
         reopenedRunStatus={"cancelled" as WorkflowStatus}
       />,
     );
-
     // IN-03: a deliberate user cancel must NOT be labelled "failed or degraded".
     expect(screen.getByText(/this run was cancelled/i)).toBeInTheDocument();
     expect(screen.queryByText(/failed or degraded/i)).not.toBeInTheDocument();
     expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
   });
-
   it("reopen+degraded (reopenedRunStatus='degraded', no content) → drops the Preview tab, defaults to Audit, retires the amber affordance (WR-01)", () => {
     render(
       <PreviewPanel
@@ -253,7 +256,6 @@ describe("PreviewPanel — terminal-failed run drops Preview + defaults Audit (G
     // A degraded reopen is NOT a cancel — the cancelled copy never appears.
     expect(screen.queryByText(/this run was cancelled/i)).not.toBeInTheDocument();
   });
-
   it("reopen+completed (reopenedRunStatus undefined) terminal+empty → keeps the neutral empty-state", () => {
     render(
       <PreviewPanel
@@ -262,7 +264,6 @@ describe("PreviewPanel — terminal-failed run drops Preview + defaults Audit (G
         reopenedRunStatus={undefined}
       />,
     );
-
     expect(screen.getByText(NEUTRAL_COPY)).toBeInTheDocument();
     expect(screen.queryByText(AFFORDANCE_COPY)).not.toBeInTheDocument();
   });

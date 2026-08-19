@@ -12,7 +12,7 @@
  * WHICH surface mounts as the default landing, not the surface internals.
  */
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { renderWithProviders, screen } from "@/test/renderWithProviders";
 import React from "react";
 
 // next/navigation — DashboardLayout calls useRouter() at the top of the body.
@@ -79,7 +79,6 @@ vi.mock("@/components/ui/CompletionToast", () => ({
 
 import { DashboardLayout } from "./DashboardLayout";
 import type { DashboardLayoutProps } from "./DashboardLayout";
-import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
 import type { PipelineRunState } from "@/types/index";
 
 function idlePipelineState(): PipelineRunState {
@@ -112,11 +111,7 @@ function renderLayout() {
     // idle (no run, nothing staged) → the DEFAULT landing renders.
     pipelineState: idlePipelineState(),
   };
-  return render(
-    <SkillsHooksProvider>
-      <DashboardLayout {...props} />
-    </SkillsHooksProvider>,
-  );
+  return renderWithProviders(<DashboardLayout {...props} />);
 }
 
 describe("DashboardLayout — catalog-as-home (22-07 UXFIX-03 / D-20)", () => {

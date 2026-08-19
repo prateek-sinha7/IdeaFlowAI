@@ -65,23 +65,19 @@ DOMAIN_KB: dict[str, dict[str, Any]] = {
             "enterprise": "Add compliance, audit, SSO requirements",
         },
     },
-    "od_prototype": {
-        "description": "OpenDesign prototype pipeline — generates interactive HTML prototype",
-        "what_makes_good_brief": "A specific product type, target users, key screens/flows, and interaction patterns",
-        "common_missing": ["target_audience", "scope", "priority", "style", "user_journeys", "key_screens", "interactions", "personas"],
-        "topic_indicators": ["app", "dashboard", "portal", "website", "interface", "screen", "flow", "checkout", "onboarding"],
-        "quality_targets": ["Realistic interactions", "Consistent design system", "Complete user flows", "Responsive layout"],
-        "typical_personas": ["End user", "Admin", "Mobile user", "Desktop user"],
-        "nfrs": ["Accessibility (WCAG 2.1)", "Mobile responsiveness", "Performance", "Usability"],
-    },
     "prototype": {
         "description": "Prototype pipeline — generates interactive HTML prototype",
         "what_makes_good_brief": "A specific product type, target users, key screens/flows, and interaction patterns",
         "common_missing": ["target_audience", "scope", "priority", "style", "user_journeys", "key_screens", "interactions", "personas"],
-        "topic_indicators": ["app", "dashboard", "portal", "website", "interface", "screen", "flow"],
-        "quality_targets": ["Realistic interactions", "Consistent design system", "Complete user flows"],
-        "typical_personas": ["End user", "Admin", "Mobile user"],
-        "nfrs": ["Accessibility", "Mobile responsiveness", "Performance"],
+        # These four lists come from the retired ``od_prototype`` entry, not the old
+        # ``prototype`` one. Both keys existed and only od_prototype was reachable
+        # (a bare ``prototype`` launch was rejected upstream), so od_prototype's copy
+        # is the one that was maintained and actually used; the ``prototype`` twin had
+        # gone stale. Collapsing the label kept the LIVE values.
+        "topic_indicators": ["app", "dashboard", "portal", "website", "interface", "screen", "flow", "checkout", "onboarding"],
+        "quality_targets": ["Realistic interactions", "Consistent design system", "Complete user flows", "Responsive layout"],
+        "typical_personas": ["End user", "Admin", "Mobile user", "Desktop user"],
+        "nfrs": ["Accessibility (WCAG 2.1)", "Mobile responsiveness", "Performance", "Usability"],
     },
     "app_builder": {
         "description": "Full-stack application builder — generates complete application architecture, code, and infrastructure",

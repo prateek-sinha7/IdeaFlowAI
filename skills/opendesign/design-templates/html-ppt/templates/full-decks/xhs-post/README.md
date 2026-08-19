@@ -1,9 +1,9 @@
-# xhs-post · 小红书 9 图
+# xhs-post · Xiaohongshu 9-image post
 
-小红书 3:4 图文格式，9 张图（810 × 1080）。结构：封面 → hook → 痛点 → aha moment → 步骤 1-3 → 效果 → CTA 关注。
+Xiaohongshu (RED) 3:4 image-post format, 9 slides (810 × 1080). Structure: cover → hook → pain points → aha moment → steps 1-3 → results → CTA/follow.
 
-手写便签 + 贴纸 + 圆角硬阴影的 MUJI/风格，暖米色背景 + 粉橘黄柔和渐变。每页右上角有 `N / 9` 页码贴纸，最后一页有话题 tag。
+Handwritten-note-and-sticker style with rounded corners and hard drop shadows, MUJI-adjacent, warm off-white background with a soft pink/orange/yellow gradient. Each page carries an `N / 9` page-number sticker in the top right, and the last page has topic tags.
 
-**适用场景：** 小红书 / 微博九宫格 / 公众号图文首图 / 抖音图文卡片。
-**使用方式：** 每张 `.slide` 直接截图导出即可，保持 810×1080 比例。按 → 依次浏览。
-**Feel:** 手帐、贴纸、闺蜜跟你分享干货的 vibe。
+**Use for:** Xiaohongshu (RED) / Weibo image grids / WeChat article header images / Douyin image cards.
+**How to use:** export each `.slide` as a screenshot, keeping the 810×1080 ratio. Press → to page through them in order.
+**Feel:** journal, stickers, the vibe of a friend sharing tips with you.

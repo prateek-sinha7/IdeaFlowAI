@@ -12,9 +12,9 @@ triggers:
   - "voiceover"
   - "tts"
   - "sound effect"
-  - "音乐"
-  - "配音"
-  - "音效"
+  - "music track"
+  - "dubbing"
+  - "audio effect"
 od:
   mode: audio
   surface: audio

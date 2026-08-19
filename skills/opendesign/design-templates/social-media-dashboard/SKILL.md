@@ -15,9 +15,9 @@ triggers:
   - "creator dashboard"
   - "creator analytics"
   - "social media analytics"
-  - "社媒后台"
-  - "创作者后台"
-  - "社交媒体仪表盘"
+  - "social media backend"
+  - "creator backend"
+  - "social media dashboard panel"
 od:
   mode: prototype
   platform: desktop

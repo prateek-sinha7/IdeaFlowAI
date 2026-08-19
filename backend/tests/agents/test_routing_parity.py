@@ -127,14 +127,14 @@ async def test_routed_deliverable_resolution_is_capability_routed():
 
 
 @pytest.mark.asyncio
-async def test_routed_od_prototype_injects_via_opendesign_provider():
+async def test_routed_prototype_injects_via_opendesign_provider():
     """od_prototype composes OD context through the opendesign provider (INV-1).
 
     The generic injector resolves the workflow's declared ``opendesign`` context
     provider; its blocks (ACTIVE DESIGN SYSTEM / ACTIVE TEMPLATE) land in the
     agent_input context_message. We spy on the registry to confirm the opendesign
     provider was resolved during the routed run, and that the 5-pipeline parity
-    golden for od_prototype stays green (asserted separately).
+    golden for prototype stays green (asserted separately).
     """
     seen: list[tuple[str, str]] = []
     _orig_resolve = CapabilityRegistry.resolve
@@ -146,14 +146,14 @@ async def test_routed_od_prototype_injects_via_opendesign_provider():
     import unittest.mock as _mock
 
     with _mock.patch.object(CapabilityRegistry, "resolve", _spy_resolve):
-        events = await _drive("od_prototype")
+        events = await _drive("prototype")
 
-    assert events, "routed od_prototype produced no events"
+    assert events, "routed prototype produced no events"
     assert ("context_provider", "opendesign") in seen, (
-        f"od_prototype did NOT route OD injection through the opendesign provider "
+        f"prototype did NOT route OD injection through the opendesign provider "
         f"(resolves seen: {sorted(set(seen))})"
     )
-    assert ("deliverable", "single_file") in seen, "od_prototype deliverable not single_file"
+    assert ("deliverable", "single_file") in seen, "prototype deliverable not single_file"
 
 
 @pytest.mark.asyncio

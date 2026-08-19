@@ -56,6 +56,7 @@ steps:
   gates:
   - human
 - agent: prototype-build
+  tools: {read_files: true, write_files: true}
   strategy: task_loop
   gates: []
   task_source:
@@ -70,6 +71,7 @@ steps:
   require_render: true
   compaction: html_skeleton
 - agent: prototype-validate
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 name: Prototype
