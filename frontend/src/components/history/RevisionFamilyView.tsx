@@ -57,11 +57,8 @@ const TYPE_META: Record<string, { icon: typeof FileText; label: string }> = {
   user_stories_revision: { icon: FileText, label: "User Stories (Revised)" },
   ppt: { icon: Presentation, label: "Presentation" },
   ppt_revision: { icon: Presentation, label: "Presentation (Revised)" },
-  od_ppt: { icon: Presentation, label: "Presentation" },
-  od_ppt_revision: { icon: Presentation, label: "Presentation (Revised)" },
   prototype: { icon: Layout, label: "Prototype" },
   prototype_revision: { icon: Layout, label: "Prototype (Revised)" },
-  od_prototype: { icon: Layout, label: "Prototype" },
   app_builder: { icon: Layout, label: "App Builder" },
   app_builder_revision: { icon: Layout, label: "App Builder (Revised)" },
   custom: { icon: FileText, label: "Custom" },
@@ -81,16 +78,11 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-// Normalize a run type to its base (od_prototype→prototype, od_ppt→ppt, strip
-// _revision) — SHARED by both the family-count and the type-filter tabs. Same
-// rule as WorkflowHistory.tsx:196-200 / :753-756 (SC-001: generic suffix, never
-// a workflow-name branch).
+// Normalize a run type to its base (strip _revision) — SHARED by both the
+// family-count and the type-filter tabs. Same rule as WorkflowHistory.tsx
+// (SC-001: generic suffix, never a workflow-name branch).
 export function baseWorkflowType(type: string): string {
-  return type === "od_prototype" ? "prototype"
-    : type === "od_ppt" ? "ppt"
-    : type === "od_ppt_revision" ? "ppt"
-    : type === "prototype_revision" ? "prototype"
-    : type.replace("_revision", "");
+  return type.replace("_revision", "");
 }
 
 // ─── statusDotClass — semantic status → dot color. INHERITED map (UI-SPEC §0

@@ -42,15 +42,18 @@ _MANIFEST_BACKED_IDS = sorted(
 )
 
 
-def test_exactly_17_keys() -> None:
-    """The coverage set is every manifest-backed pipeline — currently 17.
+def test_exactly_18_keys() -> None:
+    """The coverage set is every manifest-backed pipeline — currently 18.
+
+    Went 17 -> 18 when ``custom_revision`` was authored alongside the composed
+    workflow builder; this count was not updated with it.
 
     Includes the ``sample_*`` fixture manifests: ``SUPPORTED_PIPELINE_TYPES``
     is derived from disk (ADR-0005), so every directory with a
     ``workflow.yaml`` is in scope — "zero exemptions among pipelines that
     actually have a workflow.yaml" is the rule.
     """
-    assert len(_MANIFEST_BACKED_IDS) == 17
+    assert len(_MANIFEST_BACKED_IDS) == 18
 
 
 def _agent_is_absent_from_prompts(agent_id: str) -> bool:

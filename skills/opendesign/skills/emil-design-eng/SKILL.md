@@ -9,8 +9,8 @@ triggers:
   - "animation philosophy"
   - "component design"
   - "invisible details"
-  - "界面哲学"
-  - "设计工程"
+  - "interface philosophy"
+  - "design engineering"
 od:
   mode: prototype
   surface: web

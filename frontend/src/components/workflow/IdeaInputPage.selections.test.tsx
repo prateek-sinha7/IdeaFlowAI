@@ -16,11 +16,12 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { renderWithProviders, screen } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 
 import { IdeaInputPage } from "./IdeaInputPage";
 import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
+import type { AgentDef } from "@/types/index";
 
 vi.mock("@/hooks/useSpeechRecognition", () => ({
   useSpeechRecognition: () => ({
@@ -97,7 +98,32 @@ function renderPage(
   onRun = vi.fn(),
   initialSelections?: Record<string, Record<string, unknown>>,
 ) {
-  render(
+  const mockAgents: AgentDef[] = [
+    {
+      id: "domain-analyst",
+      name: "Domain Analyst",
+      role: "Discovery Lead",
+      description: "Analyse the business domain",
+      pipeline_type: "user_stories",
+      order: 1,
+      icon: "search",
+      estimated_duration: 120,
+      has_skill: false,
+    },
+    {
+      id: "epic-architect",
+      name: "Epic Architect",
+      role: "Architect",
+      description: "Design epics and features",
+      pipeline_type: "user_stories",
+      order: 2,
+      icon: "building",
+      estimated_duration: 180,
+      has_skill: false,
+    },
+  ];
+
+  renderWithProviders(
     <SkillsHooksProvider>
       <IdeaInputPage
         workflowType="user_stories"
@@ -106,6 +132,17 @@ function renderPage(
         initialSelections={initialSelections}
       />
     </SkillsHooksProvider>,
+    {
+      preloadedState: {
+        agents: {
+          agents: mockAgents,
+          totalCount: mockAgents.length,
+          pipelines: {},
+          status: "succeeded",
+          error: null,
+        },
+      },
+    },
   );
   return { onRun };
 }

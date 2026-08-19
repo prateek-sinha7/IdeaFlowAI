@@ -4,14 +4,14 @@ description: |
   Kanban / task board with columns (To do / In progress / In review / Done),
   draggable-looking cards, assignee avatars, swimlanes, and a top filter
   bar. Use when the brief mentions "kanban", "task board", "sprint board",
-  "trello", "看板".
+  "trello", "task panel".
 triggers:
   - "kanban"
   - "task board"
   - "sprint board"
   - "trello"
   - "jira board"
-  - "看板"
+  - "task panel"
 od:
   mode: prototype
   platform: desktop

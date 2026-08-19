@@ -11,7 +11,7 @@ triggers:
   - "animate page"
   - "harden ui"
   - "live review"
-  - "反 AI 味"
+  - "anti-AI feel"
 od:
   mode: prototype
   surface: web

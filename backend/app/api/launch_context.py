@@ -14,18 +14,15 @@ eligibility on the DECLARED manifest signal ``context_providers: [opendesign]``
 template/DS context by declaring one manifest line — zero engine edit (INV-13),
 zero new manifest key (INV-5), additive and boundary-only (INV-3).
 
-Byte-identity (INV-3): the OLD name-branch loaded od_context for the OpenDesign
-LAUNCH LABELS ``{od_prototype, od_ppt, od_ppt_revision}`` and NOT for the plain
-base ``prototype`` (whose bare launch is rejected downstream by the 13-06
-``missing_template_context`` guard). The plain ``prototype`` manifest ALSO declares
-``opendesign`` (its OD flavor is requested via the dedicated ``od_prototype``
-alias), so a pure declared-signal check would newly load od_context for a bare
-``prototype`` run and change that guard's behavior. To byte-preserve the legacy
-split WITHOUT a name literal, eligibility additionally excludes any base that has a
-dedicated ``od_`` alias — sourced from ``agents.registry._OD_ALIAS_BASE`` (the
-single source of truth for those aliases). A brand-new deliverable that declares
-``opendesign`` and has NO legacy ``od_`` alias still opts in when launched by its
-own name — which is exactly the D-15/C win.
+Eligibility is the declared signal and nothing else. It briefly carried a second
+clause: while the ``od_prototype`` alias existed, a base with a dedicated ``od_``
+flavor was excluded from its own declared capability, so a bare ``prototype``
+launch got od_context=None and was rejected downstream by the 13-06
+``missing_template_context`` guard — you had to launch the alias to get the
+template. That clause was there to byte-preserve the legacy split; the split is
+gone (``agents.registry._OD_ALIAS_BASE`` is empty), so the clause is gone with
+it. Any deliverable declaring ``opendesign`` now opts in under its own name —
+which is what D-15/C was for.
 
 Import discipline: this seam is app-side and imports ONLY ``agents.*`` ports (the
 alias resolver, the manifest compiler) and the ``od_context`` loaders — never the
@@ -69,8 +66,6 @@ def resolve_launch_od_context(
         load_ppt_od_context,
         load_prototype_od_context,
     )
-    from agents.registry import _OD_ALIAS_BASE
-
     base_pipeline_type = resolve_alias(pipeline_type)
 
     # ── ELIGIBILITY (name-free — the SC-001 win) ──────────────────────────────
@@ -82,14 +77,25 @@ def resolve_launch_od_context(
     except FileNotFoundError:
         return base_pipeline_type, None
 
-    declared_opendesign = "opendesign" in (compiled.context_providers or [])
-    # A plain base whose OpenDesign flavor is a dedicated ``od_`` alias is NOT
-    # self-OD-eligible; its OD context is requested by launching the alias. This
-    # byte-preserves the legacy od_prototype-vs-prototype split (bare ``prototype``
-    # stays od_context=None -> the 13-06 missing_template_context guard) without a
-    # name literal — ``_OD_ALIAS_BASE`` is the single source of truth.
-    has_dedicated_od_alias = pipeline_type in set(_OD_ALIAS_BASE.values())
-    if not declared_opendesign or has_dedicated_od_alias:
+    # Eligibility is now the declared signal ALONE — which is what D-15/C set out
+    # to achieve. It used to carry a second clause: a base whose OpenDesign flavor
+    # had a dedicated ``od_`` alias was excluded from its OWN declared capability,
+    # so bare ``prototype`` resolved to od_context=None and was then rejected
+    # downstream by the 13-06 ``missing_template_context`` guard. That clause
+    # existed to byte-preserve the od_prototype-vs-prototype split; with the alias
+    # collapsed (``agents/registry._OD_ALIAS_BASE`` is empty) there is no split to
+    # preserve, and a pipeline that declares ``opendesign`` simply gets it.
+    if "opendesign" not in (compiled.context_providers or []):
+        return base_pipeline_type, None
+
+    # Nothing was ASKED for: no template id and no inline body. Return no od_context
+    # rather than calling the loader with an empty id, which raises LookupError and
+    # surfaces as ``template_not_found`` — a wrong answer, because the caller never
+    # named a template that could be "not found". The accurate rejection is the
+    # downstream ``missing_template_context`` guard, which says the agents need a
+    # template and none was supplied. (Before the alias collapse this case could not
+    # arise: a bare ``prototype`` never reached the loader at all.)
+    if not (template_id or custom_template_body):
         return base_pipeline_type, None
 
     # ── LOADER PROFILE (preserved compatibility shim) ─────────────────────────

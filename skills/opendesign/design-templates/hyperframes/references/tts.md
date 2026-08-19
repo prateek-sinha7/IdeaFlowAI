@@ -22,7 +22,7 @@ Kokoro voice IDs encode language in the first letter: `a`=American English, `b`=
 
 ```bash
 npx hyperframes tts "La reunión empieza a las nueve" --voice ef_dora --output es.wav
-npx hyperframes tts "今日はいい天気ですね" --voice jf_alpha --output ja.wav
+npx hyperframes tts "Today is nice weather, isn't it?" --voice jf_alpha --output ja.wav
 ```
 
 Use `--lang` only to override auto-detection (e.g. stylized accents):

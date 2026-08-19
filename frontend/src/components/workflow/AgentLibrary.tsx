@@ -51,7 +51,7 @@ const HIDDEN_FROM_CUSTOM = new Set([
   "ppt-content-strategist", "domain-analyst", "requirements-analyst", "material-analyzer",
 ]);
 
-const BETA_WORKFLOWS = new Set(["user_stories_revision", "ppt_revision", "prototype_revision", "app_builder_revision", "mulesoft_to_springboot", "dotnet_to_azure", "sample_brownfield", "sample_fanout", "sample_wave", "od_prototype", "reverse_engineer"]);
+const BETA_WORKFLOWS = new Set(["user_stories_revision", "ppt_revision", "prototype_revision", "app_builder_revision", "mulesoft_to_springboot", "dotnet_to_azure", "sample_brownfield", "sample_fanout", "sample_wave", "reverse_engineer"]);
 
 // Monochrome icon — no colors, just gray
 function getInitials(name: string): string {

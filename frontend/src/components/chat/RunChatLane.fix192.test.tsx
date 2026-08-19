@@ -9,8 +9,9 @@
  */
 
 import React from "react";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderWithProviders, rerenderWithProviders } from "@/test/renderWithProviders";
 
 // ── Mock useSpeechRecognition so tests run in jsdom (no Web Speech API) ──────
 const mockStartListening = vi.fn();
@@ -79,7 +80,7 @@ const baseProps = {
 
 // Helper: render the lane and return the mic button
 function renderLane(props = {}) {
-  render(<RunChatLane {...baseProps} {...props} />);
+  renderWithProviders(<RunChatLane {...baseProps} {...props} />);
   // The mic button has aria-label "Voice input" when not listening
   return screen.getByRole("button", { name: /voice input/i });
 }
@@ -129,14 +130,14 @@ describe("FIX-192 Category 2 — Happy path", () => {
 
   it("FIX-192 when isListening=true the button shows Stop listening label", () => {
     speechMock.isListening = true;
-    render(<RunChatLane {...baseProps} />);
+    renderWithProviders(<RunChatLane {...baseProps} />);
     expect(screen.getByRole("button", { name: /stop listening/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /voice input/i })).toBeNull();
   });
 
   it("FIX-192 clicking mic while listening calls stopListening", () => {
     speechMock.isListening = true;
-    render(<RunChatLane {...baseProps} />);
+    renderWithProviders(<RunChatLane {...baseProps} />);
     fireEvent.click(screen.getByRole("button", { name: /stop listening/i }));
     expect(mockStopListening).toHaveBeenCalledTimes(1);
     expect(mockStartListening).not.toHaveBeenCalled();
@@ -146,7 +147,7 @@ describe("FIX-192 Category 2 — Happy path", () => {
     // Simulate: user clicks mic (isListening flips to true), then transcript arrives.
     speechMock.isListening = true;
     speechMock.transcript = "hello world";
-    render(<RunChatLane {...baseProps} />);
+    renderWithProviders(<RunChatLane {...baseProps} />);
     // The textarea should reflect the transcript value
     const textarea = screen.getByRole("textbox", { name: /chat message input/i });
     expect((textarea as HTMLTextAreaElement).value).toBe("hello world");
@@ -172,7 +173,7 @@ describe("FIX-192 Category 3 — Edge cases", () => {
 
   it("FIX-192 button is disabled and shows correct title when speech not supported", () => {
     speechMock.isSupported = false;
-    render(<RunChatLane {...baseProps} />);
+    renderWithProviders(<RunChatLane {...baseProps} />);
     // When unsupported the button renders with "Voice input" label but disabled
     const micBtn = screen.getByRole("button", { name: /voice input/i });
     expect((micBtn as HTMLButtonElement).disabled).toBe(true);
@@ -183,8 +184,8 @@ describe("FIX-192 Category 3 — Edge cases", () => {
     // User types "check this out", then starts mic, transcript arrives.
     speechMock.isListening = false;
     speechMock.transcript = "";
-    const { rerender } = render(<RunChatLane {...baseProps} />);
-    const textarea = screen.getByRole("textbox", { name: /chat message input/i });
+    renderWithProviders(<RunChatLane {...baseProps} />);
+    let textarea = screen.getByRole("textbox", { name: /chat message input/i });
 
     // Type pre-existing text
     fireEvent.change(textarea, { target: { value: "check this out" } });
@@ -192,13 +193,14 @@ describe("FIX-192 Category 3 — Edge cases", () => {
     // Simulate mic start + transcript arriving (the preSpeechTextRef captures "check this out")
     speechMock.isListening = true;
     speechMock.transcript = "and more";
-    rerender(<RunChatLane {...baseProps} />);
+    rerenderWithProviders(<RunChatLane {...baseProps} />);
 
     // The textarea value should be "check this out and more" — append, not overwrite.
     // Note: jsdom doesn't run the useEffect dependency comparison precisely like React
     // does in a real browser, but we can verify the hook logic is correctly written
     // by checking the transcript effect conditions.
     // If isListening=true AND transcript="and more", the effect fires and appends.
+    textarea = screen.getByRole("textbox", { name: /chat message input/i });
     expect((textarea as HTMLTextAreaElement).value).toContain("and more");
   });
 
@@ -206,7 +208,7 @@ describe("FIX-192 Category 3 — Edge cases", () => {
     // isListening=false means the dual-gate blocks the effect — old transcript ignored.
     speechMock.isListening = false;
     speechMock.transcript = "stale transcript from last session";
-    render(<RunChatLane {...baseProps} />);
+    renderWithProviders(<RunChatLane {...baseProps} />);
     const textarea = screen.getByRole("textbox", { name: /chat message input/i });
     expect((textarea as HTMLTextAreaElement).value).toBe("");
   });
@@ -224,7 +226,7 @@ describe("FIX-192 Category 4 — Safety boundary", () => {
 
   it("FIX-192 Send button still works after voice fix (no regression)", () => {
     const sendMessage = vi.fn();
-    render(<RunChatLane {...baseProps} sendMessage={sendMessage} />);
+    renderWithProviders(<RunChatLane {...baseProps} sendMessage={sendMessage} />);
     const textarea = screen.getByRole("textbox", { name: /chat message input/i });
     fireEvent.change(textarea, { target: { value: "typed message" } });
     const sendBtn = screen.getByRole("button", { name: /send message/i });
@@ -251,7 +253,7 @@ describe("FIX-192 Category 4 — Safety boundary", () => {
 
   it("FIX-192 MicOff icon shown while listening (correct icon swap)", () => {
     speechMock.isListening = true;
-    render(<RunChatLane {...baseProps} />);
+    renderWithProviders(<RunChatLane {...baseProps} />);
     // When listening, the button label switches to "Stop listening" — confirmed above.
     // This test verifies no layout shift: the button still occupies its slot.
     const stopBtn = screen.getByRole("button", { name: /stop listening/i });

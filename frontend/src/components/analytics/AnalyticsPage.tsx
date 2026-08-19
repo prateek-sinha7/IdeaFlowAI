@@ -36,17 +36,15 @@ const DEFAULT_MODEL_ID = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 const PIPELINE_LABELS: Record<string, string> = {
   user_stories: "User Stories", user_stories_revision: "User Stories",
   ppt: "Presentation", ppt_revision: "Presentation",
-  od_ppt: "Presentation", od_ppt_revision: "Presentation",
   prototype: "Prototype", prototype_revision: "Prototype",
-  od_prototype: "Prototype", od_prototype_revision: "Prototype",
   app_builder: "App Builder", app_builder_revision: "App Builder",
   custom: "Custom", mulesoft_to_springboot: "Mulesoft Migration",
   dotnet_to_azure: ".NET Migration",
 };
 
-/** Normalise od_/revision type variants onto their base type (display grouping). */
+/** Normalise revision type variants onto their base type (display grouping). */
 function normalizeType(type: string): string {
-  return type.replace("od_ppt", "ppt").replace("od_prototype", "prototype").replace("_revision", "");
+  return type.replace("_revision", "");
 }
 
 // ─── Formatters (aligned to the mock's number format: compact 1-dp tokens,

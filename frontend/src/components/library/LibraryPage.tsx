@@ -22,7 +22,7 @@ import type { AgentDef } from "@/types/index";
 
 type CategoryEntry = { id: string; label: string; section?: boolean };
 
-const BETA_WORKFLOWS = new Set(["user_stories_revision", "ppt_revision", "prototype_revision", "app_builder_revision", "mulesoft_to_springboot", "dotnet_to_azure", "sample_brownfield", "sample_fanout", "sample_wave", "od_prototype", "reverse_engineer"]);
+const BETA_WORKFLOWS = new Set(["user_stories_revision", "ppt_revision", "prototype_revision", "app_builder_revision", "mulesoft_to_springboot", "dotnet_to_azure", "sample_brownfield", "sample_fanout", "sample_wave", "reverse_engineer"]);
 
 // Token-based avatar tints (was a retired-hex array) — cycle brand/warm
 // surfaces + ink/brand text so every agent chip stays on the Phase-32 palette.

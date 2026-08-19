@@ -29,8 +29,12 @@ describe("page.tsx pipeline_complete run-scope guard (BUG-011)", () => {
   it("run-scopes the pipeline_complete set behind an isForeignCompletion guard", () => {
     expect(pageSource).toContain("isForeignCompletion");
     // The set is gated on NOT-foreign (launch->watch + no-tracked-id preserved).
+    // The guard later gained a revision arm: a revision completes on a DIFFERENT
+    // run id than the tracked one, so it reads as foreign and must be admitted
+    // explicitly. Assert the current predicate, which still refuses a genuinely
+    // foreign completion.
     expect(pageSource).toContain(
-      "if (completingRunId && !isForeignCompletion) setContentSourceRunId(completingRunId);",
+      "if (completingRunId && (!isForeignCompletion || isRevisionCompletion)) {",
     );
     // The foreign computation mirrors the BUG-005 isForeignRun shape.
     expect(pageSource).toContain(

@@ -11,8 +11,8 @@ triggers:
   - "help center"
   - "support page"
   - "Q&A"
-  - "常见问题"
-  - "帮助中心"
+  - "common questions"
+  - "customer support hub"
 od:
   mode: prototype
   platform: desktop

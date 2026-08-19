@@ -542,14 +542,14 @@ export function CanvasConfigRail({
               Run one worker per task the source step lists
             </div>
           </div>
-          {/* Disabled: fan-out requires the source step to emit `## Task N:` headings,
-              which nothing in a custom workflow guarantees. Left visible (and any
-              already-saved `fanout_batch` still renders as ON) so an existing workflow
-              is not silently rewritten — it just cannot be turned on from here. */}
+          {/* Toggle is disabled when there's no upstream (no prior agents), since
+              fan-out requires a source step that can emit `## Task N:` headings.
+              Left visible (and any already-saved `fanout_batch` still renders as ON)
+              so an existing workflow is not silently rewritten. */}
           <Toggle
             on={fanoutOn}
             label="Fan out over a list"
-            disabled
+            disabled={!canFanout}
             onToggle={() =>
               fanoutOn
                 ? patch({

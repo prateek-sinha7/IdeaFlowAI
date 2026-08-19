@@ -23,7 +23,11 @@ const TOKEN_KEY = "auth_token";
 // --- Token management ---
 
 export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
+  // Guard on localStorage itself, not on `window`. They are not the same test:
+  // Node test runners and some SSR shims define a partial `window` with no
+  // localStorage, so the window check passed and this threw
+  // "Cannot read properties of undefined (reading 'getItem')".
+  if (typeof localStorage === "undefined") return null;
   return localStorage.getItem(TOKEN_KEY);
 }
 

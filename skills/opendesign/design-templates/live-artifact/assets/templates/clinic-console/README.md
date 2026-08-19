@@ -20,7 +20,7 @@ clinic-console/
 This template is intended to be copied (or referenced) when the
 [`live-artifact`](../../../SKILL.md) skill is invoked with a healthcare
 operations brief such as *"clinic dashboard", "doctors schedule", "hospital
-admin", "appointment console", "telemedicine ops", "诊所后台", "医院管理"*.
+admin", "appointment console", "telemedicine ops", "clinic backend", "hospital management"*.
 
 The agent should:
 
@@ -192,7 +192,7 @@ C (`kpi_c`) additional keys:
 |---|---|---|
 | `title` | `"Activity Detail · Mar 8"` | Popover header — should reference the active calendar day. |
 | `events` | array of exactly 3 objects: `{ "av_class": "blue", "name": "Dr. Sarah · post-op review", "time": "11:00 am" }` | Three events. `av_class` ∈ `blue`, `pink`, `violet`, `mint`, `amber`. |
-| `add_label` | `"＋ Add item"` | Footer link. |
+| `add_label` | `"+ Add item"` | Footer link. |
 
 ### `donut`
 

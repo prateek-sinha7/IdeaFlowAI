@@ -10,8 +10,8 @@ triggers:
   - "live report"
   - "refreshable report"
   - "synced view"
-  - "可刷新"
-  - "实时看板"
+  - "refreshable"
+  - "live dashboard board"
 od:
   mode: prototype
   scenario: live

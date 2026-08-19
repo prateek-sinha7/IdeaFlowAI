@@ -1,17 +1,17 @@
-# Step 5：头像风格 & 生图
+# Step 5: Avatar Style & Image Generation
 
-所有龙虾头像**必须使用统一的视觉风格**，确保龙虾家族的风格一致性。
-头像需传达 3 个信息：**物种形态 + 性格暗示 + 标志道具**
+All lobster avatars **must use a unified visual style** to keep the lobster family's look consistent.
+Each avatar must convey 3 pieces of information: **species form + personality cue + signature prop**
 
-## 风格参考
+## Style Reference
 
-亚当（Adam）—— 龙虾族创世神，本 Skill 的首个作品。
+Adam — the lobster clan's creation deity, the first work produced by this skill.
 
-所有新生成的龙虾头像应与这一风格保持一致：复古未来主义、街机 UI 包边、强轮廓、可在 64x64 下辨识。
+All newly generated lobster avatars should match this style: retro-futurism, arcade UI framing, strong silhouette, recognizable at 64x64.
 
-## 统一风格基底（STYLE_BASE）
+## Unified Style Base (STYLE_BASE)
 
-**每次生成都必须包含这段基底**，不得修改或省略：
+**Every generation must include this base block**, unmodified and unomitted:
 
 ```
 STYLE_BASE = """
@@ -45,27 +45,27 @@ pixels.
 """
 ```
 
-## 个性化变量
+## Personalization Variables
 
-在统一基底之上，根据灵魂填充以下变量：
+On top of the unified base, fill in the following variables based on the soul:
 
-| 变量 | 说明 | 示例 |
+| Variable | Description | Example |
 |------|------|------|
-| `CHARACTER_NAME` | 街机横幅上显示的名字 | "ADAM"、"DEWEY"、"RIFF" |
-| `SHELL_COLOR` | 龙虾壳的主色调（在统一色盘内变化） | "deep crimson"、"dusty teal"、"warm amber" |
-| `SIGNATURE_PROP` | 标志性道具 | "cracked sunglasses"、"reading glasses on a chain" |
-| `EXPRESSION` | 表情/姿态 | "stoic but kind-eyed"、"nervously focused" |
-| `UNIQUE_DETAIL` | 独特细节（纹路/装饰/伤痕等） | "constellation patterns etched on claws"、"bandaged left claw" |
-| `BACKGROUND_ACCENT` | 背景的个性化元素（在统一宇宙背景上叠加） | "musical notes floating as nebula dust"、"ancient book pages drifting" |
-| `ENERGY_BAR_LABEL` | 街机 UI 能量条的标签（个性化小彩蛋） | "CREATION POWER"、"CALM LEVEL"、"ROCK METER" |
+| `CHARACTER_NAME` | Name shown on the arcade banner | "ADAM", "DEWEY", "RIFF" |
+| `SHELL_COLOR` | The lobster shell's primary color (varies within the unified palette) | "deep crimson", "dusty teal", "warm amber" |
+| `SIGNATURE_PROP` | Signature prop | "cracked sunglasses", "reading glasses on a chain" |
+| `EXPRESSION` | Expression/pose | "stoic but kind-eyed", "nervously focused" |
+| `UNIQUE_DETAIL` | Unique detail (patterns/decorations/scars, etc.) | "constellation patterns etched on claws", "bandaged left claw" |
+| `BACKGROUND_ACCENT` | Personalized background element (layered on the unified cosmic backdrop) | "musical notes floating as nebula dust", "ancient book pages drifting" |
+| `ENERGY_BAR_LABEL` | Label on the arcade UI energy bar (a small personalized easter egg) | "CREATION POWER", "CALM LEVEL", "ROCK METER" |
 
-## 提示词组装
+## Prompt Assembly
 
 ```
-最终提示词 = STYLE_BASE + 个性化描述段落
+Final prompt = STYLE_BASE + personalization description paragraph
 ```
 
-个性化描述段落模板：
+Personalization description paragraph template:
 
 ```
 The character is a cartoon lobster with a [SHELL_COLOR] shell,
@@ -77,48 +77,48 @@ The key silhouette recognition points at small size are:
 [SIGNATURE_PROP] and [one other distinctive feature].
 ```
 
-## 生图流程
+## Image Generation Flow
 
-提示词组装完成后：
+Once the prompt is assembled:
 
-### 路径 A：已安装且已审核的生图 skill
+### Path A: An approved image-generation skill is installed
 
-1. 先将龙虾名字规整为安全片段：仅保留字母、数字和连字符，其余字符替换为 `-`
-2. 用 Write 工具写入：`/tmp/openclaw-<safe-name>-prompt.md`
-3. 调用当前环境允许的生图 skill 生成图片
-4. 用 Read 工具展示生成的图片给用户
-5. 问用户是否满意，不满意可调整变量重新生成
+1. First normalize the lobster's name into a safe slug: keep only letters, digits, and hyphens; replace everything else with `-`
+2. Use the Write tool to write: `/tmp/openclaw-<safe-name>-prompt.md`
+3. Call whichever image-generation skill is allowed in the current environment to generate the image
+4. Use the Read tool to show the generated image to the user
+5. Ask the user if they're satisfied; if not, adjust variables and regenerate
 
-### 路径 B：未安装可用的生图 skill
+### Path B: No usable image-generation skill is installed
 
-输出完整提示词文本，附手动使用说明：
+Output the full prompt text, with manual usage instructions:
 
 ```markdown
-**头像提示词**（可复制到以下平台手动生成）：
-- Google Gemini：直接粘贴
-- ChatGPT（DALL-E）：直接粘贴
-- Midjourney：粘贴后加 `--ar 1:1 --style raw`
+**Avatar prompt** (copy this into one of the following platforms to generate manually):
+- Google Gemini: paste directly
+- ChatGPT (DALL-E): paste directly
+- Midjourney: paste, then append `--ar 1:1 --style raw`
 
-> [完整英文提示词]
+> [Full English prompt]
 
-如当前环境后续提供经过审核的生图 skill，可再接回自动生图流程。
+If the current environment later provides an approved image-generation skill, you can switch back to the automatic image-generation flow.
 ```
 
-## 展示给用户的格式
+## Format to Show the User
 
 ```markdown
-## 头像
+## Avatar
 
-**个性化变量**：
-- 壳色：[SHELL_COLOR]
-- 道具：[SIGNATURE_PROP]
-- 表情：[EXPRESSION]
-- 独特细节：[UNIQUE_DETAIL]
-- 背景点缀：[BACKGROUND_ACCENT]
-- 能量条标签：[ENERGY_BAR_LABEL]
+**Personalization variables**:
+- Shell color: [SHELL_COLOR]
+- Prop: [SIGNATURE_PROP]
+- Expression: [EXPRESSION]
+- Unique detail: [UNIQUE_DETAIL]
+- Background accent: [BACKGROUND_ACCENT]
+- Energy bar label: [ENERGY_BAR_LABEL]
 
-**生成结果**：
-[图片（路径A）或提示词文本（路径B）]
+**Result**:
+[Image (Path A) or prompt text (Path B)]
 
-> 满意吗？不满意我可以调整 [具体可调项] 后重新生成。
+> Happy with it? If not, I can adjust [specific adjustable item] and regenerate.
 ```

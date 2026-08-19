@@ -18,7 +18,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Lock, AlertCircle, Plus, Info, Paperclip, Sparkles, X, Construction } from "lucide-react";
+import { ArrowRight, Lock, AlertCircle, Plus, Info, X, Construction } from "lucide-react";
 import { getWorkflowIcon } from "@/lib/workflowIcons";
 import type { WorkflowType } from "@/types/index";
 import type { WorkflowRun } from "@/types/index";
@@ -28,7 +28,8 @@ import { canRunPipeline, TIER_LABELS, getUpgradeTier } from "@/lib/entitlements"
 import { baseWorkflowType } from "@/lib/workflowChaining";
 import { useWorkflowLabels } from "@/hooks/useWorkflowMetadata";
 import { selectWorkflowWizardPath } from "@/store/slices/globalSlice";
-import type { UserWorkflowSummary } from "@/lib/api";
+import type { UserWorkflowSummary, AnalyticsSummary } from "@/lib/api";
+import { getAnalyticsSummary, getToken } from "@/lib/api";
 import { useAppSelector } from "@/store/hooks";
 import type { WorkflowSummary } from "@/store/api/workflows";
 
@@ -136,6 +137,7 @@ export function HomeLaunchGrid({
     if (reduxRecentRuns.length > 0) return reduxRecentRuns.slice(0, RECENTS_LIMIT);
     return readCache<WorkflowRun>(CACHE_KEY_RECENTS);
   });
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
   const [inspectId, setInspectId] = useState<string | null>(null);
 
   // Only show a loading skeleton when there is truly nothing to show yet
@@ -162,6 +164,21 @@ export function HomeLaunchGrid({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reduxRecentRuns]);
+
+  // Fetch per-deliverable analytics (38-05: time estimate) on mount.
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      try {
+        const token = getToken();
+        if (!token) return;
+        const summary = await getAnalyticsSummary(token, "all");
+        setAnalytics(summary);
+      } catch {
+        // Tolerate analytics fetch failure; cards render without time estimate.
+      }
+    };
+    void fetchAnalytics();
+  }, []);
 
   void recentRunsStatus;
 
@@ -223,7 +240,10 @@ export function HomeLaunchGrid({
             const label     = row.display_name ?? getWorkflowLabel(row.id);
             const subtitle  = row.description;
             const agents    = row.step_count ?? (row as WorkflowSummary & { agent_count?: number }).agent_count;
-            const estimate  = `~${agents} agents`;
+            // 38-05: time estimate keyed on row.id when history exists
+            const durationSec = analytics?.type_avg_duration_sec?.[row.id];
+            const timeMinutes = durationSec ? Math.round(durationSec / 60) : null;
+            const estimate  = timeMinutes ? `~${agents} agents · ~${timeMinutes}m` : `~${agents} agents`;
             const isBeta    = !!row.is_beta;
             // Beta rows are never actionable (no tier can unlock a "Coming
             // Soon" workflow), regardless of the tier gate below.

@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 
 import { IdeaInputPage } from "./IdeaInputPage";
@@ -80,7 +80,7 @@ const PROJECTION: WorkflowDetail = {
 const EMPTY_PALETTE: CapabilitiesPalette = { capabilities: [], model_catalog: [] };
 
 function renderPage(workflowId?: string) {
-  render(
+  renderWithProviders(
     <SkillsHooksProvider>
       <IdeaInputPage
         workflowType="prototype"
@@ -113,7 +113,7 @@ describe("IdeaInputPage — SURF-03 declared-capabilities live wiring", () => {
 
     // The capabilities strip lives on the AgentsPopup "Workflow" tab (Skills /
     // Hooks / Capabilities), not the default "Agents" tab — switch to it.
-    await user.click(screen.getByRole("button", { name: /^workflow/i }));
+    await user.click(screen.getAllByRole("button", { name: /^workflow/i })[0]);
 
     // The SURF-03 strip renders, sourced from the fetched projection — the step
     // name + its per-step declared capabilities (validators) appear.
@@ -137,7 +137,7 @@ describe("IdeaInputPage — SURF-03 declared-capabilities live wiring", () => {
     await user.click(screen.getByRole("button", { name: /advanced/i }));
     // Navigate to the same "Workflow" tab the strip would render on, so the
     // absence assertion is meaningful (not merely "wrong tab").
-    await user.click(screen.getByRole("button", { name: /^workflow/i }));
+    await user.click(screen.getAllByRole("button", { name: /^workflow/i })[0]);
 
     // No id ⇒ no projection fetch and the strip never renders.
     expect(mockGetWorkflowDetail).not.toHaveBeenCalled();

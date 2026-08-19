@@ -179,6 +179,10 @@ describe("AuditTab (SC-3 — 3-endpoint reader + category-group filters + export
         { id: "e1", run_id: RUN, step: "build", argv_json: ["ls", "-la"], outcome: "allowed", exit_code: 0, duration_ms: 12, policy_snapshot_json: {}, output_digest: "abc123", created_at: "2026-07-08T10:04:00Z" },
       ],
     });
+    vi.mocked(api.getRunHookRuns).mockResolvedValue({
+      workflow_id: RUN,
+      hook_runs: [],
+    });
   });
 
   afterEach(() => {
@@ -193,8 +197,8 @@ describe("AuditTab (SC-3 — 3-endpoint reader + category-group filters + export
     });
     expect(api.getRunValidationResults).toHaveBeenCalledWith("tok", RUN);
     expect(api.getRunExecRuns).toHaveBeenCalledWith("tok", RUN);
-    // The wrong source must NOT be read.
-    expect(api.getRunHookRuns).not.toHaveBeenCalled();
+    // KAN-123: hook_runs also fetched for secret_scan blocks alongside the 3 sources.
+    expect(api.getRunHookRuns).toHaveBeenCalledWith("tok", RUN);
   });
 
   it("renders rows merged from all 3 sources", async () => {

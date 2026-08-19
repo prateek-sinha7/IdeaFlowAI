@@ -72,13 +72,17 @@ _MANIFEST_BACKED_IDS = {
     if (_MANIFEST_BASE / pt / "workflow.yaml").exists() and _every_step_agent_loads(pt)
 }
 
-# 12 engine-dispatchable + the od_prototype alias = 13 parametrized ids.
+# 13 engine-dispatchable ids. There is no longer an alias to append: the
+# od_prototype label was collapsed onto prototype (registry._OD_ALIAS_BASE is empty).
 _DISPATCHABLE = sorted(_MANIFEST_BACKED_IDS - {"chat", "reverse_engineer"})
-_PARAMS = _DISPATCHABLE + ["od_prototype"]
+_PARAMS = _DISPATCHABLE
 
 
-def test_dispatchable_count_is_12() -> None:
-    """Exactly 12 engine-dispatchable pipelines, minus chat + reverse_engineer.
+def test_dispatchable_count_is_13() -> None:
+    """Exactly 13 engine-dispatchable pipelines, minus chat + reverse_engineer.
+
+    Went 12 -> 13 when ``custom_revision`` was authored alongside the composed
+    workflow builder; this count was not updated with it.
 
     ``sample_subagents_parallel`` is included: a real, manifest-backed,
     fully-loadable workflow (its steps are ``custom-agent`` instances and
@@ -91,7 +95,7 @@ def test_dispatchable_count_is_12() -> None:
     excludes them because they reference agent ids with no ``AGENT.md``. Give
     them their agents and they join automatically.
     """
-    assert len(_DISPATCHABLE) == 12
+    assert len(_DISPATCHABLE) == 13
     assert "chat" not in _DISPATCHABLE
     assert "reverse_engineer" not in _DISPATCHABLE
     # The three agentless fixtures must stay out — they cannot be dispatched.
@@ -159,12 +163,19 @@ async def test_runs_from_compiled_plan(pipeline_type: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_od_prototype_alias_runs_prototype_plan() -> None:
-    """The od_prototype alias drives the prototype manifest's plan end-to-end (D-04)."""
-    events = await _drive("od_prototype")
+async def test_prototype_runs_its_own_plan() -> None:
+    """``prototype`` drives its own manifest end-to-end under its own name.
+
+    Was ``test_od_prototype_alias_runs_prototype_plan``. The alias used to be the
+    only label that reached this plan in practice, because a bare ``prototype``
+    launch was rejected upstream by the template-context guard. The alias is gone
+    (registry ``_OD_ALIAS_BASE`` is empty) — this asserts the plain name inherited
+    the behaviour rather than losing it.
+    """
+    events = await _drive("prototype")
     assert events
 
-    compiled = compile_for_run("od_prototype")
+    compiled = compile_for_run("prototype")
     assert compiled.id == "prototype"
     expected = [a.id for a in get_pipeline_agents("prototype")]
     assert [s.agent_id for s in compiled.steps] == expected

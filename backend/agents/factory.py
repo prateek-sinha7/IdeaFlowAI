@@ -115,6 +115,21 @@ class AgentContext:
     # Defaulted to ``{}`` so every invocation that doesn't thread it through
     # yet stays inert (no internet tools bound).
     capabilities: dict = field(default_factory=dict)
+    # step_tools: the compiled ``Step.tools`` — the EFFECTIVE ToolPermissions for
+    # this step, i.e. what the manifest asked for after the cap in
+    # ``agents/workflows/permission_caps.py`` narrowed it. Threaded off
+    # ``ectx.current_step`` by the engine (the SAME seam step_injects/step_skills
+    # use). This is what actually decides which native tools bind — see
+    # ``_denied_tools_for``.
+    #
+    # ``None`` means "no compiled step bound for this invocation" (a revision
+    # agent, a fix agent, a direct create_runner call in a test) and is treated as
+    # "do not narrow" — the agent keeps whatever its declared tool set resolved
+    # to, exactly as before this field existed.
+    step_tools: object | None = None
+    # workflow_name: the compiled workflow / pipeline id, for the tool_permission
+    # trace only. "" ⇒ the trace prints "?" — never affects binding.
+    workflow_name: str = ""
     # roster (spec 012 / R-15, D-05, T17/T35): the parent's roster block —
     # what a custom agent's children ACTUALLY produced (built by the engine's
     # ``_build_roster`` off artifacts that exist on disk, never the manifest).
@@ -304,6 +319,22 @@ def create_runner(
         # a prompt must never tell an agent it has no tools while handing it
         # write_file.
         exclude_builtin_tools = False
+
+    # ── The grant seam ───────────────────────────────────────────────────────
+    # The factory does not decide permissions — it asks ``permission_caps`` which
+    # tools the step's effective permissions deny, and passes the answer to the
+    # runner. No compiled step bound (revision/fix agents, direct test calls) ⇒
+    # nothing denied, byte-identical to before permissions were threaded through.
+    from agents.workflows import permission_caps
+
+    denied_tools = permission_caps.denied_tools(ctx.step_tools)
+    permission_caps.log_decision(
+        "resolve",
+        ctx.workflow_name,
+        agent_id,
+        permission_caps.describe(ctx.step_tools),
+        ",".join(sorted(permission_caps.granted_tools(ctx.step_tools))) or "-",
+    )
     logger.debug(
         "resolve_tools %s: %s exclude_builtin=%s%s",
         agent_id,
@@ -347,6 +378,9 @@ def create_runner(
             thread_id=(thread_id or ctx.run_id),
             interrupt_on=interrupt_on,
             exclude_builtin_tools=exclude_builtin_tools,
+            # The manifest's decision, by tool name. Unioned into the runner's
+            # exclusion set, so an ungranted tool is never offered to the model.
+            denied_tools=denied_tools,
             # ISS-004: keyed on the DECLARED tool set, not on the resolved
             # exclude_builtin flag. Spec 012 (D-07) grants filesystem tools to
             # every agent, so the resolved flag no longer distinguishes a

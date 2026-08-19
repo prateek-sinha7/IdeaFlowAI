@@ -26,7 +26,7 @@ from agents.execution_engine.od_context import load_prototype_od_context
 from agents.registry import get_pipeline_agents
 
 
-async def run_od_prototype_pipeline(
+async def run_prototype_pipeline(
     template_id: str,
     design_system_id: str,
     brief: str,
@@ -63,7 +63,7 @@ async def run_od_prototype_pipeline(
             agents=agents,
             user_message=brief,
             pipeline_run_id=pipeline_run_id,
-            pipeline_type="od_prototype",
+            pipeline_type="prototype",
             od_context=od_context,
         ):
             etype = ev["type"]

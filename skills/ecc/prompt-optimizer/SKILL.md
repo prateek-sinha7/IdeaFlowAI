@@ -6,11 +6,12 @@ description: >-
   prompt. Advisory role only — never executes the task itself.
   TRIGGER when: user says "optimize prompt", "improve my prompt",
   "how to write a prompt for", "help me prompt", "rewrite this prompt",
-  or explicitly asks to enhance prompt quality. Also triggers on Chinese
-  equivalents: "优化prompt", "改进prompt", "怎么写prompt", "帮我优化这个指令".
+  or explicitly asks to enhance prompt quality. Also triggers on equivalent
+  phrasing in other languages, e.g. "optimize prompt", "improve prompt",
+  "how to write a prompt", "help me optimize this instruction".
   DO NOT TRIGGER when: user wants the task executed directly, or says
-  "just do it" / "直接做". DO NOT TRIGGER when user says "优化代码",
-  "优化性能", "optimize performance", "optimize this code" — those are
+  "just do it" (in any language). DO NOT TRIGGER when user says
+  "optimize the code", "optimize performance", "optimize this code" — those are
   refactoring/performance tasks, not prompt optimization.
 origin: community
 metadata:
@@ -28,7 +29,7 @@ and output a complete optimized prompt the user can paste and run.
 - User says "optimize this prompt", "improve my prompt", "rewrite this prompt"
 - User says "help me write a better prompt for..."
 - User says "what's the best way to ask Claude Code to..."
-- User says "优化prompt", "改进prompt", "怎么写prompt", "帮我优化这个指令"
+- User says the equivalent of "optimize prompt", "improve prompt", "how to write a prompt", "help me optimize this instruction" in another language
 - User pastes a draft prompt and asks for feedback or enhancement
 - User says "I don't know how to prompt for this"
 - User says "how should I use ECC for..."
@@ -37,10 +38,10 @@ and output a complete optimized prompt the user can paste and run.
 ### Do Not Use When
 
 - User wants the task done directly (just execute it)
-- User says "优化代码", "优化性能", "optimize this code", "optimize performance" — these are refactoring tasks, not prompt optimization
+- User says "optimize the code", "optimize performance" (in any language) — these are refactoring tasks, not prompt optimization
 - User is asking about ECC configuration (use `configure-ecc` instead)
 - User wants a skill inventory (use `skill-stocktake` instead)
-- User says "just do it" or "直接做"
+- User says "just do it" (in any language)
 
 ## How It Works
 
@@ -49,7 +50,7 @@ and output a complete optimized prompt the user can paste and run.
 Do NOT write code, create files, run commands, or take any implementation
 action. Your ONLY output is an analysis plus an optimized prompt.
 
-If the user says "just do it", "直接做", or "don't optimize, just execute",
+If the user says "just do it", or "don't optimize, just execute",
 do not switch into implementation mode inside this skill. Tell the user this
 skill only produces optimized prompts, and instruct them to make a normal
 task request if they want execution instead.
@@ -86,15 +87,15 @@ Classify the user's task into one or more categories:
 
 | Category | Signal Words | Example |
 |----------|-------------|---------|
-| New Feature | build, create, add, implement, 创建, 实现, 添加 | "Build a login page" |
-| Bug Fix | fix, broken, not working, error, 修复, 报错 | "Fix the auth flow" |
-| Refactor | refactor, clean up, restructure, 重构, 整理 | "Refactor the API layer" |
-| Research | how to, what is, explore, investigate, 怎么, 如何 | "How to add SSO" |
-| Testing | test, coverage, verify, 测试, 覆盖率 | "Add tests for the cart" |
-| Review | review, audit, check, 审查, 检查 | "Review my PR" |
-| Documentation | document, update docs, 文档 | "Update the API docs" |
-| Infrastructure | deploy, CI, docker, database, 部署, 数据库 | "Set up CI/CD pipeline" |
-| Design | design, architecture, plan, 设计, 架构 | "Design the data model" |
+| New Feature | build, create, add, implement | "Build a login page" |
+| Bug Fix | fix, broken, not working, error, error report | "Fix the auth flow" |
+| Refactor | refactor, clean up, restructure, tidy up | "Refactor the API layer" |
+| Research | how to, what is, explore, investigate | "How to add SSO" |
+| Testing | test, coverage, verify | "Add tests for the cart" |
+| Review | review, audit, check | "Review my PR" |
+| Documentation | document, update docs | "Update the API docs" |
+| Infrastructure | deploy, CI, docker, database | "Set up CI/CD pipeline" |
+| Design | design, architecture, plan | "Design the data model" |
 
 ### Phase 2: Scope Assessment
 
@@ -269,50 +270,53 @@ A compact version for experienced ECC users. Vary by intent type:
 
 - "Optimize this prompt for ECC"
 - "Rewrite this prompt so Claude Code uses the right commands"
-- "帮我优化这个指令"
+- "Help me optimize this instruction"
 - "How should I prompt ECC for this task?"
 
-### Example 1: Vague Chinese Prompt (Project Detected)
+### Example 1: Vague Prompt in Another Language (Project Detected)
+
+(Originally a non-English prompt; in real usage the optimized output mirrors
+the input language, per Output Format above.)
 
 **User input:**
 ```
-帮我写一个用户登录页面
+Help me write a user login page
 ```
 
 **Phase 0 detects:** `package.json` with Next.js 15, TypeScript, Tailwind CSS
 
 **Optimized Prompt (Full):**
 ```
-使用项目现有技术栈（Next.js 15 + TypeScript + Tailwind CSS）实现用户登录页面。
+Implement a user login page using the project's existing tech stack (Next.js 15 + TypeScript + Tailwind CSS).
 
-技术要求：
-- 沿用项目现有的组件结构和路由约定
-- 表单验证使用项目中已有的验证方案（检查是否已用 Zod/Yup/其他）
-- 认证方式：沿用项目现有认证方案（如无，默认 JWT）
-- 包含：邮箱/密码登录表单、表单验证、错误提示、加载状态、响应式布局
+Technical Requirements:
+- Follow the project's existing component structure and routing conventions
+- Use the project's existing form validation approach (check whether Zod/Yup/other is already used)
+- Auth method: follow the project's existing auth scheme (default to JWT if none exists)
+- Include: email/password login form, form validation, error messages, loading state, responsive layout
 
-工作流：
-1. /plan 先规划组件结构和认证流程，参考现有页面的模式
-2. /tdd 测试先行：编写登录表单的单元测试和认证流程的集成测试
-3. 实现登录页面和认证逻辑
-4. /code-review 审查实现
-5. /verify 验证所有测试通过且页面正常渲染
+Workflow:
+1. /plan first to design the component structure and auth flow, referencing existing page patterns
+2. /tdd test-first: write unit tests for the login form and integration tests for the auth flow
+3. Implement the login page and auth logic
+4. /code-review to review the implementation
+5. /verify to confirm all tests pass and the page renders correctly
 
-安全要求：
-- 密码不明文传输
-- 防止暴力破解（rate limiting）
-- XSS 防护
+Security Requirements:
+- Passwords must not be transmitted in plaintext
+- Prevent brute-force attacks (rate limiting)
+- XSS protection
 - CSRF token
 
-验收标准：
-- 所有测试通过，覆盖率 80%+
-- 页面在移动端和桌面端正常渲染
-- 登录成功跳转到 dashboard，失败显示错误信息
+Acceptance Criteria:
+- All tests pass, 80%+ coverage
+- Page renders correctly on mobile and desktop
+- On success, redirect to dashboard; on failure, show an error message
 
-不要做：
-- 不要实现注册页面
-- 不要实现忘记密码功能
-- 不要修改现有的路由结构
+Do Not:
+- Implement a registration page
+- Implement forgot-password functionality
+- Modify the existing routing structure
 ```
 
 ### Example 2: Moderate English Prompt

@@ -13,9 +13,7 @@ triggers:
   - "live dashboard"
   - "ops dashboard"
   - "team workspace dashboard"
-  - "团队仪表盘"
-  - "Notion 仪表盘"
-  - "Live Artifact dashboard"
+  - "live artifact dashboard"
 od:
   mode: prototype
   platform: desktop

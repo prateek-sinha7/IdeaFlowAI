@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   AlertCircle, MoreVertical, Pencil, Copy, Trash2,
   Play, Workflow, Clock, Cpu,
-  Search,
+  Search, Plus,
 } from "lucide-react";
 import {
   getUserWorkflows, createUserWorkflow, renameUserWorkflow,
@@ -17,7 +17,6 @@ import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 
 const PIPELINE_LABEL: Record<string, string> = {
   user_stories: "User Stories", ppt: "Presentation", prototype: "Prototype",
-  od_ppt: "Presentation", od_prototype: "Prototype",
   app_builder: "App Builder", custom: "Custom",
   mulesoft_to_springboot: "Mulesoft → Spring Boot", dotnet_to_azure: ".NET → Azure",
 };
@@ -77,6 +76,10 @@ function cleanBrief(raw: string): string {
 
 interface SavedWorkflowsPageProps {
   onLaunchSaved?: (saved: UserWorkflowSummary) => void;
+  /** Opens a fresh Composer canvas to build a new workflow — mirrors the
+   *  Dashboard's "Compose a custom workflow" card (HomeLaunchGrid → the
+   *  `custom` catalog card → handleSelectFeature). */
+  onCreateNew?: () => void;
 }
 
 // ── Kebab dropdown (module-level for a STABLE element identity) ──────────────
@@ -146,7 +149,7 @@ function KebabMenu({
   );
 }
 
-export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
+export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflowsPageProps) {
   const [userWorkflows, setUserWorkflows] = useState<UserWorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [savedError, setSavedError] = useState<string | null>(null);
@@ -226,21 +229,30 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
                 Your saved custom workflows — launch, manage and reuse them.
               </p>
             </div>
-            {!loading && userWorkflows.length > 0 && (
-              <div className="flex items-center gap-5 flex-shrink-0">
-                <div className="text-right">
-                  <p className="text-[22px] font-semibold text-ink-900 leading-none">{userWorkflows.length}</p>
-                  <p className="text-[11px] text-ink-400 mt-0.5">workflow{userWorkflows.length !== 1 ? "s" : ""}</p>
-                </div>
-                <div className="w-px h-8 bg-line-divider" />
-                <div className="text-right">
-                  <p className="text-[22px] font-semibold text-ink-900 leading-none">
-                    {userWorkflows.reduce((s, w) => s + (w.agent_ids?.length ?? 0), 0)}
-                  </p>
-                  <p className="text-[11px] text-ink-400 mt-0.5">total agents</p>
-                </div>
-              </div>
-            )}
+            <div className="flex items-center gap-5 flex-shrink-0">
+              {!loading && userWorkflows.length > 0 && (
+                <>
+                  <div className="text-right">
+                    <p className="text-[22px] font-semibold text-ink-900 leading-none">{userWorkflows.length}</p>
+                    <p className="text-[11px] text-ink-400 mt-0.5">workflow{userWorkflows.length !== 1 ? "s" : ""}</p>
+                  </div>
+                  <div className="w-px h-8 bg-line-divider" />
+                  <div className="text-right">
+                    <p className="text-[22px] font-semibold text-ink-900 leading-none">
+                      {userWorkflows.reduce((s, w) => s + (w.agent_ids?.length ?? 0), 0)}
+                    </p>
+                    <p className="text-[11px] text-ink-400 mt-0.5">total agents</p>
+                  </div>
+                  <div className="w-px h-8 bg-line-divider" />
+                </>
+              )}
+              {onCreateNew && (
+                <button onClick={onCreateNew}
+                  className="flex items-center gap-1.5 rounded-[10px] bg-brand px-3.5 py-2.5 text-[12px] font-semibold text-white hover:bg-brand-pressed transition-colors">
+                  <Plus className="h-3.5 w-3.5" />New workflow
+                </button>
+              )}
+            </div>
           </div>
         </motion.div>
 

@@ -9,7 +9,7 @@ triggers:
   - "audit animations"
   - "check motion code"
   - "animation craft"
-  - "动效审查"
+  - "motion effects review"
 disable-model-invocation: true
 od:
   mode: prototype

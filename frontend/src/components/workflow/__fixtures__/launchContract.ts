@@ -40,7 +40,7 @@ export interface DraftScenario {
   };
 }
 
-const PROTO_KEYS = { draftKey: "prototype.draft", pendingKey: "od_prototype.pending" };
+const PROTO_KEYS = { draftKey: "prototype.draft", pendingKey: "prototype.pending" };
 const PPT_KEYS = { draftKey: "ppt.draft", pendingKey: "ppt.pending" };
 
 export const DRAFT_SCENARIOS: DraftScenario[] = [

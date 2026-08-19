@@ -12,8 +12,8 @@ triggers:
   - "illustration"
   - "image"
   - "cover art"
-  - "海报"
-  - "插画"
+  - "poster art"
+  - "illustration art"
 od:
   mode: image
   surface: image

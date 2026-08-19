@@ -5,13 +5,13 @@
 
 ## 1. Visual Theme & Atmosphere
 
-Xiaohongshu (小红书 / RED) is the visual opposite of a SaaS console. Open the app and you do not see "Xiaohongshu" — you see other people's breakfasts, hotel sofas, the lipstick they bought on the third try. That is by design. The entire UI tries to act as a transparent picture frame: white surfaces, low-noise components, no shadow stacks competing for attention. Everything yields to the user-uploaded image.
+Xiaohongshu (RED) is the visual opposite of a SaaS console. Open the app and you do not see "Xiaohongshu" — you see other people's breakfasts, hotel sofas, the lipstick they bought on the third try. That is by design. The entire UI tries to act as a transparent picture frame: white surfaces, low-noise components, no shadow stacks competing for attention. Everything yields to the user-uploaded image.
 
 The palette is brutally restrained. A near-white canvas (`#FFFFFF` / `#F5F5F5`) covers the majority of every page. Neutrals are built from translucent overlays (`rgba(48,48,52, 0.05~0.20)`) rather than discrete grey steps — the same fill drops onto white for hover, onto a card for divider, onto a button for disabled. The brand red `#FF2442` is the only saturated color the system permits, and it shows up only on tab indicators, the heart-active state, and primary CTAs. Semantic colors (success green, warning orange, info blue) exist as tokens but are nearly invisible in the consumer flow — danger is not a separate color, it just reuses brand red.
 
 Form is soft. Cards round at 12–16px. Buttons round all the way to pills (`border-radius: 9999px`). Shadows are essentially absent — depth comes from spacing and rounding, not elevation. The signature layout is a two-column (mobile) or 5-column (PC) waterfall masonry where rows do not align — image height drives card height, and that misalignment *is* the realism.
 
-Type is PingFang SC at medium weight throughout. There is no thin-light heroic display, no all-caps Latin headline. Hierarchy is compact (`H1: 32/600`, body: `14-16/400`), tracking is `0`, and digits use a custom `RED Number` family so counts on like buttons line up. The voice of the writing matches the visual: second person, conversational, never enterprise. "你的生活兴趣社区" — *your* lifestyle interest community, not "the platform".
+Type is PingFang SC at medium weight throughout. There is no thin-light heroic display, no all-caps Latin headline. Hierarchy is compact (`H1: 32/600`, body: `14-16/400`), tracking is `0`, and digits use a custom `RED Number` family so counts on like buttons line up. The voice of the writing matches the visual: second person, conversational, never enterprise. The app's own tagline translates to "your lifestyle interest community" — *your* community, not "the platform".
 
 The result reads like a slightly worn lifestyle magazine with a few handwritten Post-its tucked between the pages. Not Apple-store cold-minimal. Not Lark efficiency-console. Definitely not any SaaS dashboard. The design baseline is *daily-ness* — the user should not feel they are using software, only flipping through someone else's life.
 
@@ -157,11 +157,13 @@ Used for like counts, follower counts, stat displays. Solves PingFang's non-tabu
 
 ### Follow Button — three-state (highest-recognition component)
 
-| State | Background | Label (Chinese / English) | Text | Shape |
+Labels below are English translations; production copy ships in Chinese.
+
+| State | Background | Label | Text | Shape |
 |---|---|---|---|---|
-| Not following | `#FF2442` | `+ 关注` (Follow) | white | pill |
-| Following | `rgba(48,48,52,0.10)` | `已关注` (Following) | `rgba(0,0,0,0.45)` | pill |
-| Mutual | `rgba(48,48,52,0.10)` | `互相关注` (Mutual) | `rgba(0,0,0,0.62)` | pill |
+| Not following | `#FF2442` | `+ Follow` | white | pill |
+| Following | `rgba(48,48,52,0.10)` | `Following` | `rgba(0,0,0,0.45)` | pill |
+| Mutual | `rgba(48,48,52,0.10)` | `Mutual` | `rgba(0,0,0,0.62)` | pill |
 
 Feed-card variant: `6px 14px` padding, 12px text. Profile-page variant: `8px 20px`, 14px text.
 
@@ -258,7 +260,7 @@ Implementation is JavaScript-positioned (`translate3d` + ResizeObserver), not CS
 - 16:9 banner image at top
 - Circular avatar (80–96px) overlaps banner / content edge
 - Three-stat horizontal row (following / followers / likes-and-collects)
-- Tab strip below: Notes / Saved / Liked (笔记 / 收藏 / 赞过)
+- Tab strip below: Notes / Saved / Liked (English translations; production labels ship in Chinese)
 
 ### Creator / Ad Console (B2B)
 
@@ -305,7 +307,7 @@ No neumorphism. No glassmorphism. No coloured shadows. Bottom sheet has no shado
 - ❌ Don't use purple, deep blue, or black-gold as a primary color. Tech / fintech / luxury vocabulary is the wrong genre — RED is lifestyle.
 - ❌ Don't gradient the brand red itself. The only gradients are functional (search-hotspot badge, video mask).
 - ❌ Don't fill an entire hero with a brand-color background. Brand red is accent-only; a red-bordered hero reads as a sale poster, not a feed.
-- ❌ Don't fabricate the `小红书` wordmark or the RED logotype as artifact output. Tokens are not protectable; the wordmark is — that is the part of the brand identity with actual IP risk. When a logo placeholder is needed, emit a labelled grey block (e.g. an empty pill with `LOGO` in `rgba(0,0,0,0.45)`) and let the user drop in a licensed asset.
+- ❌ Don't fabricate the Xiaohongshu wordmark or the RED logotype as artifact output. Tokens are not protectable; the wordmark is — that is the part of the brand identity with actual IP risk. When a logo placeholder is needed, emit a labelled grey block (e.g. an empty pill with `LOGO` in `rgba(0,0,0,0.45)`) and let the user drop in a licensed asset.
 - ❌ Don't use Inter, Helvetica, or Roboto as the Chinese display face. PingFang SC is the system — Latin fallback chains use `-apple-system` first.
 - ❌ Don't reference the `RED Number` family standalone in generated CSS. End users do not have it installed; without the PingFang fallback chain it silently falls back to whatever the OS picks, which breaks digit alignment. Always emit it inside a stack, e.g. `font-family: 'RED Number', PingFang SC, -apple-system, 'Helvetica Neue', Arial, sans-serif;`.
 - ❌ Don't ship light / thin weights at body sizes. Notes carry dense Chinese text; light weights destroy mobile legibility.
@@ -313,7 +315,7 @@ No neumorphism. No glassmorphism. No coloured shadows. Bottom sheet has no shado
 - ❌ Don't drop heavy shadows. Concrete threshold: avoid alpha darker than `rgba(0,0,0,0.15)` or spread greater than `16px`. If the shadow is visible at arm's length on a phone, it is too strong for this system.
 - ❌ Don't pile glassmorphism, neumorphism, or 2020-era trend effects. The visual era reference is "lifestyle magazine", not "tech demo".
 - ❌ Don't write a "Trusted by 10,000+ teams" enterprise social-proof block. UGC trust comes from real people, not logo walls.
-- ❌ Don't write hero CTAs in all-caps Latin. Sentence-case Chinese, sentence-case Latin, no exceptions.
+- ❌ Don't write hero CTAs in all-caps. Sentence-case Chinese, sentence-case Latin, no exceptions.
 - ❌ Don't use stock business photography (handshakes, laptop close-ups, conference rooms). Use real-life UGC-style imagery.
 - ❌ Don't use 3D isometric / blob / abstract-network illustrations. They are SaaS-marketing tells. RED uses real photos or hand-drawn editorial illustrations.
 - ❌ Don't write copy in third person ("the platform provides…"). Always second person ("what you want to see").
@@ -383,8 +385,8 @@ The Component One-Liners block below is intentional: the primary CTA uses `#FF24
 ### Component One-Liners
 
 - Primary CTA: `background: #FF2442; color: #FFF; border-radius: 9999px; padding: 8px 20px; font-weight: 500;`
-- Follow button (idle): same as primary CTA, label `+ 关注` (Follow)
-- Follow button (following): `background: rgba(48,48,52,0.10); color: rgba(0,0,0,0.45); border-radius: 9999px;` label `已关注` (Following)
+- Follow button (idle): same as primary CTA, label `+ Follow` (production copy ships in Chinese)
+- Follow button (following): `background: rgba(48,48,52,0.10); color: rgba(0,0,0,0.45); border-radius: 9999px;` label `Following` (production copy ships in Chinese)
 - Feed card: `background: #FFF; border-radius: 12px; box-shadow: none;` image flush to top
 - Tab indicator: 2px underline `#FF2E4D` matched to text width; active text `rgba(0,0,0,0.80)` weight 600
 - Search input: `background: #F5F5F5; border-radius: 9999px; padding: 8px 16px; height: 36–40px; border: none;`
@@ -397,6 +399,6 @@ The Component One-Liners block below is intentional: the primary CTA uses `#FF24
 3. **Translucent neutrals.** Reach for `rgba(48,48,52, .10)` before reaching for a fresh grey hex.
 4. **Pill everything that's tappable.** If it looks like a square button, it is wrong.
 5. **No shadow until a hover or modal demands it.** Default elevation is flat.
-6. **Second person Chinese voice.** Even Latin copy should read like a friend talking, not a vendor pitching.
+6. **Second-person voice.** Even Latin copy should read like a friend talking, not a vendor pitching.
 7. **Variable card heights.** A 3:4 image next to a 4:5 image is the look — do not pad both to the same height.
 8. **Mobile-first density.** Two-column waterfall is the canonical layout; everything else is a response to a wider viewport.

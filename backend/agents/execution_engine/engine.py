@@ -4216,6 +4216,17 @@ class ExecutionEngine:
                     # use). {} for every manifest declaring none, so this is a no-op
                     # for every existing agent (R-16 parity).
                     capabilities=dict(getattr(ectx, "compiled_capabilities", None) or {}),
+                    # step_tools / workflow_name: CARRIED, never decided. The
+                    # engine makes no permission decision — the compiled Step's
+                    # effective ToolPermissions were resolved by
+                    # agents/workflows/permission_caps.py at compile time, and the
+                    # engine only hands them to the factory (the SAME pass-through
+                    # seam step_injects/step_skills use). None when no step is
+                    # bound ⇒ the factory narrows nothing (parity).
+                    step_tools=getattr(
+                        getattr(ectx, "current_step", None), "tools", None
+                    ),
+                    workflow_name=pipeline_type,
                     # Only the FINAL step may be named by a single_file deliverable —
                     # its declared name and the per-instance artifact convention are
                     # mutually exclusive, and the readback looks for the declared name.

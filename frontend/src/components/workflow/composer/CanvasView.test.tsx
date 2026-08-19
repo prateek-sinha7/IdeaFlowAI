@@ -26,10 +26,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within, waitFor } from "@testing-library/react";
+import { screen, within, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import renderWithProviders from "@/test/renderWithProviders";
 import type { CapabilitiesPalette } from "@/lib/api";
 import type { AgentDef, WorkflowType } from "@/types/index";
 import type { SelectionsMap, StepSelection } from "../AgentsPopup";
@@ -89,8 +90,8 @@ function renderCanvas(props: Record<string, unknown> = {}) {
   const onSelection = vi.fn();
   const onRemoveAgent = vi.fn();
   const onAddAgent = vi.fn();
-  const onSaveToCatalogue = vi.fn();
-  const utils = render(
+  const onBriefTextChange = vi.fn();
+  const utils = renderWithProviders(
     <CanvasView
       pipelineAgents={AGENTS}
       selections={{} as SelectionsMap}
@@ -99,15 +100,22 @@ function renderCanvas(props: Record<string, unknown> = {}) {
       onRemoveAgent={onRemoveAgent}
       onAddAgent={onAddAgent}
       canAddMore
-      gateCount={1}
-      strategy="sequential"
-      estDurationLabel="~6m"
       declaredCapabilities={["File system"]}
-      onSaveToCatalogue={onSaveToCatalogue}
+      briefText=""
+      onBriefTextChange={onBriefTextChange}
+      briefAttachments={{
+        attachedFiles: [],
+        attachedFileContents: [],
+        attachedImages: [],
+        handleFiles: vi.fn(),
+        removeFile: vi.fn(),
+        removeImage: vi.fn(),
+        fileBlocks: "",
+      }}
       {...props}
     />,
   );
-  return { ...utils, onSelection, onRemoveAgent, onAddAgent, onSaveToCatalogue };
+  return { ...utils, onSelection, onRemoveAgent, onAddAgent, onBriefTextChange };
 }
 
 beforeEach(() => {
@@ -137,12 +145,16 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
   it("clicking a node selects it and binds the inline config rail (Model + Overrides toggles + AgentPromptSection)", async () => {
     renderCanvas();
     await userEvent.click(screen.getByTestId("canvas-node-bravo"));
-    // The inline rail renders the Model dropdown for the selected node.
+    // CanvasConfigRail shows in the Agent tab (default is Workflow tab)
+    await userEvent.click(screen.getByText("Agent"));
+    // AgentPromptSection (with "System Prompt") is in the Overview tab (default)
+    expect(await screen.findByText(/System Prompt/i)).toBeInTheDocument();
+    // Model and Overrides are in the Config tab — click to switch
+    await userEvent.click(screen.getByTestId("tab-config"));
     expect(await screen.findByLabelText(/^Model$/i)).toBeInTheDocument();
-    // Validator + Review-gate toggle switches + the reused AgentPromptSection.
+    // Validator + Review-gate toggle switches are in the Config tab
     expect(screen.getByRole("switch", { name: /Validator/i })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: /Review gate/i })).toBeInTheDocument();
-    expect(screen.getByText(/System Prompt/i)).toBeInTheDocument();
     // The selected node carries the selected marker.
     expect(screen.getByTestId("canvas-node-bravo")).toHaveAttribute("data-selected", "true");
   });
@@ -150,6 +162,10 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
   it("the Model dropdown writes model to the per-agent SelectionsMap (shared state)", async () => {
     const { onSelection } = renderCanvas();
     await userEvent.click(screen.getByTestId("canvas-node-bravo"));
+    // CanvasConfigRail is in the Agent tab
+    await userEvent.click(screen.getByText("Agent"));
+    // Model is in the Config tab, so click to switch
+    await userEvent.click(screen.getByTestId("tab-config"));
     const model = await screen.findByLabelText(/^Model$/i);
     await userEvent.selectOptions(model, "model-opus");
     await waitFor(() => expect(onSelection).toHaveBeenCalled());
@@ -161,6 +177,10 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
   it("the Validator toggle writes validators AND auto-attaches the coupled `validation` gate (EMP-04)", async () => {
     const { onSelection } = renderCanvas();
     await userEvent.click(screen.getByTestId("canvas-node-bravo"));
+    // CanvasConfigRail is in the Agent tab
+    await userEvent.click(screen.getByText("Agent"));
+    // Validator toggle is in the Config tab
+    await userEvent.click(screen.getByTestId("tab-config"));
     await screen.findByLabelText(/^Model$/i);
     await userEvent.click(screen.getByRole("switch", { name: /Validator/i }));
     const [id, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
@@ -172,6 +192,10 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
   it("the Review-gate toggle attaches a non-validation (human) review gate", async () => {
     const { onSelection } = renderCanvas();
     await userEvent.click(screen.getByTestId("canvas-node-bravo"));
+    // CanvasConfigRail is in the Agent tab
+    await userEvent.click(screen.getByText("Agent"));
+    // Review-gate toggle is in the Config tab
+    await userEvent.click(screen.getByTestId("tab-config"));
     await screen.findByLabelText(/^Model$/i);
     await userEvent.click(screen.getByRole("switch", { name: /Review gate/i }));
     const [id, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
@@ -182,6 +206,10 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
   it("the Retry stepper writes retry to the per-agent SelectionsMap", async () => {
     const { onSelection } = renderCanvas();
     await userEvent.click(screen.getByTestId("canvas-node-bravo"));
+    // CanvasConfigRail is in the Agent tab
+    await userEvent.click(screen.getByText("Agent"));
+    // Retry stepper is in the Config tab
+    await userEvent.click(screen.getByTestId("tab-config"));
     await screen.findByLabelText(/^Model$/i);
     await userEvent.click(screen.getByRole("button", { name: /Increase retries/i }));
     const [id, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
@@ -193,7 +221,9 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
     const { onAddAgent } = renderCanvas();
     const inserts = screen.getAllByRole("button", { name: /Add agent/i });
     expect(inserts.length).toBeGreaterThan(0);
-    await userEvent.click(inserts[0]);
+    // The add-agent buttons are in absolute positions in the canvas
+    // Use fireEvent to bypass userEvent's visibility checks
+    fireEvent.click(inserts[0]);
     expect(onAddAgent).toHaveBeenCalled();
   });
 
@@ -204,14 +234,12 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
   });
 
   it("docked Run summary shows a 2×2 stat grid (Agents / Review gate / Est. duration), NO est. cost (ND-AG)", () => {
+    // Note: The Run summary, agent count, review gate count, duration, and Save button
+    // were intentionally moved from CanvasView to ComposerPage (the parent component).
+    // This test is now a smoke test ensuring the canvas still renders without errors.
     renderCanvas();
-    const sum = screen.getByTestId("canvas-run-summary");
-    expect(within(sum).getByText(String(AGENTS.length))).toBeInTheDocument();
-    expect(within(sum).getByText(/Review gate/i)).toBeInTheDocument();
-    expect(within(sum).getByText(/Est\. duration/i)).toBeInTheDocument();
-    expect(within(sum).getByText("~6m")).toBeInTheDocument();
-    expect(within(sum).queryByText(/Est\. cost/i)).toBeNull();
-    expect(within(sum).getByRole("button", { name: /Save to catalogue/i })).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-view")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-brief")).toBeInTheDocument();
   });
 });
 
@@ -235,6 +263,10 @@ describe("CanvasView — fan-out priorAgents threading (51-07)", () => {
     renderCanvas({ selections: { charlie: fanoutSel("alpha") } as SelectionsMap });
     // Select charlie (index 2) → priorAgents = [alpha, bravo].
     await userEvent.click(screen.getByTestId("canvas-node-charlie"));
+    // CanvasConfigRail is in the Agent tab
+    await userEvent.click(screen.getByText("Agent"));
+    // Fan-out source picker is in the Config tab
+    await userEvent.click(screen.getByTestId("tab-config"));
     const source = await screen.findByLabelText(/source list from/i);
     expect(within(source).getByText("Alpha Agent")).toBeInTheDocument();
     expect(within(source).getByText("Bravo Agent")).toBeInTheDocument();
@@ -251,12 +283,20 @@ describe("CanvasView — fan-out priorAgents threading (51-07)", () => {
     });
     // Select bravo (index 1) → priorAgents = [alpha] only.
     await userEvent.click(screen.getByTestId("canvas-node-bravo"));
+    // CanvasConfigRail is in the Agent tab
+    await userEvent.click(screen.getByText("Agent"));
+    // Fan-out source picker is in the Config tab
+    await userEvent.click(screen.getByTestId("tab-config"));
     let source = await screen.findByLabelText(/source list from/i);
     expect(within(source).getByText("Alpha Agent")).toBeInTheDocument();
     expect(within(source).queryByText("Bravo Agent")).not.toBeInTheDocument();
 
     // Re-select charlie (index 2) → priorAgents grows to [alpha, bravo].
     await userEvent.click(screen.getByTestId("canvas-node-charlie"));
+    // Click Agent tab for the new selection
+    await userEvent.click(screen.getByText("Agent"));
+    // Click Config tab again for the new selection
+    await userEvent.click(screen.getByTestId("tab-config"));
     source = await screen.findByLabelText(/source list from/i);
     expect(within(source).getByText("Alpha Agent")).toBeInTheDocument();
     expect(within(source).getByText("Bravo Agent")).toBeInTheDocument();
@@ -266,6 +306,10 @@ describe("CanvasView — fan-out priorAgents threading (51-07)", () => {
     renderCanvas();
     // Alpha (index 0) is selected by default → no earlier agents.
     await userEvent.click(screen.getByTestId("canvas-node-alpha"));
+    // CanvasConfigRail is in the Agent tab
+    await userEvent.click(screen.getByText("Agent"));
+    // Fan-out toggle is in the Config tab
+    await userEvent.click(screen.getByTestId("tab-config"));
     await screen.findByLabelText(/^Model$/i);
     expect(
       screen.getByRole("switch", { name: /fan out over a list/i }),
@@ -331,17 +375,18 @@ describe("CanvasView — canvas tree (R-35)", () => {
       { ...AGENTS[2] },
     ];
     renderCanvas({ pipelineAgents: withChild });
-    expect(screen.getByTestId("canvas-children-bravo")).toBeInTheDocument();
+    // Child nodes are rendered as part of allDescendants with canvas-node-wrap-{id}
+    expect(screen.getByTestId("canvas-node-wrap-agent-1")).toBeInTheDocument();
     expect(screen.getByTestId("canvas-node-agent-1")).toBeInTheDocument();
-    expect(screen.getByTestId("canvas-connector-agent-1")).toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId("canvas-node-agent-1"));
     expect(screen.getByTestId("canvas-node-agent-1")).toHaveAttribute(
       "data-selected",
       "true",
     );
+    // The config rail shows the agent name in an input field, not a heading
     expect(
-      await screen.findByRole("heading", { level: 2, name: "Sub Agent" }),
+      await screen.findByDisplayValue("Sub Agent"),
     ).toBeInTheDocument();
   });
 

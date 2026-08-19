@@ -97,6 +97,8 @@ NOTHING under ``app/`` or ``agents/`` is modified — this is verify-only test c
 
 from __future__ import annotations
 
+import copy
+
 import asyncio
 import contextlib
 import os
@@ -556,7 +558,12 @@ async def drive_engine_pipeline(
     _orig_compile_for_run = engine_mod.compile_for_run
 
     def _harness_compile_for_run(pipeline_type, _orig=_orig_compile_for_run):
-        compiled = _orig(pipeline_type)
+        # DEEP-COPY before mutating: compile_for_run is @lru_cache'd, so _orig()
+        # returns the SHARED CompiledWorkflow. Mutating it in place outlives this
+        # harness — restoring the FUNCTION in finally does not undo a write to the
+        # cached OBJECT — and silently flips clarify.mode/planner for every later
+        # test in the process. Same fix as _scripted_model._patched_compile_for_run.
+        compiled = copy.deepcopy(_orig(pipeline_type))
         compiled.clarify.mode = "off"
         return compiled
 
@@ -633,7 +640,7 @@ async def drive_engine_pipeline(
 
     # ── Prototype agents declare injects (template/design_system); supply a
     #    minimal od_context so injection succeeds (matches _scripted_model). ──
-    if od_context is None and pipeline_type in ("prototype", "od_prototype"):
+    if od_context is None and pipeline_type == "prototype":
         od_context = {
             "template_body": (
                 "## Workflow\nUse .card and .grid classes. Build pages into "

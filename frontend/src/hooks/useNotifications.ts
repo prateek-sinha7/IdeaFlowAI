@@ -63,7 +63,12 @@ function saveToStorage(notifications: PipelineNotification[]): void {
     const persistable = notifications.filter(
       (n) => n.status !== "running" && n.status !== "gate"
     );
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable));
+    if (persistable.length === 0) {
+      // Don't persist empty arrays; remove the key so it stays null.
+      localStorage.removeItem(STORAGE_KEY);
+    } else {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable));
+    }
   } catch {
     // Storage quota exceeded or unavailable — fail silently; next write retries.
   }
@@ -96,12 +101,8 @@ const WORKFLOW_LABELS: Record<string, string> = {
   ppt_revision: "Presentation (Revised)",
   // KAN-130: od_ppt and od_prototype are the actual pipeline_type values stored
   // in WorkflowRun.type; they had no entry and fell back to the raw alias string.
-  od_ppt: "Presentation",
-  od_ppt_revision: "Presentation (Revised)",
   prototype: "Prototype",
   prototype_revision: "Prototype (Revised)",
-  od_prototype: "Prototype",
-  od_prototype_revision: "Prototype (Revised)",
   app_builder: "App Builder",
   app_builder_revision: "App Builder (Revised)",
   mulesoft_to_springboot: "Mulesoft Migration",

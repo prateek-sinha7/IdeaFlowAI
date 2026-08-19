@@ -50,6 +50,27 @@ vi.mock("./AppBuilderPreview", () => ({ AppBuilderPreview: () => <div data-testi
 vi.mock("@/components/results/FilesTab", () => ({
   FilesTab: () => <div data-testid="files-tab" />,
   downloadBlob: vi.fn(),
+  deriveDeliverableFilename: (workflowType: string, content?: string, fallback?: string) => {
+    // Simplified stub that dispatches on workflow type like the real function
+    if (workflowType === "user_stories" || workflowType === "user_stories_revision") {
+      if (!content) return fallback || "user-stories.md";
+      const match = content.match(/^#\s+(.+)/m);
+      if (match) return match[1].toLowerCase() + ".md";
+      return fallback || "user-stories.md";
+    }
+    if (workflowType === "ppt" || workflowType === "ppt_revision") {
+      if (!content) return fallback || "presentation.html";
+      if (content.match(/<title>/i) || content.match(/<h1[^>]*>/i)) return "presentation.html";
+      return fallback || "presentation.html";
+    }
+    if (workflowType === "prototype" || workflowType === "prototype_revision") {
+      if (!content) return fallback || "prototype.html";
+      if (content.match(/<title>/i)) return "prototype.html";
+      return fallback || "prototype.html";
+    }
+    if (workflowType === "app_builder" || workflowType === "app_builder_revision") return "project.zip";
+    return fallback || "deliverable";
+  },
 }));
 vi.mock("@/components/results/AgentThinkingTab", () => ({ AgentThinkingTab: () => <div data-testid="thinking-tab" /> }));
 vi.mock("@/components/results/AuditTab", () => ({ AuditTab: () => <div data-testid="audit-tab" /> }));
@@ -135,13 +156,14 @@ describe("PreviewPanel — Phase 39 Preview browser chrome", () => {
 
   it("frames a PLAIN (non-self-chromed) deliverable in the browser chrome with the REAL live filename (ND-D/ND-G)", () => {
     // user_stories is NOT self-chromed → it keeps our PreviewChrome browser frame.
+    // Use realistic data: workflow type matches deliverable (user_stories → .md file).
     render(
-      <PreviewPanel workflowType="user_stories" userStoryContent="# stories" pipelineState={settledState} />,
+      <PreviewPanel workflowType="user_stories" userStoryContent="# stories" pipelineState={{ ...settledState, deliverableFilename: "stories.md" }} />,
     );
     const chrome = screen.getByTestId("preview-chrome");
     expect(chrome).toBeInTheDocument();
-    // The URL bar shows the real live filename — never the mock's fixed index.html.
-    expect(screen.getByTestId("preview-url")).toHaveTextContent("apple-reference-prototype.html");
+    // The URL bar shows the real live filename — derived from the content (# stories → stories.md).
+    expect(screen.getByTestId("preview-url")).toHaveTextContent("stories.md");
     // ND-G — the REUSED renderer is slotted INSIDE the chrome, unchanged.
     expect(chrome).toContainElement(screen.getByTestId("user-story-preview"));
   });

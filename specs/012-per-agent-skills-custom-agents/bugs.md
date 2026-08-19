@@ -21,6 +21,9 @@ Sources:
   refs **P**–**S**
 - [reports/sample-subagents-findings.md](reports/sample-subagents-findings.md) — live
   `sample_subagents` run findings, refs **T**–**W**
+- [permission-bug/](permission-bug/) — the R-22 universal-filesystem-grant investigation
+  (2026-08-15/16), **SPEC012-BUG-18**. Post-merge regression found in production by a
+  teammate, not during implementation; six reports plus a live A/B reproduction
 
 ---
 
@@ -43,6 +46,7 @@ Sources:
 | **SPEC012-BUG-15** | U | `tool_call`/`tool_result` pairing in `agent_outputs` was LIFO not FIFO — misattributed results between same-named calls | `run_commands.py` matched by tool name only, walked newest-first | Walks oldest-unresolved-first; the fix comment names the bug verbatim | Verified fixed in current source. Corrupted the only API-visible tool-call audit trail for custom workflows |
 | **SPEC012-BUG-16** | V | Stale dot-separated filename example in a step prompt contradicted the real hyphen convention (ADR-0007) | Prompt authored before ADR-0007's hyphen fix | `workflow.yaml`'s example now hyphenated | Verified fixed in current source. Recovered via `glob` on Bedrock Haiku; would have hard-failed on the small-model target ADR-0007 was written for |
 | **SPEC012-BUG-17** | W | Artifact-fallback safety net ignored `deliverable_filename_override`, writing a duplicate file for the deliverable-producing step | `_check_artifact_fallback` hardcoded `artifact_name(...)`, never checked the override the prompt composer already used | New `deliverable_filename` param, defaults to override | Verified fixed in current source. Worse-case (fallback targeting the wrong file entirely) was reasoned but not reproduced live |
+| **SPEC012-BUG-18** | — | 61 `tools: []` agents were bound the filesystem regardless of any manifest; text-only agents wrote their output to the sandbox where `streamed_text` could not see it (deliverable orphaned), and did work belonging to other agents (~2.35 M tokens in the reported run) | `_resolve_runner_tools` returned a constant `([], False)` for an empty tool set — the R-22/D-07 universal grant. `no_tools` also flipped False, suppressing `_NO_TOOLS_PREAMBLE`, so agents gained tools AND lost the instruction not to use them | Workflow manifest is now the source of truth: step `tools:` ∩ trust cap, all permission logic consolidated in the new `agents/workflows/permission_caps.py`; 24 writing steps granted explicitly | Fleet-wide — every pipeline. Live A/B on identical input reproduced then fixed it: orphaned files 2→0, `story-estimator` returned 2,423 B→19,586 B, deliverable 19,572 B→23,243 B. Only `user_stories` executed; other pipelines compile-verified. Full detail: [bugs/SPEC012-BUG-18-universal-filesystem-grant.md](bugs/SPEC012-BUG-18-universal-filesystem-grant.md) |
 
 ---
 

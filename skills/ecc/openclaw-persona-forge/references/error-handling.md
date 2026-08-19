@@ -1,53 +1,53 @@
-# 错误处理与降级策略
+# Error Handling and Degradation Strategy
 
-## 设计理念
+## Design Philosophy
 
-> 任何错误都不应中断用户的创造流程。降级，不中断。
+> No error should interrupt the user's creative flow. Degrade gracefully, don't stop.
 
-## 错误分类与降级矩阵
+## Error Classification and Degradation Matrix
 
-### 类型 A：环境缺失
+### Type A: Missing Environment
 
-| 错误场景 | 检测方式 | 降级策略 | 告知用户 |
+| Error Scenario | Detection Method | Degradation Strategy | User Notification |
 |----------|---------|---------|---------|
-| Python 3 不可用 | `python3 --version` 失败 | 跳过 gacha.py，从 10 类预设方向中随机选择 | "抽卡引擎需要 Python 3，已改用内置随机选择" |
+| Python 3 unavailable | `python3 --version` fails | Skip gacha.py, randomly pick from 10 preset direction categories | "The gacha engine requires Python 3; switched to the built-in random selection" |
 
-### 类型 B：可选依赖不可用
+### Type B: Optional Dependency Unavailable
 
-| 错误场景 | 检测方式 | 降级策略 | 告知用户 |
+| Error Scenario | Detection Method | Degradation Strategy | User Notification |
 |----------|---------|---------|---------|
-| 生图 skill 未安装 | 检查 skill 是否存在 | 输出完整提示词文本 + 手动生图平台说明 | "未检测到可用的生图 skill，已输出提示词供手动使用" |
-| 生图 skill 调用失败 | skill 返回错误 | 重试 1 次，仍失败则输出提示词文本 | "生图失败，已输出提示词供手动使用" |
+| Image-generation skill not installed | Check whether the skill exists | Output the full prompt text + instructions for manual image-generation platforms | "No usable image-generation skill was detected; the prompt has been output for manual use" |
+| Image-generation skill call failed | Skill returns an error | Retry once; if it still fails, output the prompt text | "Image generation failed; the prompt has been output for manual use" |
 
-### 类型 C：运行时异常
+### Type C: Runtime Exceptions
 
-| 错误场景 | 降级策略 | 告知用户 |
+| Error Scenario | Degradation Strategy | User Notification |
 |----------|---------|---------|
-| gacha.py 输出格式异常 | 从 10 类预设方向中随机选择 | "抽卡结果解析失败，已改用内置随机" |
-| 任何未预期错误 | 记录错误信息，跳过该步骤，继续主流程 | "遇到了一个问题：[错误简述]。已跳过继续" |
+| gacha.py output format is malformed | Randomly pick from 10 preset direction categories | "Failed to parse the gacha result; switched to the built-in random selection" |
+| Any unexpected error | Log the error message, skip this step, continue the main flow | "Ran into a problem: [brief error description]. Skipped and continuing" |
 
-## 错误信息统一格式
-
-```markdown
-> [警告] **[步骤名] 已降级**
-> 原因：[发生了什么]
-> 影响：[什么功能受限]
-> 替代：[正在用什么兜底]
-> 修复：[怎么恢复完整功能]
-```
-
-示例：
+## Unified Error Message Format
 
 ```markdown
-> [警告] **头像生成已降级**
-> 原因：未检测到可用的生图 skill
-> 影响：无法自动生成头像图片
-> 替代：已输出完整提示词，可复制到 Gemini / ChatGPT 手动生成
-> 修复：在当前环境中安装并启用经过审核的生图 skill
+> [Warning] **[Step Name] has degraded**
+> Reason: [what happened]
+> Impact: [what functionality is limited]
+> Fallback: [what is being used as a stopgap]
+> Fix: [how to restore full functionality]
 ```
 
-## 关键原则
+Example:
 
-1. **文本方案是核心价值，头像是锦上添花**——辅助功能失败永不中断主流程
-2. **降级信息要可操作**——不只说"出错了"，要说"怎么修"
-3. **一次降级不影响后续步骤**——Step 5 降级了，Step 6 照常输出
+```markdown
+> [Warning] **Avatar generation has degraded**
+> Reason: No usable image-generation skill was detected
+> Impact: Cannot automatically generate the avatar image
+> Fallback: The full prompt has been output; copy it into Gemini / ChatGPT to generate manually
+> Fix: Install and enable a vetted image-generation skill in the current environment
+```
+
+## Key Principles
+
+1. **The text solution is the core value; the avatar is a nice-to-have** — a failure in an auxiliary feature must never interrupt the main flow
+2. **Degradation messages must be actionable** — don't just say "an error occurred," say "how to fix it"
+3. **One degraded step doesn't affect later steps** — if Step 5 degrades, Step 6 still runs normally

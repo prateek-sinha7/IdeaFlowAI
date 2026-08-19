@@ -14,11 +14,12 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { IdeaInputPage } from "./IdeaInputPage";
 import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
+import { renderWithProviders } from "@/test/renderWithProviders";
 
 // Speech recognition is browser-only; stub it so jsdom renders cleanly.
 vi.mock("@/hooks/useSpeechRecognition", () => ({
@@ -60,10 +61,44 @@ vi.mock("./ReviewGatesSection", () => ({
 }));
 
 function renderPage(onRun = vi.fn()) {
-  render(
+  renderWithProviders(
     <SkillsHooksProvider>
       <IdeaInputPage workflowType="user_stories" onBack={vi.fn()} onRun={onRun} />
     </SkillsHooksProvider>,
+    {
+      preloadedState: {
+        agents: {
+          agents: [
+            {
+              id: "domain-analyst",
+              name: "Domain Analyst",
+              role: "Discovery Lead",
+              description: "Analyse the business domain",
+              pipeline_type: "user_stories",
+              order: 1,
+              icon: "search",
+              estimated_duration: 120,
+              has_skill: false,
+            },
+            {
+              id: "epic-architect",
+              name: "Epic Architect",
+              role: "Architect",
+              description: "Design epics and features",
+              pipeline_type: "user_stories",
+              order: 2,
+              icon: "building",
+              estimated_duration: 180,
+              has_skill: false,
+            },
+          ],
+          totalCount: 2,
+          pipelines: {},
+          status: "succeeded",
+          error: null,
+        },
+      },
+    },
   );
   return { onRun };
 }

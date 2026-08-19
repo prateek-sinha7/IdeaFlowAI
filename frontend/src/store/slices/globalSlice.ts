@@ -109,12 +109,8 @@ const FALLBACK_WORKFLOW_LABELS: Record<string, string> = {
   // KAN-130: od_ppt and od_prototype are legacy pipeline_type values that can
   // still appear on an older persisted WorkflowRun.type; the live catalog no
   // longer lists them, so they'd otherwise fall back to the raw alias string.
-  od_ppt: "Presentation",
-  od_ppt_revision: "Presentation (Revised)",
   prototype: "Prototype",
   prototype_revision: "Prototype (Revised)",
-  od_prototype: "Prototype",
-  od_prototype_revision: "Prototype (Revised)",
   app_builder: "App Builder",
   app_builder_revision: "App Builder (Revised)",
   mulesoft_to_springboot: "Mulesoft Migration",

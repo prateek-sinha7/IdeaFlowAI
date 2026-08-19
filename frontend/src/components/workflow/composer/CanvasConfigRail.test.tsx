@@ -20,7 +20,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ComponentProps } from "react";
-import { render, screen, within, waitFor } from "@testing-library/react";
+import { renderWithProviders, screen, within, waitFor } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 import type { CapabilitiesPalette } from "@/lib/api";
 import type { AgentDef } from "@/types/index";
@@ -80,7 +80,7 @@ const WRITER = mkAgent({ id: "writer", name: "Writer" });
 
 function renderRail(props: Partial<ComponentProps<typeof CanvasConfigRail>> = {}) {
   const onSelection = vi.fn();
-  const utils = render(
+  const utils = renderWithProviders(
     <CanvasConfigRail
       agent={WRITER}
       index={2}

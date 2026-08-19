@@ -1,13 +1,13 @@
-# HTML Anything 0.1 已发布
+# HTML Anything 0.1 Released
 
-## 一句话
-任何文档 → 世界级好看的 HTML, 用你本地的 AI agent
+## Tagline
+Any document → world-class HTML, powered by your local AI agent
 
-## 特性
-- 9 套世界级模板
-- 8 个本地 agent 自动检测
-- 0 API Key, 复用本地登录 session
-- 一键复制到公众号 / 推特 / 知乎
+## Features
+- 9 world-class templates
+- 8 local agents auto-detected
+- 0 API Key, reuses your local login session
+- One-click copy to WeChat / Twitter / Zhihu
 
 ## CTA
-github.com/your-org/html-anything · 一行命令跑起来
+github.com/your-org/html-anything · Up and running with one command

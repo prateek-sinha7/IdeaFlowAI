@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { render, screen, fireEvent } from "@testing-library/react";
+import { renderWithProviders, screen, fireEvent } from "@/test/renderWithProviders";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentRunState, ChatMessage, PipelineRunState } from "@/types/index";
@@ -64,7 +64,7 @@ function baseProps(overrides: Partial<RunChatLaneProps> = {}): RunChatLaneProps 
 describe("RunChatLane — terminal states", () => {
   it("cancelled: renders 'Cancelled by you' ack + a 'Run again' relaunch", () => {
     const onRelaunch = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           pipelineState: pipeline({ cancelled: true }),
@@ -75,14 +75,14 @@ describe("RunChatLane — terminal states", () => {
     expect(screen.getByTestId("chat-terminal-cancelled")).toBeInTheDocument();
     expect(screen.getByText(/Cancelled by you/i)).toBeInTheDocument();
     const relaunch = screen.getByTestId("chat-relaunch");
-    expect(relaunch).toHaveTextContent(/New Pipeline/i);
+    expect(relaunch).toHaveTextContent(/Run Again/i);
     fireEvent.click(relaunch);
     expect(onRelaunch).toHaveBeenCalledTimes(1);
   });
 
   it("failed: renders a 'What went wrong' card naming failed agents + sanitized error + relaunch", () => {
     const onRelaunch = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           pipelineState: pipeline({
@@ -118,7 +118,7 @@ describe("RunChatLane — terminal states", () => {
   });
 
   it("degraded: renders a 'completed with issues' card naming the failed agents", () => {
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           pipelineState: pipeline({
@@ -135,7 +135,7 @@ describe("RunChatLane — terminal states", () => {
   });
 
   it("plain terminal (no marker): falls back to a generic relaunch", () => {
-    render(<RunChatLane {...baseProps({ pipelineState: pipeline() })} />);
+    renderWithProviders(<RunChatLane {...baseProps({ pipelineState: pipeline() })} />);
     expect(screen.getByTestId("chat-relaunch")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-terminal-cancelled")).toBeNull();
     expect(screen.queryByTestId("chat-terminal-failed")).toBeNull();

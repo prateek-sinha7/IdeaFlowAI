@@ -71,11 +71,11 @@ function markdown(findings, project, scannedFiles) {
     byType.get(finding.type).push(finding);
   }
   const types = [
-    ["tracking", "追踪脚本 / 统计像素"],
-    ["brand", "原站品牌残留"],
-    ["japanese", "日文残留"],
-    ["todo", "TODO / 占位内容"],
-    ["external", "外部依赖 / 外链风险"],
+    ["tracking", "Tracking scripts / analytics pixels"],
+    ["brand", "Original brand residue"],
+    ["japanese", "Japanese text residue"],
+    ["todo", "TODO / placeholder content"],
+    ["external", "External dependencies / outbound link risk"],
   ];
   const lines = [
     `# Clone Audit`,
@@ -90,19 +90,19 @@ function markdown(findings, project, scannedFiles) {
     const items = byType.get(type) || [];
     lines.push(`## ${title}`);
     if (!items.length) {
-      lines.push("- 未发现");
+      lines.push("- None found");
       lines.push("");
       continue;
     }
     for (const item of items.slice(0, 200)) {
       lines.push(`- ${path.relative(project, item.file)}:${item.line} · ${item.label} · \`${item.match.replaceAll("`", "'")}\``);
     }
-    if (items.length > 200) lines.push(`- 还有 ${items.length - 200} 条未展开`);
+    if (items.length > 200) lines.push(`- ${items.length - 200} more not shown`);
     lines.push("");
   }
 
-  lines.push("## 结论");
-  lines.push(findings.length ? "- 需要处理上面的残留项后再声明可部署。" : "- 未发现明显残留项；仍需人工核查素材授权和视觉截图。");
+  lines.push("## Conclusion");
+  lines.push(findings.length ? "- Address the residue items above before declaring this ready to deploy." : "- No obvious residue found; asset licensing and visual screenshots still need manual review.");
   return `${lines.join("\n")}\n`;
 }
 
@@ -129,6 +129,8 @@ try {
     { type: "tracking", label: "Meta Pixel / fbq", pattern: "connect\\.facebook\\.net|fbq\\s*\\(", flags: "gi" },
     { type: "tracking", label: "Hotjar / Clarity", pattern: "hotjar|clarity\\.ms|hj\\s*\\(", flags: "gi" },
     { type: "japanese", label: "Japanese kana residue", pattern: "[\\u3040-\\u30ff]{2,}", flags: "g" },
+    // "待补" (to fill in) / "这里填写" (fill in here) are literal Chinese placeholder
+    // phrases this scanner detects in cloned content — kept as-is, not translated.
     { type: "todo", label: "TODO / placeholder content", pattern: "TODO|FIXME|lorem ipsum|待补|这里填写", flags: "gi" },
     { type: "external", label: "external URL", pattern: "https?://[^\\s\"')<>]+", flags: "gi" },
     ...brandPatterns,

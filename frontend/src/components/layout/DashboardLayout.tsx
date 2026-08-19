@@ -353,7 +353,7 @@ export function DashboardLayout({
     // start directly in execution view — avoids the home screen flash while
     // waiting for the WebSocket to connect and fire the pipeline.
     if (typeof window !== "undefined" && (
-      sessionStorage.getItem("od_prototype.pending") ||
+      sessionStorage.getItem("prototype.pending") ||
       sessionStorage.getItem("ppt.pending")
     )) {
       return "execution";
@@ -362,7 +362,7 @@ export function DashboardLayout({
   });
   const [workflowType, setWorkflowType] = useState<WorkflowType>(() => {
     if (typeof window !== "undefined") {
-      if (sessionStorage.getItem("od_prototype.pending")) return "prototype";
+      if (sessionStorage.getItem("prototype.pending")) return "prototype";
       if (sessionStorage.getItem("ppt.pending")) return "ppt";
     }
     return "user_stories";
@@ -538,9 +538,7 @@ export function DashboardLayout({
       if (mainView !== "execution") {
         setMainView("execution");
       }
-      const pt = pipelineState.pipeline_type as WorkflowType | "od_prototype";
-      // Normalise od_prototype → prototype.
-      const normalised: WorkflowType = pt === "od_prototype" ? "prototype" : (pt as WorkflowType);
+      const normalised = pipelineState.pipeline_type as WorkflowType;
       if (normalised && normalised !== workflowType) {
         setWorkflowType(normalised);
       }
@@ -729,8 +727,7 @@ export function DashboardLayout({
   useEffect(() => {
     if (
       pipelineState?.isRunning &&
-      (pipelineState.pipeline_type === "od_prototype" || pipelineState.pipeline_type === "prototype" ||
-       pipelineState.pipeline_type === "ppt")
+      (pipelineState.pipeline_type === "prototype" || pipelineState.pipeline_type === "ppt")
     ) {
       if (odProtoNotifCreated.current) return;
       odProtoNotifCreated.current = true;
@@ -1055,10 +1052,10 @@ export function DashboardLayout({
       addRunningNotification(notifId, "prototype", pendingOdProtoParams.brief.slice(0, 60), 0);
       const agentIds = pendingOdProtoParams.agentIds ?? [];
       if (connectionStatus === "connected") {
-        onStartPipeline("od_prototype" as WorkflowType, pendingOdProtoParams.brief, agentIds, attachedHooks, extraParams);
+        onStartPipeline("prototype", pendingOdProtoParams.brief, agentIds, attachedHooks, extraParams);
       } else {
         pendingStartOnConnectRef.current = {
-          type: "od_prototype" as WorkflowType,
+          type: "prototype",
           message: pendingOdProtoParams.brief,
           agentIds,
           extraParams,
@@ -1215,7 +1212,7 @@ export function DashboardLayout({
 
     // For PPT and Prototype saved workflows, extract _wizard config and route
     // directly to the wizard page (restoring templateId, designSystemId, brief, etc.)
-    if (saved.base_pipeline_type === "od_ppt" || saved.base_pipeline_type === "ppt") {
+    if (saved.base_pipeline_type === "ppt") {
       const wizard = (saved.selections?._wizard ?? {}) as Record<string, unknown>;
       const draft: Record<string, unknown> = {
         templateId: wizard.templateId ?? null,
@@ -1236,7 +1233,7 @@ export function DashboardLayout({
       return;
     }
 
-    if (saved.base_pipeline_type === "od_prototype" || saved.base_pipeline_type === "prototype") {
+    if (saved.base_pipeline_type === "prototype") {
       const wizard = (saved.selections?._wizard ?? {}) as Record<string, unknown>;
       const draft: Record<string, unknown> = {
         templateId: wizard.templateId ?? null,
@@ -1334,10 +1331,8 @@ export function DashboardLayout({
       // !odProtoNotifId.current (prototype) — set them here for those types so
       // the guard fires and the reactive path is a no-op.
       const resolvedTypeStr = resolvedType as string;
-      const isPptType = resolvedTypeStr === "ppt" || resolvedTypeStr === "od_ppt" ||
-        resolvedTypeStr === "ppt_revision" || resolvedTypeStr === "od_ppt_revision";
-      const isProtoType = resolvedTypeStr === "prototype" || resolvedTypeStr === "od_prototype" ||
-        resolvedTypeStr === "prototype_revision" || resolvedTypeStr === "od_prototype_revision";
+      const isPptType = resolvedTypeStr === "ppt" || resolvedTypeStr === "ppt_revision";
+      const isProtoType = resolvedTypeStr === "prototype" || resolvedTypeStr === "prototype_revision";
       if (isPptType) { odPptNotifId.current = notifId; }
       if (isProtoType) { odProtoNotifId.current = notifId; }
       // FIX-130: inject _display_title so page.tsx onStartPipeline can set a
@@ -1445,7 +1440,7 @@ export function DashboardLayout({
       } catch {
         // Fallback: use the old approach
         const isHtmlOutput = workflowType === "ppt" || workflowType === "ppt_revision" ||
-          workflowType === "od_prototype" || workflowType === "prototype" || workflowType === "prototype_revision";
+          workflowType === "prototype" || workflowType === "prototype_revision";
         contextBlock = isHtmlOutput
           ? `=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n[${workflowType} output — HTML file]\n=== END PREVIOUS CONTEXT ===`
           : `=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n${lastPipelineOutput.slice(0, 4000)}\n=== END PREVIOUS CONTEXT ===`;
@@ -1484,7 +1479,7 @@ export function DashboardLayout({
       const chainNotifTitle = (chainBrief || enrichedInput).slice(0, 60);
       addRunningNotification(notifId, nextType, chainNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = nextType as string; if (t === "ppt" || t === "od_ppt" || t === "ppt_revision" || t === "od_ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "od_prototype" || t === "prototype_revision" || t === "od_prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedHooks, { _display_title: chainBrief });
       } else {
@@ -1539,7 +1534,7 @@ export function DashboardLayout({
     } catch {
       // Fallback
       const isHtmlOutput = run.type === "ppt" || run.type === "ppt_revision" ||
-        run.type === "od_prototype" || run.type === "prototype" || run.type === "prototype_revision";
+        run.type === "prototype" || run.type === "prototype_revision";
       const baseOutput = isHtmlOutput
         ? `[${run.title || run.type} output — HTML file]`
         : (run.output || "").slice(0, 4000);
@@ -1571,7 +1566,7 @@ export function DashboardLayout({
       const historyNotifTitle = (historyBrief || enrichedInput).slice(0, 60);
       addRunningNotification(notifId, nextType, historyNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = nextType as string; if (t === "ppt" || t === "od_ppt" || t === "ppt_revision" || t === "od_ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "od_prototype" || t === "prototype_revision" || t === "od_prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedHooks, { _display_title: historyBrief });
       } else {
@@ -1653,7 +1648,7 @@ export function DashboardLayout({
       const pendingNotifTitle = (parsedPending.revisionInstruction ?? parsedPending.brief ?? pendingPipelineRun.message).slice(0, 60);
       addRunningNotification(notifId, pendingPipelineRun.type, pendingNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "od_ppt" || t === "ppt_revision" || t === "od_ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "od_prototype" || t === "prototype_revision" || t === "od_prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -1693,7 +1688,7 @@ export function DashboardLayout({
       const skipNotifTitle = (parsedSkip.revisionInstruction ?? parsedSkip.brief ?? pendingPipelineRun.message).slice(0, 60);
       addRunningNotification(notifId, pendingPipelineRun.type, skipNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "od_ppt" || t === "ppt_revision" || t === "od_ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "od_prototype" || t === "prototype_revision" || t === "od_prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -1786,7 +1781,7 @@ export function DashboardLayout({
   const activeReviseHandler =
     (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision") ? handleRevisePpt :
     (effectiveReviseType === "user_stories" || effectiveReviseType === "user_stories_revision") ? handleReviseUserStory :
-    (effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision" || effectiveReviseType === "od_prototype" || !!prototypeContent) ? handleRevisePrototype :
+    (effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype :
     (effectiveReviseType === "app_builder" || effectiveReviseType === "app_builder_revision") ? handleReviseAppBuilder :
     undefined;
 
@@ -1958,8 +1953,7 @@ export function DashboardLayout({
   const laneActiveContent =
     effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision"
       ? pptContent
-      : effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision" ||
-        effectiveReviseType === "od_prototype"
+      : effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision"
         ? prototypeContent
         : userStoryContent; // user_stories, custom, app_builder, and revision variants
   const laneDerivedFilename = deriveDeliverableFilename(
@@ -2160,8 +2154,7 @@ export function DashboardLayout({
             const targetRunId = n.workflowRunId ?? recentRuns?.find(
               (r) =>
                 LIVE_RUN_STATUSES.has(r.status) &&
-                (r.type === n.workflowType ||
-                  (n.workflowType === "prototype" && (r.type === "od_prototype" || r.type === "prototype"))),
+                r.type === n.workflowType,
             )?.id;
             if (targetRunId && onSwitchToLiveRun) {
               // FIX-201 (KAN-168): sync currentPipelineNotifId and currentPipelineNotifRunId
@@ -2392,7 +2385,7 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <SavedWorkflowsPage onLaunchSaved={handleLaunchSaved} />
+              <SavedWorkflowsPage onLaunchSaved={handleLaunchSaved} onCreateNew={() => handleSelectFeature("custom")} />
             </motion.div>
           )}
 

@@ -21,7 +21,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { renderWithProviders, screen } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 
 const mockGetAgentPrompt = vi.fn();
@@ -65,7 +65,7 @@ beforeEach(() => {
 });
 
 function renderDrawer() {
-  return render(
+  return renderWithProviders(
     <SkillsHooksProvider>
       <AgentCapabilitiesModal agent={AGENT} agentIndex={0} onClose={vi.fn()} />
     </SkillsHooksProvider>,

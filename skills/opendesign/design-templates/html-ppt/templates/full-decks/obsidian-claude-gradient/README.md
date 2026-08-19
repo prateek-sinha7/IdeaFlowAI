@@ -1,10 +1,10 @@
 # obsidian-claude-gradient
 
-GitHub-dark (`#0d1117`) + 紫色 ambient radial + 60px 遮罩网格 + 紫→蓝→绿渐变文字。灵感来自 `20260406-obsidian-claude/slides.html` 的 `--accent #7c3aed`、`.cbg` 双 radial cover、`.cgrid` 60px 遮罩网格以及 `.g` 三停渐变。
+GitHub-dark (`#0d1117`) + purple ambient radial + 60px masked grid + purple→blue→green gradient text. Inspired by `20260406-obsidian-claude/slides.html`'s `--accent #7c3aed`, its `.cbg` dual-radial cover, `.cgrid` 60px masked grid, and its three-stop `.g` gradient.
 
-**Visual traits:** 深灰蓝底 + 紫蓝 radial 晕染 + 暗网格遮罩、居中对齐的标题/正文、圆角紫色 pill tag、linear `#a855f7→#60a5fa→#34d399` 渐变字、GitHub-ish 代码色 (`#010409` 背景 + 紫/蓝/橙/绿 token)、紫色左边框 highlight 块、简洁 step 列表。
+**Visual traits:** dark slate-blue background + purple/blue radial glow + dark masked grid, centered titles/body text, rounded purple pill tags, linear `#a855f7→#60a5fa→#34d399` gradient text, GitHub-ish code coloring (`#010409` background with purple/blue/orange/green tokens), purple left-border highlight blocks, clean step lists.
 
-**Use when:** 讲一个开发者友好的工作流、MCP / Agent / Dev tool 教程；你希望气质接近 GitHub Blog / Linear Changelog；内容以配置文件 + 步骤为主。
+**Use when:** presenting a developer-friendly workflow, an MCP / Agent / dev tool tutorial; you want a tone close to GitHub Blog / Linear Changelog; content is mostly config files + steps.
 
 **Source inspiration:** `20260406-obsidian-claude/slides.html`.
 

@@ -26,8 +26,7 @@
           "role": "Structural Validation & Delivery"
         }
       ],
-      "pipeline_type": "ppt",
-      "resume_offset": 0
+      "pipeline_type": "ppt"
     },
     "section": "ppt",
     "type": "pipeline_start"

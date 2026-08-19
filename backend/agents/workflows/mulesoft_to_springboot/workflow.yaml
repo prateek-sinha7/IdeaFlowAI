@@ -34,21 +34,26 @@ steps:
   strategy: single_shot
   gates: []
 - agent: mulesoft-springboot-scaffold
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: mulesoft-feature-coding
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: mulesoft-dataweave-translator
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: mulesoft-aws-infra
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: mulesoft-code-compliance
   strategy: single_shot
   gates: []
 - agent: mulesoft-test-implementation
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: mulesoft-test-compliance

@@ -31,6 +31,7 @@ context_providers:
 seed_files: {}
 steps:
 - agent: prototype-revision-agent
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates:
   - validation
@@ -40,6 +41,7 @@ steps:
   require_render: true
   post_step: revision_validation
 - agent: prototype-revision-validate
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 name: Prototype Revision
