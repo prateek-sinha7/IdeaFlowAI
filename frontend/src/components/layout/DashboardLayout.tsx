@@ -378,12 +378,20 @@ export function DashboardLayout({
   // resume attempt fails (instead of silently navigating home). Cleared on the
   // next pipeline_start (the run actually resumes) or when a new run is started.
   const [resumeError, setResumeError] = useState<string | null>(null);
+  // FIX-226: true between "Run Again" click and the first pipeline_start arriving
+  // (the run is accepted but not yet building). Shows an animated "Restarting run…"
+  // indicator in the chat footer. Cleared on pipeline_start or error.
+  const [runRestarting, setRunRestarting] = useState(false);
   const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{
     id: string; question: string; options: string[]; answerType?: string;
     recommendedAnswer?: string; recommendedReasoning?: string;
     recommendedDisplay?: string; ambiguityCategory?: string; impactLevel?: string;
   }[]>([]);
   const [questionnaireLoading, setQuestionnaireLoading] = useState(false);
+  // FIX-225: true only between mid-run answer submission and the next
+  // questionnaire_ready (round 2+ preparing) or pipeline_start (build began).
+  // Distinct from questionnaireLoading to avoid side-effects on other consumers.
+  const [clarifyPreparing, setClarifyPreparing] = useState(false);
   const [pendingPipelineRun, setPendingPipelineRun] = useState<{
     type: WorkflowType;
     message: string;
@@ -828,7 +836,11 @@ export function DashboardLayout({
   // only this effect clears it). The empty deps-array on the outer useCallback
   // is safe because this effect runs on each isPipelineRunning change.
   useEffect(() => {
-    if (isPipelineRunning) setResumeError(null);
+    if (isPipelineRunning) {
+      setResumeError(null);
+      // FIX-226: pipeline started — clear the "Restarting run…" indicator.
+      setRunRestarting(false);
+    }
   }, [isPipelineRunning]);
 
   // Extract Agent 3's (ppt-code-generator) output for early PPTX download
@@ -956,12 +968,24 @@ export function DashboardLayout({
     if (questionnaireData && questionnaireData.questions) {
       setQuestionnaireQuestions(questionnaireData.questions);
       setQuestionnaireLoading(false);
+      // FIX-225: new round arrived — no longer preparing.
+      setClarifyPreparing(false);
     } else if (!questionnaireData) {
       // questionnaireData was cleared — clear the questions so the Steps panel
       // does not show stale questions from a previous run.
       setQuestionnaireQuestions([]);
     }
   }, [questionnaireData]);
+
+  // FIX-225: clear clarifyPreparing when agents start building (pipeline_start
+  // has fired and agents are in the list). This covers the case where clarify
+  // ends without a further round — the build starts and preparing must stop.
+  const pipelineAgentCount = pipelineState?.agents?.length ?? 0;
+  useEffect(() => {
+    if (pipelineAgentCount > 0) {
+      setClarifyPreparing(false);
+    }
+  }, [pipelineAgentCount]);
 
   // If the WebSocket reconnects while a pipeline run is in-flight (i.e. the
   // user submitted the questionnaire but the connection dropped before the
@@ -1615,6 +1639,14 @@ export function DashboardLayout({
       }
       setQuestionnaireQuestions([]);
       setQuestionnaireLoading(false);
+      // FIX-225: show "Preparing your questions…" only when this is the first
+      // round submitting (clarifications.length === 0 means no rounds answered
+      // yet). A second+ round submit is likely the final one before build starts,
+      // so we don't show the indicator to avoid it lingering during agent startup.
+      const roundsAnsweredSoFar = pipelineState?.clarifications?.length ?? 0;
+      if (roundsAnsweredSoFar === 0) {
+        setClarifyPreparing(true);
+      }
       onSubmitQuestionnaire(activePipelineRunId, responses);
       return;
     }
@@ -1885,6 +1917,8 @@ export function DashboardLayout({
     }
     // Clear any prior inline resume error before attempting.
     setResumeError(null);
+    // FIX-226: show "Restarting run…" indicator immediately.
+    setRunRestarting(true);
 
     const doResume = (token: string, id: string): Promise<void> =>
       postResume(token, id).then(({ run_id }) => {
@@ -1923,6 +1957,7 @@ export function DashboardLayout({
         runConnection.attachRun(runId);
         return;
       }
+      setRunRestarting(false);
       setResumeError("Could not resume the run — please try again.");
     });
   }, [lastCancelledRunId, pipelineState, contentSourceRunId, activePipelineRunId, runConnection, handleGoHome]);
@@ -1931,7 +1966,13 @@ export function DashboardLayout({
   // workflow name). Priority: gate > clarify > building > terminal-failure >
   // complete (has deliverable) > idle.
   const laneHasDeliverable = !!(userStoryContent || pptContent || prototypeContent || genericDeliverable?.content);
-  const laneClarifyOpen = questionnaireQuestions.length > 0 && (!!pendingPipelineRun || !!activePipelineRunId);
+  // FIX-225: laneClarifyOpen is also true when clarifyPreparing is true — i.e.
+  // the user just submitted answers and we're waiting for the next questionnaire_ready
+  // (inter-round gap). This keeps runLaneState in "clarify" so RunChatLane shows
+  // "Preparing your questions…". clarifyPreparing is cleared by:
+  //   1. questionnaire_ready firing (new questions set in questionnaireData effect)
+  //   2. agents starting (pipelineAgentCount > 0 effect — clarification is done)
+  const laneClarifyOpen = (questionnaireQuestions.length > 0 || clarifyPreparing) && (!!pendingPipelineRun || !!activePipelineRunId);
   // Terminal keys off the GENERIC plan-05 markers (cancelled / failed /
   // degraded) — never a workflow name (SC-001, LIVE-STATE-CONTRACT §1).
   const runLaneState: RunLaneState =
@@ -2538,6 +2579,7 @@ export function DashboardLayout({
                       onRelaunch={handleResumeRun}
                       onEditBrief={handleEditBrief}
                       relaunchError={resumeError}
+                      runRestarting={runRestarting}
                       suggestions={laneSuggestions}
                       onSuggestion={handleLaneSuggestion}
                       // 43-02 (A.1 CRUX) — Concierge props wired at the mount.
@@ -2561,6 +2603,7 @@ export function DashboardLayout({
                       onUpdateSpecs={onUpdateSpecsReview}
                       // Plan-05 clarify quick-actions.
                       clarifyQuestions={questionnaireQuestions}
+                      clarifyPreparing={clarifyPreparing}
                       onSubmitAnswers={handleLaneSubmitAnswers}
                       onSkipClarify={handleQuestionnaireSkip}
                       // Phase 42-02 (§A2 re-home) — Cancel-Workflow on the inline

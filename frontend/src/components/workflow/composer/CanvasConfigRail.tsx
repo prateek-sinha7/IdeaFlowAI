@@ -220,6 +220,7 @@ export function CanvasConfigRail({
           <input
             key={agent.id}
             aria-label="Agent name"
+            name="agent-name"
             value={nameDraft ?? agent.name}
             onChange={(e) => setNameDraft(e.target.value)}
             onBlur={commitRename}
@@ -272,6 +273,7 @@ export function CanvasConfigRail({
             {agent.isCustom ? (
               <textarea
                 aria-label="Custom agent prompt"
+                name="canvas-agent-prompt"
                 value={agent.prompt ?? ""}
                 onChange={(e) => onPromptChange?.(agent.id, e.target.value)}
                 placeholder="What should this agent do?"
@@ -425,6 +427,7 @@ export function CanvasConfigRail({
         <span className="pointer-events-none absolute left-[11px] top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-brand" />
         <select
           aria-label="Model"
+          name="agent-model"
           disabled={loading}
           value={sel.model ?? ""}
           onChange={(e) => patch({ model: e.target.value })}
@@ -583,6 +586,7 @@ export function CanvasConfigRail({
               <span className="pointer-events-none absolute left-[11px] top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-brand" />
               <select
                 aria-label="Source list from"
+                name="fanout-source"
                 value={currentSource}
                 onChange={(e) =>
                   patch({
@@ -631,6 +635,7 @@ export function CanvasConfigRail({
           <div className="relative">
             <select
               aria-label="Sub-agent strategy"
+              name="subagent-strategy"
               value={childStrategy}
               onChange={(e) =>
                 onStrategyChange?.(

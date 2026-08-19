@@ -607,6 +607,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
               <textarea
                 value={brief}
                 onChange={(e) => setBrief(e.target.value)}
+                name="brief"
                 aria-label="Brief"
                 placeholder={isListening ? "Listening... speak your idea" : cfg.placeholder}
                 rows={5}

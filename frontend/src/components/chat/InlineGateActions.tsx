@@ -239,6 +239,7 @@ export function InlineGateActions({
           onChange={(e) => handleEdit(e.target.value)}
           disabled={submitted}
           aria-label="Edit gate content"
+          name="gate-content"
           className="w-full min-h-[120px] rounded-lg border border-line-border bg-surface-warm px-3 py-2 text-[11px] text-ink-900 font-mono leading-relaxed focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/20 resize-none disabled:opacity-50"
           spellCheck={false}
         />
@@ -322,6 +323,7 @@ export function InlineGateActions({
                     disabled={submitted}
                     placeholder="Optional instructions — leave blank to just regenerate"
                     aria-label="Additional instructions for redo"
+                    name="redo-instructions"
                     className="w-full min-h-[52px] rounded-lg border border-brand-border bg-surface-white px-3 py-2 text-[11px] text-ink-900 leading-relaxed focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/40 resize-none disabled:opacity-50"
                     spellCheck={false}
                   />

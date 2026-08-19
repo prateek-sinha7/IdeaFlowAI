@@ -275,6 +275,8 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
             </div>
             {/* Pipeline select — narrows the fetched rollup arrays client-side. */}
             <select value={pipelineFilter} onChange={e => setPipelineFilter(e.target.value as PipelineFilter)}
+              aria-label="Filter by pipeline"
+              name="pipeline-filter"
               className="text-[12.5px] font-medium border border-line-control rounded-[9px] px-3 py-2 bg-surface-card text-ink-700 focus:outline-none focus:border-brand transition-colors">
               <option value="all">All pipelines</option>
               <option value="user_stories">User Stories</option>
@@ -286,6 +288,8 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
             {/* Model select — only shown when multiple models appear in the range. */}
             {availableModelIds.length > 1 && (
               <select value={modelFilter} onChange={e => setModelFilter(e.target.value)}
+                aria-label="Filter by model"
+                name="model-filter"
                 className="text-[12.5px] font-medium border border-line-control rounded-[9px] px-3 py-2 bg-surface-card text-ink-700 focus:outline-none focus:border-brand transition-colors">
                 <option value="all">All models</option>
                 {availableModelIds.map(id => (

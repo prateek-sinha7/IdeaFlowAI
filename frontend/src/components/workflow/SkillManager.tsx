@@ -254,6 +254,8 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
               <textarea
                 value={skillContent}
                 onChange={(e) => setSkillContent(e.target.value)}
+                aria-label="Skill content"
+                name="skill-content"
                 className="w-full h-full resize-none bg-transparent text-xs text-white/90 font-mono leading-relaxed p-6 focus:outline-none"
                 placeholder="# Skill Name&#10;&#10;## Instructions&#10;Write your skill instructions here..."
                 spellCheck={false}

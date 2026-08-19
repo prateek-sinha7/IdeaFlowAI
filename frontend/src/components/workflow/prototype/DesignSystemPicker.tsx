@@ -237,6 +237,8 @@ export function DesignSystemPicker({
               <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-400" />
               <input
                 type="text"
+                aria-label="Search design systems"
+                name="design-system-search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search by brand, style, or category…"

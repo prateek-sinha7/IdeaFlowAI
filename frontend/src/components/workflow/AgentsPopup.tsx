@@ -377,6 +377,8 @@ export function AgentPromptSection({
                         value={draftContent}
                         onChange={e => setDraftContent(e.target.value)}
                         rows={12}
+                        aria-label="Custom agent prompt"
+                        name="agent-prompt"
                         className="w-full px-3 py-2 text-[11px] font-mono bg-surface-white text-ink-900 border border-line-control rounded-lg focus:outline-none focus:border-ink-400 resize-none leading-relaxed transition-colors"
                         placeholder="Enter custom prompt instructions…"
                       />
@@ -903,6 +905,8 @@ export function HooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-ink-400" />
                 <input
+                  aria-label="Search hooks"
+                  name="hook-search"
                   value={hookSearch}
                   onChange={e => setHookSearch(e.target.value)}
                   placeholder="Search hooks..."

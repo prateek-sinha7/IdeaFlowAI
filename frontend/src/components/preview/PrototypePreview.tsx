@@ -634,6 +634,8 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
         <div className="flex-shrink-0 border-t border-gray-200 bg-white px-4 py-3 flex items-center gap-3">
           <input
             type="text"
+            aria-label="Revision instructions"
+            name="prototype-revision"
             value={revisionText}
             onChange={(e) => setRevisionText(e.target.value)}
             onKeyDown={(e) => {

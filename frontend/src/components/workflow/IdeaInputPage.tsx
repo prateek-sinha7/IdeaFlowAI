@@ -609,6 +609,8 @@ export function BriefAttachBox({
     <>
       <textarea
         ref={textareaRef}
+        name="brief"
+        aria-label="Brief description"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -1140,7 +1142,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
 
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-surface-paper">
-      <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-10 max-w-2xl mx-auto w-full">
+      <div className="flex flex-col items-center px-4 sm:px-6 py-10 max-w-2xl mx-auto w-full">
 
         {/* Back */}
         <motion.div

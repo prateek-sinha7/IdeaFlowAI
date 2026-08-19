@@ -158,10 +158,11 @@ export function CustomDesignSystemModal({
         <div className="flex flex-1 min-h-0 flex-col gap-4 overflow-y-auto px-6 py-5">
           {/* Name */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[12px] font-semibold text-ink-700">
+            <label htmlFor="cdsm-name" className="text-[12px] font-semibold text-ink-700">
               Name <span className="text-status-failed">*</span>
             </label>
             <input
+              id="cdsm-name"
               type="text"
               value={name}
               onChange={(e) => { setName(e.target.value); setError(null); }}
@@ -174,7 +175,7 @@ export function CustomDesignSystemModal({
           {/* DESIGN.md content */}
           <div className="flex flex-1 min-h-0 flex-col gap-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-[12px] font-semibold text-ink-700">
+              <label htmlFor="cdsm-body" className="text-[12px] font-semibold text-ink-700">
                 DESIGN.md content <span className="text-status-failed">*</span>
               </label>
               <div className="flex items-center gap-2">
@@ -193,6 +194,7 @@ export function CustomDesignSystemModal({
               </div>
             </div>
             <textarea
+              id="cdsm-body"
               value={body}
               onChange={(e) => { setBody(e.target.value); setError(null); }}
               placeholder={`# My Brand\n\n## 2. Color Palette\n- Primary (<primary-hex>): ...\n\n## 3. Typography\n...`}

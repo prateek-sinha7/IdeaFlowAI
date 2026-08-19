@@ -306,9 +306,10 @@ export function WorkflowView({
             >
               {/* Idea Input Area */}
               <div className="px-5 py-4 border-b border-grey/10">
-                <label className="text-[11px] text-grey/60 font-medium mb-2 block">Describe your idea</label>
+                    <label className="text-[11px] text-grey/60 font-medium mb-2 block" htmlFor="wf-view-idea-input">Describe your idea</label>
                 <div className="relative rounded-xl border border-grey/15 bg-white/[0.02] overflow-hidden focus-within:border-grey/30 transition-colors">
                   <textarea
+                    id="wf-view-idea-input"
                     ref={inputRef}
                     value={ideaInput}
                     onChange={(e) => setIdeaInput(e.target.value)}
