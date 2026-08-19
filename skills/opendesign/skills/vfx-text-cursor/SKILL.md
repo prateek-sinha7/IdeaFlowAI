@@ -1,9 +1,9 @@
 ---
 name: vfx-text-cursor
-zh_name: "VFX 文字光标"
+zh_name: "VFX Text Cursor"
 en_name: "VFX Text Cursor"
 emoji: "✨"
-description: "光标拖光 + 彩色像散射线 + 定向光斑, 适合视频片头逐字揭示金句"
+description: "Cursor light-trail + two-tone chromatic aberration + directional light leaks, ideal for revealing a headline quote character-by-character in a video intro"
 category: video
 scenario: video
 aspect_hint: "1920×1080 (16:9)"
@@ -11,10 +11,10 @@ featured: 38
 recommended: 7
 tags: ["vfx", "text", "cursor", "chromatic", "reveal", "frame"]
 example_id: sample-vfx-text-cursor
-example_name: "VFX 光标 · 开场金句"
+example_name: "VFX Cursor · Opening Quote"
 example_format: markdown
-example_tagline: "逐字揭示 + chromatic 拖光"
-example_desc: "光标打字 hot pink + cyan 像散, 视频开场用"
+example_tagline: "Character-by-character reveal + chromatic light trail"
+example_desc: "Typing cursor with hot pink + cyan aberration, for video openings"
 example_source_url: "https://hyperframes.heygen.com/catalog"
 example_source_label: "hyperframes · vfx-text-cursor"
 od:
@@ -29,32 +29,32 @@ od:
     reload: debounce-100
   design_system:
     requires: false
-  example_prompt: "用「VFX 文字光标」模板把我的内容做成一段「光标拖光 + 彩色像散射线 + 定向光斑, 适合视频片头逐字揭示金句」。保持模板的视觉签名，使用真实内容和数据，避免 lorem ipsum 和占位图片。"
+  example_prompt: "Use the \"VFX Text Cursor\" template to turn my content into a scene with \"a cursor light-trail + two-tone chromatic aberration + directional light leaks, ideal for revealing a headline quote character-by-character in a video intro\". Keep the template's visual signature, use real content and data, and avoid lorem ipsum and placeholder images."
 ---
 
-【模板: VFX 文字光标 (Text Cursor)】
-【意图】视频开场/Hero 帧 —— 光标在画布上"打字", 文字逐字浮现, 后面拖着彩色像散尾迹 + 定向光斑。Inspired by hyperframes vfx-text-cursor。
+[Template: VFX Text Cursor]
+[Intent] Video opening / hero frame — a cursor "types" across the canvas, text is revealed character by character, trailed by a chromatic aberration streak + directional light leaks. Inspired by hyperframes vfx-text-cursor.
 
-【画布】1920×1080, 背景 `#06070a` 暗哑黑 或 `#0a0d12` (有暖偏蓝); 加微妙 vignette。
+[Canvas] 1920×1080, background `#06070a` dark matte black or `#0a0d12` (warm-blue tinted); add a subtle vignette.
 
-【内容】
-- 一句金句 (中英不限), 居中, 字号 6-8vw, weight 700, 字体 `Inter Tight` / `Source Sans 3` / `Noto Sans SC`。
-- 逐字揭示, 每个字符 80ms 间隔; 当前字符后面跟着一个 cursor `▍` (或细 vertical bar)。
-- 已揭示文字默认白色 `#f5f5f7`, opacity 1; 即将揭示位置加 chromatic ghost: 一份 `text-shadow: 2px 0 #ff3b6f, -2px 0 #00d4ff` 在 reveal 瞬间, 200ms 内收敛回正常。
-- 光标本身: 16px 宽矩形, 颜色 = accent (取 1: hot pink `#ff3b6f` / cyan `#00d4ff` / amber `#ffb547`), 闪烁 `@keyframes` 1.0s 周期; 后面拖一条 60-120px 的 motion blur trail (径向渐变到透明)。
+[Content]
+- One headline quote (any language), centered, font size 6-8vw, weight 700, typeface `Inter Tight` / `Source Sans 3` / `Noto Sans SC`.
+- Reveal character by character, 80ms interval per character; the current character is followed by a cursor `▍` (or a thin vertical bar).
+- Already-revealed text defaults to white `#f5f5f7`, opacity 1; the about-to-reveal position gets a chromatic ghost: a `text-shadow: 2px 0 #ff3b6f, -2px 0 #00d4ff` at the instant of reveal, converging back to normal within 200ms.
+- The cursor itself: a 16px-wide rectangle, color = accent (pick one: hot pink `#ff3b6f` / cyan `#00d4ff` / amber `#ffb547`), blinking via `@keyframes` on a 1.0s cycle; trailing a 60-120px motion blur trail behind it (radial gradient to transparent).
 
-【光斑 / 射线】
-- 在打字位置附近随机生成 3-5 道**定向光斑** (light leak): 用 `linear-gradient(45deg, transparent, accent20, transparent)` 的细长矩形 + `mix-blend-mode: screen`, 不规则角度。
-- 当文字打完, 整段文字加 0.5s shimmer sweep (光带横扫)。
+[Light leaks / rays]
+- Randomly generate 3-5 **directional light leaks** near the typing position: thin elongated rectangles using `linear-gradient(45deg, transparent, accent20, transparent)` + `mix-blend-mode: screen`, at irregular angles.
+- When the text finishes typing, add a 0.5s shimmer sweep across the whole line (a band of light sweeping across).
 
-【字段】
-- 顶部 caption (uppercase letterspace 0.18em, 11px, opacity 0.5): "FRAME 01 · OPENING"。
-- 文字底下副标 (24-28px, opacity 0.6): 来源 / 章节。
-- 右下角 timecode (`00:03:21` mono)。
+[Fields]
+- Top caption (uppercase letterspace 0.18em, 11px, opacity 0.5): "FRAME 01 · OPENING".
+- Subtitle below the text (24-28px, opacity 0.6): source / chapter.
+- Bottom-right timecode (`00:03:21` mono).
 
-【设计细节】
-- **绝不**: 多色彩虹 chromatic (只用 1 个 hot pink + cyan 这种二元像散, 不要 R/G/B 全色)。
-- 字体: 西文 `Inter Tight` Bold; 中文 `Noto Sans SC` Bold; 严禁衬线。
-- 动效用 `@keyframes` + JS 计时器 (`setTimeout` 逐字), 可被 `prefers-reduced-motion` 关闭 (直接显示所有字)。
-- 必须用用户提供的金句; 不要捏造。
-- 单文件 HTML, 不要外链字体以外的资源。
+[Design details]
+- **Never**: multicolor rainbow chromatic aberration (use only 1 pair, e.g. hot pink + cyan two-tone aberration, not full R/G/B).
+- Fonts: Latin `Inter Tight` Bold; CJK `Noto Sans SC` Bold; serif fonts strictly forbidden.
+- Motion via `@keyframes` + a JS timer (`setTimeout` per character), can be disabled by `prefers-reduced-motion` (show all text immediately).
+- Must use the user-provided quote; do not fabricate one.
+- Single-file HTML, no external resources besides fonts.

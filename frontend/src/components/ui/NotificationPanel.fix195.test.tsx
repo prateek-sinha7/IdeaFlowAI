@@ -18,7 +18,7 @@
  */
 
 import React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { renderWithProviders, screen, fireEvent } from "@/test/renderWithProviders";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { renderHook, act } from "@testing-library/react";
@@ -46,13 +46,15 @@ function makeNotif(overrides: Partial<PipelineNotification> = {}): PipelineNotif
 
 function renderPanel(overrides: {
   notifications?: PipelineNotification[];
+  liveRuns?: PipelineNotification[];
   onViewResults?: ReturnType<typeof vi.fn>;
   recentRuns?: unknown[];
 }) {
   const onViewResults = overrides.onViewResults ?? vi.fn();
-  render(
+  renderWithProviders(
     <NotificationPanel
-      notifications={overrides.notifications ?? [makeNotif()]}
+      notifications={overrides.notifications ?? []}
+      liveRuns={overrides.liveRuns ?? [makeNotif()]}
       unreadCount={1}
       onMarkAllRead={vi.fn()}
       onClearAll={vi.fn()}
@@ -92,7 +94,7 @@ describe("FIX-195 Fix-D — notification row body click", () => {
   it("FIX-195-D clicking the notification row calls onViewResults", async () => {
     const onViewResults = vi.fn();
     const notif = makeNotif({ status: "running" });
-    renderPanel({ notifications: [notif], onViewResults });
+    renderPanel({ liveRuns: [notif], onViewResults });
     await openPanel();
 
     // Find the row by its role=button and the notification title text
@@ -104,7 +106,8 @@ describe("FIX-195 Fix-D — notification row body click", () => {
   it("FIX-195-D clicking row for completed notification also calls onViewResults", async () => {
     const onViewResults = vi.fn();
     const notif = makeNotif({ status: "completed", title: "Completed run" });
-    renderPanel({ notifications: [notif], onViewResults });
+    // Terminal notifications go through the notifications prop, not liveRuns
+    renderPanel({ notifications: [notif], liveRuns: [], onViewResults });
     await openPanel();
 
     const row = screen.getByRole("button", { name: /completed run/i });
@@ -116,7 +119,7 @@ describe("FIX-195 Fix-D — notification row body click", () => {
     const user = userEvent.setup();
     const onViewResults = vi.fn();
     const notif = makeNotif({ status: "gate", title: "Gate run" });
-    renderPanel({ notifications: [notif], onViewResults });
+    renderPanel({ liveRuns: [notif], onViewResults });
     await openPanel();
 
     const row = screen.getByRole("button", { name: /gate run/i });
@@ -129,7 +132,7 @@ describe("FIX-195 Fix-D — notification row body click", () => {
     const user = userEvent.setup();
     const onViewResults = vi.fn();
     const notif = makeNotif({ status: "running", title: "Running run" });
-    renderPanel({ notifications: [notif], onViewResults });
+    renderPanel({ liveRuns: [notif], onViewResults });
     await openPanel();
 
     const row = screen.getByRole("button", { name: /running run/i });
@@ -149,7 +152,7 @@ describe("FIX-195 Fix-D — notification row body click", () => {
 
   it("FIX-195-D clicking the small CTA button also calls onViewResults (CTA still works)", async () => {
     const onViewResults = vi.fn();
-    renderPanel({ notifications: [makeNotif({ status: "running" })], onViewResults });
+    renderPanel({ liveRuns: [makeNotif({ status: "running" })], onViewResults });
     await openPanel();
 
     // The CTA "View progress" button should still work independently
@@ -165,7 +168,7 @@ describe("FIX-195 Fix-D — notification row body click", () => {
     const onViewResults = vi.fn();
     const notifA = makeNotif({ id: "pipeline-A", title: "Run Alpha", workflowType: "prototype" });
     const notifB = makeNotif({ id: "pipeline-B", title: "Run Beta", workflowType: "user_stories" });
-    renderPanel({ notifications: [notifA, notifB], onViewResults });
+    renderPanel({ liveRuns: [notifA, notifB], onViewResults });
     await openPanel();
 
     const rowA = screen.getByRole("button", { name: /run alpha/i });

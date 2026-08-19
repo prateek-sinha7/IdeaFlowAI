@@ -10,7 +10,7 @@ structure is unchanged after compaction:
   * the `const routes` map key set is identical, and
   * validation is equal-or-better — zero net-new validation-FAILURE events.
 
-It drives BOTH `prototype` and the `od_prototype` alias fully OFFLINE via
+It drives `prototype` fully OFFLINE via
 `_scripted_model._drive` (no DB / Bedrock / API key — importing `_drive` wires
 `RUNS_ROOT`→temp + `ENV=development` at import time). The `data-page` IDs and `routes`
 keys are derived with the SAME regexes `_extract_html_skeleton` uses (engine.py:2667 /
@@ -147,37 +147,11 @@ async def test_prototype_pages_routes_parity() -> None:
 
 
 @pytest.mark.asyncio
-async def test_od_prototype_pages_routes_parity() -> None:
-    """COMPACT-02 / Req 6: the od_prototype alias has identical pages/routes parity.
-
-    `od_prototype` rides the same `prototype-build` path (the alias resolves to the
-    prototype agents — `_scripted_model.py:354`), so the single skeleton edit covers
-    it too. The produced deliverable's page/route sets must match the same reference.
-    """
-    events = await _drive("od_prototype")
-    assert events, "od_prototype produced no events"
-
-    deliverable = extract_final_output(events)
-    produced_pages = _page_ids(deliverable)
-    produced_routes = _route_keys(deliverable)
-
-    assert produced_pages, "the produced od_prototype deliverable has NO data-page section"
-    assert produced_pages == _REFERENCE_PAGE_IDS, (
-        f"od_prototype data-page ID set changed after compaction: produced "
-        f"{sorted(produced_pages)} != reference {sorted(_REFERENCE_PAGE_IDS)}"
-    )
-    assert produced_routes == _REFERENCE_ROUTE_KEYS, (
-        f"od_prototype routes key set changed after compaction: produced "
-        f"{sorted(produced_routes)} != reference {sorted(_REFERENCE_ROUTE_KEYS)}"
-    )
-
-
-@pytest.mark.asyncio
 async def test_validation_pass_equal_or_better() -> None:
     """COMPACT-02 / Req 6: validation is equal-or-better — zero net-new failures.
 
     The pre-0C reference is a clean run (zero validation-FAILURE events). After
-    compaction both `prototype` and `od_prototype` must still complete with NO
+    compaction `prototype` must still complete with NO
     net-new failure events AND must reach `pipeline_complete` (a run that errored
     out would otherwise trivially have "no more failures"). Falsifiable: a
     compaction that broke the build would surface an `error`/`agent_error` event
@@ -187,7 +161,7 @@ async def test_validation_pass_equal_or_better() -> None:
     # = the post-compaction count must not exceed it.
     _REFERENCE_FAILURES = 0
 
-    for label in ("prototype", "od_prototype"):
+    for label in ("prototype",):
         events = await _drive(label)
         assert events, f"{label} produced no events"
 

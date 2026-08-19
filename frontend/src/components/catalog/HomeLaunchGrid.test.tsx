@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { renderWithProviders, screen, waitFor, fireEvent } from "@/test/renderWithProviders";
 import React from "react";
 import type { WorkflowSummary, UserWorkflowSummary, AnalyticsSummary } from "@/lib/api";
 import type { WorkflowRun } from "@/types/index";
@@ -175,7 +175,18 @@ describe("HomeLaunchGrid two-gate filter + friendly label", () => {
   });
 
   it("renders entitled launchables, hides non-launchable + revision/od_* rows, shows gated rows locked, and uses friendly labels", async () => {
-    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="basic" />);
+    renderWithProviders(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="basic" />, {
+      preloadedState: {
+        global: {
+          workflows: MIXED,
+          workflowsStatus: "succeeded",
+          workflowsError: null,
+          recentRuns: [],
+          recentRunsStatus: "succeeded",
+          recentRunsError: null,
+        },
+      },
+    });
 
     // The entitled launchable shows its FRIENDLY label.
     await waitFor(() =>
@@ -213,7 +224,18 @@ describe("HomeLaunchGrid two-gate filter + friendly label", () => {
   // BE (now returning display_name=null, WR-01) never exercises, so without
   // this assertion an author-declared display_name could silently be ignored.
   it("renders an explicit display_name over the friendly getWorkflowLabel value (precedence)", async () => {
-    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="basic" />);
+    renderWithProviders(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="basic" />, {
+      preloadedState: {
+        global: {
+          workflows: MIXED,
+          workflowsStatus: "succeeded",
+          workflowsError: null,
+          recentRuns: [],
+          recentRunsStatus: "succeeded",
+          recentRunsError: null,
+        },
+      },
+    });
 
     // The explicit manifest display_name is shown...
     await waitFor(() =>
@@ -256,8 +278,20 @@ describe("HomeLaunchGrid — real per-deliverable estimate line (SC-2, 38-05)", 
   });
 
   it("shows '~N agents · ~Xm' when history exists and '~N agents' (no time) when it doesn't", async () => {
-    render(
+    renderWithProviders(
       <HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />,
+      {
+        preloadedState: {
+          global: {
+            workflows: MIXED,
+            workflowsStatus: "succeeded",
+            workflowsError: null,
+            recentRuns: [],
+            recentRunsStatus: "succeeded",
+            recentRunsError: null,
+          },
+        },
+      },
     );
 
     // WITH history — user_stories: step_count=3 → "~3 agents"; 300s/60 → "~5m".
@@ -272,8 +306,20 @@ describe("HomeLaunchGrid — real per-deliverable estimate line (SC-2, 38-05)", 
   });
 
   it("keys the average on the generic row id from the owner-scoped 'all'-range summary", async () => {
-    render(
+    renderWithProviders(
       <HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />,
+      {
+        preloadedState: {
+          global: {
+            workflows: MIXED,
+            workflowsStatus: "succeeded",
+            workflowsError: null,
+            recentRuns: [],
+            recentRunsStatus: "succeeded",
+            recentRunsError: null,
+          },
+        },
+      },
     );
 
     await waitFor(() =>
@@ -315,79 +361,6 @@ const SEVEN: WorkflowSummary[] = SEVEN_IDS.map((id, i) => ({
   launch_surface: null,
 }));
 
-describe("HomeLaunchGrid — 40-02 prompt (Attach + Build, no Voice)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockGetToken.mockReturnValue("test-token");
-    mockGetWorkflowDefinitions.mockResolvedValue(MIXED);
-    mockGetUserWorkflows.mockResolvedValue([]);
-  });
-
-  it("renders the prompt UNDER the h1 with an Attach + Build affordance and NO Voice button", async () => {
-    render(<HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" />);
-
-    await waitFor(() =>
-      expect(screen.getByText("Generate product requirements")).toBeInTheDocument(),
-    );
-
-    // The relocated prompt input.
-    expect(screen.getByPlaceholderText(/Describe what you want to build/i)).toBeInTheDocument();
-    // Attach + Build render...
-    expect(screen.getByRole("button", { name: /Attach/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Build$/i })).toBeInTheDocument();
-    // ...and NO Voice affordance (ND-X).
-    expect(screen.queryByRole("button", { name: /voice/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /mic/i })).toBeNull();
-  });
-
-  it("Build is disabled until a brief is typed, then submits down the launch fork", async () => {
-    const onSelectFeature = vi.fn();
-    render(<HomeLaunchGrid onSelectFeature={onSelectFeature} userTier="enterprise" />);
-
-    await waitFor(() =>
-      expect(screen.getByText("Generate product requirements")).toBeInTheDocument(),
-    );
-
-    const build = screen.getByRole("button", { name: /^Build$/i });
-    // Empty brief → disabled; clicking is a no-op.
-    expect(build).toBeDisabled();
-    fireEvent.click(build);
-    expect(onSelectFeature).not.toHaveBeenCalled();
-
-    // Typing a brief enables Build; clicking submits (uncontrolled → custom fork).
-    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
-      target: { value: "A kanban board for a growth squad." },
-    });
-    expect(build).toBeEnabled();
-    fireEvent.click(build);
-    expect(onSelectFeature).toHaveBeenCalledWith("custom");
-  });
-
-  it("Build calls the explicit onBuild handler when provided (controlled brief)", async () => {
-    const onBuild = vi.fn();
-    const onSelectFeature = vi.fn();
-    render(
-      <HomeLaunchGrid
-        onSelectFeature={onSelectFeature}
-        userTier="enterprise"
-        brief="Modernise our payments platform."
-        onBriefChange={vi.fn()}
-        onBuild={onBuild}
-      />,
-    );
-
-    await waitFor(() =>
-      expect(screen.getByText("Generate product requirements")).toBeInTheDocument(),
-    );
-
-    const build = screen.getByRole("button", { name: /^Build$/i });
-    expect(build).toBeEnabled(); // controlled brief is non-empty
-    fireEvent.click(build);
-    expect(onBuild).toHaveBeenCalledTimes(1);
-    expect(onSelectFeature).not.toHaveBeenCalled(); // explicit handler wins
-  });
-});
-
 describe("HomeLaunchGrid — 40-02 live-data card grid (ND-D)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -397,7 +370,18 @@ describe("HomeLaunchGrid — 40-02 live-data card grid (ND-D)", () => {
 
   it("renders one card per live launchable row (7 rows → 7 cards, not the mock's fixed 6)", async () => {
     mockGetWorkflowDefinitions.mockResolvedValue(SEVEN);
-    render(<HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" />);
+    renderWithProviders(<HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" />, {
+      preloadedState: {
+        global: {
+          workflows: SEVEN,
+          workflowsStatus: "succeeded",
+          workflowsError: null,
+          recentRuns: [],
+          recentRunsStatus: "succeeded",
+          recentRunsError: null,
+        },
+      },
+    });
 
     await waitFor(() =>
       expect(screen.getByText("Deliverable 0")).toBeInTheDocument(),
@@ -411,7 +395,18 @@ describe("HomeLaunchGrid — 40-02 live-data card grid (ND-D)", () => {
   it("clicking a deliverable card launches its run (onSelectFeature with the row id)", async () => {
     const onSelectFeature = vi.fn();
     mockGetWorkflowDefinitions.mockResolvedValue(SEVEN);
-    render(<HomeLaunchGrid onSelectFeature={onSelectFeature} userTier="enterprise" />);
+    renderWithProviders(<HomeLaunchGrid onSelectFeature={onSelectFeature} userTier="enterprise" />, {
+      preloadedState: {
+        global: {
+          workflows: SEVEN,
+          workflowsStatus: "succeeded",
+          workflowsError: null,
+          recentRuns: [],
+          recentRunsStatus: "succeeded",
+          recentRunsError: null,
+        },
+      },
+    });
 
     await waitFor(() =>
       expect(screen.getByText("Deliverable 3")).toBeInTheDocument(),
@@ -436,13 +431,26 @@ describe("HomeLaunchGrid — 40-02 'Jump back in' recents (live GET /api/runs)",
 
   it("renders a recent card per live run and deep-links on click", async () => {
     const onOpenRun = vi.fn();
-    mockGetWorkflows.mockResolvedValue([
+    const recentRuns = [
       makeRun({ id: "r1", title: "Growth dashboard prototype", status: "completed" }),
       makeRun({ id: "r2", title: "Refunds backlog", status: "failed" }),
       makeRun({ id: "r3", title: "Board pitch deck", status: "running" }),
-    ]);
-    render(
+    ];
+    mockGetWorkflows.mockResolvedValue(recentRuns);
+    renderWithProviders(
       <HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" onOpenRun={onOpenRun} />,
+      {
+        preloadedState: {
+          global: {
+            workflows: MIXED,
+            workflowsStatus: "succeeded",
+            workflowsError: null,
+            recentRuns: recentRuns,
+            recentRunsStatus: "succeeded",
+            recentRunsError: null,
+          },
+        },
+      },
     );
 
     await waitFor(() =>
@@ -459,7 +467,18 @@ describe("HomeLaunchGrid — 40-02 'Jump back in' recents (live GET /api/runs)",
 
   it("omits the recents strip entirely when there are no runs (ND-D — no fabricated placeholder)", async () => {
     mockGetWorkflows.mockResolvedValue([]);
-    render(<HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" />);
+    renderWithProviders(<HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" />, {
+      preloadedState: {
+        global: {
+          workflows: MIXED,
+          workflowsStatus: "succeeded",
+          workflowsError: null,
+          recentRuns: [],
+          recentRunsStatus: "succeeded",
+          recentRunsError: null,
+        },
+      },
+    });
 
     await waitFor(() =>
       expect(screen.getByText("Generate product requirements")).toBeInTheDocument(),

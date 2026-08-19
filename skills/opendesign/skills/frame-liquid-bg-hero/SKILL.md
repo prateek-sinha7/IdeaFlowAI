@@ -1,19 +1,19 @@
 ---
 name: frame-liquid-bg-hero
-zh_name: "流体背景 Hero 帧"
+zh_name: "Liquid Background Hero"
 en_name: "Liquid Background Hero"
 emoji: "🌊"
-description: "WebGL 风流体置换背景 + 顶部叠加金句, 适合视频片头 / landing hero / 海报"
+description: "WebGL-style liquid-displacement background + overlaid tagline, suitable for video intros / landing hero / posters"
 category: poster
 scenario: video
-aspect_hint: "1920×1080 (16:9) 或 1080×1920 (9:16)"
+aspect_hint: "1920×1080 (16:9) or 1080×1920 (9:16)"
 featured: 39
 tags: ["liquid", "fluid", "background", "hero", "html-in-canvas", "vfx"]
 example_id: sample-frame-liquid-bg-hero
-example_name: "流体背景 Hero · 金句"
+example_name: "Liquid Background Hero · Tagline"
 example_format: markdown
-example_tagline: "Aurora Violet 流体"
-example_desc: "多层 radial-gradient 呼吸背景 + difference 文字"
+example_tagline: "Aurora Violet liquid"
+example_desc: "Multi-layer radial-gradient breathing background + difference-blend text"
 example_source_url: "https://hyperframes.heygen.com/catalog"
 example_source_label: "hyperframes · vfx-liquid-background"
 od:
@@ -28,41 +28,41 @@ od:
     reload: debounce-100
   design_system:
     requires: false
-  example_prompt: "用「流体背景 Hero 帧」模板把我的内容做成一段「WebGL 风流体置换背景 + 顶部叠加金句, 适合视频片头 / landing hero / 海报」。保持模板的视觉签名，使用真实内容和数据，避免 lorem ipsum 和占位图片。"
+  example_prompt: "Use the 'Liquid Background Hero' template to turn my content into a 'WebGL-style liquid-displacement background + overlaid tagline, suitable for video intros / landing hero / posters'. Keep the template's visual signature, use real content and data, avoid lorem ipsum and placeholder images."
 ---
 
-【模板: 流体背景 Hero】
-【意图】可作为视频片头帧、SaaS landing 顶部 hero、海报底图。WebGL 流体感, 但用 CSS / canvas 退化绘制, 确保单文件可双击打开。Inspired by hyperframes vfx-liquid-background。
+[Template: Liquid Background Hero]
+[Intent]Can serve as a video intro frame, SaaS landing top hero, or poster background. WebGL fluid feel, but rendered as a CSS / canvas fallback so a single file can still be opened by double-click. Inspired by hyperframes vfx-liquid-background.
 
-【画布】1920×1080 (横) 或 1080×1920 (竖), 二选一。背景占满。
+[Canvas]Choose either 1920×1080 (landscape) or 1080×1920 (portrait). Background fills the full canvas.
 
-【流体背景 — 3 种实现, 按用户偏好选】
-1. **CSS 多层 radial-gradient 错位呼吸** (最稳, 默认推荐):
-   - 3-5 个大椭圆 `radial-gradient(...)`, 颜色取自调色板。
-   - 每个椭圆套 `@keyframes` 平移 + scale + hue-rotate, 周期 8-14s, 错峰; 整个画面叠 `mix-blend-mode: screen` 或 `overlay`。
-   - 顶层加 1 层 `backdrop-filter: blur(80px)` 让边缘更糊。
-2. **Canvas + simple perlin noise** (中阶):
-   - 80 行 inline JS, 用 `requestAnimationFrame` 画 metaballs 或 simplex noise field。
-   - 性能允许时启用, `prefers-reduced-motion` 时降回静态截图。
-3. **WebGL fragment shader** (高阶, 慎用):
-   - 用 jsdelivr CDN 引 `regl` 或 inline plain WebGL。
-   - shader 写 domain-warp noise; 单个 quad, 一个 uniform `u_time`。
+[Liquid background — 3 implementations, pick based on user preference]
+1. **CSS multi-layer radial-gradient staggered breathing** (most stable, default recommendation):
+   - 3-5 large ellipses via `radial-gradient(...)`, colors taken from the palette.
+   - Each ellipse wrapped in `@keyframes` translate + scale + hue-rotate, 8-14s period, staggered; the whole frame layered with `mix-blend-mode: screen` or `overlay`.
+   - Add a top layer of `backdrop-filter: blur(80px)` to soften the edges further.
+2. **Canvas + simple perlin noise** (intermediate):
+   - ~80 lines of inline JS, draw metaballs or a simplex noise field with `requestAnimationFrame`.
+   - Enable when performance allows; fall back to a static screenshot under `prefers-reduced-motion`.
+3. **WebGL fragment shader** (advanced, use with caution):
+   - Import `regl` via jsdelivr CDN, or inline plain WebGL.
+   - Shader writes domain-warp noise; single quad, one `u_time` uniform.
 
-【顶层文字层】
-- 居中或左下: 一句巨型金句 (5-7vw, 衬线或粗 sans), 字体: `Source Serif Pro` / `Inter Tight` / `Manrope Black`。
-- 文字色用 paper white `#fafaf8` 或 ink, 取决于背景明暗; 加 `mix-blend-mode: difference` 让它在任何流体颜色上都可读。
-- 副标 (小 sans, opacity 0.7) 一行。
-- 底部可选 CTA chip 或 hairline + 元数据 row。
+[Top text layer]
+- Centered or bottom-left: one giant tagline (5-7vw, serif or bold sans), fonts: `Source Serif Pro` / `Inter Tight` / `Manrope Black`.
+- Text color is paper white `#fafaf8` or ink, depending on background lightness; add `mix-blend-mode: difference` so it stays readable over any liquid color.
+- One subtitle line (small sans, opacity 0.7).
+- Optional bottom CTA chip or hairline + metadata row.
 
-【调色 — 4 选 1, 不要彩虹】
-- 🌅 **Solar Peach** — `#ffb18a` + `#f78b4c` + `#d97757`, 暖橙桃。
-- 🌊 **Ocean Aqua** — `#5ac8fa` + `#0a84ff` + `#1e3a8a`, 海蓝。
-- 🌌 **Aurora Violet** — `#a78bfa` + `#7c5cff` + `#1e1b4b`, 极光紫。
-- 🌿 **Forest Mint** — `#86efac` + `#34d399` + `#065f46`, 苔森林。
+[Palette — pick 1 of 4, no rainbow]
+- 🌅 **Solar Peach** — `#ffb18a` + `#f78b4c` + `#d97757`, warm orange peach.
+- 🌊 **Ocean Aqua** — `#5ac8fa` + `#0a84ff` + `#1e3a8a`, ocean blue.
+- 🌌 **Aurora Violet** — `#a78bfa` + `#7c5cff` + `#1e1b4b`, aurora violet.
+- 🌿 **Forest Mint** — `#86efac` + `#34d399` + `#065f46`, mossy forest.
 
-【设计细节】
-- 严禁: 多色彩虹 (>4 个色相)、PowerPoint 渐变、霓虹荧光叠加。
-- 字体: 中文用 `Noto Serif SC` (display) / `Noto Sans SC` (副标)。
-- 严禁外链图片; 全部 CSS + SVG + 可选 canvas。
-- 必须用用户提供的金句 / 标题; 如果用户输入是数据 → 提炼一句 ≤ 18 字的金句。
-- 单文件 HTML, 可被 `prefers-reduced-motion` 关动效。
+[Design Details]
+- Strictly forbidden: multi-color rainbow (>4 hues), PowerPoint gradients, neon glow overlays.
+- Fonts: for CJK text use `Noto Serif SC` (display) / `Noto Sans SC` (subtitle).
+- Strictly forbidden: external-linked images; everything must be CSS + SVG + optional canvas.
+- Must use the tagline / title provided by the user; if the user's input is data → distill it into a tagline of ≤ 18 words.
+- Single-file HTML, motion can be disabled via `prefers-reduced-motion`.

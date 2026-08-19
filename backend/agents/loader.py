@@ -515,23 +515,17 @@ def _optional_list_of_str(
 #   (b) every `pipeline_type` declared by an AGENT.md — keeps types with agents
 #       but no manifest yet, e.g. `spec_kit`, which owns the deep-planner every
 #       pipeline runs;
-#   (c) `_ID_ALIAS_TYPES` — run-label aliases with no manifest and no agents.
+#
+# There used to be a third source, `_ID_ALIAS_TYPES` — hand-listed run-label
+# aliases with no manifest and no agents, which therefore could not be derived
+# from disk the way (a) and (b) are. It held `od_prototype` /
+# `od_prototype_revision`; collapsing those labels onto `prototype` /
+# `prototype_revision` emptied it, and an empty union operand is just dead code.
+# Every supported pipeline type is now derivable from disk, with no exceptions.
 #
 # CONSEQUENCE (ADR-0005): the set went 17 -> 21, gaining the sample_* fixtures.
 # Three cannot run; they are excluded by PROPERTY (does every step's agent load?),
 # never by name — tests/agents/test_compiled_plan_runs.py::_every_step_agent_loads.
-_ID_ALIAS_TYPES: frozenset[str] = frozenset({"od_prototype", "od_prototype_revision"})
-"""Run-label aliases with no manifest and no agents of their own.
-
-These are resolved to ``prototype`` (via the id-alias resolver) before any
-manifest lookup or agent-discovery happens — so there is no
-``agents/workflows/od_prototype/`` directory and no AGENT.md ever declares
-``pipeline_type: od_prototype``. That makes them genuinely NOT derivable from
-disk the way (a) and (b) above are; they exist purely so callers can pass the
-run-label string and have it recognized as a supported (if aliased) type.
-"""
-
-
 def _discover_supported_pipeline_types() -> frozenset[str]:
     """Compute SUPPORTED_PIPELINE_TYPES from disk, once, at import time.
 
@@ -551,9 +545,6 @@ def _discover_supported_pipeline_types() -> frozenset[str]:
     # (b) pipeline_type declared by any loadable AGENT.md
     for spec in iter_agent_specs():
         types.add(spec.pipeline_type)
-
-    # (c) pure run-label aliases — not derivable from disk, see docstring above
-    types |= _ID_ALIAS_TYPES
 
     return frozenset(types)
 

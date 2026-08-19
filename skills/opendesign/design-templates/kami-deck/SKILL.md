@@ -1,7 +1,7 @@
 ---
 name: Kami Editorial Deck
 description: >
-  Produce a print-grade slide deck in the kami (紙 / 纸) design system —
+  Produce a print-grade slide deck in the kami (paper) design system —
   warm parchment background (or ink-blue for cover / chapter slides),
   serif at one weight, ink-blue accent ≤ 5% per slide, no italic.
   Horizontal magazine swipe pagination (←/→ · wheel · swipe · ESC
@@ -9,8 +9,8 @@ description: >
   Google Fonts.
 triggers:
   - kami deck
-  - 紙 deck
-  - 纸 deck
+  - paper deck
+  - paper deck slides
   - paper slides
   - white paper deck
   - editorial deck
@@ -67,7 +67,7 @@ example_prompt: |
 
 Sister skill to [`kami-landing`](../kami-landing/). Produces a single
 self-contained HTML file: a horizontal magazine-style swipe deck in
-the **kami (紙 / 纸)** design system — print rhythm, ink-blue accent,
+the **kami (paper)** design system — print rhythm, ink-blue accent,
 serif at one weight, no italic, no cool grays.
 
 The navigation model is intentionally borrowed from the

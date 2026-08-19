@@ -452,7 +452,6 @@ def _run_render_check(html: str):
 _ENGINE_DELIVERABLE_RULES: dict[str, DeliverableRule] = {
     # prototype family — HTML must render
     "prototype": _rule_prototype_html,
-    "od_prototype": _rule_prototype_html,
     "prototype_revision": _rule_prototype_html,
     # code-gen family — filename: blocks
     "app_builder": _rule_codegen_filename_blocks,

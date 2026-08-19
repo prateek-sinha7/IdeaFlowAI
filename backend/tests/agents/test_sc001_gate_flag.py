@@ -108,13 +108,14 @@ async def test_declared_path_defaults_eligible_false() -> None:
 @pytest.mark.parametrize(
     "agent_id, expected_kind",
     [
-        ("prototype-analyze", "summary"),  # unmapped → fallback kind (D-01)
+        ("prototype-analyze", "analysis"),  # FIX-223: explicitly mapped kind
     ],
 )
 def test_spec_authoring_gates_are_eligible(agent_id, expected_kind) -> None:
-    """The analyze gate resolves to the ``summary`` kind, the sole kind in the declared
+    """The analyze gate resolves to the ``analysis`` kind, the sole kind in the declared
     eligible-kind set — so eligibility is True WITHOUT naming any agent literal
-    (SC-001). MD-01 narrowed this to analyze-only: the spec/plan authoring gates are NO
+    (SC-001). FIX-223 gave prototype-analyze its own kind so that an UNMAPPED gated
+    agent (which still falls back to ``summary``) no longer inherits eligibility. MD-01 narrowed this to analyze-only: the spec/plan authoring gates are NO
     LONGER eligible (see test_build_and_validation_gates_are_not_eligible)."""
     engine = ExecutionEngine()
     ek = engine._artifact_kind_for(_FakeSpec(agent_id))

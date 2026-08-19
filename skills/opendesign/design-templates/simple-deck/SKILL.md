@@ -11,8 +11,8 @@ triggers:
   - "slides"
   - "ppt"
   - "presentation"
-  - "幻灯"
-  - "ppt 模板"
+  - "slideshow"
+  - "ppt template"
 od:
   mode: deck
   scenario: product

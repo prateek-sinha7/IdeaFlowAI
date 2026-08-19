@@ -65,7 +65,7 @@ interface ModeConfig {
   /** AgentLibraryData `pipeline_type` for the default lineup. */
   agentPipeline: "prototype" | "ppt";
   /** `base_pipeline_type` sent to POST /api/user-workflows on Save. */
-  savePipeline: "od_prototype" | "ppt";
+  savePipeline: "od_prototype" | "od_ppt";
   title: string;
   chainingTitle: string;
   eyebrow: string;
@@ -90,7 +90,7 @@ const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
   },
   ppt: {
     agentPipeline: "ppt",
-    savePipeline: "ppt",
+    savePipeline: "od_ppt",
     title: "Configure your presentation",
     chainingTitle: "Pick a template",
     eyebrow: "New presentation",
@@ -105,7 +105,7 @@ const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
 /** Copy for the chain context/banner, keyed on the source pipeline (data map). */
 const CHAIN_SOURCE_LABEL: Record<string, string> = {
   ppt: "Presentation", ppt_revision: "Presentation",
-  od_prototype: "Prototype", prototype: "Prototype", prototype_revision: "Prototype",
+  prototype: "Prototype", prototype_revision: "Prototype",
   user_stories: "User Stories", user_stories_revision: "User Stories",
   app_builder: "App Builder", app_builder_revision: "App Builder",
 };

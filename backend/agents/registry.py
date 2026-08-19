@@ -57,9 +57,26 @@ logger = logging.getLogger(__name__)
 # No od_ppt/od_ppt_revision alias is kept: v1 has not shipped, so no persisted
 # run carries those labels and there is nothing to stay compatible with. They
 # are gone from the tier entitlements and from SUPPORTED_PIPELINE_TYPES too.
-_OD_ALIAS_BASE: dict[str, str] = {
-    "od_prototype": "prototype",
-}
+# ``od_prototype`` is gone for the same reason, and by the same method. It was
+# the last alias, and it cost more than it saved: the label owned the LAUNCH
+# half of the prototype lifecycle (only ``od_prototype`` loaded template context
+# — see the eligibility note that used to live in app/api/launch_context.py)
+# while ``prototype_revision`` owned the REVISION half, and the two were bridged
+# by hand-written remap tables in the API layer that existed in only one of the
+# two revision entry points. A run launched as ``od_prototype`` therefore could
+# not be revised over REST at all. Collapsing the label to ``prototype`` deletes
+# the split, both remap tables, and the registry-vs-compiler disagreement it
+# caused (``get_pipeline_agents`` never resolved aliases; ``compile_for_run``
+# did, so one label meant "5 agents" to one and "unknown" to the other).
+#
+# Persisted rows carrying the old label are migrated in-place — see
+# alembic/versions/0043_collapse_od_prototype_label.py — so nothing needs to
+# stay compatible with it at runtime.
+#
+# The dict stays (empty) rather than being deleted: ``resolve_alias`` is a
+# declared port with real callers, and an empty table makes it the identity
+# function. A future legacy label gets one line here and nothing else changes.
+_OD_ALIAS_BASE: dict[str, str] = {}
 
 
 def _discover_pipeline_agents() -> dict[str, list[str]]:

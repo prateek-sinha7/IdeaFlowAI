@@ -430,15 +430,6 @@ class ClarifyEngine:
                 "5. Target device: desktop-first, mobile-first, responsive?\n"
                 "6. Colour/brand: light neutral, dark mode, brand colour, monochrome?"
             ),
-            "od_prototype": (
-                "This is a prototype pipeline. Priority questions:\n"
-                "1. UI/Layout: sidebar navigation vs topbar vs cards vs single-page?\n"
-                "2. Visual style: minimal SaaS, consumer/marketing, data dashboard, dark admin?\n"
-                "3. Key pages/screens: which ones are essential for this product?\n"
-                "4. Primary interactions: read-only browsing, form inputs, data tables, modals?\n"
-                "5. Target device: desktop-first, mobile-first, responsive?\n"
-                "6. Colour/brand: light neutral, dark mode, brand colour, monochrome?"
-            ),
             "user_stories": (
                 "Priority: user roles/personas, key journeys, business rules, scope (MVP vs full), "
                 "acceptance criteria style, compliance requirements."
@@ -655,10 +646,6 @@ prose before or after. Your response MUST start with `[` and end with `]`."""
                 "What product or feature are you building user stories for?",
                 ["Web application / SaaS product", "Mobile app (iOS / Android)", "Internal business tool / dashboard", "API / backend service", "E-commerce platform", "Data / analytics platform"],
             ),
-            "od_prototype": (
-                "What type of product or interface are you prototyping?",
-                ["Web app / dashboard", "Mobile app", "Landing page / marketing site", "Admin panel / back-office", "E-commerce storefront", "Data visualization / analytics"],
-            ),
             "prototype": (
                 "What type of product or interface are you prototyping?",
                 ["Web app / dashboard", "Mobile app", "Landing page / marketing site", "Admin panel / back-office", "E-commerce storefront", "Data visualization / analytics"],
@@ -670,17 +657,6 @@ prose before or after. Your response MUST start with `[` and end with `]`."""
         }
 
         STYLE_BY_PIPELINE: dict[str, tuple[str, list[str]]] = {
-            "od_prototype": (
-                "What visual style and UI type should the prototype follow?",
-                [
-                    "Clean / minimal SaaS web app (dense, functional, blue-on-white)",
-                    "Consumer / marketing — spacious, visual, hero sections",
-                    "Mobile-first — card-based, touch-friendly, compact",
-                    "Data-heavy dashboard — tables, charts, sidebar navigation",
-                    "Dark-mode admin panel — dark background, accent colours",
-                    "No preference — let the AI decide based on the brief",
-                ],
-            ),
             "prototype": (
                 "What visual style and UI type should the prototype follow?",
                 [

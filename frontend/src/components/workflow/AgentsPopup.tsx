@@ -181,7 +181,6 @@ export const PIPELINE_LABEL: Record<string, string> = {
   user_stories: "User Stories", ppt: "Presentation", prototype: "Prototype",
   app_builder: "App Builder", custom: "Custom",
   mulesoft_to_springboot: "Mulesoft → Spring Boot", dotnet_to_azure: ".NET → Azure",
-  hello_html: "Hello HTML",
 };
 
 const ICON_STYLES = [
@@ -670,21 +669,25 @@ export function AgentCapabilitiesModal({
             </div>
           )}
 
-          {/* 3. System prompt — full edit affordances (Edit / Save / Revert) moved
-              here from Config so users can read AND edit the prompt in one place
-              (KAN-119 UX improvement). */}
-          <AgentPromptSection agent={agent} />
+          {/* 3. System Prompt (ND-7 / LOCK-E) — read-only surface showing the base
+              agent prompt with optional override state. surfaceOnly hides write affordances. */}
+          <AgentPromptSection agent={agent} surfaceOnly={true} />
+
           </>
           )}
 
           {/* Config tab — per-agent configuration levers (Model · Validator · Gate ·
-              Retry) shown FLAT — no expand/collapse chrome. System Prompt editor
-              is in the Overview tab. */}
+              Retry) shown FLAT — no expand/collapse chrome. ND-7/LOCK-E: System
+              Prompt surfaces READ-ONLY (surfaceOnly) in Config tab; durable override
+              persistence is DEFERRED (no PUT/DELETE path reachable). */}
           {drawerTab === "config" && (
           <>
           <p className="text-[12px] text-ink-500 leading-relaxed">
             Overrides for this agent. Defaults inherit from the workflow.
           </p>
+
+          {/* System Prompt (ND-7 / LOCK-E) — surfaceOnly hides the write affordances */}
+          <AgentPromptSection agent={agent} surfaceOnly={true} />
 
           {/* Flat lever rows (reuse useAgentCapabilities + applyLeverPatch — same
               source as AdvancedExpander, no forked logic, INV-12). */}

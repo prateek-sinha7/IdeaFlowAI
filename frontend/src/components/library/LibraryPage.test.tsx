@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, renderWithProviders, screen, within } from "@/test/renderWithProviders";
 import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
+import type { GlobalSkillEntry } from "@/store/api/skills";
+import type { GlobalHookEntry } from "@/store/api/hooks";
+import type { AgentDef } from "@/types/index";
 
 // ─────────────────────────────────────────────────────────────────
 // Shell-fidelity contract for the Library page (plan 40-03).
@@ -19,9 +22,107 @@ import { LibraryPage } from "./LibraryPage";
 const AGENT_A = "Domain Discovery Agent";
 const SKILL_A = "Brainstorming Ideas Into Designs";
 
+// Mock data fixtures for tests
+const MOCK_AGENT_A: AgentDef = {
+  id: "domain_discovery",
+  name: AGENT_A,
+  role: "Market & Persona Research",
+  description: "Discovers market opportunities and personas through research.",
+  pipeline_type: "discovery",
+  order: 0,
+  icon: "zap",
+  estimated_duration: 300,
+  has_skill: true,
+  prompt_body: "You are a discovery agent.",
+};
+
+const MOCK_SKILL_A: GlobalSkillEntry = {
+  id: "brainstorm_skill",
+  name: SKILL_A,
+  display_name: SKILL_A,
+  description: "Brainstorm design ideas",
+  content: "# Brainstorming Skill\n\nThis skill helps generate design ideas.",
+  category: "planning",
+  isBeta: false,
+  tags: ["creative", "design"],
+  compatible_agents: ["domain_discovery"],
+};
+
+const MOCK_HOOK_A: GlobalHookEntry = {
+  id: "pretooluse_hook",
+  name: "Pre Tool Use Hook",
+  display_name: "Pre Tool Use Hook",
+  description: "Runs before tool execution",
+  content: "Hook content",
+  event: "PreToolUse",
+  trigger: "Before any tool is executed",
+  compatible_agents: ["domain_discovery"],
+  tags: ["execution"],
+};
+
+const MOCK_HOOK_B: GlobalHookEntry = {
+  id: "posttooluse_hook",
+  name: "Post Tool Use Hook",
+  display_name: "Post Tool Use Hook",
+  description: "Runs after tool execution",
+  content: "Hook content",
+  event: "PostToolUse",
+  trigger: "After tool completes",
+  compatible_agents: ["domain_discovery"],
+  tags: ["execution"],
+};
+
+const MOCK_WORKFLOW = {
+  id: "discovery",
+  name: "Discovery Workflow",
+  display_name: "Discovery Workflow",
+  short_name: "Discovery",
+  description: "Market discovery",
+  step_count: 1,
+  steps: [{ agent_id: "domain_discovery", name: AGENT_A, gate: null }],
+  user_launchable: true,
+  is_beta: false,
+};
+
 describe("LibraryPage 40-03 — mock composition (header leads, tab grids)", () => {
+  const createPreloadedState = () => ({
+    agents: {
+      agents: [MOCK_AGENT_A],
+      totalCount: 1,
+      pipelines: { discovery: 1 },
+      status: "succeeded" as const,
+      error: null,
+    },
+    skills: {
+      skills: [MOCK_SKILL_A],
+      totalCount: 1,
+      skillCategories: [{ id: "planning", label: "Planning" }],
+      status: "succeeded" as const,
+      error: null,
+    },
+    hooks: {
+      hooks: [MOCK_HOOK_A, MOCK_HOOK_B],
+      totalCount: 2,
+      hookEvents: [
+        { id: "PreToolUse", label: "PreToolUse" },
+        { id: "PostToolUse", label: "PostToolUse" },
+      ],
+      status: "succeeded" as const,
+      error: null,
+    },
+    global: {
+      workflows: [MOCK_WORKFLOW],
+      workflowsStatus: "succeeded" as const,
+      workflowsError: null,
+      recentRuns: [],
+      recentRunsStatus: "idle" as const,
+      recentRunsError: null,
+    },
+    auth: {},
+  });
+
   it("renders the 'Library' h1 BEFORE the tablist (header leads, per the mock)", () => {
-    render(<LibraryPage />);
+    renderWithProviders(<LibraryPage />, { preloadedState: createPreloadedState() });
 
     const h1 = screen.getByRole("heading", { level: 1, name: /^Library$/ });
     const tablist = screen.getByRole("tablist");
@@ -35,24 +136,24 @@ describe("LibraryPage 40-03 — mock composition (header leads, tab grids)", () 
   });
 
   it("renders an item-count line beneath the h1", () => {
-    render(<LibraryPage />);
+    renderWithProviders(<LibraryPage />, { preloadedState: createPreloadedState() });
     // "N agents · M skills · K hooks" — the mock's libCountLine.
     expect(screen.getByText(/\d+ agents · \d+ skills · \d+ hooks/)).toBeInTheDocument();
   });
 
   it("renders the Agents card grid on mount", () => {
-    render(<LibraryPage />);
+    renderWithProviders(<LibraryPage />, { preloadedState: createPreloadedState() });
     expect(screen.getByText(AGENT_A)).toBeInTheDocument();
   });
 
   it("renders the Skills card grid when the Skills tab is active", () => {
-    render(<LibraryPage />);
+    renderWithProviders(<LibraryPage />, { preloadedState: createPreloadedState() });
     fireEvent.click(screen.getByRole("tab", { name: /skills/i }));
     expect(screen.getByText(SKILL_A)).toBeInTheDocument();
   });
 
   it("renders the Hooks card grid when the Hooks tab is active", () => {
-    render(<LibraryPage />);
+    renderWithProviders(<LibraryPage />, { preloadedState: createPreloadedState() });
     fireEvent.click(screen.getByRole("tab", { name: /hooks/i }));
     // At least one hook event badge is visible in the hooks grid.
     expect(screen.getAllByText(/PreToolUse|PostToolUse|Stop|SessionStart|SessionEnd/).length).toBeGreaterThan(0);
@@ -68,11 +169,48 @@ describe("LibraryPage 40-03 — mock composition (header leads, tab grids)", () 
 // ─────────────────────────────────────────────────────────────────
 
 describe("LibraryPage 41-07 — agent-detail right-side drawer (ND-Z resolved)", () => {
+  const createPreloadedState = () => ({
+    agents: {
+      agents: [MOCK_AGENT_A],
+      totalCount: 1,
+      pipelines: { discovery: 1 },
+      status: "succeeded" as const,
+      error: null,
+    },
+    skills: {
+      skills: [MOCK_SKILL_A],
+      totalCount: 1,
+      skillCategories: [{ id: "planning", label: "Planning" }],
+      status: "succeeded" as const,
+      error: null,
+    },
+    hooks: {
+      hooks: [MOCK_HOOK_A, MOCK_HOOK_B],
+      totalCount: 2,
+      hookEvents: [
+        { id: "PreToolUse", label: "PreToolUse" },
+        { id: "PostToolUse", label: "PostToolUse" },
+      ],
+      status: "succeeded" as const,
+      error: null,
+    },
+    global: {
+      workflows: [MOCK_WORKFLOW],
+      workflowsStatus: "succeeded" as const,
+      workflowsError: null,
+      recentRuns: [],
+      recentRunsStatus: "idle" as const,
+      recentRunsError: null,
+    },
+    auth: {},
+  });
+
   function openFirstAgentDrawer() {
-    render(
+    renderWithProviders(
       <SkillsHooksProvider>
         <LibraryPage />
       </SkillsHooksProvider>,
+      { preloadedState: createPreloadedState() },
     );
     // Click the first agent card (the mock's agent-detail affordance).
     fireEvent.click(screen.getByText(AGENT_A));

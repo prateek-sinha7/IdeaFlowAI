@@ -107,7 +107,7 @@ export interface GateContext {
   /**
    * GENERIC artifact kind from _artifact_kind_for (backend) — "spec", "task_list",
    * "summary", "html_file", etc. Passed to discriminateArtifact so agents whose
-   * output has no XML wrapper tag (e.g. user_stories domain-analyst produces plain
+   * output has no XML wrapper tag (e.g. domain-specific agents produce plain
    * markdown with kind="summary") still render the correct preview renderer.
    * SC-001: never a workflow/agent-name literal — the backend derives this
    * structurally from _AGENT_KIND_MAP (with "summary" as the generic fallback).

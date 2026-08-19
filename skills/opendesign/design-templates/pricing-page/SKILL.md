@@ -10,8 +10,8 @@ triggers:
   - "plans"
   - "subscription"
   - "compare plans"
-  - "定价"
-  - "套餐"
+  - "price plans"
+  - "package tiers"
 od:
   mode: prototype
   platform: desktop

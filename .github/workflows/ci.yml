@@ -69,6 +69,63 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # Shell scripts — the on-host / on-runner bash scripts that SSM RunCommand
+  # executes as root (remote-deploy.sh, remote-bootstrap.sh) or that provision
+  # a box directly (bootstrap-ec2.sh, reconcile-host-config.sh, setup-infra.sh).
+  # Several of these scripts' own header comments already claimed to be
+  # "shellcheck'd and bash -n'd in CI" before any such job existed — this job
+  # makes that claim true.
+  #
+  # `bash -n` is a pure parse check (catches the class of bug that killed a
+  # deploy outright — e.g. the runner's `set -u` shell aborting on an unbound
+  # `$i` from a heredoc body evaluated at the wrong layer). shellcheck catches
+  # everything else (unquoted expansions, unset-variable use under `set -u`,
+  # SC2064-style trap quoting, etc.).
+  # ---------------------------------------------------------------------------
+  shellcheck:
+    name: Shell scripts (bash -n / shellcheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # shellcheck ships preinstalled on the ubuntu-24.04 runner image
+      # (actions/runner-images Ubuntu2404-Readme.md lists it under Included
+      # Software), so — unlike gitleaks/checkov/trivy/tflint below, none of
+      # which are preinstalled — there is nothing to download here. This
+      # avoids adding a checksum-verified download this workflow can't rotate
+      # without someone independently re-verifying a new hash out of band; if
+      # that ever changes, follow the same checksummed-binary pattern the
+      # security-scan job uses.
+      - name: shellcheck --version
+        run: shellcheck --version
+
+      - name: bash -n (parse check)
+        run: |
+          set -euo pipefail
+          status=0
+          while IFS= read -r -d '' f; do
+            echo "bash -n: $f"
+            bash -n "$f" || status=1
+          done < <(find .github/scripts infra/scripts -type f -name '*.sh' -print0)
+          exit "$status"
+
+      # TODO(flip-to-failing): remove `|| true` once the FIRST real run's
+      # findings against the existing scripts (bootstrap-ec2.sh,
+      # reconcile-host-config.sh, remote-deploy.sh, setup-infra.sh, etc.) are
+      # triaged. This job has never run before now, so — same posture as the
+      # pip-audit/npm-audit warn-only steps above — it starts non-blocking
+      # rather than asserting a clean bill of health nobody has confirmed.
+      # `bash -n` above stays a hard gate regardless: a parse failure is
+      # unambiguous and needs no triage.
+      - name: shellcheck (warn-only until first-run findings are triaged)
+        run: |
+          shellcheck --severity=warning --shell=bash \
+            .github/scripts/*.sh \
+            infra/scripts/*.sh || true
+
+  # ---------------------------------------------------------------------------
   # Backend — Python 3.12, dependencies from backend/requirements*.txt.
   #
   # NOTE on `uv`: backend/pyproject.toml does not declare [project.dependencies]

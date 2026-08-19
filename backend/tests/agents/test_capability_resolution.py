@@ -113,5 +113,7 @@ def test_resolve_uses_no_dynamic_name_resolution() -> None:
 
 def test_resolve_alias_untouched() -> None:
     reg = CapabilityRegistry()
-    assert reg.resolve_alias("od_prototype") == "prototype"
+    # No aliases remain — the retired label resolves to itself (registry
+    # ``_OD_ALIAS_BASE`` is empty since the od_prototype collapse).
+    assert reg.resolve_alias("od_prototype") == "od_prototype"
     assert reg.resolve_alias("prototype") == "prototype"

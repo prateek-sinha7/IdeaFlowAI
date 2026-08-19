@@ -304,7 +304,7 @@
     /* Opens a new window with 4 draggable, resizable cards:
      *   CURRENT  — iframe(?preview=N)   pixel-perfect preview of current slide
      *   NEXT     — iframe(?preview=N+1) pixel-perfect preview of next slide
-     *   SCRIPT   — large speaker notes (逐字稿)
+     *   SCRIPT   — large speaker notes (full script)
      *   TIMER    — elapsed timer + page counter + controls
      * Cards remember position/size in localStorage.
      * Two windows sync via BroadcastChannel.
@@ -336,7 +336,7 @@
 
       presenterWin = window.open('', 'html-ppt-presenter', 'width=1280,height=820,menubar=no,toolbar=no');
       if (!presenterWin) {
-        alert('请允许弹出窗口以使用演讲者视图');
+        alert('Please allow pop-ups to use presenter view');
         return;
       }
       presenterWin.document.open();
@@ -539,7 +539,7 @@
   <div class="pcard pcard-notes" id="card-notes" style="--dot-color:#f0883e">
     <div class="pcard-head" data-drag>
       <span class="pcard-dot"></span>
-      <span class="pcard-title">SPEAKER SCRIPT · 逐字稿</span>
+      <span class="pcard-title">SPEAKER SCRIPT · full script</span>
     </div>
     <div class="pcard-body" id="notes-body"></div>
     <div class="pcard-resize" data-resize></div>
@@ -567,11 +567,11 @@
 </div>
 
 <div class="hint-bar">
-  <span><kbd>← →</kbd> 翻页</span>
-  <span><kbd>R</kbd> 重置计时</span>
-  <span><kbd>Esc</kbd> 关闭</span>
-  <span style="color:#6e7681">拖动卡片头部移动 · 拖动右下角调整大小</span>
-  <button class="reset-layout" id="reset-layout">重置布局</button>
+  <span><kbd>&larr; &rarr;</kbd> change slide</span>
+  <span><kbd>R</kbd> reset timer</span>
+  <span><kbd>Esc</kbd> close</span>
+  <span style="color:#6e7681">Drag card header to move &middot; drag bottom-right corner to resize</span>
+  <button class="reset-layout" id="reset-layout">Reset layout</button>
 </div>
 
 <script>
@@ -787,7 +787,7 @@
 
     /* Notes */
     var note = slideMeta[n].notes;
-    notesBody.innerHTML = note || '<span class="empty">（这一页还没有逐字稿）</span>';
+    notesBody.innerHTML = note || '<span class="empty">(No script for this slide yet)</span>';
 
     /* Timer count */
     timerCount.textContent = (n + 1) + ' / ' + total;
@@ -829,7 +829,7 @@
   document.getElementById('btn-next').addEventListener('click', function(){ go(idx + 1); });
   document.getElementById('btn-reset').addEventListener('click', resetTimer);
   document.getElementById('reset-layout').addEventListener('click', function(){
-    if (confirm('恢复默认卡片布局？')) {
+    if (confirm('Restore default card layout?')) {
       try { localStorage.removeItem(STORAGE_KEY); } catch(e){}
       applyLayout(defaultLayout());
     }
@@ -861,7 +861,7 @@
   iframeCur.src = deckUrl + '?preview=' + (idx + 1);
   if (idx + 1 < total) iframeNxt.src = deckUrl + '?preview=' + (idx + 2);
   /* Initialize notes/timer/count without touching iframes */
-  notesBody.innerHTML = slideMeta[idx].notes || '<span class="empty">（这一页还没有逐字稿）</span>';
+  notesBody.innerHTML = slideMeta[idx].notes || '<span class="empty">(No script for this slide yet)</span>';
   curMeta.textContent = (idx + 1) + '/' + total;
   nxtMeta.textContent = (idx + 2) + '/' + total;
   timerCount.textContent = (idx + 1) + ' / ' + total;

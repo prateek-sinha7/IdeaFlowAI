@@ -9,11 +9,12 @@
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { IdeaInputPage } from "./IdeaInputPage";
 import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
+import renderWithProviders from "@/test/renderWithProviders";
 
 // UPLD-04: the attach handler now routes image Files through resizeImage, which
 // decodes via createImageBitmap. jsdom lacks it — mock a small bitmap that is
@@ -49,11 +50,36 @@ vi.mock("./ReviewGatesSection", () => ({
   ReviewGatesSection: () => null,
 }));
 
+const TEST_AGENTS = [
+  {
+    id: "domain-analyst",
+    name: "Domain Discovery Agent",
+    role: "Market & Persona Research",
+    description: "Research market and personas",
+    pipeline_type: "user_stories",
+    order: 1,
+    icon: "🔍",
+    estimated_duration: 60,
+    has_skill: false,
+  },
+];
+
 function renderPage(onRun = vi.fn()) {
-  const { container } = render(
+  const { container } = renderWithProviders(
     <SkillsHooksProvider>
       <IdeaInputPage workflowType="user_stories" onBack={vi.fn()} onRun={onRun} />
     </SkillsHooksProvider>,
+    {
+      preloadedState: {
+        agents: {
+          agents: TEST_AGENTS,
+          totalCount: TEST_AGENTS.length,
+          pipelines: {},
+          status: "succeeded",
+          error: null,
+        },
+      },
+    }
   );
   return { onRun, container };
 }

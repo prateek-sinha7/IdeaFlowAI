@@ -54,11 +54,19 @@ def _revision_triple():
     """Three real text-only agents so ``index=2`` gives specify/plan/analyze structurally.
 
     Read from the registry at test time — the assertions never name an agent (INV-1).
+
+    Sourced from ``prototype``, not ``user_stories``. Both give three text-only agents,
+    but only prototype's third IS the analyze gate these tests are about. That did not
+    matter while ``_UPDATE_SPECS_ELIGIBLE_KINDS`` was ``{"summary"}``: any UNMAPPED agent
+    fell back to ``summary`` and so looked eligible, which is the bug FIX-223 fixed by
+    giving prototype-analyze its own ``analysis`` kind and narrowing the eligible set to
+    it. With that fix, a stand-in from another pipeline is correctly ineligible and these
+    tests were asserting eligibility on an agent that should never have had it.
     """
     from agents.loader import load_agent_spec
     from agents.registry import PIPELINE_AGENTS
 
-    return [load_agent_spec(a) for a in PIPELINE_AGENTS["user_stories"][:3]]
+    return [load_agent_spec(a) for a in PIPELINE_AGENTS["prototype"][:3]]
 
 
 def _write_ref(ectx, run_id: str, producer_id: str, content: str) -> None:

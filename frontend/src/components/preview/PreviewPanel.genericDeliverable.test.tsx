@@ -1,10 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import React from "react";
-
 import { PreviewPanel } from "./PreviewPanel";
 import type { PipelineRunState } from "@/types/index";
-
 // Terminal (not-running) pipeline state — models a completed reopen. Mirrors the
 // helper in PreviewPanel.degraded.test.tsx.
 function terminalPipelineState(overrides: Partial<PipelineRunState> = {}): PipelineRunState {
@@ -18,7 +16,6 @@ function terminalPipelineState(overrides: Partial<PipelineRunState> = {}): Pipel
     ...overrides,
   };
 }
-
 // ─── Motion mock (same as the other PreviewPanel-area component tests) ────────
 const STRIPPED_MOTION_PROPS = new Set([
   "initial", "animate", "exit", "transition", "whileHover",
@@ -40,7 +37,6 @@ vi.mock("motion/react", () => ({
   ),
   AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
-
 // Stub the heavy bespoke preview children so we assert on PreviewPanel's own
 // dispatch, not the children's internals. The generic iframe + download
 // affordance live in PreviewPanel itself (not stubbed). MarkdownPreview is
@@ -52,11 +48,29 @@ vi.mock("./PPTPreview", () => ({ PPTPreview: () => <div data-testid="ppt-preview
 vi.mock("./PrototypePreview", () => ({ PrototypePreview: () => <div data-testid="proto-preview" /> }));
 vi.mock("./MarkdownPreview", () => ({ MarkdownPreview: ({ content }: { content: string }) => <div data-testid="markdown-preview">{content}</div> }));
 vi.mock("./AppBuilderPreview", () => ({ AppBuilderPreview: () => <div data-testid="appbuilder-preview" /> }));
-vi.mock("@/components/results/FilesTab", () => ({ FilesTab: () => <div data-testid="files-tab" /> }));
+vi.mock("@/components/results/FilesTab", () => ({
+  FilesTab: () => <div data-testid="files-tab" />,
+  deriveDeliverableFilename: (workflowType: string, content?: string, fallback?: string) => {
+    if (workflowType === "user_stories" || workflowType === "user_stories_revision") {
+      return fallback || "user-stories.md";
+    }
+    if (workflowType === "custom") {
+      return fallback || "custom-output.md";
+    }
+    if (workflowType === "ppt" || workflowType === "ppt_revision") {
+      return fallback || "presentation.html";
+    }
+    if (workflowType === "prototype" || workflowType === "prototype_revision") {
+      return fallback || "prototype.html";
+    }
+    if (workflowType === "app_builder" || workflowType === "app_builder_revision") {
+      return "project.zip";
+    }
+    return fallback || "deliverable";
+  },
+}));
 vi.mock("@/components/results/AgentThinkingTab", () => ({ AgentThinkingTab: () => <div data-testid="thinking-tab" /> }));
-
 const HTML_DELIVERABLE = "<!doctype html><html><body><h1>Custom Output</h1></body></html>";
-
 describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, live)", () => {
   it("unknown type + text/html → renders a SANDBOXED iframe (sandbox=allow-scripts, NO allow-same-origin), NOT the empty state", () => {
     const { container } = render(
@@ -67,7 +81,6 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
         genericDeliverable={{ mimetype: "text/html", filename: "custom.html", content: HTML_DELIVERABLE }}
       />,
     );
-
     const iframe = container.querySelector("iframe");
     expect(iframe).not.toBeNull();
     // T-18-05 (BLOCKING): exactly allow-scripts, and explicitly NOT same-origin.
@@ -78,7 +91,6 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
     expect(screen.queryByTestId("markdown-preview")).not.toBeInTheDocument();
     expect(screen.queryByText(/output will appear here/i)).not.toBeInTheDocument();
   });
-
   // ─── CR-01 (18 review) regression lock ──────────────────────────────────────
   // `custom` is the ACTUAL pipeline_type the live agent-composer emits. It must
   // NOT be a known render branch (which routed it to MarkdownPreview → escaped
@@ -93,7 +105,6 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
         genericDeliverable={{ mimetype: "text/html", filename: "custom.html", content: HTML_DELIVERABLE }}
       />,
     );
-
     const iframe = container.querySelector("iframe");
     expect(iframe).not.toBeNull();
     expect(iframe!.getAttribute("sandbox")).toBe("allow-scripts");
@@ -102,7 +113,6 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
     // The bug was: custom HTML rendered through MarkdownPreview (escaped text).
     expect(screen.queryByTestId("markdown-preview")).not.toBeInTheDocument();
   });
-
   it("CR-01 — LIVE `custom` + text/markdown → MarkdownPreview (no regression)", () => {
     const { container } = render(
       <PreviewPanel
@@ -111,11 +121,9 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
         genericDeliverable={{ mimetype: "text/markdown", content: "# Custom report\n\nbody" }}
       />,
     );
-
     expect(screen.getByTestId("markdown-preview")).toBeInTheDocument();
     expect(container.querySelector("iframe")).toBeNull();
   });
-
   it("unknown type + text/markdown → renders MarkdownPreview (NOT an iframe)", () => {
     const { container } = render(
       <PreviewPanel
@@ -124,11 +132,9 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
         genericDeliverable={{ mimetype: "text/markdown", content: "# Hello\n\nbody" }}
       />,
     );
-
     expect(screen.getByTestId("markdown-preview")).toBeInTheDocument();
     expect(container.querySelector("iframe")).toBeNull();
   });
-
   it("unknown type + application/zip → renders the file-bundle (AppBuilder) view", () => {
     render(
       <PreviewPanel
@@ -141,10 +147,8 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
         }}
       />,
     );
-
     expect(screen.getByTestId("appbuilder-preview")).toBeInTheDocument();
   });
-
   it("unknown type + unknown mimetype → a safe download affordance (no inline/iframe execution)", () => {
     const { container } = render(
       <PreviewPanel
@@ -153,7 +157,6 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
         genericDeliverable={{ mimetype: "application/octet-stream", filename: "data.bin", content: "rawbytes" }}
       />,
     );
-
     // Not framed, not markdown — a download affordance instead. Scope to the
     // deliverable's own "Download <filename>" button so it is not confused with
     // the Phase-39 run-header "Download the deliverable" button.
@@ -161,24 +164,19 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
     expect(screen.queryByTestId("markdown-preview")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /download data\.bin/i })).toBeInTheDocument();
   });
-
   it("NO REGRESSION — known renderTypes still render their bespoke renderers; the generic branch is NOT taken", () => {
     const { rerender, container } = render(
       <PreviewPanel workflowType="user_stories" isStreaming={false} userStoryContent="# Stories" />,
     );
     expect(screen.getByTestId("user-story-preview")).toBeInTheDocument();
     expect(container.querySelector("iframe")).toBeNull();
-
     rerender(<PreviewPanel workflowType="ppt" isStreaming={false} pptContent="<html>deck</html>" />);
     expect(screen.getByTestId("ppt-preview")).toBeInTheDocument();
-
     rerender(<PreviewPanel workflowType="prototype" isStreaming={false} prototypeContent="<html>proto</html>" />);
     expect(screen.getByTestId("proto-preview")).toBeInTheDocument();
-
     rerender(<PreviewPanel workflowType="app_builder" isStreaming={false} userStoryContent="```filename: a.py\nx\n```" />);
     expect(screen.getByTestId("appbuilder-preview")).toBeInTheDocument();
   });
-
   it("a known type whose content is present does NOT fall into the generic channel even if a generic deliverable is also set", () => {
     render(
       <PreviewPanel
@@ -191,7 +189,6 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
     // The bespoke user-stories renderer wins; no generic iframe.
     expect(screen.getByTestId("user-story-preview")).toBeInTheDocument();
   });
-
   // ─── 22-07 (UXFIX-04 / D-21) — generic mimetype renderer is PRIMARY ──────────
   // The dispatch is a mimetype-dispatch TABLE: the generic renderer is the
   // PRIMARY route and the 4 first-party types are registered entries the
@@ -213,7 +210,6 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
       expect(iframe!.getAttribute("sandbox")).toBe("allow-scripts");
       expect(iframe!.getAttribute("sandbox") || "").not.toContain("allow-same-origin");
     });
-
     it("each of the 4 first-party types routes through the dispatch table and renders its bespoke renderer (no regression)", () => {
       const cases: { type: string; props: Record<string, unknown>; testid: string }[] = [
         { type: "user_stories", props: { userStoryContent: "# S" }, testid: "user-story-preview" },
@@ -231,7 +227,6 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
         unmount();
       }
     });
-
     it("a brand-new (unmapped) workflow type with a markdown deliverable routes generically with ZERO first-party branch", () => {
       // SC-001 dividend: a workflow the FE has never heard of still renders via
       // the mimetype-keyed table — no per-workflow-name branch needed.
@@ -245,7 +240,6 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
       expect(screen.getByTestId("markdown-preview")).toBeInTheDocument();
     });
   });
-
   // ─── BUG-008 — reopened generic deliverable survives a STALE workflowType ─────
   // On a terminal reopen the `isRunning`-gated workflowType binder never fires, so
   // `workflowType` sits at the stale "user_stories" default → `isKnownRenderType`
@@ -266,7 +260,6 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
           genericDeliverable={{ mimetype: "text/html", filename: "reopen.html", content: HTML_DELIVERABLE }}
         />,
       );
-
       const iframe = container.querySelector("iframe");
       expect(iframe).not.toBeNull();
       // P18 contract preserved: exactly allow-scripts, never same-origin.
@@ -275,7 +268,6 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
       expect(iframe!.getAttribute("srcdoc")).toContain("Custom Output");
       expect(screen.queryByText(/output will appear here/i)).not.toBeInTheDocument();
     });
-
     it("stale workflowType='user_stories' + empty typed content + text/markdown generic → MarkdownPreview, no iframe", () => {
       const { container } = render(
         <PreviewPanel
@@ -288,7 +280,6 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
           genericDeliverable={{ mimetype: "text/markdown", content: "# Hi\n\nbody" }}
         />,
       );
-
       expect(screen.getByTestId("markdown-preview")).toBeInTheDocument();
       expect(container.querySelector("iframe")).toBeNull();
       expect(screen.queryByText(/output will appear here/i)).not.toBeInTheDocument();

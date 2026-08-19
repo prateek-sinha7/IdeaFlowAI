@@ -52,12 +52,15 @@ steps:
   strategy: single_shot
   gates: []
 - agent: app-code-generator
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: app-feature-implementation
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: app-infra-generator
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
   post_step: api_prefix_audit
@@ -65,12 +68,14 @@ steps:
   strategy: single_shot
   gates: []
 - agent: app-test-implementation
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: app-test-compliance
   strategy: single_shot
   gates: []
 - agent: app-devops
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: app-sdlc-governance

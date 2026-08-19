@@ -1,14 +1,14 @@
 ---
 name: Presenter Mode Deck
-description: 演讲者模式专用 deck — tokyo-night 默认主题，5 套主题 T 键切换，每页带 150-300 字逐字稿示例（<aside class="notes">），按 S 打开 popup（CURRENT / NEXT / SCRIPT / TIMER 四张磁吸卡片）。用于技术分享、公开演讲、课程讲解，怕忘词或要提词器的场景。
+description: Dedicated presenter-mode deck — tokyo-night default theme, 5 theme presets cycled with the T key, every slide ships a 150-300 word verbatim script sample (<aside class="notes">), press S to open the popup (CURRENT / NEXT / SCRIPT / TIMER four magnetic cards). For tech talks, public speaking, course lectures — anyone who fears blanking on stage or wants a teleprompter.
 triggers:
   - "presenter mode"
-  - "演讲者模式"
-  - "逐字稿"
+  - "presenter mode template"
+  - "verbatim script"
   - "speaker notes"
-  - "提词器"
+  - "teleprompter"
   - "presenter view"
-  - "演讲"
+  - "public speaking deck"
 od:
   mode: deck
   scenario: engineering
@@ -21,9 +21,9 @@ od:
     requires: false
   speaker_notes: true
   animations: true
-  example_prompt: "用 html-ppt-presenter-mode 模板做一份带逐字稿的演讲 PPT。先确认：演讲主题、时长（每页 2-3 分钟）、目标听众。然后帮我每页写 150-300 字的口语化逐字稿（不是讲稿，是提示信号），按 S 能打开 presenter 弹窗。"
+  example_prompt: "Use the html-ppt-presenter-mode template to build a talk deck with a verbatim script. First confirm: the talk's topic, duration (2-3 minutes per slide), and target audience. Then write a 150-300 word conversational verbatim script for each slide (not a read-aloud script, a prompt signal), openable with S as a presenter popup."
 ---
-# HTML PPT · Presenter Mode (演讲者模式)
+# HTML PPT · Presenter Mode
 
 A focused entry point into the [`html-ppt`](../html-ppt/SKILL.md) master skill that lands the user directly on the **`presenter-mode-reveal`** full-deck template.
 

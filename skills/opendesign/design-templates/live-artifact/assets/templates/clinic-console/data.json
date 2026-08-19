@@ -120,7 +120,7 @@
       { "av_class": "pink",   "name": "Dental staff meetup",         "time": "3:00 pm"  },
       { "av_class": "violet", "name": "Ola Muhammad intake",          "time": "4:00 pm"  }
     ],
-    "add_label": "＋ Add item"
+    "add_label": "+ Add item"
   },
 
   "donut": {

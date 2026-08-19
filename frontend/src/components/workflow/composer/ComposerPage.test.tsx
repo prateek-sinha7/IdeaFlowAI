@@ -10,7 +10,8 @@
  *
  * These tests pin the `<behavior>` cases:
  *   - full-page surface: eyebrow "Custom workflow · Composer" + Save affordances
- *   - Simple ⇄ Canvas toggle (Simple active → agent rows; Canvas → node-graph, 41-05)
+ *   - Simple ⇄ Canvas toggle (Canvas active by default → node-graph, 41-05;
+ *     Simple → agent rows)
  *   - identity card: Name + Description editable, Deliverable-type READ-ONLY (ND-AH)
  *   - agent rows: index · avatar · name · Core badge (getRole) · role · inline model
  *     picker · Validator/Gate/Retry chips · Custom-prompt · remove; reorder
@@ -24,7 +25,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within, waitFor } from "@testing-library/react";
+import { renderWithProviders, screen, within, waitFor } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -79,8 +80,77 @@ const PALETTE: CapabilitiesPalette = {
   ],
 };
 
+const TEST_AGENTS = [
+  {
+    id: "domain-analyst",
+    name: "Domain Discovery Agent",
+    role: "Market & Persona Research",
+    description: "Research market and personas",
+    pipeline_type: "user_stories",
+    order: 1,
+    icon: "🔍",
+    estimated_duration: 60,
+    has_skill: false,
+  },
+  {
+    id: "epic-architect",
+    name: "Backlog Architecture Agent",
+    role: "Epic Design",
+    description: "Design epics",
+    pipeline_type: "user_stories",
+    order: 2,
+    icon: "🏗️",
+    estimated_duration: 60,
+    has_skill: false,
+  },
+  {
+    id: "story-estimator",
+    name: "Story Estimator Agent",
+    role: "Story Estimation",
+    description: "Estimate stories",
+    pipeline_type: "user_stories",
+    order: 3,
+    icon: "📊",
+    estimated_duration: 50,
+    has_skill: false,
+  },
+  {
+    id: "nfr-specialist",
+    name: "NFR Specialist Agent",
+    role: "Non-Functional Requirements",
+    description: "Add non-functional requirements",
+    pipeline_type: "user_stories",
+    order: 4,
+    icon: "⚙️",
+    estimated_duration: 40,
+    has_skill: false,
+  },
+  {
+    id: "backlog-reviewer",
+    name: "Backlog Reviewer Agent",
+    role: "Quality Review",
+    description: "Review backlog quality",
+    pipeline_type: "user_stories",
+    order: 5,
+    icon: "✅",
+    estimated_duration: 40,
+    has_skill: false,
+  },
+  {
+    id: "backlog-compiler",
+    name: "Backlog Compiler Agent",
+    role: "Final Compilation",
+    description: "Compile final backlog",
+    pipeline_type: "user_stories",
+    order: 6,
+    icon: "📋",
+    estimated_duration: 50,
+    has_skill: false,
+  },
+];
+
 function renderComposer(props: Record<string, unknown> = {}) {
-  return render(
+  return renderWithProviders(
     <SkillsHooksProvider>
       <ComposerPage
         workflowType={"user_stories" as WorkflowType}
@@ -88,6 +158,17 @@ function renderComposer(props: Record<string, unknown> = {}) {
         {...props}
       />
     </SkillsHooksProvider>,
+    {
+      preloadedState: {
+        agents: {
+          agents: TEST_AGENTS,
+          totalCount: TEST_AGENTS.length,
+          pipelines: {},
+          status: "succeeded",
+          error: null,
+        },
+      },
+    },
   );
 }
 
@@ -99,32 +180,35 @@ beforeEach(() => {
 describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
   it("renders as a full-page surface with the Composer eyebrow + Save affordances", () => {
     renderComposer();
-    expect(screen.getByText(/Custom workflow · Composer/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Save draft/i })).toBeInTheDocument();
+    expect(screen.getByText(/User Stories · Composer/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Save workflow/i })).toBeInTheDocument();
     expect(
       screen.getAllByRole("button", { name: /Save workflow/i }).length,
     ).toBeGreaterThanOrEqual(1);
   });
 
-  it("shows a Simple ⇄ Canvas toggle — Simple active renders agent rows, Canvas mounts the node-graph", async () => {
+  it("shows a Simple ⇄ Canvas toggle — Canvas active by default mounts the node-graph, Simple renders agent rows", async () => {
     renderComposer();
     const simple = screen.getByRole("button", { name: /^Simple$/ });
     const canvas = screen.getByRole("button", { name: /^Canvas$/ });
     expect(simple).toBeInTheDocument();
     expect(canvas).toBeInTheDocument();
 
-    // Simple active → the first seeded agent row is visible.
-    expect(screen.getByText("Domain Discovery Agent")).toBeInTheDocument();
-
-    // Canvas → the hand-rolled node-graph mounts (41-05); the Simple agent ROWS
-    // disappear (the node-graph carries the agents as canvas nodes instead).
-    await userEvent.click(canvas);
+    // Canvas active by default → the hand-rolled node-graph mounts (41-05);
+    // the Simple agent ROWS are not present yet.
     expect(screen.getByTestId("canvas-view")).toBeInTheDocument();
     expect(screen.queryByTestId("agent-row-domain-analyst")).not.toBeInTheDocument();
+
+    // Simple → the flat agent-row list renders, the node-graph unmounts.
+    await userEvent.click(simple);
+    expect(screen.getByText("Domain Discovery Agent")).toBeInTheDocument();
+    expect(screen.queryByTestId("canvas-view")).not.toBeInTheDocument();
   });
 
   it("identity card: Name + Description are editable, Deliverable-type is READ-ONLY (ND-AH)", async () => {
     renderComposer();
+    // Identity card is Simple-view content; Canvas is the default view.
+    await userEvent.click(screen.getByRole("button", { name: /^Simple$/ }));
     // Name is an editable text control.
     const name = screen.getByLabelText(/^Name$/i);
     expect(name).toBeInTheDocument();
@@ -145,8 +229,10 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
     expect(deliverable.querySelector("input")).toBeNull();
   });
 
-  it("each agent row renders index, name, role, Core badge (getRole), model picker, override chips, custom prompt + remove", () => {
+  it("each agent row renders index, name, role, Core badge (getRole), model picker, override chips, custom prompt + remove", async () => {
     renderComposer();
+    // Agent rows are Simple-view content; Canvas is the default view.
+    await userEvent.click(screen.getByRole("button", { name: /^Simple$/ }));
     const firstRow = screen.getByTestId("agent-row-domain-analyst");
     // index (01) + name + role
     expect(within(firstRow).getByText("01")).toBeInTheDocument();
@@ -160,12 +246,14 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
     expect(within(firstRow).getByText("Validator")).toBeInTheDocument();
     expect(within(firstRow).getByText("Gate")).toBeInTheDocument();
     expect(within(firstRow).getByText("Retry")).toBeInTheDocument();
-    // Custom prompt affordance
-    expect(within(firstRow).getByText(/Custom prompt/i)).toBeInTheDocument();
+    // Configuration affordance
+    expect(within(firstRow).getByText(/Configure/i)).toBeInTheDocument();
   });
 
   it("reorder moves an agent within pipelineAgents (Move down swaps neighbours)", async () => {
     renderComposer();
+    // Agent rows are Simple-view content; Canvas is the default view.
+    await userEvent.click(screen.getByRole("button", { name: /^Simple$/ }));
     const namesBefore = screen.getAllByTestId(/^agent-row-/).map((r) => r.getAttribute("data-testid"));
     // The 2nd and 3rd agents (epic-architect, story-estimator) are reorderable.
     await userEvent.click(screen.getByRole("button", { name: /Move Backlog Architecture Agent down/i }));
@@ -177,8 +265,10 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
     );
   });
 
-  it("Summary rail: agents + review-gate counts + strategy + LIVE est. duration, NO est. cost (ND-AG), Save-to-catalogue primary", () => {
+  it("Summary rail: agents + review-gate counts + strategy + LIVE est. duration, NO est. cost (ND-AG), Save-to-catalogue primary", async () => {
     renderComposer();
+    // SummaryRail is Simple-view content; Canvas is the default view.
+    await userEvent.click(screen.getByRole("button", { name: /^Simple$/ }));
     const rail = screen.getByTestId("composer-summary-rail");
     // agent count (6 user_stories agents)
     expect(within(rail).getByText("6")).toBeInTheDocument();
@@ -190,17 +280,18 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
     expect(within(rail).getByText("~5m")).toBeInTheDocument();
     // ND-AG: NO fabricated est. cost anywhere on the rail.
     expect(within(rail).queryByText(/Est\. cost/i)).toBeNull();
-    // Primary action = Save to catalogue.
-    expect(within(rail).getByRole("button", { name: /Save to catalogue/i })).toBeInTheDocument();
-    // Run once is present but inert here (wired in 41-06).
-    expect(within(rail).getByRole("button", { name: /Run once/i })).toBeInTheDocument();
+    // Save and Run buttons are now in the ComposerPage header (41-04), not in the rail.
+    expect(screen.getByRole("button", { name: /Save workflow/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Run once/i })).toBeInTheDocument();
   });
 
-  it("edit-from-My-Workflows pre-loads the saved agents + name (shared data model)", () => {
+  it("edit-from-My-Workflows pre-loads the saved agents + name (shared data model)", async () => {
     renderComposer({
       initialAgentIds: ["domain-analyst", "epic-architect"],
       initialName: "Saved flow",
     });
+    // Identity card + agent rows are Simple-view content; Canvas is the default view.
+    await userEvent.click(screen.getByRole("button", { name: /^Simple$/ }));
     expect(screen.getByLabelText(/^Name$/i)).toHaveValue("Saved flow");
     expect(screen.getByTestId("agent-row-domain-analyst")).toBeInTheDocument();
     expect(screen.getByTestId("agent-row-epic-architect")).toBeInTheDocument();
@@ -211,11 +302,8 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
   it("Save to catalogue persists via the owner-scoped createUserWorkflow (reused NameWorkflowModal path)", async () => {
     mockCreateUserWorkflow.mockResolvedValue({ id: "wf-1" });
     renderComposer({ initialName: "Comp flow" });
-    const rail = screen.getByTestId("composer-summary-rail");
-    await userEvent.click(within(rail).getByRole("button", { name: /Save to catalogue/i }));
-    // NameWorkflowModal opens (its "Workflow name" field); confirm via its Save.
-    await screen.findByText(/Workflow name/i);
-    await userEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    // Click the "Save workflow" button in the header
+    await userEvent.click(screen.getByRole("button", { name: /Save workflow/i }));
     await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalled());
     const payload = mockCreateUserWorkflow.mock.calls[0][1] as { base_pipeline_type: string; agent_ids: string[] };
     expect(payload.base_pipeline_type).toBe("user_stories");
@@ -235,14 +323,14 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
       initialAgentIds: ["epic-architect", "domain-analyst"],
       initialName: "Reorder flow",
     });
+    // Agent rows are Simple-view content; Canvas is the default view.
+    await userEvent.click(screen.getByRole("button", { name: /^Simple$/ }));
     // Before save: rows are in the sent (consumer-first) order.
     const before = screen.getAllByTestId(/^agent-row-/).map((r) => r.getAttribute("data-testid"));
     expect(before).toEqual(["agent-row-epic-architect", "agent-row-domain-analyst"]);
 
-    const rail = screen.getByTestId("composer-summary-rail");
-    await userEvent.click(within(rail).getByRole("button", { name: /Save to catalogue/i }));
-    await screen.findByText(/Workflow name/i);
-    await userEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    // Click the "Save workflow" button in the header
+    await userEvent.click(screen.getByRole("button", { name: /Save workflow/i }));
     await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalled());
 
     // After save: rows flip to the persisted producer-first order.
@@ -259,10 +347,8 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
       "Agent 'swot-analyst' consumes 'market-research-agent' but no agent in the workflow produces it.";
     mockCreateUserWorkflow.mockRejectedValue(new Error(msg));
     renderComposer({ initialName: "Bad flow" });
-    const rail = screen.getByTestId("composer-summary-rail");
-    await userEvent.click(within(rail).getByRole("button", { name: /Save to catalogue/i }));
-    await screen.findByText(/Workflow name/i);
-    await userEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    // Click the "Save workflow" button in the header
+    await userEvent.click(screen.getByRole("button", { name: /Save workflow/i }));
     expect(await screen.findByText(msg)).toBeInTheDocument();
   });
 });

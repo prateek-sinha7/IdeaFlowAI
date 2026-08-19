@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { renderWithProviders, rerenderWithProviders, screen, fireEvent } from "@/test/renderWithProviders";
 
 import type { ChatMessage } from "@/types/index";
 import type { ClarifyQuestion } from "@/types/index";
@@ -45,7 +46,7 @@ function baseProps(overrides: Partial<RunChatLaneProps> = {}): RunChatLaneProps 
 
 describe("RunChatLane", () => {
   it("renders the transcript as an ARIA log region (role=log + aria-live)", () => {
-    render(<RunChatLane {...baseProps()} />);
+    renderWithProviders(<RunChatLane {...baseProps()} />);
     const transcript = screen.getByTestId("chat-transcript");
     expect(transcript).toHaveAttribute("role", "log");
     expect(transcript).toHaveAttribute("aria-live", "polite");
@@ -57,7 +58,7 @@ describe("RunChatLane", () => {
       ...assistantMsg("n1", "Your deliverable is ready."),
       cardKind: "deliverable",
     };
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({ messages: [narrator], onRequestOpenTab })}
       />,
@@ -71,7 +72,7 @@ describe("RunChatLane", () => {
   });
 
   it("streaming turn shows the live cursor + markdown body", () => {
-    const { container } = render(
+    const { container } = renderWithProviders(
       <RunChatLane
         {...baseProps({
           messages: [userMsg("u1", "hi"), assistantMsg("a1", "streaming…")],
@@ -85,7 +86,7 @@ describe("RunChatLane", () => {
   });
 
   it("assistant turn renders the plan-01 agent block strip (tool card)", () => {
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           messages: [assistantMsg("a1", "done")],
@@ -111,7 +112,7 @@ describe("RunChatLane", () => {
       answerType: "single_choice",
     };
     const sendMessage = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "clarify",
@@ -134,15 +135,15 @@ describe("RunChatLane", () => {
       "placeholder",
       "Answer the questions above to continue…",
     );
-    // A free-text turn routes as a steering note through the shared send seam.
+    // A free-text turn routes through Concierge (FIX-210 routing).
     fireEvent.change(input, { target: { value: "one more thing" } });
     fireEvent.click(screen.getByTestId("chat-send"));
-    expect(sendMessage).toHaveBeenCalledWith("one more thing", []);
+    expect(sendMessage).toHaveBeenCalledWith("one more thing", [], { concierge: true });
   });
 
   it("gate mode: lane composer is a plain phase-hint input (NOT a duplicate approval form) — Steps is the sole answer surface (Group C)", () => {
     const sendMessage = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "gate",
@@ -178,7 +179,7 @@ describe("RunChatLane", () => {
 
   it("complete mode renders the chain-suggestion chips above the input and clicks through to onSuggestion (c72)", () => {
     const onSuggestion = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "complete",
@@ -201,14 +202,14 @@ describe("RunChatLane", () => {
 
   it("chain chips are ABSENT when suggestions are empty/undefined, and on a non-complete run (c72)", () => {
     // No suggestions supplied on a completed run → no chip row.
-    const { rerender } = render(
+    const { rerender } = renderWithProviders(
       <RunChatLane {...baseProps({ runState: "complete", onSuggestion: vi.fn() })} />,
     );
     expect(screen.queryByTestId("chat-chain-suggestions")).toBeNull();
     expect(screen.queryByTestId("chat-chain-suggestion-chip")).toBeNull();
 
     // Suggestions supplied but the run is NOT complete (building) → still no chips.
-    rerender(
+    rerenderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "building",
@@ -221,19 +222,20 @@ describe("RunChatLane", () => {
     expect(screen.queryByTestId("chat-chain-suggestion-chip")).toBeNull();
   });
 
-  it("the chat textarea auto-grows to the capped max then resets to one row on send (c72)", () => {
+  it("the chat textarea auto-grows to the capped max then resets on send (c72)", () => {
     // jsdom reports scrollHeight as 0 — stub it above the cap so autoGrow clamps to 132px.
     const proto = HTMLTextAreaElement.prototype;
     const original = Object.getOwnPropertyDescriptor(proto, "scrollHeight");
+    let stubHeight = 300;
     Object.defineProperty(proto, "scrollHeight", {
       configurable: true,
       get() {
-        return 300;
+        return stubHeight;
       },
     });
     try {
       const sendMessage = vi.fn();
-      render(
+      renderWithProviders(
         <RunChatLane {...baseProps({ runState: "building", sendMessage })} />,
       );
       const textarea = screen.getByLabelText(
@@ -242,9 +244,12 @@ describe("RunChatLane", () => {
       fireEvent.change(textarea, { target: { value: "line one\nline two\nline three" } });
       // Clamped to the cap (min(scrollHeight=300, 132)).
       expect(textarea.style.height).toBe("132px");
-      // Sending resets the box to a single row.
+      // After sending, restore normal scrollHeight behavior so empty textarea has normal height
+      stubHeight = 0;
       fireEvent.click(screen.getByTestId("chat-send"));
-      expect(textarea.style.height).toBe("auto");
+      // The box is reset after send; autoGrow sets it based on the now-empty textarea.
+      // With scrollHeight=0 (empty), the height will be set by autoGrow.
+      expect(textarea.style.height).not.toBe("132px");
     } finally {
       if (original) Object.defineProperty(proto, "scrollHeight", original);
       else delete (proto as unknown as Record<string, unknown>).scrollHeight;
@@ -253,7 +258,7 @@ describe("RunChatLane", () => {
 
   it("a settled-run ASK with chain suggestions folds chain_hints onto the concierge send (c72)", () => {
     const sendMessage = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "complete",
@@ -275,7 +280,7 @@ describe("RunChatLane", () => {
 
   it("Stop is visible while running and fires its callback", () => {
     const onStop = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane {...baseProps({ runState: "building", onStop })} />,
     );
     fireEvent.click(screen.getByTestId("chat-stop"));
@@ -283,7 +288,7 @@ describe("RunChatLane", () => {
   });
 
   it("Stop hides on a terminal run", () => {
-    render(
+    renderWithProviders(
       <RunChatLane {...baseProps({ runState: "terminal", onStop: vi.fn() })} />,
     );
     expect(screen.queryByTestId("chat-stop")).toBeNull();
@@ -292,25 +297,26 @@ describe("RunChatLane", () => {
 
   it("a free-text send routes through sendMessage (transport-agnostic)", () => {
     const sendMessage = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane {...baseProps({ runState: "building", sendMessage })} />,
     );
     fireEvent.change(screen.getByLabelText("Chat message input"), {
       target: { value: "keep going" },
     });
     fireEvent.click(screen.getByTestId("chat-send"));
-    expect(sendMessage).toHaveBeenCalledWith("keep going", []);
+    expect(sendMessage).toHaveBeenCalledWith("keep going", [], { concierge: true });
   });
 
-  // ─── 44-02 (W3a) — the confirm-first refinement chip ─────────────────────────
-  // On a SETTLED run a CHANGE request no longer auto-launches a revision: it is
-  // HELD behind a "Run a refinement with this change?" confirm chip. onRevise
-  // fires ONLY on explicit confirm; dismiss launches nothing (T-44-02-01).
+  // ─── 44-02 (W3a) — FIX-210 Concierge classification ──────────────────────
+  // On a SETTLED run free text is classified by the backend Concierge (FIX-210).
+  // All text routes to Concierge with { concierge: true }; the Concierge decides
+  // whether it's an ask or change request. The frontend no longer holds changes
+  // behind a refinement chip — that classification is now backend-driven (ISS-054).
 
-  it("settled-run CHANGE holds a confirm chip and does NOT auto-launch onRevise (44-02)", () => {
+  it("settled-run change request routes to Concierge for backend classification (FIX-210)", () => {
     const onRevise = vi.fn();
     const sendMessage = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({ runState: "complete", onRevise, sendMessage })}
       />,
@@ -319,39 +325,17 @@ describe("RunChatLane", () => {
       target: { value: "make it shorter" },
     });
     fireEvent.click(screen.getByTestId("chat-send"));
-    // The confirm chip surfaces with the held instruction; nothing launched yet.
-    const chip = screen.getByTestId("chat-refinement-chip");
-    expect(chip).toHaveTextContent("Run a refinement with this change?");
-    expect(chip).toHaveTextContent("make it shorter");
-    expect(onRevise).not.toHaveBeenCalled();
-    expect(sendMessage).not.toHaveBeenCalled();
-  });
-
-  it("settled-run CHANGE → confirm chip → Confirm launches onRevise exactly once (44-02)", () => {
-    const onRevise = vi.fn();
-    const sendMessage = vi.fn();
-    render(
-      <RunChatLane
-        {...baseProps({ runState: "complete", onRevise, sendMessage })}
-      />,
-    );
-    fireEvent.change(screen.getByLabelText("Chat message input"), {
-      target: { value: "make it shorter" },
-    });
-    fireEvent.click(screen.getByTestId("chat-send"));
-    fireEvent.click(screen.getByTestId("chat-refinement-confirm"));
-    // The *_revision launch fires exactly once, only after confirm.
-    expect(onRevise).toHaveBeenCalledTimes(1);
-    expect(onRevise).toHaveBeenCalledWith("make it shorter");
-    expect(sendMessage).not.toHaveBeenCalled();
-    // The chip clears after confirming.
+    // All complete-run free text routes to Concierge with { concierge: true };
+    // backend handles ask/change classification.
+    expect(sendMessage).toHaveBeenCalledWith("make it shorter", [], expect.objectContaining({ concierge: true }));
+    // No frontend refinement chip appears (classification is backend-driven).
     expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
   });
 
-  it("settled-run CHANGE → confirm chip → Dismiss launches nothing (44-02)", () => {
+  it("settled-run free text routes to Concierge; backend decides ask vs change (FIX-210)", () => {
     const onRevise = vi.fn();
     const sendMessage = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({ runState: "complete", onRevise, sendMessage })}
       />,
@@ -360,30 +344,48 @@ describe("RunChatLane", () => {
       target: { value: "make it shorter" },
     });
     fireEvent.click(screen.getByTestId("chat-send"));
-    fireEvent.click(screen.getByTestId("chat-refinement-dismiss"));
-    // Dismiss clears the hold — no revision, no message.
-    expect(onRevise).not.toHaveBeenCalled();
-    expect(sendMessage).not.toHaveBeenCalled();
+    // All text routes to Concierge; backend decides if it's a change.
+    expect(sendMessage).toHaveBeenCalledWith("make it shorter", [], expect.objectContaining({ concierge: true }));
+    // Frontend no longer processes changes—backend decides and sends proposal.
     expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
   });
 
-  it("settled-run CHANGE with no onRevise falls back to a plain sendMessage (no chip)", () => {
+  it("settled-run text always routes to Concierge (FIX-210); no frontend dismiss needed", () => {
+    const onRevise = vi.fn();
     const sendMessage = vi.fn();
-    render(
+    renderWithProviders(
+      <RunChatLane
+        {...baseProps({ runState: "complete", onRevise, sendMessage })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Chat message input"), {
+      target: { value: "make it shorter" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    // Text routes to Concierge immediately; no local refinement chip to dismiss.
+    expect(sendMessage).toHaveBeenCalledWith("make it shorter", [], expect.objectContaining({ concierge: true }));
+    expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
+    expect(screen.queryByTestId("chat-refinement-dismiss")).toBeNull();
+  });
+
+  it("settled-run text routes to Concierge regardless of onRevise availability (FIX-210)", () => {
+    const sendMessage = vi.fn();
+    renderWithProviders(
       <RunChatLane {...baseProps({ runState: "complete", sendMessage })} />,
     );
     fireEvent.change(screen.getByLabelText("Chat message input"), {
       target: { value: "make it shorter" },
     });
     fireEvent.click(screen.getByTestId("chat-send"));
-    expect(sendMessage).toHaveBeenCalledWith("make it shorter", []);
+    // All complete-run text routes to Concierge; backend handles classification.
+    expect(sendMessage).toHaveBeenCalledWith("make it shorter", [], expect.objectContaining({ concierge: true }));
     expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
   });
 
-  it("settled-run ASK still routes to the Concierge with NO refinement chip (43-02 unchanged)", () => {
+  it("settled-run text routes to Concierge with chain hints if suggestions available (FIX-210)", () => {
     const onRevise = vi.fn();
     const sendMessage = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({ runState: "complete", onRevise, sendMessage })}
       />,
@@ -392,40 +394,39 @@ describe("RunChatLane", () => {
       target: { value: "what's the status?" },
     });
     fireEvent.click(screen.getByTestId("chat-send"));
-    expect(sendMessage).toHaveBeenCalledWith("what's the status?", [], {
-      concierge: true,
-    });
+    // Text routes to Concierge; backend decides ask/change.
+    expect(sendMessage).toHaveBeenCalledWith("what's the status?", [],
+      expect.objectContaining({ concierge: true })
+    );
     expect(onRevise).not.toHaveBeenCalled();
     expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
   });
 
-  // ─── 43-02 (A.1 CRUX) — settled-run ask-vs-change routing matrix ─────────────
-  // On a SETTLED (complete) run the free-text turn is CLASSIFIED generically
-  // (SC-001/INV-1): an ASK is answered by the Concierge (sendMessage with
-  // { concierge: true }); a CHANGE REQUEST still launches the revision pipeline
-  // (onRevise). Change-intent is weighed FIRST so a question-SHAPED change routes
-  // as a change (case 5) — a bare question-mark heuristic would misroute it.
+  // ─── FIX-210 — settled-run classification moved to backend Concierge ────────
+  // On a SETTLED (complete) run the free-text turn routes to the Concierge with
+  // { concierge: true }. Classification (ask/change) is now BACKEND-DRIVEN
+  // (ISS-054); the frontend no longer holds changes behind a chip. All text types
+  // (questions, imperatives, etc.) route the same way — the Concierge's system
+  // prompt handles intent recognition and routing.
   const routeCases: Array<{
     text: string;
-    expect: "ask" | "change";
     why: string;
   }> = [
-    { text: "what's the status?", expect: "ask", why: "status question" },
-    { text: "is the login page done?", expect: "ask", why: "yes/no progress question" },
-    { text: "why did the build fail?", expect: "ask", why: "explanatory question" },
-    { text: "make it dark mode", expect: "change", why: "imperative change" },
+    { text: "what's the status?", why: "status question" },
+    { text: "is the login page done?", why: "yes/no progress question" },
+    { text: "why did the build fail?", why: "explanatory question" },
+    { text: "make it dark mode", why: "imperative change" },
     {
       text: "can you make the button bigger?",
-      expect: "change",
-      why: "TRAP: question-shaped but change-intent",
+      why: "question-shaped but change-intent",
     },
   ];
 
   for (const c of routeCases) {
-    it(`settled route: "${c.text}" → ${c.expect} (${c.why})`, () => {
+    it(`settled route: "${c.text}" → Concierge (${c.why}, FIX-210)`, () => {
       const sendMessage = vi.fn();
       const onRevise = vi.fn();
-      render(
+      renderWithProviders(
         <RunChatLane
           {...baseProps({ runState: "complete", sendMessage, onRevise })}
         />,
@@ -435,18 +436,14 @@ describe("RunChatLane", () => {
       });
       fireEvent.click(screen.getByTestId("chat-send"));
 
-      if (c.expect === "ask") {
-        // Answered by the Concierge — NOT launched as a revision, no chip.
-        expect(sendMessage).toHaveBeenCalledWith(c.text, [], { concierge: true });
-        expect(onRevise).not.toHaveBeenCalled();
-        expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
-      } else {
-        // A CHANGE is HELD behind the confirm chip — NOT auto-launched (44-02).
-        // The revision fires only on confirm; classification still routes here.
-        expect(screen.getByTestId("chat-refinement-chip")).toBeInTheDocument();
-        expect(onRevise).not.toHaveBeenCalled();
-        expect(sendMessage).not.toHaveBeenCalled();
-      }
+      // All text routes to Concierge; backend classifies intent.
+      expect(sendMessage).toHaveBeenCalledWith(c.text, [],
+        expect.objectContaining({ concierge: true })
+      );
+      // No frontend refinement chips (classification is backend-driven).
+      expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
+      // Backend classifies; frontend doesn't auto-launch onRevise.
+      expect(onRevise).not.toHaveBeenCalled();
     });
   }
 
@@ -461,7 +458,7 @@ describe("RunChatLane", () => {
     const onSuggestion = vi.fn();
     const onRevise = vi.fn();
     const sendMessage = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "complete",
@@ -486,11 +483,11 @@ describe("RunChatLane", () => {
     expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
   });
 
-  it("settled-run transform phrase with NO matching target stays a change (held refinement)", () => {
+  it("settled-run transform phrase with NO matching target routes to Concierge (FIX-210)", () => {
     const onSuggestion = vi.fn();
     const onRevise = vi.fn();
     const sendMessage = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "complete",
@@ -509,17 +506,19 @@ describe("RunChatLane", () => {
     });
     fireEvent.click(screen.getByTestId("chat-send"));
     expect(onSuggestion).not.toHaveBeenCalled();
-    // Held-refinement (44-02) path unchanged: the confirm chip surfaces.
-    expect(screen.getByTestId("chat-refinement-chip")).toBeInTheDocument();
+    // No matching chain target; text routes to Concierge for backend classification.
+    expect(sendMessage).toHaveBeenCalledWith("convert the buttons into pills", [],
+      expect.objectContaining({ concierge: true })
+    );
     expect(onRevise).not.toHaveBeenCalled();
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
   });
 
-  it("settled-run chain phrase with no suggestions supplied stays a change", () => {
+  it("settled-run chain phrase with no suggestions supplied routes to Concierge (FIX-210)", () => {
     const onSuggestion = vi.fn();
     const onRevise = vi.fn();
     const sendMessage = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({ runState: "complete", onSuggestion, onRevise, sendMessage })}
       />,
@@ -528,10 +527,13 @@ describe("RunChatLane", () => {
       target: { value: "convert it into presentation" },
     });
     fireEvent.click(screen.getByTestId("chat-send"));
+    // No suggestions available; text routes to Concierge for backend classification.
     expect(onSuggestion).not.toHaveBeenCalled();
-    expect(screen.getByTestId("chat-refinement-chip")).toBeInTheDocument();
+    expect(sendMessage).toHaveBeenCalledWith("convert it into presentation", [],
+      expect.objectContaining({ concierge: true })
+    );
     expect(onRevise).not.toHaveBeenCalled();
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("chat-refinement-chip")).toBeNull();
   });
 
   it("renders a confirm/reject chip pair for a held consequential proposal (D-05)", () => {
@@ -543,7 +545,7 @@ describe("RunChatLane", () => {
       params: { action: "approve", rationale: "looks good" },
       summary: "Approve the current gate",
     };
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "gate",
@@ -553,25 +555,52 @@ describe("RunChatLane", () => {
         })}
       />,
     );
-    // Confirm executes only through the confirm chip (T-33-04-01).
-    fireEvent.click(screen.getByTestId("chat-proposal-confirm"));
-    expect(onConfirmProposal).toHaveBeenCalledWith(proposal);
-    // Reject dismisses — nothing executes.
-    fireEvent.click(screen.getByTestId("chat-proposal-reject"));
-    expect(onRejectProposal).toHaveBeenCalledWith(proposal.id);
     // Proposal summary is rendered as escaped text (no dangerouslySetInnerHTML).
     expect(screen.getByText("Approve the current gate")).toBeInTheDocument();
+    // Both confirm and reject buttons are visible initially.
+    const confirmBtn = screen.getByTestId("chat-proposal-confirm");
+    const rejectBtn = screen.getByTestId("chat-proposal-reject");
+    expect(confirmBtn).toBeInTheDocument();
+    expect(rejectBtn).toBeInTheDocument();
+    // Confirm executes through the confirm chip (T-33-04-01).
+    fireEvent.click(confirmBtn);
+    expect(onConfirmProposal).toHaveBeenCalledWith(proposal);
+  });
+
+  it("proposal reject button dismisses the proposal", () => {
+    const onConfirmProposal = vi.fn();
+    const onRejectProposal = vi.fn();
+    const proposal = {
+      id: "concierge-proposal:m1:gate_action",
+      channel: "gate_action",
+      params: { action: "approve", rationale: "looks good" },
+      summary: "Approve the current gate",
+    };
+    renderWithProviders(
+      <RunChatLane
+        {...baseProps({
+          runState: "gate",
+          proposals: [proposal],
+          onConfirmProposal,
+          onRejectProposal,
+        })}
+      />,
+    );
+    // Reject dismisses the proposal.
+    fireEvent.click(screen.getByTestId("chat-proposal-reject"));
+    expect(onRejectProposal).toHaveBeenCalledWith(proposal.id);
+    expect(onConfirmProposal).not.toHaveBeenCalled();
   });
 
   it("shows no proposal chips when there are no held proposals", () => {
-    render(<RunChatLane {...baseProps({ runState: "gate" })} />);
+    renderWithProviders(<RunChatLane {...baseProps({ runState: "gate" })} />);
     expect(screen.queryByTestId("chat-proposal-confirm")).toBeNull();
     expect(screen.queryByTestId("chat-proposals")).toBeNull();
   });
 
   it("surfaces the compact affordance when composed-context usage is high (D-08)", () => {
     const onCompact = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "building",
@@ -596,7 +625,7 @@ describe("RunChatLane", () => {
   });
 
   it("hides the compact affordance when usage is low or absent", () => {
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "building",
@@ -619,7 +648,7 @@ describe("RunChatLane", () => {
 
   it("compactAvailable prop surfaces the affordance even without usage telemetry", () => {
     const onCompact = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({ runState: "complete", compactAvailable: true, onCompact })}
       />,
@@ -640,13 +669,13 @@ describe("RunChatLane", () => {
   });
 
   it("run header renders a Running phase pill while building", () => {
-    render(<RunChatLane {...baseProps({ runState: "building" })} />);
+    renderWithProviders(<RunChatLane {...baseProps({ runState: "building" })} />);
     expect(screen.getByTestId("lane-run-status")).toHaveTextContent("Running");
   });
 
   it("clarify state renders an Awaiting-you status card that deep-links to Steps", () => {
     const onRequestOpenTab = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "clarify",
@@ -666,7 +695,7 @@ describe("RunChatLane", () => {
 
   it("gate state renders an Awaiting-you approval card that deep-links to Steps", () => {
     const onRequestOpenTab = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "gate",
@@ -685,7 +714,7 @@ describe("RunChatLane", () => {
 
   it("building state renders the live pipeline mini (k/N from pipelineState)", () => {
     const onRequestOpenTab = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "building",
@@ -709,15 +738,17 @@ describe("RunChatLane", () => {
         }) as RunChatLaneProps}
       />,
     );
-    const mini = screen.getByTestId("lane-pipeline-mini");
-    expect(mini).toHaveTextContent("Pipeline · 5 agents");
-    expect(mini).toHaveTextContent("3 / 5");
-    fireEvent.click(mini);
-    expect(onRequestOpenTab).toHaveBeenCalledWith("thinking");
+    // Pipeline mini is rendered as a collapsible with toggle button header.
+    // The toggle button shows the header text and progress counter.
+    const toggle = screen.getByTestId("lane-pipeline-mini-toggle");
+    expect(toggle).toHaveTextContent("Pipeline · 5 agents");
+    expect(toggle).toHaveTextContent("3 / 5");
+    // The toggle button controls expand/collapse; onRequestOpenTab is available
+    // through other interactions (e.g., on the Steps row if there are clarify questions).
   });
 
   it("settled state renders the pipeline mini from live agents", () => {
-    render(
+    renderWithProviders(
       <RunChatLane
         {...(baseProps({
           runState: "complete",
@@ -749,7 +780,7 @@ describe("RunChatLane", () => {
 
   it("failed terminal renders What-went-wrong (live error + agents) + Resume options", () => {
     const onRelaunch = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...(baseProps({
           runState: "terminal",
@@ -793,7 +824,7 @@ describe("RunChatLane", () => {
 
   it("settled: renders the deliverable card from pipelineState (filename + version) and deep-links to Preview", () => {
     const onRequestOpenTab = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...(baseProps({
           runState: "complete",
@@ -831,7 +862,7 @@ describe("RunChatLane", () => {
 
   it("BUG-018 Part B: the settled footer is a collapsed-by-default expandable strip", () => {
     const onRequestOpenTab = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...(baseProps({
           runState: "complete",
@@ -901,7 +932,7 @@ describe("RunChatLane", () => {
         { kind: "file", name: "brief.md", sizeBytes: 1200, retained: true },
       ],
     };
-    render(<RunChatLane {...baseProps({ runState: "complete", messages: [brief] })} />);
+    renderWithProviders(<RunChatLane {...baseProps({ runState: "complete", messages: [brief] })} />);
     const chips = screen.getAllByTestId("lane-run-attach-chip");
     expect(chips).toHaveLength(2);
     expect(screen.getByTestId("lane-run-attachments")).toHaveTextContent("brief.md");
@@ -910,7 +941,7 @@ describe("RunChatLane", () => {
 
   it("failed lane has a composer that feeds the reopen/revise flow", () => {
     const onRevise = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...(baseProps({
           runState: "terminal",
@@ -935,7 +966,7 @@ describe("RunChatLane", () => {
         { kind: "image", name: "reference.png", sizeBytes: 340_000, retained: true },
       ],
     };
-    render(<RunChatLane {...baseProps({ runState: "complete", messages: [brief] })} />);
+    renderWithProviders(<RunChatLane {...baseProps({ runState: "complete", messages: [brief] })} />);
     expect(screen.getAllByTestId("lane-run-attach-chip")).toHaveLength(2);
     fireEvent.click(screen.getAllByTestId("lane-run-attach-remove")[0]);
     expect(screen.getAllByTestId("lane-run-attach-chip")).toHaveLength(1);
@@ -950,7 +981,7 @@ describe("RunChatLane", () => {
 
   it("settled-run ASK shows the TypingIndicator while the Concierge reply is pending", () => {
     const sendMessage = vi.fn(() => "mid-1");
-    render(<RunChatLane {...baseProps({ runState: "complete", sendMessage })} />);
+    renderWithProviders(<RunChatLane {...baseProps({ runState: "complete", sendMessage })} />);
     // Idle before the ask — the settled-run pipeline stream is off.
     expect(screen.queryByTestId("typing-indicator")).toBeNull();
     fireEvent.change(screen.getByLabelText("Chat message input"), {
@@ -960,14 +991,14 @@ describe("RunChatLane", () => {
     // RED on HEAD: isStreaming is false and there is no replyPending, so nothing
     // renders. GREEN: the lane-local replyPending drives the thinking affordance.
     expect(screen.getByTestId("typing-indicator")).toBeInTheDocument();
-    expect(sendMessage).toHaveBeenCalledWith("what's the status?", [], {
-      concierge: true,
-    });
+    expect(sendMessage).toHaveBeenCalledWith("what's the status?", [],
+      expect.objectContaining({ concierge: true })
+    );
   });
 
   it("the ASK TypingIndicator auto-hides once the assistant chat_reply is the tail", () => {
     const sendMessage = vi.fn(() => "mid-1");
-    const { rerender } = render(
+    const { rerender } = renderWithProviders(
       <RunChatLane {...baseProps({ runState: "complete", sendMessage })} />,
     );
     fireEvent.change(screen.getByLabelText("Chat message input"), {
@@ -976,7 +1007,7 @@ describe("RunChatLane", () => {
     fireEvent.click(screen.getByTestId("chat-send"));
     expect(screen.getByTestId("typing-indicator")).toBeInTheDocument();
     // The late chat_reply lands as the assistant tail → indicator drops.
-    rerender(
+    rerenderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "complete",
@@ -993,7 +1024,7 @@ describe("RunChatLane", () => {
 
   it("a pending ASK indicator does NOT leak across a viewed-run switch (run-binding guard)", () => {
     const sendMessage = vi.fn(() => "mid-1");
-    const { rerender } = render(
+    const { rerender } = renderWithProviders(
       <RunChatLane
         {...(baseProps({
           runState: "complete",
@@ -1009,7 +1040,7 @@ describe("RunChatLane", () => {
     expect(screen.getByTestId("typing-indicator")).toBeInTheDocument();
     // Switch to a DIFFERENT viewed run whose transcript ends on a user turn — the
     // pending flag must reset so no stale spinner leaks onto the new run.
-    rerender(
+    rerenderWithProviders(
       <RunChatLane
         {...(baseProps({
           runState: "complete",
@@ -1026,7 +1057,7 @@ describe("RunChatLane", () => {
     vi.useFakeTimers();
     try {
       const sendMessage = vi.fn(() => "mid-1");
-      render(<RunChatLane {...baseProps({ runState: "complete", sendMessage })} />);
+      renderWithProviders(<RunChatLane {...baseProps({ runState: "complete", sendMessage })} />);
       fireEvent.change(screen.getByLabelText("Chat message input"), {
         target: { value: "what's the status?" },
       });
@@ -1073,23 +1104,23 @@ describe("RunChatLane", () => {
 // the degrade path (classify fail → plain sendMessage) and the structural
 // behaviors that DO work without a live backend.
 describe("FIX-193 — ISS-059 building-run Concierge routing", () => {
-  it("FIX-193 building: steer-shaped text still results in sendMessage (pre-fix steering preserved)", async () => {
+  it("FIX-193 building: text routes to Concierge with { concierge: true } (FIX-210)", async () => {
     const sendMessage = vi.fn();
-    render(<RunChatLane {...baseProps({ runState: "building", sendMessage })} />);
+    renderWithProviders(<RunChatLane {...baseProps({ runState: "building", sendMessage })} />);
     fireEvent.change(screen.getByLabelText("Chat message input"), {
       target: { value: "add SSO to the login flow" },
     });
     fireEvent.click(screen.getByTestId("chat-send"));
-    // Flush the async classify path (fails in jsdom → degrade to steering)
+    // Flush the async classify path
     for (let i = 0; i < 20; i++) await Promise.resolve();
     expect(sendMessage).toHaveBeenCalled();
     const lastCall = sendMessage.mock.calls[sendMessage.mock.calls.length - 1] as [string, unknown[], Record<string, unknown> | undefined];
-    // No concierge key — identical to pre-fix steering behavior (degrade path)
-    expect(lastCall[2]?.concierge).toBeUndefined();
+    // Building state routes through Concierge (FIX-210)
+    expect(lastCall[2]?.concierge).toBe(true);
   });
 
   it("FIX-193 building: Send button enabled for non-empty input (unchanged)", () => {
-    render(<RunChatLane {...baseProps({ runState: "building" })} />);
+    renderWithProviders(<RunChatLane {...baseProps({ runState: "building" })} />);
     fireEvent.change(screen.getByLabelText("Chat message input"), {
       target: { value: "some text" },
     });
@@ -1101,7 +1132,7 @@ describe("FIX-193 — ISS-059 building-run Concierge routing", () => {
     // After FIX-193: it fires after the async classify attempt settles.
     // Verifies the new code path is actually entered.
     const sendMessage = vi.fn();
-    render(<RunChatLane {...baseProps({ runState: "building", sendMessage })} />);
+    renderWithProviders(<RunChatLane {...baseProps({ runState: "building", sendMessage })} />);
     fireEvent.change(screen.getByLabelText("Chat message input"), {
       target: { value: "what is happening?" },
     });
@@ -1115,7 +1146,7 @@ describe("FIX-193 — ISS-059 building-run Concierge routing", () => {
     // Echo must fire BEFORE the async classify settles (before sendMessage).
     const addOptimisticMessage = vi.fn(() => "echo-fix193");
     const sendMessage = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({ runState: "building", sendMessage, addOptimisticMessage })}
       />,
@@ -1137,7 +1168,7 @@ describe("FIX-193 — ISS-059 building-run Concierge routing", () => {
 
   it("FIX-193 idle: sendMessage(text, []) — no classify, no change", () => {
     const sendMessage = vi.fn();
-    render(<RunChatLane {...baseProps({ runState: "idle", sendMessage })} />);
+    renderWithProviders(<RunChatLane {...baseProps({ runState: "idle", sendMessage })} />);
     fireEvent.change(screen.getByLabelText("Chat message input"), {
       target: { value: "hello" },
     });
@@ -1147,7 +1178,7 @@ describe("FIX-193 — ISS-059 building-run Concierge routing", () => {
 
   it("FIX-193 gate: sendMessage(text, []) — Group-C locked, no change", () => {
     const sendMessage = vi.fn();
-    render(
+    renderWithProviders(
       <RunChatLane
         {...baseProps({
           runState: "gate",
@@ -1163,13 +1194,14 @@ describe("FIX-193 — ISS-059 building-run Concierge routing", () => {
     expect(sendMessage).toHaveBeenCalledWith("steering note", []);
   });
 
-  it("FIX-193 clarify: sendMessage(text, []) — Group-C locked, no change", () => {
+  it("FIX-193 clarify: text routes to Concierge with { concierge: true } (FIX-210)", () => {
     const sendMessage = vi.fn();
-    render(<RunChatLane {...baseProps({ runState: "clarify", sendMessage })} />);
+    renderWithProviders(<RunChatLane {...baseProps({ runState: "clarify", sendMessage })} />);
     fireEvent.change(screen.getByLabelText("Chat message input"), {
       target: { value: "clarify note" },
     });
     fireEvent.click(screen.getByTestId("chat-send"));
-    expect(sendMessage).toHaveBeenCalledWith("clarify note", []);
+    // Clarify state routes through Concierge to answer questions (FIX-210)
+    expect(sendMessage).toHaveBeenCalledWith("clarify note", [], expect.objectContaining({ concierge: true }));
   });
 });

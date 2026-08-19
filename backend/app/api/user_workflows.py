@@ -509,11 +509,11 @@ def create_user_workflow(
         )
 
     # Entitlement gate (custom needs enterprise) — fail-fast before insert.
-    # Normalise od_* aliases to their base type (mirrors websocket.py behaviour).
-    _tier_check_type = {
-        "od_prototype": "od_prototype",
-    }.get(body.base_pipeline_type, body.base_pipeline_type)
-    allowed, reason = can_run_pipeline(current_user.tier, _tier_check_type)
+    # This used to route through a one-entry "normalisation" map that mapped
+    # od_prototype to itself — an identity function shaped like a translation.
+    # With the od_ labels collapsed there is nothing to normalise: the declared
+    # base type IS the entitlement key.
+    allowed, reason = can_run_pipeline(current_user.tier, body.base_pipeline_type)
     if not allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
 

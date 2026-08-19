@@ -54,22 +54,31 @@ describe("InlineClarifyActions", () => {
     ]);
   });
 
-  it("submit copy reads 'Submit answers & start the build' (mock, 42-06)", () => {
+  it("submit copy reads 'Submit answers & proceed'", () => {
     renderClarify([Q1]);
     expect(screen.getByTestId("chat-clarify-submit")).toHaveTextContent(
-      "Submit answers & start the build",
+      "Submit answers & proceed",
     );
   });
 
-  it("omits the mock-dropped affordances (42-06 §G / decision 3)", () => {
+  it("shows the 'Use recommended' hint for a question with a recommendedAnswer, before any selection", () => {
     renderClarify([Q1, Q_MULTI]);
-    // per-question Skip / "Use recommended" / "Rec." badge / "Anything else?"
-    // freeform / "Skip all" are removed to match the single-submit Live mock.
-    expect(screen.queryByText("Use recommended")).toBeNull();
-    expect(screen.queryByText("Skip")).toBeNull();
-    expect(screen.queryByText("Skip all")).toBeNull();
+    // Q1 has a recommendedAnswer and nothing selected yet → the hint + button show.
+    expect(screen.getByText("Use recommended")).toBeInTheDocument();
+    // Neither a per-question "Skip" nor a "Rec." badge nor a freeform notes
+    // field exist in this component at all (only the multi-question "Select
+    // all that apply" hint and the batch "Proceed with auto recommendation"
+    // affordance do).
+    expect(screen.queryByText("Skip", { exact: true })).toBeNull();
     expect(screen.queryByText("Rec.")).toBeNull();
     expect(screen.queryByLabelText("Additional notes")).toBeNull();
+  });
+
+  it("clicking 'Use recommended' selects the recommended chip and shows the confirmation", () => {
+    renderClarify([Q1]);
+    fireEvent.click(screen.getByText("Use recommended"));
+    expect(screen.getByText("✓ Using recommended answer")).toBeInTheDocument();
+    expect(screen.queryByText("Use recommended")).toBeNull();
   });
 
   it("multi-select accumulates selected options into one joined answer", () => {

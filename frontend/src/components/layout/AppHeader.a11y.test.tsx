@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, within, waitFor } from "@testing-library/react";
+import { renderWithProviders, screen, within, waitFor } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 
 import { AppHeader } from "./AppHeader";
@@ -22,7 +22,7 @@ type HeaderOverrides = Partial<React.ComponentProps<typeof AppHeader>>;
 function setup(overrides: HeaderOverrides = {}) {
   const onNavigate = vi.fn();
   const onLogout = vi.fn();
-  render(
+  renderWithProviders(
     <AppHeader
       currentPage="saved-workflows"
       onNavigate={onNavigate}
@@ -92,8 +92,8 @@ describe("AppHeader — profile menu a11y", () => {
     await user.click(screen.getByRole("button", { name: /account menu/i }));
     const menu = screen.getByRole("menu");
     const items = within(menu).getAllByRole("menuitem");
-    // Account Settings / Analytics / Workflow History / Log out
-    expect(items).toHaveLength(4);
+    // Account Settings / Analytics / Run History / Dark mode / Log out
+    expect(items).toHaveLength(5);
     expect(
       within(menu).getByRole("menuitem", { name: /account settings/i }),
     ).toBeInTheDocument();

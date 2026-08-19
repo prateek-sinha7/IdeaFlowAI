@@ -64,6 +64,8 @@ while ! cloud-init status --wait > /dev/null 2>&1; do sleep 2; done
 #   VELOCITYAI_BACKUP_BUCKET  — S3 bucket for pg_dump + skills tarballs
 #   VELOCITYAI_ECR_REGISTRY   — <ACCOUNT>.dkr.ecr.<region>.amazonaws.com
 #   VELOCITYAI_ACME_EMAIL     — email for Let's Encrypt registration
+#   VELOCITYAI_DATA_DEVICE    — (optional) block device for the Postgres data
+#                               volume; defaults to /dev/nvme1n1
 #
 # Also expects VELOCITYAI_IMAGE_TAG from the calling environment (deploy.sh
 # `aws ssm send-command` injects this via `export` prepended to the script
@@ -91,12 +93,96 @@ ENVIRONMENT="${VELOCITYAI_ENVIRONMENT:-prod}"
 ENV_TITLE="${ENVIRONMENT^}"
 ACME_EMAIL="${VELOCITYAI_ACME_EMAIL:-security@example.com}"
 BACKUP_BUCKET="${VELOCITYAI_BACKUP_BUCKET:?VELOCITYAI_BACKUP_BUCKET missing in /etc/velocityai/bootstrap.env}"
-DATA_DEV=/dev/nvme1n1
+# VELOCITYAI_DATA_DEVICE lets a hand-provisioned box (attached data volume on
+# a device other than nvme1n1 — e.g. /dev/xvdf on some instance families, or a
+# second nvme index when more than one extra volume is attached) point this
+# script at the right block device. Terraform-provisioned boxes are
+# unaffected: modules/compute passes data_volume_device_name (default
+# /dev/nvme1n1) into user_data as this same variable, so the default below
+# only ever fires when the variable is genuinely unset.
+DATA_DEV="${VELOCITYAI_DATA_DEVICE:-/dev/nvme1n1}"
 DATA_MOUNT=/var/lib/postgresql
 APP_USER=velocityai
 
+# Fail fast, before §5 touches mkfs/fstab: a typo'd or absent device is a
+# configuration error, not something mkfs.xfs or `blkid` should discover by
+# formatting the wrong thing or hanging on a path that doesn't exist.
+if [[ ! -b "$DATA_DEV" ]]; then
+    echo "[bootstrap] ERROR: DATA_DEV '${DATA_DEV}' is not a block device. Set VELOCITYAI_DATA_DEVICE in /etc/velocityai/bootstrap.env to the actual attached data volume (check: lsblk)." >&2
+    exit 1
+fi
+
 # ── 2. Patch & baseline tools ──────────────────────────────────────────
 export DEBIAN_FRONTEND=noninteractive
+
+# ── 2a. Force apt over HTTPS ───────────────────────────────────────────
+# This host egresses on 443 only (security group has a single outbound
+# rule, tcp/443 to 0.0.0.0/0) and routes via a Transit Gateway rather than
+# a NAT/internet gateway. Ubuntu ships its apt sources as http:// (port
+# 80), so every archive fetch times out and `apt-get install` dies with
+# exit 100 — while SSM, S3 and KMS all keep working, which makes the
+# failure look unrelated to networking.
+#
+# Rewriting the scheme to https:// keeps package fetches on the one port
+# the SG permits. archive.ubuntu.com, security.ubuntu.com and the
+# regional <region>.ec2.archive.ubuntu.com mirrors all serve TLS, so the
+# in-region mirror is preserved (lower latency, no cross-region egress).
+# apt has had native HTTPS support since 1.5 and ca-certificates ships on
+# the Canonical AMI, so this needs no bootstrap package — which matters,
+# because installing one is exactly what's blocked.
+#
+# Idempotent: a second pass finds no http:// Ubuntu URLs left to rewrite.
+# Matched by hostname so third-party lists are untouched (Docker's, added
+# in §7, is already https). Covers both Noble's deb822
+# /etc/apt/sources.list.d/*.sources and the legacy .list format.
+# Collect the source files that actually exist. Globbing inline into grep
+# is unsafe here: Noble ships no *.list in sources.list.d, bash leaves the
+# unmatched glob literal, grep then exits 2 on the nonexistent path, and
+# `set -e` + `pipefail` turn that into a silent abort of the whole run.
+apt_src_files=()
+for apt_src in /etc/apt/sources.list \
+               /etc/apt/sources.list.d/*.sources \
+               /etc/apt/sources.list.d/*.list; do
+    [[ -f "$apt_src" ]] && apt_src_files+=("$apt_src")
+done
+
+UBUNTU_APT_HOST_RE='http://([A-Za-z0-9.-]*\.)?(archive|security)\.ubuntu\.com'
+apt_rewritten=0
+for apt_src in ${apt_src_files[@]+"${apt_src_files[@]}"}; do
+    grep -Eq "$UBUNTU_APT_HOST_RE" "$apt_src" || continue
+    [[ -f "${apt_src}.pre-https.bak" ]] || cp -a "$apt_src" "${apt_src}.pre-https.bak"
+    sed -E -i "s#${UBUNTU_APT_HOST_RE}#https://\1\2.ubuntu.com#g" "$apt_src"
+    echo "[bootstrap] apt sources: rewrote http -> https in ${apt_src}"
+    apt_rewritten=1
+done
+if [[ "$apt_rewritten" -eq 0 ]]; then
+    echo "[bootstrap] apt sources: already https (nothing to rewrite)"
+fi
+
+# Fail fast, and diagnosably, if the archive is still unreachable.
+# `apt-get update` returns 0 even when every index fetch fails, so without
+# this probe the run continues on stale package lists and surfaces the
+# problem several sections later as a bare `exit status 100`.
+# The `|| true` is load-bearing: grep exits 1 on no-match and head closing
+# the pipe early can leave grep on SIGPIPE, either of which would abort the
+# run through pipefail rather than simply skipping the probe.
+. /etc/os-release
+apt_probe_uri=""
+if (( ${#apt_src_files[@]} > 0 )); then
+    apt_probe_uri="$(
+        grep -hEo 'https://([A-Za-z0-9.-]*\.)?archive\.ubuntu\.com[^[:space:]]*' \
+            "${apt_src_files[@]}" 2>/dev/null | head -n1 || true
+    )"
+fi
+if [[ -n "$apt_probe_uri" && -n "${VERSION_CODENAME:-}" ]] \
+   && ! curl -fsS --max-time 20 -o /dev/null \
+        "${apt_probe_uri%/}/dists/${VERSION_CODENAME}/InRelease"; then
+    echo "[bootstrap] ERROR: cannot reach the Ubuntu archive over HTTPS at ${apt_probe_uri}." >&2
+    echo "[bootstrap]        Package installation cannot proceed. Verify outbound 443 on this" >&2
+    echo "[bootstrap]        instance's security group and the upstream Transit Gateway path." >&2
+    exit 1
+fi
+
 apt-get update
 apt-get -y full-upgrade
 # Note on awscli: Ubuntu Noble (24.04 LTS) removed the `awscli` apt package
@@ -666,9 +752,23 @@ REGION="${VELOCITYAI_REGION:-eu-central-1}"
 PREFIX="${VELOCITYAI_PARAM_PREFIX:-/velocityai/prod}"
 DOMAIN="${VELOCITYAI_FQDN:-}"
 
-# Preserve CI-managed image-tag pins + the operator-defined ENV.
+# Preserve CI-managed image-tag pins + the operator-defined ENV, PLUS the two
+# lines bootstrap-ec2.sh §11 writes that docker-compose.prod.yml's `awslogs`
+# logging driver requires (VELOCITYAI_ENVIRONMENT, VELOCITYAI_CW_LOG_GROUP).
+#
+# This loader is invoked as velocityai-app.service's ExecStartPre on EVERY
+# start — not just from a deploy or a fresh bootstrap, but also a bare
+# `systemctl restart velocityai-app.service` (which the velocityai-deploy
+# sudoers entry explicitly permits) and every reboot. Previously this preserve
+# list omitted the CW_LOG_GROUP/ENVIRONMENT lines, so each such start rewrote
+# app.env WITHOUT them; Compose then defaulted VELOCITYAI_CW_LOG_GROUP to a
+# blank string and `docker compose up` failed with "must specify a value for
+# log opt 'awslogs-group'", crash-looping the unit. remote-deploy.sh papers
+# over this for its own callpath by re-asserting the lines after invoking the
+# loader (see its §7 comment) — but that only protects a deploy, not a plain
+# restart/reboot. Fixing the preserve list here fixes it for every caller.
 if [[ -f "$OUT" ]]; then
-    grep -E '^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV)=' "$OUT" >> "$TMP" || true
+    grep -E '^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV|VELOCITYAI_ENVIRONMENT|VELOCITYAI_CW_LOG_GROUP)=' "$OUT" >> "$TMP" || true
 fi
 
 emit() {
@@ -686,7 +786,19 @@ emit() {
 
 CORS_SET=0
 PUBLIC_BASE_URL_SET=0
-while IFS=$'\t' read -r name value; do
+# Parsed as one compact-JSON object per line (`jq -c`), NOT
+# `--output text` + `IFS=$'\t' read`. A parameter whose Value is itself
+# multi-line (e.g. a JSON blob like cloudwatch-agent/config) renders with
+# literal embedded newlines under `--output text`, so each of ITS lines
+# became its own tab-less "row" here, none of which matched `name<TAB>value`
+# — every fragment fell through to the WARN case below (one warning per
+# line of that value, on every single app start). `jq -c` escapes embedded
+# newlines as the two characters `\n` inside the JSON string, so one
+# parameter is always exactly one line here, no matter what its value
+# contains.
+while IFS= read -r param_json; do
+    name="$(jq -r '.Name' <<<"$param_json")"
+    value="$(jq -r '.Value' <<<"$param_json")"
     rel="${name#${PREFIX}/}"
     case "$rel" in
         CORS_ORIGINS)
@@ -725,6 +837,15 @@ while IFS=$'\t' read -r name value; do
             # from the preserve list above. Skipped silently rather than falling
             # through to the WARN below, which would fire on every app start.
             ;;
+        cloudwatch-agent/*)
+            # The CloudWatch agent reads its OWN config from
+            # /opt/aws/amazon-cloudwatch-agent/etc/ (written by bootstrap-ec2.sh
+            # §13/14 and applied via `amazon-cloudwatch-agent-ctl -a fetch-config`)
+            # — this loader never feeds it anything, so this parameter (whose
+            # Value is a multi-line JSON blob) is expected and not misconfig.
+            # Skipped explicitly, same as deploy/* and bootstrap/* above, rather
+            # than falling through to the WARN below on every app start.
+            ;;
         bootstrap/*)
             # One-shot initial-administrator credentials
             # (bootstrap/admin-email, bootstrap/admin-password), consumed by
@@ -752,7 +873,8 @@ while IFS=$'\t' read -r name value; do
 done < <(aws ssm get-parameters-by-path \
             --path "$PREFIX" --recursive --with-decryption \
             --region "$REGION" \
-            --query 'Parameters[].[Name,Value]' --output text)
+            --query 'Parameters[].{Name:Name,Value:Value}' --output json \
+            | jq -c '.[]')
 
 # Fallback: if SSM didn't supply a non-empty CORS_ORIGINS, default to a
 # single-origin list containing the FQDN we're serving from. Matches the
@@ -810,7 +932,56 @@ chmod 0755 /opt/velocityai/reconcile-host-config.sh
 # Runs BEFORE the reconcile so the reconcile's `nginx -t` has a certificate to
 # validate against. The temporary bootstrap-http site below only needs the
 # webroot, not the real site file.
-if [[ ! -d /etc/letsencrypt/live/$DOMAIN ]]; then
+# Let's Encrypt validates over the public internet: $DOMAIN must resolve to a
+# globally routable address AND be reachable here on port 80. A private-IP
+# domain fails with "no valid A records found for <domain>" — LE refuses
+# RFC1918 answers outright. Detect that up front so a private-network host
+# falls back to a self-signed cert instead of aborting the entire provision
+# under `set -e` (certbot is not wrapped, so its failure strands every later
+# section and the completion sentinel).
+#
+# getent is libc, so this needs no dnsutils/bind9-host package installed.
+domain_has_public_ip() {
+    local d="$1" ip
+    while read -r ip; do
+        case "$ip" in
+            ''|0.0.0.0|10.*|127.*|169.254.*|192.168.*)   continue ;;
+            172.1[6-9].*|172.2[0-9].*|172.3[01].*)       continue ;;
+            100.6[4-9].*|100.[7-9][0-9].*|100.1[0-1][0-9].*|100.12[0-7].*) continue ;;
+            *) return 0 ;;
+        esac
+    done < <(getent ahostsv4 "$d" 2>/dev/null | awk '{print $1}' | sort -u)
+    # Global-unicast IPv6 (2000::/3) also counts; private/link-local v6 is f*.
+    while read -r ip; do
+        case "$ip" in
+            2*|3*) return 0 ;;
+        esac
+    done < <(getent ahostsv6 "$d" 2>/dev/null | awk '{print $1}' | sort -u)
+    return 1
+}
+
+if [[ ! -d /etc/letsencrypt/live/$DOMAIN ]] && ! domain_has_public_ip "$DOMAIN"; then
+    echo "[bootstrap] WARNING: ${DOMAIN} does not resolve to a public address —" >&2
+    echo "[bootstrap]          Let's Encrypt HTTP-01 cannot validate it. Installing a" >&2
+    echo "[bootstrap]          self-signed certificate so nginx can serve TLS and" >&2
+    echo "[bootstrap]          provisioning can complete. NOT valid for public use." >&2
+    install -d -m 0755 /etc/letsencrypt/live "/etc/letsencrypt/live/${DOMAIN}"
+    openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+        -keyout "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" \
+        -out    "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" \
+        -subj   "/CN=${DOMAIN}" \
+        -addext "subjectAltName=DNS:${DOMAIN}"
+    # nginx points ssl_trusted_certificate at chain.pem; a self-signed leaf is
+    # its own issuer, and an empty file there makes `nginx -t` fail.
+    cp "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" "/etc/letsencrypt/live/${DOMAIN}/chain.pem"
+    cp "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" "/etc/letsencrypt/live/${DOMAIN}/cert.pem"
+    chmod 0600 "/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+    chmod 0644 "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" \
+               "/etc/letsencrypt/live/${DOMAIN}/chain.pem" \
+               "/etc/letsencrypt/live/${DOMAIN}/cert.pem"
+    echo "[bootstrap] self-signed certificate installed for ${DOMAIN} (3650 days)"
+    BOOTSTRAP_DEGRADED+=("tls-self-signed")
+elif [[ ! -d /etc/letsencrypt/live/$DOMAIN ]]; then
     cat > /etc/nginx/sites-available/bootstrap-http <<EOF2
 server {
     listen 80 default_server;
@@ -886,17 +1057,48 @@ fi
 # `|| return 1` is explicit rather than relying on the last command's status,
 # so adding a check later cannot silently change the function's result.
 assert_cloudwatch_agent_running() {
-    if ! systemctl is-active --quiet amazon-cloudwatch-agent; then
-        echo "[bootstrap] ERROR: amazon-cloudwatch-agent unit is not active" >&2
-        return 1
-    fi
-    if ! /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-           -a status 2>/dev/null | grep -q '"status": "running"'; then
-        echo "[bootstrap] ERROR: amazon-cloudwatch-agent-ctl does not report status=running" >&2
-        return 1
-    fi
-    echo "[bootstrap] OK: CloudWatch agent is active and reporting status=running"
-    return 0
+    # §14's reconcile restarts the agent via fetch-config immediately before this
+    # runs, so a short settle window is genuinely useful. It is NOT, however, what
+    # made this check fail on dev.
+    #
+    # DO NOT pipe agent-ctl into grep here. `set -o pipefail` is in force for this
+    # whole script, so a pipeline inherits the exit status of the LEFT side: when
+    # agent-ctl exits non-zero while printing `"status": "running"`, the check
+    # reports failure even though the match succeeded. That is deterministic, not
+    # a race — it is why this assertion failed all 12 attempts on a host whose
+    # agent was demonstrably healthy and publishing metrics the entire time.
+    # Capture the output, then match it as a plain string.
+    local attempt status_json
+    for attempt in $(seq 1 12); do
+        status_json="$(/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+                         -a status 2>/dev/null || true)"
+        # Whitespace-tolerant on purpose: agent-ctl pretty-prints today, but a
+        # compact `{"status":"running"}` must not be read as stopped. The previous
+        # fixed-string pattern `"status": "running"` missed that form entirely.
+        if systemctl is-active --quiet amazon-cloudwatch-agent \
+           && [[ "$status_json" =~ \"status\"[[:space:]]*:[[:space:]]*\"running\" ]]; then
+            echo "[bootstrap] OK: CloudWatch agent is active and reporting status=running (check ${attempt}/12)"
+            return 0
+        fi
+        sleep 5
+    done
+
+    echo "[bootstrap] ERROR: CloudWatch agent did not report status=running within 60s" >&2
+    # Dump the on-box evidence. Without this the failure is undiagnosable from
+    # CI: the agent log lives on the instance and the SSM command output is all
+    # a reviewer ever sees, so "does not report status=running" is a dead end.
+    # The .d listing is included because fetch-config MERGES every config in
+    # that directory, so a stale leftover config silently changes what the
+    # running agent does (e.g. a second metrics namespace).
+    echo "[bootstrap] --- systemctl status amazon-cloudwatch-agent ---" >&2
+    systemctl status amazon-cloudwatch-agent --no-pager -l 2>&1 | tail -n 20 >&2 || true
+    echo "[bootstrap] --- agent-ctl -a status ---" >&2
+    /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a status 2>&1 | tail -n 20 >&2 || true
+    echo "[bootstrap] --- merged configs in amazon-cloudwatch-agent.d ---" >&2
+    ls -la /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/ 2>&1 | tail -n 20 >&2 || true
+    echo "[bootstrap] --- tail amazon-cloudwatch-agent.log ---" >&2
+    tail -n 40 /opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log 2>&1 | tail -n 40 >&2 || true
+    return 1
 }
 
 assert_cloudwatch_agent_running || BOOTSTRAP_DEGRADED+=("cloudwatch-agent")

@@ -1,1 +1,6 @@
-# nothing here is derived-only; surface/ is generated but committed
+# Nothing here is derived-and-disposable: INDEX.md, ARCHITECTURE.md,
+# CONTEXT.md and modules.json are all regenerable but git-tracked on
+# purpose, so a diff shows when knowledge drifts.
+
+# Delta proposals awaiting approval are working state, not knowledge.
+.stage/

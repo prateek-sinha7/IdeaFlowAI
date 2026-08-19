@@ -31,23 +31,51 @@ deliverable:
   name: user_stories.md
 context_providers: []
 seed_files: {}
+# ─────────────────────────────────────────────────────────────────────────────
+# A/B EXPERIMENT — reproducing the R-22 filesystem-grant defect.
+#
+# These six agents all declare ``tools: []`` in their AGENT.md: they are prompted
+# to RETURN text, not to write files. Under spec 012's R-22 universal grant they
+# were handed read+write anyway, and story-estimator began writing its backlog to
+# the sandbox instead of returning it — where ``deliverable: streamed_text`` could
+# not see it.
+#
+# The permission system now takes its answer from THIS file. Currently set to
+# FIX.
+#
+#   REPRODUCE   add ``write_files: true`` to the ``tools:`` lines below
+#   FIX         ``read_files: true`` only — the state below
+#
+# Reproduction is NON-DETERMINISTIC: nothing forces an agent to use a tool it
+# holds. Run 7c1e5028 had these rights and wrote only one orphaned file while
+# still delivering correctly; a teammate's run wrote ten and lost the deliverable.
+# The signal to look for is whether ANY file appears in the run sandbox from these
+# agents' windows — that proves the mechanism regardless of whether the
+# deliverable survived that particular run.
+# ─────────────────────────────────────────────────────────────────────────────
 steps:
 - agent: domain-analyst
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 - agent: epic-architect
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 - agent: story-estimator
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 - agent: nfr-specialist
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 - agent: backlog-reviewer
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 - agent: backlog-compiler
+  tools: {read_files: true}
   strategy: single_shot
   gates: []
 name: User Stories

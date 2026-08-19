@@ -324,6 +324,13 @@ class DeepAgentRunner:
         # explicitly, keyed on the agent's DECLARED tools.
         sanitize_fabricated_xml: bool | None = None,
         skills_sources: list[str] | None = None,
+        # denied_tools: native tool names the STEP's compiled permissions do not
+        # grant (``agents/factory.py::_denied_tools_for``). Unioned into the
+        # exclusion set below and applied LAST, so a permission the manifest did
+        # not grant cannot be handed back by any other branch — including skills
+        # staging. Empty/None ⇒ nothing extra denied (every direct-construction
+        # test path is unaffected).
+        denied_tools: frozenset[str] | None = None,
     ) -> None:
         self.system_prompt = system_prompt
         self.tools = list(tools or [])
@@ -354,6 +361,21 @@ class DeepAgentRunner:
             # forward-protection against a future sandbox backend, not a
             # change in bound tools today.
             excluded = frozenset({_LIBRARY_SUBAGENT_TOOL, "execute"})
+
+        # ── The manifest has the last word ───────────────────────────────────
+        # ``denied_tools`` is decided by ``agents/workflows/permission_caps.py``
+        # and passed in — the runner does not compute or reinterpret it. Applied
+        # AFTER every branch above, so a tool the step's permissions did not grant
+        # cannot be reinstated by skills staging or by any future branch added
+        # here. This is where the manifest's ``tools:`` block takes effect.
+        if denied_tools:
+            excluded = excluded | frozenset(denied_tools)
+
+        logger.debug(
+            "bound_tools %s: %s",
+            (thread_id or "?").split(":")[-1],
+            ",".join(sorted(_BUILTIN_TOOLS - excluded)) or "-",
+        )
 
         # F4 (13-02) / ISS-004: sanitize fabricated tool-call XML from the
         # streamed + terminal output ONLY for agents DECLARED text-only

@@ -101,6 +101,7 @@ function NotifRow({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onRowClick(); }
       }}
+      aria-label={cleanTitle}
       className={`px-4 py-3 cursor-pointer hover:bg-surface-warm transition-colors ${
         !n.read && !isLive ? "bg-brand-fill" : ""
       }`}

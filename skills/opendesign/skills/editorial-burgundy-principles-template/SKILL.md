@@ -9,7 +9,7 @@ triggers:
   - "studio salon deck"
   - "principles manifesto slides"
   - "pink burgundy premium presentation"
-  - "酒红粉金编辑风模板"
+  - "wine red blush gold editorial template"
 od:
   mode: template
   surface: video

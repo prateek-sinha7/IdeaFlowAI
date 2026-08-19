@@ -1,19 +1,19 @@
 ---
 name: resume-modern
-zh_name: "极简简历"
+zh_name: "Minimalist Resume"
 en_name: "Modern Resume"
 emoji: "📄"
-description: "现代极简简历, A4 单页, 适合打印或导出 PDF"
+description: "Modern minimalist resume, single A4 page, suitable for printing or exporting to PDF"
 category: resume
 scenario: personal
 aspect_hint: "A4 (210×297mm)"
 recommended: 12
-tags: ["resume", "cv", "简历"]
+tags: ["resume", "cv", "curriculum-vitae"]
 example_id: sample-resume-frontend
-example_name: "极简简历 · 前端工程师"
+example_name: "Minimalist Resume · Frontend Engineer"
 example_format: markdown
-example_tagline: "A4 单页, 可打印 / 导出 PDF"
-example_desc: "高级前端工程师简历, 两栏布局, 数字成就高亮"
+example_tagline: "Single A4 page, printable / exportable to PDF"
+example_desc: "Senior frontend engineer resume, two-column layout, highlighted quantified achievements"
 od:
   mode: prototype
   surface: web
@@ -27,14 +27,14 @@ od:
     reload: debounce-100
   design_system:
     requires: false
-  example_prompt: "用「极简简历」模板把我的内容做成一份「现代极简简历, A4 单页, 适合打印或导出 PDF」。保持模板的视觉签名，使用真实内容和数据，避免 lorem ipsum 和占位图片。"
+  example_prompt: "Use the \"Minimalist Resume\" template to turn my content into a \"modern minimalist resume, single A4 page, suitable for printing or exporting to PDF.\" Keep the template's visual signature, use real content and data, and avoid lorem ipsum and placeholder images."
 ---
 
-【模板: 现代极简简历】
-- 容器宽度模拟 A4: `w-[210mm] min-h-[297mm] mx-auto`, 内边距 16-20mm。
-- 顶部姓名巨大 (text-4xl), 底下一行 contact (邮箱 / 电话 / 城市 / GitHub / LinkedIn), 中间用细竖线分隔。
-- 主体两栏可选: 左 60% 主线（经历/项目/教育）, 右 40% 副线（技能/语言/获奖）。
-- 章节标题: small caps 风格, 上方一条短 accent 线 (w-8 h-0.5)。
-- 经历每条: 公司 + 职位 + 时间区间 (右对齐), 下方 1-3 条 bullet 用动词开头。
-- 不使用花哨颜色, 黑白灰 + 1 个 accent (深蓝 / 墨绿)。
-- 添加 @media print 样式, 隐藏不必要的元素, 颜色保留。
+[Template: Modern Minimalist Resume]
+- Container width simulates A4: `w-[210mm] min-h-[297mm] mx-auto`, padding 16-20mm.
+- Large name at the top (text-4xl), a contact line below (email / phone / city / GitHub / LinkedIn), separated by thin vertical dividers.
+- Optional two-column body: left 60% primary column (experience/projects/education), right 40% secondary column (skills/languages/awards).
+- Section headings: small caps style, with a short accent line above (w-8 h-0.5).
+- Each experience entry: company + role + date range (right-aligned), followed by 1-3 bullets starting with verbs.
+- No flashy colors — black/white/gray plus 1 accent (deep blue / dark green).
+- Add @media print styles, hide unnecessary elements, keep colors.

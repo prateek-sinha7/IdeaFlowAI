@@ -1,6 +1,6 @@
 ---
 name: reference-design-contract
-zh_name: "参考转设计合约"
+zh_name: "Reference-to-Design Contract"
 en_name: "Reference Design Contract"
 description: |
   Turn vague taste, screenshots, URLs, product notes, or "make it feel like this"
@@ -14,8 +14,8 @@ triggers:
   - "visual direction handoff"
   - "turn references into DESIGN.md"
   - "make it feel like this"
-  - "做同款但不照抄"
-  - "把参考图转成设计规范"
+  - "make the same style but don't copy it"
+  - "turn reference images into a design spec"
 od:
   mode: design-system
   platform: desktop
@@ -48,7 +48,7 @@ od:
     - file_write
   example_prompt: "Create a reference design contract for a developer-notes app. The direction should feel editorial, calm, tactile, and serious, but not copy any specific product. Produce DESIGN.md and an implementation handoff."
   example_prompt_i18n:
-    zh-CN: "为一个开发者笔记应用创建「参考转设计合约」。方向要有编辑感、安静、触感强、认真，但不要照抄任何具体产品。输出 DESIGN.md 和实现交接说明。"
+    zh-CN: "Create a reference design contract for a developer-notes app. The direction should feel editorial, calm, tactile, and serious, but not copy any specific product. Produce DESIGN.md and an implementation handoff."
 ---
 
 # Reference Design Contract

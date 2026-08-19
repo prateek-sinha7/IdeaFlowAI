@@ -12,26 +12,27 @@ TIER_PIPELINES: dict[str, set[str]] = {
     },
     # KAN-161 / ISS-055: scoped tier for deployments that need prototype +
     # user_stories only (e.g. Hexaware internal tooling). Deliberately excludes
-    # ppt/od_ppt, od_prototype_revision, and app_builder families.
+    # the ppt and app_builder families.
     "hexaware": {
         "user_stories", "user_stories_revision",
         "prototype", "prototype_revision",
-        "od_prototype",
     },
     "pro": {
         "user_stories", "user_stories_revision",
         "ppt", "ppt_revision",
         "prototype", "prototype_revision",
-        "od_prototype", "od_prototype_revision",
         "app_builder", "app_builder_revision",
     },
     "enterprise": {
         "user_stories", "user_stories_revision",
         "ppt", "ppt_revision",
         "prototype", "prototype_revision",
-        "od_prototype", "od_prototype_revision",
         "app_builder", "app_builder_revision",
         "custom", "custom_revision",
+        # UI meta-grouping, never dispatched: the "Platform workflows" card makes
+        # the user pick a concrete sub-pipeline first. It has no manifest, so a
+        # direct launch would 404 at compile — but the frontend gates the card on
+        # this entry, so removing it hides the card entirely.
         "migration",
         "mulesoft_to_springboot",
         "dotnet_to_azure",

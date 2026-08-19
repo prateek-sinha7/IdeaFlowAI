@@ -13,8 +13,8 @@ triggers:
   - "price target"
   - "undervalued"
   - "overvalued"
-  - "估值"
-  - "内在价值"
+  - "valuation"
+  - "intrinsic worth"
 od:
   mode: prototype
   preview:

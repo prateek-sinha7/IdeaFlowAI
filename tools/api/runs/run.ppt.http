@@ -10,6 +10,16 @@
 # branches on base_pipeline_type == "prototype"/"ppt" directly, not an od_*
 # label). REST discovery (GET /api/agents/pipelines/...) also uses "ppt".
 #
+# UPDATED (English-output signoff pass): switched template_id from
+# "guizang-ppt" to "html-ppt-pitch-deck". guizang-ppt ("Magazine Editorial
+# Deck") is a Chinese-authored template — its catalog description AND its
+# internal theme_choice names are in Chinese, and ppt-brief-analyst is
+# instructed to copy the template's theme name verbatim, so its intermediate
+# spec output legitimately contained Chinese text (not a bug — confirmed the
+# final rendered deck itself was still English). html-ppt-pitch-deck
+# ("Investor Pitch Deck") is fully English end to end and matches this
+# file's existing investor-deck message.
+#
 # NOTE: the old WebSocket run_pipeline/submit_questionnaire flow (/ws/chat) was
 # retired — the backend now launches a run over plain REST
 # (POST /api/runs) and streams its events back over SSE
@@ -61,7 +71,7 @@ Content-Type: application/json
 {
 	"pipeline_type": "ppt",
 	"message": "Create a 10-slide investor pitch deck for a B2B SaaS analytics startup, covering problem, solution, market size, product, traction, and ask.",
-	"template_id": "guizang-ppt"
+	"template_id": "html-ppt-pitch-deck"
 }
 
 {{

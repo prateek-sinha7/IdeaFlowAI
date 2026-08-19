@@ -121,8 +121,8 @@ const MAX_OPTIONAL = 8;
  * AgentPromptSection) — the AgentsPopup MODAL wrapper is RETAINED for the
  * wizard/input inline-edit flow, so this is NOT a dual implementation (INV-3).
  *
- * The header carries a Simple ⇄ Canvas toggle (D-03); Simple is active here and
- * renders the mock-fidelity Simple view. The Canvas view mounts in 41-05.
+ * The header carries a Simple ⇄ Canvas toggle (D-03); Canvas is active by
+ * default. Simple renders the mock-fidelity flat-list view.
  */
 export function ComposerPage({
   workflowType,

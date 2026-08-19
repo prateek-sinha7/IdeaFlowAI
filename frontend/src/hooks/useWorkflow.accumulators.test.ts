@@ -119,7 +119,12 @@ const ACCUMULATORS: AccumulatorCase[] = [
     driver: "frame",
     body: [stamped({ type: "agent_thinking", agent_id: "a1", thinking: "step one" })],
     read: (s) => s.agents[0]?.thinkingText,
-    expected: "step one\n",
+    // No trailing separator: the reducer concatenates thinking deltas verbatim
+    // (see useWorkflow.ts — "plain concatenation, no separator"), because thinking
+    // now streams at agent_chunk granularity and each delta carries its own
+    // spacing. This expectation still said "step one\n" from when the reducer
+    // joined whole thoughts with a newline.
+    expected: "step one",
   },
   {
     stateKey: "toolCalls",

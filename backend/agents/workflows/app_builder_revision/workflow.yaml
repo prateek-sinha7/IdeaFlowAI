@@ -6,7 +6,15 @@ short_name: App Builder Revision
 description: Apply a revision instruction to a prior generated application.
 icon: Rocket
 version: 1
-planner: run
+# planner: skip — REQUIRED for a revision manifest, not a preference. The engine
+# refuses to revision-dispatch a planner: run pipeline (CR-02): the clarify gate
+# would park on a no-timeout `await event.wait()` for a questionnaire the revision
+# panel never sends, leaking a stuck background task and a row frozen "revising".
+# This was authored as `run` when all 15 manifests were written (f116c3aa2),
+# copied from app_builder's own manifest, and app_builder revisions have therefore
+# never dispatched: the API returned 200 and the run died with 0 events and a NULL
+# error. Its four sibling *_revision manifests all declare skip.
+planner: skip
 clarify:
   mode: auto
   defaults:
@@ -22,6 +30,7 @@ context_providers:
 seed_files: {}
 steps:
 - agent: app-builder-revision-agent
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 name: App Builder Revision

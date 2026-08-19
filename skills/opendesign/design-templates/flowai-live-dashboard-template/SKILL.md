@@ -14,8 +14,8 @@ triggers:
   - "team management dashboard"
   - "interactive admin dashboard"
   - "workspace admin dashboard"
-  - "团队管理后台"
-  - "可交互后台"
+  - "team management backend"
+  - "interactive backend"
 od:
   mode: prototype
   platform: desktop

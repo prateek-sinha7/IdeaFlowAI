@@ -1,77 +1,77 @@
-# 复杂度分级与复刻评分
+# Complexity Grading & Clone Scoring
 
-用于复刻前预判、复刻后验收，以及向用户解释"这个站能克隆到什么程度"。
+Used for pre-clone estimation, post-clone acceptance, and explaining to the user "how faithfully can this site be cloned."
 
-## 复刻模式
+## Clone Modes
 
-| 模式 | 目标 | 适用场景 |
+| Mode | Goal | Applicable Scenarios |
 |---|---|---|
-| 忠实复刻 | 尽量保留原源码 / 原布局 / 原交互 | 找到合法源码、单文件站、学习复杂前端技法 |
-| 视觉复刻 | 外观看起来接近，内部实现可替换 | 无源码、商业官网、内容站、组件化重建 |
-| 内容爆改 | 保留原站节奏和视觉语法，换成用户的业务内容 | 把参考站改成自己的站、品牌页、产品介绍 |
-| 技术拆解 | 不急着重建，先确认真实实现 | WebGL/Canvas/复杂交互、AI 分析互相矛盾 |
+| Faithful Clone | Preserve original source code / layout / interactions as much as possible | Legal source found, single-file site, learning complex frontend techniques |
+| Visual Clone | Appearance looks close, internal implementation can be replaced | No source code, commercial site, content site, component-based rebuild |
+| Content Overhaul | Keep original site's rhythm and visual grammar, swap in the user's business content | Turn a reference site into your own site, brand page, product introduction |
+| Technical Teardown | Don't rush to rebuild, first confirm the real implementation | WebGL/Canvas/complex interactions, contradictory AI analyses |
 
-## 复杂度 L1-L6
+## Complexity Levels L1-L6
 
-| 等级 | 类型 | 典型信号 | 通常可还原度 | 默认边界 |
+| Level | Type | Typical Signals | Usually Achievable Fidelity | Default Boundary |
 |---|---|---|---|---|
-| L1 | 静态 HTML/CSS | 少量 JS、无框架、页面数少 | 90-98% | 可接近像素级，素材版权另算 |
-| L2 | CMS/企业内容站 | 多页面、CMS 生成、表单/新闻/地区站 | 70-90% | 前台可还原，CMS 后台不克隆 |
-| L3 | React/Vue/Next 内容前端 | hydration、chunk、路由、接口取内容 | 65-90% | 数据/API 可用本地 JSON 替身 |
-| L4 | 动画重品牌站 | GSAP、Lenis、复杂滚动、视频蒙版 | 50-80% | 主视觉可还原，微交互常近似 |
-| L5 | WebGL/Canvas/Three.js | shader、物理、后期合成、GPU 资源 | 30-95% | 有源码可高，没源码先拆解再定 |
-| L6 | SaaS/电商/登录业务系统 | 账号、支付、订单、权限、搜索推荐 | 展示层可做 | 服务端业务逻辑默认不克隆 |
+| L1 | Static HTML/CSS | Minimal JS, no framework, few pages | 90-98% | Can approach pixel-perfect, asset copyright handled separately |
+| L2 | CMS/enterprise content site | Multi-page, CMS-generated, forms/news/region sites | 70-90% | Front-end can be reproduced, CMS backend not cloned |
+| L3 | React/Vue/Next content frontend | Hydration, chunks, routing, content fetched via API | 65-90% | Data/API can be replaced with a local JSON stand-in |
+| L4 | Animated rebrand site | GSAP, Lenis, complex scroll, video masking | 50-80% | Main visuals can be reproduced, micro-interactions often approximated |
+| L5 | WebGL/Canvas/Three.js | Shaders, physics, post-processing, GPU resources | 30-95% | High fidelity possible with source code, tear down first if no source |
+| L6 | SaaS/e-commerce/login business system | Accounts, payments, orders, permissions, search recommendations | Presentation layer only | Server-side business logic not cloned by default |
 
-## 复刻前预判模板
+## Pre-Clone Estimation Template
 
 ```markdown
-## 复刻前预判
-- 复杂度等级:
-- 推荐模式: 忠实复刻 / 视觉复刻 / 内容爆改 / 技术拆解
-- 可高保真的部分:
-- 需要近似或替代的部分:
-- 不克隆的部分:
-- 主要风险: 许可 / 素材 / 登录态 / API / 性能 / WebGL / 响应式
+## Pre-Clone Estimation
+- Complexity level:
+- Recommended mode: Faithful Clone / Visual Clone / Content Overhaul / Technical Teardown
+- Parts that can be high-fidelity:
+- Parts that need approximation or substitution:
+- Parts that will not be cloned:
+- Main risks: licensing / assets / login state / API / performance / WebGL / responsiveness
 ```
 
-## 复刻后评分
+## Post-Clone Scoring
 
-每项 0-5 分。只给能被源码、截图、浏览器运行结果支撑的分数。
+Each item scored 0-5. Only give scores that can be backed by source code, screenshots, or browser runtime results.
 
-| 维度 | 5 分 | 3 分 | 1 分 |
+| Dimension | 5 points | 3 points | 1 point |
 |---|---|---|---|
-| 源证据 | 找到源码或完整静态资源，关键结论有文件/行号 | 有运行时侦察和资源抓取 | 主要靠目测和推断 |
-| 结构保真 | 信息架构、区块顺序、断点都一致 | 主区块一致，细节有合并/删减 | 只保留大概风格 |
-| 视觉保真 | 字体、间距、颜色、图片比例高度接近 | 主视觉接近，局部比例不同 | 明显像另一个设计 |
-| 动效/交互 | 滚动、悬停、视频、Canvas/WebGL 行为接近 | 只保留核心交互 | 基本静态化 |
-| 响应式 | 桌面/平板/手机都验证且无错位 | 验证 1-2 个宽度 | 移动端明显破版 |
-| 功能完整 | 导航、表单、媒体、外链、本地运行都可用 | 主要浏览路径可用 | 多处死链或报错 |
-| 内容替换 | 已改成 用户的内容，替换地图清晰 | 部分改造，仍有原站残留 | 大量原站文案/品牌残留 |
-| 法务/部署风险 | 许可清楚，追踪移除，素材边界明确 | 风险已记录但未完全解决 | 风险不清楚 |
+| Source evidence | Found source code or complete static assets, key conclusions have file/line references | Runtime reconnaissance and asset capture done | Mostly relies on visual inspection and guesswork |
+| Structural fidelity | Information architecture, section order, and breakpoints all match | Main sections match, details have merges/omissions | Only keeps a rough style |
+| Visual fidelity | Fonts, spacing, colors, image ratios closely match | Main visuals close, some proportions differ locally | Clearly looks like a different design |
+| Motion/interaction | Scroll, hover, video, Canvas/WebGL behavior matches closely | Only core interactions preserved | Essentially static |
+| Responsiveness | Desktop/tablet/mobile all verified with no layout breaks | 1-2 widths verified | Mobile clearly broken |
+| Functional completeness | Navigation, forms, media, external links, local run all work | Main browsing paths work | Multiple dead links or errors |
+| Content replacement | Already changed to the user's content, replacement map is clear | Partially adapted, still has original site remnants | Large amounts of original site copy/branding remain |
+| Legal/deployment risk | Licensing clear, tracking removed, asset boundaries defined | Risks documented but not fully resolved | Risks unclear |
 
-建议输出：
+Recommended output:
 
 ```markdown
-## 复刻评分
-- 源证据: /5
-- 结构保真: /5
-- 视觉保真: /5
-- 动效/交互: /5
-- 响应式: /5
-- 功能完整: /5
-- 内容替换: /5
-- 法务/部署风险: /5
-- 总评:
+## Clone Score
+- Source evidence: /5
+- Structural fidelity: /5
+- Visual fidelity: /5
+- Motion/interaction: /5
+- Responsiveness: /5
+- Functional completeness: /5
+- Content replacement: /5
+- Legal/deployment risk: /5
+- Overall assessment:
 ```
 
-## 原站 vs 克隆站对比表
+## Original Site vs Clone Comparison Table
 
 ```markdown
-| 模块 | 原站表现 | 克隆实现 | 差异 / 取舍 | 证据 |
+| Module | Original Site Behavior | Clone Implementation | Differences / Tradeoffs | Evidence |
 |---|---|---|---|---|
-| 首屏 |  |  |  | screenshot / file:line |
-| 导航 |  |  |  |  |
-| 核心动效 |  |  |  |  |
-| 内容区块 |  |  |  |  |
-| 移动端 |  |  |  |  |
+| Above the fold |  |  |  | screenshot / file:line |
+| Navigation |  |  |  |  |
+| Core motion |  |  |  |  |
+| Content sections |  |  |  |  |
+| Mobile |  |  |  |  |
 ```

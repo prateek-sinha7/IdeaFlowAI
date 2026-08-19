@@ -350,6 +350,13 @@ and executes it automatically on first boot — guarded by
 `ConditionPathExists=!/var/lib/velocityai/.bootstrap-done` so it runs exactly once
 per instance. Expect ~6 minutes.
 
+**If the instance was NOT created by Terraform** (hand-created via
+console/CLI), none of the above happens automatically — nothing renders
+`user_data.sh.tpl` and nothing uploads `bootstrap-ec2.sh` to S3. Use the
+`Provision` GitHub Actions workflow instead of the manual SSM commands below;
+see `docs/GITHUB_CICD_SETUP.md` §2.6 ("Provisioning a Hand-Created EC2
+Instance") for the full procedure and its manual prerequisites.
+
 **Check whether it already ran:**
 
 ```bash

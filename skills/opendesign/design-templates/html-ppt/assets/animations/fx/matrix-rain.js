@@ -3,7 +3,10 @@
   window.HPX['matrix-rain'] = function(el){
     const U = window.HPX._u;
     const k = U.canvas(el), ctx = k.ctx;
-    const glyphs = 'アイウエオカキクケコサシスセソタチツテトナニヌネノ0123456789ABCDEF'.split('');
+    // Latin/symbol glyph set. The upstream skill used katakana here (the classic
+    // Matrix look); this copy is English-only, so the same visual density is
+    // achieved with Latin, digits and symbols instead.
+    const glyphs = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ<>/\\|{}[]()#$%&*+=?!'.split('');
     const fs = 16;
     let cols = 0, drops = [];
     const init = () => {

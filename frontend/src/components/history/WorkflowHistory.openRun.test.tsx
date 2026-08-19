@@ -11,15 +11,14 @@
  * legacy `setSelectedRun` fallback survives when `onOpenRun` is absent.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders";
+import { cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import type { WorkflowRun } from "@/types/index";
-
 const mockGetToken = vi.fn(() => "test-token");
-const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<WorkflowRun[]>>();
+const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<{ runs: WorkflowRun[]; total: number }>>();
 const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<WorkflowRun>>();
-
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getWorkflows: (token: string, opts?: { limit?: number }) => mockGetWorkflows(token, opts),
@@ -29,13 +28,11 @@ vi.mock("@/lib/api", () => ({
   getRunArtifacts: () => Promise.resolve({ workflow_id: "x", artifacts: [] }),
   getRunSummary: () => Promise.reject(new Error("no summary in this suite")),
 }));
-
 // RunDetailPage is the internal-detail marker — its presence proves the tap fell
 // through to setSelectedRun (the BUG-002 degraded path) instead of onOpenRun.
 vi.mock("./RunDetailPage", () => ({
   RunDetailPage: () => <div data-testid="run-detail-page" />,
 }));
-
 vi.mock("@/components/preview/PPTPreview", () => ({
   PPTPreview: ({ content }: { content: string }) => <div data-testid="ppt-preview">{content.slice(0, 20)}</div>,
 }));
@@ -51,9 +48,18 @@ vi.mock("@/components/preview/MarkdownPreview", () => ({
 vi.mock("@/components/preview/AppBuilderPreview", () => ({
   AppBuilderPreview: () => <div data-testid="appbuilder-preview" />,
 }));
-vi.mock("@/components/results/FilesTab", () => ({ FilesTab: () => <div data-testid="files-tab" /> }));
+vi.mock("@/components/results/FilesTab", () => ({
+  FilesTab: () => <div data-testid="files-tab" />,
+  deriveDeliverableFilename: (workflowType: string, content?: string, fallback?: string) => {
+    if (!content) return fallback || "deliverable.md";
+    // Stub implementation: return a sensible default based on workflow type
+    if (workflowType.includes("user_stories")) return fallback || "user-stories.md";
+    if (workflowType.includes("ppt")) return fallback || "presentation.html";
+    if (workflowType.includes("prototype")) return fallback || "prototype.html";
+    return fallback || "deliverable.md";
+  },
+}));
 vi.mock("@/components/results/AgentThinkingTab", () => ({ AgentThinkingTab: () => <div data-testid="thinking-tab" /> }));
-
 const STRIPPED_MOTION_PROPS = new Set([
   "initial", "animate", "exit", "transition", "whileHover",
   "whileTap", "whileFocus", "whileInView", "viewport", "layout",
@@ -74,9 +80,7 @@ vi.mock("motion/react", () => ({
   ),
   AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
-
 import { WorkflowHistory } from "./WorkflowHistory";
-
 function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
   return {
     id: "run-1",
@@ -94,22 +98,19 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     ...overrides,
   };
 }
-
 beforeEach(() => {
   cleanup();
   mockGetToken.mockReset().mockReturnValue("test-token");
   mockGetWorkflows.mockReset();
   mockGetWorkflow.mockReset();
 });
-
 describe("WorkflowHistory — onOpenRun routing (BUG-002)", () => {
   it("a row tap (id !== activeRunId) calls onOpenRun(run) and does NOT mount the internal RunDetailPage", async () => {
     const run = makeRun();
-    mockGetWorkflows.mockResolvedValue([run]);
+    mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
     mockGetWorkflow.mockResolvedValue(run);
     const onOpenRun = vi.fn();
-
-    render(
+    renderWithProviders(
       <WorkflowHistory
         onBack={vi.fn()}
         onOpenRun={onOpenRun}
@@ -118,20 +119,17 @@ describe("WorkflowHistory — onOpenRun routing (BUG-002)", () => {
       />,
     );
     await userEvent.click(await screen.findByText(run.title));
-
     await waitFor(() => expect(onOpenRun).toHaveBeenCalledTimes(1));
     expect(onOpenRun).toHaveBeenCalledWith(expect.objectContaining({ id: run.id }));
     // The degraded internal detail is NOT mounted — the shared run screen owns it.
     expect(screen.queryByTestId("run-detail-page")).not.toBeInTheDocument();
   });
-
   it("KAN-96 — a row whose id === activeRunId still routes via onViewRunningPipeline (not onOpenRun)", async () => {
     const run = makeRun();
-    mockGetWorkflows.mockResolvedValue([run]);
+    mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
     const onOpenRun = vi.fn();
     const onViewRunningPipeline = vi.fn();
-
-    render(
+    renderWithProviders(
       <WorkflowHistory
         onBack={vi.fn()}
         onOpenRun={onOpenRun}
@@ -140,20 +138,16 @@ describe("WorkflowHistory — onOpenRun routing (BUG-002)", () => {
       />,
     );
     await userEvent.click(await screen.findByText(run.title));
-
     await waitFor(() => expect(onViewRunningPipeline).toHaveBeenCalledTimes(1));
     expect(onOpenRun).not.toHaveBeenCalled();
     expect(screen.queryByTestId("run-detail-page")).not.toBeInTheDocument();
   });
-
   it("legacy fallback — with NO onOpenRun, a tap opens the internal RunDetailPage (unchanged)", async () => {
     const run = makeRun();
-    mockGetWorkflows.mockResolvedValue([run]);
+    mockGetWorkflows.mockResolvedValue({ runs: [run], total: 1 });
     mockGetWorkflow.mockResolvedValue(run);
-
-    render(<WorkflowHistory onBack={vi.fn()} />);
+    renderWithProviders(<WorkflowHistory onBack={vi.fn()} />);
     await userEvent.click(await screen.findByText(run.title));
-
     await waitFor(() => expect(screen.getByTestId("run-detail-page")).toBeInTheDocument());
   });
 });

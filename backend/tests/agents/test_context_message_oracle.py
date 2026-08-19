@@ -342,7 +342,7 @@ def _golden_build_context_messages(golden_name: str) -> list[str]:
     return out
 
 
-@pytest.mark.parametrize("golden_name", ["prototype.events.json", "od_prototype.events.json"])
+@pytest.mark.parametrize("golden_name", ["prototype.events.json"])
 def test_regenerated_golden_build_prompt_equals_oracle(golden_name: str) -> None:
     """T-07-09-02: the regenerated build-agent context_message in the golden == the oracle.
 

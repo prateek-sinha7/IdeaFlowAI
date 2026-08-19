@@ -1,3 +1,19 @@
+# No step declares `skills:` — deliberately. The `html-ppt` skill was attached to
+# brief-analyst and composer, but its content already arrives through the TEMPLATE
+# pipe: `context_providers: [opendesign]` + the agents' `injects:` deliver the very
+# same file (skills/opendesign/design-templates/html-ppt/SKILL.md and
+# backend/skills/global/html-ppt/SKILL.md are byte-identical), AND the engine seeds
+# the template's `references/*.md` into the run sandbox at the paths that file names.
+#
+# Attaching it as a skill ALSO staged it at /skills/html-ppt/SKILL.md, and an agent
+# reading that copy resolved its sibling references skill-relative —
+# /skills/html-ppt/references/themes.md — which nothing seeds. Every such read failed
+# while the real file sat at /references/themes.md. One source, two mount points, and
+# the instructions only resolve from one of them.
+#
+# Safe because `load_ppt_od_context` has no blank-canvas branch (unlike prototype):
+# a ppt run without a valid template raises LookupError, so the template is ALWAYS
+# present and the skill can never be the sole source.
 id: ppt
 version: 1
 user_launchable: true
@@ -29,13 +45,19 @@ deliverable:
 context_providers:
 - opendesign
 seed_files: {}
+# ppt-validator declares no `injects:` either — deliberate: giving a structural
+# validator the authoring guide is context it cannot act on. It receives the
+# composed deck from the previous step, which is what it checks.
 steps:
 - agent: ppt-brief-analyst
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: ppt-composer
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: ppt-validator
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []

@@ -1,19 +1,19 @@
 ---
 name: social-reddit-card
-zh_name: "Reddit 帖子卡"
+zh_name: "Reddit Post Card"
 en_name: "Reddit Post Card"
 emoji: "🔺"
-description: "拟真 Reddit 帖子卡 + 上下投票 + 评论数, 适合视频叠加 / 故事分享"
+description: "Realistic Reddit post card with up/down vote rail and comment count, for video overlays / story sharing"
 category: card
 scenario: marketing
-aspect_hint: "1280×720 或 800×600"
+aspect_hint: "1280×720 or 800×600"
 featured: 42
 tags: ["reddit", "social", "card", "overlay", "story"]
 example_id: sample-social-reddit-card
-example_name: "Reddit 帖子 · r/programming"
+example_name: "Reddit Post · r/programming"
 example_format: markdown
 example_tagline: "Reddit dark mode + vote rail"
-example_desc: "一条 AITA 风格故事 + 12.3k upvotes + 1.2k comments"
+example_desc: "An AITA-style story + 12.3k upvotes + 1.2k comments"
 example_source_url: "https://hyperframes.heygen.com/catalog"
 example_source_label: "hyperframes · reddit-post"
 od:
@@ -29,37 +29,37 @@ od:
     reload: debounce-100
   design_system:
     requires: false
-  example_prompt: "用「Reddit 帖子卡」模板把我的内容做成一份「拟真 Reddit 帖子卡 + 上下投票 + 评论数, 适合视频叠加 / 故事分享」。保持模板的视觉签名，使用真实内容和数据，避免 lorem ipsum 和占位图片。"
+  example_prompt: "Use the 'Reddit Post Card' template to turn my content into a 'realistic Reddit post card with up/down vote rail and comment count, for video overlays / story sharing'. Keep the template's visual signature, use real content and data, avoid lorem ipsum and placeholder images."
 ---
 
-【模板: Reddit 帖子卡】
-【意图】把一段故事 / 提问 / 段子, 渲染成 Reddit 帖子卡片, 用于视频叠加、社媒故事分享。Inspired by hyperframes reddit-post。
+[Template: Reddit Post Card]
+[Intent] Render a story / question / joke as a Reddit post card, for video overlays and social story sharing. Inspired by hyperframes reddit-post.
 
-【画布】1280×720 (视频叠加) 或 800×600 (单卡分享); 背景透明或暗色 `#0b1416`。
+[Canvas] 1280×720 (video overlay) or 800×600 (single card share); transparent or dark background `#0b1416`.
 
-【卡片结构】
-- 外框: 圆角 16px, bg 白 `#ffffff` (light) 或 `#1a1a1b` (dark, 推荐 video overlay), border 1px `#edeff1` / `#343536`。
-- 左侧 **vote rail** (40-56px 宽):
-  - 上箭头 ▲ (16px, `#878a8c`, hover 变橙 `#ff4500`)。
-  - 票数 (Inter, 17px, weight 700, 居中, 颜色: 0 灰 / 正橙 / 负蓝); 大数字用 `12.3k` 格式。
-  - 下箭头 ▼ (hover 变蓝 `#7193ff`)。
-- 主体区:
-  - 顶部 meta row: 子版块图标 (CSS 圆形 + 字母) + `r/subreddit` (粗) + `· Posted by u/username · 3h` (小字灰)。
-  - **标题** (Inter / IBM Plex Sans, 22-28px, weight 500, dark text)。
-  - 内容: 16px body 或 引用块或 1 张图 (CSS 渐变占位)。
-  - 底部 action row: 💬 `1.2k Comments` · 🏆 Awards · ⤴️ Share · ⋯ icon。
-- 顶部右上角 Reddit Snoo logo (内联 SVG, 橙色 `#ff4500`)。
+[Card structure]
+- Outer frame: 16px rounded corners, bg white `#ffffff` (light) or `#1a1a1b` (dark, recommended for video overlay), border 1px `#edeff1` / `#343536`.
+- Left **vote rail** (40-56px wide):
+  - Up arrow ▲ (16px, `#878a8c`, orange `#ff4500` on hover).
+  - Vote count (Inter, 17px, weight 700, centered, color: gray at 0 / orange positive / blue negative); large numbers formatted as `12.3k`.
+  - Down arrow ▼ (blue `#7193ff` on hover).
+- Main body:
+  - Top meta row: subreddit icon (CSS circle + letter) + `r/subreddit` (bold) + `· Posted by u/username · 3h` (small gray text).
+  - **Title** (Inter / IBM Plex Sans, 22-28px, weight 500, dark text).
+  - Content: 16px body, or a quote block, or 1 image (CSS gradient placeholder).
+  - Bottom action row: 💬 `1.2k Comments` · 🏆 Awards · ⤴️ Share · ⋯ icon.
+- Reddit Snoo logo (inline SVG, orange `#ff4500`) in the top-right corner.
 
-【字体】
-- 主: `IBM Plex Sans` → fallback `Inter`, weight 400/500/700。
-- 数字: 同主字体。
-- 中文: `Noto Sans SC`。
+[Fonts]
+- Primary: `IBM Plex Sans` → fallback `Inter`, weight 400/500/700.
+- Numbers: same as the primary font.
+- CJK: `Noto Sans SC`.
 
-【设计细节】
-- Light mode: bg `#fff`, text `#1c1c1c`, secondary `#7c7c7c`。
-- Dark mode (推荐): bg `#1a1a1b`, text `#d7dadc`, secondary `#818384`, border `#343536`。
-- 票数颜色: 正 = `#ff4500`, 负 = `#7193ff`, 0 = `#878a8c`。
-- 标题点击区可加微妙背景 hover。
-- 严禁外链图片; 图片占位用 CSS 渐变 + 描述。
-- 必须用用户提供的内容; 自动生成合理的 subreddit / username / 票数。
-- 单文件 HTML; icon 内联 SVG (上下箭头、评论气泡、奖杯)。
+[Design details]
+- Light mode: bg `#fff`, text `#1c1c1c`, secondary `#7c7c7c`.
+- Dark mode (recommended): bg `#1a1a1b`, text `#d7dadc`, secondary `#818384`, border `#343536`.
+- Vote count color: positive = `#ff4500`, negative = `#7193ff`, zero = `#878a8c`.
+- The title's clickable area can get a subtle hover background.
+- No external image links; use CSS gradient placeholders with a description instead.
+- Must use content the user provided; auto-generate a plausible subreddit / username / vote count.
+- Single-file HTML; icons as inline SVG (up/down arrows, comment bubble, trophy).
