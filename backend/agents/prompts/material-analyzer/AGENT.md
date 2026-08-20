@@ -7,7 +7,7 @@ guardrails: []
 icon: "\U0001F4CB"
 id: material-analyzer
 max_tokens: 6000
-name: Architecture Agent X
+name: Architecture Agent
 order: 1
 pipeline_type: app_builder
 produces:

@@ -76,6 +76,13 @@ from agents.capabilities.gate_pendency import (  # noqa: E402
 # pipeline_failed / budget_aborted / error truly end the run's event stream. The
 # broader ``_GATE_RESOLUTION_TYPES`` (which DOES include approve) still drives the
 # D-14g durable gate re-arm derivation below — that is a separate concern.
+#
+# SSE-002 (R-07, ISS-147): this set must stay in SYNC with the frontend's
+# STREAM_TERMINAL_TYPES in frontend/src/types/index.ts. Both sets are the
+# authoritative definition of which event types close the SSE stream. The backend
+# derives it from gate_pendency.REVIEW_RESOLUTIONS (gated, not hardcoded); the
+# frontend imports the constant directly for its terminal guard (BUG-015).
+# A test in backend/tests/unit/test_sse_stream.py verifies both stay in sync.
 _STREAM_TERMINAL_TYPES = _GATE_RESOLUTION_TYPES - frozenset({"review_gate_approved"})
 
 # D-14g gate-re-arm vocabulary: the event types whose LAST occurrence decides whether a

@@ -33,11 +33,11 @@ import type { CapabilitiesPalette } from "@/lib/api";
 import type { WorkflowType } from "@/types/index";
 
 const mockGetCapabilities = vi.fn();
-const mockCreateUserWorkflow = vi.fn();
+const mockSaveUserWorkflow = vi.fn();
 vi.mock("@/lib/api", () => ({
   getToken: () => "test-token",
   getCapabilities: (t: string) => mockGetCapabilities(t),
-  createUserWorkflow: (...a: unknown[]) => mockCreateUserWorkflow(...a),
+  saveUserWorkflow: (...a: unknown[]) => mockSaveUserWorkflow(...a),
   getWorkflowDetail: vi.fn().mockResolvedValue({ steps: [] }),
   getAgentPrompt: vi.fn().mockResolvedValue({ prompt_body: "", override: null, has_override: false }),
   saveAgentPromptOverride: vi.fn(),
@@ -299,13 +299,17 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
     expect(screen.getAllByTestId(/^agent-row-/).length).toBe(2);
   });
 
-  it("Save to catalogue persists via the owner-scoped createUserWorkflow (reused NameWorkflowModal path)", async () => {
-    mockCreateUserWorkflow.mockResolvedValue({ id: "wf-1" });
+  it("Save to catalogue persists via the shared saveUserWorkflow dispatch (reused NameWorkflowModal path)", async () => {
+    mockSaveUserWorkflow.mockResolvedValue({ id: "wf-1" });
     renderComposer({ initialName: "Comp flow" });
     // Click the "Save workflow" button in the header
     await userEvent.click(screen.getByRole("button", { name: /Save workflow/i }));
-    await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalled());
-    const payload = mockCreateUserWorkflow.mock.calls[0][1] as { base_pipeline_type: string; agent_ids: string[] };
+    await waitFor(() => expect(mockSaveUserWorkflow).toHaveBeenCalled());
+    // saveUserWorkflow(token, userWorkflowId, body) — no saved id yet on a fresh composer.
+    const [, calledWorkflowId, payload] = mockSaveUserWorkflow.mock.calls[0] as [
+      string, string | undefined, { base_pipeline_type: string; agent_ids: string[] },
+    ];
+    expect(calledWorkflowId).toBeUndefined();
     expect(payload.base_pipeline_type).toBe("user_stories");
     expect(payload.agent_ids.length).toBe(6);
   });
@@ -315,7 +319,7 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
   it("surfaces the producer-first pre-sort — reorders rows on save", async () => {
     // The backend repairs a consumer-before-producer order and returns the persisted
     // producer-first agent_ids; the composer reorders its visible rows to match.
-    mockCreateUserWorkflow.mockResolvedValue({
+    mockSaveUserWorkflow.mockResolvedValue({
       id: "wf-1",
       agent_ids: ["domain-analyst", "epic-architect"],
     });
@@ -331,7 +335,7 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
 
     // Click the "Save workflow" button in the header
     await userEvent.click(screen.getByRole("button", { name: /Save workflow/i }));
-    await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalled());
+    await waitFor(() => expect(mockSaveUserWorkflow).toHaveBeenCalled());
 
     // After save: rows flip to the persisted producer-first order.
     await waitFor(() => {
@@ -341,11 +345,11 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
   });
 
   it("surfaces an unsatisfiable-composition rejection inline", async () => {
-    // The backend rejects a genuinely-unsatisfiable composition (422); createUserWorkflow
+    // The backend rejects a genuinely-unsatisfiable composition (422); saveUserWorkflow
     // throws with the backend detail as its message, which renders inline via saveError.
     const msg =
       "Agent 'swot-analyst' consumes 'market-research-agent' but no agent in the workflow produces it.";
-    mockCreateUserWorkflow.mockRejectedValue(new Error(msg));
+    mockSaveUserWorkflow.mockRejectedValue(new Error(msg));
     renderComposer({ initialName: "Bad flow" });
     // Click the "Save workflow" button in the header
     await userEvent.click(screen.getByRole("button", { name: /Save workflow/i }));

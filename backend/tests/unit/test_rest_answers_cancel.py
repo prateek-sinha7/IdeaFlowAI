@@ -282,6 +282,45 @@ def test_answers_unknown_run_is_denied(env):
     assert resp.status_code == 404
 
 
+@pytest.mark.parametrize("terminal_status", ["cancelled", "failed", "degraded", "completed"])
+def test_answers_on_a_terminal_run_is_rejected(env, terminal_status):
+    """API-001 (task.md R-05): before this fence, ``/answers`` had ZERO terminal
+    check — unlike ``/gate`` (KAN-100) and ``/cancel`` (its own idempotent-terminal
+    branch), a clarify-answers POST against an already-terminal run was accepted
+    unconditionally and written straight to the store. Mirrors ``/gate``'s exact
+    409 ``pipeline_not_running`` contract."""
+    owner = _seed_user(env, "owner")
+    run_id = _seed_run(env, owner.id, status=terminal_status)
+    env["state"]["user"] = owner
+
+    resp = env["client"].post(
+        f"/api/runs/{run_id}/answers",
+        json={"responses": [{"question_id": "r1_q1", "answer": "x"}]},
+    )
+
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "pipeline_not_running"
+    assert detail["recoverable"] is False
+    # No mutation reached the store — the fence fired BEFORE the write.
+    assert run_id not in env["store"]._questionnaire_responses
+    assert run_id not in env["store"]._resume_events
+
+
+def test_answers_on_a_non_terminal_run_still_succeeds(env):
+    """Parity check: the new fence must not touch any non-terminal status."""
+    owner = _seed_user(env, "owner")
+    run_id = _seed_run(env, owner.id, status="waiting_for_user")
+    env["state"]["user"] = owner
+
+    resp = env["client"].post(
+        f"/api/runs/{run_id}/answers",
+        json={"responses": [{"question_id": "r1_q1", "answer": "yes"}]},
+    )
+
+    assert resp.status_code == 200, resp.text
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # POST /{id}/cancel — cooperative cancel (mirrors WS cancel_pipeline)
 # ────────────────────────────────────────────────────────────────────────────
@@ -628,10 +667,71 @@ def test_the_non_terminal_status_set_has_exactly_one_definition():
                 ):
                     continue
                 if {e.value for e in items} == expected:
-                    definitions.append(f"{path.relative_to(backend)}:{node.lineno}")
+                    # `.as_posix()` — a relative path's default str() uses `\`
+                    # separators on Windows, which never matches the forward-slash
+                    # module-path assertion below (a portability gap, not a real
+                    # multiple-definition finding).
+                    rel = path.relative_to(backend).as_posix()
+                    definitions.append(f"{rel}:{node.lineno}")
 
     assert len(definitions) == 1, (
         f"the non-terminal status set is defined {len(definitions)} times: {definitions}"
+    )
+    assert definitions[0].startswith("agents/execution_engine/engine.py:"), definitions
+
+
+def _find_literal_set_definitions(expected: set[str]) -> list[str]:
+    """AST-scan ``backend/{agents,app,scripts}`` for a top-level assignment whose
+    literal tuple/list/set of string constants equals ``expected`` exactly.
+    Shared by both status-set source guards below (INV-12 — one scanner, not two)."""
+    import ast
+    import pathlib
+
+    backend = pathlib.Path(__file__).resolve().parents[2]
+    definitions: list[str] = []
+    for package in ("agents", "app", "scripts"):
+        for path in sorted((backend / package).rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                value = getattr(node, "value", None)
+                if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    continue
+                if not isinstance(value, (ast.Tuple, ast.List, ast.Set)):
+                    continue
+                items = value.elts
+                if not items or not all(
+                    isinstance(e, ast.Constant) and isinstance(e.value, str)
+                    for e in items
+                ):
+                    continue
+                if {e.value for e in items} == expected:
+                    rel = path.relative_to(backend).as_posix()
+                    definitions.append(f"{rel}:{node.lineno}")
+    return definitions
+
+
+def test_the_terminal_status_set_has_exactly_one_definition():
+    """API-001 (task.md R-05) source guard (INV-12) — the terminal-set counterpart
+    of ``test_the_non_terminal_status_set_has_exactly_one_definition`` above.
+
+    Before API-001, "terminal" was independently spelled out as the SAME
+    ``{"cancelled", "failed", "degraded"}``/``{"completed","degraded","failed",
+    "cancelled"}`` literal in at least THREE places (``_review_gate_run_is_terminal``,
+    the ``/resume`` endpoint's inverse resumable-set, and ``chat_router.py``'s
+    ``TERMINAL_STATUSES``) — none of which the ORIGINAL guard above could catch,
+    because it only scans for a copy of the NON-terminal set's specific 7 values.
+    This is the missing counterpart: it fails loudly if this 4-value set is ever
+    copy-pasted again instead of imported from ``TERMINAL_RUN_STATUSES``.
+    """
+    from agents.execution_engine.engine import TERMINAL_RUN_STATUSES
+
+    expected = {"completed", "cancelled", "failed", "degraded"}
+    assert set(TERMINAL_RUN_STATUSES) == expected
+
+    definitions = _find_literal_set_definitions(expected)
+
+    assert len(definitions) == 1, (
+        f"the terminal status set is defined {len(definitions)} times: {definitions}"
     )
     assert definitions[0].startswith("agents/execution_engine/engine.py:"), definitions
 

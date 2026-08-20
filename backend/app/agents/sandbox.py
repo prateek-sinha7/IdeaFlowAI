@@ -175,7 +175,19 @@ class RunSandbox:
         ``LocalSandboxRuntime.teardown(ws)`` — land on this single rmtree.
         """
         logger.debug("cleanup %s", self.root)
-        shutil.rmtree(self.root, ignore_errors=True)
+
+        def _on_rm_error(func, path, exc) -> None:
+            # Windows marks files under a cloned .git tree read-only; clear the
+            # bit and retry once before giving up on that entry (still swallowed
+            # overall — cleanup stays best-effort/idempotent, matching the prior
+            # `ignore_errors=True` contract).
+            try:
+                os.chmod(path, 0o700)
+                func(path)
+            except OSError:
+                pass
+
+        shutil.rmtree(self.root, ignore_errors=False, onexc=_on_rm_error)
 
 
 def sweep_expired(

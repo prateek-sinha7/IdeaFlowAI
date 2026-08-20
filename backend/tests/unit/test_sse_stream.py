@@ -40,7 +40,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from agents.authz import ScopedStore
-from app.api.run_stream import _iter_sse_frames, router
+from app.api.run_stream import _STREAM_TERMINAL_TYPES, _iter_sse_frames, router
 from app.core.dependencies import get_current_user
 from app.models.database import Base, get_db
 from app.models.run_event import RunEvent
@@ -1320,3 +1320,330 @@ class TestSubscriberLeakOnErrorPaths:
         assert sub_q not in subs, "a gate-re-arm failure must not leak the subscriber queue"
 
         registries._cleanup_pipeline("run-1")
+
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SSE-002 (R-07, ISS-147) — verify backend's _STREAM_TERMINAL_TYPES stays in
+# sync with frontend's STREAM_TERMINAL_TYPES (frontend/src/types/index.ts).
+# ════════════════════════════════════════════════════════════════════════════
+class TestSSETerminalTypesSyncWithFrontend:
+    def test_backend_terminal_types_match_frontend_constant(self):
+        """SSE-002: verify _STREAM_TERMINAL_TYPES (backend) matches the frontend's
+        STREAM_TERMINAL_TYPES constant. Both must enumerate the exact same terminal
+        event types that close the SSE stream."""
+        from app.api.run_stream import _STREAM_TERMINAL_TYPES
+
+        backend_terminals = _STREAM_TERMINAL_TYPES
+        expected = {
+            "pipeline_complete",
+            "pipeline_cancelled",
+            "pipeline_failed",
+            "budget_aborted",
+            "error",
+        }
+
+        assert backend_terminals == frozenset(expected), (
+            f"backend _STREAM_TERMINAL_TYPES does not match expected constant. "
+            f"Expected: {expected}, Got: {backend_terminals}. "
+            f"If you added/removed a terminal event type, you MUST update "
+            f"frontend/src/types/index.ts::STREAM_TERMINAL_TYPES to match "
+            f"(SSE-002, ISS-147, R-07)."
+        )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SSE-003 (R-07) — Parser edge-case coverage: OPEN GAPS
+#
+# Scope note: chunk-boundary splitting is NOT a backend concern. The backend
+# hands whole frame dicts to sse-starlette, which renders them; it never
+# re-assembles a partial frame. Every split-boundary case below is therefore a
+# FRONTEND parser concern (useRunStream.ts) and cannot be tested from here.
+# They are recorded in this file only because that is where the SSE contract is
+# pinned; the tests themselves belong in useRunStream.test.ts.
+#
+# FIXED — CRLF terminator split across two network chunks.
+#   useRunStream.ts previously did, per chunk:
+#       buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n")
+#   The `.replace()` ran BEFORE concatenation, so a chunk boundary landing between
+#   the `\r` and the `\n` of a CRLF left that pair un-normalised (chunk A ends
+#   `...\r`, chunk B starts `\n...`; neither holds the full pair for the regex).
+#   Two frames then coalesced into one block and the first was lost. Now appends
+#   raw and normalises the accumulated `buf`, closing the seam. Covered by
+#   useRunStream.test.ts "re-assembles a frame terminator split between the CR and
+#   the LF" — verified to fail against the old per-chunk form.
+#
+# COVERED — Multi-byte UTF-8 sequence split across chunks.
+#   `{ stream: true }` was always the correct mechanism, so this was a latent
+#   coverage hole rather than a defect: every test fed the body as ONE chunk via
+#   `serveWire`, so no multi-chunk decode ran. Now exercised by a byte-level split
+#   mid-code-point ("re-assembles a multi-byte UTF-8 character split across
+#   chunks"), using the new `serveWireSplitAtBytes` helper. Regression guard, not a
+#   bug repro — it passes against the old code too.
+#
+# OPEN GAP — Gate re-arm (D-14g) on reconnect. PARTIALLY covered, by `TestGateRearm`
+#   in this file (the `_dangling_review_gate` derivation). The end-to-end
+#   "reconnect with after_seq > 0 re-fires review_gate_ready through
+#   _iter_sse_frames" path is not asserted.
+#
+# NOT a gap — exhaustive terminal types. Now covered, two ways:
+#   * `TestSSETerminalTypesSyncWithFrontend` pins the MEMBERSHIP of
+#     _STREAM_TERMINAL_TYPES (catches a member being added or removed).
+#   * `TestStreamAttachedHandshakeConvergence
+#      ::test_terminal_event_closes_stream_deterministically` is parametrised
+#     over every member and pins the BEHAVIOUR (each one ends the live drain).
+#   The split matters: the parametrised test derives its cases FROM the set, so
+#   it alone cannot detect a member being deleted — the sync test is what does.
+# ════════════════════════════════════════════════════════════════════════════
+
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SSE-004 (R-07) — stream_attached handshake contract + terminal convergence
+# (no duplicate events on reconnect, deterministic closure)
+# ════════════════════════════════════════════════════════════════════════════
+class TestStreamAttachedHandshakeConvergence:
+    """SSE-004: verify stream_attached handshake and terminal event convergence.
+    
+    The handshake must correctly indicate:
+      1. live=true/false (whether a live queue is attached)
+      2. replayed_through_seq reflects the actual replay boundary
+    
+    Reconnect must never emit duplicate events (C-06a: event_id dedup).
+    Terminal events must deterministically close the stream.
+    """
+
+    @pytest.mark.asyncio
+    async def test_fresh_attach_handshake_marks_terminal_run_as_nolive(self, db_session):
+        """SSE-004: a fresh attach (no Last-Event-ID) to a TERMINAL run yields:
+        - durable replay (all events, seq=0 not filtered)
+        - stream_attached {live=false, replayed_through_seq=<max_seq>}
+        - stream closes (no live queue)
+        """
+        from app.models.run_event import RunEvent
+
+        run_id = f"terminal-fresh-{uuid.uuid4().hex[:8]}"
+        owner_id = "owner"  # Match _store default
+        ws_id = "ws-1"
+
+        wr = WorkflowRun(
+            id=run_id,
+            user_id=owner_id,
+            title="Terminal Fresh Attach",
+            type="sample",
+            status="pipeline_complete",  # Terminal
+            input="test",
+            owner_id=owner_id,
+            workspace_id=ws_id,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(wr)
+        db_session.flush()
+
+        # Seed 3 events, last one is terminal.
+        for i in range(1, 4):
+            db_session.add(
+                RunEvent(
+                    run_id=run_id,
+                    workspace_id=ws_id,
+                    owner_id=owner_id,
+                    event_id=f"e-{i}",
+                    seq=i,
+                    type="pipeline_complete" if i == 3 else "agent_start",
+                    payload_json={"seq": i},
+                )
+            )
+        db_session.commit()
+
+        # Fresh attach: after_seq=0, no live queue (terminal run).
+        frames = await _collect(
+            _iter_sse_frames(
+                run_id=run_id,
+                store=_store(db_session),
+                after_seq=0,
+                live_queue=None,
+                run_is_terminal=True,
+            )
+        )
+
+        parsed = [_parse(f) for f in frames]
+
+        # Expect: 3 durable events (all replayed) + stream_attached + nothing else.
+        durable = [p for p in parsed if p["type"] in {"agent_start", "pipeline_complete"}]
+        assert len(durable) == 3, f"Expected 3 durable events, got {len(durable)}: {parsed}"
+
+        # stream_attached should mark live=false and replayed_through_seq=3 (the max).
+        attach = [p for p in parsed if p["type"] == "stream_attached"]
+        assert len(attach) == 1, f"Expected 1 stream_attached, got {len(attach)}: {parsed}"
+        assert attach[0]["data"]["live"] is False, "Terminal run should have live=false"
+        assert attach[0]["data"]["replayed_through_seq"] == 3, (
+            f"Expected replayed_through_seq=3 (max), got {attach[0]['data']['replayed_through_seq']}"
+        )
+
+        # No frames after stream_attached (stream closed immediately).
+        attach_idx = next((i for i, p in enumerate(parsed) if p["type"] == "stream_attached"), -1)
+        frames_after_attach = parsed[attach_idx + 1 :]
+        assert len(frames_after_attach) == 0, (
+            f"Terminal run should close after handshake, got {len(frames_after_attach)} extra frames: {frames_after_attach}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_reconnect_after_partial_drain_replays_only_newer_events(self, db_session):
+        """SSE-004: a reconnect with Last-Event-ID set correctly bounds the replay.
+        
+        If client last saw seq=2, a fresh connect (after_seq=2) should replay only seq > 2.
+        The stream_attached handshake reflects the actual replay boundary.
+        """
+        from app.models.run_event import RunEvent
+
+        run_id = f"reconnect-{uuid.uuid4().hex[:8]}"
+        owner_id = "owner"  # Match _store default
+        ws_id = "ws-1"
+
+        wr = WorkflowRun(
+            id=run_id,
+            user_id=owner_id,
+            title="Reconnect Test",
+            type="sample",
+            status="pipeline_complete",
+            input="test",
+            owner_id=owner_id,
+            workspace_id=ws_id,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(wr)
+        db_session.flush()
+
+        # Seed 5 events.
+        for i in range(1, 6):
+            db_session.add(
+                RunEvent(
+                    run_id=run_id,
+                    workspace_id=ws_id,
+                    owner_id=owner_id,
+                    event_id=f"e-{i}",
+                    seq=i,
+                    type="pipeline_complete" if i == 5 else "agent_start",
+                    payload_json={"seq": i},
+                )
+            )
+        db_session.commit()
+
+        # Reconnect: client's Last-Event-ID was seq=2, so after_seq=2.
+        # Should replay only seq > 2 (i.e., seq=3,4,5).
+        frames = await _collect(
+            _iter_sse_frames(
+                run_id=run_id,
+                store=_store(db_session),
+                after_seq=2,
+                live_queue=None,
+                run_is_terminal=True,
+            )
+        )
+
+        parsed = [_parse(f) for f in frames]
+
+        # Expect: 3 replayed events (seq=3,4,5) + stream_attached.
+        replayed = [p for p in parsed if p["type"] in {"agent_start", "pipeline_complete"}]
+        assert len(replayed) == 3, (
+            f"Expected 3 replayed events (seq > 2), got {len(replayed)}: {parsed}"
+        )
+        replayed_seqs = {p["data"].get("seq") for p in replayed if p.get("data")}
+        assert replayed_seqs == {3, 4, 5}, (
+            f"Expected seq {{3,4,5}}, got {replayed_seqs}"
+        )
+
+        # stream_attached should mark replayed_through_seq=5 (the max replayed).
+        attach = [p for p in parsed if p["type"] == "stream_attached"]
+        assert len(attach) == 1
+        assert attach[0]["data"]["replayed_through_seq"] == 5, (
+            f"Expected replayed_through_seq=5, got {attach[0]['data']['replayed_through_seq']}"
+        )
+
+    # EVERY member of _STREAM_TERMINAL_TYPES is exercised, not an arbitrary one.
+    # ``sorted()`` matters: iterating a frozenset of str yields a DIFFERENT order per
+    # process (PYTHONHASHSEED randomisation), so a ``next(iter(...))`` pick would test a
+    # random type each run — the exact class of silent gap that let ISS-147 ship. Sorting
+    # makes the id list stable and the parametrisation auto-scales if the set ever grows.
+    @pytest.mark.parametrize("terminal_type", sorted(_STREAM_TERMINAL_TYPES))
+    @pytest.mark.asyncio
+    async def test_terminal_event_closes_stream_deterministically(
+        self, db_session, terminal_type
+    ):
+        """SSE-004: a terminal event (each member of _STREAM_TERMINAL_TYPES) in the live
+        queue deterministically closes the stream — no extra frames after it.
+
+        This verifies the live-drain loop's `if event.get("type") in _STREAM_TERMINAL_TYPES:
+        return` branch works correctly.
+        """
+        run_id = f"terminal-live-{uuid.uuid4().hex[:8]}"
+        owner_id = "owner"  # Match _store default
+        ws_id = "ws-1"
+
+        wr = WorkflowRun(
+            id=run_id,
+            user_id=owner_id,
+            title="Terminal Live Event",
+            type="sample",
+            status="running",
+            input="test",
+            owner_id=owner_id,
+            workspace_id=ws_id,
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(wr)
+        db_session.flush()
+
+        # One durable event.
+        db_session.add(
+            RunEvent(
+                run_id=run_id,
+                workspace_id=ws_id,
+                owner_id=owner_id,
+                event_id="e-1",
+                seq=1,
+                type="agent_start",
+                payload_json={"seq": 1},
+            )
+        )
+        db_session.commit()
+
+        # Live queue: durable event already read, then a terminal event, then more events
+        # (which should NOT be yielded because the stream closes on the terminal).
+        live_queue = asyncio.Queue()
+
+        await live_queue.put({"type": terminal_type, "event_id": f"terminal-{terminal_type}", "data": {"seq": 2}})
+        await live_queue.put({"type": "agent_complete", "event_id": "e-after", "data": {"seq": 3}})  # Should NOT be yielded
+        await live_queue.put(None)  # Sentinel
+
+        frames = await _collect(
+            _iter_sse_frames(
+                run_id=run_id,
+                store=_store(db_session),
+                after_seq=0,
+                live_queue=live_queue,
+                run_is_terminal=False,
+            )
+        )
+
+        parsed = [_parse(f) for f in frames]
+
+        # Expect: 1 replayed (seq=1) + stream_attached + 1 terminal event, total 3.
+        # The "agent_complete" event after the terminal should NOT appear.
+        assert len(parsed) == 3, (
+            f"Expected 3 frames (durable + attach + terminal), got {len(parsed)}: {parsed}"
+        )
+
+        # Verify the terminal is the last frame.
+        last = parsed[-1]
+        assert last["type"] == terminal_type, (
+            f"Expected terminal type '{terminal_type}' as last frame, got {last['type']}"
+        )
+
+    # C-06a event_id dedup on reconnect is deliberately NOT re-tested here.
+    # `TestReplayLiveDedup` (above) already covers it three ways, each stronger than
+    # a single-queue restatement would be: the plain durable-row-plus-queued-event
+    # repro, a `_SlowStore` variant that lands the event on the queue DURING the
+    # replay window, and a real two-subscriber fan-out-bus variant asserting both
+    # subscribers observe the same de-duplicated order. Adding a fourth, weaker
+    # version here would be maintenance cost with no new signal.

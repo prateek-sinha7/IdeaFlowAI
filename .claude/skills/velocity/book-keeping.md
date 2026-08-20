@@ -129,8 +129,8 @@ say so — do not present their numbers as your own observation.
 ## Step 3 — Record every deferred finding as its own card
 
 Anything found-but-NOT-fixed gets its own `issue` card in the same pass, with
-`status: open` and a `[[wikilink]]` from the card describing the work it came
-out of.
+`status: open` and a full markdown link (`[FIX-034](20260704-1815-FIX-034.md)`)
+from the card describing the work it came out of.
 
 A finding that lives only in a session transcript is a finding you will pay
 to rediscover. This is the step people skip, and skipping it is why the same
@@ -162,10 +162,14 @@ defect gets investigated twice.
    <!-- /RELATED -->
    ```
 
-   You may write a bare id (`**Depends on:** FIX-034`) and let the rebuild
-   render the link — it resolves the id to the current filename. Also add the
-   reciprocal entry to the `**Referenced by:**` line of every card you point
-   at; nothing infers the reverse edge for you.
+   Always author the full markdown link form (`[FIX-034](20260704-1815-FIX-034.md)`),
+   not a bare id — one link pattern everywhere a card references another,
+   inside the Related block and in body prose alike (no `[[wikilink]]`
+   shorthand). The rebuild still re-resolves the target on every run, so a
+   later rename doesn't leave it stale — that's what keeps it correct, not a
+   reason to author it any other way. Also add the reciprocal entry to the
+   `**Referenced by:**` line of every card you point at; nothing infers the
+   reverse edge for you.
 4. Regenerate the derived artifacts by running **the cards-only rebuild**
    (`cli.md` in this directory holds every command by name — you run it, not
    the user). Use **the full rebuild** instead if the change also moved
@@ -250,7 +254,7 @@ author: '<Name> <<email>>'   # see the note below — do NOT invent an address
 ---
 
 <body: what happened, root cause with file:line, the Step 2 coverage block,
-[[wikilinks]] to related cards>
+full markdown links (e.g. [FIX-034](20260704-1815-FIX-034.md)) to related cards>
 ```
 
 ## Filling `author`

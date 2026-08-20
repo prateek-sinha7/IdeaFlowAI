@@ -114,16 +114,22 @@ export function liveActivityLine(
   return "Starting…";
 }
 
-// Forces a re-render once a second (no displayed value) so liveActivityLine's
-// tool-call hold window actually expires even if no other event happens to
-// arrive in between — without this, Date.now() would only be re-read whenever
-// the agent prop itself changed.
-function useTick(intervalMs: number): void {
-  const [, forceRender] = useState(0);
+// Re-renders once a second so liveActivityLine's tool-call hold window actually
+// expires even if no other event happens to arrive in between — without this the
+// "now" reading would only refresh whenever the agent prop itself changed.
+//
+// Returns the timestamp rather than rendering nothing and letting the caller read
+// `Date.now()` inline: calling `Date.now()` during render is impure
+// (react-hooks/purity) because it makes the render output depend on something
+// other than props/state. Sourcing "now" from state that the interval advances
+// keeps render a pure function of state with the identical refresh cadence.
+function useNow(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => forceRender((n) => n + 1), intervalMs);
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
     return () => clearInterval(id);
   }, [intervalMs]);
+  return now;
 }
 
 function AgentActivityLine({
@@ -133,8 +139,8 @@ function AgentActivityLine({
   agent: AgentRunState;
   pipelineState?: PipelineRunState;
 }) {
-  useTick(1000);
-  const line = liveActivityLine(agent, Date.now(), pipelineState);
+  const now = useNow(1000);
+  const line = liveActivityLine(agent, now, pipelineState);
   if (!line) return null;
 
   return (

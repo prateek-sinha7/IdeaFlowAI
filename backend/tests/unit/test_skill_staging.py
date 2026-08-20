@@ -43,7 +43,7 @@ def test_one_skill_writes_valid_frontmatter(tmp_path):
     skill_file = sb.root / "skills" / "my-skill" / "SKILL.md"
     assert skill_file.exists()
 
-    post = frontmatter.loads(skill_file.read_text())
+    post = frontmatter.loads(skill_file.read_text(encoding="utf-8"))
     assert post.metadata["name"] == "my-skill"
     assert post.content.strip() == "Do the thing."
 
@@ -87,7 +87,7 @@ def test_long_description_is_clamped(tmp_path):
     assert any("clamp" in e for e in result.errors)
 
     skill_file = sb.root / "skills" / "long-desc" / "SKILL.md"
-    post = frontmatter.loads(skill_file.read_text())
+    post = frontmatter.loads(skill_file.read_text(encoding="utf-8"))
     assert len(post.metadata["description"]) == 1024
 
 
@@ -182,7 +182,7 @@ def test_skill_name_in_frontmatter_is_properly_quoted(tmp_path):
     assert result.errors == []
 
     skill_file = sb.root / "skills" / skill_id / "SKILL.md"
-    content = skill_file.read_text()
+    content = skill_file.read_text(encoding="utf-8")
 
     # Verify the file content has the name properly quoted
     assert 'name: "my-skill"' in content

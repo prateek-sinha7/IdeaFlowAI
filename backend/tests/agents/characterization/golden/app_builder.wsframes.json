@@ -7,7 +7,7 @@
         {
           "icon": "📋",
           "id": "material-analyzer",
-          "name": "Architecture Agent X",
+          "name": "Architecture Agent",
           "order": 1,
           "role": "Solution & System Design"
         },
@@ -150,7 +150,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-api-design",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent X (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from User Stories Agent (Requirements & Acceptance Criteria) ---\napp-user-stories output line one. line two.\n\n--- Output from System Design Agent (Detailed Architecture & Decomposition) ---\napp-system-design output line one. line two.",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from User Stories Agent (Requirements & Acceptance Criteria) ---\napp-user-stories output line one. line two.\n\n--- Output from System Design Agent (Detailed Architecture & Decomposition) ---\napp-system-design output line one. line two.",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -219,7 +219,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-code-compliance",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent X (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from Code Generation Agent (Full-Stack Code Generation) ---\nGenerating files. All files written.\n\n--- Output from Feature Implementation Agent (Business Logic per User Story) ---\napp-feature-implementation output line one. line two.",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from Code Generation Agent (Full-Stack Code Generation) ---\nGenerating files. All files written.\n\n--- Output from Feature Implementation Agent (Business Logic per User Story) ---\napp-feature-implementation output line one. line two.",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -314,7 +314,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-code-generator",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent X (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from System Design Agent (Detailed Architecture & Decomposition) ---\napp-system-design output line one. line two.\n\n--- Output from API Contract Agent (REST/GraphQL Contracts & OpenAPI) ---\napp-api-design output line one. line two.\n\n--- Output from Data Model Agent (Schema, Indexes & Migrations) ---\napp-database-design output line one. line two.",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from System Design Agent (Detailed Architecture & Decomposition) ---\napp-system-design output line one. line two.\n\n--- Output from API Contract Agent (REST/GraphQL Contracts & OpenAPI) ---\napp-api-design output line one. line two.\n\n--- Output from Data Model Agent (Schema, Indexes & Migrations) ---\napp-database-design output line one. line two.",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -403,7 +403,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-database-design",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent X (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from System Design Agent (Detailed Architecture & Decomposition) ---\napp-system-design output line one. line two.\n\n--- Output from API Contract Agent (REST/GraphQL Contracts & OpenAPI) ---\napp-api-design output line one. line two.",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from System Design Agent (Detailed Architecture & Decomposition) ---\napp-system-design output line one. line two.\n\n--- Output from API Contract Agent (REST/GraphQL Contracts & OpenAPI) ---\napp-api-design output line one. line two.",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -472,7 +472,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-devops",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent X (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from Code Generation Agent (Full-Stack Code Generation) ---\nGenerating files. All files written.\n\n--- Output from Infrastructure Agent (Deployment & Platform) ---\napp-infra-generator output line one. line two.",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from Code Generation Agent (Full-Stack Code Generation) ---\nGenerating files. All files written.\n\n--- Output from Infrastructure Agent (Deployment & Platform) ---\napp-infra-generator output line one. line two.",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -610,7 +610,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-infra-generator",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent X (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from Code Generation Agent (Full-Stack Code Generation) ---\nGenerating files. All files written.",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from Code Generation Agent (Full-Stack Code Generation) ---\nGenerating files. All files written.",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -679,7 +679,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-sdlc-governance",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent X (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from System Design Agent (Detailed Architecture & Decomposition) ---\napp-system-design output line one. line two.\n\n--- Output from Security Architecture Agent (Threat Modelling & Security Controls) ---\napp-security-architecture output line one. line two.\n\n--- Output from Code Compliance Agent (Static Analysis, Linting & Licensing) ---\napp-code-compliance output line one. line two.\n\n--- Output from DevOps Agent (Build, Deploy, Operate & Quality Gates) ---\napp-devops output line one. line two.\n\n--- Output from Test Compliance Agent (Test Strategy & Coverage Gates) ---\napp-test-compliance output line one. line two.",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from System Design Agent (Detailed Architecture & Decomposition) ---\napp-system-design output line one. line two.\n\n--- Output from Security Architecture Agent (Threat Modelling & Security Controls) ---\napp-security-architecture output line one. line two.\n\n--- Output from Code Compliance Agent (Static Analysis, Linting & Licensing) ---\napp-code-compliance output line one. line two.\n\n--- Output from DevOps Agent (Build, Deploy, Operate & Quality Gates) ---\napp-devops output line one. line two.\n\n--- Output from Test Compliance Agent (Test Strategy & Coverage Gates) ---\napp-test-compliance output line one. line two.",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -748,7 +748,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-security-architecture",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent X (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from System Design Agent (Detailed Architecture & Decomposition) ---\napp-system-design output line one. line two.",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from System Design Agent (Detailed Architecture & Decomposition) ---\napp-system-design output line one. line two.",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -817,7 +817,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-system-design",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent X (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from User Stories Agent (Requirements & Acceptance Criteria) ---\napp-user-stories output line one. line two.",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from User Stories Agent (Requirements & Acceptance Criteria) ---\napp-user-stories output line one. line two.",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -1024,7 +1024,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-user-stories",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent X (Solution & System Design) ---\nmaterial-analyzer output line one. line two.",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent (Solution & System Design) ---\nmaterial-analyzer output line one. line two.",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -1093,7 +1093,7 @@
     "chunk": null,
     "data": {
       "agent_id": "app-ux-design",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent X (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from User Stories Agent (Requirements & Acceptance Criteria) ---\napp-user-stories output line one. line two.\n\n--- Output from System Design Agent (Detailed Architecture & Decomposition) ---\napp-system-design output line one. line two.",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Architecture Agent (Solution & System Design) ---\nmaterial-analyzer output line one. line two.\n\n--- Output from User Stories Agent (Requirements & Acceptance Criteria) ---\napp-user-stories output line one. line two.\n\n--- Output from System Design Agent (Detailed Architecture & Decomposition) ---\napp-system-design output line one. line two.",
       "tool_calls": []
     },
     "section": "app_builder",
@@ -1175,7 +1175,7 @@
       "duration": "<normalized>",
       "index": 0,
       "input_tokens": "<normalized>",
-      "name": "Architecture Agent X",
+      "name": "Architecture Agent",
       "output_length": 44,
       "output_tokens": "<normalized>",
       "total": 15,
@@ -1190,7 +1190,7 @@
       "agent_id": "material-analyzer",
       "icon": "📋",
       "index": 0,
-      "name": "Architecture Agent X",
+      "name": "Architecture Agent",
       "role": "Solution & System Design",
       "total": 15
     },

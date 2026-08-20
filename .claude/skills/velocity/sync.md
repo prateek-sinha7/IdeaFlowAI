@@ -36,15 +36,15 @@ updated cards/architecture, a regenerated `INDEX.md`, an updated
    silently substitute a different starting point, which would skip real
    history and produce a sync that looks successful while missing commits.
 
-   **If the user says re-baseline:** run **the full rebuild** (`cli.md`). It
-   resets `last_sync_commit` to HEAD and regenerates every derived artifact,
-   which is the only recovery path — with no resolvable starting commit there
-   is no delta to mine, so steps 2-6 have nothing to work from. Say plainly in
-   your report that **no proposals were generated and no history was
-   reviewed**: the baseline moved to HEAD, so any card- or architecture-worthy
-   change between the old commit and HEAD falls outside every future sync
-   window. Recommend a manual review of that range if it matters. Then stop —
-   do not continue to step 2.
+   **If the user says re-baseline:** run **the sync-point stamp** (`cli.md`).
+   It regenerates every derived artifact AND resets `last_sync_commit` to
+   HEAD, which is the only recovery path — with no resolvable starting commit
+   there is no delta to mine, so steps 2-6 have nothing to work from. Say
+   plainly in your report that **no proposals were generated and no history
+   was reviewed**: the baseline moved to HEAD, so any card- or
+   architecture-worthy change between the old commit and HEAD falls outside
+   every future sync window. Recommend a manual review of that range if it
+   matters. Then stop — do not continue to step 2.
 
 2. Compute the delta since `last_sync_commit`:
    - `git log --name-status <last_sync_commit>..HEAD` for all changed source
@@ -113,20 +113,29 @@ updated cards/architecture, a regenerated `INDEX.md`, an updated
    `.knowledge/cards/` or `.knowledge/architecture/` (architecture edits
    only touch content above the `---` divider — never touch the
    auto-generated section below it). Delete the proposal file from
-   `.stage/` once applied. Then regenerate every derived artifact by RUNNING
-   **the full rebuild** yourself — see `cli.md` in this
+   `.stage/` once applied. Then, as the TRUE final action of this skill,
+   run **the sync-point stamp** yourself — see `cli.md` in this
    directory for the full tool surface, flags, and failure modes.
 
    That one command covers `INDEX.md`, `state.yaml` (including
    `last_sync_commit` at current HEAD, `last_sync_date` and all counts),
-   the architecture cards, `CONTEXT.md`, and a link validation pass. Never
-   hand-write any of them — they are derived over ~469 cards and hand-edits
-   are silently dropped on the next regeneration. Architecture regeneration
-   only rewrites content BELOW each card's divider; the hand-authored
-   sections above it are preserved.
+   `CONTEXT.md`, and a link validation pass — and, because it carries
+   `--set-sync-point`, actually MOVES the watermark, which a bare rebuild
+   never does (`build_index.py` explicitly preserves the prior
+   `last_sync_commit` unless this flag is passed — that is the one thing
+   only `sync` is allowed to do). Never hand-write any of these files — they
+   are derived over ~469 cards and hand-edits are silently dropped on the
+   next regeneration. This command intentionally skips the architecture
+   stage (`--skip-architecture` is baked into it) — if this sync's proposals
+   changed module structure (new package, moved file), run **the
+   architecture rebuild** first, then this command.
 
-8. Invoke `prime` (this skill family's `prime.md`) so `CONTEXT.md` reflects
-   the new sync point.
+8. If you were invoked directly (`/velocity sync`), invoke `prime`
+   (`prime.md`) now so `CONTEXT.md` reflects the new sync point. **If you were
+   invoked as a hand-off FROM `prime.md` step 2, skip this step** — control
+   returns to prime's own procedure, which rebuilds `CONTEXT.md` itself right
+   after this hand-off completes. Invoking prime here too would loop back into
+   sync.
 
 ## Hard rule
 

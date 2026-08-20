@@ -420,7 +420,7 @@ export function CanvasConfigRail({
       <>
       {/* MODEL (whole catalog — SC-001) */}
       <p className="mb-2 mt-5 flex items-center gap-1.5 font-sans text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-300">
-        <InfoHint>Overrides the default model for this agent's step. &quot;Default&quot; uses the workflow's own model choice.</InfoHint>
+        <InfoHint>Overrides the default model for this agent&apos;s step. &quot;Default&quot; uses the workflow&apos;s own model choice.</InfoHint>
         Model
       </p>
       <div className="relative">
@@ -451,7 +451,7 @@ export function CanvasConfigRail({
       <div className="flex items-center justify-between border-b border-line-faint-row py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 font-sans text-[12.5px] font-semibold text-ink-900">
-            <InfoHint>Runs a registered validator against this step's output before the pipeline continues.</InfoHint>
+            <InfoHint>Runs a registered validator against this step&apos;s output before the pipeline continues.</InfoHint>
             Validator
           </div>
           <div className="font-serif text-[11px] text-ink-300">

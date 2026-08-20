@@ -113,7 +113,7 @@ def test_0019_reversible_offline(fresh_db_url: str) -> None:
 def test_0019_migration_uses_free_string_status() -> None:
     """No ``sa.Enum`` on the 0019 migration — status is a free String (Q3/INV-3)."""
     mig = _BACKEND_DIR / "alembic" / "versions" / "0019_subagent_runs.py"
-    text = mig.read_text()
+    text = mig.read_text(encoding="utf-8")
     assert "sa.Enum" not in text, "0019 must use a free String status (NO sa.Enum)"
     assert 'revision = "0019"' in text
     assert 'down_revision = "0018"' in text

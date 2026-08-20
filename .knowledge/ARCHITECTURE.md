@@ -376,7 +376,7 @@ flowchart LR
     replay --> store["useRunStateStore.ts::handleFrame"]
     store --> reducer["useWorkflow.ts::handlePipelineMessage"]
     shutdown["run_shutdown.py::shutdown_run_infrastructure"] --> pump
-    ndjson["ndjson_adapter.py::run_od_prototype_pipeline"]
+    ndjson["ndjson_adapter.py::run_prototype_pipeline"]
 ```
 
 ### [Validation and quality gates — judging agent output](architecture/DOMAIN-validation-and-quality.md)
@@ -463,19 +463,18 @@ flowchart LR
 
 <!-- MODULE-MAP -->
 
-36 logical modules over 865 tracked source files. Each entry links to its
+36 logical modules over 608 tracked source files. Each entry links to its
 architecture card, which carries an auto-generated file and import rollup. Module
 cards describe FOLDERS and carry no diagrams — for how a concern actually works,
 read the domains above.
 
-### Backend — Python (533 files)
+### Backend — Python (276 files)
 
 | Module | Path | Files |
 |---|---|---|
-| [MOD-backend](architecture/MOD-backend.md) | `backend` | 260 |
-| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 119 |
+| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 120 |
 | [MOD-backend-app-agents](architecture/MOD-backend-app-agents.md) | `backend/app/agents` | 38 |
-| [MOD-backend-alembic-versions](architecture/MOD-backend-alembic-versions.md) | `backend/alembic/versions` | 30 |
+| [MOD-backend-alembic-versions](architecture/MOD-backend-alembic-versions.md) | `backend/alembic/versions` | 31 |
 | [MOD-backend-app-api](architecture/MOD-backend-app-api.md) | `backend/app/api` | 30 |
 | [MOD-backend-app-models](architecture/MOD-backend-app-models.md) | `backend/app/models` | 24 |
 | [MOD-backend-evals](architecture/MOD-backend-evals.md) | `backend/evals` | 9 |
@@ -484,6 +483,7 @@ read the domains above.
 | [MOD-backend-app-services](architecture/MOD-backend-app-services.md) | `backend/app/services` | 5 |
 | [MOD-backend-app](architecture/MOD-backend-app.md) | `backend/app` | 2 |
 | [MOD-backend-app-scripts](architecture/MOD-backend-app-scripts.md) | `backend/app/scripts` | 2 |
+| [MOD-backend](architecture/MOD-backend.md) | `backend` | 1 |
 | [MOD-backend-alembic](architecture/MOD-backend-alembic.md) | `backend/alembic` | 1 |
 
 ### Frontend — TypeScript (332 files)

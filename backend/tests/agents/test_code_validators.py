@@ -161,14 +161,22 @@ def _resolve(name: str):
 # the dev runtime ships python3.11/pytest/ruff — see backend/CLAUDE.md).
 def _tool_available(argv: list[str]) -> bool:
     try:
-        subprocess.run(argv, capture_output=True, timeout=20)
-        return True
+        res = subprocess.run(argv, capture_output=True, timeout=20)
+        return res.returncode == 0
     except Exception:  # noqa: BLE001
         return False
 
 
 _PYTEST_OK = _tool_available([sys.executable, "-m", "pytest", "--version"])
 _RUFF_OK = shutil.which("ruff") is not None
+# code_compile drives the sandboxed exec surface's allow-listed "python3" argv0
+# literally (the exec policy fixes the command name; T-10-04). On Windows, a
+# "python3" shim may resolve on PATH (Microsoft Store app-execution-alias) yet
+# exit non-zero with no stdout instead of actually running Python — a harness/
+# environment gap, not a code_compile product defect. Probe it for real (not
+# just PATH presence) so the suite skips cleanly on that class of machine while
+# still running for real on Linux CI / any machine with a working python3.
+_PYTHON3_OK = _tool_available(["python3", "-c", "print(1)"])
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -176,6 +184,7 @@ _RUFF_OK = shutil.which("ruff") is not None
 # ════════════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.skipif(not _PYTHON3_OK, reason="python3 not resolvable offline (see _PYTHON3_OK)")
 def test_code_compile_pass_on_fixture(tmp_path):
     ws, _ = _exec_workspace(tmp_path, exec_granted=True)
     _seed_fixture_into(ws, "calc.py", "test_calc.py", "lint_seed.py")
@@ -189,6 +198,7 @@ def test_code_compile_pass_on_fixture(tmp_path):
     assert runner.validation_rows[-1]["validator"] == "code_compile"
 
 
+@pytest.mark.skipif(not _PYTHON3_OK, reason="python3 not resolvable offline (see _PYTHON3_OK)")
 def test_code_compile_flags_syntax_error(tmp_path):
     ws, _ = _exec_workspace(tmp_path, exec_granted=True)
     _seed_fixture_into(ws, "calc.py")
@@ -339,7 +349,10 @@ def test_exec_manifest_compiles_with_exec_and_required_gates():
     assert "code_test" in step.validators
 
 
-@pytest.mark.skipif(not _PYTEST_OK, reason="pytest not resolvable offline")
+@pytest.mark.skipif(
+    not (_PYTEST_OK and _PYTHON3_OK),
+    reason="pytest/python3 not resolvable offline",
+)
 def test_exec02_offline_proof_zero_engine_edits(tmp_path):
     """EXEC-02: code_compile + code_test PASS against sample_python_repo via the
     exec-granted workspace — and a new exec-capable workflow needed ZERO edits under

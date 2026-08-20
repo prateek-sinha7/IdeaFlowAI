@@ -180,7 +180,7 @@ def stage_skills(
         try:
             target = sandbox.path_for(f"skills/{skill_id}/SKILL.md")
             target.parent.mkdir(parents=True, exist_ok=True)
-            if not (target.exists() and target.read_text() == file_text):
+            if not (target.exists() and target.read_text(encoding="utf-8") == file_text):
                 target.write_text(file_text)
             staged.append(skill_id)
         except (OSError, ValueError) as exc:

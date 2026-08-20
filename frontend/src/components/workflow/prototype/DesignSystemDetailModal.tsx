@@ -237,7 +237,7 @@ export function DesignSystemDetailModal({
                 </div>
               ) : detail === null ? (
                 <div className="flex h-full items-center justify-center px-6 text-center">
-                  <p className="text-[12px] text-white/50">Couldn't load DESIGN.md.</p>
+                  <p className="text-[12px] text-white/50">Couldn&apos;t load DESIGN.md.</p>
                 </div>
               ) : (
                 <DesignSpecView source={detail.body} />

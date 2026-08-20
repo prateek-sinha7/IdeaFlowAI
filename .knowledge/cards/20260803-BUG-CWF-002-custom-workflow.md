@@ -24,6 +24,14 @@ author_source: 'unknown'
 recorded_by: 'Bilal Arshad <bilala@hexaware.com>'
 ---
 
+<!-- RELATED -->
+
+## Related
+
+**Referenced by:** [ISS-165](20260819-1726-ISS-165.md)
+
+<!-- /RELATED -->
+
 ## CWF-002 — Per-agent model actually used is never persisted or queryable
 > **✅ FIXED + LIVE-PROVEN 2026-07-18** — quick `260718-rf7`, commits `8e0af54f`/`9c6ef0f4`/`8251081d` (grounded, plan-checked + verifier-passed 6/6). (a) `agent_complete` now carries the resolved `model_id` (stripped by the existing `_VOLATILE_STRIP_KEYS` entry → 5 goldens byte-identical); (b) `wr.model_id` persisted before the cost line (non-circular cost); (c) exposed in `runs.py`. Offline: 34 unit + 5 goldens byte-identical + lint-imports 4/0. **LIVE-PROVEN** (restarted backend): a completed 1-agent Haiku run (`84472499`) shows `agent_complete.model_id = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"` — the per-agent model is now queryable (the exact gap that blocked verifying "did the agent run on Haiku"). feat/ui-2, trailer-free, NOT pushed.
 - **Surface:** engine event emission · run record (`GET /api/runs/{id}`, `/summary`, `/events`) · DB · cost analytics

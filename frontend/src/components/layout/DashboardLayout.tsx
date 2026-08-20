@@ -1251,6 +1251,12 @@ export function DashboardLayout({
           ? { selections: Object.fromEntries(Object.entries(saved.selections).filter(([k]) => k !== "_wizard")) }
           : {}),
         agentIds: saved.agent_ids,
+        // ISS-167: carry the saved row's identity through so re-saving updates
+        // it in place instead of always prompting for a new name (the Canvas
+        // already does this via initialUserWorkflowId — the wizard never had it).
+        id: saved.id,
+        name: saved.name,
+        description: saved.description ?? undefined,
       };
       sessionStorage.setItem("ppt.draft", JSON.stringify(draft));
       router.push("/workflow/create?mode=ppt");
@@ -1272,6 +1278,12 @@ export function DashboardLayout({
           ? { selections: Object.fromEntries(Object.entries(saved.selections).filter(([k]) => k !== "_wizard")) }
           : {}),
         agentIds: saved.agent_ids,
+        // ISS-167: carry the saved row's identity through so re-saving updates
+        // it in place instead of always prompting for a new name (the Canvas
+        // already does this via initialUserWorkflowId — the wizard never had it).
+        id: saved.id,
+        name: saved.name,
+        description: saved.description ?? undefined,
       };
       sessionStorage.setItem("prototype.draft", JSON.stringify(draft));
       router.push("/workflow/create?mode=prototype");
@@ -2044,6 +2056,11 @@ export function DashboardLayout({
     return stripped || undefined;
   })();
   const runHeaderTitle = cleanLatestTitle ?? submittedBrief;
+  // The header tooltip wants the ORIGINAL untrimmed brief, not the (possibly
+  // 60-char-truncated) DB title used for the clamped display line above.
+  // `viewedRun.input` is the reopened run's own `run.input` column; live runs
+  // (no viewedRun yet) fall back to the just-submitted brief.
+  const runHeaderTitleFull = viewedRun?.input || submittedBrief;
 
   // The gate the lane surfaces (mirrors the Steps ReviewGatePanel props). The
   // KAN-101 spec-loop affordance + approve relabel are mapped off the declared
@@ -2573,6 +2590,7 @@ export function DashboardLayout({
                       // the pipeline_type string, never a workflow-name branch).
                       onBackToHistory={() => setMainView("history")}
                       runTitle={runHeaderTitle}
+                      runTitleFull={runHeaderTitleFull}
                       runType={effectiveReviseType || pipelineState?.pipeline_type}
                       // KAN-128 (FIX-141): pass the content-derived filename so the
                       // left chat panel "Run summary" DeliverableCard shows the same

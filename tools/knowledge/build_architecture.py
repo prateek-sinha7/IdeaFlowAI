@@ -117,8 +117,25 @@ AUTO_MARKER = "<!-- AUTO-GENERATED BELOW THIS LINE"
 # where generation ends and prose begins.
 AUTO_END = "<!-- /AUTO-GENERATED -->"
 
-PY_EXCLUDE = {".venv", "venv", "__pycache__", "node_modules", ".mypy_cache", ".pytest_cache"}
-FE_EXCLUDE = {"node_modules", ".next", "dist", "build", "coverage"}
+PY_EXCLUDE = {
+    ".venv", "venv", "__pycache__", "node_modules", ".mypy_cache", ".pytest_cache",
+    # "tests": backend/tests/ -- the test suite, not runtime code; belongs
+    # nowhere in a MODULE_ROOTS-derived architecture map.
+    # "runs": backend/runs/<run_id>/... -- the per-run SANDBOX (RunSandbox)
+    # holding agent-GENERATED output (arbitrary user apps written mid-run,
+    # e.g. a scanned run once produced backend/runs/.../todo-app/, .../
+    # expense-app/backend/tests/...). That is product OUTPUT, not VELOCITY's
+    # own source -- scanning it pollutes the module map with whatever a user
+    # happened to have an agent build.
+    "tests", "runs",
+}
+FE_EXCLUDE = {
+    "node_modules", ".next", "dist", "build", "coverage",
+    # frontend/src/test/ -- FE test suite, same reasoning as backend "tests"
+    # above. Deliberately just "test" (exact component match), not a prefix:
+    # frontend/src/app/test-preview/ is a real product route and stays in.
+    "test",
+}
 FE_SUFFIXES = {".ts", ".tsx", ".js", ".jsx"}
 
 DEFAULT_HAND_AUTHORED = (

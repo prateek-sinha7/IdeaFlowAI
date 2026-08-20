@@ -1,3 +1,26 @@
+// ─── SSE Terminal Event Types (R-07, ISS-147) ──────────────────────────────────
+// SSE-002: the frontend's authoritative terminal event type set — the only event
+// types whose arrival means the backend has closed (or is about to close) the SSE
+// stream, so the close must settle to `disconnected` rather than schedule a
+// reconnect (BUG-015, ISS-147).
+//
+// This is a MIRROR, not a shared import: the backend is Python and cannot import
+// this file. The backend's own set is DERIVED at runtime as
+// `gate_pendency.REVIEW_RESOLUTIONS - {"review_gate_approved"}` in
+// `backend/app/api/run_stream.py::_STREAM_TERMINAL_TYPES` (review_gate_approved
+// resolves a gate but resumes the run on the same queue, so it does NOT close the
+// stream — BUG-016). The two sets are kept aligned by an explicit guard test,
+// `TestSSETerminalTypesSyncWithFrontend` in
+// `backend/tests/unit/test_sse_stream.py`, which fails if either side drifts.
+// If you change this list, change that test's `expected` set in the same commit.
+export const STREAM_TERMINAL_TYPES: ReadonlySet<string> = new Set([
+  "pipeline_complete",
+  "pipeline_cancelled",
+  "pipeline_failed",
+  "budget_aborted",
+  "error",
+]);
+
 export interface User {
   id: string;
   email: string;

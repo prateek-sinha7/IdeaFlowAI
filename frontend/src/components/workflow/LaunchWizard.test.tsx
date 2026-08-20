@@ -20,6 +20,10 @@ import type { AgentDef } from "@/types/index";
 
 const pushMock = vi.fn();
 const createUserWorkflowMock = vi.fn().mockResolvedValue({ id: "wf-1" });
+// AgentsPopup (rendered by LaunchWizard, always mounted) imports saveUserWorkflow
+// from the same mocked module for its own footer save button — stubbed here so
+// it doesn't resolve to undefined if a test ever exercises that button.
+const saveUserWorkflowMock = vi.fn().mockResolvedValue({ id: "wf-1" });
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock, replace: vi.fn(), prefetch: vi.fn() }),
@@ -28,6 +32,7 @@ vi.mock("@/lib/api", () => ({
   getToken: () => "test-token",
   extractFileText: vi.fn(),
   createUserWorkflow: (...args: unknown[]) => createUserWorkflowMock(...args),
+  saveUserWorkflow: (...args: unknown[]) => saveUserWorkflowMock(...args),
 }));
 vi.mock("@/lib/prototype-api", () => ({
   listPrototypeTemplates: vi.fn().mockResolvedValue([
@@ -132,6 +137,7 @@ beforeEach(() => {
   sessionStorage.clear();
   pushMock.mockClear();
   createUserWorkflowMock.mockClear();
+  saveUserWorkflowMock.mockClear();
 });
 
 describe("LaunchWizard — real-component launch parity (byte-identical per mode)", () => {

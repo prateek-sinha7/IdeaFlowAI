@@ -143,7 +143,6 @@ FOLLOW-UPS (not in this hardening pass)
 import logging
 import os
 import re
-import resource
 import shutil
 import subprocess
 import sys
@@ -151,6 +150,16 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+
+# POSIX-only (Docker/Linux production target; see module docstring). Imported
+# conditionally so the module can still be imported for path-resolution/unit
+# tests on a Windows dev machine — `resource` does not exist there. Every call
+# site already guards with `AttributeError`/`resource.error` or checks
+# `resource is not None` before use, so behavior on POSIX is unchanged.
+try:
+    import resource
+except ImportError:  # pragma: no cover - exercised only on Windows dev machines
+    resource = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +296,8 @@ def _apply_child_rlimits() -> None:
     limits than abort the child. Production (Linux) enforces all of
     them; macOS dev gets whatever Darwin allows.
     """
+    if resource is None:  # pragma: no cover - Windows has no preexec_fn either
+        return
     # CPU seconds — kernel sends SIGXCPU at soft limit, SIGKILL at hard.
     try:
         resource.setrlimit(

@@ -3592,6 +3592,41 @@ def test_apply_terminal_output_columns_populates_all_columns():
     assert wr.model_id == "claude-x"
 
 
+def test_apply_terminal_output_columns_captures_per_agent_model_id():
+    """ISS-165: the engine's ``agent_complete`` event carries the resolved per-agent
+    ``model_id`` (engine.py) — the accumulator must carry it into ``agent_outputs`` so
+    it survives past the live stream, instead of only ``wr.model_id`` (a single
+    run-level value sourced from the caller's ``user.preferred_model``, unrelated to
+    which model each agent actually ran on)."""
+    import json as _json
+
+    from app.api.run_commands import _apply_terminal_output_columns
+    from app.models.workflow import WorkflowRun
+
+    events = [
+        ("agent_start", {"agent_id": "prototype-build", "name": "Build Agent"}),
+        ("agent_chunk", {"chunk": "built it"}),
+        ("agent_complete", {"duration": 1.0, "input_tokens": 10, "output_tokens": 5,
+                             "total_tokens": 15,
+                             "model_id": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"}),
+    ]
+    wr = WorkflowRun(id="issue963-helper", user_id="o", owner_id="o",
+                      status="completed", type="prototype", input="brief")
+    _apply_terminal_output_columns(wr, events, model_id=None, duration_seconds=1.0)
+
+    agents = _json.loads(wr.agent_outputs)
+    assert agents[0]["model_id"] == "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+
+def test_summary_safe_agent_keys_exposes_model_id():
+    """ISS-165: persisting model_id into agent_outputs is not enough on its own —
+    /api/runs/{id}/summary filters every agent dict through this allow-list, so an
+    unlisted key never reaches the response even once it exists in the DB."""
+    from app.api.runs import _SUMMARY_SAFE_AGENT_KEYS
+
+    assert "model_id" in _SUMMARY_SAFE_AGENT_KEYS
+
+
 @pytest.mark.parametrize(
     "tail,expected",
     [

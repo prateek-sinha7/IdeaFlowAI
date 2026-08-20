@@ -32,6 +32,7 @@ allowed because the graph is pure data with no ``app.*`` reach (05-04).
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 
 from agents.artifacts.graph import ArtifactGraph
@@ -395,3 +396,37 @@ class ExecutionContext:
     # instead was the pre-fix bug: every subsequent dispatch re-attached the stale image.)
     # Default-empty ⇒ DORMANT on every golden run (nothing to render) ⇒ INV-3 byte-parity.
     turn_images_once: list = field(default_factory=list)
+
+    # ── KRN-005 (task.md R-03): scratch-mutation serialization for concurrent
+    # fan-out children ────────────────────────────────────────────────────────
+    # scratch_lock: guards the save/mutate/dispatch/restore window
+    # ``KernelServices.run_agent`` uses to bind per-invocation scratch
+    # (``current_step``, ``build_task_number``, ``build_task_total``,
+    # ``current_task_block``, ``current_prototype_skeleton``) onto this ONE
+    # shared ``ExecutionContext``. A parallel fan-out spawns N children under
+    # ``asyncio.gather``, and every child's ``run_worker`` -> ``run_agent`` calls
+    # land on the SAME ``ctx.runner`` (one ``KernelServices`` instance) and
+    # therefore the SAME ``ectx`` (INV-2 is about the ENGINE singleton, not
+    # about isolating siblings from each other — fan-out children were never
+    # given separate contexts). Two children's save/restore windows interleaving
+    # is a genuine data race: child A saves its `prev_*`, child B's write
+    # clobbers A's fields mid-flight, A's own `finally` restore then overwrites
+    # B's still-in-flight values with A's stale snapshot — either child can end
+    # up running (or being torn down) under the WRONG task/step scratch.
+    #
+    # This lock does not clone or isolate context — the read-only handles
+    # (``runner``, ``budget``, ``scoped_store``, ``artifacts``) still legitimately
+    # need to be one shared kernel surface — it only makes the scratch
+    # save-mutate-restore window ATOMIC per invocation, so concurrent children
+    # serialize through it one at a time instead of interleaving. This trades
+    # away true concurrency of the SCRATCH-BINDING step only (a few attribute
+    # writes) while the actual agent invocation (the slow, network-bound part)
+    # still runs unlocked/concurrently — see the lock's acquire/release site in
+    # ``KernelServices.run_agent``.
+    #
+    # A fresh, unshared ``asyncio.Lock()`` per run (default_factory — never one
+    # instance reused across runs, which would serialize UNRELATED concurrent
+    # runs against each other). Typed ``object`` (not ``asyncio.Lock`` directly)
+    # to avoid importing asyncio's lock type into type-checking call sites that
+    # don't need it; the runtime value is always a real ``asyncio.Lock``.
+    scratch_lock: object = field(default_factory=asyncio.Lock)

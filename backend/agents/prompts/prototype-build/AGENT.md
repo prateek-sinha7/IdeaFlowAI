@@ -15,7 +15,7 @@ injects:
 - design_system
 - craft
 max_tokens: 32768
-name: Implementation Agent
+name: Build Agent
 order: 4
 pipeline_type: prototype
 produces:

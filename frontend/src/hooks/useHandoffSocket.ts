@@ -61,6 +61,12 @@ export function useHandoffSocket(
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onMessageRef = useRef(onMessage);
   const intentionalCloseRef = useRef(false);
+  // Holds the LATEST `connect` so the backoff timer inside `connect` can retry
+  // without `connect` referencing its own binding before it is declared
+  // (react-hooks/immutability). Beyond the lint rule this is a real staleness
+  // fix: a direct self-call captured whichever `connect` closure existed when the
+  // timer was scheduled, so a retry could reconnect using a stale `url`/`cleanup`.
+  const connectRef = useRef<() => void>(() => {});
 
   // Keep onMessage ref up to date without triggering reconnects
   useEffect(() => {
@@ -174,10 +180,15 @@ export function useHandoffSocket(
       setConnectionStatus("reconnecting");
       setLastError(`Connection lost. Reconnecting in ${Math.round(delay / 1000)}s… (attempt ${retryCountRef.current})`);
       retryTimeoutRef.current = setTimeout(() => {
-        connect();
+        connectRef.current();
       }, delay);
     };
   }, [url, cleanup]);
+
+  // Publish the current `connect` for the backoff timer above to call.
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   const send = useCallback((message: string): boolean => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {

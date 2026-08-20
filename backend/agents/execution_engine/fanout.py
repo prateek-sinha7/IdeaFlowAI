@@ -75,6 +75,28 @@ class FanoutError(Exception):
     """
 
 
+class FanoutWorkerFailed(Exception):
+    """Raised AFTER collect when one or more spawned workers ended ``status="failed"``
+    (task.md R-03 / KRN-004).
+
+    Before this, ``_run_one``'s ``except Exception`` swallowed a worker's exception,
+    logged it, flipped its own ``subagent_runs`` row ``failed``, and returned a plain
+    dict — nothing downstream of ``run_fanout`` ever inspected the collected results
+    for a failed status, so a fan-out step with a failed child proceeded exactly like
+    a fully-successful one (through merge, to ``pipeline_complete``) unless a
+    *different*, non-worker exception happened to propagate instead. Each failed
+    child's own ``subagent_result`` event is still yielded first (unchanged,
+    diagnosable per-child signal) — this exception is raised only once, AFTER every
+    worker has been collected, so the caller sees exactly one parent-level terminal
+    failure that names every failed worker, never a false "succeeded" fan-out.
+    """
+
+    def __init__(self, failed: list[dict]):
+        self.failed = failed
+        names = ", ".join(f"{w.get('agent')}#{w.get('worker')}" for w in failed)
+        super().__init__(f"{len(failed)} fan-out worker(s) failed: {names}")
+
+
 def _select_workers(requests: list[dict], ctx: Any, step: Any) -> list[dict]:
     """Resolve each request to a concrete worker agent id (FANOUT-03).
 
@@ -640,6 +662,22 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any,
                                 "reason": "threshold_reached",
                             },
                         }
+
+        # ── KRN-004 (task.md R-03): one child failure → exactly one parent
+        # terminal failure ─────────────────────────────────────────────────
+        # Every worker's ``subagent_result`` (including a failed one's) has
+        # ALREADY been yielded above — this raises only AFTER every child has been
+        # collected and its own terminal event emitted, so nothing here suppresses
+        # a per-child signal. Raised BEFORE merge: a failed worker's fragment was
+        # never written (merge already only integrates ``status == "complete"``
+        # fragments), so skipping merge on any failure is consistent with what
+        # would have been merged anyway. Fan-out-cancel (FANOUT-11) already
+        # propagates via its own asyncio.CancelledError path above and is
+        # unaffected — this only fires when EVERY task finished (no cancel/
+        # non-worker exception already propagated).
+        failed_workers = [r for r in results if r.get("status") == "failed"]
+        if failed_workers:
+            raise FanoutWorkerFailed(failed_workers)
 
         # ── Cooperative cancel BEFORE merge (RESUME-01) ───────────────────────
         # Completed workers' fragment artifacts are ALREADY persisted (5a /

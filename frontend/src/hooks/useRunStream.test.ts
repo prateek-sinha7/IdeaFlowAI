@@ -18,6 +18,7 @@
  */
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { STREAM_TERMINAL_TYPES } from "@/types";
 import { useRunStream } from "./useRunStream";
 
 // Let connect() pass its token guard; env stays real (ENV.API_URL only shapes the URL).
@@ -42,6 +43,34 @@ function serveWire(wire: string) {
   global.fetch = vi.fn(
     async () =>
       ({ status: 200, ok: true, body: wireStream(wire) }) as unknown as Response,
+  );
+}
+
+/**
+ * SSE-003: a MULTI-chunk body. `serveWire` above enqueues the whole wire in one
+ * chunk, so it can never exercise a chunk-boundary split. This cuts the encoded
+ * BYTES at the given offsets and enqueues each piece separately, which is what
+ * the network actually does.
+ */
+function serveWireSplitAtBytes(wire: string, ...offsets: number[]) {
+  const bytes = new TextEncoder().encode(wire);
+  const cuts = [0, ...offsets, bytes.length];
+  const chunks: Uint8Array[] = [];
+  for (let i = 0; i < cuts.length - 1; i++) {
+    chunks.push(bytes.slice(cuts[i], cuts[i + 1]));
+  }
+  global.fetch = vi.fn(
+    async () =>
+      ({
+        status: 200,
+        ok: true,
+        body: new ReadableStream<Uint8Array>({
+          start(c) {
+            for (const ch of chunks) c.enqueue(ch);
+            c.close();
+          },
+        }),
+      }) as unknown as Response,
   );
 }
 
@@ -162,5 +191,108 @@ describe("useRunStream — non-live close does not reconnect (BUG-015)", () => {
     // the ref resets at the top of every connect()). scheduleReconnect sets
     // "reconnecting" synchronously; test cleanup aborts the pending 1s reconnect.
     await waitFor(() => expect(result.current.phase).toBe("reconnecting"));
+  });
+});
+
+describe("useRunStream — terminal event types mark non-live close (ISS-147 / R-07)", () => {
+  // ISS-147 / SSE-002: the frontend's terminal-event guard now uses the canonical
+  // STREAM_TERMINAL_TYPES constant (shared with backend's _STREAM_TERMINAL_TYPES
+  // via frontend/src/types/index.ts). Test that every member prevents reconnect
+  // (marks the connection non-live before the stream close fires).
+
+  const createTerminalFrame = (type: string, seq: number) =>
+    `id: ${seq}\r\ndata: {"type":"${type}","data":{"pipeline_run_id":"r","seq":${seq}}}\r\n\r\n`;
+
+  for (const terminalType of Array.from(STREAM_TERMINAL_TYPES)) {
+    it(`${terminalType}: terminal frame settles disconnected without reconnect`, async () => {
+      const onMessage = vi.fn();
+      serveWire(createTerminalFrame(terminalType, 100));
+
+      const { result } = renderHook(() =>
+        useRunStream({ runId: "r", token: "t.t.t", onMessage, enabled: true }),
+      );
+
+      // Each terminal type should receive its frame (envelope parsing works) AND
+      // the connection should settle to "disconnected" without scheduling a reconnect.
+      await waitFor(() =>
+        expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ type: terminalType })),
+      );
+      await waitFor(() => expect(result.current.phase).toBe("disconnected"));
+      expect(result.current.lastError ?? "").not.toMatch(/Reconnecting/i);
+    });
+  }
+});
+
+
+describe("useRunStream — chunk-boundary parser edge cases (SSE-003)", () => {
+  const frame = (seq: number, type: string, extra = "") =>
+    `id: ${seq}\r\ndata: {"type":"${type}","data":{"pipeline_run_id":"r","seq":${seq}${extra}}}\r\n\r\n`;
+
+  it("re-assembles a frame terminator split between the CR and the LF", async () => {
+    // Two frames, with the cut landing INSIDE frame 1's `\r\n\r\n` terminator —
+    // specifically between its second `\r` and that `\r`'s `\n`. Neither chunk then
+    // contains a complete `\r\n` pair at the seam.
+    //
+    // Two frames matter: with a single frame the missed boundary is masked by the
+    // post-loop `if (buf.trim()) dispatchBlock(buf)` flush, so the bug is invisible.
+    // With two, the un-normalized `\r` prevents `indexOf("\n\n")` from matching
+    // frame 1's terminator, both frames coalesce into ONE block, and frame 1 is lost.
+    const f1 = frame(1, "agent_start");
+    const wire = f1 + frame(2, "agent_complete");
+    // Frame content is ASCII, so byte offset == char index. Cut 1 byte before the
+    // end of f1, i.e. between the final `\r` and `\n`.
+    const cut = f1.length - 1;
+    expect(wire[cut - 1]).toBe("\r"); // sanity: the seam really is mid-CRLF
+    expect(wire[cut]).toBe("\n");
+
+    serveWireSplitAtBytes(wire, cut);
+    const onMessage = vi.fn();
+
+    const { unmount } = renderHook(() =>
+      useRunStream({ runId: "r", token: "t.t.t", onMessage, enabled: true }),
+    );
+
+    // BOTH frames must arrive as distinct dispatches.
+    await waitFor(() =>
+      expect(onMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "agent_start" }),
+      ),
+    );
+    await waitFor(() =>
+      expect(onMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "agent_complete" }),
+      ),
+    );
+    // Neither frame is terminal, so the stream's end schedules a reconnect. Unmount
+    // to cancel that timer — otherwise the backoff loop keeps issuing fetches for the
+    // rest of the file's lifetime, adding contention that surfaces timeout flakes in
+    // unrelated suites during a batch run.
+    unmount();
+  });
+
+  it("re-assembles a multi-byte UTF-8 character split across chunks", async () => {
+    // Regression guard rather than a bug repro: `decode(value, { stream: true })`
+    // already handles this correctly. It was simply never exercised, because every
+    // other test enqueues the body as a single chunk.
+    const wire = frame(1, "agent_chunk", ',"text":"café ☕"');
+    const bytes = new TextEncoder().encode(wire);
+    // The last byte of a 3-byte char is a continuation byte (0b10xxxxxx). Cut
+    // immediately before it so one code point straddles the chunk seam.
+    const cut = bytes.length - 1 - new TextEncoder().encode('"}}\r\n\r\n').length;
+    expect(bytes[cut] & 0b11000000).toBe(0b10000000); // sanity: mid-code-point
+
+    serveWireSplitAtBytes(wire, cut);
+    const onMessage = vi.fn();
+
+    const { unmount } = renderHook(() =>
+      useRunStream({ runId: "r", token: "t.t.t", onMessage, enabled: true }),
+    );
+
+    await waitFor(() => expect(onMessage).toHaveBeenCalled());
+    const dispatched = onMessage.mock.calls[0][0];
+    expect(dispatched.type).toBe("agent_chunk");
+    // The character survives the seam intact — no U+FFFD replacement char.
+    expect(dispatched.data.text).toBe("café ☕");
+    unmount(); // cancel the post-stream reconnect timer (see note above)
   });
 });

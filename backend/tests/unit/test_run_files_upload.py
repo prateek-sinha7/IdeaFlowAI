@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -260,8 +261,8 @@ class TestSandboxLanding:
 
         sb = _sandbox(env, user.id, run_id)
         assert sb.path_for(".uploads/report.pdf").read_bytes() == b"%PDF-bytes"
-        assert sb.path_for(".uploads/report.pdf.txt").read_text() == "EXTRACTED DOC TEXT"
-        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text())
+        assert sb.path_for(".uploads/report.pdf.txt").read_text(encoding="utf-8") == "EXTRACTED DOC TEXT"
+        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8"))
         entry = next(e for e in manifest if e["name"] == "report.pdf")
         assert entry["has_text"] is True
         assert entry["mime"] == "application/pdf"
@@ -278,7 +279,7 @@ class TestSandboxLanding:
         assert sb.path_for(".uploads/notes.txt").read_bytes() == b"plain notes"
         # No extracted sidecar for a non-extractable type.
         assert not sb.path_for(".uploads/notes.txt.txt").exists()
-        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text())
+        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8"))
         entry = next(e for e in manifest if e["name"] == "notes.txt")
         assert entry["has_text"] is False
 
@@ -309,7 +310,7 @@ class TestFilenameCollision:
         # BOTH files' bytes survive on disk (no silent clobber).
         assert sb.path_for(".uploads/invoice_1.txt").read_bytes() == b"FIRST FILE CONTENTS"
         assert sb.path_for(".uploads/invoice_1-2.txt").read_bytes() == b"SECOND FILE CONTENTS"
-        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text())
+        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8"))
         assert {e["name"] for e in manifest} == {"invoice_1.txt", "invoice_1-2.txt"}
 
     def test_collision_with_prior_upload_is_disambiguated(self, env):
@@ -327,7 +328,7 @@ class TestFilenameCollision:
         sb = _sandbox(env, user.id, run_id)
         assert sb.path_for(".uploads/report.txt").read_bytes() == b"ORIGINAL"
         assert sb.path_for(".uploads/report-2.txt").read_bytes() == b"SECOND UPLOAD"
-        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text())
+        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8"))
         assert {e["name"] for e in manifest} == {"report.txt", "report-2.txt"}
 
 
@@ -337,6 +338,14 @@ class TestFilenameCollision:
 
 
 class TestManifestLockSerialization:
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason=(
+            "_manifest_lock uses fcntl.flock, which is Unix-only; run_files.py "
+            "already no-ops the lock on Windows (see its fcntl import guard), "
+            "so there is no real exclusivity to assert there — POSIX-only test."
+        ),
+    )
     def test_manifest_lock_is_mutually_exclusive(self, env):
         """The per-run advisory lock is genuinely exclusive: while held, a second
         acquirer cannot take it; once released, it is free again."""
@@ -378,7 +387,7 @@ class TestManifestLockSerialization:
         assert resp.status_code == 200
         sb = _sandbox(env, user.id, run_id)
         assert sb.path_for(".uploads/manifest.lock").exists()
-        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text())
+        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text(encoding="utf-8"))
         assert [e["name"] for e in manifest] == ["a.txt"]
 
 

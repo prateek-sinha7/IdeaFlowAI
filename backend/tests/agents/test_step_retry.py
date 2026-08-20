@@ -299,3 +299,91 @@ async def test_zero_max_attempts_runs_legacy_path():
 
     assert strategy.calls == 1
     assert {e["type"] for e in events} == {"agent_chunk"}
+
+
+# ===========================================================================
+# (6) KRN-006 (task.md R-04) — a strategy that yields a terminal event
+#     COOPERATIVELY (not via exception) and then returns "normally" must NOT
+#     get a step_completed for a step that never actually completed.
+# ===========================================================================
+
+
+class _CooperativeTerminalStrategy:
+    """A strategy that yields a terminal-shaped event, then ends its generator
+    WITHOUT raising — the exact shape ``_dispatch_step_with_retry`` used to miss
+    (it only guarded against raised exceptions, not cooperative terminal events).
+    """
+
+    name = "fake-cooperative"
+
+    def __init__(self, terminal_event: dict) -> None:
+        self._terminal_event = terminal_event
+        self.calls = 0
+
+    async def run(self, step, ctx):
+        self.calls += 1
+        yield {"type": "agent_chunk", "data": {"text": "partial"}}
+        yield self._terminal_event
+        # No raise — the generator just ends "successfully" from the wrapper's
+        # point of view.
+
+
+@pytest.mark.asyncio
+async def test_pipeline_cancelled_event_suppresses_step_completed():
+    engine = ExecutionEngine()
+    strategy = _CooperativeTerminalStrategy(
+        {"type": "pipeline_cancelled", "data": {"pipeline_run_id": "run-1"}}
+    )
+    ctx = _FakeCtx()
+    step = _step(max_attempts=3)
+
+    events = await _collect(engine, step, ctx, strategy)
+
+    types = [e["type"] for e in events]
+    assert "pipeline_cancelled" in types, "the terminal event itself must still be forwarded"
+    assert "step_completed" not in types, (
+        "a step whose strategy signaled pipeline_cancelled must NEVER also get "
+        "step_completed — that would claim success for a step that was cancelled"
+    )
+    assert strategy.calls == 1, "a terminal cooperative event must not trigger a retry"
+
+
+@pytest.mark.asyncio
+async def test_unrecoverable_agent_error_event_suppresses_step_completed():
+    engine = ExecutionEngine()
+    strategy = _CooperativeTerminalStrategy(
+        {"type": "agent_error", "data": {"agent_id": "agent-a", "error": "fatal", "recoverable": False}}
+    )
+    ctx = _FakeCtx()
+    step = _step(max_attempts=3)
+
+    events = await _collect(engine, step, ctx, strategy)
+
+    types = [e["type"] for e in events]
+    assert "agent_error" in types
+    assert "step_completed" not in types, (
+        "an UNRECOVERABLE agent_error (recoverable: False) means the step's "
+        "invocation never actually produced a completion — step_completed must "
+        "not follow it"
+    )
+
+
+@pytest.mark.asyncio
+async def test_recoverable_agent_error_still_completes():
+    """A RECOVERABLE agent_error (recoverable: True — e.g. a timeout degrade that
+    still appends a result) is UNCHANGED behavior: step_completed still fires."""
+    engine = ExecutionEngine()
+    strategy = _CooperativeTerminalStrategy(
+        {"type": "agent_error", "data": {"agent_id": "agent-a", "error": "timeout", "recoverable": True}}
+    )
+    ctx = _FakeCtx()
+    step = _step(max_attempts=3)
+
+    events = await _collect(engine, step, ctx, strategy)
+
+    types = [e["type"] for e in events]
+    assert "agent_error" in types
+    assert "step_completed" in types, (
+        "a RECOVERABLE agent_error must not change today's behavior — "
+        "step_completed still follows it (parity)"
+    )

@@ -1265,6 +1265,7 @@ _SUMMARY_SAFE_AGENT_KEYS = (
     "total_tokens",
     "cache_read_tokens",
     "cache_write_tokens",
+    "model_id",
 )
 
 

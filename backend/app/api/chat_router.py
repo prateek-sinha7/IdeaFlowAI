@@ -59,7 +59,18 @@ CHANNEL_CONCIERGE = "concierge"   # free-form → the Concierge escalation (D-04
 GATE_ACTIONS = frozenset({"approve", "reject", "redo", "update_specs"})
 
 # Terminal run statuses (KAN-100 fence). Generic status vocabulary, NOT pipeline names.
-TERMINAL_STATUSES = frozenset({"completed", "degraded", "failed", "cancelled"})
+#
+# API-001 (task.md R-05): this used to be its OWN independent literal
+# ``frozenset({"completed", "degraded", "failed", "cancelled"})`` — the fourth
+# separately-typed copy of the same terminal set found across the codebase
+# (alongside a stray copy in ``_review_gate_run_is_terminal`` and the
+# ``/resume`` endpoint's inverse resumable-set literal). Now imported from the
+# ONE canonical definition (INV-12 — mirrors ``NON_TERMINAL_RUN_STATUSES``'s
+# own precedent). The values are unchanged, so ``phase`` resolution is
+# byte-identical for every existing run status.
+from agents.execution_engine.engine import TERMINAL_RUN_STATUSES as _TERMINAL_RUN_STATUSES
+
+TERMINAL_STATUSES = frozenset(_TERMINAL_RUN_STATUSES)
 
 # ── Durable gate event vocabulary (LIVE-STATE-CONTRACT.md §1) ────────────────
 # The generic gate vocabulary + the open-gate derivation now live in the ONE shared

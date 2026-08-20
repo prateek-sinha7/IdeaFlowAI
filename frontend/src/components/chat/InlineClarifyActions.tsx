@@ -104,7 +104,10 @@ export function InlineClarifyActions({
   // answer. For multi-select, splits the comma-separated recommendation into
   // individual chip selections. All coercions go through toRecString/splitRecToChips
   // so non-string API values (arrays, numbers) never crash.
-  const useRecommended = useCallback((q: ClarifyQuestion) => {
+  // NB: deliberately NOT named `useRecommended` — a `use*` identifier makes the
+  // Rules of Hooks linter treat this plain callback as a React Hook, so calling
+  // it from an `onClick` reads as a conditional hook call (react-hooks/rules-of-hooks).
+  const applyRecommended = useCallback((q: ClarifyQuestion) => {
     const rec = q.recommendedAnswer ?? q.recommendedDisplay;
     if (rec == null || rec === "") return;
     let selections: string[];
@@ -209,7 +212,7 @@ export function InlineClarifyActions({
                 </span>
                 <button
                   type="button"
-                  onClick={() => useRecommended(q)}
+                  onClick={() => applyRecommended(q)}
                   disabled={submitted}
                   className="flex-none text-[10px] font-semibold text-brand hover:text-brand-pressed border border-brand/30 bg-surface-white rounded-md px-2 py-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >

@@ -73,30 +73,37 @@ A card is stale when its `prose_signature` differs from its `code_signature`.
 The signature covers the card's `members:` globs **plus every file its prose
 names** — so a card is answerable for files it merely passes through.
 
-**2. Re-author each affected card.** For every card the previous step named,
-read `prompts/architecture-domain-update.md` **in this directory** and follow
-it exactly.
+**2. Re-author each affected card — one Haiku subagent per card.** Per your
+standing delegation rule, this is mechanical, well-specified, single-file work
+— dispatch it rather than doing it inline. For every card the previous step
+named, spawn a fresh Haiku subagent (`model: "haiku"`) with a prompt that
+tells it to:
 
-That file is the authority and it ships with this skill. The `knowledge-domains`
-pre-commit hook feeds the very same file to headless Claude — this skill is the
-manual path through one procedure, not a second implementation of it. Read it
-from disk every time; do not paraphrase it from memory, and do not work from a
-copy you have seen before, because it changes.
+- Read `.claude/skills/velocity/prompts/architecture-domain-update.md` itself,
+  from disk, and follow it exactly. That file is the authority and it ships
+  with this skill — the `knowledge-domains` pre-commit hook feeds the very
+  same file to headless Claude, so this is the manual path through one
+  procedure, not a second implementation of it. It must read it fresh, not
+  work from anything paraphrased in the dispatch prompt, because it changes.
+- Substitute its two placeholders itself: `{{CARD}}` (the card's repo-relative
+  path, which you supply) and `{{CHANGED_FILES}}` (the files `--affected`
+  listed under that card, one per line, which you also supply).
+- Respect the prompt's incremental mode: when `{{CHANGED_FILES}}` names files,
+  **fix only the claims those changes invalidate**, leave the rest of the
+  prose alone. A card is hand-authored analysis, and rewriting a paragraph
+  nothing invalidated is how a good one becomes a worse one.
 
-Substitute its two placeholders:
+One subagent, one card — never batch multiple cards into one dispatch. Each
+card has its own changed-file list, and merging them produces prose that
+describes the wrong domain's changes. Independent cards (no shared file in
+their changed-file lists) may be dispatched in parallel, in one message with
+multiple Agent calls; a card whose changed-file list overlaps another's should
+be dispatched after, not concurrently with, the one it overlaps.
 
-- `{{CARD}}` — the card's repo-relative path
-- `{{CHANGED_FILES}}` — the files `--affected` listed under that card, one per
-  line
-
-The prompt has an incremental mode that matters here: when `{{CHANGED_FILES}}`
-names files, **fix only the claims those changes invalidate.** Leave the rest
-of the prose alone. A card is hand-authored analysis, and rewriting a paragraph
-nothing invalidated is how a good one becomes a worse one.
-
-Do one card at a time. Do not batch them into a single pass — each card has its
-own changed-file list, and merging them produces prose that describes the wrong
-domain's changes.
+Review each subagent's diff before moving on to step 3 — a Haiku rewrite that
+invents a claim the changed files don't support, or drifts outside the
+incremental-mode scope, needs a re-dispatch with a corrected prompt, not a
+silent pass-through.
 
 **3. Rebuild.** This recomputes each card's `code_signature` from its NEW prose
 and re-inlines every `## Shape` diagram into `ARCHITECTURE.md`:

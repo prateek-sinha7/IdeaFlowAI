@@ -107,7 +107,12 @@ not a rendering context, so nothing there was ever clickable.
 
 The ID is the stable key and the filename is not (it carries a datetime), so
 `build_index.py` re-resolves every target on each rebuild: rename a card and
-the links pointing at it follow. Write a bare id and it renders as a link.
+the links pointing at it follow. **Always author the full markdown link form**
+(`[FIX-034](20260704-1815-FIX-034.md)`) — in the `## Related` block AND
+anywhere else a card references another (there is no separate bare-id or
+`[[wikilink]]` shorthand; one pattern everywhere). The rebuild's re-resolution
+on rename is what keeps that link correct later, not a reason to author it
+any other way.
 `validate_links.py` checks all 1,278 — both that the id names a real card and
 that the target file exists — so a dead reference fails the rebuild rather
 than rotting unnoticed. IDs are permanent — corrections
