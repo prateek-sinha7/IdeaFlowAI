@@ -292,7 +292,7 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
             </div>
             <p className="text-[14px] font-medium text-ink-600">No workflows saved yet</p>
             <p className="text-[12px] text-ink-400 max-w-xs leading-relaxed">
-              Build a custom workflow from the home screen using "Create workflow" — it will appear here once saved.
+              Build a custom workflow from the home screen using &quot;Create workflow&quot; — it will appear here once saved.
             </p>
           </motion.div>
         )}
@@ -302,7 +302,7 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             className="flex flex-col items-center gap-2 py-12 text-center">
             <Search className="h-7 w-7 text-ink-300" />
-            <p className="text-[13px] font-medium text-ink-500">No workflows match "{search}"</p>
+            <p className="text-[13px] font-medium text-ink-500">No workflows match &quot;{search}&quot;</p>
             <button onClick={() => setSearch("")} className="text-[12px] text-brand hover:underline">Clear search</button>
           </motion.div>
         )}

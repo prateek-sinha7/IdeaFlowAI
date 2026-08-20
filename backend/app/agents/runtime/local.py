@@ -71,14 +71,35 @@ class _ChildSandbox:
 
     def path_for(self, relpath: str) -> Path:
         candidate = (self.root / str(relpath).lstrip("/")).resolve()
-        if candidate != self.root and not str(candidate).startswith(str(self.root) + "/"):
+        # Structural containment via `is_relative_to` — a hardcoded "/" separator
+        # string-prefix check never matches on Windows (`\` separators), which would
+        # silently defeat this path-traversal confinement guard on that platform.
+        if candidate != self.root and not candidate.is_relative_to(self.root):
             raise ValueError(f"path escapes isolated workspace: {relpath!r}")
         return candidate
 
     def cleanup(self) -> None:
-        import shutil
+        _rmtree_best_effort(self.root)
 
-        shutil.rmtree(self.root, ignore_errors=True)
+
+def _rmtree_best_effort(path: Path) -> None:
+    """``shutil.rmtree`` that is best-effort like ``ignore_errors=True`` but first
+    retries a read-only entry after clearing its write bit.
+
+    Windows marks files under a cloned ``.git`` tree read-only, which makes a plain
+    ``ignore_errors=True`` silently leave the whole tree behind (no exception, no
+    deletion) — a real cross-platform cleanup gap, not just a test artifact.
+    """
+    import shutil
+
+    def _on_rm_error(func, child_path, exc) -> None:
+        try:
+            os.chmod(child_path, 0o700)
+            func(child_path)
+        except OSError:
+            pass
+
+    shutil.rmtree(str(path), ignore_errors=False, onexc=_on_rm_error)
 
 
 # The v1 "ephemeral creds" posture: the child sees ONLY these env keys (constructed,
@@ -381,12 +402,23 @@ class LocalWorkspace:
                 pass  # darwin may refuse; the wall-clock timeout still bounds the run
 
         started = time.monotonic()
-        # WR-01: spawn via Popen + communicate(timeout=...) (NOT subprocess.run) so
-        # the pid is RETAINED on TimeoutExpired — start_new_session=True puts the
-        # child in its own process group, and on timeout we kill the WHOLE group
-        # (os.killpg) so a forking runaway (e.g. pytest spawning workers) cannot
-        # leave orphaned descendants past the wall-clock cap. subprocess.run only
-        # SIGKILLs the direct child, defeating the documented group containment.
+        # POSIX-only Popen kwargs: `preexec_fn` and `start_new_session` (process-group
+        # containment for os.killpg below) are rejected outright by CPython on Windows
+        # (`ValueError: preexec_fn is not supported on Windows platforms`). Production
+        # targets Linux (see module docstring); on Windows these are simply omitted —
+        # the child then has no rlimits/group-kill containment, matching the fact that
+        # this code path is dev-only there (exec is off by default; T-09-01-02).
+        is_posix = os.name == "posix"
+        popen_kwargs: dict = {}
+        if is_posix:
+            # WR-01: spawn via Popen + communicate(timeout=...) (NOT subprocess.run) so
+            # the pid is RETAINED on TimeoutExpired — start_new_session=True puts the
+            # child in its own process group, and on timeout we kill the WHOLE group
+            # (os.killpg) so a forking runaway (e.g. pytest spawning workers) cannot
+            # leave orphaned descendants past the wall-clock cap. subprocess.run only
+            # SIGKILLs the direct child, defeating the documented group containment.
+            popen_kwargs["preexec_fn"] = _limits
+            popen_kwargs["start_new_session"] = True  # so killpg can kill a forking runaway tree
         proc = subprocess.Popen(
             argv,
             cwd=str(self._root),
@@ -395,17 +427,20 @@ class LocalWorkspace:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            preexec_fn=_limits,
-            start_new_session=True,  # so killpg can kill a forking runaway tree
+            **popen_kwargs,
         )
         try:
             stdout, _stderr = proc.communicate(timeout=self.policy.wall_seconds)
         except subprocess.TimeoutExpired:
-            # Kill the ENTIRE process group, not just the direct child (WR-01).
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass  # already gone / not permitted — best-effort group kill
+            # Kill the ENTIRE process group, not just the direct child (WR-01). On
+            # Windows there is no process group to target — kill the direct child only.
+            if is_posix:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass  # already gone / not permitted — best-effort group kill
+            else:
+                proc.kill()
             # Drain any partial output so the pipes close and the child reaps
             # cleanly; discard it (a killed run returns no stdout to the caller).
             try:

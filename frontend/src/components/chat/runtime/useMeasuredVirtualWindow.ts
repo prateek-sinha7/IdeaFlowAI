@@ -95,7 +95,7 @@ function computeWindow(
     }
   }
 
-  let startIndex = Math.max(0, firstVisible - overscan);
+  const startIndex = Math.max(0, firstVisible - overscan);
   let endIndex = Math.min(itemCount, firstBelow + overscan);
   if (endIndex <= startIndex) endIndex = Math.min(itemCount, startIndex + 1);
 

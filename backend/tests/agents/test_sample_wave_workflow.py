@@ -409,10 +409,9 @@ def test_sample_wave_kernel_names_no_workflow() -> None:
         ).stdout.strip()
     )
     engine_pkg = repo_root / "backend" / "agents" / "execution_engine"
-    hits = subprocess.run(
-        ["grep", "-rl", "sample_wave", str(engine_pkg)],
-        capture_output=True, text=True,
-    ).stdout.strip()
+    from tests.agents._portable_grep import grep_files_matching
+
+    hits = grep_files_matching("sample_wave", engine_pkg).stdout.strip()
     assert hits == "", (
         f"the kernel names the workflow sample_wave (INV-1 violation) in:\n{hits}"
     )

@@ -34,6 +34,11 @@ ruff==0.8.4
 # sqlalchemy, etc. as unresolved.
 pyright==1.1.391
 
+# Coverage measurement and reporting (pytest-cov).
+# Configured in pyproject.toml under [tool.coverage]. Run with:
+#   pytest tests/ --cov=app --cov=agents --cov-report=html --cov-report=term-missing
+coverage[toml]==7.6.1
+
 # Pre-commit framework. Run `pre-commit install` once after installing.
 # Hooks live in /.pre-commit-config.yaml at the repo root.
 pre-commit==4.0.1

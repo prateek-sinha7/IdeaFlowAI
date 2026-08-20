@@ -88,6 +88,10 @@ from app.api.run_engine import (
     _validate_model_overrides,
 )
 
+# API-001 (task.md R-05): the single canonical terminal-status set (engine.py —
+# see its own docstring for why it now exists beside NON_TERMINAL_RUN_STATUSES).
+from agents.execution_engine.engine import TERMINAL_RUN_STATUSES
+
 logger = logging.getLogger("app.api.run_commands")
 
 router = APIRouter(prefix="/api/runs", tags=["run-commands"])
@@ -341,6 +345,25 @@ async def submit_answers(
     """
     if not _review_gate_owned_by(run_id, current_user.id):
         raise _deny_unknown_gate()
+
+    # API-001 (task.md R-05): this endpoint had ZERO terminal-status fencing —
+    # unlike /gate (KAN-100's ``_review_gate_run_is_terminal`` check) and /cancel
+    # (its own idempotent-terminal branch), a clarify-answers POST against an
+    # already-terminal (cancelled/failed/degraded/completed) run was accepted
+    # unconditionally and written straight to the store. Mirror /gate's fence —
+    # ``_review_gate_run_is_terminal`` takes a ``{run_id}:{agent_id}``-shaped
+    # ``gate_key``, and a bare ``run_id`` parses identically (split on the first
+    # ``:``, which is absent here → the whole string is the run_id — see its
+    # docstring), so passing ``run_id`` directly is correct, not a workaround.
+    if _review_gate_run_is_terminal(run_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "Pipeline is no longer running",
+                "code": "pipeline_not_running",
+                "recoverable": False,
+            },
+        )
 
     responses = list(body.responses or [])
     # The global freeform "anything else" note rides as question_id="freeform"
@@ -612,8 +635,15 @@ async def resume_run_endpoint(
 
         # (2) Eligibility — failed, degraded, and cancelled runs are resumable; anything else → 409.
         # A "degraded" run completed partially (some agents failed, some succeeded) —
-        # the user should be able to resume it to retry the failed portion.
-        if wr.status not in {"failed", "cancelled", "degraded"}:
+        # the user should be able to resume it to retry the failed portion. A
+        # successfully "completed" run is DELIBERATELY excluded (not resumable) even
+        # though it IS in the canonical terminal set — resume-eligibility is a
+        # NARROWER predicate than "is this run terminal", so it stays its own literal
+        # rather than reusing TERMINAL_RUN_STATUSES directly (API-001 unified the
+        # SEPARATE stray duplicate of this exact set that used to live in
+        # ``_review_gate_run_is_terminal``, not this deliberately-different one).
+        _RESUMABLE_STATUSES = frozenset(TERMINAL_RUN_STATUSES) - {"completed"}
+        if wr.status not in _RESUMABLE_STATUSES:
             raise _reject(
                 "run_not_resumable",
                 f"Run is {wr.status!r}; only failed, degraded, or cancelled runs are resumable",

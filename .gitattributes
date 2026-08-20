@@ -15,3 +15,13 @@
 # Terraform sources -> LF (harmless, keeps diffs clean across OSes)
 *.tf      text eol=lf
 *.tfvars  text eol=lf
+
+# Characterization / prompt-baseline golden files -> NEVER text-normalized.
+# These are byte-for-byte oracles (INV-3 / D-07): tests read them with
+# `Path.read_bytes()` and assert exact equality against composed output. Without
+# `-text` here, a Windows checkout can silently rewrite committed LF bytes to
+# CRLF, corrupting the golden and false-failing every byte-identity assertion
+# against it (task.md Phase 0 CRLF/golden-EOL group).
+backend/tests/agents/characterization/golden/**  -text
+backend/tests/**/golden/**                       -text
+backend/tests/**/*.golden                        -text

@@ -102,8 +102,14 @@ describe("History grouping helpers (SHELL-02) — pure", () => {
     expect(dateBucketOf(new Date(now.getTime() - 30 * DAY).toISOString(), now)).toBe("Older");
   });
   it("bucketAndSortFamilies buckets by root.created_at and sorts within a bucket by the chosen key", () => {
-    const now = new Date("2026-07-09T20:00:00Z");
-    const today = (h: number) => new Date(`2026-07-09T${String(h).padStart(2, "0")}:00:00Z`).toISOString();
+    // LOCAL constructors, deliberately: `dateBucketOf` buckets against LOCAL
+    // calendar midnight (`new Date(y, m, d)`), which is the product semantics.
+    // Building these as UTC instants made the fixture wrong in any zone east of
+    // UTC — e.g. at UTC+05:30, 2026-07-09T20:00Z is already July 10 locally, so
+    // local midnight is 2026-07-09T18:30Z and every `today(9..12)` UTC instant
+    // fell into "Earlier". Same-local-day constructors keep the intent portable.
+    const now = new Date(2026, 6, 9, 20, 0, 0, 0);
+    const today = (h: number) => new Date(2026, 6, 9, h, 0, 0, 0).toISOString();
     const runs = [
       makeRun({ id: "alpha", title: "Alpha", rootRunId: "alpha", createdAt: today(11), duration: 900, tokenUsage: { total_tokens: 100, total_input_tokens: 60, total_output_tokens: 40, estimated_cost_usd: 0 } }),
       makeRun({ id: "beta", title: "Beta", rootRunId: "beta", createdAt: today(9), duration: 100, tokenUsage: { total_tokens: 900, total_input_tokens: 500, total_output_tokens: 400, estimated_cost_usd: 0 } }),

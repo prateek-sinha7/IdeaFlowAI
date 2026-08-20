@@ -50,7 +50,7 @@ DOCKER_COMPOSE = REPO_ROOT / "docker-compose.yml"
 # ════════════════════════════════════════════════════════════════════════════
 def _uvicorn_graceful_window_seconds() -> float:
     """The ``--timeout-graceful-shutdown`` uvicorn is launched with in production."""
-    text = DOCKER_ENTRYPOINT.read_text()
+    text = DOCKER_ENTRYPOINT.read_text(encoding="utf-8")
     match = re.search(r"--timeout-graceful-shutdown\s+(\d+(?:\.\d+)?)", text)
     assert match, (
         "docker-entrypoint.sh no longer passes --timeout-graceful-shutdown. Without it "
@@ -62,7 +62,7 @@ def _uvicorn_graceful_window_seconds() -> float:
 
 def _stop_grace_period_seconds() -> float:
     """docker's hard SIGKILL ceiling for the backend service."""
-    text = DOCKER_COMPOSE.read_text()
+    text = DOCKER_COMPOSE.read_text(encoding="utf-8")
     match = re.search(r"stop_grace_period:\s*(\d+(?:\.\d+)?)s", text)
     assert match, "docker-compose.yml no longer declares stop_grace_period for the backend."
     return float(match.group(1))
@@ -151,6 +151,15 @@ def _open_live_stream(port: int) -> socket.socket:
     return sock
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "SIGTERM/graceful-shutdown semantics under test are POSIX-specific "
+        "(uvicorn signal handling + docker stop_grace_period target Linux "
+        "production); this is REL-001's Linux-only reliability case, not a "
+        "portable one — see task.md R-08/REL-001."
+    ),
+)
 def test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live(tmp_path):
     """SIGTERM with a live SSE stream must exit AND run the lifespan shutdown body.
 
@@ -192,7 +201,7 @@ def test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live(tmp_p
         except subprocess.TimeoutExpired:
             pytest.fail(
                 f"uvicorn did not exit within {wait_budget}s of SIGTERM while an SSE "
-                f"stream was live. Markers written: {marker.read_text() if marker.exists() else '(none)'}"
+                f"stream was live. Markers written: {marker.read_text(encoding="utf-8") if marker.exists() else '(none)'}"
             )
         elapsed = time.monotonic() - started
     finally:
@@ -202,7 +211,7 @@ def test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live(tmp_p
             proc.kill()
             proc.wait(timeout=10)
 
-    events = [line for line in marker.read_text().splitlines() if line.strip()]
+    events = [line for line in marker.read_text(encoding="utf-8").splitlines() if line.strip()]
     joined = "\n".join(events)
     assert "startup_complete" in joined, f"probe never started: {joined}"
     assert "lifespan_shutdown_entered" in joined, (
@@ -220,7 +229,7 @@ def test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live(tmp_p
 # 2. The production launch flag must not silently regress
 # ════════════════════════════════════════════════════════════════════════════
 def test_docker_entrypoint_still_passes_timeout_graceful_shutdown():
-    assert "--timeout-graceful-shutdown" in DOCKER_ENTRYPOINT.read_text()
+    assert "--timeout-graceful-shutdown" in DOCKER_ENTRYPOINT.read_text(encoding="utf-8")
     assert _uvicorn_graceful_window_seconds() > 0
 
 
@@ -325,8 +334,8 @@ def test_close_checkpointer_is_awaited_exactly_once_on_the_shutdown_path():
     SHUTDOWN_STOP_RUNS on, ``stop_pipeline_drivers()`` would drive runs against a pool
     that is already closed (``get_checkpointer()`` raises after close).
     """
-    main_src = (BACKEND_DIR / "app" / "main.py").read_text()
-    shutdown_src = (BACKEND_DIR / "app" / "api" / "run_shutdown.py").read_text()
+    main_src = (BACKEND_DIR / "app" / "main.py").read_text(encoding="utf-8")
+    shutdown_src = (BACKEND_DIR / "app" / "api" / "run_shutdown.py").read_text(encoding="utf-8")
 
     main_calls = main_src.count("await close_checkpointer()")
     shutdown_calls = shutdown_src.count("await close_checkpointer()")

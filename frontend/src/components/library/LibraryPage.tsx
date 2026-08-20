@@ -430,7 +430,19 @@ export function LibraryPage() {
 
   const [activeCategory, setActiveCategory] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedAgent, setSelectedAgent] = useState<{ agent: AgentDef; index: number } | null>(null);
+  // Carries the persisted skills/selections SNAPSHOT taken when the drawer was
+  // opened. Reading `savedSkillsRef`/`savedSelectionsRef` inline in the drawer's
+  // JSX instead would be a render-time ref read (react-hooks/refs): React does
+  // not re-render on a ref write, so that read only ever reflected whatever the
+  // ref held during some arbitrary earlier render. Snapshotting at open time —
+  // inside a click handler, where ref reads are legal — captures exactly the same
+  // value the drawer used to receive, deterministically.
+  const [selectedAgent, setSelectedAgent] = useState<{
+    agent: AgentDef;
+    index: number;
+    savedSkills?: string[];
+    savedSelections?: SelectionsMap;
+  } | null>(null);
   const [mainTab, setMainTab] = useState<"agents" | "skills" | "hooks">("agents");
   const [skillCategory, setSkillCategory] = useState("all");
   const [skillSearch, setSkillSearch] = useState("");
@@ -564,7 +576,13 @@ export function LibraryPage() {
                   const workflowLabel = workflow?.name || workflow?.display_name || agent.pipeline_type;
                   return (
                     <Card key={`${agent.pipeline_type}-${agent.id}`}
-                      onClick={() => !BETA_WORKFLOWS.has(agent.pipeline_type) && setSelectedAgent({ agent, index: filteredAgents.indexOf(agent) })}
+                      onClick={() => !BETA_WORKFLOWS.has(agent.pipeline_type) && setSelectedAgent({
+                        agent,
+                        index: filteredAgents.indexOf(agent),
+                        // Snapshot the persisted drawer state at OPEN time.
+                        savedSkills: savedSkillsRef.current[agent.id],
+                        savedSelections: savedSelectionsRef.current[agent.id],
+                      })}
                       className={`flex flex-col p-[17px] min-h-[180px] transition-colors group ${
                         BETA_WORKFLOWS.has(agent.pipeline_type)
                           ? "opacity-60 cursor-not-allowed"
@@ -751,14 +769,12 @@ export function LibraryPage() {
             // Seed the Skills tab from the persisted set so a reopen restores it.
             agent={{
               ...selectedAgent.agent,
-              skills:
-                savedSkillsRef.current[selectedAgent.agent.id] ??
-                selectedAgent.agent.skills,
+              skills: selectedAgent.savedSkills ?? selectedAgent.agent.skills,
             }}
             agentIndex={selectedAgent.index}
             onClose={() => setSelectedAgent(null)}
             asDrawer
-            initialSelections={savedSelectionsRef.current[selectedAgent.agent.id] ?? {}}
+            initialSelections={selectedAgent.savedSelections ?? {}}
             onSelectionsChange={(next) => {
               // Persist the selections for this agent so reopening restores them.
               savedSelectionsRef.current[selectedAgent.agent.id] = next;

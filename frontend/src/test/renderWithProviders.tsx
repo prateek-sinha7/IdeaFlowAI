@@ -1,7 +1,7 @@
 import React, { ReactElement } from "react";
 import { render, RenderOptions, RenderResult } from "@testing-library/react";
 import { Provider } from "react-redux";
-import { configureStore } from "@reduxjs/toolkit";
+import { combineReducers, configureStore } from "@reduxjs/toolkit";
 import authReducer from "@/store/slices/authSlice";
 import agentsReducer from "@/store/slices/agentsSlice";
 import skillsReducer from "@/store/slices/skillsSlice";
@@ -13,13 +13,22 @@ import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
 // Re-export commonly used testing utilities
 export { screen, fireEvent, waitFor, within } from "@testing-library/react";
 
-type PreloadedRootState = Partial<{
-  auth: ReturnType<typeof authReducer>;
-  agents: ReturnType<typeof agentsReducer>;
-  skills: ReturnType<typeof skillsReducer>;
-  hooks: ReturnType<typeof hooksReducer>;
-  global: ReturnType<typeof globalReducer>;
-}>;
+// Combine ONCE into a single root reducer rather than handing `configureStore` a
+// reducer *map* alongside `preloadedState`. With a map + preloadedState, Redux 5
+// requires every slice reducer to be assignable to
+// `Reducer<S, UnknownAction, S | undefined>`, but an RTK `slice.reducer` is typed
+// `Reducer<S>` (preloaded state = S, not S | undefined) — so the map form fails to
+// typecheck (TS2322). `combineReducers` produces one reducer whose preloaded-state
+// parameter is already the partial root state, which is exactly what we pass.
+const testRootReducer = combineReducers({
+  auth: authReducer,
+  agents: agentsReducer,
+  skills: skillsReducer,
+  hooks: hooksReducer,
+  global: globalReducer,
+});
+
+type PreloadedRootState = Partial<ReturnType<typeof testRootReducer>>;
 
 interface CustomRenderOptions extends Omit<RenderOptions, "wrapper"> {
   preloadedState?: PreloadedRootState;
@@ -45,13 +54,7 @@ export function renderWithProviders(
 ) {
   // Create a new test store with preloaded state if not provided
   const testStore = customStore ?? configureStore({
-    reducer: {
-      auth: authReducer,
-      agents: agentsReducer,
-      skills: skillsReducer,
-      hooks: hooksReducer,
-      global: globalReducer,
-    },
+    reducer: testRootReducer,
     preloadedState,
   });
 
