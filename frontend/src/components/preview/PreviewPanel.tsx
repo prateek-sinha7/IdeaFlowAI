@@ -574,6 +574,8 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   const renderType = detectedType === "user_stories_revision" ? "user_stories"
     : detectedType === "ppt_revision" ? "ppt"
     : detectedType === "prototype_revision" ? "prototype"
+    : detectedType === "prototype_large_revision" ? "prototype"
+    : detectedType === "prototype_feature_revision" ? "prototype"
     : detectedType === "app_builder_revision" ? "app_builder"
     : detectedType;
 

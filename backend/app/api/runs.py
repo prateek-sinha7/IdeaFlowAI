@@ -1188,8 +1188,21 @@ def _owned_family_members(
     # are collapsed now and persisted rows are migrated, so there is no ``od_``
     # prefix left to strip and the special case goes with it.
     def _canonical_base(t: str) -> str:
-        """Strip the generic ``_revision`` suffix."""
-        return t.removesuffix("_revision")
+        """Strip tiered or generic ``_revision`` suffix.
+
+        Handles the new tiered revision pipeline types introduced with the
+        multi-manifest prototype revision feature:
+          prototype_large_revision   → prototype
+          prototype_feature_revision → prototype
+          prototype_revision         → prototype  (unchanged)
+          prototype                  → prototype  (unchanged)
+        """
+        base = t
+        for suffix in ("_large_revision", "_feature_revision", "_revision"):
+            if base.endswith(suffix):
+                base = base[: -len(suffix)]
+                break
+        return base
 
     root_base_type: str | None = (
         _canonical_base(root_row.type) if root_row is not None else None
