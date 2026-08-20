@@ -36,7 +36,33 @@ Leaves behind: `.knowledge/CONTEXT.md` (only if it was rebuilt).
    `status.py` compares against HEAD and against the files actually on disk,
    which is what "fresh" has to mean. See `cli.md`.
 
-2. Otherwise, rebuild `.knowledge/CONTEXT.md` from scratch with this
+2. **Before rebuilding CONTEXT.md, close whatever staleness step 1 found —
+   by calling the sub-skill that owns it, not by reimplementing it here.**
+   `sync` and `diagrams` stay independently invocable exactly as documented
+   in their own files; this step just means prime doesn't leave you to
+   remember to run them yourself.
+
+   - **`commits since sync` or `source files changed` STALE** → read
+     `sync.md` in this directory in full and follow its entire procedure now
+     (including its approval gate on staged proposals in step 6 — that gate
+     is unchanged, prime does not skip it). Do this BEFORE the domain-prose
+     check below: reconciling the commit delta may itself touch code that
+     changes which domains are stale, and `sync.md` step 7 already ends by
+     running **the sync-point stamp**, so `last_sync_commit` is correct by
+     the time you get here.
+   - **`domain prose` STALE** (check again after the step above, since
+     it may have changed the picture) → read `diagrams.md` in this
+     directory in full and follow its entire procedure now. It dispatches
+     one Haiku subagent per affected card — see `diagrams.md` step 2 — so
+     this is cheap even when several domains are stale at once.
+   - Neither stale → skip straight to step 3.
+
+   Re-run **the status command** once more after either hand-off completes,
+   and report to the user what you ran and what it changed before
+   continuing — a silent hand-off is indistinguishable from prime having
+   done nothing.
+
+3. Otherwise, rebuild `.knowledge/CONTEXT.md` from scratch with this
    frontmatter:
    ```yaml
    ---
@@ -47,11 +73,11 @@ Leaves behind: `.knowledge/CONTEXT.md` (only if it was rebuilt).
    ---
    ```
 
-3. Section 1 — "What Velocity is". Hand-authored constant in the script,
+4. Section 1 — "What Velocity is". Hand-authored constant in the script,
    condensed from `.knowledge/ARCHITECTURE.md`'s opening. Update it by hand
    only when that file's opening genuinely changes.
 
-4. Section 2 — "Invariants and boundaries". Hand-authored constant, in
+5. Section 2 — "Invariants and boundaries". Hand-authored constant, in
    three tiers: **Always** (the rules that hold everywhere — kernel stays
    workflow-agnostic, capabilities resolve through the registry, migrations
    additive only, real `deepagents` mandatory), **Ask first** (SC-001, the
@@ -62,18 +88,18 @@ Leaves behind: `.knowledge/CONTEXT.md` (only if it was rebuilt).
    This is the highest-value-per-token section: it is the non-obvious
    knowledge an agent cannot infer from reading code.
 
-5. Section 3 — "Card store". Derived. A type/total/open table over the four
+6. Section 3 — "Card store". Derived. A type/total/open table over the four
    live types (`adr`, `fix`, `issue`, `bug`), the `adr` cards listed
    individually because a decision record is load-bearing and there are few,
    and a pointer to `INDEX.md`. **Never list individual cards of any other
    type** — `INDEX.md` is one read away and holds all 469.
 
-6. Section 4 — "Module map". Derived. One line per module:
+7. Section 4 — "Module map". Derived. One line per module:
    `- [<MOD-id>](architecture/<MOD-id>.md) — <path> — <N> files — <Purpose
    gloss>`. All 36 modules, always. This is the routing table and the point
    of the whole pack.
 
-7. Section 5 — "Retrieval protocol". Hand-authored. It must open with the
+8. Section 5 — "Retrieval protocol". Hand-authored. It must open with the
    index-first rule and state it in the strongest terms:
 
    **NEVER read or grep `cards/*.md` or `architecture/*.md` in bulk.** Read
@@ -102,7 +128,7 @@ Leaves behind: `.knowledge/CONTEXT.md` (only if it was rebuilt).
    tracked in git but deleted from the working tree. The module map routes
    better. See `specs/013-cardex/reports/2026-08-16-context-pack-research.md`.
 
-8. Budget: target **~3000 tokens (~12,000 chars)**. Treat 4000 tokens as the
+9. Budget: target **~3000 tokens (~12,000 chars)**. Treat 4000 tokens as the
    hard ceiling. The last build landed at 12,222 chars.
 
    CONTEXT.md is a NAVIGATION pack, not a data dump. It tells the reader what
@@ -128,7 +154,7 @@ Leaves behind: `.knowledge/CONTEXT.md` (only if it was rebuilt).
    never below 90 chars — at 40 it truncates mid-clause ("is a one-shot…")
    and becomes useless. Never sacrifice sections 1, 2 or 5.
 
-9. Run **the cards-only rebuild** to do all of the above — you run it, not
+10. Run **the cards-only rebuild** to do all of the above — you run it, not
    the user. `cli.md` in this directory holds every command by name. Use
    **the full rebuild** instead if module structure changed (a new package, a
    moved file); prefer the cards-only form when only cards changed,
@@ -136,3 +162,61 @@ Leaves behind: `.knowledge/CONTEXT.md` (only if it was rebuilt).
    min. The mechanical sections are derived; only sections 1 and 5 are
    editorial template constants inside the script. Do not hand-write
    `CONTEXT.md` — it is rebuilt on every sync.
+
+## Report
+
+This is the one sub-skill whose output is read by a person every time, not
+just consulted for a card — say what actually happened, don't just confirm
+the file was written:
+
+- If step 1 short-circuited (nothing was stale): say so plainly — "already
+  current as of `<commit>`" — and skip straight to the closing line below.
+- If step 2 handed off to `sync` and/or `diagrams`: name which one(s) ran,
+  and summarize their own results the way THEY report (new/edited cards
+  from `sync`, which domain cards `diagrams` touched and why) — don't just
+  say "ran sync." A silent hand-off reads as prime having done nothing, so
+  be specific enough that the user could tell this apart from a no-op run.
+- Always end with the freshly rebuilt `CONTEXT.md`'s stats (cards indexed,
+  modules indexed, built-from commit).
+
+Then, as the literal last line of the report, once everything above
+confirms a clean state — this exact closing line, verbatim, no variation:
+
+> Session primed - What are we building?
+
+The stats (cards/modules/commit) already answer "is it current" earlier in
+the report; this line's only job is the handoff into work, so it stays
+short and doesn't repeat them.
+
+Do not print this line if step 1's status check is still reporting anything
+stale that you could not resolve (e.g. a hand-off was declined, or a
+sub-skill hit a genuine blocker) — say what's still outstanding instead. The
+line promises a clean, current knowledge base; only say it when that's true.
+
+## Standing behavior for the rest of this session
+
+Once a clean run has printed the closing line above, the priming isn't just
+the file on disk — it changes how you handle what comes next in THIS
+session, without the user having to type `/velocity analyze` themselves:
+
+- **Narrow trigger.** A message that reads as a genuine bug report or
+  root-cause question about THIS repo — "why is X broken," "X isn't
+  working," "getting error Y," "X fails when...", "bug in X" — is an
+  implicit `/velocity analyze <query>` call. Read `analyze.md` and follow
+  its investigation steps (index → shortlist → read cards → trace code →
+  root-cause report) exactly as if the user had typed the command.
+  Softer questions — "how does X work," "what happens when Y," "what are
+  the options for Z," general curiosity or design questions — are NOT this
+  trigger. Answer those the normal way; do not run the analyze procedure or
+  create a card over them.
+- **Ask before recording.** `analyze.md` step 11 normally invokes
+  `book-keeping` unconditionally once the root cause is reported. For an
+  IMPLICIT trigger under this section specifically, don't — ask the user
+  first, the same way step 9 already asks about filing a Jira ticket
+  ("want me to record this as a card?"). Only proceed to `book-keeping` on
+  a yes. This is a narrower default than `analyze.md`'s own contract;
+  it applies only here, not to an explicit `/velocity analyze` invocation
+  (that keeps its documented always-book-keep behavior unchanged).
+- This standing behavior lasts for the rest of the current session only.
+  It is re-established by the NEXT clean prime run, not by anything
+  persistent — a fresh session with no prime run yet has no such behavior.

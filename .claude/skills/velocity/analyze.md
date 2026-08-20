@@ -34,7 +34,7 @@ Leaves behind: a root-cause report to the user; a new card recorded via
    under a broader reading of the symptom before widening anything else.
 
 4. Follow leads from any matching card:
-   - Follow `[[CARD-ID]]` wikilinks in its body.
+   - Follow the markdown links to other cards in its body prose.
    - Follow the links in its `## Related` block (body, under the
      frontmatter): `**Depends on:**` and `**Referenced by:**`.
    - Repeat until leads stop producing new relevant cards (typically 1-2

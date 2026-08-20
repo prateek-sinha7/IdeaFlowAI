@@ -227,6 +227,9 @@ export interface RunChatLaneProps {
   onBackToHistory?: () => void;
   /** The run title (falls back to the caller's brief / first user turn). */
   runTitle?: string;
+  /** The full, untrimmed text for the header's hover tooltip; falls back to
+   *  `runTitle` / the first user turn. */
+  runTitleFull?: string;
   /** An explicit run-type label; falls back to the humanized `pipeline_type`. */
   runType?: string;
   /** The settled deliverable filename — renders the "open in preview" card when
@@ -1079,6 +1082,7 @@ export function RunChatLane({
   onRequestOpenTab,
   onBackToHistory,
   runTitle,
+  runTitleFull,
   runType,
   deliverableFilename,
   deliverableVersion,
@@ -1540,23 +1544,20 @@ export function RunChatLane({
                 data-suggestion-id={s.id}
                 disabled={isBeta}
                 onClick={() => !isBeta && onSuggestion?.(s.id)}
-                className={`group relative w-full flex items-center justify-between rounded-[var(--radius-card)] border px-4 py-3 transition-all ${
+                className={`group relative w-full flex items-center justify-between rounded-[var(--radius-card)] border px-3 py-1.5 transition-all ${
                   isBeta
                     ? "border-line-border bg-surface-card text-ink-600 cursor-not-allowed"
                     : "border-line-control bg-surface-white text-ink-700 cursor-pointer hover:border-brand hover:bg-brand/5 hover:shadow-md hover:-translate-y-0.5 shimmer-effect"
                 }`}
               >
-                <div className="flex items-center gap-3">
-                  <span className={`grid h-8 w-8 place-items-center rounded-[6px] flex-shrink-0 ${
+                <div className="flex items-center gap-2.5">
+                  <span className={`grid h-6 w-6 place-items-center rounded-[6px] flex-shrink-0 ${
                     isBeta ? "bg-surface-warm text-ink-400" : "bg-brand-fill text-brand"
                   }`}>
-                    <WorkflowIcon className="h-4 w-4" />
+                    <WorkflowIcon className="h-3.5 w-3.5" />
                   </span>
                   <div className="flex flex-col text-left">
-                    <span className="text-[12px] font-semibold">{s.text || s.label}</span>
-                    <span className={`text-[10px] mt-0.5 ${isBeta ? "text-ink-400" : "text-ink-500"}`}>
-                      {s.display_name || s.label}
-                    </span>
+                    <span className="text-[12px] font-semibold">{s.display_name || s.label}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -2140,6 +2141,7 @@ export function RunChatLane({
         pipelineState={pipelineState}
         runType={runType}
         runTitle={runTitle ?? firstUserTurn}
+        runTitleFull={runTitleFull ?? firstUserTurn}
         onBackToHistory={onBackToHistory}
         actions={headerActions}
       />

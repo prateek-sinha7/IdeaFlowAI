@@ -165,15 +165,33 @@ export function deriveArtifactCardModel(
 }
 
 // ─── Reasoning card (violet) ──────────────────────────────────────────────────
-function ReasoningCard({ text, live, label = "Reasoning" }: { text: string; live: boolean; label?: string }) {
-  const [open, setOpen] = useState(true);
+function ReasoningCard({ text, live, label = "Reasoning", defaultOpen = true }: { text: string; live: boolean; label?: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  // Auto-collapse Reasoning the moment output starts (defaultOpen flips false),
+  // without fighting a manual re-expand afterward — this effect only fires when
+  // defaultOpen itself changes, not on every render.
+  useEffect(() => { setOpen(defaultOpen); }, [defaultOpen]);
   const bodyRef = useRef<HTMLParagraphElement>(null);
-  // Follow the streaming tail while live (a terminal-style auto-scroll to bottom).
+  // Stick-to-bottom while live, UNLESS the user has manually scrolled away from
+  // it — a ref (not state) since scroll fires far too often to re-render on.
+  // Scrolling back to the bottom re-arms auto-follow.
+  const stickToBottomRef = useRef(true);
+  const handleScroll = () => {
+    const el = bodyRef.current;
+    if (!el) return;
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  };
+  // Re-arm auto-follow whenever the card (re)opens, so reopening a collapsed
+  // card always shows the latest content instead of a stale scroll position.
+  useEffect(() => { if (open) stickToBottomRef.current = true; }, [open]);
+  // Follow the streaming tail while live AND the user hasn't scrolled away.
   useEffect(() => {
-    if (live && open && bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+    if (live && open && stickToBottomRef.current && bodyRef.current) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+    }
   }, [text, live, open]);
   return (
-    <div className="rounded-[11px] border border-brand-border bg-brand-violet-tint overflow-hidden">
+    <div className="mb-3 rounded-[11px] border border-brand-border bg-brand-violet-tint overflow-hidden">
       <button
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}
@@ -188,7 +206,7 @@ function ReasoningCard({ text, live, label = "Reasoning" }: { text: string; live
         <ChevronDown className={`h-3.5 w-3.5 text-brand/60 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <p ref={bodyRef} className="m-0 px-11 pb-3 text-[13px] leading-[1.6] text-ink-700 font-[Heebo] whitespace-pre-wrap max-h-[340px] overflow-y-auto">
+        <p ref={bodyRef} onScroll={handleScroll} className="m-0 px-11 pb-3 text-[13px] leading-[1.6] text-ink-700 font-[Heebo] whitespace-pre-wrap max-h-[340px] overflow-y-auto">
           {text}
           {live && <span className="animate-pulse">▌</span>}
         </p>
@@ -908,6 +926,15 @@ export function AgentDetailPanel({
   // ISS-065 — the older artifact version currently on screen, if any.
   const [viewed, setViewed] = useState<{ index: number; content: string } | null>(null);
   useEffect(() => { setViewed(null); }, [agent.id]);
+  // Reasoning always streams before Output (extended-thinking providers finish
+  // their thinking block before the text block starts) — track the one-time
+  // transition so Output stays unrendered until it actually has something, and
+  // Reasoning auto-collapses the moment it does.
+  const [outputStarted, setOutputStarted] = useState(false);
+  useEffect(() => { setOutputStarted(false); }, [agent.id]);
+  useEffect(() => {
+    if (!outputStarted && (agent.output || "").length > 0) setOutputStarted(true);
+  }, [agent.output, outputStarted]);
   // ISS-085 — this agent AS OF the version on screen. Every consumer of the
   // artifact reads from here, so one selection moves the whole panel; deriving the
   // cards from `agent.output` while the output section read the selected version
@@ -1022,17 +1049,25 @@ export function AgentDetailPanel({
                 {isRevision && agent.toolCalls && agent.toolCalls.length > 0 && <EditSummaryCard toolCalls={agent.toolCalls} />}
                 <ValidationResultCard passed={agent.validationPassed} issues={agent.validationIssues} />
 
-                {/* reasoning — or the live output stream while running. The engine
-                    streams the model's output via agent_chunk (into agent.output) but
-                    emits no separate reasoning/thinking stream, so agent.thinkingText is
-                    always empty; surface the live output so every running agent
-                    (spec-writer, plan, analyze, build…) shows its work instead of a
-                    blank cursor. The completed output is shown by OutputPreviewSection.
-                    ISS-085 exception: this one card reads `agent.output`, NOT the
-                    selected version — it is labelled "(live)" and pinning it to an
-                    older version would leave no way to watch the re-run it announces. */}
-                {reasoning.trim().length > 0 && <ReasoningCard text={reasoning} live={isRunning} />}
-                {reasoning.trim().length === 0 && isRunning && <ReasoningCard text={agent.output || ""} live label="Output" />}
+                {/* reasoning always streams first (extended-thinking providers finish
+                    their thinking block before the text block starts) — Output stays
+                    unrendered until the first output token actually arrives, at which
+                    point Reasoning auto-collapses (and loses its live tag, since
+                    reasoning is done by definition once output has started) and Output
+                    takes over as the live one. Once the agent completes, the live
+                    Output card disappears — OutputPreviewSection (below, unchanged) is
+                    the sole output view. ISS-085 exception: this one card reads
+                    `agent.output`, NOT the selected version — it is labelled "(live)"
+                    and pinning it to an older version would leave no way to watch the
+                    re-run it announces. */}
+                {reasoning.trim().length > 0 && (
+                  <ReasoningCard
+                    text={reasoning}
+                    live={isRunning && !outputStarted}
+                    defaultOpen={!outputStarted}
+                  />
+                )}
+                {isRunning && outputStarted && <ReasoningCard text={agent.output || ""} live label="Output" />}
 
                 {/* settled artifact cards (pages/sections · tasks · checks) + handoff
                     line — conditional, generically keyed (42-09). Distinct from the

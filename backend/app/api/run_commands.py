@@ -2685,6 +2685,11 @@ def _apply_terminal_output_columns(
             current_agent["total_tokens"] = data.get("total_tokens", 0)
             current_agent["cache_read_tokens"] = data.get("cache_read_tokens", 0)
             current_agent["cache_write_tokens"] = data.get("cache_write_tokens", 0)
+            # ISS-165: the engine already emits the resolved per-agent model on this
+            # event (engine.py agent_complete payload) — carry it into agent_outputs
+            # so it survives past the live stream instead of only being visible
+            # while the SSE connection is open.
+            current_agent["model_id"] = data.get("model_id")
             if current_agent.get("agent_id"):
                 agent_outputs_collector.append(current_agent)
             current_agent = {}

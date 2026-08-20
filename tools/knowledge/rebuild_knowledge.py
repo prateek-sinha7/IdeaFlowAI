@@ -25,10 +25,18 @@ always safe and always idempotent.
     python3 tools/knowledge/rebuild_knowledge.py --check   # dry-run every stage
     python3 tools/knowledge/rebuild_knowledge.py           # full regeneration
     python3 tools/knowledge/rebuild_knowledge.py --skip-architecture
+    python3 tools/knowledge/rebuild_knowledge.py --set-sync-point
 
 `--skip-architecture` exists because that stage shells out to pydeps and
 dependency-cruiser over the whole codebase (~1-2 min); the other three are
 fast and card-only. Skip it when only cards changed, never when source did.
+
+`--set-sync-point` forwards to the index stage (`build_index.py
+--set-sync-point`), moving `state.yaml`'s `last_sync_commit`/`last_sync_date`
+to HEAD. Only pass it after actually reconciling the commit delta (`sync`'s
+job) -- a bare rebuild with this flag re-baselines the watermark without
+reviewing anything in between, silently dropping that window from every
+future sync.
 
 This script does NOT run git. Committing the regenerated files is yours.
 """
@@ -54,7 +62,13 @@ STAGES = [
 ]
 
 
-def run_stage(script: str, supports_check: bool, readonly: bool, check: bool) -> bool:
+def run_stage(
+    script: str,
+    supports_check: bool,
+    readonly: bool,
+    check: bool,
+    extra_args: list[str] | None = None,
+) -> bool:
     path = TOOLS / script
     if not path.is_file():
         print(f"  MISSING: {path.relative_to(ROOT)} -- cannot continue.")
@@ -64,7 +78,11 @@ def run_stage(script: str, supports_check: bool, readonly: bool, check: bool) ->
         print("  skipped in --check (no dry-run mode; it would write)")
         return True
 
-    cmd = [sys.executable, str(path)] + (["--check"] if check and supports_check else [])
+    cmd = (
+        [sys.executable, str(path)]
+        + (["--check"] if check and supports_check else [])
+        + (extra_args or [])
+    )
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
     out = (proc.stdout or "").rstrip()
     if out:
@@ -268,6 +286,11 @@ def main() -> int:
                     help="everything the pre-commit hook does, in three logged "
                          "phases: architecture, domain refresh, derived "
                          "artifacts. Only the last can fail the commit.")
+    ap.add_argument("--set-sync-point", action="store_true",
+                    help="after a successful rebuild, move state.yaml's "
+                         "last_sync_commit/last_sync_date to HEAD. Only "
+                         "`sync` (after reconciling the commit delta) should "
+                         "pass this -- see build_index.py --set-sync-point.")
     args = ap.parse_args()
 
     if args.hook:
@@ -298,7 +321,8 @@ def main() -> int:
           + (" [--check: no writes]" if args.check else ""))
     for i, (name, script, supports_check, readonly) in enumerate(stages, 1):
         print(f"\n[{i}/{len(stages)}] {name}  ({script})")
-        if not run_stage(script, supports_check, readonly, args.check):
+        extra = ["--set-sync-point"] if (name == "index" and args.set_sync_point) else None
+        if not run_stage(script, supports_check, readonly, args.check, extra):
             print(f"\nAborted at stage {name!r}. Nothing further was run.")
             return 1
 

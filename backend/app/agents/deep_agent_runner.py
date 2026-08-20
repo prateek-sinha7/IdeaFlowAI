@@ -573,9 +573,11 @@ class DeepAgentRunner:
                         turn_streamed_text = True
                         full_output += text
                         yield {"type": "chunk", "chunk": text}
-                    # Live reasoning stream (e.g. langchain_ollama with
-                    # reasoning=True puts it in additional_kwargs["reasoning_content"]
-                    # on chunks where ``content`` is empty while reasoning streams).
+                    # Live reasoning stream. ChatAnthropic / ChatBedrockConverse
+                    # (extended thinking) stream reasoning as a content BLOCK, not
+                    # additional_kwargs — see _extract_thinking. The additional_kwargs
+                    # check below is a defensive fallback for providers that shape
+                    # reasoning that way instead.
                     # Yielded live, same per-delta granularity as the ``chunk`` text
                     # above — not buffered until turn-end. Also still accumulated
                     # into ``turn_reasoning`` for the existing end-of-turn debug
@@ -583,7 +585,9 @@ class DeepAgentRunner:
                     # just yields nothing.
                     try:
                         chunk_kwargs = getattr(event["data"]["chunk"], "additional_kwargs", {}) or {}
-                        chunk_reasoning = chunk_kwargs.get("reasoning_content")
+                        chunk_reasoning = chunk_kwargs.get("reasoning_content") or _extract_thinking(
+                            event["data"]["chunk"].content
+                        )
                         if chunk_reasoning:
                             turn_reasoning += str(chunk_reasoning)
                             yield {"type": "thinking", "thinking": str(chunk_reasoning)}
@@ -995,6 +999,31 @@ def _extract_text(content: Any) -> str:
             if isinstance(block, dict) and block.get("type") == "text"
         )
     return ""
+
+
+def _extract_thinking(content: Any) -> str:
+    """Pull streamed extended-thinking text out of a message content payload.
+
+    Extended thinking arrives as a content BLOCK (never in ``additional_kwargs``),
+    in one of two shapes depending on provider:
+      - ChatAnthropic:        {"type": "thinking", "thinking": "<delta>"}
+      - ChatBedrockConverse:  {"type": "reasoning_content",
+                                "reasoning_content": {"type": "text", "text": "<delta>"}}
+    A plain string ``content`` (no blocks) carries no thinking, so returns "".
+    """
+    if not isinstance(content, list):
+        return ""
+    out = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "thinking":
+            out.append(block.get("thinking", ""))
+        elif block.get("type") == "reasoning_content":
+            rc = block.get("reasoning_content")
+            if isinstance(rc, dict):
+                out.append(rc.get("text", ""))
+    return "".join(out)
 
 
 def _cache_token_counts(meta: Any) -> tuple[int, int]:

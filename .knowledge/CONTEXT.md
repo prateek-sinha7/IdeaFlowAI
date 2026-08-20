@@ -1,7 +1,7 @@
 ---
-built_from_commit: 76ea941e4252eccf45cc5dd02774531e59d1a02e
+built_from_commit: a7595fa4cd7cf21d62d73ccfde3ed57d5bd3cc07
 built_at: 2026-08-17
-cards_indexed: 482
+cards_indexed: 499
 modules_indexed: 36
 ---
 
@@ -64,8 +64,8 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 | type | total | open/active |
 |---|---|---|
 | adr | 12 | 12 |
-| fix | 266 | 10 |
-| issue | 162 | 57 |
+| fix | 276 | 17 |
+| issue | 169 | 56 |
 | bug | 42 | 18 |
 
 **adr (12):**
@@ -86,10 +86,10 @@ Start every card lookup at [INDEX.md](INDEX.md) — one line per card, each carr
 
 ## 4. Module map
 
-- [MOD-backend](architecture/MOD-backend.md) — backend — 260 files — backend/init_db.py is a **one-shot dev-bootstrap script**: it runs every Alembic…
-- [MOD-backend-agents](architecture/MOD-backend-agents.md) — backend/agents — 119 files — `backend/agents` is the execution kernel. It compiles declarative `workflow.yaml`…
+- [MOD-backend](architecture/MOD-backend.md) — backend — 10 files — backend/init_db.py is a **one-shot dev-bootstrap script**: it runs every Alembic…
+- [MOD-backend-agents](architecture/MOD-backend-agents.md) — backend/agents — 120 files — `backend/agents` is the execution kernel. It compiles declarative `workflow.yaml`…
 - [MOD-backend-alembic](architecture/MOD-backend-alembic.md) — backend/alembic — 1 file — backend/alembic/env.py is the Alembic migration environment: it resolves the database…
-- [MOD-backend-alembic-versions](architecture/MOD-backend-alembic-versions.md) — backend/alembic/versions — 30 files — The Alembic revision chain for the backend's SQLAlchemy schema — a single linear history…
+- [MOD-backend-alembic-versions](architecture/MOD-backend-alembic-versions.md) — backend/alembic/versions — 31 files — The Alembic revision chain for the backend's SQLAlchemy schema — a single linear history…
 - [MOD-backend-app](architecture/MOD-backend-app.md) — backend/app — 2 files — The FastAPI application entry point (main.py) — process-level wiring only: logging setup…
 - [MOD-backend-app-agents](architecture/MOD-backend-app-agents.md) — backend/app/agents — 38 files — The `deepagents` runtime **adapter layer**: it turns a `create_deep_agent` LangGraph…
 - [MOD-backend-app-api](architecture/MOD-backend-app-api.md) — backend/app/api — 30 files — `backend/app/api/` is the FastAPI route layer: 27 modules of thin HTTP/SSE/WebSocket…
