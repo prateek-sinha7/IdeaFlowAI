@@ -203,7 +203,7 @@ export function CustomDesignSystemModal({
           {/* Format hint */}
           <div className="rounded-[var(--radius-button)] border border-brand-border bg-brand-fill px-4 py-3">
             <p className="text-[11px] text-ink-600 leading-relaxed">
-              <strong className="text-brand">Format tip:</strong> Follow the 9-section DESIGN.md schema — Visual Theme, Color Palette, Typography, Component Stylings, Layout, Depth, Do's/Don'ts, Responsive, Agent Prompt Guide. The more specific your color tokens and typography rules, the better the output.
+              <strong className="text-brand">Format tip:</strong> Follow the 9-section DESIGN.md schema — Visual Theme, Color Palette, Typography, Component Stylings, Layout, Depth, Do&apos;s/Don&apos;ts, Responsive, Agent Prompt Guide. The more specific your color tokens and typography rules, the better the output.
             </p>
           </div>
 

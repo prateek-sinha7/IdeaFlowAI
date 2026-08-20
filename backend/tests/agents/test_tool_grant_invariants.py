@@ -241,7 +241,7 @@ def test_every_builtin_workflow_compiles_and_writers_keep_write() -> None:
     prompts = Path("agents/prompts")
     declares_fs: set[str] = set()
     for agent_md in prompts.glob("*/AGENT.md"):
-        match = re.search(r"^---\n(.*?)\n---", agent_md.read_text(), re.S)
+        match = re.search(r"^---\n(.*?)\n---", agent_md.read_text(encoding="utf-8"), re.S)
         frontmatter = yaml.safe_load(match.group(1)) if match else {}
         if frontmatter.get("tools"):
             declares_fs.add(agent_md.parent.name)

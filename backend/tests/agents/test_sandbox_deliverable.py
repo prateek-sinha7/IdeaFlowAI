@@ -103,11 +103,18 @@ def _oracle_count(pairs: dict[str, str], *, internal=_INTERNAL_FILES) -> int:
 
 
 def _write_to_disk(root: Path, pairs: dict[str, str]) -> None:
-    """Write ``{relpath: content}`` onto ``root`` as the native fs tool would."""
+    """Write ``{relpath: content}`` onto ``root`` as the native fs tool would.
+
+    ``newline=""`` disables Python's universal-newline WRITE translation (which
+    on Windows silently rewrites every bare ``\\n`` to ``\\r\\n``, diverging this
+    fixture's on-disk bytes from the in-memory oracle's verbatim string — a
+    test-harness artifact, not a real deliverable-content mutation). The native
+    ``deepagents`` fs tool this fixture stands in for writes bytes verbatim too.
+    """
     for relpath, content in pairs.items():
         fp = root / relpath
         fp.parent.mkdir(parents=True, exist_ok=True)
-        fp.write_text(content, encoding="utf-8")
+        fp.write_text(content, encoding="utf-8", newline="")
 
 
 def _assert_byte_identical(tmp_path: Path, pairs: dict[str, str]) -> str:
@@ -290,7 +297,7 @@ def test_binary_file_skipped_by_serializer(tmp_path: Path) -> None:
     # it (never raises, never emits a corrupt block). The in-memory workspace
     # never holds such content (write_file is str-only), so this is the disk
     # path's defensive guard — asserted directly, not against to_final_output.
-    (tmp_path / "good.py").write_text("ok\n", encoding="utf-8")
+    (tmp_path / "good.py").write_text("ok\n", encoding="utf-8", newline="")
     (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n\xff\xfe\x00\x01")
     out = serialize_sandbox_deliverable(tmp_path)
     # Only the UTF-8 file appears, in the standard block format.

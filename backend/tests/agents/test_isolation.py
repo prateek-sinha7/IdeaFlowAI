@@ -76,7 +76,7 @@ def test_sub_sandbox_creates_distinct_child_dir(runs_root):
     child_root = child._sandbox.root
     assert child_root != base._sandbox.root
     assert child_root.parts[-3:] == ("subagents", "build", "0")
-    assert str(child_root).startswith(str(base._sandbox.root) + "/")
+    assert child_root.is_relative_to(base._sandbox.root)
 
 
 def test_sub_sandbox_stamps_owner_and_workspace(runs_root):
@@ -132,7 +132,7 @@ def test_worktree_creates_branch_and_dir(runs_root):
     assert "fanout/build/0" in branches
     # The worktree dir exists + is rooted under the run dir.
     assert wt._sandbox.root.is_dir()
-    assert str(wt._sandbox.root).startswith(str(base._sandbox.root) + "/")
+    assert wt._sandbox.root.is_relative_to(base._sandbox.root)
 
 
 @requires_git

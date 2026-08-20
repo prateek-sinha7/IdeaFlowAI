@@ -327,7 +327,7 @@ export function TweaksPanel({
         <Section title="Edit HTML" icon={<Code2 className="h-3.5 w-3.5" />} defaultOpen={false}>
           <div className="space-y-2">
             <p className="text-[10px] text-gray-400 leading-relaxed">
-              Edit the HTML directly. Click "Apply" to reload the preview with your changes.
+              Edit the HTML directly. Click &quot;Apply&quot; to reload the preview with your changes.
               Token tweaks will be baked in automatically.
             </p>
             <textarea

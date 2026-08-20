@@ -126,7 +126,7 @@ def test_all_entries_user_allowed() -> None:
 def test_catalog_is_kernel_pure() -> None:
     import agents.capabilities.model_catalog as module
 
-    src = Path(module.__file__).read_text()
+    src = Path(module.__file__).read_text(encoding="utf-8")
     # No app.* import anywhere in the module source.
     assert not re.search(r"^\s*(from|import)\s+app(\.|\s|$)", src, re.MULTILINE)
     # And the imported module graph carries no app.* dependency pulled by it.
@@ -178,7 +178,7 @@ def test_single_source_grep() -> None:
     hits: set[str] = set()
     for root in roots:
         for py in root.rglob("*.py"):
-            for line in py.read_text().splitlines():
+            for line in py.read_text(encoding="utf-8").splitlines():
                 stripped = line.lstrip()
                 if stripped.startswith("#"):
                     continue

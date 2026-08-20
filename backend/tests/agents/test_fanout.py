@@ -40,12 +40,14 @@ class _FakeRunner:
     concurrency observed during a parallel run (the FANOUT-04 cap assertion).
     """
 
-    def __init__(self, *, allowed_workers=None, known_agents=None, worker_delay=0.0):
+    def __init__(self, *, allowed_workers=None, known_agents=None, worker_delay=0.0, fail_on_index=()):
         self.run_id = "run-x"
         self.allowed_workers = list(allowed_workers or [])
         # The agents the registry "knows" (self resolution + named resolution).
         self._known_agents = set(known_agents or [])
         self._worker_delay = worker_delay
+        # Worker indices that raise inside run_worker (KRN-004 failure tests).
+        self._fail_on_index = set(fail_on_index)
         # Instrumentation.
         self.spawned: list[dict] = []
         self.recorded_rows: list[dict] = []
@@ -78,6 +80,8 @@ class _FakeRunner:
         try:
             if self._worker_delay:
                 await asyncio.sleep(self._worker_delay)
+            if worker_index in getattr(self, "_fail_on_index", ()):
+                raise RuntimeError(f"worker {worker_index} exploded")
             # Re-yield one lifecycle-ish event (workers carry no gates — D-01).
             yield {"type": "agent_chunk", "data": {"worker": worker_index}}
         finally:
@@ -311,6 +315,78 @@ async def test_summary_carries_per_worker_status_only():
         assert "worker" in r["data"]
         # No typed artifact refs in this plan (those arrive with 11-03).
         assert "artifact_ref" not in r["data"]
+
+
+# ---------------------------------------------------------------------------
+# KRN-004 (task.md R-03) — one failed child raises exactly one parent-level
+# FanoutWorkerFailed, but every child's own subagent_result event (including
+# the failed one's) is still yielded first.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_one_failed_worker_raises_fanout_worker_failed_after_yielding_its_result():
+    from agents.execution_engine.fanout import FanoutWorkerFailed
+
+    runner = _FakeRunner(known_agents={"worker-a"}, fail_on_index={1})
+    ctx = _make_ctx(runner)
+    step = _make_step("worker-a")
+    requests = [{"agent": "self", "input": f"task-{i}"} for i in range(3)]
+
+    events: list[dict] = []
+    with pytest.raises(FanoutWorkerFailed) as exc_info:
+        async for ev in run_fanout(requests, ctx, step=step):
+            events.append(ev)
+
+    results = [e for e in events if e["type"] == "subagent_result"]
+    # All three children's own terminal event were yielded — the failure signal
+    # is an ADDITIONAL parent-level raise, never a suppression of the per-child one.
+    assert len(results) == 3
+    by_worker = {r["data"]["worker"]: r["data"]["status"] for r in results}
+    assert by_worker == {0: "complete", 1: "failed", 2: "complete"}
+    # Every worker's row was flipped terminal (none left "running").
+    assert {u["status"] for u in runner.updated_rows} == {"complete", "failed"}
+    # The raised exception names the failed worker.
+    assert exc_info.value.failed[0]["worker"] == 1
+    assert exc_info.value.failed[0]["agent"] == "worker-a"
+
+
+@pytest.mark.asyncio
+async def test_all_workers_failed_raises_fanout_worker_failed_naming_all():
+    from agents.execution_engine.fanout import FanoutWorkerFailed
+
+    runner = _FakeRunner(known_agents={"worker-a"}, fail_on_index={0, 1})
+    ctx = _make_ctx(runner)
+    step = _make_step("worker-a")
+    requests = [{"agent": "self", "input": f"task-{i}"} for i in range(2)]
+
+    events: list[dict] = []
+    with pytest.raises(FanoutWorkerFailed) as exc_info:
+        async for ev in run_fanout(requests, ctx, step=step):
+            events.append(ev)
+
+    assert len(exc_info.value.failed) == 2
+    assert {w["worker"] for w in exc_info.value.failed} == {0, 1}
+
+
+@pytest.mark.asyncio
+async def test_sequential_mode_also_raises_on_a_failed_worker():
+    from agents.execution_engine.fanout import FanoutWorkerFailed
+
+    runner = _FakeRunner(known_agents={"worker-a"}, fail_on_index={1})
+    ctx = _make_ctx(runner)
+    step = _make_step("worker-a", mode="sequential")
+    requests = [{"agent": "self", "input": f"task-{i}"} for i in range(3)]
+
+    events: list[dict] = []
+    with pytest.raises(FanoutWorkerFailed):
+        async for ev in run_fanout(requests, ctx, step=step):
+            events.append(ev)
+
+    results = [e for e in events if e["type"] == "subagent_result"]
+    # Sequential mode still runs every worker (a failed one does not abort its
+    # siblings) — the aggregation happens after collect, same as parallel mode.
+    assert len(results) == 3
 
 
 # ---------------------------------------------------------------------------

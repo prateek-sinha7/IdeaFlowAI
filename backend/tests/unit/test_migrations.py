@@ -224,7 +224,7 @@ def test_migration_0023_is_additive_only() -> None:
         / "versions"
         / "0023_workflow_run_selections.py"
     )
-    src = mig.read_text()
+    src = mig.read_text(encoding="utf-8")
     assert 'revision = "0023"' in src
     assert 'down_revision = "0022"' in src
     # upgrade() body: additive add_column only; no destructive ops on existing cols.
@@ -253,7 +253,7 @@ def test_migration_0026_is_additive() -> None:
         / "versions"
         / "0026_subagent_task_identity.py"
     )
-    src = mig.read_text()
+    src = mig.read_text(encoding="utf-8")
     assert 'revision = "0026"' in src
     assert 'down_revision = "0025"' in src
     # upgrade() body: additive add_column only; no destructive ops on existing cols.

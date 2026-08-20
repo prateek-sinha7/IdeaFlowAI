@@ -334,7 +334,7 @@ export function DesignSystemPicker({
           {activeCategory !== "Custom" && (
             grouped.length === 0 && !showCustomSystems ? (
               <div className="py-8 text-center text-[13px] text-ink-500">
-                No design systems match <span className="font-medium">"{query}"</span>.
+                No design systems match <span className="font-medium">&quot;{query}&quot;</span>.
                 <button type="button" onClick={() => setQuery("")} className="ml-2 text-brand hover:underline">
                   Clear
                 </button>
@@ -358,7 +358,7 @@ export function DesignSystemPicker({
           {/* No results at all */}
           {activeCategory !== "Custom" && grouped.length === 0 && filteredCustom.length === 0 && query && (
             <div className="py-8 text-center text-[13px] text-ink-500">
-              No design systems match <span className="font-medium">"{query}"</span>.
+              No design systems match <span className="font-medium">&quot;{query}&quot;</span>.
               <button type="button" onClick={() => setQuery("")} className="ml-2 text-brand hover:underline">
                 Clear
               </button>

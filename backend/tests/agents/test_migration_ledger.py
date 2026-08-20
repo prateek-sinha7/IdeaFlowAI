@@ -30,10 +30,58 @@ Offline / unmarked — runs in the CI ``backend:characterization`` job (no DB / 
 from __future__ import annotations
 
 import re
-import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+
+
+@dataclass
+class _GrepResult:
+    """Portable stand-in for the fields of ``subprocess.run(["grep", ...])`` we use."""
+
+    returncode: int
+    stdout: str
+
+
+# Non-source directories that a repo-local Windows dev venv/tooling cache can leave
+# under backend/, but which do not exist in the CI checkout that the original Unix
+# `grep -rnE ... backend/` command scanned. Excluded so local runs match CI's on-disk
+# reality instead of false-failing on the grep target's own dependency source code.
+_ALWAYS_EXCLUDED_DIRS = frozenset({".venv", "venv", "__pycache__", ".pytest_cache", ".hypothesis", "node_modules"})
+
+
+def _portable_grep(
+    pattern: str,
+    root: Path,
+    *,
+    include: str = "*.py",
+    exclude_dir: str | None = None,
+) -> _GrepResult:
+    """Cross-platform (Windows/Linux/macOS) equivalent of ``grep -rnE`` over ``*.py`` files.
+
+    Avoids depending on a Unix ``grep`` binary being on PATH (absent on stock Windows),
+    which made every grep-gated ledger row a platform/harness failure rather than a real
+    signal. Semantics match the prior invocation: recursive, extended regex, one match line
+    is enough to report, ``returncode == 0`` iff at least one match was found.
+    """
+    regex = re.compile(pattern)
+    lines: list[str] = []
+    for path in root.rglob(include):
+        if any(part in _ALWAYS_EXCLUDED_DIRS for part in path.parts):
+            continue
+        if exclude_dir is not None:
+            if exclude_dir in path.parts:
+                continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if regex.search(line):
+                lines.append(f"{path}:{lineno}:{line}")
+    stdout = "\n".join(lines) + ("\n" if lines else "")
+    return _GrepResult(returncode=0 if lines else 1, stdout=stdout)
 
 # tests/agents/test_migration_ledger.py → tests/agents → tests → backend → repo root
 _REPO = Path(__file__).resolve().parents[3]
@@ -118,7 +166,7 @@ def _checked_grep_rows(ledger_text: str | None = None) -> list[tuple[str, str | 
     CHECK-row gates → ``None`` (skipped by the parametrized test); real grep gates →
     the verbatim pattern. ``☐`` rows are omitted entirely (not yet enforced).
     """
-    text = ledger_text if ledger_text is not None else _LEDGER.read_text()
+    text = ledger_text if ledger_text is not None else _LEDGER.read_text(encoding="utf-8")
     out: list[tuple[str, str | None]] = []
     for item, gate, status in _parse_rows(text):
         if "☑" not in status:
@@ -136,21 +184,17 @@ def test_deleted_pattern_absent_from_backend(item: str, pattern: str | None) -> 
             "or a CHECK-row gate handled out-of-band"
         )
     scope = _scope_for(item)
-    res = subprocess.run(
-        # `evals/` is excluded deliberately: it is a standalone offline eval
-        # harness, not the pipeline runtime this ledger polices. F1's pattern
-        # fired on `evals/minimal/run.py`, which assembles its own prompt
-        # blocks and has nothing to do with the deepagents move-don't-copy
-        # discipline — a false positive that made a real guard look permanently
-        # broken.
-        #
-        # NB: do not quote a banned pattern literally anywhere in this file —
-        # the grep scans `backend/` including `tests/`, so a comment naming the
-        # token matches itself.
-        ["grep", "-rnE", pattern, str(scope), "--include=*.py", "--exclude-dir=evals"],
-        capture_output=True,
-        text=True,
-    )
+    # `evals/` is excluded deliberately: it is a standalone offline eval
+    # harness, not the pipeline runtime this ledger polices. F1's pattern
+    # fired on `evals/minimal/run.py`, which assembles its own prompt
+    # blocks and has nothing to do with the deepagents move-don't-copy
+    # discipline — a false positive that made a real guard look permanently
+    # broken.
+    #
+    # NB: do not quote a banned pattern literally anywhere in this file —
+    # the grep scans `backend/` including `tests/`, so a comment naming the
+    # token matches itself.
+    res = _portable_grep(pattern, scope, exclude_dir="evals")
     scope_label = scope.relative_to(_BACKEND).as_posix() if scope != _BACKEND else "backend/"
     assert res.returncode != 0, (
         f"{item}: banned pattern is back in {scope_label} (move-don't-copy violation):\n"
@@ -174,7 +218,7 @@ def test_ledger_parses_and_phase7_flips_all_engine_leaks() -> None:
     (constitution sync-safe pre-warm; R12 ``_mem``-only branch deleted) — so after
     08-06 ALL of F1–F5 are ``☑``.
     """
-    text = _LEDGER.read_text()
+    text = _LEDGER.read_text(encoding="utf-8")
     rows = _parse_rows(text)
     ids = [item for item, _gate, _status in rows]
     missing = [i for i in _REQUIRED_ITEMS if i not in ids]
@@ -227,11 +271,7 @@ def test_guard_fails_on_known_present_pattern() -> None:
     _item, pattern = rows[0]
     assert pattern is not None, "a real grep gate was misclassified as a CHECK row"
 
-    res = subprocess.run(
-        ["grep", "-rnE", pattern, str(_BACKEND), "--include=*.py"],
-        capture_output=True,
-        text=True,
-    )
+    res = _portable_grep(pattern, _BACKEND)
     # returncode 0 == pattern FOUND == the deletion assertion would fail → guard is live.
     assert res.returncode == 0 and res.stdout, (
         "non-vacuity guard broken: known-present token not found in backend/ "
@@ -241,7 +281,7 @@ def test_guard_fails_on_known_present_pattern() -> None:
 
 def test_check_rows_classified_as_check() -> None:
     """CHECK rows (L16/F4/F5) must classify as prose, not grep, regardless of status."""
-    text = _LEDGER.read_text()
+    text = _LEDGER.read_text(encoding="utf-8")
     by_item = {item: gate for item, gate, _status in _parse_rows(text)}
     for check_item in ("L16", "F4", "F5"):
         assert _is_check_gate(by_item[check_item]), (

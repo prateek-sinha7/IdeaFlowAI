@@ -154,7 +154,7 @@ def test_eligibility_introduces_no_agent_id_literal() -> None:
     holds only artifact kinds, never agent-id literals (SC-001)."""
     import agents.execution_engine.engine as engine_mod
 
-    lines = Path(engine_mod.__file__).read_text().splitlines()
+    lines = Path(engine_mod.__file__).read_text(encoding="utf-8").splitlines()
     elig_lines = [ln for ln in lines if "update_specs_eligible" in ln]
     assert elig_lines, "update_specs_eligible never appears in engine.py"
     for ln in elig_lines:

@@ -57,6 +57,13 @@ Thumbs.db
 frontend/eslint_code.txt
 frontend/eslint_out.txt
 
+# Test coverage reports (generated locally and in CI, not committed)
+backend/htmlcov/
+backend/coverage.xml
+backend/.coverage
+frontend/coverage/
+frontend/.coverage
+
 # Generated OpenDesign gallery thumbnails — produced at build time
 # (backend/scripts/generate_template_thumbnails.py, run from the backend
 # Dockerfile), never committed. Missing thumbnails fall back to live iframes.

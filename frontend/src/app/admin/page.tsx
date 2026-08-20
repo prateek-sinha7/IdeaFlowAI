@@ -133,18 +133,11 @@ export default function AdminPage() {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
-  useEffect(() => {
-    const token = getToken();
-    if (!token) { router.replace("/login"); return; }
-
-    // Verify admin access
-    getMe(token).then(user => {
-      if (!user.is_admin) { router.replace("/dashboard"); return; }
-      loadUsers(token);
-    }).catch(() => router.replace("/login"));
-  }, [router]);
-
-  const loadUsers = async (token?: string) => {
+  // Declared BEFORE the boot effect that calls it, and memoized, so the effect
+  // can list it as a dependency. Referencing it earlier in the file relied on
+  // function-scope hoisting, which pins the effect to whichever closure existed
+  // on the first render and never updates it (react-hooks/immutability).
+  const loadUsers = useCallback(async (token?: string) => {
     const t = token ?? getToken();
     if (!t) return;
     setLoading(true);
@@ -156,7 +149,18 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [showToast]);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) { router.replace("/login"); return; }
+
+    // Verify admin access
+    getMe(token).then(user => {
+      if (!user.is_admin) { router.replace("/dashboard"); return; }
+      loadUsers(token);
+    }).catch(() => router.replace("/login"));
+  }, [router, loadUsers]);
 
   const handleUpdateTier = async (userId: string, tier: string) => {
     const token = getToken();

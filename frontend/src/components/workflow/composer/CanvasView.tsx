@@ -1277,7 +1277,7 @@ export function CanvasView({
               <div>
                 <p className="flex items-center gap-1.5 font-sans text-[13px] font-semibold text-ink-900">
                   <InfoHint>
-                    The instruction sent to the workflow's first agent when this run starts — describe what
+                    The instruction sent to the workflow&apos;s first agent when this run starts — describe what
                     you want built.
                   </InfoHint>
                   Brief instruction

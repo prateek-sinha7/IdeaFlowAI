@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import json
 import stat
+import sys
 from datetime import datetime
 from pathlib import Path
+
+import pytest
 
 from agents.execution_engine.run_log import RunLog
 
@@ -70,6 +73,14 @@ def test_non_serializable_value_degrades_to_repr(tmp_path: Path) -> None:
     assert entry["payload"] == "<Unserializable-thing>"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "os.chmod(dir, read-only) does not block the owning user's writes on "
+        "Windows the way it does on POSIX — a platform/harness gap, not a "
+        "RunLog product defect. Real production target is Linux."
+    ),
+)
 def test_unwritable_root_does_not_raise(tmp_path: Path) -> None:
     root = tmp_path / "readonly_root"
     root.mkdir()

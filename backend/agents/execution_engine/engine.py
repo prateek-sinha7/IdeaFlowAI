@@ -84,6 +84,7 @@ from agents.capabilities.gate_pendency import derive_open_gate
 from agents.capabilities.registry import CapabilityRegistry
 from agents.capabilities.validators.severity import render_coverage_status
 from agents.execution_engine.budget import BudgetExceeded, BudgetManager, BudgetSnapshot
+from agents.execution_engine.fanout import FanoutWorkerFailed
 # _ClarifyEngineImpl is bound at IMPORT time on purpose, and does NOT supersede the
 # function-level ``from ... import ClarifyEngine`` inside the clarify drain loop. There
 # is still exactly one ClarifyEngine and one _merge_answers — only the RESOLUTION TIMING
@@ -481,6 +482,39 @@ NON_TERMINAL_RUN_STATUSES: tuple[str, ...] = (
     "running", "planning", "clarifying", "waiting_for_user",
     "generating", "analyzing", "revising",
 )
+
+# API-001 (task.md R-05): the CANONICAL terminal-status set. Before this, "terminal"
+# had at LEAST two separately-typed literal definitions:
+#   * ``_review_gate_run_is_terminal`` (app/api/run_engine.py) hardcoded
+#     ``("cancelled", "failed", "degraded")``;
+#   * the ``/resume`` endpoint (app/api/run_commands.py) hardcoded
+#     ``{"failed", "cancelled", "degraded"}`` as its RESUMABLE set (the same three
+#     values, inverted meaning, independently spelled).
+# Neither is caught by ``test_the_non_terminal_status_set_has_exactly_one_definition``
+# (test_rest_answers_cancel.py), which only AST-scans for a literal copy of
+# ``NON_TERMINAL_RUN_STATUSES``'s own 7-value set — a SEPARATE terminal-literal
+# duplication was invisible to it. ``completed`` is included (a successfully
+# finished run is just as terminal as a failed/cancelled/degraded one for the
+# purposes of "may a mutating command still act on this run?" — API-001's actual
+# question) even though today's call sites only ever compared against the
+# cancelled/failed/degraded subset; every mutating REST command below now checks
+# membership in THIS tuple, imported — never re-stated (INV-12, mirrors
+# NON_TERMINAL_RUN_STATUSES's own precedent immediately above).
+TERMINAL_RUN_STATUSES: tuple[str, ...] = ("completed", "cancelled", "failed", "degraded")
+
+
+def is_terminal_run_status(status_value: str | None) -> bool:
+    """True iff ``status_value`` is one of :data:`TERMINAL_RUN_STATUSES`.
+
+    The single predicate every mutating REST command (gate/answers/cancel/
+    messages/revisions) should call before writing — API-001's shared
+    "reject if terminal" fence. ``None``/unknown statuses are NOT terminal
+    (fail toward "still running" rather than toward "silently allow a stale
+    caller to believe a live run is dead" — mirrors
+    ``_review_gate_run_is_terminal``'s existing "absent row → not terminal"
+    default).
+    """
+    return status_value in TERMINAL_RUN_STATUSES
 
 # ── Human-in-the-loop: always ask clarifying questions ────────────────────────
 # (Migrated L6, 07-05) The former module-level always-clarify flag is GONE; the
@@ -2846,6 +2880,34 @@ class ExecutionEngine:
                     "dimension": getattr(_budget_exc, "dimension", "unknown"),
                     "message": str(_budget_exc),
                     "partial_results": self._collect_partial_fragments(ectx),
+                },
+            }
+            return
+        except FanoutWorkerFailed as _fanout_exc:
+            # KRN-004 (task.md R-03): a fan-out step where one or more spawned
+            # children ended ``status="failed"`` used to proceed to
+            # pipeline_complete as if the step had succeeded — nothing aggregated
+            # child failures into a run-level outcome. Mirror the BudgetExceeded
+            # graceful-abort precedent exactly: ONE pipeline_failed terminal, no
+            # further steps, no pipeline_complete. Each failed child's own
+            # subagent_result event was already yielded by run_fanout before this
+            # raised, so the per-child diagnosis is preserved; this is the single
+            # additional parent-level terminal signal that was previously missing.
+            self._state_machine.transition(pipeline_run_id, "failed")
+            await self._persist_budget_snapshot_if_active(ectx, force=True)
+            yield {
+                "type": "pipeline_failed",
+                "data": {
+                    "pipeline_type": pipeline_type,
+                    "pipeline_run_id": pipeline_run_id,
+                    "total_duration": round(time.time() - total_start, 2),
+                    "agents_completed": 0,
+                    "agents_total": len(ordered_agents),
+                    "agents_failed": sorted(
+                        {str(w.get("agent")) for w in _fanout_exc.failed}
+                    ),
+                    "error": str(_fanout_exc),
+                    "timestamp": _now(),
                 },
             }
             return
@@ -6811,6 +6873,19 @@ class ExecutionEngine:
         rows, so recovery is the normal path; a None recovery (no durable row)
         falls through to the existing best-effort except — never an inserted
         NULL, the same logged-warning degrade as today.
+
+        DB-001 (task.md R-02): the seq allocation used to be a single unretried
+        read-``max(seq)+1``-then-``append_event`` — exactly the race
+        :meth:`agents.authz.ScopedStore.append_event_next_seq` exists to close (a
+        concurrent resume attempt, or the run's own event sink, can compute the
+        same ``seq`` first and this insert loses silently under the old bare
+        ``except Exception: log and swallow``). This now allocates through that
+        same optimistic-retry-on-``IntegrityError`` method the chat lane already
+        uses, so a raced seq is re-derived and retried (bounded, 8 attempts)
+        instead of being dropped. A retry-exhaustion failure is a real,
+        unresolved conflict (not a transient "no durable substrate" case) and is
+        re-raised — the marker is best-effort only for genuinely missing
+        durable state, never for a swallowed write collision.
         """
         # Capture the row's scalars UP FRONT so the best-effort except never
         # touches the ORM object (a lazy-attribute load on a session a failed
@@ -6821,12 +6896,8 @@ class ExecutionEngine:
         try:
             workspace_id = await self._recover_workspace_id(owner_id, run_id)
             store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
-            # Next contiguous seq = (max persisted seq) + 1.
-            existing = await store.read_events(run_id, after_seq=0)
-            next_seq = (max((r.seq for r in existing), default=0)) + 1
-            await store.append_event(
+            await store.append_event_next_seq(
                 run_id,
-                seq=next_seq,
                 event_id=str(uuid.uuid4()),
                 type="run_resuming",
                 payload_json={
@@ -6834,6 +6905,16 @@ class ExecutionEngine:
                     "prior_status": prior_status,
                     "reason": "backend_restart_in_process_resume",
                 },
+            )
+        except RuntimeError as exc:
+            # append_event_next_seq exhausted its retry budget — a REAL, surfaced
+            # seq conflict (task.md R-02 oracle: "no swallowed write, deterministic
+            # retry or surfaced terminal error"). Still degrades the marker itself
+            # (it is audit-only) but does not hide the conflict as a generic
+            # "no durable substrate" case.
+            logger.error(
+                "_stamp_resume_marker(%s) exhausted seq-allocation retries: %s",
+                run_id, exc,
             )
         except Exception as exc:  # noqa: BLE001 — the marker is best-effort audit
             logger.warning("_stamp_resume_marker(%s) failed: %s", run_id, exc)
@@ -7860,8 +7941,30 @@ class ExecutionEngine:
                 r.id for r in ectx.artifacts.tree(ectx.run_id)
                 if r.producer_agent == step_id
             }
+            # KRN-006 (task.md R-04): a strategy can signal a terminal outcome
+            # COOPERATIVELY (an ``agent_error``/``pipeline_cancelled`` EVENT) rather
+            # than by raising, and then still let its generator end "normally" —
+            # before this fix, this loop blindly forwarded every yielded event and,
+            # once the generator returned without raising, emitted ``step_completed``
+            # regardless of what terminal-shaped events had already gone out. A
+            # ``pipeline_cancelled`` here means the WHOLE RUN already stopped (the
+            # engine's own cancel handling), so this step obviously never
+            # completed; an UNRECOVERABLE ``agent_error`` (``recoverable: False`` —
+            # the fatal-error arm's own contract, see ``_run_agent``'s
+            # ``return``-after-yield sites) means the invocation that would have
+            # produced this step's output never did. Track both; a strategy that
+            # legitimately recovers (a ``recoverable: True`` timeout/degrade that
+            # still appends a result) is UNAFFECTED — ``step_completed`` still
+            # fires for it, matching today's behavior.
+            _step_terminal_seen = False
             try:
                 async for event in strategy.run(step, ectx):
+                    if event.get("type") == "pipeline_cancelled":
+                        _step_terminal_seen = True
+                    elif event.get("type") == "agent_error" and (
+                        event.get("data", {}).get("recoverable") is False
+                    ):
+                        _step_terminal_seen = True
                     yield event
             except Exception as exc:  # noqa: BLE001 — classify then retry or re-raise
                 transient = "transient" in on and _is_transient_throttle(exc)
@@ -7878,6 +7981,16 @@ class ExecutionEngine:
                     continue
                 # Non-transient OR attempts exhausted → surface the visible error.
                 raise
+            if _step_terminal_seen:
+                # The strategy already signaled a terminal outcome through the
+                # event stream (not an exception) — do NOT emit step_completed for
+                # a step that never actually completed. Nothing else to do: the
+                # terminal event itself was already forwarded above, and the
+                # OUTER step-dispatch loop (engine.py, the ``_terminated``/
+                # ``_failed_agent_ids`` bookkeeping) reads that same forwarded
+                # event to decide the run-level outcome — this only removes the
+                # FALSE ``step_completed`` that used to follow it.
+                return
             # Success: identify the artifact this step produced (newest ref).
             output_ref_id = None
             for ref in ectx.artifacts.tree(ectx.run_id):

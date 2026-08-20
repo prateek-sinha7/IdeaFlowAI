@@ -174,8 +174,39 @@ jobs:
       - name: vulture (dead-code detection)
         run: uv run --no-sync vulture app/ agents/
 
-      - name: pytest
-        run: uv run --no-sync pytest tests/ -v
+      - name: pytest (with coverage)
+        run: |
+          uv pip install coverage
+          uv run --no-sync pytest tests/ -v \
+            --cov=app \
+            --cov=agents \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=html \
+            --cov-report=json \
+            --cov-report=xml
+
+      - name: Display coverage summary
+        if: always()
+        run: |
+          echo "=== COVERAGE SUMMARY ==="
+          uv run --no-sync coverage report
+
+      - name: Upload backend coverage HTML
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: backend-coverage-report
+          path: backend/htmlcov/
+          retention-days: 30
+
+      - name: Upload backend coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@7ade9e1d1b46ef528654a18d89d61ba33dfa899c # v5.0.0
+        with:
+          files: ./backend/coverage.xml
+          flags: backend
+          name: backend-coverage
+          fail_ci_if_error: false
 
       # TODO(flip-to-failing: 2026-08-01): remove `|| true` once pre-existing
       # findings are triaged. pip-audit checks requirements.txt against the
@@ -184,6 +215,68 @@ jobs:
         run: |
           uv pip install pip-audit
           uv run --no-sync pip-audit -r requirements.txt || true
+
+  # ---------------------------------------------------------------------------
+  # Backend Postgres integration — task.md DB-002/DB-001. The `backend` job
+  # above runs entirely against SQLite (tests/conftest.py's default), which
+  # never exercises real PostgreSQL migration application or the
+  # transaction-level locking `uq_run_events_scope_seq` retry-on-IntegrityError
+  # path depends on. This job is the missing CI wiring task.md's DB-002 calls
+  # for: a Linux PostgreSQL service container, migrated to head, driving the
+  # `requires_postgres`-marked suite (currently: the migration-head +
+  # concurrent-seq-allocation proof in
+  # tests/integration/test_db002_postgres_seq_concurrency.py, plus
+  # tests/integration/test_bootstrap_admin_postgres.py).
+  #
+  # Uses GitHub's native Postgres SERVICE CONTAINER (not the docker-in-docker
+  # fixture the tests ALSO support for local/no-CI-service environments) —
+  # ubuntu-latest runners have the Docker daemon needed for services natively,
+  # so this is the lower-overhead CI path; the docker-fixture tests
+  # transparently reuse the SAME `postgresql+psycopg://` DSN shape either way.
+  backend-postgres:
+    name: Backend (PostgreSQL integration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/requirements*.txt"
+
+      - name: Create venv + install dependencies
+        run: |
+          uv venv --python 3.12
+          uv pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: pytest (requires_postgres suite only)
+        env:
+          # The docker-fixture tests (test_phase8_resume.py, our own
+          # test_db002_postgres_seq_concurrency.py) start their OWN throwaway
+          # container via `docker run` rather than reading this env var — this
+          # only feeds the ENV_VAR-gated suites (test_bootstrap_admin_postgres.py)
+          # that expect an already-running instance.
+          BOOTSTRAP_ADMIN_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+        run: |
+          uv run --no-sync pytest tests/ -v -m requires_postgres
 
   # ---------------------------------------------------------------------------
   # Frontend — Node 20 (matches frontend/Dockerfile + backend's pptx-builder
@@ -213,8 +306,25 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test (single-pass)
+      - name: Test (single-pass with coverage)
         run: npm run test
+
+      - name: Upload frontend coverage HTML
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: frontend-coverage-report
+          path: frontend/coverage/
+          retention-days: 30
+
+      - name: Upload frontend coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@7ade9e1d1b46ef528654a18d89d61ba33dfa899c # v5.0.0
+        with:
+          files: ./frontend/coverage/coverage-final.json
+          flags: frontend
+          name: frontend-coverage
+          fail_ci_if_error: false
 
       - name: Build
         run: npm run build

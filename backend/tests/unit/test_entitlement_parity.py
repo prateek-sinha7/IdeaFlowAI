@@ -40,7 +40,7 @@ _WORKFLOWS = Path(__file__).resolve().parents[2] / "agents" / "workflows"
 
 def _frontend_tier_pipelines() -> dict[str, set[str]]:
     """Parse ``TIER_PIPELINES`` out of the frontend module."""
-    src = _FE_ENTITLEMENTS.read_text()
+    src = _FE_ENTITLEMENTS.read_text(encoding="utf-8")
     block = re.search(r"TIER_PIPELINES[^=]*=\s*\{(.*?)\n\};", src, re.S)
     assert block, f"could not find TIER_PIPELINES in {_FE_ENTITLEMENTS}"
     body = block.group(1)
@@ -57,7 +57,7 @@ def _manifest_ids() -> set[str]:
 
 
 def _manifest(pipeline_id: str) -> dict:
-    return yaml.safe_load((_WORKFLOWS / pipeline_id / "workflow.yaml").read_text()) or {}
+    return yaml.safe_load((_WORKFLOWS / pipeline_id / "workflow.yaml").read_text(encoding="utf-8")) or {}
 
 
 # Pipelines entitled without a manifest, by deliberate exception.

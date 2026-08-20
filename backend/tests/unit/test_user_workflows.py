@@ -487,24 +487,6 @@ def test_get_leaves_row_with_existing_per_step_skills_untouched(api, db_session)
     assert "skills" not in row.manifest_json["steps"][1]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Known real bug in the already-shipped migration chain (not this "
-        "test's 0021 assertion) — see CLAUDE.md's 'never edit an "
-        "already-applied migration' rule, so this cannot be fixed here. "
-        "Downgrading to '0020' walks every downgrade() from head down to "
-        "0021 inclusive, which passes through 0029 then 0024. 0029 "
-        "(alembic/versions/0029_enforce_seq_uniqueness_after_repair.py, "
-        "commits f54cb775 / d2a87b7b) guardedly drops "
-        "uq_run_events_scope_seq in its downgrade(); 0024's downgrade() "
-        "(alembic/versions/0024_run_events_uniqueness.py) then tries to drop "
-        "the SAME constraint unconditionally and raises KeyError, since "
-        "downgrades run newest-first. See test_alembic.py::"
-        "TestAlembicMigrations::test_downgrade_base_rolls_back_cleanly for "
-        "the full analysis — same root cause, unrelated to 0021 itself."
-    ),
-)
 def test_migration_adds_then_drops_columns():
     """Offline reversibility: 0021 adds the 2 cols on upgrade and removes them on
     downgrade (no Postgres) — proves ADDITIVE-MIGRATION reverses cleanly."""

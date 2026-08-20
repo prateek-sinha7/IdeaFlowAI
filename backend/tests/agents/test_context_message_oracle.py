@@ -329,7 +329,7 @@ _GOLDEN_DIR = Path(__file__).parent / "characterization" / "golden"
 def _golden_build_context_messages(golden_name: str) -> list[str]:
     """Extract the prototype-build context_message(s) from a regenerated golden."""
     path = _GOLDEN_DIR / golden_name
-    events = json.loads(path.read_text())
+    events = json.loads(path.read_text(encoding="utf-8"))
     out: list[str] = []
     for ev in events:
         if ev.get("type") != "agent_input":
