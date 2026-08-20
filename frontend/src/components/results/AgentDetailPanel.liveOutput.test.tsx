@@ -37,8 +37,72 @@ describe("AgentDetailPanel — live output while running", () => {
     expect(screen.getByText(/Analyzing the domain model/i)).toBeInTheDocument();
   });
 
-  it("shows the live card even before any output has streamed (no crash)", () => {
+  it("does not show the live Output card before any output has streamed (no crash)", () => {
     render(<AgentDetailPanel agent={runningAgent({ output: "" })} onBack={() => {}} />);
+    expect(screen.queryByText(/Output \(live\)/i)).not.toBeInTheDocument();
+  });
+
+  // Extended-thinking providers (Bedrock/Anthropic) always stream Reasoning to
+  // completion before Output begins. Output stays unrendered while only Reasoning
+  // is streaming; the moment the first output token arrives, Reasoning collapses
+  // (and loses its live tag — reasoning is done by definition once output has
+  // started) and Output takes over as the live one.
+  it("shows only Reasoning (live) while output hasn't started yet", () => {
+    render(
+      <AgentDetailPanel
+        agent={runningAgent({ output: "", thinkingText: "Considering the layout options" })}
+        onBack={() => {}}
+      />,
+    );
+    expect(screen.getByText(/Reasoning \(live\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Considering the layout options/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Output \(live\)/i)).not.toBeInTheDocument();
+  });
+
+  it("collapses Reasoning and switches to live Output the moment output starts streaming", () => {
+    const { rerender } = render(
+      <AgentDetailPanel
+        agent={runningAgent({ output: "", thinkingText: "Considering the layout options" })}
+        onBack={() => {}}
+      />,
+    );
+    expect(screen.getByText(/Reasoning \(live\)/i)).toBeInTheDocument();
+
+    rerender(
+      <AgentDetailPanel
+        agent={runningAgent({
+          output: "Building the prototype shell",
+          thinkingText: "Considering the layout options",
+        })}
+        onBack={() => {}}
+      />,
+    );
+
+    // Reasoning is no longer live (collapsed, but its header — sans "(live)" — is
+    // still present; the body text is hidden once collapsed).
+    expect(screen.queryByText(/Reasoning \(live\)/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/^Reasoning$/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Considering the layout options/i)).not.toBeInTheDocument();
+    // Output is now the live one.
     expect(screen.getByText(/Output \(live\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Building the prototype shell/i)).toBeInTheDocument();
+  });
+
+  it("hides the live Output card once the agent is done (settled output takes over)", () => {
+    render(
+      <AgentDetailPanel
+        agent={runningAgent({
+          status: "done",
+          output: "Final output text",
+          thinkingText: "Considered the layout options",
+        })}
+        onBack={() => {}}
+      />,
+    );
+    expect(screen.queryByText(/Output \(live\)/i)).not.toBeInTheDocument();
+    // Reasoning stays visible but collapsed (output already started), no longer live.
+    expect(screen.queryByText(/Considered the layout options/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/^Reasoning$/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Reasoning \(live\)/i)).not.toBeInTheDocument();
   });
 });

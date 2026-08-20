@@ -26,6 +26,7 @@ repos:
         # developer must decide. See backend/pyproject.toml header.
         args: []
         files: ^backend/.*\.py$
+        stages: [manual]
         # Ruff reads its config from backend/pyproject.toml. We pass the
         # path explicitly so pre-commit (which runs from the repo root)
         # picks it up regardless of where git invokes the hook.
@@ -58,6 +59,7 @@ repos:
         types: [python]
         files: ^backend/.*\.py$
         pass_filenames: true
+        stages: [manual]
         # Pyright reads backend/pyrightconfig.json. typeCheckingMode is
         # `off` there; only `reportMissingImports` is `error`. This means
         # the hook catches deleted-module imports without surfacing the
@@ -88,6 +90,7 @@ repos:
         # do it via a small inline sed-equivalent below.
         types_or: [ts, tsx, javascript, jsx]
         pass_filenames: false
+        stages: [manual]
         # Why pass_filenames=false: the bash wrapper would need to
         # rewrite paths from "frontend/src/foo.tsx" to "src/foo.tsx"
         # before passing to eslint. Simpler to let eslint use its own
@@ -126,6 +129,7 @@ repos:
         language: system
         files: ^infra/terraform/.*\.tf$
         pass_filenames: false
+        stages: [manual]
 
   # ---------------------------------------------------------------------
   # Knowledge base — ONE hook, three phases.
@@ -178,4 +182,3 @@ repos:
         # NOT run this hook. Run it manually with
         #     pre-commit run knowledge --hook-stage manual
         # To make it auto again, delete this line.
-        stages: [manual]

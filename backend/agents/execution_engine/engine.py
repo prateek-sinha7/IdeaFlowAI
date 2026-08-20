@@ -4212,10 +4212,13 @@ class ExecutionEngine:
                     disk_skill=disk_skill,
                     attached_hooks=list(attached_hooks or []),
                     # MODEL-01/02/05: the effective model id by the D-02 precedence. With no
-                    # overrides + no manifest model (today) this returns ``model_id or Haiku`` =
-                    # the prior value — INV-3 parity. step=None this plan (06-04 wires the
-                    # compiled Step lookup); resolve() applies tiers 1/3/4/5 unchanged.
-                    model=self._resolve_model(ectx, spec, model_id),
+                    # overrides + no manifest model this returns ``model_id or Haiku`` = the
+                    # prior value — INV-3 parity. ``ectx.current_step`` is the SAME compiled
+                    # Step already read a few lines below for injects/skills/prompt/tools —
+                    # wiring it here lets tier 2 (``step.model``, the ``selections`` overlay
+                    # from ``_apply_selections``) actually win instead of always resolving
+                    # None (ISS-164).
+                    model=self._resolve_model(ectx, spec, model_id, step=ectx.current_step),
                     od_context=ectx.od_context,
                     planning_context=planning_context,
                     # Byte-identity guard (D-09): pass disk_principal (== user_id or "anon"),

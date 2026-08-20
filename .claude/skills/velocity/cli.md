@@ -14,6 +14,7 @@ than a hunt through seven files that will inevitably miss one.
 | **the full rebuild** | `python3 tools/knowledge/rebuild_knowledge.py` |
 | **the cards-only rebuild** | `python3 tools/knowledge/rebuild_knowledge.py --skip-architecture` |
 | **the rebuild dry-run** | `python3 tools/knowledge/rebuild_knowledge.py --check` |
+| **the sync-point stamp** | `python3 tools/knowledge/rebuild_knowledge.py --skip-architecture --set-sync-point` — rebuilds cards-only AND moves `state.yaml`'s `last_sync_commit`/`last_sync_date` to HEAD. Only `sync` may run this, and only after actually reconciling the commit delta (steps 2-7 of `sync.md`) — running it bare re-baselines the watermark with no review, silently dropping whatever came before from every future sync window. |
 | **the ID linter** | `python3 tools/knowledge/normalize_card_ids.py --check` |
 | **the ID migration** | `python3 tools/knowledge/normalize_card_ids.py` |
 | **the architecture rebuild** | `python3 tools/knowledge/build_architecture.py` (`--only MOD-<id>` to scope) |
@@ -136,8 +137,9 @@ resolvable refs has the block removed rather than left stale.
 are read back and preserved — the rebuild never invents or drops one. What it
 refreshes is the link TARGETS, which embed filenames carrying a datetime: rename
 a card and every link to it would otherwise be silently wrong. So edit the block
-to change the graph, and let the rebuild fix the paths. Writing a bare id there
-is fine; it renders as a link on the next rebuild.
+to change the graph, and let the rebuild fix the paths. **Author the full
+markdown link form** (`[FIX-034](20260704-1815-FIX-034.md)`), not a bare id —
+one link pattern, everywhere a card references another, not just here.
 
 ## Rules that keep this safe
 
@@ -164,8 +166,9 @@ is fine; it renders as a link on the next rebuild.
 | sub-skill | typical call |
 |---|---|
 | `status.md` | `python3 tools/knowledge/status.py` — read-only, never regenerates |
-| `sync.md` | `python3 tools/knowledge/rebuild_knowledge.py` (source may have moved) |
-| `prime.md` | `python3 tools/knowledge/rebuild_knowledge.py --skip-architecture`, then read `CONTEXT.md` |
+| `sync.md` | `python3 tools/knowledge/rebuild_knowledge.py` (source may have moved), then **the sync-point stamp** as its true final action |
+| `prime.md` | **the status command** first; if stale, hands off to `sync.md` and/or `diagrams.md` in full (see their own procedures) before its own `rebuild_knowledge.py --skip-architecture`, then read `CONTEXT.md` |
+| `diagrams.md` | `python3 tools/knowledge/build_architecture.py --affected` / `--stale-prose` to find work, one Haiku subagent per affected card to re-author it, then `build_architecture.py` + `--stamp` per card |
 | `book-keeping.md` | after writing a card: `python3 tools/knowledge/rebuild_knowledge.py --skip-architecture` |
 | `analyze.md` / `fix.md` | no tool call of their own — they consume `INDEX.md` / `CONTEXT.md`. **Not read-only end to end**: `analyze.md`'s final step hands off to `book-keeping`, which writes a card and then runs `rebuild_knowledge.py --skip-architecture`. |
 
