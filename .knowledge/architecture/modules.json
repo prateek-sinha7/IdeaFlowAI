@@ -5,17 +5,8 @@
       "id": "MOD-backend",
       "path": "backend",
       "language": "python",
-      "file_count": 10,
+      "file_count": 1,
       "files": [
-        "backend/.venv312/lib/python3.12/site-packages/langsmith/env/__init__.py",
-        "backend/.venv312/lib/python3.12/site-packages/langsmith/env/_git.py",
-        "backend/.venv312/lib/python3.12/site-packages/langsmith/env/_runtime_env.py",
-        "backend/.venv312/lib/python3.12/site-packages/pip/_internal/operations/build/__init__.py",
-        "backend/.venv312/lib/python3.12/site-packages/pip/_internal/operations/build/build_tracker.py",
-        "backend/.venv312/lib/python3.12/site-packages/pip/_internal/operations/build/metadata.py",
-        "backend/.venv312/lib/python3.12/site-packages/pip/_internal/operations/build/metadata_editable.py",
-        "backend/.venv312/lib/python3.12/site-packages/pip/_internal/operations/build/wheel.py",
-        "backend/.venv312/lib/python3.12/site-packages/pip/_internal/operations/build/wheel_editable.py",
         "backend/init_db.py"
       ],
       "imports": [],
