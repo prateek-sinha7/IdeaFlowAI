@@ -158,6 +158,8 @@ export function Sidebar({
           <Search className="h-3 w-3 text-grey/50" />
           <input
             type="text"
+            aria-label="Search projects"
+            name="sidebar-search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search projects..."

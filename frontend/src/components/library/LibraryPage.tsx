@@ -525,6 +525,8 @@ export function LibraryPage() {
           <div className="relative w-[280px] flex-shrink-0">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[15px] w-[15px] text-ink-200" />
             <input type="text"
+              aria-label={`Search ${mainTab}`}
+              name="library-search"
               value={mainTab === "agents" ? searchQuery : mainTab === "skills" ? skillSearch : hookSearch}
               onChange={e => {
                 if (mainTab === "agents") setSearchQuery(e.target.value);

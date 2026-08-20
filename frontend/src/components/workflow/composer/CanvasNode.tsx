@@ -214,6 +214,7 @@ export function CanvasNode({
               >
                 <input
                   aria-label={`Rename ${agent.name}`}
+                  name="agent-rename"
                   autoFocus
                   value={draftName}
                   onChange={(e) => setDraftName(e.target.value)}

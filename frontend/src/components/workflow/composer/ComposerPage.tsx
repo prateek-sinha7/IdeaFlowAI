@@ -696,6 +696,7 @@ export function ComposerPage({
           <input
             ref={nameInputRef}
             aria-label="Workflow name"
+            name="workflow-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Untitled workflow"
@@ -703,6 +704,7 @@ export function ComposerPage({
           />
           <input
             aria-label="Workflow description"
+            name="workflow-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Add a description…"

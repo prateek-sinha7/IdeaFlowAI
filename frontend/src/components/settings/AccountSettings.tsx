@@ -233,9 +233,9 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
                 <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-[0.12em] mb-4">Password</p>
                 <div className="space-y-3.5 max-w-md">
                   <div>
-                    <label className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">Current password</label>
+                    <label htmlFor="current-password" className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">Current password</label>
                     <div className="relative">
-                      <input type={showCurrent ? "text" : "password"} value={currentPassword}
+                      <input id="current-password" type={showCurrent ? "text" : "password"} value={currentPassword}
                         onChange={e => setCurrentPassword(e.target.value)}
                         className={`${inputClass} pr-10`}
                         placeholder="Enter current password" />
@@ -245,9 +245,9 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
                     </div>
                   </div>
                   <div>
-                    <label className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">New password</label>
+                    <label htmlFor="new-password" className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">New password</label>
                     <div className="relative">
-                      <input type={showNew ? "text" : "password"} value={newPassword}
+                      <input id="new-password" type={showNew ? "text" : "password"} value={newPassword}
                         onChange={e => setNewPassword(e.target.value)}
                         className={`${inputClass} pr-10`}
                         placeholder="At least 8 characters" />
@@ -257,8 +257,8 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
                     </div>
                   </div>
                   <div>
-                    <label className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">Confirm new password</label>
-                    <input type="password" value={confirmPassword}
+                    <label htmlFor="confirm-password" className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">Confirm new password</label>
+                    <input id="confirm-password" type="password" value={confirmPassword}
                       onChange={e => setConfirmPassword(e.target.value)}
                       className={inputClass}
                       placeholder="Re-enter new password" />
@@ -307,10 +307,13 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
                   <div className="space-y-4 max-w-md">
                     {/* Live model selector (ND-D — never the mock's fixed list). */}
                     <div>
-                      <label className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">
+                      <label htmlFor="account-default-model" className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">
                         Select model
                       </label>
                       <select
+                        id="account-default-model"
+                        name="default-model"
+                        aria-label="Select model"
                         value={pendingModel ?? ""}
                         onChange={e => {
                           setPendingModel(e.target.value === "" ? null : e.target.value);
@@ -530,6 +533,8 @@ function ConstitutionSection() {
           <textarea
             value={content}
             onChange={(e) => { setContent(e.target.value); setStatus("idle"); }}
+            aria-label="Constitution content"
+            name="constitution"
             placeholder={"# My Constitution\n\n## Principle 1 — Quality First\nEvery output must be production-ready…\n\n## Principle 2 — Security\nNever expose secrets or PII…"}
             className="w-full h-64 text-[13px] text-ink-800 bg-surface-card px-4 py-3.5 resize-none focus:outline-none font-mono leading-relaxed"
           />

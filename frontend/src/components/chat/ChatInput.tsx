@@ -126,6 +126,7 @@ export function ChatInput({ onSendMessage, onSendMessageWithMode, isStreaming }:
           <div className="px-4 pt-3 pb-1.5">
             <textarea
               ref={textareaRef}
+              name="chat-message"
               value={value}
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={handleKeyDown}

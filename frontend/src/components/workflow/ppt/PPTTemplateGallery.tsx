@@ -133,6 +133,8 @@ export function PPTTemplateGallery({
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400" />
             <input
               type="text" value={query} onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search templates"
+              name="ppt-template-search"
               placeholder="Search templates…"
               className="w-full rounded-lg border border-gray-200 bg-gray-50 py-1.5 pl-7 pr-3 text-[12px] text-gray-900 placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus:outline-none"
             />

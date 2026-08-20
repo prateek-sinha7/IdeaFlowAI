@@ -273,6 +273,8 @@ export function MessageBubble({
                   {isEditing ? (
                     <div className="flex flex-col gap-2">
                       <textarea
+                        aria-label="Edit message"
+                        name="edit-message"
                         value={editContent}
                         onChange={(e) => setEditContent(e.target.value)}
                         onKeyDown={handleEditKeyDown}

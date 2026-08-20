@@ -262,6 +262,8 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
             <div className="relative w-full max-w-[340px]">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[15px] w-[15px] text-ink-400" />
               <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+                aria-label="Search workflows"
+                name="saved-workflows-search"
                 placeholder="Search workflows…"
                 className="w-full pl-10 pr-4 py-[9px] text-[13px] bg-surface-card border border-line-control rounded-[10px] focus:outline-none focus:border-line-faint placeholder-ink-400 transition-colors" />
             </div>
