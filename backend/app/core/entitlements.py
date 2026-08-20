@@ -16,17 +16,23 @@ TIER_PIPELINES: dict[str, set[str]] = {
     "hexaware": {
         "user_stories", "user_stories_revision",
         "prototype", "prototype_revision",
+        "prototype_large_revision",    # tiered large-revision manifest
+        "prototype_feature_revision",  # tiered feature-revision manifest
     },
     "pro": {
         "user_stories", "user_stories_revision",
         "ppt", "ppt_revision",
         "prototype", "prototype_revision",
+        "prototype_large_revision",    # tiered large-revision manifest
+        "prototype_feature_revision",  # tiered feature-revision manifest
         "app_builder", "app_builder_revision",
     },
     "enterprise": {
         "user_stories", "user_stories_revision",
         "ppt", "ppt_revision",
         "prototype", "prototype_revision",
+        "prototype_large_revision",    # tiered large-revision manifest
+        "prototype_feature_revision",  # tiered feature-revision manifest
         "app_builder", "app_builder_revision",
         "custom", "custom_revision",
         # UI meta-grouping, never dispatched: the "Platform workflows" card makes

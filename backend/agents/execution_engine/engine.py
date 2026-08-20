@@ -7421,6 +7421,20 @@ class ExecutionEngine:
         "prototype-analyze": "analysis",
         "prototype-build": "html_file",
         "prototype-validate": "validation_report",
+        # Revision pipeline agents — same semantic kinds as prototype counterparts
+        # so artifact routing and FR-014 chain links work correctly (IN-01 advisory
+        # silenced: these agent ids were falling back to "summary" then using agent
+        # id as kind, which is outside ARTIFACT_KINDS).
+        "prototype-revision-agent": "html_file",
+        "prototype-revision-validate": "validation_report",
+        # Tiered revision agents (prototype_large_revision / prototype_feature_revision).
+        "prototype-revision-planner": "task_list",
+        "prototype-large-builder": "html_file",
+        "prototype-large-validate": "validation_report",
+        "prototype-revision-feature-specify": "spec",
+        "prototype-revision-feature-plan": "task_list",
+        "prototype-feature-builder": "html_file",
+        "prototype-feature-validate": "validation_report",
     }
 
     # SC-001 / KAN-101 / MD-01: the ARTIFACT KIND whose LIVE human gate offers the
