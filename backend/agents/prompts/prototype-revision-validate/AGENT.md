@@ -82,28 +82,6 @@ Only after both reads may you begin the checks below.
   and `querySelector('[data-page="${hash}"]')` with `querySelector('section[data-page="' + hash + '"]')`.
 - [ ] Nav `<a>` tags must NOT have a `data-page` attribute — remove it from any `<a>` element.
 
-**CRITICAL: Anchor-scroll → SPA routing conversion**
-
-If nav links use `href="#contact"` instead of `href="#/contact"` — this is always a P0 failure. Fix ALL at once:
-
-1. Change every `<a href="#id">` → `<a href="#/id">`
-2. Add `data-page="id"` to every `<section id="id">` (keep `id` attribute too)
-3. Add `const routes = { id: 'id', ... }` if missing
-4. Add hash router if missing:
-   ```javascript
-   function handleRouteChange() {
-     const hash = window.location.hash.replace(/^#\/?/, '') || 'firstSectionId';
-     document.querySelectorAll('section[data-page]').forEach(s => s.classList.remove('is-active'));
-     const page = document.querySelector('section[data-page="' + hash + '"]');
-     if (page) page.classList.add('is-active');
-   }
-   window.addEventListener('hashchange', handleRouteChange);
-   window.addEventListener('load', handleRouteChange);
-   ```
-5. Add `class="is-active"` to first `<section data-page>` element
-
-Use `write_file` for a full rewrite when more than 3 sections need updating.
-
 **Structure:**
 - [ ] Starts with `<!doctype html>`
 - [ ] `<style>` block with `:root` rule

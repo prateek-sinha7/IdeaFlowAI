@@ -78,17 +78,6 @@ Only after both reads may you begin the checks below.
 - [ ] The router uses `section[data-page]` NOT `[data-page]`
 - [ ] Nav `<a>` tags must NOT have a `data-page` attribute
 
-**CRITICAL: Anchor-scroll → SPA routing conversion**
-
-If nav links use `href="#contact"` instead of `href="#/contact"` — fix ALL at once:
-1. Change every `<a href="#id">` → `<a href="#/id">`
-2. Add `data-page="id"` to every `<section id="id">`
-3. Add `const routes = { id: 'id', ... }` if missing
-4. Add hash router if missing (handleRouteChange + addEventListener hashchange + load)
-5. Add `class="is-active"` to first `<section data-page>` element
-
-Use `write_file` for full rewrite when more than 3 sections need updating.
-
 **Structure:**
 - [ ] Starts with `<!doctype html>`
 - [ ] `<style>` block with `:root` rule

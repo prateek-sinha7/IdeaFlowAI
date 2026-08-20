@@ -86,28 +86,6 @@ Your job: ensure every page has full content, all navigation works, all interact
 - [ ] Nav `<a>` tags must NOT have a `data-page` attribute — remove it from any `<a>` element.
   Nav links should use `href="#/{id}"` only for routing; active state is updated by matching on `href`.
 
-**CRITICAL: Anchor-scroll → SPA routing conversion**
-
-If the prototype uses `href="#contact"` (anchor-scroll) instead of `href="#/contact"` (SPA router) — this is the most common structural issue for single-page documents like resumes. Fix ALL of these at once:
-
-1. Find every `<a href="#sectionName">` nav link and change to `<a href="#/sectionName">`
-2. Find every `<section id="sectionName">` and add `data-page="sectionName"` attribute (keep `id` too if needed for other purposes)
-3. Check if `const routes = { ... }` exists — if not, add one with all section ids
-4. Check if a hash router function exists — if not, add one:
-   ```javascript
-   function handleRouteChange() {
-     const hash = window.location.hash.replace(/^#\/?/, '') || 'firstSectionId';
-     document.querySelectorAll('section[data-page]').forEach(s => s.classList.remove('is-active'));
-     const page = document.querySelector('section[data-page="' + hash + '"]');
-     if (page) page.classList.add('is-active');
-   }
-   window.addEventListener('hashchange', handleRouteChange);
-   window.addEventListener('load', handleRouteChange);
-   ```
-5. Add `class="is-active"` to the first `<section data-page>` element
-
-**Do this as a single `write_file` rewrite if the changes are widespread** (more than 3 sections need updating) — surgical `edit_file` calls for each section individually are fine when there are fewer.
-
 **Structure:**
 - [ ] Starts with `<!doctype html>`
 - [ ] `<style>` block with `:root` rule
