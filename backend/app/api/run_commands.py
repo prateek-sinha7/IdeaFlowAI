@@ -1149,6 +1149,10 @@ class _ConciergeCtx:
         # The run's persisted status (WorkflowRun.status) — used to distinguish a
         # live-building run from a completed one so the prompt label is accurate.
         self.run_status = run_status or ""
+        # active_revision_run_id: when the parent run has an active child revision run,
+        # this holds the child's run_id so get_run_progress can read that run's events
+        # and list_agents can see the revision agents.
+        self.active_revision_run_id: str | None = None
         # ISS-092: DECLARE the ``conversation`` inject so ``context_provider:conversation``
         # surfaces this run's bounded chat transcript. Before this, the Concierge's only
         # cross-turn memory was the unbounded read_events tool happening to return chat
@@ -1401,6 +1405,21 @@ async def _dispose_concierge_proposal(
         # entitlements, and the persisted rows), so the derivation below needs no
         # correction and both entry points agree by construction.
         target = params.get("target") or f"{base_type}_output"
+        # Guard: if the target looks like a run ID (UUID) rather than an artifact type
+        # (which must end with "_output"), discard it and use the derived default.
+        # The LLM sometimes passes a run_id as target when confused by the docstring.
+        import re as _re_uuid
+        _UUID_RE = _re_uuid.compile(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+            _re_uuid.IGNORECASE
+        )
+        if target and not target.endswith("_output") and _UUID_RE.match(target):
+            logger.warning(
+                "_dispose_concierge_proposal: target %r looks like a run ID, not an "
+                "artifact type — discarding and using derived default %r",
+                target, f"{base_type}_output",
+            )
+            target = f"{base_type}_output"
         instruction = params.get("instruction", "")
         # ── Tiered prototype classification (Pieces 1/2/3) ──────────────────
         # Apply the same tier classifier as create_revision() so the Concierge
@@ -1510,6 +1529,25 @@ async def post_message(
         wr_status = wr.status
         wr_workspace = wr.workspace_id
         wr_type = wr.type
+
+        # Check if there is an active child revision run for this parent.
+        # The Concierge runs in the context of the PARENT run (which may be "completed"),
+        # but a child revision run may be actively running. Surface the child's status
+        # so the Concierge correctly reports "a revision is in progress" instead of
+        # treating the parent's "completed" status as the full picture.
+        active_child_revision = (
+            db.query(WorkflowRun)
+            .filter(
+                WorkflowRun.parent_run_id == run_id,
+                WorkflowRun.user_id == current_user.id,
+                WorkflowRun.status == "revising",
+            )
+            .order_by(WorkflowRun.created_at.desc())
+            .first()
+        )
+        if active_child_revision is not None:
+            # A revision is running — override the status the Concierge sees.
+            wr_status = "revising"
         # FIX-116: capture the run's title + first 400 chars of its deliverable output
         # so the Concierge knows what THIS run produced without calling read_events first.
         # Generic — uses wr.title (plain text) and wr.output (deliverable text), never
@@ -1656,11 +1694,17 @@ async def post_message(
         if validated_turn_images:
             apply_turn_images(ectx, validated_turn_images)
         # FIX-218 (KAN-170): when file contents are attached during a RUNNING phase,
-        # also inject them as a steering note for the next agent dispatch. Mirrors the
-        # steering path (INV-12 — same apply_steering seam, no new path). Payload-
-        # transient (ND-10). Degrade-safe: no-op when ectx is None or block is empty.
+        # also inject them as a steering note for the next agent dispatch. Include
+        # the user's message so agents know WHAT to do with the file.
+        # Payload-transient (ND-10). Degrade-safe: no-op when ectx is None or block is empty.
         _steering_file_block = _build_attached_files_block(body.file_contents)
         if _steering_file_block:
+            _user_msg_direct = (body.text or "").strip()
+            if _user_msg_direct:
+                _steering_file_block = (
+                    f"USER INSTRUCTION: {_user_msg_direct}\n\n"
+                    f"{_steering_file_block}"
+                )
             apply_steering(ectx, {"text": _steering_file_block, "sticky": False})
     elif dispatch.channel == CHANNEL_REVISION:
         # revision → mint + drive the shipped family child run (D-02), the exact seam
@@ -1794,15 +1838,30 @@ async def post_message(
             # persisted. Absent ⇒ "" ⇒ dormant (byte-identical prompt, INV-3).
             attached_files=_build_attached_files_block(body.file_contents),
         )
+        # If a child revision run is active, set it on the ctx so get_run_progress
+        # can read its events and list its agents correctly.
+        if active_child_revision is not None:
+            ctx.active_revision_run_id = active_child_revision.id
         # FIX-218 (KAN-170): when file contents were attached AND a running pipeline
-        # exists (live ectx), also inject the file text as a sticky steering note so
+        # exists (live ectx), also inject the file text as a steering note so
         # the NEXT agent dispatch receives it as a === USER GUIDANCE === block. This
         # mirrors the existing CHANNEL_STEERING apply_steering path (INV-12) — we reuse
         # the SAME seam rather than building a new one. Payload-transient (ND-10).
         # Degrade-safe: if ectx is None (run not live in this process), no-op.
+        # Also include the user's message text so agents know WHAT to do with the file,
+        # not just that it exists (the missing instruction gap identified in the
+        # concierge-chat-upload feature).
         _attached_block = getattr(ctx, "attached_files", "") or ""
         if _attached_block and ectx is not None:
-            apply_steering(ectx, {"text": _attached_block, "sticky": False})
+            _user_msg = (body.text or "").strip()
+            if _user_msg:
+                _steering_text = (
+                    f"USER INSTRUCTION: {_user_msg}\n\n"
+                    f"{_attached_block}"
+                )
+            else:
+                _steering_text = _attached_block
+            apply_steering(ectx, {"text": _steering_text, "sticky": False})
         # ── Option B: STREAM the reply on the POST response body (text/event-stream). ──
         # The model's ordered text deltas ride the POST the FE already makes as TRANSIENT
         # ``chat_reply_chunk`` frames (never persisted → never replayed → never
