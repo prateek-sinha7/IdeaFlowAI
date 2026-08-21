@@ -272,3 +272,72 @@ Not yet run.
 In progress. Two real findings outstanding, both pending approval, neither fixed:
 - §6 — `factory.py`'s contradictory "How to deliver" append (shared/pre-existing code).
 - §8b — `gate_blocked` not halting the run (spec 014's own `engine.py`/`_evaluate_gates`).
+
+*(Superseded — both now resolved. See §9 and §10 below.)*
+
+---
+
+## 9. §6 and §8b — resolved
+
+### 9a. §6 write_file adherence — FIXED
+
+`factory.py` now computes `has_write_access = "write_file" not in denied_tools` from the
+step's own effective permissions and threads it into `_compose_system_prompt`, so the
+"How to deliver" append is only emitted for a step that actually has `write_file` bound.
+A write-less step is no longer told to call a tool it cannot call. The five
+`sample_conditional_*` fixtures were also rewritten (tools removed where not needed,
+positive phrasing, `write_files: true` on the delivery steps only).
+
+`sample_conditional_branch_new` re-ran clean afterwards: routing correct for both the
+english and spanish outcomes, ~14s, no spurious `gate_blocked`, deliverables written.
+
+### 9b. §8b `gate_blocked` not halting the run — FIXED
+
+`engine.py`'s pre-step gate loop separated `block` from `wait_human`. Previously both set a
+single `_halted` flag whose only effect was `cursor += 1; continue` — the refused step was
+skipped and the run carried on through every downstream step, finishing as
+`pipeline_complete`. A refused run was therefore indistinguishable from a clean pass at the
+run-status level, exactly as this section described.
+
+Now a `block` outcome terminates the run with the same single-terminal shape the fan-out
+child-failure abort (KRN-004) uses: `state_machine.transition(..., "failed")`, a budget
+snapshot, one `pipeline_failed` event naming the blocked step, and `return` — no further
+steps, no `pipeline_complete`. `wait_human` deliberately keeps the old skip-and-continue
+path: it is a pause the human resolves, and a rejection there already arrives as the
+`cancel` outcome handled higher in the same loop.
+
+`_evaluate_gates` itself is unchanged, so the existing gate tests
+(`tests/agents/test_gates.py`, which assert on the outcome/event stream rather than on run
+continuation) are unaffected.
+
+---
+
+## 10. Remaining, deliberately NOT changed
+
+### 10a. `ORIGINAL USER REQUEST` injection (`engine.py`, `_build_context_message`)
+
+The brief is prepended verbatim as the headline block of every step's context, including
+steps that carry their own authored `prompt`. This was root-caused during the §6
+investigation as a contributor to steps ignoring their own instructions, and the two are
+related: the `_own_prompt` check immediately below already suppresses the Planning Context
+echo for exactly this class of step, so demoting the brief to a background block for
+own-prompt steps would be the consistent fix.
+
+**Not applied.** Two blockers, both procedural rather than technical:
+1. `tests/agents/characterization/golden/sample_subagents_parallel.events.json` captures the
+   literal `=== ORIGINAL USER REQUEST ===` string four times, and that fixture's workflow
+   *does* use step prompts — so the change requires regenerating a checked-in golden.
+2. Whether the reworded prompt actually improves adherence is only answerable from a live
+   model run.
+
+The §6 fix plus the fixture prompt tightening already cleared the symptom this was blamed
+for (`sample_conditional_branch_new` passes), so this is a latent prompt-shape concern, not
+an active defect.
+
+### 10b. Fixture re-runs
+
+`sample_conditional_previous_step`, `sample_conditional_human_input`,
+`sample_conditional_launch_new` and `sample_conditional_target` have not been re-run since
+the §6 fix, the `agent_skipped` event, and the §8b fix landed. `previous_step` in particular
+never exercised its loop mechanism (R-06/R-07/R-08) — its earlier failure was entirely
+downstream of §6, so it is the one most likely to behave differently now.

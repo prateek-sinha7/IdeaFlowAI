@@ -463,7 +463,7 @@ flowchart LR
 
 <!-- MODULE-MAP -->
 
-36 logical modules over 628 tracked source files. Each entry links to its
+36 logical modules over 629 tracked source files. Each entry links to its
 architecture card, which carries an auto-generated file and import rollup. Module
 cards describe FOLDERS and carry no diagrams — for how a concern actually works,
 read the domains above.
@@ -486,11 +486,11 @@ read the domains above.
 | [MOD-backend-app-scripts](architecture/MOD-backend-app-scripts.md) | `backend/app/scripts` | 2 |
 | [MOD-backend-alembic](architecture/MOD-backend-alembic.md) | `backend/alembic` | 1 |
 
-### Frontend — TypeScript (341 files)
+### Frontend — TypeScript (342 files)
 
 | Module | Path | Files |
 |---|---|---|
-| [MOD-frontend-src-components-workflow](architecture/MOD-frontend-src-components-workflow.md) | `frontend/src/components/workflow` | 56 |
+| [MOD-frontend-src-components-workflow](architecture/MOD-frontend-src-components-workflow.md) | `frontend/src/components/workflow` | 57 |
 | [MOD-frontend-src-lib](architecture/MOD-frontend-src-lib.md) | `frontend/src/lib` | 42 |
 | [MOD-frontend-src-components-chat](architecture/MOD-frontend-src-components-chat.md) | `frontend/src/components/chat` | 38 |
 | [MOD-frontend-src](architecture/MOD-frontend-src.md) | `frontend/src` | 33 |

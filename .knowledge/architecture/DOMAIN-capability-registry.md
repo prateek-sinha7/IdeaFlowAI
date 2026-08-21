@@ -15,8 +15,8 @@ modules_spanned:
 watched_files: 13
 code_signature: df143607ced0
 symbols_signature: 1e1e800a6600
-prose_signature: 40c3ce5ff16b
-prose_symbols_signature: 49c3a74341e0
+prose_signature: df143607ced0
+prose_symbols_signature: 1e1e800a6600
 last_synced: '2026-08-21'
 ---
 

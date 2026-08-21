@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Settings2,
   MousePointerClick,
@@ -11,6 +11,7 @@ import {
   Webhook,
   Check,
   Info,
+  X,
 } from "lucide-react";
 import {
   AgentPromptSection,
@@ -22,6 +23,16 @@ import {
   type SelectionsMap,
 } from "../AgentsPopup";
 import { AgentSkillsPicker } from "./AgentSkillsPicker";
+import {
+  applyRoutePatch,
+  applyOutcomePatch,
+  nextOutcomeKey,
+  MAX_ROUTE_OUTCOMES,
+  useWorkflowPickerOptions,
+  WorkflowTargetPicker,
+  type RouteDraft,
+  type RouteOutcomeDraft,
+} from "./CanvasNode";
 import { Tabs } from "@/components/ui/Tabs";
 import { useHooksCatalog } from "@/hooks/useHooksCatalog";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
@@ -30,6 +41,9 @@ import type { AgentDef, SubagentStrategy } from "@/types/index";
 // The validator→gate coupling gate name (EMP-04). The Review-gate toggle reflects
 // only NON-coupling gates, mirroring the Simple view's AgentRow chip predicate.
 const COUPLED_GATE = "validation";
+// A conditional gate's diamond port connects to at most 3 other nodes — a
+// plain (blue) structural port stays 1:1 by contrast (moveAgentInTree only
+// ever assigns a single parent).
 
 /**
  * 41-05 — the Canvas view's per-node CONFIG rail, matched to the APPROVED PROPOSAL
@@ -60,6 +74,9 @@ export function CanvasConfigRail({
   onPromptChange,
   onStrategyChange,
   onRename,
+  onRouteChange,
+  allSteps = [],
+  openConfigSignal,
 }: {
   /** The selected node's agent, or null when nothing is selected. */
   agent: AgentDef | null;
@@ -82,6 +99,20 @@ export function CanvasConfigRail({
   onStrategyChange?: (agentId: string, strategy: SubagentStrategy, maxParallel?: number) => void;
   /** Node rename write-through (same path the node-card pencil icon uses). */
   onRename?: (agentId: string, name: string) => void;
+  /** Route-editor write-through (spec 014 / R-02, moved here from the canvas
+   *  node card — see CanvasNode.tsx's Route badge comment). Fired with the
+   *  full draft `route` on every edit; CanvasView wires this to
+   *  `handleRouteChange`, which round-trips through `onTreeChange` into
+   *  `pipelineAgents` (T35). */
+  onRouteChange?: (agentId: string, route: AgentDef["route"]) => void;
+  /** Bumped by CanvasView when a node's Gate/Route badge is clicked — jumps
+   *  this rail to the Config tab where the gate + route controls live. */
+  openConfigSignal?: number;
+  /** Every step in the workflow (root + nested), for the step-target picker —
+   *  a route can target any step, not just an earlier one (backward/loop
+   *  targets are valid, R-23), so this is the full flat list, not just
+   *  `priorAgents`. */
+  allSteps?: AgentDef[];
 }) {
   // Hooks are called unconditionally (rules of hooks) before the empty-state branch.
   const { validatorOptions, gateOptions, modelOptions, loading } =
@@ -95,6 +126,14 @@ export function CanvasConfigRail({
   const [activeTab, setActiveTab] = useState<
     "overview" | "skills" | "hooks" | "tools" | "config"
   >("overview");
+  // Clicking a node's Gate chip or Route badge should land the author ON the
+  // gate controls, not on Overview with the gate two clicks away. CanvasView
+  // bumps this counter on those clicks (same signal convention as its
+  // briefFocusSignal); the tab stays wherever the author puts it otherwise.
+  useEffect(() => {
+    if (!openConfigSignal) return;
+    setActiveTab("config");
+  }, [openConfigSignal]);
   const [nameDraft, setNameDraft] = useState<string | null>(null);
 
   // Same hover-tooltip "i" affordance as the Workflow properties panel
@@ -144,6 +183,16 @@ export function CanvasConfigRail({
     </button>
   );
 
+  // Hoisted ABOVE the `!agent` early return — every hook in this component has
+  // to run on every render, and the rail re-renders with `agent` undefined
+  // whenever the canvas selection is cleared. Its own argument gates the fetch,
+  // so calling it unconditionally costs nothing when no workflow target is set.
+  const needsWorkflowOptions = Object.values(agent?.route?.outcomes ?? {}).some(
+    (o) => o.trigger === "workflow",
+  );
+  const { workflows: workflowOptions, fetchFailed: workflowFetchFailed } =
+    useWorkflowPickerOptions(needsWorkflowOptions);
+
   if (!agent) {
     return (
       <div className="flex flex-1 flex-col">
@@ -171,6 +220,51 @@ export function CanvasConfigRail({
   const reviewGate = (sel.gates ?? []).find((g) => g !== COUPLED_GATE) ?? "";
   const retry = sel.retry ?? 0;
 
+  // ── Route editor (spec 014 / R-02, moved here from the canvas node card —
+  //    see CanvasNode.tsx's Route badge comment for why) — revealed the
+  //    moment reviewGate is set to "conditional", right under that control.
+  const conditionalOn = reviewGate === "conditional";
+  // Read directly off `agent.route` — no local mirror. Unlike the old
+  // per-node CanvasNode instance (freshly mounted, keyed by agent.id, one per
+  // node), this rail is a SINGLE instance reused across whichever node is
+  // currently selected; a `useState` initialized from `agent.route` would
+  // only capture the FIRST selected node's route and go stale the moment the
+  // author selects a different one.
+  const route = agent.route;
+  const updateRoute = (patch: Partial<RouteDraft>) => {
+    onRouteChange?.(agent.id, applyRoutePatch(route, patch));
+  };
+  const updateOutcome = (key: string, patch: Partial<RouteOutcomeDraft>) => {
+    onRouteChange?.(agent.id, applyOutcomePatch(route, key, patch));
+  };
+  const renameOutcome = (oldKey: string, newKey: string) => {
+    if (!newKey || newKey === oldKey || route?.outcomes?.[newKey]) return;
+    const next: RouteDraft["outcomes"] = {};
+    for (const [k, v] of Object.entries(route?.outcomes ?? {})) next[k === oldKey ? newKey : k] = v;
+    updateRoute({ outcomes: next });
+  };
+  const addOutcome = () => {
+    updateOutcome(nextOutcomeKey(route), {});
+  };
+  const removeOutcome = (key: string) => {
+    const outcomes = { ...(route?.outcomes ?? {}) };
+    delete outcomes[key];
+    updateRoute({ outcomes });
+  };
+  // Step-target options — any OTHER step, forward or backward (a loop target
+  // is valid, R-23), never the selected node itself.
+  const stepTargetOptions = allSteps.filter((s) => s.id !== agent.id);
+  // A LOOP is a route back to this step or to one before it — the engine treats
+  // any such backward jump as a revisit and caps it (`loop_max_iterations`,
+  // default 5, enforced in engine.py). Without this the author can author a
+  // loop and never learn a bound exists.
+  const orderOf = (id: string) => allSteps.findIndex((s) => s.id === id);
+  const isLoopTarget = (target: string) =>
+    !!target && orderOf(target) !== -1 && orderOf(target) <= orderOf(agent.id);
+  const loopCount = Object.values(route?.outcomes ?? {}).filter(
+    (o) => o.trigger === "step" && isLoopTarget(o.target),
+  ).length;
+
   // ── Fan-out lever (51-07 / FANOUT-01, D6/D7/§4b) ──────────────────────────
   // Parity with the Simple-view AdvancedExpander: reuse the SHARED reducer +
   // the SHARED KNOWN_PRODUCERS allow-list (no fork, no redefine). The source
@@ -194,6 +288,14 @@ export function CanvasConfigRail({
   const patch = (p: Partial<StepSelection>) => {
     const next = applyLeverPatch(sel, p);
     onSelection(agent.id, Object.keys(next).length > 0 ? next : undefined);
+  };
+
+  // Effective tool grants for the Tools tab. Absent selection = the composer's
+  // defaults (read + write ON), which is what `agentToManifestStep` also emits,
+  // so an untouched step's saved manifest is unchanged by this control existing.
+  const toolGrants = {
+    read_files: sel.tools?.read_files ?? true,
+    write_files: sel.tools?.write_files ?? true,
   };
 
   // Spec 012 (R-04/R-36) — the child-group strategy selector, shown only when
@@ -387,23 +489,31 @@ export function CanvasConfigRail({
               Tool grants
             </p>
           </div>
-          {/* Fixed, not author-editable. Read + write are required by the artifact
-              contract — every step reads its inputs and writes its own deliverable, so
-              a step without them cannot take part in a handoff. exec is engineer-only:
-              the compiler rejects it for db-trust manifests (compiler.py
-              `_TRUSTED_SOURCES`), so granting it here made the workflow unsaveable.
-              spawn_subagents is not listed at all — child dispatch is the engine's job,
-              never a per-node grant. */}
+          {/* read_files / write_files ARE author-editable and ARE enforced: the
+              compiler stores the capped grant on `Step.tools`, `factory.py` turns it
+              into `permission_caps.denied_tools(...)`, and `DeepAgentRunner` unions
+              that into the graph's excluded-tool set (it also drops the "how to
+              deliver" write instruction from the prompt via `has_write_access`).
+              exec stays fixed OFF: the untrusted cap zeroes it for db-trust manifests,
+              so a toggle would grant nothing. spawn_subagents is not listed at all —
+              child dispatch is the engine's job, never a per-node grant. */}
           <div className="space-y-1.5">
             {(
               [
-                { label: "Read files", desc: "List and read files in the run sandbox.", on: true },
-                { label: "Write files", desc: "Create and edit files in the run sandbox.", on: true },
-                { label: "Execute commands", desc: "Not available to custom workflows.", on: false },
+                {
+                  key: "read_files",
+                  label: "Read files",
+                  desc: "List and read files in the run sandbox.",
+                },
+                {
+                  key: "write_files",
+                  label: "Write files",
+                  desc: "Create and edit files in the run sandbox. Off means this step produces no artifact for later steps to read.",
+                },
               ] as const
-            ).map(({ label, desc, on }) => (
+            ).map(({ key, label, desc }) => (
               <div
-                key={label}
+                key={key}
                 className="flex items-center justify-between gap-3 rounded-lg border border-line-faint-row bg-surface-warm px-3 py-2"
               >
                 <div className="min-w-0">
@@ -413,9 +523,26 @@ export function CanvasConfigRail({
                   </p>
                   <p className="font-serif text-[10px] leading-relaxed text-ink-300">{desc}</p>
                 </div>
-                <Toggle on={on} label={label} disabled onToggle={() => {}} />
+                <Toggle
+                  on={toolGrants[key]}
+                  label={label}
+                  disabled={loading}
+                  onToggle={() => patch({ tools: { ...toolGrants, [key]: !toolGrants[key] } })}
+                />
               </div>
             ))}
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-line-faint-row bg-surface-warm px-3 py-2">
+              <div className="min-w-0">
+                <p className="flex items-center gap-1.5 font-sans text-[11px] font-semibold text-ink-900">
+                  <InfoHint>Not available to custom workflows.</InfoHint>
+                  Execute commands
+                </p>
+                <p className="font-serif text-[10px] leading-relaxed text-ink-300">
+                  Not available to custom workflows.
+                </p>
+              </div>
+              <Toggle on={false} label="Execute commands" disabled onToggle={() => {}} />
+            </div>
           </div>
         </div>
       )}
@@ -497,6 +624,172 @@ export function CanvasConfigRail({
           ))}
         </select>
       </div>
+
+      {/* Route editor (spec 014 / R-02, redesigned) — revealed the moment
+          Review gate is set to "conditional", directly under it: selecting
+          the gate IS the reveal, no extra click. Full width here (the rail),
+          not the cramped 260px node card — fields relabeled Condition/Type/
+          Target per the redesign; the step-target Target is now a dropdown
+          over every OTHER step (`stepTargetOptions`), not free text, so an
+          author picks a real step instead of retyping its generated id. */}
+      {conditionalOn && (
+        <div
+          data-testid={`canvas-rail-route-${agent.id}`}
+          className="border-b border-line-faint-row py-3"
+        >
+          <p className="font-sans text-[9.5px] font-bold uppercase tracking-[0.05em] text-status-amber">
+            Route
+          </p>
+
+          <label className="mt-1.5 block font-sans text-[10px] text-ink-500">
+            Condition source
+            <input
+              aria-label="Condition source"
+              value={route?.condition_agent ?? ""}
+              onChange={(e) => updateRoute({ condition_agent: e.target.value || undefined })}
+              placeholder="this step's own output"
+              className="mt-0.5 w-full rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
+            />
+          </label>
+
+          <div className="mt-2 space-y-2">
+            {Object.entries(route?.outcomes ?? {}).map(([key, outcome]) => (
+              <div key={key} className="rounded-[8px] border border-line-faint-row p-1.5">
+                {/* Condition + Type share a row; Target gets its own full
+                    width beneath them. A workflow target's name ("Revise
+                    presentation") never fits a third of the rail, and cramming
+                    it there is what collapsed the control to a bare chevron. */}
+                <div className="grid grid-cols-2 gap-1">
+                  <label className="block font-sans text-[9px] text-ink-500">
+                    Condition
+                    <input
+                      aria-label="Condition"
+                      defaultValue={key}
+                      onBlur={(e) => renameOutcome(key, e.target.value.trim())}
+                      placeholder="condition value"
+                      className="mt-0.5 w-full rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
+                    />
+                  </label>
+                  <label className="block font-sans text-[9px] text-ink-500">
+                    Type
+                    <select
+                      aria-label="Type"
+                      value={outcome.trigger}
+                      onChange={(e) =>
+                        updateOutcome(key, { trigger: e.target.value as RouteOutcomeDraft["trigger"], target: "" })
+                      }
+                      className="mt-0.5 w-full rounded-[6px] border border-line-control bg-surface-white px-1 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
+                    >
+                      <option value="step">Step</option>
+                      <option value="workflow">Workflow</option>
+                    </select>
+                  </label>
+                </div>
+                <label className="mt-1.5 block font-sans text-[9px] text-ink-500">
+                  Target
+                  {outcome.trigger === "workflow" ? (
+                    <WorkflowTargetPicker
+                      value={outcome.target}
+                      onChange={(next) => updateOutcome(key, { target: next })}
+                      workflows={workflowOptions}
+                      fetchFailed={workflowFetchFailed}
+                    />
+                  ) : (
+                    <select
+                      aria-label="Target"
+                      value={outcome.target}
+                      onChange={(e) => updateOutcome(key, { target: e.target.value })}
+                      className="mt-0.5 w-full rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
+                    >
+                      <option value="" disabled>
+                        Select a step…
+                      </option>
+                      {outcome.target && !stepTargetOptions.some((s) => s.id === outcome.target) && (
+                        <option value={outcome.target}>{outcome.target}</option>
+                      )}
+                      {stepTargetOptions.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+                {outcome.trigger === "step" && isLoopTarget(outcome.target) && (
+                  <label className="mt-1.5 block font-sans text-[9px] text-ink-500">
+                    Max loop count
+                    {/* Read-only for now: the value shown is the engine's
+                        enforced bound (`RouteSpec.loop_max_iterations`, default
+                        5). Surfaced so a loop never reads as unbounded, but not
+                        yet author-editable. */}
+                    <input
+                      type="number"
+                      disabled
+                      aria-label="Max loop count"
+                      value={route?.loop_max_iterations ?? 5}
+                      readOnly
+                      className="mt-0.5 w-full rounded-[6px] border border-line-control bg-surface-warm px-1.5 py-1 font-sans text-[11px] text-ink-500 disabled:cursor-not-allowed"
+                    />
+                    <p className="mt-0.5 font-serif text-[9px] leading-snug text-ink-300">
+                      {loopCount > 1
+                        ? "This target runs before the current step, so it loops. The run stops with an error past this many revisits — one cap per gate, shared by every looping outcome here."
+                        : "This target runs before the current step, so it loops. The run stops with an error past this many revisits."}
+                    </p>
+                  </label>
+                )}
+                <button
+                  type="button"
+                  aria-label={`Remove outcome ${key}`}
+                  onClick={() => removeOutcome(key)}
+                  className="mt-1 flex items-center gap-1 font-sans text-[9.5px] font-semibold text-ink-300 hover:text-ink-700"
+                >
+                  <X className="h-2.5 w-2.5" />
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            data-testid={`canvas-rail-route-add-${agent.id}`}
+            onClick={addOutcome}
+            disabled={Object.keys(route?.outcomes ?? {}).length >= MAX_ROUTE_OUTCOMES}
+            title={
+              Object.keys(route?.outcomes ?? {}).length >= MAX_ROUTE_OUTCOMES
+                ? `Maximum ${MAX_ROUTE_OUTCOMES} outcomes per gate`
+                : undefined
+            }
+            className="mt-1.5 flex items-center gap-1 font-sans text-[10px] font-semibold text-status-amber hover:underline disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:no-underline"
+          >
+            <Plus className="h-2.5 w-2.5" />
+            Add outcome
+          </button>
+
+          <label className="mt-2 block font-sans text-[10px] text-ink-500">
+            Default (no match)
+            <select
+              aria-label="Default (no match)"
+              value={route?.default_next ?? ""}
+              onChange={(e) => updateRoute({ default_next: e.target.value || undefined })}
+              className="mt-0.5 w-full rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
+            >
+              <option value="">run ends here</option>
+              {stepTargetOptions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {Object.keys(route?.outcomes ?? {}).length === 0 && (
+            <p className="mt-1.5 font-serif text-[9.5px] italic text-ink-300">
+              At least one outcome is required for this gate to run.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Retry-on-failure: {"max_attempts": N} — coerced FE→BE by
           agents/workflows/selections.py::_coerce_retry, honoured at run time by

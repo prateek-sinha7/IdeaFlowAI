@@ -13,8 +13,8 @@ modules_spanned:
 watched_files: 19
 code_signature: 1ffa9c08bf3e
 symbols_signature: a53882e3d761
-prose_signature: 5960e4393a1e
-prose_symbols_signature: 5891cd771ac8
+prose_signature: 1ffa9c08bf3e
+prose_symbols_signature: a53882e3d761
 last_synced: '2026-08-21'
 ---
 
@@ -141,13 +141,24 @@ flowchart LR
   check is `CapabilityRegistry.is_registered` immediately followed by
   `_check_trust`, at the same call site. For a custom-agent step with an
   `instance_id`, `_compile_step` uses [artifacts.py::CUSTOM_AGENT_PREFIX](../../backend/agents/workflows/artifacts.py)
-  to build the synthetic agent id.
+  to build the synthetic agent id. Route targets (spec 014 / R-10) are validated
+  after compilation: `_validate_route_targets` ensures every `route.outcomes[].target`
+  and `route.default_next` resolves to a step id in the compiled workflow (dual
+  lookup by `agent_id` or `instance_id`), and validates that the route's decision
+  source (the step itself or `route.condition_agent`) declares
+  `produces: ["route_decision"]` (R-27).
 - **Artifact naming.** [artifacts.py](../../backend/agents/workflows/artifacts.py) holds helpers for custom-agent
   artifact handling: `CUSTOM_AGENT_PREFIX` (the synthetic id prefix `"custom-agent:"`), `topic_slug()`,
   and `artifact_name()` (the single source of truth for output filenames). The compiler imports
   `CUSTOM_AGENT_PREFIX` to build synthetic agent ids from `instance_id`; the factory imports both
   the prefix and `artifact_name()` to format filenames for the composed prompt (preamble + roster block).
   Both modules validate `instance_id` shape independently (spec 012 R-03).
+- **Leaf computation.** `_compute_is_leaf` sets each `Step.is_leaf` flag (R-26)
+  after route/depends_on validation so the engine knows which steps have no
+  continuation (used by the `single_file` deliverable readback). A step is a
+  leaf if it has no `depends_on` downstream edges, no `route` with `trigger="step"`
+  outcomes or `default_next`, and the next step in manifest order is not
+  reachable via any route jump.
 - **The typed contract.** [plan.py](../../backend/agents/workflows/plan.py) holds `CompiledWorkflow`, `Step`, `Task`
   and the nested policy types; permission resolution is delegated to
   [permission_caps.py](../../backend/agents/workflows/permission_caps.py) (`apply_cap`), the single place every permission is decided.
@@ -204,6 +215,9 @@ sequenceDiagram
         MOD-backend-agents->>MOD-backend-agents: permission_caps.py::apply_cap
     end
     MOD-backend-agents->>MOD-backend-agents: compiler.py::WorkflowCompiler._validate_dag
+    MOD-backend-agents->>MOD-backend-agents: compiler.py::WorkflowCompiler._validate_fanout_source_upstream
+    MOD-backend-agents->>MOD-backend-agents: compiler.py::WorkflowCompiler._validate_route_targets
+    MOD-backend-agents->>MOD-backend-agents: compiler.py::WorkflowCompiler._compute_is_leaf
     MOD-backend-agents->>MOD-backend-agents: engine.py::ExecutionEngine._apply_selections
 
     loop per step in the compiled plan
@@ -266,9 +280,14 @@ sequenceDiagram
     `_compile_deliverable` builds the `DeliverableSpec`, and `_compile_limits`
     materializes `Limits` — rejecting any ceiling-raising cap under an
     untrusted manifest.
-12. `_validate_dag` (Kahn's algorithm over `depends_on`) and
-    `_validate_fanout_source_upstream` run last; a `CompiledWorkflow` is
-    returned.
+12. `_validate_dag` (Kahn's algorithm over `depends_on`) validates the Step DAG
+    is cycle-free. `_validate_fanout_source_upstream` ensures fan-out task sources
+    reference earlier steps only. `_validate_route_targets` (spec 014 / R-10)
+    ensures route outcomes and `default_next` target resolvable step ids (or literal
+    `"self"` for `trigger="workflow"` outcomes), and validates that a route's
+    decision source declares `produces: ["route_decision"]` (R-27). `_compute_is_leaf`
+    computes each step's `is_leaf` flag (R-26) based on route/depends_on edges. A
+    `CompiledWorkflow` is returned.
 13. [engine.py::ExecutionEngine._apply_selections](../../backend/agents/execution_engine/engine.py) overlays user levers onto
     the file-compiled steps, re-compiling them through the same
     `synthesize_manifest` → `compile(trust="user")` path and merging by
@@ -333,9 +352,12 @@ The loud ones you do not have to worry about: an unknown capability name is a
 `CompilerError` that names the reference and the step; an unknown manifest key
 is a `ManifestValidationError` that names the key; a missing `workflow.yaml` is
 a `FileNotFoundError` at run entry; manifest/registry membership drift is a
-`RuntimeError` before the first agent runs; and an import from
-`agents/workflows/*` into `agents.execution_engine` or `app` fails the
-import-linter contract in `backend/pyproject.toml` in CI.
+`RuntimeError` before the first agent runs; a route target that does not resolve
+to a step id in the compiled workflow is a `CompilerError` naming the step and
+the bad target (spec 014 / R-10); a route's decision source missing the
+`produces: ["route_decision"]` declaration is a `CompilerError` naming the step
+(R-27); and an import from `agents/workflows/*` into `agents.execution_engine`
+or `app` fails the import-linter contract in `backend/pyproject.toml` in CI.
 
 ### The other paths
 

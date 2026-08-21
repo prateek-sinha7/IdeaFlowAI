@@ -1097,6 +1097,12 @@ export interface WorkflowSummary {
   steps: { agent_id: string; name: string; gate: string | null }[];
   user_launchable: boolean;
   display_name?: string | null;
+  /** Authored short label ("PPT"). Sent by the API (workflows.py) but was never
+   *  declared here, so callers could not use it. */
+  short_name?: string | null;
+  /** Manifest `is_beta` — rendered "Coming Soon" in the catalog. Also sent by
+   *  the API without ever being declared here. */
+  is_beta?: boolean;
   icon?: string | null;
   launch_surface?: string | null;
 }

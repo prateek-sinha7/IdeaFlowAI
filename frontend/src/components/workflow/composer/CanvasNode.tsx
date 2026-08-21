@@ -2,12 +2,45 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Lock, X, Plus, Pencil, Check, ExternalLink } from "lucide-react";
+import { Lock, X, Plus, Pencil, Check, ExternalLink, AlertTriangle } from "lucide-react";
 import { getRole, getAgentInitials, type StepSelection } from "../AgentsPopup";
 import type { AgentDef, WorkflowType } from "@/types/index";
 import type { CapabilityModelEntry } from "@/lib/api";
 import { userWorkflowsApi, type UserWorkflowSummary } from "@/store/api/userWorkflows";
+import { getWorkflowDefinitions, getToken } from "@/lib/api";
 import { routes } from "@/lib/routes";
+import { WorkflowPickerModal } from "./WorkflowPickerModal";
+
+/** Unified shape for the workflow-target picker (T43, extended) — a system
+ *  (file-backed) workflow and a user-saved custom workflow live in different
+ *  tables/id-namespaces, but `run_trigger_workflow`
+ *  (kernel_services.py:1306-1346) already resolves EITHER kind of id for a
+ *  `trigger: "workflow"` outcome's `target` — the picker only needed to
+ *  offer both, no backend change. */
+export type WorkflowPickerOption = {
+  id: string;
+  /** Authored display_name, else name — the human title. */
+  name: string;
+  /** Authored short_name ("PPT"), when the manifest declares one. */
+  shortName?: string;
+  kind: "system" | "user";
+  /** The manifest's `user_launchable`. FALSE for every `*_revision` pipeline —
+   *  which is a statement about the DASHBOARD launcher (you cannot start a bare
+   *  revision run with nothing to revise), not about route targets. A triggered
+   *  run always has a parent (`run_trigger_workflow` sets
+   *  `parent_run_id_override=ectx.run_id`), which is exactly what a revision
+   *  pipeline needs, and the compiler's R-10 target check never restricted to
+   *  launchable ids. So the picker OFFERS these — grouped apart — instead of
+   *  filtering on a flag that answers a different question. */
+  launchable: boolean;
+  /** Manifest `is_beta` — a beta workflow is not offered as a route target. */
+  isBeta: boolean;
+  /** Catalog blurb + size, for the picker's cards. A native <select> could only
+   *  ever render `name`, which is why these were previously discarded. */
+  description?: string;
+  stepCount?: number;
+  icon?: string;
+};
 
 /** The node's inline model pill — looks up the catalog's human label (parity
  *  with AgentRow's `modelOptions.find(...)`), NOT a naive id string-split: a
@@ -47,25 +80,55 @@ function displayName(name: string): string {
 // mirroring this file's existing `modelOptions` shared-catalog pattern
 // (there lifted to CanvasView as a prop; here kept in-module since this
 // task's diff is scoped to CanvasNode.tsx alone).
-let workflowListPromise: Promise<UserWorkflowSummary[]> | null = null;
+let workflowListPromise: Promise<WorkflowPickerOption[]> | null = null;
 
-/** Lazily resolves the "My Workflows" list (`userWorkflowsApi.list()`, the
- *  same `GET /api/user-workflows` reuse R-24 calls for) only once `enabled`
- *  (i.e. some outcome on this node actually needs it), and caches the result
- *  across every caller via `workflowListPromise` above. A failed fetch clears
- *  the cache so a later mount/toggle can retry, and is reported back as
- *  `fetchFailed` so the picker can degrade to free text instead of the form
- *  breaking. */
-function useWorkflowPickerOptions(enabled: boolean): {
-  workflows: UserWorkflowSummary[] | null;
+/** Lazily resolves BOTH the system (file-backed) workflow catalog
+ *  (`getWorkflowDefinitions`, `GET /api/workflows`, filtered to
+ *  `user_launchable` — the same visibility flag the dashboard catalog
+ *  filters on) and "My Workflows" (`userWorkflowsApi.list()`,
+ *  `GET /api/user-workflows`) into one combined, tagged list — only once
+ *  `enabled` (i.e. some outcome on this node actually needs it), caching the
+ *  result across every caller via `workflowListPromise` above. A failed
+ *  fetch clears the cache so a later mount/toggle can retry, and is reported
+ *  back as `fetchFailed` so the picker can degrade to free text instead of
+ *  the form breaking. */
+export function useWorkflowPickerOptions(enabled: boolean): {
+  workflows: WorkflowPickerOption[] | null;
   fetchFailed: boolean;
 } {
-  const [workflows, setWorkflows] = useState<UserWorkflowSummary[] | null>(null);
+  const [workflows, setWorkflows] = useState<WorkflowPickerOption[] | null>(null);
   const [fetchFailed, setFetchFailed] = useState(false);
 
   useEffect(() => {
     if (!enabled || workflows || fetchFailed) return;
-    if (!workflowListPromise) workflowListPromise = userWorkflowsApi.list();
+    if (!workflowListPromise) {
+      const token = getToken();
+      workflowListPromise = Promise.all([
+        token ? getWorkflowDefinitions(token).catch(() => []) : Promise.resolve([]),
+        userWorkflowsApi.list().catch(() => []),
+      ]).then(([system, user]) => [
+        ...system.map((w): WorkflowPickerOption => ({
+          id: w.id,
+          name: w.display_name ?? w.name,
+          shortName: w.short_name ?? undefined,
+          kind: "system",
+          launchable: w.user_launchable,
+          isBeta: !!w.is_beta,
+          description: w.description || undefined,
+          stepCount: w.step_count,
+          icon: w.icon || undefined,
+        })),
+        ...user.map((w): WorkflowPickerOption => ({
+          id: w.id,
+          name: w.name,
+          kind: "user",
+          launchable: true,
+          isBeta: false,
+          description: w.description || undefined,
+          stepCount: w.agent_ids?.length,
+        })),
+      ]);
+    }
     let cancelled = false;
     workflowListPromise.then(
       (list) => {
@@ -85,15 +148,19 @@ function useWorkflowPickerOptions(enabled: boolean): {
 }
 
 /**
- * T43 (spec 014 / R-24) — the trigger:"workflow" outcome's target picker,
- * reusing `userWorkflowsApi.list()` ("My Workflows"'s own data source) rather
- * than a new purpose-built endpoint. `"self"` (R-12: a fresh instance of this
- * same workflow definition) is always offered regardless of what the fetch
+ * T43 (spec 014 / R-24), extended — the trigger:"workflow" outcome's target
+ * picker, grouping BOTH the system (file-backed) workflow catalog and "My
+ * Workflows" into one list. `"self"` (R-12: a fresh instance of this same
+ * workflow definition) is always offered regardless of what the fetch
  * returns. On a fetch failure this falls back to the same free-text input the
  * trigger:"step" case uses, with a visible warning, so a network hiccup can
  * never fully block an author from setting a target.
  */
-function WorkflowTargetPicker({
+/* Widths are `w-full`, not the flex trio this once used: the picker now renders
+   inside CanvasConfigRail's `grid-cols-3` Target cell, whose `<label>` is a
+   BLOCK. `flex-1` is inert there and `w-0` really does collapse the control to
+   zero, leaving nothing on screen but the select's chevron. */
+export function WorkflowTargetPicker({
   value,
   onChange,
   workflows,
@@ -101,47 +168,64 @@ function WorkflowTargetPicker({
 }: {
   value: string;
   onChange: (next: string) => void;
-  workflows: UserWorkflowSummary[] | null;
+  workflows: WorkflowPickerOption[] | null;
   fetchFailed: boolean;
 }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Fetch failed → free text, unchanged. A network hiccup must never leave an
+  // author unable to set a target at all, and there is nothing for a picker to
+  // list.
   if (fetchFailed) {
     return (
-      <div className="w-0 min-w-0 flex-1">
+      <div className="w-full">
         <input
           aria-label="Target"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="workflow id / self"
-          className="w-full rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
+          className="mt-0.5 w-full rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
         />
         <p className="mt-0.5 font-serif text-[9px] italic text-status-amber">
-          Couldn&apos;t load your workflows — enter the target id directly.
+          Couldn&apos;t load workflows — enter the target id directly.
         </p>
       </div>
     );
   }
 
-  const knownIds = new Set(workflows?.map((w) => w.id));
+  const chosen = value ? resolveWorkflowTarget(value, new Map((workflows ?? []).map((w) => [w.id, w.name]))) : null;
+
   return (
-    <select
-      aria-label="Target"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-0 min-w-0 flex-1 rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
-    >
-      <option value="" disabled>
-        {workflows ? "Select a workflow…" : "Loading workflows…"}
-      </option>
-      <option value="self">self (this workflow)</option>
-      {value && value !== "self" && !knownIds.has(value) && (
-        <option value={value}>{value}</option>
+    <>
+      {/* A button, not a <select>: the modal can show each candidate's
+          description, size and group, none of which fit in an <option>. Once
+          chosen, this shows the NAME only — the canvas node already carries the
+          "diverts run" meaning, and repeating it here was the duplication that
+          made this row read twice. */}
+      <button
+        type="button"
+        aria-label="Target"
+        data-testid="workflow-target-button"
+        onClick={() => setPickerOpen(true)}
+        className="mt-0.5 flex w-full items-center gap-1.5 rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 text-left font-sans text-[11px] hover:border-brand focus:border-brand focus:outline-none"
+      >
+        <ExternalLink className="h-3 w-3 flex-none text-brand" />
+        <span className={`min-w-0 flex-1 truncate ${chosen ? "text-ink-900" : "italic text-ink-400"}`}>
+          {chosen ? chosen.label : "Pick a workflow…"}
+        </span>
+      </button>
+      {pickerOpen && (
+        <WorkflowPickerModal
+          value={value}
+          workflows={workflows}
+          onSelect={(id) => {
+            onChange(id);
+            setPickerOpen(false);
+          }}
+          onCancel={() => setPickerOpen(false)}
+        />
       )}
-      {workflows?.map((w) => (
-        <option key={w.id} value={w.id}>
-          {w.name}
-        </option>
-      ))}
-    </select>
+    </>
   );
 }
 
@@ -152,15 +236,15 @@ function WorkflowTargetPicker({
 // doesn't (yet) contain both get the same muted/italic fallback treatment —
 // distinct from a resolved name — rather than silently rendering a blank or
 // an unstyled raw id indistinguishable from a real one.
-type RouteDraft = NonNullable<AgentDef["route"]>;
-type RouteOutcomeDraft = RouteDraft["outcomes"][string];
+export type RouteDraft = NonNullable<AgentDef["route"]>;
+export type RouteOutcomeDraft = RouteDraft["outcomes"][string];
 
-/** Pure route-outcome merge, lifted out of the component below so this
- *  file's own Route editor (T43) and CanvasView's connect-to-existing-node
+/** Pure route-outcome merge, lifted out of the component below so the Route
+ *  editor (now in CanvasConfigRail) and CanvasView's connect-to-existing-node
  *  drag gesture (spec 014 / R-23, T46) share the SAME mutation path — an
  *  edge created by dragging is otherwise indistinguishable, in the
  *  resulting data, from one typed directly into this form. */
-function applyRoutePatch(route: RouteDraft | undefined, patch: Partial<RouteDraft>): RouteDraft {
+export function applyRoutePatch(route: RouteDraft | undefined, patch: Partial<RouteDraft>): RouteDraft {
   return { outcomes: {}, ...route, ...patch };
 }
 export function applyOutcomePatch(
@@ -174,6 +258,17 @@ export function applyOutcomePatch(
 /** Same "outcome_N" naming CanvasNode's own "+ Add outcome" button already
  *  uses — shared so T46's picker's "new outcome" choice mints an identical
  *  key, not a second naming scheme. */
+/** Branch cap for one conditional gate. A FRONTEND-only limit — the compiler
+ *  validates each outcome's shape and target but never counts them, so nothing
+ *  in the engine requires this. It began at 3 because edges once fanned from
+ *  the diamond's top/bottom tips and three was what physically fit; the row
+ *  solver now spaces N targets symmetrically for any N, so the number is just a
+ *  guard against an unreadable node.
+ *
+ *  Lives here (not in the rail) because BOTH creation paths must honour it: the
+ *  rail's "+ Add outcome" button and CanvasView's drag-to-connect picker. */
+export const MAX_ROUTE_OUTCOMES = 5;
+
 export function nextOutcomeKey(route: RouteDraft | undefined): string {
   const outcomes = route?.outcomes ?? {};
   let n = Object.keys(outcomes).length + 1;
@@ -181,19 +276,34 @@ export function nextOutcomeKey(route: RouteDraft | undefined): string {
   return `outcome_${n}`;
 }
 
-function ExternalPipelineCard({
+/** Resolve a `trigger:"workflow"` outcome's target id to what the author should
+ *  read. Shared by the rail's inline strip and the canvas node so the two can
+ *  never disagree about what a given target is called. */
+export function resolveWorkflowTarget(
+  workflowId: string,
+  workflowNameById: Map<string, string>,
+) {
+  const id = workflowId.trim();
+  const isSelf = id === "self";
+  const resolvedName = !isSelf ? workflowNameById.get(id) : undefined;
+  return {
+    id,
+    isSelf,
+    // Not yet loaded, or an id the catalog does not know. Either way it is
+    // rendered as provisional rather than as a confirmed name.
+    isUnresolved: !isSelf && resolvedName === undefined,
+    label: isSelf ? "self (this workflow)" : resolvedName ?? (id || "Select a workflow…"),
+  };
+}
+
+export function ExternalPipelineCard({
   workflowId,
   workflowNameById,
 }: {
   workflowId: string;
   workflowNameById: Map<string, string>;
 }) {
-  const id = workflowId.trim();
-  const isSelf = id === "self";
-  const resolvedName = !isSelf ? workflowNameById.get(id) : undefined;
-  const isUnresolved = !isSelf && resolvedName === undefined;
-
-  const label = isSelf ? "self (this workflow)" : resolvedName ?? (id || "Select a workflow…");
+  const { id, isSelf, isUnresolved, label } = resolveWorkflowTarget(workflowId, workflowNameById);
 
   const cardCls =
     "mt-1 flex items-center gap-1.5 rounded-[8px] border border-dashed border-brand-border bg-surface-white px-2 py-1";
@@ -235,6 +345,101 @@ function ExternalPipelineCard({
   );
 }
 
+/** Canvas width of an external-workflow node — deliberately narrower than an
+ *  agent card (NODE_W 260) so it never reads as "another step of this run". */
+export const EXTERNAL_NODE_W = 190;
+
+/**
+ * The canvas node for a `trigger: "workflow"` outcome (spec 014 / R-22).
+ *
+ * It is NOT a step of this workflow and must not look like one: the target runs
+ * as a SECOND, independent `WorkflowRun` linked by `parent_run_id`
+ * (`kernel_services.run_trigger_workflow`), with its own budget, gates and
+ * lifecycle. So this is a reference, not an inlined graph — no avatar, no
+ * ports, no chips, dashed border, and visibly smaller than an agent card.
+ * Inlining the target's real steps would (a) claim they belong to this run,
+ * (b) recurse forever on a `self` target, and (c) offer editing this canvas
+ * cannot perform. Clicking opens that workflow instead.
+ */
+export function ExternalWorkflowNode({
+  workflowId,
+  workflowNameById,
+  workflowShortNameById,
+  workflowKindById,
+  left,
+  top,
+  selected,
+  onSelect,
+  onMouseDown,
+}: {
+  workflowId: string;
+  workflowNameById: Map<string, string>;
+  /** id → the manifest's authored `short_name` ("PPT"). This is what the
+   *  eyebrow shows — the label the workflow's author chose, not a machine id.
+   *  Falls back to the kind below when a manifest declares none. */
+  workflowShortNameById?: Map<string, string | undefined>;
+  workflowKindById?: Map<string, "system" | "user">;
+  left: number;
+  top: number;
+  selected?: boolean;
+  onSelect?: () => void;
+  onMouseDown?: (e: React.MouseEvent) => void;
+}) {
+  const { id, isSelf, isUnresolved, label } = resolveWorkflowTarget(workflowId, workflowNameById);
+  // Eyebrow: the authored short_name when there is one ("PPT"), so the card
+  // reads "(PPT) / Pitch an idea" — the manifest's own two labels. A user
+  // workflow's id is a UUID and it has no short_name, so those say CUSTOM
+  // rather than showing a machine identifier.
+  const kind = workflowKindById?.get(id);
+  const shortName = workflowShortNameById?.get(id);
+  const eyebrow = isSelf
+    ? "SELF"
+    : shortName ?? (kind === "user" ? "CUSTOM" : id ? id.toUpperCase() : "WORKFLOW");
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      data-testid={id ? `canvas-external-workflow-${id}` : "canvas-external-workflow-node"}
+      data-selected={selected ? "true" : "false"}
+      title={label}
+      onClick={onSelect}
+      onMouseDown={onMouseDown}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect?.();
+        }
+      }}
+      style={{ left, top, width: EXTERNAL_NODE_W }}
+      // Deliberately NOT a link. Clicking selects it so it can be dragged like
+      // any other node; navigating away mid-edit on a stray click was the wrong
+      // trade. Open the target from the config rail's card instead.
+      className={`absolute z-[3] cursor-pointer rounded-[12px] border border-dashed bg-surface-card px-2.5 py-2 shadow-[0_1px_2px_rgba(17,17,20,0.04)] transition-shadow ${
+        selected
+          ? "border-brand shadow-[0_0_0_3px_var(--brand-fill),0_8px_22px_rgba(60,44,218,0.14)]"
+          : "border-brand-border hover:border-brand"
+      }`}
+    >
+      <div className="flex items-center gap-1.5">
+        <ExternalLink className="h-3 w-3 flex-none text-brand" />
+        <span className="truncate font-sans text-[8.5px] font-bold uppercase tracking-[0.07em] text-brand">
+          {eyebrow}
+        </span>
+      </div>
+      <p
+        className={`mt-1 truncate font-sans text-[12.5px] font-semibold ${
+          isSelf || isUnresolved ? "italic text-ink-400" : "text-ink-900"
+        }`}
+      >
+        {label}
+      </p>
+      <span className="mt-1.5 inline-block rounded-full border border-brand-border bg-brand-fill px-1.5 py-0.5 font-sans text-[8px] font-bold uppercase tracking-[0.05em] text-brand">
+        Diverts run
+      </span>
+    </div>
+  );
+}
+
 /**
  * 41-05 — one agent NODE of the hand-rolled Canvas node-graph. A single, FLAT,
  * non-recursive absolute-positioned card (avatar · name · role · Core badge ·
@@ -259,8 +464,11 @@ export function CanvasNode({
   onAddChild,
   onRename,
   onSkillsChange,
-  onRouteChange,
   onCardMouseDown,
+  onOpenConfig,
+  onChainConnectMouseDown,
+  dropTarget,
+  minCardHeight,
   onPortMouseDown,
   modelOptions,
   addChildDisabledReason,
@@ -284,13 +492,22 @@ export function CanvasNode({
   onAddChild?: (parentId: string) => void;
   onRename?: (id: string, name: string) => void;
   onSkillsChange?: (agentId: string, skills: string[]) => void;
-  /** Route-editor write-through (spec 014 / R-02). Fired with the full draft
-   *  `route` on every edit; CanvasView wires this to `handleRouteChange`,
-   *  which round-trips through `onTreeChange` into `pipelineAgents` (T35). */
-  onRouteChange?: (agentId: string, route: AgentDef["route"]) => void;
   /** Free-drag: mousedown anywhere on the card body (not the top port, that's
    *  reserved for edge-drag-to-reparent). */
   onCardMouseDown?: (e: React.MouseEvent) => void;
+  /** Select this node AND jump the config rail to its Config tab — wired to
+   *  the Gate chip and the Route badge, the two affordances whose editor is
+   *  in that tab. */
+  onOpenConfig?: () => void;
+  /** Present only while some step is detached — makes the right port a
+   *  drag handle for re-attaching that orphan after this step. */
+  onChainConnectMouseDown?: (e: React.MouseEvent) => void;
+  /** A live drag is hovering this node and would drop onto it. */
+  dropTarget?: boolean;
+  /** Row-wide minimum card height (px), so every root card on a row is the
+   *  same height and its centred ports line up with its neighbours'. Omitted
+   *  for nested nodes, which size themselves. */
+  minCardHeight?: number;
   /** Edge-drag-to-reparent: mousedown specifically on the top (incoming) port. */
   onPortMouseDown?: (e: React.MouseEvent) => void;
   /** Only 3 levels of nesting are supported (root → parent → child) and each
@@ -312,52 +529,16 @@ export function CanvasNode({
   const gateOn = (selection?.gates ?? []).some((g) => g !== "validation");
   const retry = selection?.retry ?? 0;
   const retryOn = retry > 0;
-  // Route-target editor (spec 014 / R-02/R-03) — surfaced only when this
-  // step's own gates list carries "conditional" (the compiler REQUIRES a
-  // non-empty route.outcomes whenever that gate is declared, and rejects it
-  // the other way round too).
+  // Route badge (spec 014 / R-02/R-03) — surfaced only when this step's own
+  // gates list carries "conditional" (the compiler REQUIRES a non-empty
+  // route.outcomes whenever that gate is declared, and rejects it the other
+  // way round too). The editable form itself now lives in CanvasConfigRail
+  // (the sidebar) — read directly off `agent.route` (the parent's
+  // authoritative copy, kept fresh via `onRouteChange` -> `onTreeChange` ->
+  // `pipelineAgents`) rather than mirroring it into local state here, since
+  // this node no longer writes to it.
   const conditionalOn = (selection?.gates ?? []).includes("conditional");
-
-  const [route, setRoute] = useState<RouteDraft | undefined>(agent.route);
-
-  const updateRoute = (patch: Partial<RouteDraft>) => {
-    const next = applyRoutePatch(route, patch);
-    setRoute(next);
-    onRouteChange?.(agent.id, next);
-  };
-  const updateOutcome = (key: string, patch: Partial<RouteOutcomeDraft>) => {
-    const next = applyOutcomePatch(route, key, patch);
-    setRoute(next);
-    onRouteChange?.(agent.id, next);
-  };
-  const renameOutcome = (oldKey: string, newKey: string) => {
-    if (!newKey || newKey === oldKey || route?.outcomes?.[newKey]) return;
-    const next: RouteDraft["outcomes"] = {};
-    for (const [k, v] of Object.entries(route?.outcomes ?? {})) next[k === oldKey ? newKey : k] = v;
-    updateRoute({ outcomes: next });
-  };
-  const addOutcome = () => {
-    updateOutcome(nextOutcomeKey(route), {});
-  };
-  const removeOutcome = (key: string) => {
-    const outcomes = { ...(route?.outcomes ?? {}) };
-    delete outcomes[key];
-    updateRoute({ outcomes });
-  };
-
-  // T43 (spec 014 / R-24) — only fetches once some outcome on THIS node
-  // actually routes to a workflow target; `useWorkflowPickerOptions` itself
-  // dedupes the underlying network call across every node/row via the
-  // module-scoped `workflowListPromise`.
-  const needsWorkflowOptions =
-    conditionalOn && Object.values(route?.outcomes ?? {}).some((o) => o.trigger === "workflow");
-  const { workflows: workflowOptions, fetchFailed: workflowFetchFailed } =
-    useWorkflowPickerOptions(needsWorkflowOptions);
-  // T44 (spec 014 / R-22) — id→name lookup for every ExternalPipelineCard on
-  // this node, derived from the SAME already-fetched `workflowOptions` above
-  // (built once here, reused by every card below — never re-fetched or
-  // re-derived per card).
-  const workflowNameById = new Map((workflowOptions ?? []).map((w) => [w.id, w.name]));
+  const outcomeCount = Object.keys(agent.route?.outcomes ?? {}).length;
 
   const avatarCls = selected
     ? "bg-brand text-surface-white"
@@ -365,13 +546,34 @@ export function CanvasNode({
       ? "bg-brand-fill text-brand"
       : "bg-line-faint-row text-ink-500";
 
-  const port = (side: "l" | "r" | "t" | "b", handlers?: { onMouseDown?: (e: React.MouseEvent) => void }) => (
+  // A conditional step's RIGHT port IS the diamond — the same port, a
+  // different shape, in exactly the same place. It is not an extra symbol laid
+  // over the circle (that showed two), and it is not a separately positioned
+  // overlay (that drifted off the circle's spot). Every route edge starts at
+  // this one point; CanvasView anchors them to the card's right edge at the
+  // node's vertical center, which is where this sits.
+  const port = (
+    side: "l" | "r" | "t" | "b",
+    handlers?: { onMouseDown?: (e: React.MouseEvent) => void },
+    diamond?: boolean,
+    extra?: { testId?: string; title?: string },
+  ) => (
     <span
       aria-hidden={!handlers}
+      data-testid={extra?.testId}
+      title={extra?.title}
       onMouseDown={handlers?.onMouseDown}
-      className={`absolute h-[11px] w-[11px] rounded-full border-2 bg-surface-card ${
+      className={`absolute h-[11px] w-[11px] border-2 bg-surface-card ${
+        diamond ? "rotate-45 rounded-[2px]" : "rounded-full"
+      } ${
+        // Colour tracks SELECTION, never type — the diamond SHAPE already says
+        // "branch point". A permanently amber diamond made every conditional
+        // node look active even when nothing was selected, the same thing the
+        // route lines used to do before dash took over carrying the meaning.
         selected ? "border-brand" : "border-line-faint"
-      } ${handlers ? "cursor-crosshair hover:scale-125 hover:border-brand" : ""} ${
+      } ${
+        handlers ? "cursor-crosshair hover:scale-125 hover:border-brand" : ""
+      } ${
         side === "l"
           ? "top-1/2 -left-[6px] -translate-y-1/2"
           : side === "r"
@@ -400,6 +602,7 @@ export function CanvasNode({
         tabIndex={0}
         data-testid={`canvas-node-${agent.id}`}
         data-selected={selected ? "true" : "false"}
+        style={minCardHeight ? { minHeight: minCardHeight } : undefined}
         onClick={onSelect}
         onMouseDown={onCardMouseDown}
         onKeyDown={(e) => {
@@ -409,14 +612,40 @@ export function CanvasNode({
           }
         }}
         className={`relative cursor-pointer rounded-[14px] border bg-surface-card px-3 pb-[11px] pt-3 shadow-[0_1px_2px_rgba(17,17,20,0.04)] transition-shadow ${
-          selected
+          dropTarget
+            ? "border-brand shadow-[0_0_0_4px_var(--brand-fill)]"
+            : selected
             ? "border-brand shadow-[0_0_0_3px_var(--brand-fill),0_8px_22px_rgba(60,44,218,0.14)]"
-            : "border-line-border hover:border-line-faint"
+            : agent.detached
+              ? "border-dashed border-status-amber hover:border-status-amber"
+              : "border-line-border hover:border-line-faint"
         }`}
       >
-        {port("l")}
-        {port("r")}
-        {isChild && port("t", { onMouseDown: onPortMouseDown })}
+        {/* Reparent-drag handle: children use the top port (they sit BELOW
+            their parent); root nodes use the left port instead (they sit in
+            the horizontal chain) — same underlying gesture/handler either
+            way (CanvasView's handlePortMouseDown -> moveAgentInTree already
+            treats root and nested nodes identically), this was previously
+            only ever wired to children, leaving root nodes with no drag
+            handle of their own to attach to another node. */}
+        {isChild ? port("t", { onMouseDown: onPortMouseDown }) : port("l", { onMouseDown: onPortMouseDown })}
+        {/* Decorative, exactly like the circle it replaces — you cannot start a
+            connection by dragging it. Route targets are set in the config
+            rail's Route section; the drawn lines themselves stay grabbable for
+            re-targeting. */}
+        {conditionalOn
+          ? port("r", undefined, true, { testId: `canvas-route-connect-${agent.id}` })
+          : port(
+              "r",
+              // Live ONLY while something is orphaned — otherwise this stays the
+              // decorative dot it has always been, and the canvas gains no
+              // gesture you would have to know about but never need.
+              onChainConnectMouseDown ? { onMouseDown: onChainConnectMouseDown } : undefined,
+              false,
+              onChainConnectMouseDown
+                ? { title: "Drag onto the unconnected step to attach it here" }
+                : undefined,
+            )}
         {hasChildren && port("b")}
 
         {/* rename + remove — grouped top-right so the title below gets the
@@ -548,15 +777,25 @@ export function CanvasNode({
           >
             Validator
           </span>
-          <span
-            className={`rounded-[6px] border px-1.5 py-1 font-sans text-[9.5px] font-semibold ${
+          {/* Clickable, unlike its Validator/Retry neighbours: the gate is the
+              one chip with a whole editor behind it (review gate + the route
+              form), so clicking it jumps the rail to Config rather than making
+              the author select the node and then hunt for the tab. */}
+          <button
+            type="button"
+            title="Configure this step's gate"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenConfig?.();
+            }}
+            className={`rounded-[6px] border px-1.5 py-1 font-sans text-[9.5px] font-semibold transition-colors hover:border-status-amber ${
               gateOn
                 ? "border-status-amber-border bg-status-amber-fill text-status-amber"
                 : "border-line-faint-row bg-surface-white text-ink-300"
             }`}
           >
             Gate
-          </span>
+          </button>
           <span
             className={`rounded-[6px] border px-1.5 py-1 font-sans text-[9.5px] font-semibold ${
               retryOn
@@ -568,124 +807,59 @@ export function CanvasNode({
           </span>
         </div>
 
-        {/* Route-target editor (spec 014 / R-02) — node-level form only: lets
-            the author declare each condition value's destination (outcomes),
-            an optional condition source, and the no-match fallback. No
-            edge-drawing/graph-layout here — that's CanvasView's own scoping
-            pass. Stops all three event kinds from bubbling to the card (click
-            = select, mousedown = free-drag, keydown = the card's Enter/Space
-            select shortcut) so typing/clicking inside the form never
-            (de)selects or drags the node. */}
-        {conditionalOn && (
+        {agent.detached && (
           <div
-            data-testid={`canvas-node-route-${agent.id}`}
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-            className="mt-2.5 rounded-[9px] border border-status-amber-border bg-status-amber-fill/40 p-2"
+            data-testid={`canvas-node-detached-${agent.id}`}
+            className="mb-2 flex items-center gap-1.5 rounded-[8px] border border-status-amber-border bg-status-amber-fill/50 px-2 py-1"
           >
-            <p className="font-sans text-[9.5px] font-bold uppercase tracking-[0.05em] text-status-amber">
-              Route
-            </p>
-
-            <label className="mt-1.5 block font-sans text-[10px] text-ink-500">
-              Condition source
-              <input
-                aria-label="Condition source"
-                value={route?.condition_agent ?? ""}
-                onChange={(e) => updateRoute({ condition_agent: e.target.value || undefined })}
-                placeholder="this step's own output"
-                className="mt-0.5 w-full rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
-              />
-            </label>
-
-            <div className="mt-2 space-y-1.5">
-              {Object.entries(route?.outcomes ?? {}).map(([key, outcome]) => (
-                <div key={key}>
-                  <div className="flex items-center gap-1">
-                    <input
-                      aria-label="Condition value"
-                      defaultValue={key}
-                      onBlur={(e) => renameOutcome(key, e.target.value.trim())}
-                      placeholder="condition value"
-                      className="w-0 min-w-0 flex-1 rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
-                    />
-                    <select
-                      aria-label="Trigger"
-                      value={outcome.trigger}
-                      onChange={(e) => updateOutcome(key, { trigger: e.target.value as RouteOutcomeDraft["trigger"] })}
-                      className="flex-none rounded-[6px] border border-line-control bg-surface-white px-1 py-1 font-sans text-[10.5px] text-ink-900 focus:border-brand focus:outline-none"
-                    >
-                      <option value="step">Step</option>
-                      <option value="workflow">Workflow</option>
-                    </select>
-                    {/* T43 (spec 014 / R-24) — the workflow-target case gets
-                        a real picker over the "My Workflows" list instead of
-                        this bare free-text field; the step-target case below
-                        is untouched. */}
-                    {outcome.trigger === "workflow" ? (
-                      <WorkflowTargetPicker
-                        value={outcome.target}
-                        onChange={(next) => updateOutcome(key, { target: next })}
-                        workflows={workflowOptions}
-                        fetchFailed={workflowFetchFailed}
-                      />
-                    ) : (
-                      <input
-                        aria-label="Target"
-                        value={outcome.target}
-                        onChange={(e) => updateOutcome(key, { target: e.target.value })}
-                        placeholder="step id"
-                        className="w-0 min-w-0 flex-1 rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
-                      />
-                    )}
-                    <button
-                      type="button"
-                      aria-label={`Remove outcome ${key}`}
-                      onClick={() => removeOutcome(key)}
-                      className="grid h-5 w-5 flex-none place-items-center rounded-[5px] text-ink-300 hover:bg-line-faint hover:text-ink-700"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                  {/* T36/R-22 — the new external-pipeline reference node,
-                      surfaced the moment this outcome's trigger is set to
-                      "workflow" (a cross-workflow divert), distinct from the
-                      plain "step" case which stays a bare text target above. */}
-                  {outcome.trigger === "workflow" && (
-                    <ExternalPipelineCard workflowId={outcome.target} workflowNameById={workflowNameById} />
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              data-testid={`canvas-node-route-add-${agent.id}`}
-              onClick={addOutcome}
-              className="mt-1.5 flex items-center gap-1 font-sans text-[10px] font-semibold text-status-amber hover:underline"
-            >
-              <Plus className="h-2.5 w-2.5" />
-              Add outcome
-            </button>
-
-            <label className="mt-2 block font-sans text-[10px] text-ink-500">
-              Default (no match)
-              <input
-                aria-label="Default (no match)"
-                value={route?.default_next ?? ""}
-                onChange={(e) => updateRoute({ default_next: e.target.value || undefined })}
-                placeholder="run ends here"
-                className="mt-0.5 w-full rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
-              />
-            </label>
-
-            {Object.keys(route?.outcomes ?? {}).length === 0 && (
-              <p className="mt-1.5 font-serif text-[9.5px] italic text-ink-300">
-                At least one outcome is required for this gate to run.
-              </p>
-            )}
+            <AlertTriangle className="h-3 w-3 flex-none text-status-amber" />
+            <span className="font-serif text-[10px] leading-snug text-status-amber">
+              Not connected — point a route at this step, or remove it.
+            </span>
           </div>
+        )}
+
+        {/* Route badge (spec 014 / R-02, redesigned) — a compact glance-only
+            indicator. The editable form (Condition source, per-outcome
+            Condition/Type/Target, Add outcome, Default) now lives in
+            CanvasConfigRail (the sidebar), which has the width to render it
+            without cropping — see that file's Route section, revealed the
+            moment "Review gate" is set to "conditional". This card keeps
+            only enough to answer "does this step route, and how many ways"
+            at a glance; the drag-to-connect diamond handle (CanvasView) is
+            unaffected — it's a separate overlay, not part of this block. */}
+        {conditionalOn && (
+          <button
+            type="button"
+            data-testid={`canvas-node-route-${agent.id}`}
+            title="Edit this step's route outcomes"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenConfig?.();
+            }}
+            className={`mt-2.5 flex w-full items-center gap-1.5 rounded-[9px] border px-2 py-1.5 text-left transition-colors ${
+              selected
+                ? "border-status-amber-border bg-status-amber-fill/40 hover:bg-status-amber-fill"
+                : "border-line-faint-row bg-surface-warm hover:border-line-control"
+            }`}
+          >
+            <span
+              className={`font-sans text-[9.5px] font-bold uppercase tracking-[0.05em] ${
+                selected ? "text-status-amber" : "text-ink-400"
+              }`}
+            >
+              Route
+            </span>
+            <span
+              className={`font-serif text-[10px] ${selected ? "text-status-amber" : "text-ink-400"}`}
+            >
+              {outcomeCount === 0
+                ? "no outcomes yet"
+                : outcomeCount === 1
+                  ? "1 outcome"
+                  : `${outcomeCount} outcomes`}
+            </span>
+          </button>
         )}
 
         {/* attached-skill chips — same delete-by-X affordance as the rail's

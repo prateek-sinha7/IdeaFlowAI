@@ -18,8 +18,8 @@ modules_spanned:
 watched_files: 20
 code_signature: 3ed1ebdc8289
 symbols_signature: 8a996ac0feae
-prose_signature: 4a20b4966af2
-prose_symbols_signature: b7a824ee9c4d
+prose_signature: 3ed1ebdc8289
+prose_symbols_signature: 8a996ac0feae
 last_synced: '2026-08-21'
 ---
 
@@ -94,16 +94,18 @@ fastapi, langgraph, pydantic
 
 This domain owns the **step boundary as a decision point**: before (and after)
 a step runs, something other than the model gets to say *pass*, *block*, or
-*stop and ask a human* — and if it asks, the run has to survive the wait. Four
+*stop and ask a human* — and if it asks, the run has to survive the wait. Five
 registered `GateHandler` capabilities express the policies (`human`,
-`approval`, `security`, `validation`), one dataclass in [gates/base.py](../../backend/agents/capabilities/gates/base.py)
+`approval`, `security`, `validation`, `conditional`), one dataclass in [gates/base.py](../../backend/agents/capabilities/gates/base.py)
 expresses their answers, one engine primitive expresses the pause, one table
 records every firing, and one pure function decides — from the durable log
 alone — whether a pause is still open. Without this domain a manifest could
 declare `gates: [...]` and nothing would happen; more sharply, `exec` would be
 authorized by whatever attached the workspace profile, because `security` is
 the runtime tier that refuses an exec grant carrying no `approval` alongside
-it.
+it. The `conditional` gate (spec 014) adds routing — a step can branch to a
+declared next step or trigger another workflow based on a typed decision, with
+non-matching paths emitting an `agent_skipped` event.
 
 Where it ends: this domain decides *whether* a step proceeds and *how the run
 waits*, not what the wait is about. The validators the `validation` gate runs
@@ -161,17 +163,23 @@ flowchart LR
     checkpointer --> review
 ```
 
-- **The outcome contract** — [gates/base.py](../../backend/agents/capabilities/gates/base.py) is forty lines: three string
-  constants (`GATE_PASS`, `GATE_BLOCK`, `GATE_WAIT_HUMAN`) and the
+- **The outcome contract** — [gates/base.py](../../backend/agents/capabilities/gates/base.py) holds four string
+  constants (`GATE_PASS`, `GATE_BLOCK`, `GATE_WAIT_HUMAN`, `GATE_ROUTE`) and the
   `GateOutcome` dataclass carrying `outcome`, an additive `events` list, and an
   audit `detail`. Gates return a value; the kernel owns the yield. Everything
-  in the domain imports these names rather than restating the strings.
-- **The two gate shapes.** [security.py](../../backend/agents/capabilities/gates/security.py) and [validation.py](../../backend/agents/capabilities/gates/validation.py) implement
-  `async evaluate(step, ctx) -> GateOutcome` and nothing else. [human.py](../../backend/agents/capabilities/gates/human.py) and
-  [approval.py](../../backend/agents/capabilities/gates/approval.py) additionally implement `evaluate_stream`, an async generator
-  yielding zero or more public event dicts and then exactly one terminal
-  `GateOutcome`; their `evaluate` is a thin collector over it. `_evaluate_gates`
-  duck-types on `evaluate_stream` — that is the whole capability check.
+  in the domain imports these names rather than restating the strings. `GATE_ROUTE`
+  is specific to the `conditional` gate and carries the dispatch-loop cursor jump
+  target in `detail`.
+- **The three gate shapes.** [security.py](../../backend/agents/capabilities/gates/security.py) and [validation.py](../../backend/agents/capabilities/gates/validation.py)
+  implement `async evaluate(step, ctx) -> GateOutcome` — synchronous evaluation
+  with no streaming events. [human.py](../../backend/agents/capabilities/gates/human.py) and [approval.py](../../backend/agents/capabilities/gates/approval.py)
+  additionally implement `evaluate_stream`, an async generator yielding zero or
+  more public event dicts and then exactly one terminal `GateOutcome`; their
+  `evaluate` is a thin collector over it. [conditional.py](../../backend/agents/capabilities/gates/conditional.py) implements the
+  awaited `evaluate` path and returns a routing outcome (`GATE_ROUTE`) carrying
+  the dispatch cursor jump in `detail`, or `GATE_PASS`/`GATE_BLOCK` on no-match
+  paths. `_evaluate_gates` duck-types on `evaluate_stream` — that is the whole
+  capability check for streaming gates.
 - **The single HITL delegate** — [kernel_services.py::run_human_gate](../../backend/agents/execution_engine/kernel_services.py) is the
   only route from a gate implementation into a pause. Both [human.py](../../backend/agents/capabilities/gates/human.py) and
   [approval.py](../../backend/agents/capabilities/gates/approval.py) call it off `ctx.runner`; [approval.py](../../backend/agents/capabilities/gates/approval.py) passes its exec-policy
@@ -186,12 +194,16 @@ flowchart LR
   as the public `review_gate_*` events and must be filtered by the consumer.
 - **The kernel-side sequencer** — [engine.py::_evaluate_gates](../../backend/agents/execution_engine/engine.py) walks
   `step.gates` in declared order, splitting on `_POST_STEP_GATES`
-  (`{"validation"}`), applying the WR-02 inline-dedupe for `human`, mapping a
-  raise to `block` for `_FAIL_CLOSED_GATES` (`{"security","approval","human"}`)
-  and to `pass` for everything else, converting a `block` from `_HITL_GATES`
-  (`{"human","approval"}`) into a distinct `cancel` sentinel, and emitting a
-  terminal `(None, outcome, detail)` tuple so a gate that halts without emitting
-  an event still halts.
+  (`{"validation", "conditional"}`), applying the WR-02 inline-dedupe for
+  `human`, mapping a raise to `block` for `_FAIL_CLOSED_GATES` (`{"security",
+  "approval","human"}`) and to `pass` for everything else, converting a `block`
+  from `_HITL_GATES` (`{"human","approval"}`) into a distinct `cancel` sentinel,
+  and emitting a terminal `(None, outcome, detail)` tuple so a gate that halts
+  without emitting an event still halts. The `conditional` gate (spec 014, R-05b)
+  is post-step only (reads this step's `route_decision` artifact) and returns
+  `route` when a decision matches a declared outcome, causing [engine.py](../../backend/agents/execution_engine/engine.py)
+  to jump the dispatch cursor and emit `agent_skipped` events for every other
+  step outcome that was not taken.
 - **The audit trail** — `capabilities/gates/write.py::write_gate_event` is a
   five-line best-effort hop to `ctx.runner.record_gate_event`, which reaches
   [authz.py::ScopedStore.record_gate_event](../../backend/agents/authz.py) and inserts a `GateEvent` row
@@ -413,12 +425,22 @@ sequenceDiagram
   genuine approval.** `ApprovalGate.evaluate_stream`'s D-03 memory matches on
   `gate == "approval" and outcome == "pass"` for the whole run — not per step —
   so any such row makes every subsequent exec step skip its sign-off silently.
-- **You assume [gate_events.outcome](../../backend/app/models/gate_events.py) holds only the three `GateOutcome`
-  values.** The model docstring says so, but the inline redo/update_specs
+- **The conditional gate's `_read_decision` fails to read a `route_decision`
+  artifact and raises instead of returning `None`.** `ConditionalGate.evaluate`
+  would raise; since `conditional` is not in `_FAIL_CLOSED_GATES`, the
+  exception is swallowed and the step executes as if the gate passed (WR-07
+  fail-open for non-critical gates). This silently skips routing — the run
+  advances linearly instead of branching as intended. For the gate to never
+  crash the run, `_read_decision` is deliberately written to log and return `None`
+  on any artifact-reader absence or JSON malformation (the manifest-route-schema.md
+  runtime contract, step 7) — converting all reads into data, never raising.
+- **You assume [gate_events.outcome](../../backend/app/models/gate_events.py) holds only the standard `GateOutcome`
+  values.** The model docstring may be stale — the inline redo/update_specs
   handlers in [engine.py](../../backend/agents/execution_engine/engine.py) also write `"redo"` and `"update_specs"` rows, which
   [engine.py::_seed_gate_reentry_attempts](../../backend/agents/execution_engine/engine.py) counts to derive post-restart thread
-  ids. Filtering the column to three values would silently reintroduce colliding
-  `:redo{N}` checkpoint threads.
+  ids; the `conditional` gate writes `"route"` rows to record routing decisions.
+  Filtering the column to a known subset of values would silently reintroduce colliding
+  `:redo{N}` checkpoint threads or lose routing records.
 - **You buffer events inside an `evaluate_stream` instead of re-yielding them.**
   `review_gate_ready` then does not reach the consumer until *after*
   `_run_review_gate` returns — which it cannot do until the user responds to an

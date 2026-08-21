@@ -37,6 +37,7 @@ import { getToken, getChainContext, getRunFamily, getWorkflow, postCancel, postR
 // T9 (015-frontend-routing, FR-001/FR-004): every mainView-setting call site
 // below additionally pushes the matching path via routes.*, additively.
 import { routes } from "@/lib/routes";
+import { isComposerWorkflow } from "@/store/api/userWorkflows";
 import type { UserWorkflowSummary, WorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useHandoffSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
@@ -490,8 +491,7 @@ export function DashboardLayout({
     if (initialMainView && initialMainView !== mainView) {
       setMainView(initialMainView);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialMainView]);
+  }, [initialMainView, mainView]);
   const [workflowType, setWorkflowType] = useState<WorkflowType>(() => {
     if (typeof window !== "undefined") {
       if (sessionStorage.getItem("prototype.pending")) return "prototype";
@@ -1476,7 +1476,12 @@ export function DashboardLayout({
     // the saved agents + selections (D-CMP-ENTRY) only for Composer-enabled types
     // (currently just `custom`); everything else opens the old brief/Input flow,
     // mirroring handleSelectFeature.
-    setMainView(COMPOSER_ENABLED_TYPES.has(launchedType) ? "composer" : "input");
+    // `isComposerWorkflow`, not the stamped type alone: `base_pipeline_type` is
+    // immutable after create, so a row stamped with a stale type could never
+    // open in the Composer again. A composed manifest is proof of origin.
+    setMainView(
+      COMPOSER_ENABLED_TYPES.has(launchedType) || isComposerWorkflow(saved) ? "composer" : "input",
+    );
     router.push(routes.workflowRun(saved.id));
   }, [router, attachHook, clearAttachedSkillsHooks]);
 
@@ -2310,7 +2315,8 @@ export function DashboardLayout({
   const headerPage = mainView === "library" ? "library" :
     mainView === "catalog" ? "catalog" :
     mainView === "history" ? "history" :
-    mainView === "settings" ? "history" :
+    mainView === "settings" ? "settings" :
+    mainView === "analytics" ? "analytics" :
     mainView === "saved-workflows" ? "saved-workflows" :
     mainView === "input" ? "workflow" :
     mainView === "execution" ? "execution" : "home";
@@ -2523,7 +2529,7 @@ export function DashboardLayout({
                   brief={homeBrief}
                   onBriefChange={setHomeBrief}
                   onBuild={() => handleHomeSelectFeature("custom" as WorkflowType)}
-                  onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); router.push(routes.runStream(run.id)); }}
+                  onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); router.push(routes.runDetail(run.id)); }}
                   recentRuns={recentRuns}
                 />
               </div>
@@ -2564,7 +2570,7 @@ export function DashboardLayout({
                 router.push(routes.runStream(pipelineState.pipelineRunId));
               }
             }}
-            onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); router.push(routes.runStream(run.id)); }}
+            onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); router.push(routes.runDetail(run.id)); }}
             onReviseUserStory={(instruction, content, sourceRunId) => {
               setMainView("execution");
               // T9 fix (015-frontend-routing, FR-004/FR-010): sourceRunId is the

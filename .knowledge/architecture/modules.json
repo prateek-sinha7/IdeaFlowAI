@@ -316,7 +316,9 @@
         "boto3",
         "botocore",
         "deepagents",
+        "dotenv",
         "langchain",
+        "langchain_anthropic",
         "langchain_core",
         "langchain_ollama",
         "langgraph"
@@ -1187,7 +1189,7 @@
       "id": "MOD-frontend-src-components-workflow",
       "path": "frontend/src/components/workflow",
       "language": "typescript",
-      "file_count": 56,
+      "file_count": 57,
       "files": [
         "frontend/src/components/workflow/AdvancedExpander.test.tsx",
         "frontend/src/components/workflow/AgentDrawer.test.tsx",
@@ -1232,6 +1234,7 @@
         "frontend/src/components/workflow/composer/IdentityCard.tsx",
         "frontend/src/components/workflow/composer/SubAgentReadOnlyList.tsx",
         "frontend/src/components/workflow/composer/SummaryRail.tsx",
+        "frontend/src/components/workflow/composer/WorkflowPickerModal.tsx",
         "frontend/src/components/workflow/composer/treeLayout.ts",
         "frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx",
         "frontend/src/components/workflow/prototype/CustomDesignSystemModal.tsx",
@@ -1272,6 +1275,7 @@
         "next",
         "path",
         "react",
+        "react-dom",
         "vitest"
       ]
     },

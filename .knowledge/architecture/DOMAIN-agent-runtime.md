@@ -17,10 +17,10 @@ modules_spanned:
 - MOD-backend-agents
 - MOD-backend-app-agents
 watched_files: 17
-code_signature: 1f5e37c5fe91
+code_signature: da50a5e9102a
 symbols_signature: 0d9e8336db89
-prose_signature: fd2a71912a41
-prose_symbols_signature: 224c9948035e
+prose_signature: da50a5e9102a
+prose_symbols_signature: 0d9e8336db89
 last_synced: '2026-08-21'
 ---
 
@@ -73,7 +73,7 @@ last_synced: '2026-08-21'
 - [backend/app/core/config.py](../../backend/app/core/config.py)
 
 ### External
-boto3, botocore, deepagents, langchain, langchain_core, langchain_ollama
+boto3, botocore, deepagents, dotenv, langchain, langchain_anthropic, langchain_core, langchain_ollama
 <!-- /AUTO-GENERATED -->
 
 ## Purpose

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useParams, notFound } from "next/navigation";
 import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getWorkflowDefinitions, getRunFamily, ApiError, handleSessionExpiry } from "@/lib/api";
 import type { WorkflowSummary } from "@/lib/api";
@@ -41,7 +41,7 @@ import type { PerRunState } from "@/hooks/useRunStateStore";
 // api.ts has no GET-by-id wrapper for /api/user-workflows/{id}, but this
 // RTK-adjacent module already does (userWorkflowsApi.get), so no new API
 // wrapper is added here.
-import { userWorkflowsApi } from "@/store/api/userWorkflows";
+import { userWorkflowsApi, isComposerWorkflow } from "@/store/api/userWorkflows";
 import type { UserWorkflowSummary } from "@/store/api/userWorkflows";
 // T30 (015-frontend-routing, FR-011): the standalone read-only view for
 // `/workflows/{id}` — data-model.md's T4 finding confirmed no existing
@@ -293,19 +293,27 @@ function workflowRunIdFor(parsed: ParsedView): string | undefined {
  * Manages WebSocket connection, workflow runs, and streaming content.
  * Workflow-first: the primary experience is running agent pipelines.
  */
-export default function DashboardPage() {
+export default function DashboardPage({
+  params,
+}: { params?: Promise<{ view?: string[] }> } = {}) {
   const router = useRouter();
   const dispatch = useAppDispatch();
   // T6 (015-frontend-routing, FR-001/FR-003): the catch-all's segments,
   // parsed once per render into the descriptor that seeds mainView below and
   // (in later tasks) the run/workflow id fetches.
+  // Use the params prop (available during SSR) with useParams as fallback for client-only scenarios.
   const viewParams = useParams<{ view?: string[] }>();
-  const parsedView = parseViewPath(viewParams?.view);
+  // In Client Components, params is always undefined. useParams() is the
+  // correct hook for accessing dynamic route segments on the client.
+  // The params prop exists for Server Components only; this Client Component
+  // relies entirely on useParams().
+  const viewSegments = viewParams?.view;
+  const parsedView = parseViewPath(viewSegments);
   // T7: a stable primitive key for the cold-mount fetch effect's dependency
   // array — parsedView is a fresh object every render (parseViewPath is not
   // memoized), so depending on it directly would re-fire the effect on every
   // render instead of only on an actual route change.
-  const viewPathKey = viewParams?.view?.join("/") ?? "";
+  const viewPathKey = viewSegments?.join("/") ?? "";
   // T8 (015-frontend-routing, FR-011): the saved workflow's composition,
   // fetched below on a cold mount of `/workflows/{id}/edit`. Threaded to
   // DashboardLayout as `initialSavedComposition`, which syncs it into its
@@ -329,6 +337,11 @@ export default function DashboardPage() {
   // above for the branch that renders `LaunchWizard` directly instead of a
   // `MainView` (see the wizardMode early-return below).
   const [workflowRunWizardMode, setWorkflowRunWizardMode] = useState<"ppt" | "prototype" | null>(null);
+  // Sibling of `workflowDetailFailed` below, same reason: distinguishes "the
+  // cold-mount fetch above hasn't resolved yet" from "it resolved as a
+  // genuine failure" so the render gate a few hundred lines down can tell
+  // the two apart instead of treating both as "not resolved" forever.
+  const [workflowRunFailed, setWorkflowRunFailed] = useState(false);
   // T30 (015-frontend-routing, FR-011): the saved workflow fetched for the
   // standalone `/workflows/{id}` read view — `null` means "not loaded yet",
   // `workflowDetailFailed` distinguishes a genuine 404/403 (renders
@@ -3346,7 +3359,10 @@ export default function DashboardPage() {
             ...(saved.manifest?.clarify ? { clarify: saved.manifest.clarify } : {}),
           },
         });
-        setWorkflowRunMainView(saved.base_pipeline_type === "custom" ? "composer" : "input");
+        // Same rule as DashboardLayout's click path: a composed manifest is
+        // proof this came from the Composer, even when `base_pipeline_type` was
+        // stamped wrong (it is immutable, so it cannot be repaired in place).
+        setWorkflowRunMainView(isComposerWorkflow(saved) ? "composer" : "input");
       })
       .catch((err) => {
         if (cancelled) return;
@@ -3354,12 +3370,15 @@ export default function DashboardPage() {
         // T24 (FR-009) / T33 sweep: same userWorkflowsApi.get()/axios gap as
         // the /workflows/{id}/edit and /workflows/{id} catches above — mirror
         // the shared handleSessionExpiry() call (T22) rather than
-        // reimplementing it inline. A 403/404 still just falls through (no
-        // MainView was ever set for this path, so there is no shell to leave
-        // in a broken state) rather than crash.
+        // reimplementing it inline. A 403/404 (or any other failure) still
+        // falls back to Home, same as before this fix — but now explicitly,
+        // via workflowRunFailed, so the render gate below can tell "failed"
+        // apart from "still loading" instead of treating both the same.
         if (err instanceof ApiError && err.status === 401) {
           handleSessionExpiry();
+          return;
         }
+        setWorkflowRunFailed(true);
       });
 
     return () => {
@@ -3428,6 +3447,22 @@ export default function DashboardPage() {
     (parsedView.screen === "workflow-run" ? workflowRunWizardMode ?? undefined : undefined);
   if (wizardMode) {
     return <LaunchWizard initialMode={wizardMode} />;
+  }
+
+  // T6 (retry): while the cold-mount fetch above is in flight, render
+  // nothing rather than falling through to DashboardLayout below with
+  // initialMainView unresolved (defaults to its own "home" fallback) — same
+  // pattern as the T30 `/workflows/{id}` read-view gate above, so a visit
+  // (or a hard refresh) of `/workflows/{id}/run` no longer flashes the
+  // Dashboard/Home screen before landing on Canvas or the launch panel.
+  // workflowRunFailed lets a genuine fetch failure still fall through to
+  // Home exactly as it did before this gate existed.
+  if (
+    parsedView.screen === "workflow-run" &&
+    !workflowRunMainView &&
+    !workflowRunFailed
+  ) {
+    return null;
   }
 
   // FIX-201 (KAN-168): use runStore.viewed.pipelineState as the single source of truth.

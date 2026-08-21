@@ -8,10 +8,11 @@ import type { AgentDef } from "@/types/index";
 //    not a CSS margin hack, is the correct way to center a parent over a
 //    subtree wider than itself. ─────────────────────────────────────────
 export const CHILD_W = 200; // narrower than the root card (260) — matches CanvasNode's old constant
-const ROOT_H_EST = 176; // approximate root card height, for row spacing only (exact height varies with content)
-const CHILD_H_EST = 156; // approximate nested card height
+export const ROOT_H_EST = 176; // approximate root card height, for row spacing only (exact height varies with content)
+export const CHILD_H_EST = 156; // approximate nested card height
 const CHILD_GAP = 24; // horizontal gap between sibling cards at the same depth
-const ROW_GAP = 56; // vertical gap between a row and the next row down
+export const TREE_ROW_GAP = 56; // vertical gap between a row and the next row down
+const ROW_GAP = TREE_ROW_GAP;
 
 export interface FlatPos {
   x: number; // CENTER x, absolute stage coordinates

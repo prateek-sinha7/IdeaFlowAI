@@ -22,8 +22,8 @@ modules_spanned:
 watched_files: 15
 code_signature: 5cd53d3b4485
 symbols_signature: 55d3af06b9d2
-prose_signature: 6ad195061c0b
-prose_symbols_signature: 1c85bee7b21d
+prose_signature: 5cd53d3b4485
+prose_symbols_signature: 55d3af06b9d2
 last_synced: '2026-08-21'
 ---
 
@@ -255,9 +255,9 @@ sequenceDiagram
 **Launch (the run starts before anyone is watching)**
 
 1. [app/layout.tsx](../../frontend/src/app/layout.tsx) mounts [RunConnectionProvider.tsx](../../frontend/src/providers/RunConnectionProvider.tsx) at the root, so it is the single
-   owner of every attached stream in the tab; [DashboardLayout.tsx](../../frontend/src/components/layout/DashboardLayout.tsx) and page.tsx reach
+   owner of every attached stream in the tab; [DashboardLayout.tsx](../../frontend/src/components/layout/DashboardLayout.tsx) and [page.tsx](../../frontend/src/app/[...view]/page.tsx) reach
    it through `useRunConnection`.
-2. The user submits a brief; page.tsx calls `RunConnectionProvider.tsx::sendCommand`
+2. The user submits a brief; [page.tsx](../../frontend/src/app/[...view]/page.tsx) calls `RunConnectionProvider.tsx::sendCommand`
    with a `null` run id, which is the launch case — `POST /api/runs`, handled by
    [run_commands.py::launch_run](../../backend/app/api/run_commands.py), resolving to the created `run_id`.
 3. `launch_run` validates the untrusted payload through [run_engine.py::_validate_images](../../backend/app/api/run_engine.py),
@@ -270,7 +270,7 @@ sequenceDiagram
 
 **Attach**
 
-5. page.tsx calls `RunConnectionProvider.tsx::attachRun`, which renders a
+5. [page.tsx](../../frontend/src/app/[...view]/page.tsx) calls `RunConnectionProvider.tsx::attachRun`, which renders a
    `RunStreamConnection` for that run id and seeds `afterSeq` from the `sessionStorage`
    cursor.
 6. `useRunStream.ts::useRunStream` runs `connect()`: `fetch` on
@@ -319,12 +319,15 @@ sequenceDiagram
     `id:` line), swallows keepalives, and stamps `_sourceRunId`.
 17. `RunConnectionProvider.tsx::fanout` hands the frame to `page.tsx::handleWebSocketMessage`,
     which drops foreign per-agent frames (`wsReplayState.ts::isAgentScopedFrame` +
-    `isForeignRunFrame`), dedups by `event_id` (`shouldApplyEvent`), and resolves the
-    owning run (`resolveFrameRunId`).
-18. `useRunStateStore.ts::handleFrame` writes into that run's `Map` entry via
-    `useWorkflow.ts::handlePipelineMessage`, recomputes `deriveSpecRevisionCount`, and calls
-    `project()` **only** if this run is the viewport — a background run mutates state with
-    no React render.
+    `isForeignRunFrame`), dedups by `event_id` (`shouldApplyEvent`), resolves the owning
+    run (`resolveFrameRunId`), **and filters by type against the `pipelineTypes` allow-list**
+    (frames not in this list never reach the reducer or any handler).
+18. `useRunStateStore.ts::handleFrame` **filters against the `pipelineFrameTypes`
+    allow-list** — frames not in this list return early — then writes into that run's
+    `Map` entry via `useWorkflow.ts::handlePipelineMessage`, recomputes
+    `deriveSpecRevisionCount`, and calls `project()` **only** if this run is the
+    viewport — a background run mutates state with no React render. A frame must pass
+    **both** type checks (step 17 and this one) to reach the reducer.
 
 **Close**
 
@@ -370,6 +373,15 @@ Silent, and therefore the ones to fear:
   partial re-delivery appends a second copy of the streamed text. Half loud: the guard in
   [useWorkflow.accumulators.test.ts](../../frontend/src/hooks/useWorkflow.accumulators.test.ts) reads `ACCUMULATING_FRAME_TYPES` and fails until the
   new type is added — but only for types the test knows to look for.
+- **Forgetting to add a new frame type to both `pipelineTypes` and `pipelineFrameTypes`.** Frames
+  are filtered at **two separate places** before reaching the reducer: (1) [page.tsx](../../frontend/src/app/[...view]/page.tsx)'s
+  `handleWebSocketMessage` checks the `pipelineTypes` allow-list, (2) [useRunStateStore.ts](../../frontend/src/hooks/useRunStateStore.ts)'s
+  `handleFrame` checks the `pipelineFrameTypes` allow-list. A new frame type must be added to
+  **both** lists or it is silently dropped before reaching `handlePipelineMessage`. The trap is
+  that a missing type in `pipelineTypes` kills the *live run* view (the frame never reaches any
+  handler), while a missing type in `pipelineFrameTypes` kills the *historical/saved run* view
+  (the frame is re-read from durable storage but dropped in the reducer). One context can work
+  while the other is broken, with no error — only missing UI updates in one view.
 
 Loud, so you need not worry:
 

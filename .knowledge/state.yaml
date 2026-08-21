@@ -1,6 +1,6 @@
 schema_version: 1
-last_sync_commit: fd98e148e06da59743638c4bdfa5647b407101fc
-last_sync_date: '2026-08-20'
+last_sync_commit: a5521269a66f60c91ea0873bda58ba443281f212
+last_sync_date: '2026-08-21'
 cards_count: 499
 cards_by_type:
   adr: 12

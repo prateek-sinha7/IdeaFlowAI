@@ -656,6 +656,19 @@ export interface AgentDef {
    *  (default-gated, pre-checked in the Review-gates toggle), a "Validation_Gate",
    *  or null/absent (no static gate). Sourced from the real backend registry. */
   gate?: string | null;
+  /** Authoring-only: this step lost its incoming connection (the route outcome
+   *  that targeted it was unbound or removed) and has NOT been re-attached.
+   *
+   *  Exists so removing a line LEAVES THE NODE WHERE IT IS instead of silently
+   *  re-joining it to whatever precedes it in the array. Structural edges are
+   *  otherwise derived purely from position (`ManifestStep.depends_on` is
+   *  computed at serialise time), which is what made an unbound node snap back
+   *  to an arbitrary neighbour.
+   *
+   *  Never persisted: Save is BLOCKED while any step carries it, so a saved
+   *  manifest can never contain one. That is what keeps the derive-from-
+   *  position invariant intact — the flag only ever lives in the editor. */
+  detached?: boolean;
   /** Full AGENT.md prompt body (markdown text after the YAML frontmatter).
    *  Populated when the agent is fetched from the /api/agents/library or
    *  /api/agents/pipelines/{type} endpoint (KAN-76). May be absent on

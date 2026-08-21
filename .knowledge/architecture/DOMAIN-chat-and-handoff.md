@@ -24,8 +24,8 @@ modules_spanned:
 watched_files: 28
 code_signature: d0686948b4d1
 symbols_signature: e49f05babb53
-prose_signature: 52fa2556f996
-prose_symbols_signature: 5e74329260e7
+prose_signature: d0686948b4d1
+prose_symbols_signature: e49f05babb53
 last_synced: '2026-08-21'
 ---
 

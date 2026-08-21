@@ -2712,6 +2712,7 @@ class ExecutionEngine:
                 # (parity); a declared ``gates:[human]`` step is the additive
                 # registry-driven entry point that delegates to the SAME review gate.
                 _halted = False
+                _blocked = False
                 async for _ge, _outcome, _gdetail in self._evaluate_gates(
                     step, ectx, _registry, phase="pre",
                     # WR-02 (13 review fix): when the legacy inline review gate
@@ -2756,7 +2757,10 @@ class ExecutionEngine:
                             },
                         }
                         return
-                    if _outcome in ("block", "wait_human"):
+                    if _outcome == "block":
+                        _blocked = True
+                        _halted = True
+                    elif _outcome == "wait_human":
                         _halted = True
                     # NOTE: no ``elif _outcome == "route":`` arm here — the
                     # ``conditional`` gate (the only "route" emitter) is a
@@ -2779,6 +2783,40 @@ class ExecutionEngine:
                         await self._apply_declared_gate_edit(
                             _edited, results, ordered_agents, ectx
                         )
+                if _blocked:
+                    # ── §8b: a pre-step ``block`` terminates the RUN, not just
+                    # the step. Previously every halt fell through to
+                    # ``cursor += 1; continue``, so a security/approval gate
+                    # refusing a step emitted ``gate_blocked`` and then let the
+                    # run carry on through every downstream step and finish as
+                    # ``pipeline_complete`` — a refused run reported success with
+                    # a silently missing step. "Block" is a refusal, so it takes
+                    # the same single-terminal shape the fan-out child-failure
+                    # abort uses (KRN-004): one ``pipeline_failed``, no further
+                    # steps, no ``pipeline_complete``.
+                    #
+                    # ``wait_human`` deliberately keeps the old skip-and-continue
+                    # path below — it is a pause the human resolves (a rejection
+                    # there arrives as the ``cancel`` outcome handled above), not
+                    # a refusal.
+                    _cur = self._state_machine.get_state(pipeline_run_id)
+                    if _cur not in ("cancelled", "failed", "diverted"):
+                        self._state_machine.transition(pipeline_run_id, "failed")
+                    await self._persist_budget_snapshot_if_active(ectx, force=True)
+                    yield {
+                        "type": "pipeline_failed",
+                        "data": {
+                            "pipeline_type": pipeline_type,
+                            "pipeline_run_id": pipeline_run_id,
+                            "total_duration": round(time.time() - total_start, 2),
+                            "agents_completed": cursor,
+                            "agents_total": len(ordered_agents),
+                            "agents_failed": [spec.id],
+                            "error": f"A gate blocked {spec.name} before it ran.",
+                            "timestamp": _now(),
+                        },
+                    }
+                    return
                 if _halted:
                     # The step is halted at its boundary — skip the strategy + the
                     # post-step gates/post_step for this agent (additive halt).

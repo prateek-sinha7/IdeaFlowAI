@@ -6,7 +6,7 @@ title: backend/app/agents — module
 path: backend/app/agents
 language: python
 file_count: 38
-code_signature: 76f7edd9d673
+code_signature: 3732efd8f7fa
 last_synced: '2026-08-21'
 ---
 
@@ -65,7 +65,7 @@ last_synced: '2026-08-21'
 - [MOD-backend-app-services](MOD-backend-app-services.md)
 
 ### External
-boto3, botocore, deepagents, langchain, langchain_core, langchain_ollama, langgraph
+boto3, botocore, deepagents, dotenv, langchain, langchain_anthropic, langchain_core, langchain_ollama, langgraph
 <!-- /AUTO-GENERATED -->
 
 ## Purpose

@@ -465,7 +465,7 @@ export function LibraryPage() {
   const [mainTab, setMainTab] = useState<"agents" | "skills" | "hooks">("agents");
   const [skillCategory, setSkillCategory] = useState(urlCategory);
   const [skillSearch, setSkillSearch] = useState("");
-  const [hookEvent, setHookEvent] = useState("all");
+  const [hookEvent, setHookEvent] = useState(urlCategory);
   const [hookSearch, setHookSearch] = useState("");
   const [selectedSkill, setSelectedSkill] = useState<SkillDef | null>(null);
   const [selectedHook, setSelectedHook] = useState<HookDef | null>(null);
@@ -880,7 +880,10 @@ export function LibraryPage() {
                 HOOK_EVENTS.map(ev => {
                   const isActive = hookEvent === ev.id;
                   return (
-                    <button key={ev.id} onClick={() => setHookEvent(ev.id)}
+                    <button key={ev.id} onClick={() => {
+                      setHookEvent(ev.id);
+                      router.replace(routes.library({ tab: "hooks", category: ev.id === "all" ? undefined : ev.id }));
+                    }}
                       className={`${chipBase} ${isActive ? chipActive : chipIdle}`}>
                       {ev.label}
                     </button>

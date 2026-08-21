@@ -33,6 +33,7 @@ import {
   findAgentInTree,
   instantiateIfTemplate,
   manifestStepsToAgents,
+  manifestStepsToGateSelections,
   type ManifestStep,
 } from "@/store/api/userWorkflows";
 import type { AgentDef, WorkflowCapabilities, WorkflowRunConfig, WorkflowType } from "@/types/index";
@@ -207,11 +208,27 @@ export function ComposerPage({
         .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
         .filter(Boolean) as AgentDef[];
     }
-    return LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).sort(
-      (a, b) => a.order - b.order,
-    );
+    // A brand-new "Compose a custom workflow" (no saved manifest, no saved
+    // agent ids) starts from a genuinely empty canvas — not a hardcoded
+    // library template. `"custom"` is the only workflowType this component
+    // ever mounts for (DashboardLayout's COMPOSER_ENABLED_TYPES), so there is
+    // no other case this fallback needs to serve.
+    return [];
   });
-  const [selections, setSelections] = useState<SelectionsMap>(initialSelections ?? {});
+  const [selections, setSelections] = useState<SelectionsMap>(() => {
+    // `gates` lives on `selections`, not on the reconstructed AgentDef, so a
+    // reopened manifest-based save needs it merged back in here — see
+    // `manifestStepsToGateSelections`. Manifest wins per-agent for the
+    // `gates` key specifically (it's the persisted source of truth); every
+    // other already-loaded selection field (validators, retry, …) is kept.
+    if (!initialManifestSteps?.length) return initialSelections ?? {};
+    const gateSelections = manifestStepsToGateSelections(initialManifestSteps);
+    const merged: SelectionsMap = { ...(initialSelections ?? {}) };
+    for (const [agentId, patch] of Object.entries(gateSelections)) {
+      merged[agentId] = { ...merged[agentId], ...patch };
+    }
+    return merged;
+  });
   // Spec 012 (R-07/R-37) — workflow-level capability switches (internet toggle).
   const [capabilities, setCapabilities] = useState<WorkflowCapabilities>({});
   // Workflow-level run settings (deliverable/planner/clarify) — previously
@@ -265,7 +282,12 @@ export function ComposerPage({
     };
   }, [workflowId]);
 
-  const deliverableLabel = PIPELINE_LABEL[workflowType] ?? workflowType;
+  // Hardcoded ("Custom"), not derived from `workflowType`: this component only
+  // ever legitimately represents the "custom" pipeline, but `workflowType` is a
+  // shared mutable variable other screens can leave stale — that stale value
+  // was showing as "User Stories · Composer" in the header for a workflow that
+  // was never actually a User Stories run.
+  const deliverableLabel = PIPELINE_LABEL.custom;
   const strategy = "sequential";
 
   const defaultAgentIds = new Set(
@@ -451,6 +473,22 @@ export function ComposerPage({
     async (wfName: string, wfDescription: string) => {
       setSaveError(null);
       setJustSaved(false);
+      // A DETACHED step has no incoming connection: nothing in the workflow
+      // would ever reach it, so it could never run. The canvas deliberately
+      // leaves such a node where the author put it rather than silently
+      // re-joining it to its array neighbour, which makes this the point where
+      // the unresolved edge has to be reported. Blocking (not warning) because
+      // saving an unreachable step is almost never the intent — and because the
+      // flag is authoring-only, so a saved manifest must never carry one.
+      const detached = pipelineAgents.filter((a) => a.detached).map((a) => a.name);
+      if (detached.length > 0) {
+        setSaveError(
+          detached.length === 1
+            ? `“${detached[0]}” isn’t connected to anything. Point a route outcome at it, or remove it, then save.`
+            : `${detached.length} steps aren’t connected to anything (${detached.join(", ")}). Point a route outcome at each, or remove them, then save.`,
+        );
+        return;
+      }
       const token = getToken();
       if (!token) {
         setSaveError("Not authenticated.");
@@ -505,7 +543,13 @@ export function ComposerPage({
           // clears the stored value); create omits an empty one rather than
           // persisting an explicit empty string — preserved exactly as before.
           ...(userWorkflowId || wfDescription ? { description: wfDescription } : {}),
-          base_pipeline_type: workflowType,
+          // Hardcoded, not `workflowType`: ComposerPage only ever legitimately
+          // represents "custom" (DashboardLayout's COMPOSER_ENABLED_TYPES), but
+          // `workflowType` is a shared mutable variable other screens (viewing
+          // a saved/history run, revising, chaining) also set — trusting it here
+          // let a stale value from one of those flows get persisted as this
+          // saved workflow's permanent base_pipeline_type.
+          base_pipeline_type: "custom",
           agent_ids: pipelineAgents.map((a) => a.id),
           ...selectionsBody,
           ...hooksBody,
@@ -549,7 +593,7 @@ export function ComposerPage({
         setSaving(false);
       }
     },
-    [workflowType, pipelineAgents, selections, capabilities, runConfig, attachedHooks, userWorkflowId],
+    [pipelineAgents, selections, capabilities, runConfig, attachedHooks, userWorkflowId],
   );
 
   // ── Run-once (D-05 / D-CMP-RUN — through the EXISTING launch seam, ND-AG) ─────
@@ -578,8 +622,13 @@ export function ComposerPage({
 
     // Resolve the dispatch type and deliverable override from the chosen agent set.
     // This is the exact same call IdeaInputPage.handleRun makes — single source
-    // via the exported resolveDispatchType (INV-12, no duplication).
-    const { type: dispatchType, deliverableOverride } = resolveDispatchType(pipelineAgents, workflowType);
+    // via the exported resolveDispatchType (INV-12, no duplication). Passed
+    // "custom" literally, not the `workflowType` prop: resolveDispatchType
+    // short-circuits to `baseType` verbatim whenever it isn't "custom"
+    // (IdeaInputPage.tsx:449), so a stale `workflowType` (shared, mutable,
+    // set by unrelated screens) would dispatch/label this run under the
+    // wrong pipeline type — ComposerPage only ever legitimately means "custom".
+    const { type: dispatchType, deliverableOverride } = resolveDispatchType(pipelineAgents, "custom");
 
     // ADR-0010 — fold each agent's per-agent SKILLS into its selections entry.
     //
@@ -654,7 +703,6 @@ export function ComposerPage({
     onRun,
     pipelineAgents,
     selections,
-    workflowType,
     userWorkflowId,
     runConfig,
     capabilities,

@@ -2,6 +2,7 @@ import { http } from "./http";
 import { getToken } from "@/lib/api";
 import type {
   AgentDef,
+  AgentToolGrants,
   ManifestStep,
   WorkflowCapabilities,
   WorkflowManifest,
@@ -205,7 +206,7 @@ export function instantiateIfTemplate(
 
 function agentToManifestStep(
   agent: AgentDef,
-  selections?: Record<string, { gates?: string[] }>,
+  selections?: Record<string, { gates?: string[]; tools?: AgentToolGrants }>,
 ): ManifestStep {
   const step: ManifestStep = agent.isCustom
     ? { agent: "custom-agent", instance_id: agent.instance_id ?? agent.id, name: agent.name }
@@ -219,14 +220,17 @@ function agentToManifestStep(
     step.route = { ...agent.route };
   }
   const isParent = !!agent.children && agent.children.length > 0;
-  // Fixed grants, no longer author-editable (SPEC012-ADR-10). `write_files`/
-  // `read_files` must stay ON — every step writes its own artifact, and OFF
-  // never actually gated the native tools, only the secret-scan hook.
-  // `exec`/`spawn_subagents` stay OFF — the compiler rejects either for
-  // db-trust manifests.
+  // `read_files`/`write_files` come from the author's per-step selection and
+  // default ON (an untouched step serialises exactly as it did before the Tools
+  // tab became editable). They are really enforced: the compiler caps the grant
+  // onto `Step.tools`, `factory.py` maps it through `permission_caps.denied_tools`
+  // and the runner excludes those native tools from the graph.
+  // `exec`/`spawn_subagents` stay OFF — the untrusted cap zeroes both for
+  // db-trust manifests, so there is nothing to offer.
+  const grants = selections?.[agent.id]?.tools;
   step.tools = {
-    read_files: true,
-    write_files: true,
+    read_files: grants?.read_files ?? true,
+    write_files: grants?.write_files ?? true,
     exec: false,
     ...(isParent ? { spawn_subagents: false } : {}),
   };
@@ -270,6 +274,24 @@ function stepAgentId(step: ManifestStep): string {
  *  The backend merges and de-duplicates these against its own derived edges, so
  *  declaring them here is idempotent rather than conflicting. */
 function deriveDependsOn(steps: ManifestStep[], topLevel: boolean): ManifestStep[] {
+  // A step that's the "step"-trigger target of ANY route.outcomes entry gets
+  // its real predecessor from that route, not raw chain position. Auto-wiring
+  // a chain `depends_on` onto it too made the compiler's `_compute_is_leaf`
+  // (R-26) treat it as non-leaf regardless of which branch actually fired —
+  // so BOTH route targets could execute instead of just the one the decision
+  // picked (conditional-gates Composer canvas finding: an English decision
+  // still ran the Spanish branch too, because it depended_on the English one
+  // purely from sitting next to it in the chain). Dual lookup (prefixed
+  // backend id + bare instance_id) mirrors `deriveRouteDecisionProduces`
+  // above, since a route's free-text Target may be authored as either form.
+  const routeTargetIds = new Set<string>();
+  if (topLevel) {
+    for (const s of steps) {
+      for (const outcome of Object.values(s.route?.outcomes ?? {})) {
+        if (outcome.trigger === "step" && outcome.target) routeTargetIds.add(outcome.target);
+      }
+    }
+  }
   steps.forEach((step, i) => {
     if (step.subagents) deriveDependsOn(step.subagents.steps, false);
     if (step.depends_on) return; // an explicit declaration always wins
@@ -278,8 +300,12 @@ function deriveDependsOn(steps: ManifestStep[], topLevel: boolean): ManifestStep
       deps.push(...step.subagents.steps.map(stepAgentId).filter(Boolean));
     }
     if (topLevel && i > 0) {
-      const previous = stepAgentId(steps[i - 1]);
-      if (previous) deps.push(previous);
+      const isRouteTarget =
+        routeTargetIds.has(stepAgentId(step)) || (!!step.instance_id && routeTargetIds.has(step.instance_id));
+      if (!isRouteTarget) {
+        const previous = stepAgentId(steps[i - 1]);
+        if (previous) deps.push(previous);
+      }
     }
     // Always emitted, even as `[]` — same rule `gates` follows, so a saved
     // manifest never leaves a reader guessing whether "absent" means "no
@@ -428,6 +454,62 @@ export function manifestStepsToAgents(
   lookup?: (id: string) => AgentDef | undefined,
 ): AgentDef[] {
   return steps.map((s) => manifestStepToAgent(s, lookup));
+}
+
+/** Reverse of `agentToManifestStep`'s `step.gates = selections[...].gates`
+ *  write — `gates` lives on the composer's separate `selections` map, not on
+ *  `AgentDef`, so `manifestStepsToAgents` (which reconstructs `route` onto
+ *  the agent) never touches it. Without this, reopening a saved workflow
+ *  restored the route data but left every step's Review-gate dropdown
+ *  showing "Off" and its route editor hidden, even though the gate (e.g.
+ *  "conditional") and its outcomes were still intact in the manifest. */
+export function manifestStepsToGateSelections(
+  steps: ManifestStep[],
+): Record<string, { gates?: string[]; tools?: AgentToolGrants }> {
+  const out: Record<string, { gates?: string[]; tools?: AgentToolGrants }> = {};
+  const walk = (list: ManifestStep[]) => {
+    for (const step of list) {
+      const id = step.agent === "custom-agent" ? step.instance_id : step.agent;
+      if (id) {
+        const entry: { gates?: string[]; tools?: AgentToolGrants } = {};
+        if (step.gates?.length) entry.gates = [...step.gates];
+        // Only carry the two author-editable grants back, and only when the
+        // saved manifest actually deviates from the read+write default —
+        // otherwise every reopened step would gain a redundant `tools` key.
+        const read = step.tools?.read_files ?? true;
+        const write = step.tools?.write_files ?? true;
+        if (!read || !write) entry.tools = { read_files: read, write_files: write };
+        if (Object.keys(entry).length > 0) out[id] = entry;
+      }
+      if (step.subagents?.steps) walk(step.subagents.steps);
+    }
+  };
+  walk(steps);
+  return out;
+}
+
+/** Is this saved workflow one the Composer authored?
+ *
+ *  Derived from the DATA, not from the stamped `base_pipeline_type`: a manifest
+ *  carrying `custom-agent` steps can only have come from the Composer. That
+ *  matters because `base_pipeline_type` is immutable after create (PATCH strips
+ *  it), so a row stamped with a stale type — the shared-`workflowType` leak —
+ *  could never be corrected through the UI and would open in the wrong surface
+ *  forever. Routing on the manifest repairs those rows without touching them,
+ *  and is immune to the same class of bug recurring.
+ *
+ *  Falls back to the stamped type, so a Composer workflow with no composed
+ *  steps (all built-in agents) still resolves correctly. */
+export function isComposerWorkflow(saved: {
+  base_pipeline_type?: string;
+  manifest?: WorkflowManifest | null;
+}): boolean {
+  if (saved.base_pipeline_type === "custom") return true;
+  const walk = (steps: ManifestStep[] | undefined): boolean =>
+    (steps ?? []).some(
+      (s) => s.agent === "custom-agent" || walk(s.subagents?.steps),
+    );
+  return walk(saved.manifest?.steps);
 }
 
 export const userWorkflowsApi = {

@@ -1167,22 +1167,20 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
 
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-surface-paper">
-      <div className="flex flex-col items-center px-4 sm:px-6 py-10 max-w-2xl mx-auto w-full">
-
-        {/* Back */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="w-full mb-8"
-        >
+      <header className="sticky top-0 z-20 border-b border-line-border bg-surface-paper/95 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5">
           <button
+            type="button"
             onClick={onBack}
-            className="flex items-center gap-1.5 text-[12px] text-ink-500 hover:text-ink-900 transition-colors"
+            aria-label="Back to dashboard"
+            className="flex items-center justify-center rounded-[var(--radius-button)] p-1.5 text-ink-500 transition-colors hover:bg-surface-white hover:text-ink-900"
           >
-            <ArrowLeft className="h-3.5 w-3.5" /> Back
+            <ArrowLeft className="h-4 w-4" />
           </button>
-        </motion.div>
+        </div>
+      </header>
 
+      <div className="flex flex-col items-center px-4 sm:px-6 py-10 max-w-5xl mx-auto w-full">
         {/* Heading */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}

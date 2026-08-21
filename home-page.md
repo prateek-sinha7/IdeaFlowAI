@@ -1,0 +1,115 @@
+- generic [active] [ref=f48e1]:
+  - alert [ref=f48e2]
+  - generic [ref=f48e3]:
+    - banner [ref=f48e4]:
+      - generic [ref=f48e5]:
+        - img "Hexaware" [ref=f48e6]
+        - generic [ref=f48e7]: VelocityAI
+      - navigation [ref=f48e8]:
+        - button "Home" [ref=f48e9]
+        - button "Library" [ref=f48e14]
+        - button "My Workflows" [ref=f48e18]
+      - generic [ref=f48e25]:
+        - button "Notifications" [ref=f48e27]
+        - button "Account menu" [ref=f48e32]
+    - generic [ref=f48e43]:
+      - generic [ref=f48e44]:
+        - paragraph [ref=f48e45]: VelocityAI
+        - heading "What would you like to build today?" [level=1] [ref=f48e46]
+      - generic [ref=f48e47]:
+        - generic [ref=f48e48]:
+          - button "Build an end-to-end application Full-stack code, tests, and infrastructure from a single requirement. ~15 agents" [ref=f48e49] [cursor=pointer]:
+            - heading "Build an end-to-end application" [level=2] [ref=f48e59]
+            - paragraph [ref=f48e60]: Full-stack code, tests, and infrastructure from a single requirement.
+            - generic [ref=f48e61]: ~15 agents
+          - button "Inspect Build an end-to-end application details" [ref=f48e62]
+        - generic [ref=f48e65]:
+          - button "Pitch an idea Executive-grade deck with charts, data, and a clear narrative. ~3 agents" [ref=f48e66] [cursor=pointer]:
+            - heading "Pitch an idea" [level=2] [ref=f48e74]
+            - paragraph [ref=f48e75]: Executive-grade deck with charts, data, and a clear narrative.
+            - generic [ref=f48e76]: ~3 agents
+          - button "Inspect Pitch an idea details" [ref=f48e77]
+        - generic [ref=f48e80]:
+          - button "Build an interactive prototype Navigable, high-fidelity HTML prototype from a brief or story set. ~5 agents" [ref=f48e81] [cursor=pointer]:
+            - heading "Build an interactive prototype" [level=2] [ref=f48e88]
+            - paragraph [ref=f48e89]: Navigable, high-fidelity HTML prototype from a brief or story set.
+            - generic [ref=f48e90]: ~5 agents
+          - button "Inspect Build an interactive prototype details" [ref=f48e91]
+        - generic [ref=f48e94]:
+          - button "Conditional Gate — branch to a new node Smallest possible example of a conditional gate picking one of two forward branches. ~4 agents" [disabled] [ref=f48e95]:
+            - heading "Conditional Gate — branch to a new node" [level=2] [ref=f48e103]
+            - paragraph [ref=f48e104]: Smallest possible example of a conditional gate picking one of two forward branches.
+            - generic [ref=f48e105]: ~4 agents
+          - button "Inspect Conditional Gate — branch to a new node details" [ref=f48e106]
+        - generic [ref=f48e109]:
+          - button "Generate product requirements Epics, user stories, and Gherkin acceptance criteria — ready for Jira. ~6 agents" [ref=f48e110] [cursor=pointer]:
+            - heading "Generate product requirements" [level=2] [ref=f48e118]
+            - paragraph [ref=f48e119]: Epics, user stories, and Gherkin acceptance criteria — ready for Jira.
+            - generic [ref=f48e120]: ~6 agents
+          - button "Inspect Generate product requirements details" [ref=f48e121]
+        - generic [ref=f48e124]:
+          - button "Compose a custom workflow Assemble specialist agents for tasks outside the standard pipelines. ~9 agents" [ref=f48e125] [cursor=pointer]:
+            - heading "Compose a custom workflow" [level=2] [ref=f48e132]
+            - paragraph [ref=f48e133]: Assemble specialist agents for tasks outside the standard pipelines.
+            - generic [ref=f48e134]: ~9 agents
+          - button "Inspect Compose a custom workflow details" [ref=f48e135]
+      - generic [ref=f48e138]:
+        - heading "Coming Soon" [level=3] [ref=f48e139]
+        - generic [ref=f48e140]: Not yet available on any plan
+      - generic [ref=f48e141]:
+        - generic [ref=f48e142]:
+          - button ".NET to Azure Modernise a .NET estate to Azure with AI-augmented migration. ~13 agents Coming Soon" [disabled] [ref=f48e143]:
+            - heading ".NET to Azure" [level=2] [ref=f48e153]
+            - paragraph [ref=f48e154]: Modernise a .NET estate to Azure with AI-augmented migration.
+            - generic [ref=f48e155]: ~13 agents
+            - generic [ref=f48e156]: Coming Soon
+          - button "Inspect .NET to Azure details" [disabled]
+        - generic [ref=f48e157]:
+          - button "MuleSoft to Spring Boot Modernise a MuleSoft integration estate to Spring Boot on AWS. ~13 agents Coming Soon" [disabled] [ref=f48e158]:
+            - heading "MuleSoft to Spring Boot" [level=2] [ref=f48e168]
+            - paragraph [ref=f48e169]: Modernise a MuleSoft integration estate to Spring Boot on AWS.
+            - generic [ref=f48e170]: ~13 agents
+            - generic [ref=f48e171]: Coming Soon
+          - button "Inspect MuleSoft to Spring Boot details" [disabled]
+        - generic [ref=f48e172]:
+          - button "Reverse engineer a codebase Produce a structural analysis of an existing codebase. ~0 agents Coming Soon" [disabled] [ref=f48e173]:
+            - heading "Reverse engineer a codebase" [level=2] [ref=f48e183]
+            - paragraph [ref=f48e184]: Produce a structural analysis of an existing codebase.
+            - generic [ref=f48e185]: ~0 agents
+            - generic [ref=f48e186]: Coming Soon
+          - button "Inspect Reverse engineer a codebase details" [disabled]
+        - generic [ref=f48e187]:
+          - button "Conditional Gate — condition from a human gate Smallest example of a conditional gate reading an earlier HUMAN gate's response. ~4 agents Coming Soon" [disabled] [ref=f48e188]:
+            - heading "Conditional Gate — condition from a human gate" [level=2] [ref=f48e198]
+            - paragraph [ref=f48e199]: Smallest example of a conditional gate reading an earlier HUMAN gate's response.
+            - generic [ref=f48e200]: ~4 agents
+            - generic [ref=f48e201]: Coming Soon
+          - button "Inspect Conditional Gate — condition from a human gate details" [disabled]
+        - generic [ref=f48e202]:
+          - button "Conditional Gate — trigger a different workflow Smallest possible example of a conditional gate diverting to a separate workflow. ~2 agents Coming Soon" [disabled] [ref=f48e203]:
+            - heading "Conditional Gate — trigger a different workflow" [level=2] [ref=f48e213]
+            - paragraph [ref=f48e214]: Smallest possible example of a conditional gate diverting to a separate workflow.
+            - generic [ref=f48e215]: ~2 agents
+            - generic [ref=f48e216]: Coming Soon
+          - button "Inspect Conditional Gate — trigger a different workflow details" [disabled]
+        - generic [ref=f48e217]:
+          - button "Conditional Gate — loop to previous step Smallest possible example of a conditional gate looping back to an earlier step. ~3 agents Coming Soon" [disabled] [ref=f48e218]:
+            - heading "Conditional Gate — loop to previous step" [level=2] [ref=f48e228]
+            - paragraph [ref=f48e229]: Smallest possible example of a conditional gate looping back to an earlier step.
+            - generic [ref=f48e230]: ~3 agents
+            - generic [ref=f48e231]: Coming Soon
+          - button "Inspect Conditional Gate — loop to previous step details" [disabled]
+        - generic [ref=f48e232]:
+          - button "Conditional Gate — divert target The plain workflow sample_conditional_launch_new diverts execution into. ~1 agents Coming Soon" [disabled] [ref=f48e233]:
+            - heading "Conditional Gate — divert target" [level=2] [ref=f48e243]
+            - paragraph [ref=f48e244]: The plain workflow sample_conditional_launch_new diverts execution into.
+            - generic [ref=f48e245]: ~1 agents
+            - generic [ref=f48e246]: Coming Soon
+          - button "Inspect Conditional Gate — divert target details" [disabled]
+        - generic [ref=f48e247]:
+          - button "Sub-agents in parallel One parent over three independent sibling agents, dispatched concurrently. ~4 agents Coming Soon" [disabled] [ref=f48e248]:
+            - heading "Sub-agents in parallel" [level=2] [ref=f48e258]
+            - paragraph [ref=f48e259]: One parent over three independent sibling agents, dispatched concurrently.
+            - generic [ref=f48e260]: ~4 agents
+            - generic [ref=f48e261]: Coming Soon
+          - button "Inspect Sub-agents in parallel details" [disabled]

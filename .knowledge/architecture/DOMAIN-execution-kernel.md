@@ -13,8 +13,8 @@ modules_spanned:
 watched_files: 22
 code_signature: 5bf2c687faea
 symbols_signature: 5fe697dfa2e2
-prose_signature: d1d6fece8e90
-prose_symbols_signature: e74309365d67
+prose_signature: 5bf2c687faea
+prose_symbols_signature: 5fe697dfa2e2
 last_synced: '2026-08-21'
 ---
 
@@ -113,13 +113,16 @@ a `CompiledWorkflow` at all is `DOMAIN-workflow-compilation`. What an agent is *
 composed prompt, the injected blocks, [execution_engine/context.py](../../backend/agents/execution_engine/context.py) and
 [execution_engine/od_context.py](../../backend/agents/execution_engine/od_context.py) as context carriers — is `DOMAIN-context-assembly`. Which
 model the invocation gets, and the throttle/fallback chain around it, is `DOMAIN-agent-runtime`.
-The gate *semantics* the kernel merely pauses on are `DOMAIN-hitl-gating`; the tables it
-reads and writes, including the durable side of [execution_engine/state_machine.py](../../backend/agents/execution_engine/state_machine.py), are
-`DOMAIN-durable-state-resume`; the bytes the run finally emits are
-`DOMAIN-deliverables-and-artifacts`. If your question is "why did this agent run third",
-"why did the run report complete when the build was half-finished", or "why does the kernel
-not know what a prototype is", it is here. If it is "why did this agent get that prompt" or
-"what does `task_loop` actually do", it is next door.
+The gate *semantics* the kernel implements are split: `DOMAIN-hitl-gating` owns the
+pause/resume (Human_Gate, Validation_Gate blocking); *routing* dispatch-loop cursor jumps
+based on a `conditional` gate's match outcome (forward branching or backward looping, bounded
+by `loop_max_iterations`) are here. The tables it reads and writes, including the durable side
+of [execution_engine/state_machine.py](../../backend/agents/execution_engine/state_machine.py), are `DOMAIN-durable-state-resume`; the bytes the run finally
+emits are `DOMAIN-deliverables-and-artifacts`. If your question is "why did this agent run
+third", "why did the run report complete when the build was half-finished", "why did the run
+jump backward to an earlier step", or "why does the kernel not know what a prototype is", it
+is here. If it is "why did this agent get that prompt" or "what does `task_loop` actually do",
+it is next door.
 
 ## Shape
 
@@ -298,7 +301,8 @@ sequenceDiagram
 ```
 
 No participant aliases: each lane is its module id in full, so every arrow resolves without
-a lookup table. The numbered walkthrough below is the same journey, linear.
+a lookup table. The numbered walkthrough below is the same journey (except where a
+conditional gate route outcome changes the cursor; see step 18).
 
 ### Step by step
 
@@ -347,9 +351,13 @@ a lookup table. The numbered walkthrough below is the same journey, linear.
 
 **The dispatch loop — one pass per step**
 
-12. For each `spec` in `ordered_agents`: skip if before the resume offset, emit
-    `pipeline_cancelled` and return if the cancel event is set, then look up the compiled
-    `step` by `agent_id`.
+12. The dispatch loop uses a mutable `cursor` index over `ordered_agents`, starting at the
+    resume offset (0 if no prior run). For each iteration: skip if this step is before the
+    resume offset, emit `pipeline_cancelled` and return if the cancel event is set, then look
+    up the compiled `step` by the current `spec.agent_id`. After a step completes, a
+    `conditional` gate may emit a `route` outcome (see step 18) that changes `cursor` to jump
+    forward or backward, rather than incrementing it by 1; loop bounds prevent infinite loops
+    (see `loop_max_iterations` under "What breaks").
 13. `_evaluate_gates(step, ectx, registry, phase="pre")` runs the step's declared gates. A
     `cancel` outcome cancels the run; `block`/`wait_human` halts just this step;
     `_fire_hooks("before_step", …)` follows, and a blocking hook halts the step too.
@@ -368,11 +376,19 @@ a lookup table. The numbered walkthrough below is the same journey, linear.
 17. If `_should_gate(spec, ectx)` — the AGENT.md `gate: Human_Gate` set or an explicit
     per-run opt-in — `_run_review_gate` pauses after the stream with the real output and offers
     five actions: approve, approve-with-edits, redo, update_specs, reject.
-18. After the strategy returns, `_evaluate_gates(..., phase="post")` runs validation gates,
-    `_fire_hooks("after_step", …)` fires, and any declared `post_step` capability runs. An
-    `agent_error` seen anywhere in the stream is
-    recorded in `_failed_agent_ids`, and `_run_agent` records the `(agent_id, task_number)`
-    pair in `ectx.failed_invocations`.
+18. After the strategy returns, `_evaluate_gates(..., phase="post")` runs post-step gates:
+    `validation` gates emit `gate_blocked` if a validator rejects (non-terminal — the
+    deliverable is still produced), and `conditional` gates
+    ([agents/capabilities/gates/conditional.py](../../backend/agents/capabilities/gates/conditional.py)) evaluate
+    a declared `route` by reading the condition source's typed `route_decision` artifact,
+    matching the decision against declared `route.outcomes`, and emitting either `GATE_PASS`
+    (proceed normally), `GATE_ROUTE` (jump the cursor to a declared target step, possibly
+    looping backward), or `GATE_BLOCK` (route has no matching outcome and no `default_next`).
+    A `GATE_ROUTE` outcome redirects `cursor` directly; the engine resolves the target step
+    id, checks the loop visit count against `loop_max_iterations`, and continues the
+    dispatch loop from the new position. `_fire_hooks("after_step", …)` fires (non-blocking),
+    and an `agent_error` anywhere in the stream is recorded in `_failed_agent_ids` and
+    `ectx.failed_invocations`.
 
 **Terminal**
 
@@ -420,6 +436,16 @@ user gets a plausible, wrong deliverable.
   process, and a failed write is a debug log. After a restart the DB status is the only truth,
   so a silently-dropped write is invisible until `restore_non_terminal_runs` re-adopts the
   wrong set.
+- **Conditional gate route to an invalid step.** The manifest compiler validates route targets
+  at compile time, but a typo'd or dynamically-constructed target name may pass validation
+  and resolve to `None` at runtime. The engine raises `ValueError`, halting the run — this is
+  loud, and you need not worry about it.
+- **Loop iteration cap bypass.** A backward (or self) conditional route increments the target
+  step's `step_visit_counts` and checks the bound against `loop_max_iterations` (default 5, or
+  the declared `route.loop_max_iterations`). If you exceed the cap, `BudgetExceeded` is raised
+  (caught by the graceful-abort handler). The danger is silently hitting the limit and exiting
+  the loop: the run reports complete while believing it finished a different step than it
+  actually did. Forward-only routes bypass the counter entirely (never loop).
 
 Two failures here are loud, and you do not have to worry about them. Adding
 `if pipeline_type ==` or `spec.id ==` anywhere under `backend/agents/execution_engine/` fails

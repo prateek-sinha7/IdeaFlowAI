@@ -23,8 +23,8 @@ modules_spanned:
 watched_files: 20
 code_signature: dd13bae4545d
 symbols_signature: f1b083b4c6f7
-prose_signature: 7a67cf282a78
-prose_symbols_signature: 32b6bd1422cf
+prose_signature: dd13bae4545d
+prose_symbols_signature: f1b083b4c6f7
 last_synced: '2026-08-21'
 ---
 
@@ -267,9 +267,10 @@ sequenceDiagram
 2. On click the handler re-checks `canRunPipeline` and returns early if the tile is
    not entitled; otherwise the launch wizard collects the brief.
 3. `useWorkflow.ts::startPipeline` assembles the `run_pipeline` payload
-   (`pipeline_type`, `message`, optional `agent_ids` / `attached_skills` /
-   `attached_hooks` / merged `context`) and calls
-   `RunConnectionProvider.tsx::sendCommand(null, payload)`.
+   (`pipeline_type`, `message`, optional `agent_ids` / `attached_hooks` / 
+   merged `context`) and calls `RunConnectionProvider.tsx::sendCommand(null, payload)`.
+   ([ADR-0010](../cards/20260811-ADR-0010.md): `attached_skills` was removed from the positional arguments — skills are
+   now per-agent, riding the manifest as `Step.skills` rather than a run-level bag.)
 4. `sendCommand` attaches `Authorization: Bearer <token>` and POSTs to `/api/runs`.
 
 **Identity, settled once at the edge**

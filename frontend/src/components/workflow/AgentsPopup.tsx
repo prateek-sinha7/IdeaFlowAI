@@ -29,7 +29,7 @@ import {
   type AgentPromptData,
 } from "@/lib/api";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
-import type { AgentDef, WorkflowType, AttachedHook } from "@/types/index";
+import type { AgentDef, WorkflowType, AttachedHook, AgentToolGrants } from "@/types/index";
 import { useHooksCatalog } from "@/hooks/useHooksCatalog";
 import { useSkillsCatalog } from "@/hooks/useSkillsCatalog";
 import { AgentSkillsPicker } from "@/components/workflow/composer/AgentSkillsPicker";
@@ -1327,6 +1327,11 @@ export type StepSelection = {
     source_step: string;
   };
   fanout?: { mode?: "parallel"; max_parallel?: number };
+  /** Per-step tool grants. Absent = the composer's defaults (read+write ON).
+   *  Only `read_files`/`write_files` are author-editable: the untrusted cap
+   *  (`permission_caps.PERMISSION_CAP_INDEX["untrusted"]`) forbids everything
+   *  else for db-trust manifests, so offering them would grant nothing. */
+  tools?: AgentToolGrants;
 };
 export type SelectionsMap = Record<string, StepSelection>;
 
