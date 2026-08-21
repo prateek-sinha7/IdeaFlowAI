@@ -105,6 +105,12 @@ function laneStatus(
     case "complete":
       return { label: "Done", tone: "done", variant: "token" };
     case "terminal":
+      // R-20/R-28 (014-conditional-gates): a diverted run is neither a
+      // cancellation nor a normal completion — read the divertedTo marker
+      // BEFORE the other terminal checks so it never falls through to
+      // "Ended"/"Completed" (contract guarantee #1, additive-never-repurposed).
+      if (pipelineState?.divertedTo)
+        return { label: "Diverted", tone: "neutral", variant: "token" };
       if (pipelineState?.cancelled)
         return { label: "Cancelled", tone: "neutral", variant: "token" };
       if (pipelineState?.failed)

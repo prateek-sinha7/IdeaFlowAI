@@ -35,6 +35,12 @@ const mockChangePassword = vi.fn();
 const mockUpdatePreferences = vi.fn();
 
 vi.mock("@/lib/api", () => ({
+  // FR-015: the constitution section now calls lib/api's `authedFetch` (global
+  // fetch + the shared 401 -> handleSessionExpiry() guard) instead of bare
+  // fetch. Delegate to the stubbed global so the assertion below still checks
+  // the same thing — that the section reads /api/settings/constitution with an
+  // auth header — rather than weakening it to a mock-call count.
+  authedFetch: (input: string, init?: RequestInit) => fetch(input, init),
   getToken: () => mockGetToken(),
   getMe: (t: string) => mockGetMe(t),
   getPreferences: (t: string) => mockGetPreferences(t),
@@ -44,6 +50,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { AccountSettings } from "./AccountSettings";
+import { ENV } from "@/lib/env";
 
 // Click a settings-section nav control by its visible label, resolving the
 // enclosing <button> so this works whether the nav is a plain <button>
@@ -131,7 +138,7 @@ describe("AccountSettings — behavior parity (wired sections preserved)", () =>
     await clickNav(user, "Constitution");
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
-        "/api/settings/constitution",
+        `${ENV.API_URL}/api/settings/constitution`,
         expect.objectContaining({ headers: expect.anything() }),
       ),
     );

@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  AlertCircle, MoreVertical, Pencil, Copy, Trash2,
+  AlertCircle, MoreVertical, Pencil, Copy, Trash2, Edit,
   Play, Workflow, Clock, Cpu,
   Search, Plus,
 } from "lucide-react";
@@ -12,6 +13,7 @@ import {
   deleteUserWorkflow, getToken, type UserWorkflowSummary,
 } from "@/lib/api";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
+import { routes } from "@/lib/routes";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -88,12 +90,13 @@ interface SavedWorkflowsPageProps {
 // ref stable. a11y: trigger exposes aria-haspopup/expanded; the panel is
 // role=menu with role=menuitem rows; Escape closes + refocuses the trigger.
 function KebabMenu({
-  row, isOpen, onToggle, onClose, onRename, onDuplicate, onDelete,
+  row, isOpen, onToggle, onClose, onEdit, onRename, onDuplicate, onDelete,
 }: {
   row: UserWorkflowSummary;
   isOpen: boolean;
   onToggle: () => void;
   onClose: () => void;
+  onEdit: () => void;
   onRename: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -129,6 +132,10 @@ function KebabMenu({
             className="absolute right-0 top-8 z-20 bg-surface-white border border-line-border rounded-[var(--radius-menu)] shadow-[var(--elevation-menu)] py-1 min-w-[130px]"
             onClick={(e) => e.stopPropagation()}
           >
+            <button role="menuitem" onClick={onEdit}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-ink-700 hover:bg-surface-warm transition-colors">
+              <Edit className="h-3.5 w-3.5" /> Edit
+            </button>
             <button role="menuitem" onClick={onRename}
               className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-ink-700 hover:bg-surface-warm transition-colors">
               <Pencil className="h-3.5 w-3.5" /> Rename
@@ -150,6 +157,7 @@ function KebabMenu({
 }
 
 export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflowsPageProps) {
+  const router = useRouter();
   const [userWorkflows, setUserWorkflows] = useState<UserWorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [savedError, setSavedError] = useState<string | null>(null);
@@ -199,6 +207,11 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
       });
       setUserWorkflows((prev) => [created, ...prev]);
     } catch (e) { setSavedError((e as Error)?.message ?? "Duplicate failed."); }
+  };
+
+  const handleEdit = (row: UserWorkflowSummary) => {
+    setOpenMenuId(null);
+    router.push(routes.workflowEdit(row.id));
   };
 
   const handleDeleteConfirm = async () => {
@@ -329,6 +342,7 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
                       isOpen={openMenuId === row.id}
                       onToggle={() => setOpenMenuId(openMenuId === row.id ? null : row.id)}
                       onClose={() => setOpenMenuId(null)}
+                      onEdit={() => handleEdit(row)}
                       onRename={() => { setOpenMenuId(null); setRenameRow(row); }}
                       onDuplicate={() => handleDuplicate(row)}
                       onDelete={() => { setOpenMenuId(null); setDeleteConfirmId(row.id); }}

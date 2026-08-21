@@ -422,7 +422,14 @@ export function useRunStateStore(): RunStateStoreReturn {
     const pipelineFrameTypes = [
       "pipeline_start", "agent_start", "agent_thinking", "agent_chunk",
       "agent_complete", "agent_error", "pipeline_complete", "pipeline_failed",
-      "pipeline_cancelled", "planner_start", "planner_complete", "planner_timeout",
+      "pipeline_cancelled",
+      // pipeline_diverted (014-conditional-gates, T38 live case): without this,
+      // handleFrame's allowlist below silently dropped the frame before it ever
+      // reached handlePipelineMessage's existing "pipeline_diverted" case, so
+      // entry.pipelineState.divertedTo was never set and LaneRunHeader's live
+      // "Diverted to X" terminal treatment (pipelineState?.divertedTo) never fired.
+      "pipeline_diverted",
+      "planner_start", "planner_complete", "planner_timeout",
       "planner_error", "gate_status", "clarification_limit_reached",
       "agent_input", "tool_call", "tool_result", "workflow_validated",
       "task_progress", "task_loop_progress", "pipeline_reconnected",

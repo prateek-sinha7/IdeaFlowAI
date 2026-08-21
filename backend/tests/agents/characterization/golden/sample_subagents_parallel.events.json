@@ -1,0 +1,359 @@
+[
+  {
+    "data": {
+      "agent": "custom-agent:apple",
+      "depth": 0,
+      "isolation": "shared_read",
+      "worker": 0
+    },
+    "type": "subagent_spawned"
+  },
+  {
+    "data": {
+      "agent": "custom-agent:apple",
+      "row_id": null,
+      "status": "complete",
+      "worker": 0
+    },
+    "type": "subagent_result"
+  },
+  {
+    "data": {
+      "agent": "custom-agent:ball",
+      "depth": 0,
+      "isolation": "shared_read",
+      "worker": 1
+    },
+    "type": "subagent_spawned"
+  },
+  {
+    "data": {
+      "agent": "custom-agent:ball",
+      "row_id": null,
+      "status": "complete",
+      "worker": 1
+    },
+    "type": "subagent_result"
+  },
+  {
+    "data": {
+      "agent": "custom-agent:cat",
+      "depth": 0,
+      "isolation": "shared_read",
+      "worker": 2
+    },
+    "type": "subagent_spawned"
+  },
+  {
+    "data": {
+      "agent": "custom-agent:cat",
+      "row_id": null,
+      "status": "complete",
+      "worker": 2
+    },
+    "type": "subagent_result"
+  },
+  {
+    "data": {
+      "agent_count": 4,
+      "agents": [
+        {
+          "icon": "🧩",
+          "id": "custom-agent:apple",
+          "name": "Apple Writer",
+          "order": 10,
+          "role": "A user-defined workflow agent"
+        },
+        {
+          "icon": "🧩",
+          "id": "custom-agent:ball",
+          "name": "Ball Writer",
+          "order": 10,
+          "role": "A user-defined workflow agent"
+        },
+        {
+          "icon": "🧩",
+          "id": "custom-agent:cat",
+          "name": "Cat Writer",
+          "order": 10,
+          "role": "A user-defined workflow agent"
+        },
+        {
+          "icon": "🧩",
+          "id": "custom-agent:page",
+          "name": "Page Builder",
+          "order": 10,
+          "role": "A user-defined workflow agent"
+        }
+      ],
+      "pipeline_type": "sample_subagents_parallel"
+    },
+    "type": "pipeline_start"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:apple",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 530,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:apple",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:apple",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:apple",
+      "duration": "<normalized>",
+      "index": 0,
+      "input_tokens": "<normalized>",
+      "name": "Apple Writer",
+      "output_length": 34,
+      "output_tokens": "<normalized>",
+      "total": 4,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:apple",
+      "filename": "apple-build-me-a-thing-for-managing-tasks.md"
+    },
+    "type": "artifact_fallback"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:apple",
+      "icon": "🧩",
+      "index": 0,
+      "name": "Apple Writer",
+      "role": "A user-defined workflow agent",
+      "total": 4
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:ball",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 530,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:ball",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:ball",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:ball",
+      "duration": "<normalized>",
+      "index": 1,
+      "input_tokens": "<normalized>",
+      "name": "Ball Writer",
+      "output_length": 33,
+      "output_tokens": "<normalized>",
+      "total": 4,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:ball",
+      "filename": "ball-build-me-a-thing-for-managing-tasks.md"
+    },
+    "type": "artifact_fallback"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:ball",
+      "icon": "🧩",
+      "index": 1,
+      "name": "Ball Writer",
+      "role": "A user-defined workflow agent",
+      "total": 4
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:cat",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 530,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:cat",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:cat",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:cat",
+      "duration": "<normalized>",
+      "index": 2,
+      "input_tokens": "<normalized>",
+      "name": "Cat Writer",
+      "output_length": 32,
+      "output_tokens": "<normalized>",
+      "total": 4,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:cat",
+      "filename": "cat-build-me-a-thing-for-managing-tasks.md"
+    },
+    "type": "artifact_fallback"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:cat",
+      "icon": "🧩",
+      "index": 2,
+      "name": "Cat Writer",
+      "role": "A user-defined workflow agent",
+      "total": 4
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:page",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:page",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:page",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:page",
+      "duration": "<normalized>",
+      "index": 3,
+      "input_tokens": "<normalized>",
+      "name": "Page Builder",
+      "output_length": 33,
+      "output_tokens": "<normalized>",
+      "total": 4,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:page",
+      "filename": "page.html"
+    },
+    "type": "artifact_fallback"
+  },
+  {
+    "data": {
+      "agent_id": "custom-agent:page",
+      "icon": "🧩",
+      "index": 3,
+      "name": "Page Builder",
+      "role": "A user-defined workflow agent",
+      "total": 4
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agents_completed": 4,
+      "agents_total": 4,
+      "final_output": "custom-agent:page default output.",
+      "pipeline_type": "sample_subagents_parallel",
+      "total_input_tokens": "<normalized>",
+      "total_output_tokens": "<normalized>",
+      "total_tokens": "<normalized>"
+    },
+    "type": "pipeline_complete"
+  },
+  {
+    "data": {
+      "applied": [],
+      "conflicts": 0,
+      "step": "custom-agent:page",
+      "strategy": "copy_disjoint"
+    },
+    "type": "merge_completed"
+  },
+  {
+    "data": {
+      "dag_edges": [],
+      "satisfiable": true,
+      "unresolved_edges": []
+    },
+    "type": "workflow_validated"
+  },
+  {
+    "data": {
+      "fragments": 3,
+      "isolation": "shared_read",
+      "step": "custom-agent:page",
+      "strategy": "copy_disjoint"
+    },
+    "type": "merge_started"
+  }
+]

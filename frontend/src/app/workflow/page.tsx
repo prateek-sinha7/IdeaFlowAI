@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getToken } from "@/lib/api";
+import { routes } from "@/lib/routes";
 import { WorkflowView } from "@/components/workflow/WorkflowView";
 import { AgentLibrary } from "@/components/workflow/AgentLibrary";
 import { BookOpen } from "lucide-react";
@@ -56,7 +57,7 @@ export default function WorkflowPage() {
           <WorkflowView
             pipelineType="user_stories"
             userMessage=""
-            onClose={() => router.push("/dashboard")}
+            onClose={() => router.push(routes.dashboard())}
           />
         </div>
       </div>

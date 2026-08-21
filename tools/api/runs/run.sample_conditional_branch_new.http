@@ -1,0 +1,166 @@
+### Conditional Gate — forward branch (spec 014 example A2)
+#
+# Tests a conditional gate that picks ONE of two forward branches:
+# greet -> pick (conditional gate, outcomes: english->say-hello, spanish->say-hola)
+#
+# Assertions:
+# 1. Pipeline reaches pipeline_complete
+# 2. Exactly ONE of say-hello or say-hola runs (check via agent_start/agent_complete events)
+# 3. output.txt contains either "Hello, world!" or "¡Hola, mundo!"
+#
+# Run with: httpyac send --all -e local --output none tools/api/runs/run.sample_conditional_branch_new.http
+# Or via the wrapper (also saves logs/artifacts): ./run-http.sh sample_conditional_branch_new
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	exports.jwt = response.parsedBody.token;
+	apiLine('POST /api/auth/login -> ' + response.statusCode + ' ' + response.parsedBody.user.email);
+}}
+
+### 2. Launch — forward branch workflow. No agent_ids.
+{{
+	const apiLine = require('./lib/api-line.js');
+	// No agent_ids here, deliberately: the launch endpoint validates any supplied agent_ids
+	// against allowed_custom_agent_ids(), which does not know the synthetic
+	// [instance_id]s used by these fixtures (greet, pick, say-hello, say-hola).
+	// Omitting the key makes the backend source the roster from the compiled plan instead
+	// (see backend/app/api/run_commands.py). Do not "helpfully" add agent_ids back.
+	const payload = {
+		pipeline_type: "sample_conditional_branch_new",
+		message: "Conditional gate forward branch — pick language (A2)",
+	};
+	exports.launchBody = JSON.stringify(payload);
+}}
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{{launchBody}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	if (response.statusCode >= 400) {
+		apiLine('FAILED: ' + JSON.stringify(response.parsedBody), 'error');
+	} else {
+		exports.runId = response.parsedBody.run_id;
+		apiLine('POST /api/runs -> ' + response.statusCode + ' run=' + exports.runId);
+	}
+}}
+
+### 3. Stream events over SSE, wait for completion
+SSE {{apiRoot}}/api/runs/{{runId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	const apiLine = require('./lib/api-line.js');
+
+	await new Promise((resolve) => {
+		let done = false;
+		const finish = () => { if (!done) { done = true; resolve(); } };
+
+		const agents_seen = new Set();
+		let pipeline_ended = false;
+
+		$requestClient.addEventListener('message', (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') { finish(); return; }
+
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
+			if (!data) return;
+
+			const type = data.type;
+			const d = data.data || {};
+
+			if (type === 'agent_start') {
+				agents_seen.add(d.agent_id);
+				apiLine('agent_start: ' + d.agent_id);
+			} else if (type === 'agent_complete') {
+				apiLine('agent_complete: ' + d.agent_id);
+			} else if (type === 'pipeline_complete') {
+				apiLine('pipeline_complete reached');
+				pipeline_ended = true;
+				finish();
+			} else if (['pipeline_failed', 'pipeline_cancelled', 'budget_aborted', 'error'].includes(type)) {
+				apiLine(type, 'error');
+				pipeline_ended = true;
+				finish();
+			}
+		});
+
+		$requestClient.addEventListener('disconnect', finish);
+		$requestClient.addEventListener('error', finish);
+		setTimeout(finish, 5 * 60 * 1000);
+	});
+
+	// Export for assertions
+	exports.agents_seen = agents_seen;
+}}
+
+### 4. GET events history for detailed assertions
+GET {{apiRoot}}/api/runs/{{runId}}/events
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const events = response.parsedBody.events || [];
+
+	// Count how many times each branch agent ran
+	const sayHelloCount = events.filter(e => e.type === 'agent_start' && e.data?.agent_id === 'say-hello').length;
+	const sayHolaCount = events.filter(e => e.type === 'agent_start' && e.data?.agent_id === 'say-hola').length;
+
+	apiLine('Branch assertion: say-hello ran ' + sayHelloCount + ' time(s)');
+	apiLine('Branch assertion: say-hola ran ' + sayHolaCount + ' time(s)');
+
+	if ((sayHelloCount === 1 && sayHolaCount === 0) || (sayHelloCount === 0 && sayHolaCount === 1)) {
+		apiLine('✓ Exactly one branch executed');
+	} else {
+		apiLine('✗ Branch count mismatch: expected 1/0 or 0/1, got ' + sayHelloCount + '/' + sayHolaCount, 'error');
+	}
+
+	// Check for pipeline_complete
+	const hasComplete = events.some(e => e.type === 'pipeline_complete');
+	if (hasComplete) {
+		apiLine('✓ pipeline_complete event found');
+	} else {
+		apiLine('✗ pipeline_complete not found', 'error');
+	}
+}}
+
+### 5. Fetch artifacts and verify output
+GET {{apiRoot}}/api/runs/{{runId}}/artifacts?include=content
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const artifacts = response.parsedBody.artifacts || [];
+
+	let output_txt = null;
+	for (const art of artifacts) {
+		if (art.name === 'output.txt') {
+			output_txt = art.content;
+			break;
+		}
+	}
+
+	if (!output_txt) {
+		apiLine('✗ output.txt artifact not found', 'error');
+	} else {
+		const content = output_txt.trim();
+		apiLine('output.txt content: "' + content + '"');
+		if (content === 'Hello, world!' || content === '¡Hola, mundo!') {
+			apiLine('✓ output.txt contains expected greeting');
+		} else {
+			apiLine('✗ output.txt has unexpected content: ' + content, 'error');
+		}
+	}
+}}

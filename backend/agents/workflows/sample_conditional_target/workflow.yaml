@@ -1,0 +1,47 @@
+# sample_conditional_target — the "different workflow" sample_conditional_launch_new
+# diverts to. Plain, ordinary workflow — carries no conditional-gate machinery
+# itself. Exists only so `target: sample_conditional_target` (R-10, compile-time
+# validated) resolves against a real workflow id.
+#
+# Steps (1 total):
+#
+#   1. welcome (writes output.txt, gates: [], no route — plain, terminal)
+#
+# Reached ONLY via sample_conditional_launch_new's "divert" outcome — never
+# launched as anyone's first step in the example flow, though
+# user_launchable: true means it CAN also be launched standalone to test it
+# in isolation.
+
+id: sample_conditional_target
+user_launchable: true
+is_beta: true
+display_name: Conditional Gate — divert target
+short_name: Divert Target (Hello World)
+icon: GitBranch
+description: The plain workflow sample_conditional_launch_new diverts execution into.
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  strategy: serialized_sandbox
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 300
+
+steps:
+- agent: custom-agent
+  instance_id: welcome
+  name: Welcome
+  prompt: Call write_file with path "output.txt" and content "Welcome to the target workflow!". Do not ask clarifying questions. Do not explain your reasoning. Do not use any other filename or content. Call write_file now with exactly this path and content, then stop.
+  gates: []
+  tools:
+    read_files: false
+    write_files: true
+    exec: false
+
+name: Divert Target (Hello World)

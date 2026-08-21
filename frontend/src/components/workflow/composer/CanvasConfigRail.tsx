@@ -163,8 +163,12 @@ export function CanvasConfigRail({
 
   const sel = selection ?? {};
   const validatorOn = (sel.validators?.length ?? 0) > 0;
-  const reviewGate = gateOptions.find((g) => g !== COUPLED_GATE);
-  const reviewGateOn = (sel.gates ?? []).some((g) => g !== COUPLED_GATE);
+  // Spec 014 (T35): ALL non-coupled gates are selectable, not just the first
+  // one gateOptions happens to return — a single boolean toggle could only
+  // ever bind to whichever gate sorted first (e.g. "human"), leaving
+  // "conditional" unreachable from Canvas once it became a second option.
+  const reviewGateOptions = gateOptions.filter((g) => g !== COUPLED_GATE);
+  const reviewGate = (sel.gates ?? []).find((g) => g !== COUPLED_GATE) ?? "";
   const retry = sel.retry ?? 0;
 
   // ── Fan-out lever (51-07 / FANOUT-01, D6/D7/§4b) ──────────────────────────
@@ -471,22 +475,27 @@ export function CanvasConfigRail({
       <div className="flex items-center justify-between border-b border-line-faint-row py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 font-sans text-[12.5px] font-semibold text-ink-900">
-            <InfoHint>Pauses the run after this step so a human can approve its output before the pipeline continues.</InfoHint>
+            <InfoHint>Pauses the run after this step so a human can approve its output, or branches the run based on this step&apos;s typed decision, before the pipeline continues.</InfoHint>
             Review gate
           </div>
           <div className="font-serif text-[11px] text-ink-300">
-            Pause for human approval after this step
+            Pause for approval, or branch on a condition
           </div>
         </div>
-        <Toggle
-          on={reviewGateOn}
-          amber
-          label="Review gate"
-          disabled={loading || !reviewGate}
-          onToggle={() =>
-            patch({ gates: reviewGateOn || !reviewGate ? [] : [reviewGate] })
-          }
-        />
+        <select
+          aria-label="Review gate"
+          disabled={loading || reviewGateOptions.length === 0}
+          value={reviewGate}
+          onChange={(e) => patch({ gates: e.target.value ? [e.target.value] : [] })}
+          className="appearance-none rounded-[8px] border border-status-amber-border bg-status-amber-fill/40 px-2 py-1.5 font-sans text-[11.5px] font-semibold text-status-amber focus:border-brand focus:outline-none disabled:opacity-50"
+        >
+          <option value="">Off</option>
+          {reviewGateOptions.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Retry-on-failure: {"max_attempts": N} — coerced FE→BE by

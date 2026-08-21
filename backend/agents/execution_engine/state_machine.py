@@ -3,9 +3,10 @@
 Phase 2: in-memory dict persistence.
 Phase 3 (T071): upgrades the write target to DB (workflow_runs.status column).
 
-Lifecycle states (9 — `specifying` removed per clarification, no trigger exists):
+Lifecycle states (10 — `specifying` removed per clarification, no trigger exists;
+`diverted` added by 014-conditional-gates, RISK-03):
   clarifying, waiting_for_user, planning, analyzing, generating, revising,
-  completed, failed, cancelled
+  completed, failed, cancelled, diverted
 
 State mapping:
   - planning        : Deep_Planner_Agent begins
@@ -14,7 +15,7 @@ State mapping:
   - analyzing       : Analyze_Agent (Validation_Gate) runs
   - generating      : domain agents begin
   - revising        : revision run in progress
-  - completed/failed/cancelled : terminal states
+  - completed/failed/cancelled/diverted : terminal states
 
 Every transition is persisted BEFORE returning so a crash mid-transition
 leaves the run in the new state (safer failure mode).
@@ -38,11 +39,17 @@ VALID_STATES: frozenset[str] = frozenset(
         "completed",
         "failed",
         "cancelled",
+        # RISK-03 (014-conditional-gates): "diverted" joined TERMINAL_STATES below
+        # but was missing here — transition(run_id, "diverted") would otherwise
+        # raise StateMachineError("Invalid state 'diverted'") the moment the T29
+        # cross-workflow-trigger wiring calls it (the same mechanism cancelled/
+        # failed already use).
+        "diverted",
     }
 )
 
 # Terminal states — no transitions out
-TERMINAL_STATES: frozenset[str] = frozenset({"completed", "failed", "cancelled"})
+TERMINAL_STATES: frozenset[str] = frozenset({"completed", "failed", "cancelled", "diverted"})
 
 
 class StateMachineError(Exception):

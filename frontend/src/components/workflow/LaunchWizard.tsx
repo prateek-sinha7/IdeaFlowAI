@@ -6,8 +6,9 @@ import {
   ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip,
   Mic, MicOff, X, File, Settings2, Save, Image as ImageIcon, ArrowLeft,
 } from "lucide-react";
-import { getToken, extractFileText, createUserWorkflow } from "@/lib/api";
+import { getToken, extractFileText, createUserWorkflow, handleSessionExpiry } from "@/lib/api";
 import { ATTACH_MAX_CHARS } from "@/lib/constants";
+import { routes } from "@/lib/routes";
 import {
   listDesignSystems,
   listPrototypeTemplates,
@@ -198,6 +199,10 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
 
   // Restore the draft the dashboard/Saved-workflow hand-off wrote for THIS mode,
   // then clear it (FIX-005: one-shot, so a fresh open never pre-fills stale data).
+  // T29 / cold-mount fix: libraryAgents is included in the dependency array so the
+  // effect re-runs when agents load, allowing the agentIds→agent mapping to succeed
+  // (line 229 uses libraryAgents; without it, a cold mount of /workflows/{id}/run
+  // with agents would fail to restore them if libraryAgents hadn't loaded yet).
   useEffect(() => {
     if (!authChecked) return;
     try {
@@ -223,7 +228,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       if (d.brief) setBrief(d.brief);
       if (d.customDsBody) setCustomDsBody(d.customDsBody);
       if (d.customTemplateBody) setCustomTemplateBody(d.customTemplateBody);
-      if (d.agentIds && d.agentIds.length > 0) {
+      if (d.agentIds && d.agentIds.length > 0 && libraryAgents.length > 0) {
         const restored = d.agentIds
           .map((id) => libraryAgents.find((a) => a.id === id))
           .filter(Boolean) as AgentDef[];
@@ -237,9 +242,14 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       if (d.id) setUserWorkflowId(d.id);
       if (d.name) setSavedName(d.name);
       if (d.description) setSavedDescription(d.description);
-      sessionStorage.removeItem(draftKey);
+      // Clear draft only if we've successfully processed agents (when libraryAgents is available),
+      // or if there are no agents to restore. This allows the effect to re-run when libraryAgents
+      // loads if it wasn't available on the first run.
+      if (!d.agentIds || d.agentIds.length === 0 || libraryAgents.length > 0) {
+        sessionStorage.removeItem(draftKey);
+      }
     } catch { /* ignore malformed session data */ }
-  }, [authChecked, initialMode]);
+  }, [authChecked, initialMode, libraryAgents]);
 
   // Load both template families + the design-system registry once authed.
   useEffect(() => {
@@ -252,14 +262,18 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       .then((t) => { if (!cancelled) setWebTemplates(t); })
       .catch((err: Error) => {
         if (cancelled) return;
-        if (err.message.startsWith("401")) { router.replace("/login"); return; }
+        // FR-015 — T33 sweep: prototype-api.ts's authFetch already calls the
+        // shared handleSessionExpiry() on 401; mirror that call here too
+        // instead of a bare router.replace that skipped the token clear and
+        // the ?expired=true message.
+        if (err.message.startsWith("401")) { handleSessionExpiry(); return; }
         setLoadError(err.message);
       });
     listPPTTemplates(token)
       .then((t) => { if (!cancelled) setDeckTemplates(t); })
       .catch((err: Error) => {
         if (cancelled) return;
-        if (err.message.startsWith("401")) { router.replace("/login"); }
+        if (err.message.startsWith("401")) { handleSessionExpiry(); }
       });
     listDesignSystems(token)
       .then((s) => {
@@ -520,7 +534,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       else sessionStorage.removeItem(DISCOVERY_KEY);
     }
     sessionStorage.setItem(draft.pendingKey, "true");
-    router.push("/dashboard");
+    router.push(routes.home());
   }, [
     canContinue, mode, isChaining, brief, attachedFileContents, attachedImages,
     dsRequired, selectedDsId, selectedTemplateId, customDsBody, customTemplateBody,
@@ -541,7 +555,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5">
           <button
             type="button"
-            onClick={() => router.push("/dashboard")}
+            onClick={() => router.push(routes.home())}
             aria-label="Back to dashboard"
             className="flex items-center justify-center rounded-[var(--radius-button)] p-1.5 text-ink-500 transition-colors hover:bg-surface-white hover:text-ink-900"
           >

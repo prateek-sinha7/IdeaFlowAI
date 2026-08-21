@@ -35,7 +35,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { clearToken, getToken, setToken } from "@/lib/api";
+import { getToken, handleSessionExpiry, setToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import { parseSseBlock } from "@/lib/sseFrame";
 import { STREAM_TERMINAL_TYPES } from "@/types";
@@ -213,15 +213,13 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
     };
 
     const handleAuthExpiry = () => {
-      // Mirror the WS path's 4001 close: clear the token and bounce to /login.
-      // Reached only after a silent refresh already failed — so this is a true
-      // expiry, not a transient blip (no mid-run logout, T-29-07-2).
-      clearToken();
+      // Mirror the WS path's 4001 close: clear the token and bounce to
+      // routes.login({ expired: true }) via the shared FR-015 helper. Reached
+      // only after a silent refresh already failed — so this is a true expiry,
+      // not a transient blip (no mid-run logout, T-29-07-2).
+      handleSessionExpiry();
       setPhase("disconnected");
       setLastError("Your session has expired. Please log in again.");
-      if (typeof window !== "undefined") {
-        window.location.href = "/login";
-      }
     };
 
     const scheduleRefresh = () => {

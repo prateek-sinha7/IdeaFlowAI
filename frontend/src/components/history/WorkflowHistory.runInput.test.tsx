@@ -62,6 +62,18 @@ vi.mock("@/components/results/FilesTab", () => ({
   downloadBlob: vi.fn(),
 }));
 vi.mock("@/components/workflow/TokenUsageSummary", () => ({ TokenUsageSummary: () => <div data-testid="token-usage" /> }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  useSearchParams: () => ({
+    get: vi.fn(() => null),
+  }),
+}));
+
 const STRIPPED_MOTION_PROPS = new Set([
   "initial", "animate", "exit", "transition", "whileHover",
   "whileTap", "whileFocus", "whileInView", "viewport", "layout",

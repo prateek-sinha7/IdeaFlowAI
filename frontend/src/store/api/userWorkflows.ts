@@ -209,9 +209,15 @@ function agentToManifestStep(
 ): ManifestStep {
   const step: ManifestStep = agent.isCustom
     ? { agent: "custom-agent", instance_id: agent.instance_id ?? agent.id, name: agent.name }
-    : { agent_id: agent.id };
+    : { agent: agent.id };
   if (agent.isCustom && agent.prompt) step.prompt = agent.prompt;
   if (agent.skills && agent.skills.length > 0) step.skills = [...agent.skills];
+  // Spec 014 (R-02/T37): mirrors AgentDef.route field-for-field onto the
+  // compiled ManifestStep — only emitted when outcomes is non-empty, matching
+  // the same "non-empty" trigger ComposerPage's needsFullManifest checks.
+  if (agent.route && Object.keys(agent.route.outcomes ?? {}).length > 0) {
+    step.route = { ...agent.route };
+  }
   const isParent = !!agent.children && agent.children.length > 0;
   // Fixed grants, no longer author-editable (SPEC012-ADR-10). `write_files`/
   // `read_files` must stay ON — every step writes its own artifact, and OFF
@@ -241,7 +247,7 @@ function agentToManifestStep(
  *  and `_build_roster` are keyed on. Composed steps are `custom-agent:<instance_id>`;
  *  built-in steps are their bare catalog id. */
 function stepAgentId(step: ManifestStep): string {
-  return step.instance_id ? `${CUSTOM_AGENT_PREFIX}${step.instance_id}` : (step.agent_id ?? "");
+  return step.instance_id ? `${CUSTOM_AGENT_PREFIX}${step.instance_id}` : (step.agent ?? "");
 }
 
 /** Record each step's upstream data dependencies, so the engine knows where a
@@ -283,15 +289,69 @@ function deriveDependsOn(steps: ManifestStep[], topLevel: boolean): ManifestStep
   return steps;
 }
 
+/** Declare `produces: ["route_decision"]` on every route's decision-source step
+ *  (spec 014 / R-05b, required by the compiler's R-27 check).
+ *
+ *  Same class of field as `depends_on` above: DERIVED from the drawn graph at
+ *  serialise time, never stored per-node, so editing or deleting a route can
+ *  never leave a stale declaration behind. The composer has no user-facing
+ *  `produces` control (the FE `AgentDef` carries no produces/consumes) — drawing
+ *  a route on a node IS the author declaring that node's decision source, so the
+ *  declaration the backend requires is derived from it rather than asked for
+ *  twice.
+ *
+ *  Resolution mirrors `_validate_route_targets`/R-27 exactly, or the injection
+ *  would land on a different step than the one the compiler checks:
+ *    * the step set is the FLATTENED tree (the compiler validates its flat step
+ *      list, so a sub-agent step is in the same id namespace as a top-level one);
+ *    * ids are looked up dually — the backend agent id (`custom-agent:<instance_id>`
+ *      for a composed step) AND the bare `instance_id` — because `condition_agent`
+ *      may be authored either way;
+ *    * the decision source is `route.condition_agent` when set, else the routing
+ *      step itself (R-05's default).
+ *
+ *  An unresolvable `condition_agent` is left alone: R-27 already rejects it with a
+ *  precise message, and silently inventing a declaration would hide that. */
+function deriveRouteDecisionProduces(steps: ManifestStep[]): ManifestStep[] {
+  const flat: ManifestStep[] = [];
+  const collect = (list: ManifestStep[]) => {
+    for (const step of list) {
+      flat.push(step);
+      if (step.subagents) collect(step.subagents.steps);
+    }
+  };
+  collect(steps);
+
+  const byName = new Map<string, ManifestStep>();
+  for (const step of flat) {
+    const agentId = stepAgentId(step);
+    if (agentId) byName.set(agentId, step);
+    if (step.instance_id) byName.set(step.instance_id, step);
+  }
+
+  for (const step of flat) {
+    const route = step.route;
+    if (!route || Object.keys(route.outcomes ?? {}).length === 0) continue;
+    const source = byName.get(route.condition_agent || stepAgentId(step));
+    if (!source) continue;
+    if (!source.produces?.includes("route_decision")) {
+      source.produces = [...(source.produces ?? []), "route_decision"];
+    }
+  }
+  return steps;
+}
+
 /** Compose the composer's node tree into the full `{"steps": [...]}` manifest
  *  shape (R-02..R-05), with top-level `depends_on` edges derived from order. */
 export function agentsToManifestSteps(
   agents: AgentDef[],
   selections?: Record<string, { gates?: string[] }>,
 ): ManifestStep[] {
-  return deriveDependsOn(
-    agents.map((agent) => agentToManifestStep(agent, selections)),
-    true,
+  return deriveRouteDecisionProduces(
+    deriveDependsOn(
+      agents.map((agent) => agentToManifestStep(agent, selections)),
+      true,
+    ),
   );
 }
 
@@ -319,7 +379,7 @@ function manifestStepToAgent(
   lookup?: (id: string) => AgentDef | undefined,
 ): AgentDef {
   const isCustom = step.agent === "custom-agent";
-  const id = isCustom ? step.instance_id ?? "" : step.agent_id ?? "";
+  const id = isCustom ? step.instance_id ?? "" : step.agent ?? "";
   const base = !isCustom ? lookup?.(id) : undefined;
   const agent: AgentDef = base
     ? { ...base }
@@ -343,6 +403,10 @@ function manifestStepToAgent(
     agent.instance_id = step.instance_id;
     agent.prompt = step.prompt;
   }
+  // Spec 014 (R-02/T37): reverse of agentToManifestStep's `step.route` write —
+  // reopen fix, this was previously missing, silently dropping the route on
+  // save→reopen.
+  agent.route = step.route ? { ...step.route } : undefined;
   if (step.subagents) {
     agent.strategy = step.subagents.mode;
     agent.maxParallel = step.subagents.max_parallel;

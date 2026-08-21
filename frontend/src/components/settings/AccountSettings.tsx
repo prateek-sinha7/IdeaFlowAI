@@ -5,8 +5,9 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft, Eye, EyeOff, CheckCircle2, AlertCircle, Check, ShieldCheck, Info,
 } from "lucide-react";
-import { getToken, getMe, changePassword, getPreferences, updatePreferences, getCapabilities } from "@/lib/api";
+import { authedFetch, getToken, getMe, changePassword, getPreferences, updatePreferences, getCapabilities } from "@/lib/api";
 import type { ModelOption, CapabilityModelEntry } from "@/lib/api";
+import { ENV } from "@/lib/env";
 import { TIER_PIPELINES, TIER_LABELS } from "@/lib/entitlements";
 import type { Tier } from "@/lib/entitlements";
 import { Tabs, type TabItem } from "@/components/ui/Tabs";
@@ -16,9 +17,13 @@ import { Badge, type BadgeStatus } from "@/components/ui/Badge";
 
 interface AccountSettingsProps {
   onBack: () => void;
+  // SC-001 fix: the settings sub-tab the URL named (e.g. /settings/ai-model),
+  // seeded by page.tsx via parseViewPath and threaded through DashboardLayout.
+  // Undefined for click-driven opens (defaults to "profile", same as before).
+  initialSection?: SettingsSection;
 }
 
-type SettingsSection = "profile" | "model" | "limits" | "constitution";
+export type SettingsSection = "profile" | "model" | "limits" | "constitution";
 
 // Pipeline display names — used by the Usage & Limits deliverable-access grid.
 const PIPELINE_DISPLAY: Record<string, { label: string; description: string }> = {
@@ -46,8 +51,8 @@ function getBasePipelines(tier: Tier): string[] {
   return all.filter(p => !p.endsWith("_revision")).filter(p => PIPELINE_DISPLAY[p]);
 }
 
-export function AccountSettings({ onBack }: AccountSettingsProps) {
-  const [section, setSection] = useState<SettingsSection>("profile");
+export function AccountSettings({ onBack, initialSection }: AccountSettingsProps) {
+  const [section, setSection] = useState<SettingsSection>(initialSection ?? "profile");
   const [email, setEmail] = useState("");
   const [userTier, setUserTier] = useState<Tier>("basic");
   const [loading, setLoading] = useState(true);
@@ -452,7 +457,10 @@ function ConstitutionSection() {
   useEffect(() => {
     const token = getToken();
     if (!token) { setLoading(false); return; }
-    fetch("/api/settings/constitution", {
+    // FR-015: authedFetch, not bare fetch — a 401 here used to be swallowed by
+    // the `.catch(() => {})` below, leaving an expired session sitting on
+    // /settings/constitution with a silently empty editor.
+    authedFetch(`${ENV.API_URL}/api/settings/constitution`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
@@ -467,7 +475,7 @@ function ConstitutionSection() {
     setSaving(true);
     setStatus("idle");
     try {
-      const r = await fetch("/api/settings/constitution", {
+      const r = await authedFetch(`${ENV.API_URL}/api/settings/constitution`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content: content.trim() }),
@@ -487,7 +495,7 @@ function ConstitutionSection() {
     setDeleting(true);
     setStatus("idle");
     try {
-      const r = await fetch("/api/settings/constitution", {
+      const r = await authedFetch(`${ENV.API_URL}/api/settings/constitution`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });

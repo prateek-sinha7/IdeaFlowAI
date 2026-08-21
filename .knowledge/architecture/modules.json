@@ -1,12 +1,21 @@
 {
-  "generated_at": "2026-08-20",
+  "generated_at": "2026-08-21",
   "modules": [
     {
       "id": "MOD-backend",
       "path": "backend",
       "language": "python",
-      "file_count": 1,
+      "file_count": 10,
       "files": [
+        "backend/.venv312/lib/python3.12/site-packages/langsmith/env/__init__.py",
+        "backend/.venv312/lib/python3.12/site-packages/langsmith/env/_git.py",
+        "backend/.venv312/lib/python3.12/site-packages/langsmith/env/_runtime_env.py",
+        "backend/.venv312/lib/python3.12/site-packages/pip/_internal/operations/build/__init__.py",
+        "backend/.venv312/lib/python3.12/site-packages/pip/_internal/operations/build/build_tracker.py",
+        "backend/.venv312/lib/python3.12/site-packages/pip/_internal/operations/build/metadata.py",
+        "backend/.venv312/lib/python3.12/site-packages/pip/_internal/operations/build/metadata_editable.py",
+        "backend/.venv312/lib/python3.12/site-packages/pip/_internal/operations/build/wheel.py",
+        "backend/.venv312/lib/python3.12/site-packages/pip/_internal/operations/build/wheel_editable.py",
         "backend/init_db.py"
       ],
       "imports": [],
@@ -17,7 +26,7 @@
       "id": "MOD-backend-agents",
       "path": "backend/agents",
       "language": "python",
-      "file_count": 120,
+      "file_count": 121,
       "files": [
         "backend/agents/__init__.py",
         "backend/agents/artifact_store/__init__.py",
@@ -50,6 +59,7 @@
         "backend/agents/capabilities/gates/__init__.py",
         "backend/agents/capabilities/gates/approval.py",
         "backend/agents/capabilities/gates/base.py",
+        "backend/agents/capabilities/gates/conditional.py",
         "backend/agents/capabilities/gates/human.py",
         "backend/agents/capabilities/gates/security.py",
         "backend/agents/capabilities/gates/validation.py",
@@ -143,6 +153,7 @@
       "imports": [
         "MOD-backend-app",
         "MOD-backend-app-agents",
+        "MOD-backend-app-api",
         "MOD-backend-app-core",
         "MOD-backend-app-models",
         "MOD-backend-app-services"
@@ -176,7 +187,7 @@
       "id": "MOD-backend-alembic-versions",
       "path": "backend/alembic/versions",
       "language": "python",
-      "file_count": 31,
+      "file_count": 32,
       "files": [
         "backend/alembic/versions/0001_initial_schema.py",
         "backend/alembic/versions/0002_handoff_tables.py",
@@ -208,7 +219,8 @@
         "backend/alembic/versions/0029_enforce_seq_uniqueness_after_repair.py",
         "backend/alembic/versions/0030_workflow_runs_user_created_index.py",
         "backend/alembic/versions/0031_composed_workflow_execution.py",
-        "backend/alembic/versions/0032_collapse_od_prototype_label.py"
+        "backend/alembic/versions/0032_collapse_od_prototype_label.py",
+        "backend/alembic/versions/0033_add_diverted_at_step_id.py"
       ],
       "imports": [],
       "imported_by": [],
@@ -305,8 +317,8 @@
         "botocore",
         "deepagents",
         "langchain",
-        "langchain_anthropic",
         "langchain_core",
+        "langchain_ollama",
         "langgraph"
       ]
     },
@@ -356,6 +368,7 @@
         "MOD-backend-app-services"
       ],
       "imported_by": [
+        "MOD-backend-agents",
         "MOD-backend-app"
       ],
       "external_deps": [
@@ -530,8 +543,9 @@
       "id": "MOD-frontend-src",
       "path": "frontend/src",
       "language": "typescript",
-      "file_count": 32,
+      "file_count": 33,
       "files": [
+        "frontend/src/middleware.ts",
         "frontend/src/store/GlobalPreloadIndicator.tsx",
         "frontend/src/store/StoreProvider.tsx",
         "frontend/src/store/api/admin.ts",
@@ -581,6 +595,7 @@
         "@reduxjs/toolkit",
         "axios",
         "lucide-react",
+        "next",
         "react",
         "react-redux",
         "vitest"
@@ -590,31 +605,34 @@
       "id": "MOD-frontend-src-app",
       "path": "frontend/src/app",
       "language": "typescript",
-      "file_count": 25,
+      "file_count": 28,
       "files": [
+        "frontend/src/app/[...view]/attachRunOnOpen.source.test.ts",
+        "frontend/src/app/[...view]/bridgeTerminality.source.test.ts",
+        "frontend/src/app/[...view]/contentSourceRunScope.source.test.ts",
+        "frontend/src/app/[...view]/contentSourceRunType.source.test.ts",
+        "frontend/src/app/[...view]/deadRevisionRefs.source.test.ts",
+        "frontend/src/app/[...view]/freshLaunchTranscriptReset.source.test.ts",
+        "frontend/src/app/[...view]/launchImageAndRecents.source.test.ts",
+        "frontend/src/app/[...view]/liveRunSwitch.fix201.test.ts",
+        "frontend/src/app/[...view]/page.tsx",
+        "frontend/src/app/[...view]/reviseGuard.source.test.ts",
+        "frontend/src/app/[...view]/revisionFamilyLinkage.source.test.ts",
+        "frontend/src/app/[...view]/terminalReopenReconcile.source.test.ts",
+        "frontend/src/app/[...view]/workflowDetailCatch.source.test.ts",
         "frontend/src/app/admin/admin.reskin.test.tsx",
         "frontend/src/app/admin/page.tsx",
-        "frontend/src/app/dashboard/attachRunOnOpen.source.test.ts",
-        "frontend/src/app/dashboard/bridgeTerminality.source.test.ts",
-        "frontend/src/app/dashboard/contentSourceRunScope.source.test.ts",
-        "frontend/src/app/dashboard/contentSourceRunType.source.test.ts",
-        "frontend/src/app/dashboard/deadRevisionRefs.source.test.ts",
-        "frontend/src/app/dashboard/freshLaunchTranscriptReset.source.test.ts",
-        "frontend/src/app/dashboard/launchImageAndRecents.source.test.ts",
-        "frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts",
-        "frontend/src/app/dashboard/page.tsx",
-        "frontend/src/app/dashboard/reviseGuard.source.test.ts",
-        "frontend/src/app/dashboard/revisionFamilyLinkage.source.test.ts",
-        "frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts",
+        "frontend/src/app/error.tsx",
+        "frontend/src/app/global-error.tsx",
         "frontend/src/app/handoff/[token]/page.tsx",
         "frontend/src/app/handoff/settings/page.tsx",
         "frontend/src/app/layout.tsx",
         "frontend/src/app/login/login.reskin.test.tsx",
         "frontend/src/app/login/page.tsx",
+        "frontend/src/app/not-found.tsx",
         "frontend/src/app/page.tsx",
         "frontend/src/app/preview-fullscreen/page.tsx",
         "frontend/src/app/register/page.tsx",
-        "frontend/src/app/test-preview/page.tsx",
         "frontend/src/app/workflow/create/page.tsx",
         "frontend/src/app/workflow/page.tsx"
       ],
@@ -623,6 +641,7 @@
         "MOD-frontend-src-components-handoff",
         "MOD-frontend-src-components-layout",
         "MOD-frontend-src-components-preview",
+        "MOD-frontend-src-components-savedworkflows",
         "MOD-frontend-src-components-ui",
         "MOD-frontend-src-components-workflow",
         "MOD-frontend-src-context",
@@ -668,6 +687,7 @@
         "@testing-library/user-event",
         "lucide-react",
         "motion",
+        "next",
         "react",
         "vitest"
       ]
@@ -808,11 +828,12 @@
       "id": "MOD-frontend-src-components-history",
       "path": "frontend/src/components/history",
       "language": "typescript",
-      "file_count": 11,
+      "file_count": 12,
       "files": [
         "frontend/src/components/history/RevisionFamilyView.tsx",
         "frontend/src/components/history/RunDetailPage.test.tsx",
         "frontend/src/components/history/RunDetailPage.tsx",
+        "frontend/src/components/history/WorkflowHistory.divertLinks.test.tsx",
         "frontend/src/components/history/WorkflowHistory.family.test.tsx",
         "frontend/src/components/history/WorkflowHistory.genericReopen.test.tsx",
         "frontend/src/components/history/WorkflowHistory.grouping.test.tsx",
@@ -839,6 +860,7 @@
         "@testing-library/user-event",
         "lucide-react",
         "motion",
+        "next",
         "react",
         "vitest"
       ]
@@ -935,6 +957,7 @@
         "@testing-library/react",
         "lucide-react",
         "motion",
+        "next",
         "react",
         "react-redux",
         "vitest"
@@ -1047,16 +1070,19 @@
       "id": "MOD-frontend-src-components-savedworkflows",
       "path": "frontend/src/components/savedworkflows",
       "language": "typescript",
-      "file_count": 2,
+      "file_count": 3,
       "files": [
         "frontend/src/components/savedworkflows/SavedWorkflowsPage.test.tsx",
-        "frontend/src/components/savedworkflows/SavedWorkflowsPage.tsx"
+        "frontend/src/components/savedworkflows/SavedWorkflowsPage.tsx",
+        "frontend/src/components/savedworkflows/WorkflowDetailView.tsx"
       ],
       "imports": [
         "MOD-frontend-src-components-catalog",
+        "MOD-frontend-src-components-ui",
         "MOD-frontend-src-lib"
       ],
       "imported_by": [
+        "MOD-frontend-src-app",
         "MOD-frontend-src-components-layout"
       ],
       "external_deps": [
@@ -1064,6 +1090,7 @@
         "@testing-library/user-event",
         "lucide-react",
         "motion",
+        "next",
         "react",
         "vitest"
       ]
@@ -1142,6 +1169,7 @@
         "MOD-frontend-src-components-layout",
         "MOD-frontend-src-components-library",
         "MOD-frontend-src-components-preview",
+        "MOD-frontend-src-components-savedworkflows",
         "MOD-frontend-src-components-settings",
         "MOD-frontend-src-components-workflow"
       ],
@@ -1338,9 +1366,10 @@
       "id": "MOD-frontend-src-lib",
       "path": "frontend/src/lib",
       "language": "typescript",
-      "file_count": 39,
+      "file_count": 42,
       "files": [
         "frontend/src/lib/__tests__/wsRunScope.test.ts",
+        "frontend/src/lib/api-handoff.test.ts",
         "frontend/src/lib/api-handoff.ts",
         "frontend/src/lib/api.getRunArtifacts.test.ts",
         "frontend/src/lib/api.getRunFamily.test.ts",
@@ -1368,6 +1397,8 @@
         "frontend/src/lib/prototype-api.ts",
         "frontend/src/lib/resizeImage.test.ts",
         "frontend/src/lib/resizeImage.ts",
+        "frontend/src/lib/routes.test.ts",
+        "frontend/src/lib/routes.ts",
         "frontend/src/lib/runInput.test.ts",
         "frontend/src/lib/runInput.ts",
         "frontend/src/lib/runStats.ts",

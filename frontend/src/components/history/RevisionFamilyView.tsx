@@ -16,7 +16,7 @@ import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FileText, Presentation, Layout,
-  ChevronRight, MoreHorizontal, Trash2,
+  ChevronRight, MoreHorizontal, Trash2, GitBranch, CornerUpLeft,
 } from "lucide-react";
 import type { WorkflowRun, WorkflowStatus, RunFamily } from "@/types/index";
 import { parseRunInput } from "@/lib/runInput";
@@ -98,6 +98,11 @@ export function statusDotClass(status: WorkflowStatus): string {
       return base + "bg-status-amber";
     case "failed":
       return base + "bg-status-queued";
+    // R-14 (014-conditional-gates): "diverted" is a distinct terminal status,
+    // never a failure/cancellation — reuses the existing brand token (the same
+    // one the "vN" version pill already uses) rather than a new color.
+    case "diverted":
+      return base + "bg-brand";
     case "running":
     case "revising":
     default:
@@ -115,10 +120,32 @@ export interface FamilyGroup {
   latest: WorkflowRun;
 }
 
+// ─── familyRootFor — R-20 (014-conditional-gates): `parent_run_id` is the SAME
+// structural FK for both a revision (child revises parent) AND a cross-workflow
+// divert (child is the newly-minted run a `trigger: workflow` outcome spawned,
+// R-15). The two must never share a family/version-list — R-20 is explicit:
+// "two linked run-history cards, not a stitched timeline". The disambiguator is
+// R-14: a run only ever reaches `status === "diverted"` via a divert, never a
+// revision — so walking up from `run`, a parent found with that status marks
+// the DIVERT boundary, and `run` becomes its own family root from there down.
+// Falls back to the backend-computed `rootRunId` the moment an ancestor isn't
+// in the loaded page (same windowed-caveat degradation as before this change).
+function familyRootFor(run: WorkflowRun, byId: Map<string, WorkflowRun>): string {
+  let cur = run;
+  while (cur.id !== cur.rootRunId) {
+    const parent = cur.parentRunId ? byId.get(cur.parentRunId) : undefined;
+    if (!parent) return cur.rootRunId;
+    if (parent.status === "diverted") return cur.id;
+    cur = parent;
+  }
+  return cur.id;
+}
+
 export function groupRunsByFamily(runs: WorkflowRun[]): FamilyGroup[] {
+  const byId = new Map(runs.map((r) => [r.id, r]));
   const buckets = new Map<string, WorkflowRun[]>();
   for (const run of runs) {
-    const key = run.rootRunId;
+    const key = familyRootFor(run, byId);
     const bucket = buckets.get(key);
     if (bucket) bucket.push(run);
     else buckets.set(key, [run]);
@@ -149,6 +176,39 @@ export function groupRunsByFamily(runs: WorkflowRun[]): FamilyGroup[] {
   return groups.sort(
     (a, b) => new Date(b.latest.createdAt).getTime() - new Date(a.latest.createdAt).getTime(),
   );
+}
+
+// ─── DivertLink / buildDivertLinks — R-20 (014-conditional-gates, T38 HISTORICAL
+// case). Reconstructed purely from persisted fields already on every fetched
+// `WorkflowRun` row (`status`, `parentRunId`) — no fetch, no live event needed
+// (contracts/sse-pipeline-diverted.md: "the event is a LIVE-only convenience,
+// not the sole source of truth"). `status === "diverted"` is the sole,
+// unambiguous signal (R-14: only a divert ever sets it), so it doubles as both
+// directions of the link: the run WITH that status is the source; the run
+// whose `parentRunId` points at it is the target.
+//
+// `stepId` (the manifest step the divert fired from) is sourced from the
+// diverting run's persisted `diverted_at_step_id` column (T41 migration 0033 +
+// engine write; T42 threads it through normalizeWorkflowRun as
+// `WorkflowRun.divertedAtStepId`). Absent/null on legacy pre-migration rows —
+// the card omits the ", step {step_id}" clause in that case rather than
+// fabricating a value.
+export interface DivertLink {
+  direction: "source" | "target";
+  other: WorkflowRun;
+  stepId?: string;
+}
+
+export function buildDivertLinks(runs: WorkflowRun[]): Map<string, DivertLink> {
+  const links = new Map<string, DivertLink>();
+  for (const run of runs) {
+    if (run.status !== "diverted") continue;
+    const target = runs.find((r) => r.parentRunId === run.id);
+    if (!target) continue; // target run outside the loaded page — degrade gracefully (no link)
+    links.set(run.id, { direction: "source", other: target });
+    links.set(target.id, { direction: "target", other: run, stepId: run.divertedAtStepId ?? undefined });
+  }
+  return links;
 }
 
 // ─── Today / Earlier / Older date buckets + tokens/duration sort (SHELL-02).
@@ -247,6 +307,17 @@ function StatusBadge({ status }: { status: WorkflowStatus }) {
       </span>
     );
   }
+  // R-14/R-20 (014-conditional-gates): a diverted run completed its own steps
+  // successfully and handed off to a new run — reads as a distinct, non-failure
+  // terminal state. The "Diverted to X →" link itself renders separately (see
+  // DivertBadge below); this pill is just the row's compact status token.
+  if (status === "diverted") {
+    return (
+      <span className="text-[9px] font-semibold text-brand bg-brand-fill border border-line-border px-2 py-0.5 rounded-full">
+        Diverted
+      </span>
+    );
+  }
   return (
     <span className="text-[9px] font-semibold text-ink-500 bg-surface-warm border border-line-border px-2 py-0.5 rounded-full">
       Running
@@ -337,12 +408,39 @@ function RowStats({ run }: { run: WorkflowRun }) {
   );
 }
 
+// ─── DivertBadge — the "Diverted to X →" / "← Continued from X[, step S]"
+// breadcrumb line (R-20, both the live and historical case render through this
+// same presentational component — only the DivertLink's source differs). A
+// nested, stopPropagation'd button so clicking it navigates to the OTHER run
+// without also firing the row's own onClick (which opens THIS run). Reuses the
+// row's existing secondary-text sizing + the brand accent already used by
+// StatusBadge/statusDotClass above (no new color introduced).
+function DivertBadge({ link, onSelectRun }: { link: DivertLink; onSelectRun: (run: WorkflowRun) => void }) {
+  const otherMeta = TYPE_META[link.other.type] || TYPE_META.custom;
+  const otherLabel = cleanDisplayTitle(link.other.title, otherMeta.label, link.other.input) || otherMeta.label;
+  const Icon = link.direction === "source" ? GitBranch : CornerUpLeft;
+  const text = link.direction === "source"
+    ? `Diverted to ${otherLabel} →`
+    : `← Continued from ${otherLabel}${link.stepId ? `, step ${link.stepId}` : ""}`;
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onSelectRun(link.other); }}
+      aria-label={link.direction === "source" ? `Diverted to ${otherLabel}, open triggered run` : `Continued from ${otherLabel}, open originating run`}
+      className="mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-brand hover:underline"
+    >
+      <Icon className="h-2.5 w-2.5 flex-shrink-0" />
+      <span className="truncate">{text}</span>
+    </button>
+  );
+}
+
 // ─── FamilyGroupCard — one row per family root. Single-member families render the
 // EXACT existing flat row (WorkflowHistory.tsx:871-951, zero regression);
 // multi-member families add a "v{N}" pill + a chevron toggle that expands into
 // chronological version rows.
 export function FamilyGroupCard({
-  group, index, expanded, onToggle, onSelectRun, openMenuId, onToggleMenu, onDeleteClick,
+  group, index, expanded, onToggle, onSelectRun, openMenuId, onToggleMenu, onDeleteClick, divertLinks,
 }: {
   group: FamilyGroup;
   index: number;
@@ -352,6 +450,10 @@ export function FamilyGroupCard({
   openMenuId: string | null;
   onToggleMenu: (runId: string, e?: React.MouseEvent) => void;
   onDeleteClick: (runId: string, e?: React.MouseEvent) => void;
+  // R-20 (014-conditional-gates, T38): id → DivertLink, built once per fetch by
+  // buildDivertLinks. Optional so every OTHER call site (none exist today, but
+  // future ones might) keeps compiling without threading it through.
+  divertLinks?: Map<string, DivertLink>;
 }) {
   const rootMeta = TYPE_META[group.root.type] || TYPE_META.custom;
   const RootIcon = rootMeta.icon;
@@ -361,6 +463,7 @@ export function FamilyGroupCard({
   // expander) — visually indistinguishable from today, delete included.
   if (!isMulti) {
     const run = group.root;
+    const divertLink = divertLinks?.get(run.id);
     return (
       <motion.div
         initial={{ opacity: 0 }}
@@ -387,6 +490,9 @@ export function FamilyGroupCard({
               </>
             ) : null}
           </div>
+          {/* R-20: the diverted-run/triggered-run breadcrumb — two linked
+              cards, not a merged timeline (spec.md §4.4). */}
+          {divertLink && <DivertBadge link={divertLink} onSelectRun={onSelectRun} />}
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
           <RowStats run={run} />
@@ -405,6 +511,11 @@ export function FamilyGroupCard({
   // getWorkflows fetch window shows fewer here by design (POR §11 large-family
   // edge case).
   const versionCount = group.members.length;
+  // R-20: defensive — a family's LATEST member could itself be a divert source
+  // (e.g. v3 of a revised prototype fires a `route:`); familyRootFor already
+  // keeps a divert TARGET out of this family entirely, so only the source
+  // direction is reachable here.
+  const divertLink = divertLinks?.get(latest.id);
 
   return (
     <div>
@@ -433,6 +544,7 @@ export function FamilyGroupCard({
               </>
             ) : null}
           </div>
+          {divertLink && <DivertBadge link={divertLink} onSelectRun={onSelectRun} />}
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
           {/* Purple "v{N}" version pill = the expand toggle (mock History row :397:

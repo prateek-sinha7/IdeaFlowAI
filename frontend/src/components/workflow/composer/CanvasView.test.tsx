@@ -152,9 +152,9 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
     // Model and Overrides are in the Config tab — click to switch
     await userEvent.click(screen.getByTestId("tab-config"));
     expect(await screen.findByLabelText(/^Model$/i)).toBeInTheDocument();
-    // Validator + Review-gate toggle switches are in the Config tab
+    // Validator toggle switch + Review-gate select are in the Config tab
     expect(screen.getByRole("switch", { name: /Validator/i })).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: /Review gate/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Review gate/i)).toBeInTheDocument();
     // The selected node carries the selected marker.
     expect(screen.getByTestId("canvas-node-bravo")).toHaveAttribute("data-selected", "true");
   });
@@ -189,15 +189,15 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
     expect(sel?.gates).toContain("validation");
   });
 
-  it("the Review-gate toggle attaches a non-validation (human) review gate", async () => {
+  it("the Review-gate select attaches the picked (non-validation) review gate", async () => {
     const { onSelection } = renderCanvas();
     await userEvent.click(screen.getByTestId("canvas-node-bravo"));
     // CanvasConfigRail is in the Agent tab
     await userEvent.click(screen.getByText("Agent"));
-    // Review-gate toggle is in the Config tab
+    // Review-gate select is in the Config tab
     await userEvent.click(screen.getByTestId("tab-config"));
     await screen.findByLabelText(/^Model$/i);
-    await userEvent.click(screen.getByRole("switch", { name: /Review gate/i }));
+    await userEvent.selectOptions(screen.getByLabelText(/Review gate/i), "approval");
     const [id, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
     expect(id).toBe("bravo");
     expect((sel?.gates ?? []).some((g) => g !== "validation")).toBe(true);

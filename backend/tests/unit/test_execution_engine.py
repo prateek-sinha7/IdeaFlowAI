@@ -434,3 +434,53 @@ def test_all_pipelines_resolve_to_valid_dags():
             continue  # ppt/reverse_engineer have no scannable agents
         result = resolver.validate(agents)
         assert result.satisfiable, f"{ptype} unsatisfiable: {result.errors}"
+
+
+# ---------------------------------------------------------------------------
+# ExecutionContext step_visit_counts (conditional gates feature)
+# ---------------------------------------------------------------------------
+
+
+def test_execution_context_step_visit_counts_starts_empty():
+    """ExecutionContext.step_visit_counts initializes as an empty dict."""
+    from agents.execution_engine.context import ExecutionContext
+
+    ectx = ExecutionContext(run_id="test-run", owner_id="test-owner")
+    assert ectx.step_visit_counts == {}
+    assert isinstance(ectx.step_visit_counts, dict)
+
+
+def test_execution_context_step_visit_counts_increments_correctly():
+    """step_visit_counts increments correctly with repeated dict-key mutation."""
+    from agents.execution_engine.context import ExecutionContext
+
+    ectx = ExecutionContext(run_id="test-run", owner_id="test-owner")
+
+    # Increment a step visit count 3 times using the canonical pattern
+    for _ in range(3):
+        ectx.step_visit_counts["step_a"] = ectx.step_visit_counts.get("step_a", 0) + 1
+
+    assert ectx.step_visit_counts["step_a"] == 3
+
+
+def test_execution_context_step_visit_counts_multiple_steps():
+    """step_visit_counts tracks multiple steps independently."""
+    from agents.execution_engine.context import ExecutionContext
+
+    ectx = ExecutionContext(run_id="test-run", owner_id="test-owner")
+
+    # Increment step_a 3 times
+    for _ in range(3):
+        ectx.step_visit_counts["step_a"] = ectx.step_visit_counts.get("step_a", 0) + 1
+
+    # Increment step_b 2 times
+    for _ in range(2):
+        ectx.step_visit_counts["step_b"] = ectx.step_visit_counts.get("step_b", 0) + 1
+
+    # Increment step_c 1 time
+    ectx.step_visit_counts["step_c"] = ectx.step_visit_counts.get("step_c", 0) + 1
+
+    assert ectx.step_visit_counts["step_a"] == 3
+    assert ectx.step_visit_counts["step_b"] == 2
+    assert ectx.step_visit_counts["step_c"] == 1
+    assert len(ectx.step_visit_counts) == 3

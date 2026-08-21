@@ -396,6 +396,38 @@ class ExecutionContext:
     # instead was the pre-fix bug: every subsequent dispatch re-attached the stale image.)
     # Default-empty ⇒ DORMANT on every golden run (nothing to render) ⇒ INV-3 byte-parity.
     turn_images_once: list = field(default_factory=list)
+    # step_visit_counts: per-run tracking of how many times each step has been
+    # visited. Used for conditional gates with looping (the feature tracks re-entry
+    # for loop-back termination, branch deduplication, and iteration caps).
+    # Keyed on step id (agent_id), values are visit counts. Starts empty,
+    # incremented at step entry via pattern: ``step_visit_counts[step_id] += 1``.
+    # Transient per-run scratch (INV-2 — never on the singleton). Default-empty
+    # ⇒ DORMANT on non-looping runs ⇒ INV-3 byte-parity holds.
+    step_visit_counts: dict[str, int] = field(default_factory=dict)
+    # trigger_depth: cross-workflow trigger-chain depth (R-18). A plain CONSTRUCTOR-TIME
+    # value, not internally computed — the SAME idiom as every other per-run field this
+    # engine stamps at ``ExecutionContext(...)`` call time (``workspace_id``,
+    # ``disk_principal``, …): ``0`` for a normal (non-triggered) run (the dataclass
+    # default — every call site today constructs with the implicit default, confirmed
+    # by inspection of all ``ExecutionContext(...)`` call sites), or explicitly
+    # ``parent_ectx.trigger_depth + 1`` passed in by the FUTURE minting call site for a
+    # run started by a ``trigger: "workflow"`` route outcome. That call site
+    # (``run_trigger_workflow``, Phase 4 / plan.md §7 task 2) does not exist yet — this
+    # field only carries the value once minted; the "+1" propagation logic itself lives
+    # at the caller, not here (mirrors how ``owner_id``/``disk_principal`` are computed
+    # by ``execute()`` before construction, never inside this dataclass).
+    # Compared against the FIXED ceiling of ``5`` (R-19 — the compiler rejects any other
+    # declared ``RouteSpec.trigger_max_depth``) before a further trigger proceeds; breach
+    # raises ``BudgetExceeded`` (the same fail-closed pattern R-07 uses for
+    # ``step_visit_counts``). Phase 4 may read ``ectx.trigger_depth`` directly (an
+    # in-memory counter) INSTEAD OF walking the ``parent_run_id`` DB chain, provided this
+    # field's propagation is confirmed correct (plan.md §7 task 2) — T10's unit test
+    # covers that propagation across a mocked multi-level chain.
+    # DISTINCT from ``depth`` above (sub-run FAN-OUT nesting depth, a different cap for a
+    # different mechanism, Phase 11) — the two must never be conflated.
+    # Default ``0`` ⇒ DORMANT on every run that never triggers another workflow ⇒ INV-3
+    # byte-parity holds. Transient per-run scratch (INV-2 — never on the singleton).
+    trigger_depth: int = 0
 
     # ── KRN-005 (task.md R-03): scratch-mutation serialization for concurrent
     # fan-out children ────────────────────────────────────────────────────────

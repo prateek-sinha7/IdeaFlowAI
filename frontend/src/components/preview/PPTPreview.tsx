@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Presentation, RefreshCw } from "lucide-react";
-import { getToken } from "@/lib/api";
+import { authedFetch, getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
 
 interface PPTPreviewProps {
@@ -61,7 +61,7 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPrev
       // Find matching workflow for Agent 3 code
       let workflowId = "";
       try {
-        const res = await fetch(`${ENV.API_URL}/api/runs?type=ppt&limit=20`, {
+        const res = await authedFetch(`${ENV.API_URL}/api/runs?type=ppt&limit=20`, {
           headers: { "Authorization": `Bearer ${token}` },
         });
         if (res.ok) {
@@ -75,7 +75,10 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPrev
         }
       } catch {}
 
-      const response = await fetch(`${ENV.API_URL}/api/runs/export-pptx`, {
+      // FR-015: authedFetch, not bare fetch — Blob response, so request() is
+      // not an option; a 401 previously threw a plain "Export failed" with no
+      // session-expiry redirect.
+      const response = await authedFetch(`${ENV.API_URL}/api/runs/export-pptx`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({

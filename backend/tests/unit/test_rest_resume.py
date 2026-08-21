@@ -233,6 +233,24 @@ def test_resume_completed_409(env):
     assert run_id not in env["ws"]._PIPELINE_QUEUES
 
 
+def test_resume_diverted_409(env):
+    """014-conditional-gates RISK-03: "diverted" joined TERMINAL_RUN_STATUSES, but
+    it is excluded from ``_RESUMABLE_STATUSES`` like "completed" — a diverted run
+    stopped by design (handed off to a second, independent WorkflowRun; R-13's v1
+    has no wait/resume), so it must 409 exactly like a completed run, not silently
+    become resumable by inheriting the new terminal-set member."""
+    owner = _seed_user(env, "owner")
+    run_id = _seed_run(env, owner.id, status="diverted")
+    env["state"]["user"] = owner
+
+    resp = _post_resume(env, run_id)
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "run_not_resumable"
+    assert resp.json()["detail"]["recoverable"] is False
+    assert env["engine"].resume_calls == []
+    assert run_id not in env["ws"]._PIPELINE_QUEUES
+
+
 def test_resume_cancelled_200(env):
     """Phase 50 RESUME-18: cancelled runs ARE resumable (eligible), not a 409.
 

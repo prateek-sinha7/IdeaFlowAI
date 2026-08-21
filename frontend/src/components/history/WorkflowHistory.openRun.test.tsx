@@ -60,6 +60,18 @@ vi.mock("@/components/results/FilesTab", () => ({
   },
 }));
 vi.mock("@/components/results/AgentThinkingTab", () => ({ AgentThinkingTab: () => <div data-testid="thinking-tab" /> }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  useSearchParams: () => ({
+    get: vi.fn(() => null),
+  }),
+}));
+
 const STRIPPED_MOTION_PROPS = new Set([
   "initial", "animate", "exit", "transition", "whileHover",
   "whileTap", "whileFocus", "whileInView", "viewport", "layout",

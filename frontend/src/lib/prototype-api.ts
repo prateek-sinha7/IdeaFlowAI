@@ -7,6 +7,7 @@
  */
 
 import { ENV } from "@/lib/env";
+import { handleSessionExpiry } from "@/lib/api";
 
 const BASE_URL = ENV.API_URL;
 
@@ -45,6 +46,11 @@ async function authFetch<T>(token: string, path: string): Promise<T> {
     },
   });
   if (!res.ok) {
+    // FR-015 — T33 sweep: route a stale/invalid token through the shared
+    // clear+redirect helper instead of surfacing a generic error.
+    if (res.status === 401) {
+      handleSessionExpiry();
+    }
     const detail = await res.text().catch(() => res.statusText);
     throw new Error(`${res.status}: ${detail}`);
   }

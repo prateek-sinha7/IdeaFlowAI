@@ -127,7 +127,7 @@ export interface StreamMessage {
   // lifecycle events (statuses only, D-14). They flow through the same generic
   // backend WS forward and AgentDetailPanel's inline construction/wave tree reads
   // them; no existing event was renamed or removed.
-  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update" | "planner_start" | "planner_complete" | "planner_timeout" | "planner_error" | "gate_status" | "questionnaire_ready" | "questionnaire_complete" | "clarification_limit_reached" | "agent_input" | "agent_skills" | "tool_call" | "tool_result" | "task_progress" | "task_loop_progress" | "review_gate_ready" | "review_gate_approved" | "pipeline_heartbeat" | "pong" | "workflow_validated" | "validator_result" | "validation_warning" | "gate_started" | "gate_passed" | "gate_blocked" | "wave_started" | "wave_completed" | "wave_failed" | "subagent_spawned" | "subagent_result" | "pipeline_failed";
+  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update" | "planner_start" | "planner_complete" | "planner_timeout" | "planner_error" | "gate_status" | "questionnaire_ready" | "questionnaire_complete" | "clarification_limit_reached" | "agent_input" | "agent_skills" | "tool_call" | "tool_result" | "task_progress" | "task_loop_progress" | "review_gate_ready" | "review_gate_approved" | "pipeline_heartbeat" | "pong" | "workflow_validated" | "validator_result" | "validation_warning" | "gate_started" | "gate_passed" | "gate_blocked" | "wave_started" | "wave_completed" | "wave_failed" | "subagent_spawned" | "subagent_result" | "pipeline_failed" | "pipeline_diverted";
   chunk?: string;
   section?: string;
   data?: FinalOutput | ErrorDetail | ProcessStep | Record<string, unknown>;
@@ -368,7 +368,11 @@ export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "p
 // run (websocket.py), and the revision drainer can persist "revising". The raw
 // status is cast through this union at api.ts:288 (`raw.status as ...`); include
 // both so the cast is honest and the history-reopen comparisons type-check.
-export type WorkflowStatus = "running" | "completed" | "failed" | "cancelled" | "degraded" | "revising" | "planning" | "generating" | "waiting_for_user" | "clarifying" | "analyzing";
+// R-14 (014-conditional-gates): "diverted" is a new terminal status set when a
+// `trigger: workflow` route outcome fires — the run stops its own dispatch loop
+// and hands off to a newly-minted WorkflowRun (parent_run_id). R-20 renders it
+// as a distinct "Diverted to X" card treatment, never as "Completed".
+export type WorkflowStatus = "running" | "completed" | "failed" | "cancelled" | "degraded" | "revising" | "planning" | "generating" | "waiting_for_user" | "clarifying" | "analyzing" | "diverted";
 
 export interface WorkflowRun {
   id: string;
@@ -409,6 +413,11 @@ export interface WorkflowRun {
   // from a prior run's output (e.g. User Stories → Prototype chain).
   // Used to show "(Chained)" in the Jump Back In section.
   sourceRunId?: string | null;
+  // R-20 (014-conditional-gates, T41/T42): the instance_id of the conditional-gate
+  // step that diverted this run to another workflow. Set only on a run whose
+  // status is "diverted"; null/absent otherwise (including legacy pre-migration
+  // rows). Drives the "step {id}" clause on the target run's DivertBadge.
+  divertedAtStepId?: string | null;
   createdAt: string;
   completedAt?: string;
   duration?: number;
@@ -553,12 +562,13 @@ export interface WorkflowCapabilities {
 /** One step of the full `{"steps": [...]}` manifest shape the backend
  *  `_project` sniffs apart from the compact EMP-03 selections map (spec 012,
  *  `backend/app/api/user_workflows.py::_project`). Mirrors
- *  `agents/workflows/manifest.py`'s step schema (R-01..R-05). A built-in step
- *  carries `agent_id`; a custom-agent instance carries `agent: "custom-agent"`
- *  plus its own `instance_id`/`name`/`prompt` (R-02/R-03/R-03a). */
+ *  `agents/workflows/manifest.py`'s step schema (R-01..R-05). The compiler's
+ *  `_ALLOWED_STEP_KEYS` allow-list recognizes only `agent` as the step-identity
+ *  key (never `agent_id`, INV-5): a built-in step carries `agent: <builtin id>`;
+ *  a custom-agent instance carries `agent: "custom-agent"` plus its own
+ *  `instance_id`/`name`/`prompt` (R-02/R-03/R-03a). */
 export interface ManifestStep {
-  agent_id?: string;
-  agent?: "custom-agent";
+  agent?: string;
   /** Generated once at node creation; matches `^[a-z0-9][a-z0-9-]*$`; never
    *  regenerated on rename (R-03). Custom-agent steps only. */
   instance_id?: string;
@@ -584,6 +594,22 @@ export interface ManifestStep {
    *  it to build each step's roster block (`_build_roster`), which is what tells a
    *  step where its upstream inputs actually live. */
   depends_on?: string[];
+  /** Conditional-gate branch spec (spec 014 / R-02), mirrors `RouteSpec` from
+   *  `backend/agents/workflows/plan.py` field-for-field. Only meaningful when
+   *  `"conditional"` is present in this step's `gates` list. */
+  route?: {
+    condition_agent?: string;
+    outcomes: Record<string, { trigger: "step" | "workflow"; target: string }>;
+    default_next?: string;
+    loop_max_iterations?: number;
+    trigger_max_depth?: number;
+  };
+  /** Typed-artifact kinds this step's output supplies (spec 014 / R-05b), mirroring
+   *  `Step.produces` in `backend/agents/workflows/plan.py`. Only `"route_decision"`
+   *  is meaningful today: R-27 requires a route's decision-source step to declare it.
+   *  DERIVED from the drawn routes at serialise time (`agentsToManifestSteps`), like
+   *  `depends_on` — there is no per-node authoring control for it. */
+  produces?: string[];
   subagents?: {
     mode: SubagentStrategy;
     max_parallel?: number;
@@ -654,6 +680,15 @@ export interface AgentDef {
   /** Per-node tool grants (R-01 tools block). Absent means the compiler's
    *  least-privilege defaults apply. */
   tools?: AgentToolGrants;
+  /** Conditional-gate branch spec (spec 014 / R-02), mirrors `RouteSpec` from
+   *  `backend/agents/workflows/plan.py` field-for-field. */
+  route?: {
+    condition_agent?: string;
+    outcomes: Record<string, { trigger: "step" | "workflow"; target: string }>;
+    default_next?: string;
+    loop_max_iterations?: number;
+    trigger_max_depth?: number;
+  };
   /** Child sub-agent nodes rendered below this node on the canvas (R-35). */
   children?: AgentDef[];
   /** The child group's run strategy (R-04/R-36). Present only when
@@ -862,6 +897,11 @@ export interface PipelineRunState {
   // ("Cancelled by you" ack + relaunch) from this flag instead of falling
   // through to idle. Absent on non-cancelled runs.
   cancelled?: boolean;
+  // R-28/R-20 (014-conditional-gates, T38): set by the `pipeline_diverted`
+  // reducer case (mirrors `cancelled`) when a `trigger: workflow` route
+  // outcome ends this run's dispatch loop and hands off to a new run. The
+  // live run-view's terminal treatment reads this instead of "Completed".
+  divertedTo?: { runId: string; workflowId: string };
   // KAN-73 — live audit trail from hook_run WS events
   hookRuns?: HookRunEntry[];
   // Workstream C1 (POR §6.2/§6.5) — answered clarify rounds retained per run so

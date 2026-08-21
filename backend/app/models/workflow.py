@@ -114,6 +114,13 @@ class WorkflowRun(Base):
     # on resume, the pre-fix behavior (INV-3 parity).
     gate_agent_ids_json = Column(JSON, nullable=True)
 
+    # Added additively by migration 0033. The step id at which a diverged/diverted
+    # run (child of parent_run_id via the conditional gate) was triggered. Frontend
+    # uses this to render "← Continued from {parent run}, step {step_id}" in the
+    # run-breadcrumb. Nullable: legacy runs or runs not diverted via conditional
+    # gates stay NULL (no step_id exists for the trigger). Populated by T41.
+    diverted_at_step_id = Column(String, nullable=True)
+
     user = relationship("User", back_populates="workflow_runs")
     parent_run = relationship("WorkflowRun", remote_side=[id])
     # (The legacy ``artifacts`` -> WorkflowArtifact relationship was removed in 05-07

@@ -818,6 +818,11 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const briefAttachments = useBriefAttachments();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const preSpeechTextRef = useRef("");
+  // T29 / cold-mount fix: track if we've attempted to restore agents from
+  // initialAgentIds when ALL_LIBRARY_AGENTS loaded. The lazy initializer (line 846)
+  // may fail to map agent IDs if ALL_LIBRARY_AGENTS is empty at first mount, so
+  // the restoration effect must retry when agents become available.
+  const attemptedInitialRestoreRef = useRef(false);
   const { isListening, transcript, startListening, stopListening, isSupported: speechSupported } = useSpeechRecognition();
 
   // Strip _wizard key from selections — it's FE-only metadata, not a capability selector
@@ -954,14 +959,34 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // However, when initialAgentIds is cleared (savedComposition set to null after
     // navigating to a different workflow type), we MUST reset to the correct defaults
     // for the new type — otherwise stale agents from a previous saved workflow bleed in.
-    if (initialAgentIds?.length) return;
+    //
+    // T29 / cold-mount fix: if initialAgentIds exist but haven't been successfully
+    // restored yet (pipelineAgents still empty after lazy init), attempt restoration
+    // now that ALL_LIBRARY_AGENTS has loaded. The lazy initializer (line 846) may
+    // have failed if ALL_LIBRARY_AGENTS was empty at first mount. Only attempt once
+    // via attemptedInitialRestoreRef to avoid repeated restoration attempts.
+    if (initialAgentIds?.length) {
+      if (!attemptedInitialRestoreRef.current && ALL_LIBRARY_AGENTS.length > 0) {
+        // Attempt to restore from initialAgentIds now that agents are loaded
+        const restored = initialAgentIds
+          .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
+          .filter(Boolean) as AgentDef[];
+        if (restored.length > 0) {
+          setPipelineAgents(restored);
+        }
+        attemptedInitialRestoreRef.current = true;
+      }
+      return;
+    }
+    // Reset the restoration flag when initialAgentIds is cleared
+    attemptedInitialRestoreRef.current = false;
     // KAN-112: custom workflow starts blank — user picks agents themselves.
     if (effectiveType === "custom") {
       setPipelineAgents([]);
     } else {
       setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order));
     }
-  }, [LIBRARY_AGENTS, effectiveType, initialAgentIds]);
+  }, [LIBRARY_AGENTS, effectiveType, initialAgentIds, ALL_LIBRARY_AGENTS]);
 
   // Reset the sub-choice when the parent switches us off the migration meta-type.
   useEffect(() => {

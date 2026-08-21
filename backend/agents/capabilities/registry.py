@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 # context_provider: opendesign, previous_run, repo (09-03), uploaded_files (30-02 / UPLD-03)
 # input_provider:  run_images  (260707-edw — image-input Wave 1, user_allowed=True)
 # task_parser:     heading_tasks
-# gate:            human, validation, approval, security  (08-02)
+# gate:            human, validation, approval, security, conditional  (08-02, spec 014 / T17)
 # tool:            workspace, prototype, prototype_emit_only, planning  (08-03 / F2)
 # compaction:      html_skeleton
 # post_step:       revision_validation, api_prefix_audit  (19-02 / ISS-005 — event-free infra audit)
@@ -111,6 +111,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("gate", "validation"),
     ("gate", "approval"),   # 08-02
     ("gate", "security"),   # 08-02
+    ("gate", "conditional"),  # spec 014 / T17
     ("tool", "workspace"),             # 08-03 / F2
     ("tool", "prototype"),             # 08-03 / F2
     ("tool", "prototype_emit_only"),   # 08-03 / F2

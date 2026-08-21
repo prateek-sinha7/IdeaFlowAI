@@ -28,6 +28,7 @@ Security:
     itself resolves a closed id-alias set before touching the filesystem.
 """
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -62,14 +63,41 @@ router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 # user-supplied id can never reach a filesystem read.
 
 
+_logger = logging.getLogger(__name__)
+
+
 def _discover_manifest_ids() -> frozenset[str]:
-    return frozenset(
+    """Discover authored manifest ids whose manifest ACTUALLY COMPILES.
+
+    A dir can satisfy the folder-shape check (real pipeline type + a
+    workflow.yaml present) while still authoring fields the compiler doesn't
+    support yet (e.g. in-progress spec fixtures using `gates`/`route` ahead of
+    compiler support). Such a manifest must never enter `_KNOWN_WORKFLOW_IDS`:
+    every id in that set is later fed straight to `compile_for_run` by
+    `list_workflows`, so a bad manifest bad here would 500 the whole listing
+    for every user. Validate by compiling once at import time and drop (with
+    a warning) any id that fails — flagged and excluded, not loaded.
+    """
+    candidates = (
         p.name
         for p in _WORKFLOWS_DIR.iterdir()
         if p.is_dir()
         and p.name in SUPPORTED_PIPELINE_TYPES
         and (p / "workflow.yaml").exists()
     )
+    valid_ids = []
+    for workflow_id in candidates:
+        try:
+            compile_for_run(workflow_id)
+        except Exception as exc:
+            _logger.warning(
+                "Skipping workflow manifest %r — failed to compile: %s",
+                workflow_id,
+                exc,
+            )
+            continue
+        valid_ids.append(workflow_id)
+    return frozenset(valid_ids)
 
 
 _KNOWN_WORKFLOW_IDS: frozenset[str] = _discover_manifest_ids()

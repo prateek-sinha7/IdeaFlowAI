@@ -265,6 +265,25 @@ _DOCUMENTED_EVENT_TYPES = frozenset(
         # test_chat_event_neutrality), keeping them byte/event-identical (INV-3).
         # 33-03 introduced NO other new event type (answers reuse ``chat_reply``).
         "concierge_proposal",
+        # ── Fan-out worker lifecycle events (kernel run_fanout, engine.py fanout.py) ──
+        # ``subagent_spawned`` / ``subagent_result`` are emitted per worker by the
+        # kernel ``run_fanout`` spawn path (agents/execution_engine/fanout.py:573,588,
+        # 579,632) for any ``subagents: {mode: parallel|sequential}`` group or
+        # declarative ``fanout_batch``/``wave_scheduler`` step. ``merge_started`` /
+        # ``merge_completed`` (fanout.py:917,927,960,1078) bracket the post-collect
+        # fragment merge. ``artifact_fallback`` (engine.py:4994-5001) fires when the
+        # ``single_file`` deliverable resolver falls back to streamed text because the
+        # declared file was never written (agents/capabilities/deliverables/
+        # single_file.py) — the expected path for a text-only scripted fan-out parent.
+        # All genuinely real production vocabulary — undeclared here until the 003-05
+        # fanout-family characterization suite (sample_subagents_parallel) surfaced the
+        # gap the same way the ``agent_skills`` / ``gate_blocked`` omissions were found
+        # above.
+        "subagent_spawned",
+        "subagent_result",
+        "merge_started",
+        "merge_completed",
+        "artifact_fallback",
     }
 )
 

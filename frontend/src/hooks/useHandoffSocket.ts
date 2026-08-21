@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StreamMessage } from "@/types/index";
-import { clearToken, getToken } from "@/lib/api";
+import { getToken, handleSessionExpiry } from "@/lib/api";
 
 export type ConnectionStatus =
   | "connecting"
@@ -160,12 +160,9 @@ export function useHandoffSocket(
 
       if (event.code === JWT_EXPIRED_CODE) {
         // JWT expired — clear token and redirect to login
-        clearToken();
+        handleSessionExpiry();
         setConnectionStatus("disconnected");
         setLastError("Your session has expired. Please log in again.");
-        if (typeof window !== "undefined") {
-          window.location.href = "/login";
-        }
         return;
       }
 

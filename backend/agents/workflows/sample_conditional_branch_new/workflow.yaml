@@ -1,0 +1,89 @@
+# sample_conditional_branch_new — hello-world for spec 014's FORWARD BRANCH case (A2).
+# NOT YET EXECUTABLE — see specs/014-conditional-gates/spec.md. Reference fixture only.
+#
+# Steps (4 total, only 3 ever run in a given pass — see below):
+#
+#   1. greet (responds "hi", no tools) -> 2. pick (gates:[conditional], produces:[route_decision])
+#                                        |___ outcome: english ___> 3a. say-hello (responds "Hello, world!", terminal)
+#                                        |___ outcome: spanish ___> 3b. say-hola  (responds "¡Hola, mundo!", terminal)
+#
+# route.outcomes on step 2 ("pick"): english -> {step, say-hello} | spanish -> {step, say-hola}
+# No default_next — an unrecognised decision value terminates the run at step 2.
+#
+# Exactly ONE of say-hello / say-hola runs per run — never both, never neither
+# (R-09/R-10 — both branch targets are compile-time validated to exist, but
+# only one is ever walked by the cursor at runtime; matches spec.md example A2).
+
+id: sample_conditional_branch_new
+user_launchable: true
+is_beta: true
+display_name: Conditional Gate — branch to a new node
+short_name: Branch (Hello World)
+icon: GitBranch
+description: Smallest possible example of a conditional gate picking one of two forward branches.
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  strategy: serialized_sandbox      # sidesteps GAP-01 — see previous_step's header note
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 300
+
+steps:
+- agent: custom-agent
+  instance_id: greet
+  name: Greet
+  prompt: Do not call any tools. You do not need to write anything. Respond with exactly this text and nothing else: "hi"
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: pick
+  name: Pick Language
+  produces: ["route_decision"]
+  prompt: |
+    Do not call any tools. You do not need to write anything. Respond with exactly one of these lines:
+    {"decision": "english"}
+    {"decision": "spanish"}
+  gates:
+  - conditional
+  route:
+    outcomes:
+      english: {trigger: step, target: say-hello}
+      spanish: {trigger: step, target: say-hola}
+    # No default_next — an unrecognised decision terminates the run here.
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: say-hello
+  name: Say Hello
+  prompt: Call write_file with path "output.txt" and content "Hello, world!". Do not ask clarifying questions. Do not explain your reasoning. Do not use any other filename or content. Call write_file now with exactly this path and content, then stop.
+  gates: []
+  tools:
+    read_files: false
+    write_files: true
+    exec: false
+
+- agent: custom-agent
+  instance_id: say-hola
+  name: Say Hola
+  prompt: Call write_file with path "output.txt" and content "¡Hola, mundo!". Do not ask clarifying questions. Do not explain your reasoning. Do not use any other filename or content. Call write_file now with exactly this path and content, then stop.
+  gates: []
+  tools:
+    read_files: false
+    write_files: true
+    exec: false
+
+name: Branch (Hello World)

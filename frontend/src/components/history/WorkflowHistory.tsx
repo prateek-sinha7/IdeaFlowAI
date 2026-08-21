@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useMemo, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FileText, Presentation, Layout,
@@ -10,6 +11,7 @@ import {
 } from "lucide-react";
 import { getToken, getWorkflows, getWorkflow, deleteWorkflow, getRunFamily, getRunArtifacts } from "@/lib/api";
 import { parseClarificationArtifacts } from "@/lib/clarifications";
+import { routes } from "@/lib/routes";
 // KAN-116 (Bug 3): clean === markers from titles stored in DB (safety net for existing data).
 import { parseRunInput } from "@/lib/runInput";
 import { PPTPreview } from "@/components/preview/PPTPreview";
@@ -25,7 +27,7 @@ import { resolveReopenMimetype } from "@/types/index";
 import { useWorkflowChaining } from "@/hooks/useWorkflowMetadata";
 // Revision Families (B2 / D3): client-side grouping by rootRunId + the family
 // root card (REUSE-FIRST — WORKSTREAM-B-UI-SPEC.md Surface 1).
-import { groupRunsByFamily, FamilyGroupCard, baseWorkflowType, bucketAndSortFamilies, type HistorySortKey } from "./RevisionFamilyView";
+import { groupRunsByFamily, FamilyGroupCard, baseWorkflowType, bucketAndSortFamilies, buildDivertLinks, type HistorySortKey } from "./RevisionFamilyView";
 // SHELL-03: the terminal-run detail's summary surfaces (KPI / per-agent breakdown /
 // version timeline / failure banner) render via the single-source RunDetailPage
 // (fed by getRunSummary) — no dual implementation with the deliverable wrapper.
@@ -52,6 +54,15 @@ interface WorkflowHistoryProps {
   // internal RunDetailPage (one-shot summary, no SSE, no chat lane). When absent,
   // the legacy setSelectedRun internal-detail fallback is preserved.
   onOpenRun?: (run: WorkflowRun) => void;
+  // T38 (014-conditional-gates, R-20 live case): page.tsx's own `recentRuns`
+  // state — refetched there on pipeline_diverted/failed/etc. WorkflowHistory
+  // previously fetched its OWN `runs` state once on mount and never re-synced,
+  // so an already-open history panel showed nothing new until the panel was
+  // closed and reopened. This prop is read only for its REFERENCE identity (a
+  // change-signal to re-fetch our own `runs`, below) — its contents are never
+  // read directly, since `getWorkflows(token, { limit: 50 })` here already
+  // returns the same shape (with an accurate `total`) that produced it.
+  recentRuns?: WorkflowRun[];
 }
 
 // ─── Parse all filename: blocks from agent outputs for the IDE preview ────────
@@ -139,8 +150,10 @@ function cleanDisplayTitle(
   return runInput ? (extractFromInput(runInput) || fallback) : fallback;
 }
 
-export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline, onOpenRun }: WorkflowHistoryProps) {
+export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline, onOpenRun, recentRuns }: WorkflowHistoryProps) {
   const chainInto = useWorkflowChaining();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [totalRuns, setTotalRuns] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -179,6 +192,14 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     if (reviseOpen && revisionRef.current) revisionRef.current.focus();
   }, [reviseOpen]);
 
+  // T12: Read filter/sort state from URL on mount
+  useEffect(() => {
+    const type = searchParams.get("type") || "all";
+    const sort = searchParams.get("sort") as HistorySortKey || "recent";
+    setFilterType(type);
+    setSortKey(sort);
+  }, []);
+
   useEffect(() => {
     const token = getToken();
     if (!token) return;
@@ -191,6 +212,26 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [filterType]);
+
+  // T38 (014-conditional-gates, R-20 live case): re-fetch, WITHOUT the
+  // skeleton-loading flash above, whenever the parent's `recentRuns` changes
+  // reference — i.e. whenever page.tsx itself refetched for any live pipeline
+  // event (diverted/failed/waiting_for_user/resumed/...). Skips the very first
+  // render (the mount effect above already covers it) by comparing against the
+  // ref's own initial value.
+  const recentRunsRef = useRef(recentRuns);
+  useEffect(() => {
+    if (recentRunsRef.current === recentRuns) return;
+    recentRunsRef.current = recentRuns;
+    const token = getToken();
+    if (!token) return;
+    getWorkflows(token, { limit: 50 })
+      .then(({ runs: data, total }) => {
+        setRuns(data);
+        setTotalRuns(total);
+      })
+      .catch(() => {});
+  }, [recentRuns]);
 
   const handleLoadMore = useCallback(() => {
     const token = getToken();
@@ -844,6 +885,10 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // per family root; the type-filter counts each family ONCE under its base type.
   const families = groupRunsByFamily(runs);
   const visibleFamilies = families.filter((g) => g.members.some(matchesFilter));
+  // R-20 (014-conditional-gates, T38): the diverted-run <-> triggered-run card
+  // links, reconstructed purely from the already-fetched runs' status/parentRunId
+  // (historical case — no extra fetch, no live event required).
+  const divertLinks = buildDivertLinks(runs);
   // SHELL-02: layer the Today/Earlier/Older buckets + the chosen sort OVER the
   // family grouping (fields already on each row — no fetch, no backend change).
   const sections = bucketAndSortFamilies(visibleFamilies, sortKey);
@@ -899,7 +944,13 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               return (
                 <button
                   key={type}
-                  onClick={() => setFilterType(type)}
+                  onClick={() => {
+                    setFilterType(type);
+                    router.replace(routes.runHistory({
+                      type: type === "all" ? undefined : type,
+                      sort: sortKey === "recent" ? undefined : sortKey,
+                    }));
+                  }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0 ${
                     filterType === type
                       ? "bg-brand text-white"
@@ -938,7 +989,13 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                   <button
                     key={opt.key}
                     type="button"
-                    onClick={() => setSortKey(opt.key)}
+                    onClick={() => {
+                      setSortKey(opt.key);
+                      router.replace(routes.runHistory({
+                        type: filterType === "all" ? undefined : filterType,
+                        sort: opt.key === "recent" ? undefined : opt.key,
+                      }));
+                    }}
                     aria-pressed={active}
                     aria-label={`Sort by ${opt.key}`}
                     className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
@@ -1059,6 +1116,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                       openMenuId={openMenuId}
                       onToggleMenu={(id, e) => { e?.stopPropagation(); setOpenMenuId(openMenuId === id ? null : id); }}
                       onDeleteClick={handleDeleteClick}
+                      divertLinks={divertLinks}
                     />
                   ))}
                 </div>

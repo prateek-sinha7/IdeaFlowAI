@@ -26,7 +26,7 @@ import type { RunLaneState } from "@/components/chat/RunChatLane";
 import { Tabs } from "@/components/ui/Tabs";
 import type { WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
 import type { TabDeepLinkTarget } from "@/hooks/useTabDeepLink";
-import { getToken, getWorkflow } from "@/lib/api";
+import { authedFetch, getToken, getWorkflow } from "@/lib/api";
 import { ENV } from "@/lib/env";
 // ISS-024 — shared id→name resolution for the failed-agents list (no dual-impl).
 import { buildAgentNameById, resolveAgentNames } from "@/lib/parseFailedAgents";
@@ -506,18 +506,12 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   useEffect(() => { if (initialTab === "preview" || initialTab === "files") setActiveTab(initialTab); }, [initialTab]);
 
   // Phase 31 (CHATUI-02) — nonce'd deep-link consumer (borrow #6). A chat
-  // result-card click mints a fresh {tab, nonce}; switch to the target tab for
-  // ALL panel tabs (preview/files/thinking/audit) — one switch per click. The
-  // effect is keyed on the monotonic nonce, so a repeat deep-link to the
-  // already-active tab still re-fires, and a stale nonce cannot re-navigate. A
-  // non-panel target (e.g. "steps", owned by the left lane column) is ignored.
-  useEffect(() => {
-    const tab = deepLinkTarget?.tab;
-    if (tab && (PANEL_TAB_IDS as readonly string[]).includes(tab)) {
-      setActiveTab(tab as PanelTab);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deepLinkTarget?.nonce]);
+  // result-card click (or T7's cold-mount reopen) mints a fresh {tab, nonce};
+  // switch to the target tab for ALL panel tabs (preview/files/thinking/audit).
+  // T7 retry (015-frontend-routing, FR-003/SC-001): this used to be its OWN
+  // effect, independently calling setActiveTab and racing the state-keyed
+  // default-tab effect below for the same setter — see that effect's comment
+  // for why the two are now merged into one so precedence is explicit.
 
   // ─── B3 — family/version derivation (UI-SPEC Surface 3) ──────────────────────
   // sortedMembers v1..vN by revision_index; latestId = last member (fallback
@@ -720,8 +714,39 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // The latch keys on a generic discriminator that folds the failed-no-deliverable
   // state into "failed" so the auto-select fires for it; a failed run that still
   // carries content keeps Preview (content wins) and is left as-is.
+  //
+  // T7 retry (015-frontend-routing, FR-003/SC-001): this effect and the Phase-31
+  // (CHATUI-02) deep-link consumer used to be TWO SEPARATE effects, each calling
+  // setActiveTab on its own — ordered only by declaration position when both fired
+  // in the same commit. That broke cold-opening /runs/{id}/steps|files|audit for a
+  // COMPLETED run: the page's T7 cold-mount effect fetches the run AND requests
+  // the deep-link tab from the same promise-chain flush, so headerRunState's flip
+  // to "complete" and the deep-link's nonce bump landed in the SAME React commit —
+  // both effects fired, and this one (declared later) always won, silently
+  // stomping the deep link back to "preview" (confirmed live). Moving the deep-
+  // link request into page.tsx's `.finally()` only changes WHEN the nonce updates
+  // relative to the fetch's own state updates, not WHICH effect wins once they
+  // land together, so that alone could never fix it. The two are merged into this
+  // ONE effect so precedence is explicit and independent of commit/scheduling
+  // timing: a freshly-arrived deep-link nonce always wins over the generic
+  // per-state default, whether it lands in its own commit or the same one as a
+  // state transition.
   const defaultTabDiscriminator = terminalFailureNoDeliverable ? "failed" : headerRunState;
+  const lastAppliedDeepLinkNonceRef = useRef<number | undefined>(undefined);
   useEffect(() => {
+    const nonce = deepLinkTarget?.nonce;
+    const freshDeepLink = nonce !== undefined && nonce !== lastAppliedDeepLinkNonceRef.current;
+    lastAppliedDeepLinkNonceRef.current = nonce;
+
+    if (freshDeepLink) {
+      const tab = deepLinkTarget!.tab;
+      if ((PANEL_TAB_IDS as readonly string[]).includes(tab)) setActiveTab(tab as PanelTab);
+      // The deep link owns the tab for this state too, so a same-commit state
+      // transition doesn't immediately re-fire the default branch below for it.
+      autoTabbedForState.current = defaultTabDiscriminator;
+      return;
+    }
+
     if (autoTabbedForState.current === defaultTabDiscriminator) return;
     autoTabbedForState.current = defaultTabDiscriminator;
     const target: PanelTab | null =
@@ -731,7 +756,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
       null;
     if (target) setActiveTab(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaultTabDiscriminator]);
+  }, [defaultTabDiscriminator, deepLinkTarget?.nonce]);
   // Live version label — derived from the live family (active member index) or the
   // pipeline's deliverableVersion; default v1. NEVER the mock's fixed "v1"/"v2".
   const familyVersionCount = runFamily?.members.length ?? 0;
@@ -1241,7 +1266,7 @@ function PPTTabActions({
       }
       let workflowId = "";
       try {
-        const res = await fetch(`${ENV.API_URL}/api/runs?type=ppt&limit=5`, {
+        const res = await authedFetch(`${ENV.API_URL}/api/runs?type=ppt&limit=5`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
@@ -1249,7 +1274,10 @@ function PPTTabActions({
           if (runs.length > 0) workflowId = runs[0].id;
         }
       } catch { /* ignore */ }
-      const response = await fetch(`${ENV.API_URL}/api/runs/export-pptx`, {
+      // FR-015: authedFetch, not bare fetch — this reads a Blob so it can't go
+      // through request(); a 401 previously surfaced as a generic
+      // "Download failed" alert with no session-expiry redirect.
+      const response = await authedFetch(`${ENV.API_URL}/api/runs/export-pptx`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ js_code: pptxCode || "", html: content || "", workflow_id: workflowId, title: pptTitle }),

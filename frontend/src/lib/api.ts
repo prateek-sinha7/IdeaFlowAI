@@ -15,6 +15,7 @@ import type {
   WorkflowType,
 } from "@/types/index";
 import { ENV } from "@/lib/env";
+import { routes } from "@/lib/routes";
 
 const BASE_URL = ENV.API_URL;
 
@@ -48,8 +49,9 @@ export function clearToken(): void {
  *
  * Pass an empty string when no token is available; the request will 401 and
  * the catch will swallow it. (See the JWT-expired close handler in
- * useHandoffSocket.ts which legitimately calls clearToken() directly — the
- * token is already invalid, so /logout would just 401.)
+ * useHandoffSocket.ts, which legitimately clears the token via
+ * handleSessionExpiry() without calling this function — the token is
+ * already invalid, so /logout would just 401.)
  */
 export async function logout(token: string): Promise<void> {
   try {
@@ -90,24 +92,113 @@ class ApiError extends Error {
 // it never aborts a legitimately-slow brief ingest / large-deliverable fetch.
 const REQUEST_TIMEOUT_MS = 30_000;
 
-async function request<T>(
+// FR-015 — paths where a 401 means "your credentials were rejected", not
+// "your session expired": the caller already shows that inline (login/page.tsx
+// lines 26-28; AccountSettings.tsx for a wrong current password). Redirecting
+// on these would bounce straight back to /login, or silently log a user out
+// for mistyping their current password instead of showing the inline error.
+// Exported so store/api/http.ts's axios interceptor (a second shared request
+// path — see its own 401 handling) can reuse the exact same exemption list
+// instead of drifting out of sync with a duplicate.
+export const SESSION_EXPIRY_EXEMPT_PATHS = new Set([
+  "/api/auth/login",
+  "/api/auth/change-password",
+]);
+
+/**
+ * Normalize either a bare path (`/api/auth/login?x=1`) or an absolute URL
+ * (`https://api.example.com/api/auth/login`) down to just its pathname, so the
+ * exempt-set lookup is the same test no matter which of the request paths
+ * (fetchWithAuth, authedFetch, the axios interceptor) is asking.
+ */
+function requestPathname(pathOrUrl: string): string {
+  try {
+    return new URL(pathOrUrl, "http://localhost").pathname;
+  } catch {
+    return pathOrUrl;
+  }
+}
+
+/** The ONE predicate behind FR-015's "don't redirect on this 401" carve-out. */
+export function isSessionExpiryExempt(pathOrUrl: string): boolean {
+  return SESSION_EXPIRY_EXEMPT_PATHS.has(requestPathname(pathOrUrl));
+}
+
+/**
+ * FR-015's one "session expired" side effect: clear the stored token and
+ * send the browser to routes.login({ expired: true }). Shared by the three
+ * places a session can expire from — this file's own fetchWithAuth 401
+ * branch, store/api/http.ts's axios response interceptor (Library's
+ * agent/skill/hook fetches and the rest of store/api/), and
+ * useHandoffSocket.ts's JWT-expired (4001) WebSocket close handler — so the
+ * clear+redirect pair can't drift out of sync across the three copies.
+ */
+export function handleSessionExpiry(): void {
+  clearToken();
+  if (typeof window !== "undefined") {
+    window.location.href = routes.login({ expired: true });
+  }
+}
+
+/**
+ * FR-015 — the guarded escape hatch for call sites that CANNOT go through
+ * request()/fetchWithAuth below: they need the raw Response (a Blob download),
+ * an incrementally-read body (NDJSON / SSE), or a non-JSON error shape. Those
+ * sites hand-roll `fetch(url, { headers: { Authorization: ... } })`, and every
+ * one of them is a place FR-015's redirect silently goes missing — this spec
+ * found nine such sites one at a time before this helper existed.
+ *
+ * `authedFetch` is a drop-in for global `fetch` (same arguments, same Response,
+ * same throw-on-network-failure behavior) that adds exactly one thing: the 401
+ * session-expiry side effect, using the same exempt list as every other request
+ * path. Prefer request()/fetchWithAuth; reach for this only when you need the
+ * raw Response. A hand-written authenticated `fetch(` anywhere in `src/` that
+ * is NOT this function, fetchWithAuth, or a site with its own documented
+ * handleSessionExpiry() call is an FR-015 defect.
+ *
+ * Deliberately NOT routed through here: `logout()` above (a 401 means the token
+ * is already dead — redirecting mid-logout is noise) and useRunStream's
+ * `/api/auth/refresh` probe (a failed refresh must fall back to its own
+ * try-refresh-then-expire ladder, not log the user out mid-run).
+ */
+export async function authedFetch(
+  input: string,
+  init?: RequestInit
+): Promise<Response> {
+  const response = await fetch(input, init);
+  if (response.status === 401 && !isSessionExpiryExempt(input)) {
+    handleSessionExpiry();
+  }
+  return response;
+}
+
+/**
+ * Shared fetch path for every REST call: timeout/abort handling, and on a
+ * 401 (outside the exempt paths above) clearing the token + redirecting to
+ * routes.login({ expired: true }) — the ONE place FR-015's "session expired"
+ * handling lives, so it fires from any screen instead of being duplicated
+ * per call site. Returns the raw Response on success (2xx) so callers that
+ * need response headers (e.g. getWorkflows' X-Total-Count) aren't forced
+ * through request()'s JSON-only return.
+ */
+async function fetchWithAuth(
   path: string,
-  options: RequestInit = {}
-): Promise<T> {
+  options: RequestInit = {},
+  timeoutMs: number = REQUEST_TIMEOUT_MS
+): Promise<Response> {
   const url = `${BASE_URL}${path}`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
-    // No current request() caller passes its own signal, so a direct assignment
-    // is safe.
+    // No current caller passes its own signal, so a direct assignment is safe.
     response = await fetch(url, { ...options, signal: controller.signal });
   } catch (err) {
     // On abort the fetch throws a DOMException AbortError — translate it to a
     // typed, catchable ApiError (status 0) so callers surface a clear timeout
     // instead of an opaque hang (matches the reopen catch at page.tsx).
     if (err instanceof DOMException && err.name === "AbortError") {
-      throw new ApiError(0, `Request timeout after ${REQUEST_TIMEOUT_MS}ms (aborted)`);
+      throw new ApiError(0, `Request timeout after ${timeoutMs}ms (aborted)`);
     }
     throw err;
   } finally {
@@ -118,9 +209,24 @@ async function request<T>(
     const body = await response.json().catch(() => ({
       detail: response.statusText,
     }));
+    if (response.status === 401 && !isSessionExpiryExempt(path)) {
+      handleSessionExpiry();
+    }
     throw new ApiError(response.status, body.detail ?? body);
   }
 
+  return response;
+}
+
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  timeoutMs?: number
+): Promise<T> {
+  const response = await fetchWithAuth(path, options, timeoutMs);
+  // DELETE endpoints (chats/runs/user-workflows/admin users) return 204 No
+  // Content — no body to parse.
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -260,18 +366,10 @@ export async function deleteChat(
   token: string,
   chatId: string
 ): Promise<void> {
-  const url = `${BASE_URL}/api/chats/${chatId}`;
-  const response = await fetch(url, {
+  await request<void>(`/api/chats/${chatId}`, {
     method: "DELETE",
     headers: authHeaders(token),
   });
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({
-      detail: response.statusText,
-    }));
-    throw new ApiError(response.status, body.detail ?? body);
-  }
 }
 
 export { ApiError };
@@ -302,6 +400,9 @@ interface RawWorkflowRun {
   // KAN-130: chaining indicator — set when a run was launched from a prior run's
   // output (chain into). Optional so legacy rows without it still parse.
   source_run_id?: string | null;
+  // R-20 (014-conditional-gates, T41/T42): the step id a divert fired from.
+  // Optional so legacy raw rows without it still parse.
+  diverted_at_step_id?: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -340,6 +441,8 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     rootRunId: raw.root_run_id ?? raw.id,
     // KAN-130: chaining indicator — non-null when launched by chaining from another run.
     sourceRunId: raw.source_run_id ?? null,
+    // R-20 (014-conditional-gates, T41/T42): the step a divert fired from.
+    divertedAtStepId: raw.diverted_at_step_id ?? null,
     agentCount: raw.agent_count,
     duration: raw.duration ?? undefined,
     error: raw.error ?? undefined,
@@ -360,12 +463,12 @@ export async function getWorkflows(
   const qs = params.toString();
   if (qs) path += `?${qs}`;
 
-  const res = await fetch(`${ENV.API_URL}${path}`, {
+  // Routed through fetchWithAuth (not request()) — this caller needs the raw
+  // Response to read the X-Total-Count header, which request<T>() discards.
+  const res = await fetchWithAuth(path, {
     method: "GET",
     headers: authHeaders(token),
   });
-
-  if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
 
   const raw = (await res.json()) as RawWorkflowRun[];
   const total = parseInt(res.headers.get("X-Total-Count") ?? "0", 10);
@@ -667,18 +770,10 @@ export async function deleteWorkflow(
   token: string,
   workflowId: string
 ): Promise<void> {
-  const url = `${BASE_URL}/api/runs/${workflowId}`;
-  const response = await fetch(url, {
+  await request<void>(`/api/runs/${workflowId}`, {
     method: "DELETE",
     headers: authHeaders(token),
   });
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({
-      detail: response.statusText,
-    }));
-    throw new ApiError(response.status, body.detail ?? body);
-  }
 }
 
 // --- Run command API (Phase 44 W2 / CHAT-07 up-channel over REST) ---
@@ -771,31 +866,14 @@ export async function postResume(
   token: string,
   runId: string,
 ): Promise<{ run_id: string }> {
-  // Use a longer AbortController timeout for resume — the backend stamps a marker
-  // and reads durable events before returning, which can take several seconds on
+  // Use a longer timeout for resume — the backend stamps a marker and reads
+  // durable events before returning, which can take several seconds on
   // SQLite / under load. 60s is generous vs the default 30s used by other calls.
-  const url = `${BASE_URL}/api/runs/${encodeURIComponent(runId)}/resume`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60_000);
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: authHeaders(token),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({ detail: response.statusText }));
-      throw new ApiError(response.status, (body as Record<string, unknown>).detail ?? body);
-    }
-    return response.json() as Promise<{ run_id: string }>;
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") {
-      throw new ApiError(0, "Resume request timed out after 60s");
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
+  return request<{ run_id: string }>(
+    `/api/runs/${encodeURIComponent(runId)}/resume`,
+    { method: "POST", headers: authHeaders(token) },
+    60_000,
+  );
 }
 
 /**
@@ -853,19 +931,14 @@ export async function changePassword(
   currentPassword: string,
   newPassword: string
 ): Promise<{ message: string }> {
-  const url = `${BASE_URL}/api/auth/change-password`;
-  const response = await fetch(url, {
+  // /api/auth/change-password is in SESSION_EXPIRY_EXEMPT_PATHS: a 401 here
+  // means "current password is incorrect" (raised by the endpoint body),
+  // which AccountSettings.tsx shows inline — not an expired session.
+  return request<{ message: string }>("/api/auth/change-password", {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
   });
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new ApiError(response.status, body.detail ?? body);
-  }
-
-  return response.json();
 }
 
 // --- User Preferences API ---
@@ -948,15 +1021,10 @@ export async function adminDeleteUser(
   token: string,
   userId: string
 ): Promise<void> {
-  const url = `${BASE_URL}/api/admin/users/${userId}`;
-  const response = await fetch(url, {
+  await request<void>(`/api/admin/users/${userId}`, {
     method: "DELETE",
     headers: authHeaders(token),
   });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new ApiError(response.status, body.detail ?? body);
-  }
 }
 
 // --- Capabilities API (API-02 / D-11) ---
@@ -1290,15 +1358,10 @@ export async function deleteUserWorkflow(
   token: string,
   id: string
 ): Promise<void> {
-  const url = `${BASE_URL}/api/user-workflows/${id}`;
-  const response = await fetch(url, {
+  await request<void>(`/api/user-workflows/${id}`, {
     method: "DELETE",
     headers: authHeaders(token),
   });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new ApiError(response.status, body.detail ?? body);
-  }
 }
 
 // ── Agent prompt endpoints (KAN-76) ──────────────────────────────────────────
@@ -1379,17 +1442,11 @@ export async function extractFileText(
 ): Promise<ExtractTextResponse> {
   const form = new FormData();
   form.append("file", file);
-  const url = `${BASE_URL}/api/files/extract-text`;
-  const response = await fetch(url, {
+  return request<ExtractTextResponse>("/api/files/extract-text", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: form,
   });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new ApiError(response.status, body.detail ?? body);
-  }
-  return response.json();
 }
 
 // ── Audit / hook-runs endpoint (KAN-73) ─────────────────────────────────────

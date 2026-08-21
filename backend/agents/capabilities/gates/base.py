@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 GATE_PASS = "pass"
 GATE_BLOCK = "block"
 GATE_WAIT_HUMAN = "wait_human"
+GATE_ROUTE = "route"
 
 
 @dataclass

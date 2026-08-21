@@ -4,6 +4,7 @@
  */
 
 import { ENV } from "@/lib/env";
+import { handleSessionExpiry } from "@/lib/api";
 
 export interface PPTTemplate {
   id: string;
@@ -32,6 +33,11 @@ async function apiFetch<T>(token: string, path: string): Promise<T> {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
+    // FR-015 — T33 sweep: route a stale/invalid token through the shared
+    // clear+redirect helper instead of surfacing a generic error.
+    if (res.status === 401) {
+      handleSessionExpiry();
+    }
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`${res.status} ${text}`);
   }

@@ -27,6 +27,7 @@ imports the kernel (``agents.execution_engine``) or the web layer.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import re
 
@@ -42,6 +43,8 @@ from agents.workflows.plan import (
     Limits,
     ModelPolicy,
     RetryPolicy,
+    RouteOutcome,
+    RouteSpec,
     Step,
     TaskSource,
     ToolPermissions,
@@ -92,6 +95,8 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "model",
         "fix",
         "fanout",
+        "route",
+        "produces",     # spec 014 / R-05b: declared typed-artifact kinds (R-27's produces check)
         "on_conflict",
         "retry",
         "injects",
@@ -146,6 +151,24 @@ _ALLOWED_TASK_SOURCE_KEYS: frozenset[str] = frozenset(
 # materializes the data.
 _ALLOWED_FANOUT_KEYS: frozenset[str] = frozenset(
     {"mode", "max_parallel", "agent", "count", "workers", "merge_agent"}
+)
+
+# EXACTLY the keys a step ``route:`` dict may declare (D-08 at the nested level /
+# spec 014 / conditional gates). ``condition_agent``/``outcomes`` define the condition
+# expression and the branching targets; ``default_next`` provides the fallback;
+# ``loop_max_iterations``/``trigger_max_depth`` bound loop/trigger recursion. Pure data
+# (INV-5): the conditional gate kernel owns the condition evaluation control flow, the
+# compiler only materializes the data.
+_ALLOWED_ROUTE_KEYS: frozenset[str] = frozenset(
+    {"condition_agent", "outcomes", "default_next", "loop_max_iterations", "trigger_max_depth"}
+)
+
+# EXACTLY the keys a step ``route.outcomes:`` dict may declare (D-08 at the nested level /
+# spec 014 / conditional outcomes). ``trigger`` is the condition predicate that must match;
+# ``target`` names the next step to dispatch to. Pure data (INV-5): conditional routing
+# evaluates the trigger expression and selects the target, purely declarative.
+_ALLOWED_OUTCOME_KEYS: frozenset[str] = frozenset(
+    {"trigger", "target"}
 )
 
 # EXACTLY the §13 on_conflict policy set a step may declare (FANOUT-08). The kernel
@@ -272,10 +295,27 @@ class WorkflowCompiler:
         )
 
         # ── Topo-validate the Step DAG (cycle-free, no duplicate agents) ──────
+        # R-09 regression guard (spec 014): _validate_dag's Kahn-algorithm graph
+        # must be built ONLY from step.depends_on and must NEVER read
+        # route.outcomes — identical carve-out to fanout/task_source today (route
+        # targets are a separate, dedicated resolution pass — _validate_route_targets
+        # below — invisible to the DAG's cycle check). Zero changes to _validate_dag
+        # itself back this: the assertion inspects its live source rather than
+        # duplicating/re-deriving its graph, so a future edit that folds route data
+        # into the Kahn graph trips this immediately.
+        assert "route" not in inspect.getsource(self._validate_dag), (
+            "R-09 violated: _validate_dag must never reference step.route/outcomes"
+        )
         self._validate_dag(steps)
 
         # ── Fan-out source_step-must-be-upstream guard (D9 / FANOUT-05) ───────
         self._validate_fanout_source_upstream(steps)
+
+        # ── Conditional-route target resolution guard (spec 014 / R-10/R-27) ──
+        self._validate_route_targets(steps)
+
+        # ── Leaf computation (spec 014 / R-26) ─────────────────────────────────
+        self._compute_is_leaf(steps)
 
         clarify_raw = manifest.clarify or {}
         clarify = ClarifySpec(
@@ -875,6 +915,37 @@ class WorkflowCompiler:
         # (parity — every existing manifest is untouched).
         fanout = self._compile_fanout(raw.get("fanout"), where)
 
+        # ── Declarative conditional route (spec 014 / R-02) ──────────────────
+        # The ``route`` key was already in _ALLOWED_STEP_KEYS but never constructed
+        # (declared-but-inert). Materialize it now, mirroring the fanout precedent
+        # above. A step with no ``route`` key keeps ``route=None`` (parity — every
+        # existing manifest is untouched).
+        route = self._compile_route(raw.get("route"), where)
+
+        # Declared typed-artifact kinds this step supplies (spec 014 / R-05b). Only
+        # currently checked by R-27 (a route's decision-source step must declare
+        # produces: ["route_decision"]) — pure data pass-through otherwise, same
+        # accepted-but-materialized precedent as the fields above. A step omitting
+        # the key keeps the dataclass default ([]) — parity.
+        produces = list(raw.get("produces") or [])
+
+        # ── R-03 cross-field check (spec 014): gates:[conditional] ⇔ route: ────
+        # A one-off check, NOT a generalized "capability requires gate" mechanism
+        # (scope discipline — plan.md RISK-01: no existing sibling key cross-
+        # validates against gates: today, so a general mechanism is speculative
+        # until a second capability needs one).
+        if "conditional" in gates and (route is None or not route.outcomes):
+            raise CompilerError(
+                f"{where} declares gates: [conditional] but has no route (or "
+                f"route.outcomes is empty) — route: is required when "
+                f"gates: [conditional] is declared (R-03)"
+            )
+        if route is not None and route.outcomes and "conditional" not in gates:
+            raise CompilerError(
+                f"{where} declares route: but is missing gates: [conditional] — "
+                f"gates: [conditional] is required when route: is declared (R-03)"
+            )
+
         # ── Declared on_conflict policy (Phase 11 / §13 / FANOUT-08 / CR-03) ──
         # Carry the authored policy onto the compiled Step (it was silently dropped
         # before — a manifest declaring ``on_conflict: abort`` was downgraded to the
@@ -938,6 +1009,8 @@ class WorkflowCompiler:
             require_render=require_render,
             tools=effective_tools,
             fanout=fanout,
+            route=route,
+            produces=produces,
             on_conflict=on_conflict,
             model=model,
             retry=retry,
@@ -1028,6 +1101,87 @@ class WorkflowCompiler:
             workers=workers,
             # The designated merge worker for on_conflict=merge_agent (§13 / CR-03).
             merge_agent=raw_fanout.get("merge_agent"),
+        )
+
+    @staticmethod
+    def _compile_route(raw_route: object, where: str) -> "RouteSpec | None":
+        """Map a step ``route:`` dict → a typed ``RouteSpec`` (spec 014 / INV-5).
+
+        ``None`` (no ``route:`` key) → ``None`` (parity — the step is not a conditional
+        gate). A declared block strict-key rejects any non-route field (INV-5; a
+        control-flow/DSL field has nowhere to live) and coerces each value onto the
+        RouteSpec slot. Each ``outcomes`` entry strict-key rejects any non-outcome
+        field, validates ``trigger`` is exactly ``"step"`` or ``"workflow"``, and
+        validates ``target`` is a non-empty string — building a typed ``RouteOutcome``
+        per entry. ``trigger_max_depth`` is fixed at ``5`` in v1 (R-19, clarified): a
+        declared value other than ``5`` is rejected here (the field's own default is
+        already ``5``, so an author omitting the key is unaffected). The compiler only
+        RECORDS the declaration — the condition evaluation / dispatch control flow
+        lives inside the conditional-gate kernel, never here (INV-5 / no DSL).
+        """
+        if raw_route is None:
+            return None
+        if not isinstance(raw_route, dict):
+            raise CompilerError(
+                f"step 'route' must be a mapping in {where}; "
+                f"got {type(raw_route).__name__}"
+            )
+        extra = set(raw_route) - _ALLOWED_ROUTE_KEYS
+        if extra:
+            raise CompilerError(
+                f"unknown route key(s) {sorted(extra)} in {where} — manifests "
+                f"are pure data; a control-flow/DSL field has nowhere to live (INV-5)"
+            )
+
+        raw_outcomes = raw_route.get("outcomes") or {}
+        if not isinstance(raw_outcomes, dict):
+            raise CompilerError(
+                f"route 'outcomes' must be a mapping in {where}; "
+                f"got {type(raw_outcomes).__name__}"
+            )
+        outcomes: dict[str, RouteOutcome] = {}
+        for outcome_key, raw_outcome in raw_outcomes.items():
+            if not isinstance(raw_outcome, dict):
+                raise CompilerError(
+                    f"route outcome {outcome_key!r} must be a mapping in {where}; "
+                    f"got {type(raw_outcome).__name__}"
+                )
+            extra_outcome = set(raw_outcome) - _ALLOWED_OUTCOME_KEYS
+            if extra_outcome:
+                raise CompilerError(
+                    f"unknown route outcome key(s) {sorted(extra_outcome)} in "
+                    f"{where} — manifests are pure data; a control-flow/DSL field "
+                    f"has nowhere to live (INV-5)"
+                )
+            trigger = raw_outcome.get("trigger")
+            if trigger not in ("step", "workflow"):
+                raise CompilerError(
+                    f"route outcome {outcome_key!r} in {where} has invalid "
+                    f"trigger {trigger!r} — must be exactly 'step' or 'workflow' "
+                    f"(R-05b)"
+                )
+            target = raw_outcome.get("target")
+            if not isinstance(target, str) or not target.strip():
+                raise CompilerError(
+                    f"route outcome {outcome_key!r} in {where} has a missing or "
+                    f"empty 'target' — must be a non-empty string"
+                )
+            outcomes[outcome_key] = RouteOutcome(trigger=trigger, target=target)
+
+        trigger_max_depth = raw_route.get("trigger_max_depth", 5)
+        if trigger_max_depth != 5:
+            raise CompilerError(
+                f"route.trigger_max_depth={trigger_max_depth!r} in {where} — "
+                f"the ONLY valid declared value in v1 is 5 (R-19, clarified); "
+                f"omit the key to use the default"
+            )
+
+        return RouteSpec(
+            condition_agent=raw_route.get("condition_agent"),
+            outcomes=outcomes,
+            default_next=raw_route.get("default_next"),
+            loop_max_iterations=raw_route.get("loop_max_iterations", 5),
+            trigger_max_depth=trigger_max_depth,
         )
 
     @staticmethod
@@ -1292,6 +1446,199 @@ class WorkflowCompiler:
                         f"step (D9 / FANOUT-05)"
                     )
             upstream.add(step.agent_id)
+
+    # ── Conditional-route target resolution guard (spec 014 / R-10) ──────────
+
+    @staticmethod
+    def _validate_route_targets(steps: list[Step]) -> None:
+        """Reject a conditional-route outcome or ``default_next`` whose target does
+        not resolve (spec 014 / R-10).
+
+        Pure-data, INV-5-safe post-compile pass over the already-compiled ``steps``
+        (mirrors ``_validate_fanout_source_upstream`` in structure — runs once,
+        after the full step list compiles, at the same point that guard and
+        ``_validate_dag`` already run). For every step's ``route.outcomes[...]``:
+
+          * ``trigger == "step"``: ``target`` MUST be the ``agent_id`` of a step in
+            THIS workflow's compiled step set — else a ``CompilerError`` NAMING the
+            step, the outcome's condition-value key, and the unresolved target.
+          * ``trigger == "workflow"``: ``target`` MUST be the literal ``"self"`` OR
+            a reference to a real saved ``user_workflow_id``. Existing-helper
+            search (as directed by this task): ``agents/registry.py`` has no
+            ``user_workflow_id``/``WorkflowDefinition`` lookup of any kind.
+            ``app/api/user_workflows.py`` has exactly one —
+            ``_owned(db: Session, workflow_id: str, user: User) -> WorkflowDefinition``
+            (`:413`, the sole non-test ``WorkflowDefinition``-by-id query in the
+            codebase) — but it is owner-scoped
+            (``WorkflowDefinition.user_id == user.id``), requires a live DB
+            ``Session`` + the request's ``User``, and raises ``HTTPException`` — a
+            web-layer, per-request helper. ``compile()`` receives only
+            ``(manifest, registry, trust)``; it never gets a db session or a user
+            (confirmed by ``_compile_check_manifest`` in that same file, which
+            already compiles with ``trust="db"`` and zero db/user context), and
+            this module's own docstring is explicit that it "NEVER imports the
+            kernel ... or the web layer." Calling ``_owned`` from here would
+            require threading a DB session + user through every ``compile()``
+            call site (engine.py's ``compile_for_run``, ``_compile_check_manifest``,
+            tests, …) — a signature/layering change, not a reuse. So a
+            non-``"self"`` target is accepted here as a SYNTACTIC reference only
+            (already non-empty-string-validated by ``_compile_route``); its DB
+            existence/ownership is authoritatively resolved by that SAME
+            ``_owned`` helper at launch/trigger time (kernel_services.py's
+            ``run_trigger_workflow``), exactly as this manifest's other
+            ``trust="db"`` references already defer ownership checks to the
+            request-scoped launch path.
+          * ``default_next``, when declared, is validated the SAME way as a
+            ``trigger: "step"`` target (R-10).
+
+        Resolvable id set: a step's own ``agent_id`` (the identifier every OTHER
+        compile-time reference — ``depends_on``, ``fanout.task_source.source_step``
+        — matches against) PLUS, for a custom-agent instance, its bare
+        ``instance_id`` too. A custom-agent step's ``agent_id`` is the synthesized
+        ``"custom-agent:<instance_id>"`` (`_compile_step`, R-03a/D-01) — but the
+        checked-in reference fixtures (``sample_conditional_previous_step``/
+        ``branch_new``/…) author every ``route`` target as the bare
+        ``instance_id`` (e.g. ``target: greet``, matching the step declaring
+        ``instance_id: greet``), the natural human-facing id a workflow author
+        writes. Accepting both forms is parity for a non-custom-agent step (whose
+        ``instance_id`` is ``""`` and adds nothing to the set) and is what makes
+        those fixtures compile (plan.md's own acceptance bar for this task).
+
+        Name-free (INV-1 / SC-001): the check compares ids against the
+        already-compiled step-id set, never a workflow/agent-name literal.
+
+        Also extended with R-27 (spec 014): for every step whose ``route.outcomes``
+        is non-empty, the DECISION SOURCE — ``route.condition_agent`` if set, else
+        the step itself (R-05) — must declare ``produces: ["route_decision"]`` in
+        the manifest. Resolved via the SAME dual agent_id/instance_id lookup as the
+        outcome-target check above (``by_name``), so an author-facing bare
+        ``instance_id`` reference on ``condition_agent`` resolves exactly like an
+        outcome ``target`` does. An unresolvable ``condition_agent`` and a resolved
+        step missing the declaration are both a ``CompilerError`` naming the step
+        and its (attempted) decision-source step.
+        """
+        step_ids = {s.agent_id for s in steps} | {
+            s.instance_id for s in steps if s.instance_id
+        }
+        # R-27: the same dual-identity lookup as step_ids above, but keyed to the
+        # Step object itself (not just its id) so the decision-source's `produces`
+        # can be read once resolved.
+        by_name: dict[str, Step] = {}
+        for s in steps:
+            by_name[s.agent_id] = s
+            if s.instance_id:
+                by_name[s.instance_id] = s
+        for step in steps:
+            route = step.route
+            if route is None:
+                continue
+            where = f"step '{step.agent_id}'"
+            for outcome_key, outcome in route.outcomes.items():
+                if outcome.trigger == "step" and outcome.target not in step_ids:
+                    raise CompilerError(
+                        f"route outcome {outcome_key!r} in {where} has "
+                        f"trigger='step' target {outcome.target!r} which does not "
+                        f"name a step id in this compiled workflow (R-10)"
+                    )
+                # trigger == "workflow": "self" is always valid; any other target
+                # is a syntactic user_workflow_id reference only — see docstring
+                # above for why its DB existence is not (and cannot be) checked
+                # here.
+            if route.default_next is not None and route.default_next not in step_ids:
+                raise CompilerError(
+                    f"route.default_next {route.default_next!r} in {where} does "
+                    f"not name a step id in this compiled workflow (R-10)"
+                )
+
+            # ── R-27: the route's decision source must declare produces ───────
+            if route.outcomes:
+                decision_ref = route.condition_agent or step.agent_id
+                decision_step = by_name.get(decision_ref)
+                if decision_step is None:
+                    raise CompilerError(
+                        f"route.condition_agent {route.condition_agent!r} in "
+                        f"{where} does not name a step id in this compiled "
+                        f"workflow (R-27)"
+                    )
+                if "route_decision" not in decision_step.produces:
+                    raise CompilerError(
+                        f"{where}'s conditional route reads its decision from "
+                        f"step '{decision_step.agent_id}' (resolved decision "
+                        f"source), but that step does not declare "
+                        f"produces: ['route_decision'] in the manifest — a "
+                        f"conditional gate's decision source MUST declare the "
+                        f"typed artifact its outcome match is read from (R-27)"
+                    )
+
+    # ── Leaf computation (spec 014 / R-26) ────────────────────────────────────
+
+    @staticmethod
+    def _compute_is_leaf(steps: list[Step]) -> None:
+        """Set ``Step.is_leaf`` for every step (R-26): a pure graph-shape pass over
+        the already-validated ``route``/``depends_on`` data — no new data source.
+
+        Runs once, after ``_validate_route_targets`` (so every ``outcome.target`` /
+        ``default_next`` is already known to resolve — R-10) and after
+        ``_validate_dag`` (so ``depends_on`` is already known cycle-free — no
+        ordering dependency either way, just a natural "after the graph is proven
+        sane" placement, mirroring where ``_validate_fanout_source_upstream`` sits).
+
+        A step has "nothing compiled to run after it" (is a leaf) unless ONE of:
+
+          * it is named in some OTHER step's ``depends_on`` — that step is
+            compiled to run after it regardless of route/array position;
+          * it declares a non-empty ``route.outcomes`` with at least one
+            ``trigger == "step"`` outcome, or a ``default_next`` — its own route
+            IS its continuation (a route-having step never falls through to plain
+            array-adjacency; a ``trigger == "workflow"`` outcome does not count —
+            R-13 stops THIS run, it does not continue within this compiled
+            workflow, so an all-workflow-trigger route with no ``default_next``
+            makes the step a leaf);
+          * it has no route, and the step immediately following it in manifest
+            order exists AND is not itself named as a ``trigger == "step"``
+            outcome target / ``default_next`` anywhere in the workflow — plain
+            array-adjacency is the step's implicit continuation UNLESS that next
+            step is really a branch sibling reached only via a jump (the
+            ``sample_conditional_branch_new`` case: ``say_hello``/``say_hola`` sit
+            array-adjacent under one shared route step, R-26's whole point — a
+            naive index+1 check would wrongly mark ``say_hello`` as non-leaf).
+
+        For a workflow with no ``route`` anywhere (every pre-014 manifest), this
+        collapses to exactly the old ``index == len(steps) - 1`` check (parity) —
+        ``jump_target_idx`` is empty, so only the last array position lacks a
+        next-step index.
+        """
+        index_of: dict[str, int] = {}
+        for i, step in enumerate(steps):
+            index_of[step.agent_id] = i
+            if step.instance_id:
+                index_of[step.instance_id] = i
+
+        depended_on: set[str] = set()
+        for step in steps:
+            depended_on.update(step.depends_on or [])
+
+        jump_target_idx: set[int] = set()
+        for step in steps:
+            if step.route is None:
+                continue
+            for outcome in step.route.outcomes.values():
+                if outcome.trigger == "step" and outcome.target in index_of:
+                    jump_target_idx.add(index_of[outcome.target])
+            if step.route.default_next and step.route.default_next in index_of:
+                jump_target_idx.add(index_of[step.route.default_next])
+
+        for i, step in enumerate(steps):
+            if step.agent_id in depended_on:
+                step.is_leaf = False
+                continue
+            if step.route is not None and step.route.outcomes:
+                has_next = any(
+                    o.trigger == "step" for o in step.route.outcomes.values()
+                ) or bool(step.route.default_next)
+                step.is_leaf = not has_next
+                continue
+            step.is_leaf = (i + 1 >= len(steps)) or ((i + 1) in jump_target_idx)
 
     # ── DAG validation (no duplicate agents, no cycle) ───────────────────────
 

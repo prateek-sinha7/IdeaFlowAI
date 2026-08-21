@@ -29,6 +29,17 @@ const mockGetPreferences = vi.fn(() =>
 );
 const mockGetWorkflows = vi.fn(() => Promise.resolve([]));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  useSearchParams: () => ({
+    get: vi.fn(() => null),
+  }),
+}));
+
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getAnalyticsSummary: (token: string, range: string) =>

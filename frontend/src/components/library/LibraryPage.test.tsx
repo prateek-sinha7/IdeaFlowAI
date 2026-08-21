@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fireEvent, renderWithProviders, screen, within } from "@/test/renderWithProviders";
 import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
 import type { GlobalSkillEntry } from "@/store/api/skills";
@@ -16,6 +16,16 @@ import type { AgentDef } from "@/types/index";
 //   3. Each of the three tabs renders its card grid (agents/skills/hooks).
 // The pre-restyle tabs-lead layout is RED against assertion (1).
 // ─────────────────────────────────────────────────────────────────
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  useSearchParams: () => new URLSearchParams(),
+  useParams: () => ({}),
+}));
 
 import { LibraryPage } from "./LibraryPage";
 

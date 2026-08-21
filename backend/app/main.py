@@ -182,6 +182,7 @@ async def lifespan(app: FastAPI):
                 from app.models.workflow import WorkflowRun
                 from app.api.run_engine import _PIPELINE_QUEUES
                 from app.agents.sandbox import sweep_expired
+                from agents.execution_engine.engine import TERMINAL_RUN_STATUSES
 
                 # Build the protected set: non-terminal DB run IDs ∪ live in-process IDs.
                 _db = SessionLocal()
@@ -189,7 +190,7 @@ async def lifespan(app: FastAPI):
                     _rows = (
                         _db.query(WorkflowRun.id)
                         .filter(
-                            WorkflowRun.status.notin_(("completed", "failed", "cancelled", "degraded"))
+                            WorkflowRun.status.notin_(TERMINAL_RUN_STATUSES)
                         )
                         .all()
                     )

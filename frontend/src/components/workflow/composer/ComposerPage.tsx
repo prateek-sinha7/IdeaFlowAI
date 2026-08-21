@@ -42,13 +42,17 @@ import type { AgentDef, WorkflowCapabilities, WorkflowRunConfig, WorkflowType } 
 // (not the flat EMP-03 selections map) so those fields — and the tree shape
 // itself — survive a reload (`backend/app/api/user_workflows.py::_project`
 // sniffs the `"steps"` key to tell the two shapes apart).
+// Spec 014 (R-02/T37): a non-empty conditional-gate `route` is the same kind
+// of per-node, non-flat-list data — it only round-trips via `ManifestStep.route`,
+// which the flat EMP-03 selections map has no field for.
 function needsFullManifest(agents: AgentDef[]): boolean {
   return agents.some(
     (a) =>
       a.isCustom ||
       !!a.prompt ||
       (a.skills?.length ?? 0) > 0 ||
-      (a.children?.length ?? 0) > 0,
+      (a.children?.length ?? 0) > 0 ||
+      Object.keys(a.route?.outcomes ?? {}).length > 0,
   );
 }
 

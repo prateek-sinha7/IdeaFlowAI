@@ -26,9 +26,10 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import React from "react";
 
-// next/navigation — LoginPage calls useRouter() at the top of the body.
+// next/navigation — LoginPage calls useRouter() and useSearchParams() at the top of the body.
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 // @/lib/api — never hit the transport from a render test (LOCK-B). The class is

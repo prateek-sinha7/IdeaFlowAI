@@ -12,7 +12,7 @@ import {
   Plus,
   BookMarked,
 } from "lucide-react";
-import { getToken } from "@/lib/api";
+import { authedFetch, getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
 
 interface SkillManagerProps {
@@ -44,7 +44,10 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
     setLoadError(null);
 
     try {
-      const response = await fetch(`${ENV.API_URL}/api/agents/skills/${agentId}`, {
+      // FR-015: authedFetch, not bare fetch — a 401 here fell into the
+      // `setSkillContent("")` else-branch and looked like "no skill saved"
+      // instead of an expired session.
+      const response = await authedFetch(`${ENV.API_URL}/api/agents/skills/${agentId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.ok) {
@@ -71,7 +74,7 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
     setSaveSuccess(false);
 
     try {
-      const response = await fetch(`${ENV.API_URL}/api/agents/skills`, {
+      const response = await authedFetch(`${ENV.API_URL}/api/agents/skills`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -99,7 +102,7 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
     if (!token) return;
 
     try {
-      await fetch(`${ENV.API_URL}/api/agents/skills/${agentId}`, {
+      await authedFetch(`${ENV.API_URL}/api/agents/skills/${agentId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });

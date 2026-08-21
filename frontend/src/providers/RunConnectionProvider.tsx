@@ -32,7 +32,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { getToken, getWorkflows } from "@/lib/api";
+import { authedFetch, getToken, getWorkflows } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import { parseSseBlock } from "@/lib/sseFrame";
 import {
@@ -393,7 +393,10 @@ export function RunConnectionProvider({
       const url = runId
         ? `${ENV.API_URL}/api/runs/${runId}/messages`
         : `${ENV.API_URL}/api/runs`;
-      const res = await fetch(url, {
+      // FR-015: authedFetch, not bare fetch — this POST can't use request()
+      // (it content-negotiates an SSE body below), so it needs the shared
+      // 401 -> handleSessionExpiry() guard explicitly.
+      const res = await authedFetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

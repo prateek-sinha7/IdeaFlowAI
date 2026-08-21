@@ -8,6 +8,7 @@
  */
 
 import { ENV } from "@/lib/env";
+import { handleSessionExpiry } from "@/lib/api";
 
 const BASE_URL = ENV.API_URL;
 
@@ -73,6 +74,13 @@ async function authedJson<T>(
   }
   const body = await resp.json().catch(() => ({ detail: resp.statusText }));
   if (!resp.ok) {
+    // FR-015 — mirror useRunStream.ts's handleAuthExpiry: a 401 here means the
+    // token in localStorage is stale/invalid, so route through the shared
+    // clear+redirect helper instead of surfacing a generic inline error that
+    // strands the user on a dead handoff page.
+    if (resp.status === 401) {
+      handleSessionExpiry();
+    }
     const message =
       typeof body?.detail === "string" ? body.detail : JSON.stringify(body);
     throw new Error(message || `HTTP ${resp.status}`);

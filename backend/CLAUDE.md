@@ -8,6 +8,7 @@
 **Active Feature Plans**:
 - [specs/001-ai-workflow-os/plan.md](../specs/001-ai-workflow-os/plan.md) (v3.0 — Universal Workflow Orchestration Engine)
 - [specs/002-deepagents-migration/plan.md](../specs/002-deepagents-migration/plan.md) — **in progress**: the migration of the agent runtime onto the LangChain `deepagents` library. This guide describes the **post-migration (live) pipeline runtime** that plan landed (Phases 0–6 complete). The free-chat subsystem is mid-migration (Phase 7b) — see [The free-chat path](#the-free-chat-path).
+- [specs/014-conditional-gates/plan.md](../specs/014-conditional-gates/plan.md) — **not started**: a new `conditional` gate type enabling in-workflow branching/looping (a mutable dispatch-loop cursor, `engine.py:2586`) and cross-workflow triggering (a second, independent `WorkflowRun` linked via the existing `parent_run_id` column). Zero DB migrations. Reference fixtures already checked in at `agents/workflows/sample_conditional_*/workflow.yaml` (compile-fail until Phase 1 lands).
 <!-- SPECKIT END -->
 
 ---

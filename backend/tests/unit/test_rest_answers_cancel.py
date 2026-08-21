@@ -282,7 +282,7 @@ def test_answers_unknown_run_is_denied(env):
     assert resp.status_code == 404
 
 
-@pytest.mark.parametrize("terminal_status", ["cancelled", "failed", "degraded", "completed"])
+@pytest.mark.parametrize("terminal_status", ["cancelled", "failed", "degraded", "completed", "diverted"])
 def test_answers_on_a_terminal_run_is_rejected(env, terminal_status):
     """API-001 (task.md R-05): before this fence, ``/answers`` had ZERO terminal
     check — unlike ``/gate`` (KAN-100) and ``/cancel`` (its own idempotent-terminal
@@ -725,7 +725,7 @@ def test_the_terminal_status_set_has_exactly_one_definition():
     """
     from agents.execution_engine.engine import TERMINAL_RUN_STATUSES
 
-    expected = {"completed", "cancelled", "failed", "degraded"}
+    expected = {"completed", "cancelled", "failed", "degraded", "diverted"}
     assert set(TERMINAL_RUN_STATUSES) == expected
 
     definitions = _find_literal_set_definitions(expected)

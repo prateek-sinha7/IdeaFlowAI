@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
@@ -12,6 +12,16 @@ import { configureStore } from "@reduxjs/toolkit";
 //   3. Typing in the search box filters the visible agents (real).
 //   4. The tab counts are present and reflect Redux state (dynamic).
 // ─────────────────────────────────────────────────────────────────
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  useSearchParams: () => new URLSearchParams(),
+  useParams: () => ({}),
+}));
 
 import { LibraryPage } from "./LibraryPage";
 import agentsReducer from "@/store/slices/agentsSlice";

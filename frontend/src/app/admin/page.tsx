@@ -8,11 +8,12 @@ import {
   RefreshCw, CheckCircle2, AlertCircle, X, LogOut,
 } from "lucide-react";
 import {
-  getToken, getMe, logout,
+  ApiError, getToken, getMe, logout,
   adminListUsers, adminUpdateTier, adminCreateUser, adminDeleteUser,
 } from "@/lib/api";
 import type { AdminUser } from "@/lib/api";
 import { TIER_LABELS } from "@/lib/entitlements";
+import { routes } from "@/lib/routes";
 import type { Tier } from "@/lib/entitlements";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -143,7 +144,7 @@ export default function AdminPage() {
     setLoading(true);
     try {
       const data = await adminListUsers(t);
-      setUsers(data);
+      setUsers(Array.isArray(data) ? data : []);
     } catch {
       showToast("error", "Failed to load users");
     } finally {
@@ -153,13 +154,22 @@ export default function AdminPage() {
 
   useEffect(() => {
     const token = getToken();
-    if (!token) { router.replace("/login"); return; }
+    if (!token) { router.replace(routes.login()); return; }
 
     // Verify admin access
     getMe(token).then(user => {
-      if (!user.is_admin) { router.replace("/dashboard"); return; }
+      if (!user.is_admin) { router.replace(routes.dashboard()); return; }
       loadUsers(token);
-    }).catch(() => router.replace("/login"));
+    }).catch((err: unknown) => {
+      // FR-015: on a 401 getMe() has ALREADY gone through lib/api.ts's shared
+      // handleSessionExpiry() — token cleared, full-page nav to
+      // /login?expired=true queued. Racing that with a client-side
+      // router.replace("/login") can land the user on a bare /login with no
+      // expiry message, so 401 returns here and lets the shared redirect win.
+      // Any other failure keeps the pre-existing plain login bounce.
+      if (err instanceof ApiError && err.status === 401) return;
+      router.replace(routes.login());
+    });
   }, [router, loadUsers]);
 
   const handleUpdateTier = async (userId: string, tier: string) => {
@@ -208,7 +218,7 @@ export default function AdminPage() {
 
   const handleLogout = async () => {
     await logout(getToken() ?? "");
-    router.replace("/login");
+    router.replace(routes.login());
   };
 
   const filtered = users.filter(u =>
@@ -244,7 +254,7 @@ export default function AdminPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => router.push("/dashboard")}
+            onClick={() => router.push(routes.dashboard())}
             className="text-[11px] font-medium text-white/70 hover:text-white px-3 py-1.5 rounded-[var(--radius-button)] hover:bg-white/10 transition-colors font-sans"
           >
             ← Back to app

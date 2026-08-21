@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X, Upload, Link, FileText, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
-import { getToken } from "@/lib/api";
+import { authedFetch, getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import { Button } from "@/components/ui/Button";
 
@@ -99,7 +99,9 @@ export function CustomTemplateModal({ onConfirm, onClose }: CustomTemplateModalP
     setUrlFetched(false);
     try {
       const token = getToken();
-      const res = await fetch(
+      // FR-015: authedFetch, not bare fetch — a 401 here rendered as an inline
+      // "Failed to fetch URL." with no session-expiry redirect.
+      const res = await authedFetch(
         `${ENV.API_URL}/api/prototype/fetch-url?url=${encodeURIComponent(url)}`,
         { headers: { Authorization: `Bearer ${token}` } },
       );

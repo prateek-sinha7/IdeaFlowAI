@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
+import { useRouter, useSearchParams, useParams, notFound } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Search, Clock, Puzzle, Webhook, X, Copy, Check,
@@ -13,6 +14,7 @@ import { useAgentLibrary } from "@/hooks/useAgentLibrary";
 import { useSkillsCatalog } from "@/hooks/useSkillsCatalog";
 import { useHooksCatalog } from "@/hooks/useHooksCatalog";
 import { useAppSelector } from "@/store/hooks";
+import { routes, parseViewPath } from "@/lib/routes";
 import { getSkillCategoryIcon } from "@/lib/skillIcons";
 import { getWorkflowTypeIcon } from "@/lib/workflowIcons";
 import { Tabs, type TabItem } from "@/components/ui/Tabs";
@@ -406,6 +408,21 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
 // ─── LibraryPage ─────────────────────────────────────────────────────────────
 
 export function LibraryPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // T15 (015-frontend-routing, FR-006): parse the catch-all's segments so a
+  // cold mount of /library/{type}/{slug} can seed the matching detail modal
+  // below — read directly here (same useParams()/parseViewPath() pair
+  // `[...view]/page.tsx` uses) rather than threaded through DashboardLayout,
+  // since LibraryPage takes no props from it today.
+  const viewParams = useParams<{ view?: string[] }>();
+  const parsedView = parseViewPath(viewParams?.view);
+  const librarySlug =
+    parsedView.screen === "library-agent" ? { type: "agents" as const, slug: parsedView.slug } :
+    parsedView.screen === "library-skill" ? { type: "skills" as const, slug: parsedView.slug } :
+    parsedView.screen === "library-hook" ? { type: "hooks" as const, slug: parsedView.slug } :
+    null;
+
   const { allAgents: ALL_AGENTS_COMBINED } = useAgentLibrary();
   const { skills: SKILLS, categories: SKILL_CATEGORIES } = useSkillsCatalog();
   const { hooks: HOOKS, events: HOOK_EVENTS } = useHooksCatalog();
@@ -428,7 +445,9 @@ export function LibraryPage() {
     { id: "custom", label: "Custom" },
   ];
 
-  const [activeCategory, setActiveCategory] = useState("all");
+  // Read category param from URL on mount, default to "all"
+  const urlCategory = searchParams.get("category") || "all";
+  const [activeCategory, setActiveCategory] = useState(urlCategory);
   const [searchQuery, setSearchQuery] = useState("");
   // Carries the persisted skills/selections SNAPSHOT taken when the drawer was
   // opened. Reading `savedSkillsRef`/`savedSelectionsRef` inline in the drawer's
@@ -444,12 +463,108 @@ export function LibraryPage() {
     savedSelections?: SelectionsMap;
   } | null>(null);
   const [mainTab, setMainTab] = useState<"agents" | "skills" | "hooks">("agents");
-  const [skillCategory, setSkillCategory] = useState("all");
+  const [skillCategory, setSkillCategory] = useState(urlCategory);
   const [skillSearch, setSkillSearch] = useState("");
   const [hookEvent, setHookEvent] = useState("all");
   const [hookSearch, setHookSearch] = useState("");
   const [selectedSkill, setSelectedSkill] = useState<SkillDef | null>(null);
   const [selectedHook, setSelectedHook] = useState<HookDef | null>(null);
+
+  // T13 (post-close amendment, 2026-08-21): seed mainTab from the URL's
+  // ?tab= query param on mount. parseViewPath only sees path segments, not
+  // query params (the unified /library route carries tab/category as query
+  // params now) — same established convention as urlCategory above — so the
+  // tab is read directly via useSearchParams here, not through parsedView.
+  const mainTabSeededRef = useRef(false);
+  useEffect(() => {
+    if (mainTabSeededRef.current) return;
+    const urlTab = searchParams.get("tab");
+    if (urlTab === "skills") {
+      setMainTab("skills");
+    } else if (urlTab === "hooks") {
+      setMainTab("hooks");
+    }
+    mainTabSeededRef.current = true;
+  }, [searchParams]);
+
+  // T13: category state is seeded directly from the URL via the useState
+  // initializers above — no separate mount-read effect. (Fix, 015-frontend-
+  // routing SC-003 regression #1: a mount-read effect setting state AND a
+  // shared "initialized" ref, checked by the write effects below, raced —
+  // all three effects fire in the SAME initial commit, in declaration order,
+  // so the read effect's ref write was already visible by the time a write
+  // effect's guard checked it, and every fresh mount replaced the URL
+  // unconditionally, silently clobbering the previous history entry.)
+
+  // T13 redo: the URL write is no longer a mount-observing effect at all —
+  // it fires only from the category-chip onClick handlers below, alongside
+  // setActiveCategory/setSkillCategory, matching AnalyticsPage's pattern
+  // (router.replace called inline in the filter's own event handler, T14).
+  // (Fix, SC-003 regression #2: the previous "skip my own first invocation"
+  // private-ref guard broke under React Strict Mode's dev-mode double-invoke
+  // of mount effects — the effect body runs twice in the same mount with no
+  // cleanup between them, so the ref was already flipped true by the second
+  // invocation and the guard fell through to a real router.replace() on
+  // every mount, not just on a genuine user-driven category change. An
+  // event-handler write can't mount-fire at all, so it can't race this way.)
+
+  // T15 (015-frontend-routing, FR-006): cold-mounting /library/{type}/{slug}
+  // opens the SAME detail modal a click opens (reused, not forked) — it
+  // already renders as a full-viewport overlay (`fixed inset-0`), so seeding
+  // it from the URL satisfies "renders full-page" with no new UI. Applied
+  // once the matching catalog has finished loading, and only once — closing
+  // the modal afterward must not immediately reopen it.
+  const librarySlugAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!librarySlug || librarySlugAppliedRef.current) return;
+    if (librarySlug.type === "agents" && agentsStatus === "succeeded") {
+      const agent = ALL_AGENTS_COMBINED.find(a => a.id === librarySlug.slug);
+      if (agent) {
+        setMainTab("agents");
+        setSelectedAgent({ agent, index: ALL_AGENTS_COMBINED.indexOf(agent) });
+        librarySlugAppliedRef.current = true;
+      }
+    } else if (librarySlug.type === "skills" && skillsStatus === "succeeded") {
+      const skill = SKILLS.find(s => s.id === librarySlug.slug);
+      if (skill) {
+        setMainTab("skills");
+        setSelectedSkill(skill);
+        librarySlugAppliedRef.current = true;
+      }
+    } else if (librarySlug.type === "hooks" && hooksStatus === "succeeded") {
+      const hook = HOOKS.find(h => h.id === librarySlug.slug);
+      if (hook) {
+        setMainTab("hooks");
+        setSelectedHook(hook);
+        librarySlugAppliedRef.current = true;
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [librarySlug?.type, librarySlug?.slug, agentsStatus, skillsStatus, hooksStatus, ALL_AGENTS_COMBINED, SKILLS, HOOKS]);
+
+  // T16 (015-frontend-routing, FR-006): when the URL changes (e.g., via browser back),
+  // close any modal that no longer matches the current URL. This allows the browser
+  // back button to close the modal and return to the list view.
+  useEffect(() => {
+    if (!librarySlug) {
+      // No item slug in URL — close all modals
+      setSelectedAgent(null);
+      setSelectedSkill(null);
+      setSelectedHook(null);
+    } else if (librarySlug.type === "agents" && (!selectedAgent || selectedAgent.agent.id !== librarySlug.slug)) {
+      // URL has an agent, but modal is for a different item — close non-agent modals
+      setSelectedSkill(null);
+      setSelectedHook(null);
+    } else if (librarySlug.type === "skills" && (!selectedSkill || selectedSkill.id !== librarySlug.slug)) {
+      // URL has a skill, but modal is for a different item — close non-skill modals
+      setSelectedAgent(null);
+      setSelectedHook(null);
+    } else if (librarySlug.type === "hooks" && (!selectedHook || selectedHook.id !== librarySlug.slug)) {
+      // URL has a hook, but modal is for a different item — close non-hook modals
+      setSelectedAgent(null);
+      setSelectedSkill(null);
+    }
+  }, [librarySlug?.type, librarySlug?.slug, selectedAgent?.agent.id, selectedSkill?.id, selectedHook?.id]);
 
   // Persist per-agent Config-tab selections across drawer open/close cycles.
   // Keyed by agent.id → the SelectionsMap for that agent. A useRef keeps the
@@ -513,6 +628,20 @@ export function LibraryPage() {
 
   const countLine = `${ALL_AGENTS_COMBINED.length} agents · ${SKILLS.length} skills · ${HOOKS.length} hooks · tap any item to see its capabilities`;
 
+  // T15: once the matching catalog has loaded and the slug isn't in it,
+  // render Next's branded not-found (T19) instead of a blank panel. Placed
+  // after every hook above so hook order stays consistent on every render
+  // that leads up to this throw — the same pattern `[...view]/page.tsx`
+  // already uses for its own `screen === "unknown"` case.
+  if (
+    librarySlug &&
+    ((librarySlug.type === "agents" && agentsStatus === "succeeded" && !ALL_AGENTS_COMBINED.some(a => a.id === librarySlug.slug)) ||
+      (librarySlug.type === "skills" && skillsStatus === "succeeded" && !SKILLS.some(s => s.id === librarySlug.slug)) ||
+      (librarySlug.type === "hooks" && hooksStatus === "succeeded" && !HOOKS.some(h => h.id === librarySlug.slug)))
+  ) {
+    notFound();
+  }
+
   return (
     <div className="h-full overflow-y-auto bg-surface-paper">
       <div className="max-w-[1320px] w-full mx-auto px-8 pt-6 pb-16">
@@ -543,7 +672,21 @@ export function LibraryPage() {
         <Tabs
           tabs={MAIN_TABS}
           active={mainTab}
-          onChange={(id) => setMainTab(id as "agents" | "skills" | "hooks")}
+          onChange={(id) => {
+            // Post-close amendment (2026-08-21): switching tabs used to be
+            // pure local state with no URL update — the URL and the visibly
+            // active tab could go out of sync, and sharing the URL after
+            // switching tabs shared the wrong tab. Each tab keeps its OWN
+            // category state (hooks has no category param), so the URL's
+            // category reflects the NEWLY active tab's own state, never the
+            // previous tab's.
+            const tab = id as "agents" | "skills" | "hooks";
+            setMainTab(tab);
+            router.replace(routes.library({
+              tab,
+              category: tab === "agents" ? activeCategory : tab === "skills" ? skillCategory : undefined,
+            }));
+          }}
           className="mb-5"
         />
 
@@ -558,7 +701,10 @@ export function LibraryPage() {
                 const showIcon = cat.id !== "all" && cat.id !== "custom";
                 const IconComponent = showIcon ? getWorkflowTypeIcon(cat.id) : null;
                 return (
-                  <button key={cat.id} onClick={() => setActiveCategory(cat.id)}
+                  <button key={cat.id} onClick={() => {
+                    setActiveCategory(cat.id);
+                    router.replace(routes.library({ tab: "agents", category: cat.id === "all" ? undefined : cat.id }));
+                  }}
                     className={`${chipBase} ${isActive ? chipActive : chipIdle} flex items-center gap-1.5`}>
                     {IconComponent && <IconComponent className="h-3.5 w-3.5" />}
                     {cat.label}<span className="opacity-50">{count}</span>
@@ -576,13 +722,18 @@ export function LibraryPage() {
                   const workflowLabel = workflow?.name || workflow?.display_name || agent.pipeline_type;
                   return (
                     <Card key={`${agent.pipeline_type}-${agent.id}`}
-                      onClick={() => !BETA_WORKFLOWS.has(agent.pipeline_type) && setSelectedAgent({
-                        agent,
-                        index: filteredAgents.indexOf(agent),
-                        // Snapshot the persisted drawer state at OPEN time.
-                        savedSkills: savedSkillsRef.current[agent.id],
-                        savedSelections: savedSelectionsRef.current[agent.id],
-                      })}
+                      onClick={() => {
+                        if (!BETA_WORKFLOWS.has(agent.pipeline_type)) {
+                          setSelectedAgent({
+                            agent,
+                            index: filteredAgents.indexOf(agent),
+                            // Snapshot the persisted drawer state at OPEN time.
+                            savedSkills: savedSkillsRef.current[agent.id],
+                            savedSelections: savedSelectionsRef.current[agent.id],
+                          });
+                          router.push(routes.libraryAgent(agent.id));
+                        }
+                      }}
                       className={`flex flex-col p-[17px] min-h-[180px] transition-colors group ${
                         BETA_WORKFLOWS.has(agent.pipeline_type)
                           ? "opacity-60 cursor-not-allowed"
@@ -630,7 +781,10 @@ export function LibraryPage() {
                   const isActive = skillCategory === cat.id;
                   const IconComponent = cat.icon ? getSkillCategoryIcon(cat.id) : null;
                   return (
-                    <button key={cat.id} onClick={() => setSkillCategory(cat.id)}
+                    <button key={cat.id} onClick={() => {
+                      setSkillCategory(cat.id);
+                      router.replace(routes.library({ tab: "skills", category: cat.id === "all" ? undefined : cat.id }));
+                    }}
                       className={`${chipBase} ${isActive ? chipActive : chipIdle} flex items-center gap-1.5`}>
                       {IconComponent && <IconComponent className="h-3.5 w-3.5" />}
                       {cat.label}
@@ -649,7 +803,10 @@ export function LibraryPage() {
                 const IconComponent = getSkillCategoryIcon(skill.category);
                 return (
                   <Card key={skill.id}
-                    onClick={() => setSelectedSkill(skill)}
+                    onClick={() => {
+                      setSelectedSkill(skill);
+                      router.push(routes.librarySkill(skill.id));
+                    }}
                     className="p-4 hover:border-line-control transition-colors cursor-pointer group"
                   >
                     <div className="flex items-center gap-2.5 mb-2.5">
@@ -737,7 +894,10 @@ export function LibraryPage() {
               ) : (
               filteredHooks.map((hook) => (
                 <Card key={hook.id}
-                  onClick={() => setSelectedHook(hook)}
+                  onClick={() => {
+                    setSelectedHook(hook);
+                    router.push(routes.libraryHook(hook.id));
+                  }}
                   className="p-4 hover:border-line-control transition-colors cursor-pointer group"
                 >
                   <div className="flex items-center gap-2.5 mb-2">

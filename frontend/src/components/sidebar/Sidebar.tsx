@@ -66,6 +66,9 @@ const STATUS_ICON: Record<WorkflowStatus, typeof Loader2> = {
   waiting_for_user: Loader2,
   clarifying: Loader2,
   analyzing: Loader2,
+  // R-14 (014-conditional-gates): a terminal hand-off, not a failure — GitBranch
+  // is already imported for the branching-workflow types above, reused here.
+  diverted: GitBranch,
 };
 
 const STATUS_COLOR: Record<WorkflowStatus, string> = {
@@ -81,6 +84,7 @@ const STATUS_COLOR: Record<WorkflowStatus, string> = {
   waiting_for_user: "text-amber-400",
   clarifying: "text-amber-400",
   analyzing: "text-blue-400",
+  diverted: "text-indigo-400",
 };
 
 /**

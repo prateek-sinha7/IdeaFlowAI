@@ -642,7 +642,10 @@ async def resume_run_endpoint(
         # rather than reusing TERMINAL_RUN_STATUSES directly (API-001 unified the
         # SEPARATE stray duplicate of this exact set that used to live in
         # ``_review_gate_run_is_terminal``, not this deliberately-different one).
-        _RESUMABLE_STATUSES = frozenset(TERMINAL_RUN_STATUSES) - {"completed"}
+        # "diverted" (014-conditional-gates R-13/R-14) is likewise excluded: a diverted
+        # run stopped by DESIGN — it handed off to a second, independent WorkflowRun —
+        # not by failure, so there is nothing to retry; v1 has no wait/resume for it.
+        _RESUMABLE_STATUSES = frozenset(TERMINAL_RUN_STATUSES) - {"completed", "diverted"}
         if wr.status not in _RESUMABLE_STATUSES:
             raise _reject(
                 "run_not_resumable",
@@ -2209,6 +2212,150 @@ def _clean_run_title(content: str | None, pipeline_type: str) -> str:
     return (title[:60].strip() or "Untitled")
 
 
+async def _launch_run_core(
+    *,
+    content: str,
+    pipeline_type: str,
+    agents: "list | None",
+    compiled: "CompiledWorkflow | None",
+    od_context: dict | None,
+    validated_images: list,
+    model_overrides: dict,
+    user: User,
+    source_workflow_run_id: str | None,
+    selections: dict | None,
+    gate_agent_ids: list | None,
+    attached_skills: list | None,
+    attached_hooks: list | None,
+    parent_run_id_override: str | None = None,
+    owner_id_override: str | None = None,
+    workspace_id_override: str | None = None,
+    trigger_depth: int = 0,
+) -> dict:
+    """Mint the WorkflowRun + spawn the WS-agnostic background driver onto the
+    per-run queue (mirrors websocket.py:1912-1966).
+
+    This is the ``launch_run`` JOIN POINT (see ``LaunchSource``'s docstring) —
+    where all 3 launch shapes reconverge — pulled out into a plain async
+    function. Everything ABOVE the join point (launch-shape detection,
+    entitlement/agent/template/model-override/image ingress validation) is
+    HTTP-request-shape-specific and stays inline in ``launch_run`` below, which
+    is now a thin wrapper over this core.
+
+    No FastAPI coupling (no ``Depends``, no ``LaunchCommand``) — so this is also
+    callable by a future kernel delegate (``run_trigger_workflow``, spec 014
+    Phase 4) that has already resolved its own agents/compiled plan and just
+    needs a run minted + driven, not by an inbound HTTP request.
+
+    ``parent_run_id_override``/``owner_id_override``/``workspace_id_override``
+    (spec 014 R-15/R-16): the ONLY additions this task makes to this function.
+    ``None`` for every existing (HTTP) caller — the ``parent_run_id`` resolution
+    and the (previously implicit, DB-default) ``owner_id``/``workspace_id`` stay
+    byte-identical. ``run_trigger_workflow`` (``kernel_services.py``) is the one
+    caller that passes all three, unconditionally, from its own triggering
+    ``ExecutionContext`` (R-15 — never independently specified, never left
+    null) — mirroring the existing ``_mint_revision_row`` precedent, which
+    already inherits ``workspace_id`` from its parent row the same way.
+
+    ``trigger_depth`` (spec 014 R-18/R-19): the cross-workflow trigger-chain depth
+    the NEW run starts at. ``0`` for every HTTP caller (a user-initiated launch is
+    the root of its own chain) — the dataclass default, so the HTTP path is
+    unchanged. ``run_trigger_workflow`` passes ``ectx.trigger_depth + 1``; this
+    function only FORWARDS it (to ``_drive_launch_to_queue`` → ``engine.execute``
+    → ``ExecutionContext``), it never computes it. Without this thread the depth
+    guard in ``run_trigger_workflow`` reads a permanently-``0`` counter and a real
+    trigger chain mints unboundedly.
+    """
+    # ═══ JOIN POINT ═════════════════════════════════════════════════════════
+    # `compiled` is only non-None for Case 3 (USER_WORKFLOW_MANIFEST) —
+    # CompiledWorkflow.steps is already FLAT (the compiler flattens the tree;
+    # parent/child is encoded per-step via `dispatched_by`, not nesting), so
+    # counting it needs no recursion.
+    agent_count = len(compiled.steps) if compiled is not None else len(agents)
+    pipeline_run_id = str(_uuid.uuid4())
+    cancel_event = asyncio.Event()
+    _CANCEL_EVENTS[pipeline_run_id] = cancel_event
+    workflow_run_id = None
+    db = _get_db()
+    try:
+        # KAN-116 (Bug 2): only set parent_run_id for REVISION pipelines (type ends in
+        # "_revision"). Chained pipelines (different base type) must NOT inherit parent_run_id
+        # — that would place them in the source workflow's revision family (BFS in
+        # _owned_family_members has no type filter). A chain is NOT a revision; chained runs
+        # should appear as SEPARATE entries in history, never as vN of the source family.
+        # SC-001/INV-1: generic endswith check, never a hardcoded pipeline name.
+        parent_run_id = (
+            parent_run_id_override
+            if parent_run_id_override is not None
+            else (
+                _resolve_owned_parent_run_id(db, source_workflow_run_id, user.id)
+                if pipeline_type.endswith("_revision")
+                else None
+            )
+        )
+        workflow_run = WorkflowRun(
+            id=pipeline_run_id,
+            user_id=user.id,
+            title=_clean_run_title(content, pipeline_type),
+            type=pipeline_type,
+            status="running",
+            input=content or f"Run {pipeline_type} pipeline",
+            agent_count=agent_count,
+            session_id=user.id,
+            parent_run_id=parent_run_id,
+            owner_id=owner_id_override,
+            workspace_id=workspace_id_override,
+            selections_json=selections,
+            # KAN-120: persist the launch-time od_context so resume_run can
+            # reconstruct it without a template_id round-trip (the template
+            # body is large; re-loading from disk at resume is the alternative
+            # but requires storing template_id separately). od_context is None
+            # for non-OD runs → od_context_json stays NULL (INV-3 parity).
+            od_context_json=od_context,
+            # Persist the per-run gate selection (migration 0031) for the same
+            # reason as the two above: resume_run rebuilds the context from this
+            # row. Without it a gate that exists only via this override vanishes
+            # on restart and a pending redo is silently dropped. None (the
+            # "use static AGENT.md gates" default) stays NULL.
+            gate_agent_ids_json=gate_agent_ids,
+        )
+        db.add(workflow_run)
+        db.commit()
+        db.refresh(workflow_run)
+        workflow_run_id = workflow_run.id
+    finally:
+        db.close()
+
+    # ── Spawn the WS-agnostic background driver onto the per-run queue ─────────
+    event_queue = _get_or_create_queue(pipeline_run_id)
+    task = asyncio.create_task(
+        _drive_launch_to_queue(
+            workflow_run_id=workflow_run_id,
+            pipeline_run_id=pipeline_run_id,
+            agents=agents,
+            content=content,
+            pipeline_type=pipeline_type,
+            cancel_event=cancel_event,
+            user=user,
+            attached_skills=attached_skills or [],
+            attached_hooks=attached_hooks or [],
+            compiled_override=compiled,
+            od_context=od_context,
+            validated_images=validated_images,
+            gate_agent_ids=gate_agent_ids,
+            parent_run_id=parent_run_id,
+            model_overrides=model_overrides,
+            selections=selections,
+            event_queue=event_queue,
+            trigger_depth=trigger_depth,
+            workspace_id_override=workspace_id_override,
+        )
+    )
+    _PIPELINE_TASKS[pipeline_run_id] = task
+
+    return {"run_id": pipeline_run_id}
+
+
 @router.post("")
 async def launch_run(
     body: LaunchCommand,
@@ -2418,14 +2565,17 @@ async def launch_run(
             # the same single source of roster truth the engine now uses — before
             # rejecting as no_agents.
             if not agents:
-                from agents.execution_engine.engine import compile_for_run
+                from agents.execution_engine.engine import (
+                    compile_for_run,
+                    get_execution_engine,
+                )
 
                 try:
                     _plan = compile_for_run(base_pipeline_type)
                 except Exception:
                     _plan = None
                 if _plan is not None and _plan.steps:
-                    agents = [load_agent_spec(s.agent_id) for s in _plan.steps]
+                    agents = get_execution_engine()._specs_from_plan(_plan.steps)
     else:
         # `agents` stays None on purpose — Case 3 has no flat agent list.
         # `compiled` (set above) carries the roster instead; it reaches
@@ -2525,88 +2675,25 @@ async def launch_run(
             raise _reject("invalid_image_input", _image_error)
         validated_images = images
 
-    # ── Mint the WorkflowRun (mirror websocket.py:1912-1966) ───────────────────
+    # ── Mint the WorkflowRun + spawn the driver (mirror websocket.py:1912-1966) ─
     # ═══ JOIN POINT ═════════════════════════════════════════════════════════
-    # All 3 LaunchSource branches reconverge HERE.
-    # `compiled` is only non-None for Case 3 (set in the USER_WORKFLOW_MANIFEST
-    # branch, TODO #3) — CompiledWorkflow.steps is already FLAT (the compiler
-    # flattens the tree; parent/child is encoded per-step via `dispatched_by`,
-    # not nesting), so counting it needs no recursion.
-    agent_count = len(compiled.steps) if compiled is not None else len(agents)
-    pipeline_run_id = str(_uuid.uuid4())
-    cancel_event = asyncio.Event()
-    _CANCEL_EVENTS[pipeline_run_id] = cancel_event
-    workflow_run_id = None
-    db = _get_db()
-    try:
-        # KAN-116 (Bug 2): only set parent_run_id for REVISION pipelines (type ends in
-        # "_revision"). Chained pipelines (different base type) must NOT inherit parent_run_id
-        # — that would place them in the source workflow's revision family (BFS in
-        # _owned_family_members has no type filter). A chain is NOT a revision; chained runs
-        # should appear as SEPARATE entries in history, never as vN of the source family.
-        # SC-001/INV-1: generic endswith check, never a hardcoded pipeline name.
-        parent_run_id = (
-            _resolve_owned_parent_run_id(db, body.source_workflow_run_id, current_user.id)
-            if pipeline_type.endswith("_revision")
-            else None
-        )
-        workflow_run = WorkflowRun(
-            id=pipeline_run_id,
-            user_id=current_user.id,
-            title=_clean_run_title(content, pipeline_type),
-            type=pipeline_type,
-            status="running",
-            input=content or f"Run {pipeline_type} pipeline",
-            agent_count=agent_count,
-            session_id=current_user.id,
-            parent_run_id=parent_run_id,
-            selections_json=body.selections,
-            # KAN-120: persist the launch-time od_context so resume_run can
-            # reconstruct it without a template_id round-trip (the template
-            # body is large; re-loading from disk at resume is the alternative
-            # but requires storing template_id separately). od_context is None
-            # for non-OD runs → od_context_json stays NULL (INV-3 parity).
-            od_context_json=od_context,
-            # Persist the per-run gate selection (migration 0031) for the same
-            # reason as the two above: resume_run rebuilds the context from this
-            # row. Without it a gate that exists only via this override vanishes
-            # on restart and a pending redo is silently dropped. None (the
-            # "use static AGENT.md gates" default) stays NULL.
-            gate_agent_ids_json=body.gate_agent_ids,
-        )
-        db.add(workflow_run)
-        db.commit()
-        db.refresh(workflow_run)
-        workflow_run_id = workflow_run.id
-    finally:
-        db.close()
-
-    # ── Spawn the WS-agnostic background driver onto the per-run queue ─────────
-    event_queue = _get_or_create_queue(pipeline_run_id)
-    task = asyncio.create_task(
-        _drive_launch_to_queue(
-            workflow_run_id=workflow_run_id,
-            pipeline_run_id=pipeline_run_id,
-            agents=agents,
-            content=content,
-            pipeline_type=pipeline_type,
-            cancel_event=cancel_event,
-            user=current_user,
-            attached_skills=body.attached_skills or [],
-            attached_hooks=body.attached_hooks or [],
-            compiled_override=compiled,
-            od_context=od_context,
-            validated_images=validated_images,
-            gate_agent_ids=body.gate_agent_ids,
-            parent_run_id=parent_run_id,
-            model_overrides=model_overrides,
-            selections=body.selections,
-            event_queue=event_queue,
-        )
+    # All 3 LaunchSource branches reconverge HERE — delegates to the shared core
+    # (also callable by a future kernel delegate; see _launch_run_core's docstring).
+    return await _launch_run_core(
+        content=content,
+        pipeline_type=pipeline_type,
+        agents=agents,
+        compiled=compiled,
+        od_context=od_context,
+        validated_images=validated_images,
+        model_overrides=model_overrides,
+        user=current_user,
+        source_workflow_run_id=body.source_workflow_run_id,
+        selections=body.selections,
+        gate_agent_ids=body.gate_agent_ids,
+        attached_skills=body.attached_skills,
+        attached_hooks=body.attached_hooks,
     )
-    _PIPELINE_TASKS[pipeline_run_id] = task
-
-    return {"run_id": pipeline_run_id}
 
 
 def _apply_terminal_output_columns(
@@ -2851,11 +2938,19 @@ async def _drive_launch_to_queue(
     selections: dict | None,
     event_queue: asyncio.Queue,
     compiled_override: "CompiledWorkflow | None" = None,
+    trigger_depth: int = 0,
+    workspace_id_override: str | None = None,
 ) -> None:
     """Run the engine and push every event into the per-run queue. Never touches a
     socket — the SSE stream drains the same queue (and the engine's durable
     run_events sink persists independently). A sanctioned duplication of the WS
-    ``_run_pipeline_to_queue`` closure body (websocket.py:2025-2279)."""
+    ``_run_pipeline_to_queue`` closure body (websocket.py:2025-2279).
+
+    ``trigger_depth`` (spec 014 R-18/R-19) / ``workspace_id_override`` (R-15):
+    forwarded verbatim to ``engine.execute`` so the new run's ``ExecutionContext``
+    carries the chain depth AND the workspace its minting parent inherited to it.
+    ``0`` / ``None`` for every non-triggered run — the engine's existing
+    mint-a-fresh-workspace default is unchanged."""
     from agents.execution_engine.engine import get_execution_engine
 
     engine = get_execution_engine()
@@ -2880,6 +2975,12 @@ async def _drive_launch_to_queue(
     pipeline_error_seen = False
     pipeline_failed_seen = False
     pipeline_error_msg: str | None = None
+    # spec 014 R-13/R-14/R-28: a ``trigger: workflow`` route outcome ends this run with
+    # ``pipeline_diverted`` and NOTHING else — no ``pipeline_complete``, no error. Without
+    # its own seen-flag + ladder branch below, the D2 fail-safe ``else`` would overwrite
+    # the ``"diverted"`` the engine's state_machine.transition already persisted with
+    # ``"failed"`` (AC-05).
+    pipeline_diverted_seen = False
     monotonic_start = time.monotonic()
 
     try:
@@ -2910,6 +3011,14 @@ async def _drive_launch_to_queue(
             # pair at Part C. unregister runs in the engine wrapper's finally — no leak.
             live_ectx_register=register_live_ectx,
             live_ectx_unregister=unregister_live_ectx,
+            # spec 014 R-18/R-19: the trigger-chain depth this run starts at (0 for
+            # every HTTP launch; parent+1 when minted by run_trigger_workflow).
+            trigger_depth=trigger_depth,
+            # spec 014 R-15: execute in the INHERITED workspace when this run was
+            # minted by a cross-workflow trigger, so the engine does not mint a
+            # fresh one over the id already stamped on the WorkflowRun row. None
+            # for every HTTP launch ⇒ unchanged mint-fresh behaviour.
+            workspace_id_override=workspace_id_override,
             # A.4 (Phase 43, DEF-43-03-1): wire the narrator LIVE on the SSE/REST launch path —
             # the engine projects a chat_reply milestone card per generic lifecycle event, draws
             # its seq from the engine's own contiguous allocator (no durable-log gap), and yields
@@ -2935,6 +3044,8 @@ async def _drive_launch_to_queue(
                     degraded_failed_agents = list(update["data"].get("agents_failed", []))
             elif utype == "pipeline_cancelled":
                 pipeline_cancelled_seen = True
+            elif utype == "pipeline_diverted":
+                pipeline_diverted_seen = True
             elif utype == "error":
                 pipeline_error_seen = True
                 if pipeline_error_msg is None:
@@ -2957,6 +3068,17 @@ async def _drive_launch_to_queue(
                         wr.status = "cancelled"
                         if not wr.completed_at:
                             wr.completed_at = datetime.now(timezone.utc)
+                    elif pipeline_diverted_seen:
+                        # spec 014 R-13/R-14: a diverted run is TERMINAL and clean — it
+                        # handed off to a separate WorkflowRun and deliberately emitted no
+                        # pipeline_complete. Restate the status the engine's
+                        # state_machine.transition(run_id, "diverted") already persisted
+                        # rather than letting the D2 fail-safe below call it "failed".
+                        # Placed above the error/failed tiers on purpose: the divert IS the
+                        # outcome, and no error event can precede it (the engine returns
+                        # immediately after yielding it). completed_at is written by
+                        # _apply_terminal_output_columns below, like every other tier.
+                        wr.status = "diverted"
                     elif degraded_failed_agents is not None:
                         wr.status = "degraded"
                         wr.error = first_agent_error_msg or (

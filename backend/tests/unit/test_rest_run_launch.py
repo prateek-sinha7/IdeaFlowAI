@@ -1002,3 +1002,111 @@ async def test_driver_persists_model_id_and_prices_non_circular(env, monkeypatch
     usage = json.loads(row.token_usage)
     assert usage["estimated_cost_usd"] == expected_cost
     assert usage["estimated_cost_usd"] != _default_price
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 6. T27 — launch_run core extraction (plan.md UNKNOWN-1 / RISK-04).
+#
+# `launch_run` is now a thin wrapper: everything above the JOIN POINT
+# (launch-shape detection, entitlement/agent/template/model-override/image
+# ingress validation) stays inline; the mint-and-spawn logic below the JOIN
+# POINT was pulled into `_launch_run_core` — a plain async function with no
+# FastAPI coupling, callable both by this HTTP handler and (T28) by a future
+# kernel delegate that has already resolved its own agents/compiled plan.
+#
+# These two tests pin the extraction boundary: (a) the core stays decoupled
+# from FastAPI/Depends/LaunchCommand, and (b) calling it directly produces the
+# SAME response shape and WorkflowRun columns as driving it via the real HTTP
+# endpoint — i.e. the extraction changed nothing observable on the HTTP path.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_launch_run_core_is_plain_async_function_decoupled_from_fastapi():
+    """T27: `_launch_run_core` must be a plain async function — no `Depends`,
+    no `Request`, no `LaunchCommand` body param, every argument keyword-only —
+    the exact property that lets a future kernel delegate (T28) call it after
+    resolving its own agents/compiled plan, with no inbound HTTP request."""
+    import inspect
+
+    from app.api.run_commands import _launch_run_core
+
+    assert inspect.iscoroutinefunction(_launch_run_core)
+    sig = inspect.signature(_launch_run_core)
+    assert all(
+        p.kind == inspect.Parameter.KEYWORD_ONLY for p in sig.parameters.values()
+    )
+    expected = {
+        "content", "pipeline_type", "agents", "compiled", "od_context",
+        "validated_images", "model_overrides", "user", "source_workflow_run_id",
+        "selections", "gate_agent_ids", "attached_skills", "attached_hooks",
+        # T28's R-15/R-18 threading: defaulted keyword-only additions the HTTP
+        # wrapper never passes (so the HTTP path is unchanged) and
+        # ``run_trigger_workflow`` passes unconditionally.
+        "parent_run_id_override", "owner_id_override", "workspace_id_override",
+        "trigger_depth",
+    }
+    assert set(sig.parameters) == expected
+
+
+@pytest.mark.asyncio
+async def test_launch_run_core_called_directly_matches_http_endpoint_shape(env):
+    """T27 regression: `launch_run` (HTTP) and a direct call to the extracted
+    `_launch_run_core` (the shape T28's kernel delegate will use) must produce
+    byte-identical response shape and mint byte-identical WorkflowRun columns
+    for equivalent input — proof the extraction left the HTTP path unaffected.
+    """
+    from agents.registry import get_pipeline_agents
+    from app.api.run_commands import _launch_run_core
+
+    user = _seed_user(env)
+    env["state"]["user"] = user
+
+    # Path A — the real HTTP endpoint.
+    http_resp = _post_launch(env, message="build a backlog", pipeline_type="user_stories")
+    assert http_resp.status_code == 200, http_resp.text
+    http_body = http_resp.json()
+    assert set(http_body.keys()) == {"run_id"}
+    assert isinstance(http_body["run_id"], str) and http_body["run_id"]
+    http_run = _latest_run(env)
+
+    # Path B — the extracted core, called directly with no HTTP request in the
+    # loop at all (mirrors both what launch_run itself now passes it, and the
+    # call shape a kernel delegate will use).
+    # ``get_pipeline_agents`` already returns list[AgentSpec] (registry.py:157) —
+    # the same value ``launch_run``'s Case 1 passes straight through as ``agents=``.
+    agents = get_pipeline_agents("user_stories")
+    core_result = await _launch_run_core(
+        content="build a backlog",
+        pipeline_type="user_stories",
+        agents=agents,
+        compiled=None,
+        od_context=None,
+        validated_images=[],
+        model_overrides={},
+        user=user,
+        source_workflow_run_id=None,
+        selections=None,
+        gate_agent_ids=None,
+        attached_skills=None,
+        attached_hooks=None,
+    )
+
+    # Byte-identical response SHAPE: exactly one key, `run_id`, a non-empty str.
+    assert set(core_result.keys()) == {"run_id"}
+    assert isinstance(core_result["run_id"], str) and core_result["run_id"]
+
+    # Let the core's fire-and-forget driver settle. Path A's driver already ran to
+    # completion inside the TestClient call, so without this the two rows are
+    # compared at DIFFERENT lifecycle points ("completed" vs. a still-"running"
+    # freshly-minted row) and `status` diverges on timing, not on behaviour.
+    core_task = env["ws"]._PIPELINE_TASKS.get(core_result["run_id"])
+    if core_task is not None:
+        await core_task
+
+    core_run = _latest_run(env)
+    assert core_run.id == core_result["run_id"]
+
+    # Byte-identical BEHAVIOR: both paths minted a WorkflowRun with the same
+    # column values for equivalent input (id/created_at necessarily differ).
+    for field in ("user_id", "type", "status", "input", "agent_count", "session_id"):
+        assert getattr(http_run, field) == getattr(core_run, field), field

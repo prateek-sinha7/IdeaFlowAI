@@ -45,7 +45,7 @@ class TestPhaseDerivation:
         assert RunState(status="running").phase == "running"
 
     def test_terminal_statuses_are_terminal(self):
-        for s in ("completed", "degraded", "failed", "cancelled"):
+        for s in ("completed", "degraded", "failed", "cancelled", "diverted"):
             assert RunState(status=s).phase == "terminal", s
 
     def test_open_gate_wins_over_status(self):
@@ -198,7 +198,7 @@ class TestTerminalRouting:
         assert d.code == "pipeline_not_running"
 
     def test_all_terminal_statuses_route(self):
-        for s in ("completed", "degraded", "failed", "cancelled"):
+        for s in ("completed", "degraded", "failed", "cancelled", "diverted"):
             d = route_chat_turn(RunState(status=s), ChatTurn(text="v2 please"))
             assert d.channel == CHANNEL_REVISION, s
 

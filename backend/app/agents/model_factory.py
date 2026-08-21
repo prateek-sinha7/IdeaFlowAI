@@ -33,6 +33,14 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
     ``model`` overrides the provider default (the user's per-run selection).
     ``max_tokens`` defaults to settings.MAX_OUTPUT_TOKENS — no per-agent cap.
     """
+    # --- LOCAL OLLAMA OVERRIDE (temp, dev-only — comment out or delete when done) ---
+    from langchain_ollama import ChatOllama
+    logger.warning("=" * 78)
+    logger.warning("!!! LOCAL OLLAMA OVERRIDE ACTIVE — using qwen3.5:4b via http://localhost:11434, NOT the real configured provider !!!")
+    logger.warning("=" * 78)
+    return ChatOllama(model="qwen3.5:4b", base_url="http://localhost:11434", reasoning=True)
+    # --- end override ---
+
     if max_tokens is None:
         max_tokens = settings.MAX_OUTPUT_TOKENS
 

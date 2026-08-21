@@ -123,6 +123,9 @@ class WorkflowRunResponse(BaseModel):
     # by chaining from a prior run's output. The column already exists (migration
     # 0014 forward field) — no migration needed; from_attributes resolves it.
     source_run_id: Optional[str] = None
+    # R-20 (spec 014 / T41): the instance_id of the conditional-gate step that
+    # diverted this run to another workflow, if any. None for a non-diverted run.
+    diverted_at_step_id: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
 
@@ -163,6 +166,8 @@ class WorkflowRunListResponse(BaseModel):
     deliverable_filename: Optional[str] = None
     parent_run_id: Optional[str] = None
     root_run_id: str
+    # R-20 (spec 014 / T41): see WorkflowRunResponse — same field, same meaning.
+    diverted_at_step_id: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
 
@@ -338,6 +343,7 @@ def list_runs(
         WorkflowRun.deliverable_mimetype,
         WorkflowRun.deliverable_filename,
         WorkflowRun.parent_run_id,
+        WorkflowRun.diverted_at_step_id,
         WorkflowRun.user_id,
         WorkflowRun.created_at,
         WorkflowRun.completed_at,

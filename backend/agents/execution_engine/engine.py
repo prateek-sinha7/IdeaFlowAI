@@ -500,7 +500,7 @@ NON_TERMINAL_RUN_STATUSES: tuple[str, ...] = (
 # cancelled/failed/degraded subset; every mutating REST command below now checks
 # membership in THIS tuple, imported — never re-stated (INV-12, mirrors
 # NON_TERMINAL_RUN_STATUSES's own precedent immediately above).
-TERMINAL_RUN_STATUSES: tuple[str, ...] = ("completed", "cancelled", "failed", "degraded")
+TERMINAL_RUN_STATUSES: tuple[str, ...] = ("completed", "cancelled", "failed", "degraded", "diverted")
 
 
 def is_terminal_run_status(status_value: str | None) -> bool:
@@ -1079,6 +1079,8 @@ class ExecutionEngine:
         live_ectx_register: "LiveEctxRegister | None" = None,
         live_ectx_unregister: "LiveEctxUnregister | None" = None,
         compiled_override: "CompiledWorkflow | None" = None,
+        trigger_depth: int = 0,
+        workspace_id_override: str | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Public entry — the SINGLE outward emit boundary (PERSIST-03 / D-11).
 
@@ -1116,6 +1118,21 @@ class ExecutionEngine:
         consumer stops draining) so the registry never leaks. Both ``None`` (the goldens + every
         current WS caller) keeps the seam DORMANT — byte/event-identical. Keyed on
         ``pipeline_run_id`` ONLY (SC-001/INV-1), so two concurrent runs never cross-deliver.
+
+        ``trigger_depth`` (spec 014 R-18/R-19): the cross-workflow trigger-chain depth
+        this run STARTS at, stamped onto the ``ExecutionContext`` built below. ``0``
+        (the default — every HTTP/WS/golden caller) means "root of its own chain" and
+        is byte/event-identical to before. ``run_trigger_workflow`` passes
+        ``parent_ectx.trigger_depth + 1`` down through ``_launch_run_core`` →
+        ``_drive_launch_to_queue`` → here, which is what makes the fixed-ceiling-of-5
+        guard in that delegate fire on a REAL chain instead of a hand-built context.
+
+        ``workspace_id_override`` (spec 014 R-15): execute IN AN EXISTING workspace
+        instead of minting a fresh one. ``None`` (every HTTP/WS/golden caller) keeps
+        the mint-a-new-workspace default — byte/event-identical. Set only for a run
+        minted by ``run_trigger_workflow``, which must share its triggering run's
+        workspace so both runs land in one budget aggregate and the ``workspace_id``
+        already stamped on the new ``WorkflowRun`` row is not overwritten.
         """
         sink = _RunEventSink(milestone_sink=milestone_sink)
         # Manual monotonic allocator (NOT itertools.count): a milestone card projected below
@@ -1148,6 +1165,8 @@ class ExecutionEngine:
                 event_queue=event_queue,
                 live_ectx_register=live_ectx_register,
                 compiled_override=compiled_override,
+                trigger_depth=trigger_depth,
+                workspace_id_override=workspace_id_override,
             ):
                 # Stamp exactly once, at the boundary, so seq is contiguous across the
                 # nondeterministically-interleaved build loop. Events always carry a
@@ -1247,6 +1266,8 @@ class ExecutionEngine:
         event_queue: "asyncio.Queue | None" = None,
         live_ectx_register: "LiveEctxRegister | None" = None,
         compiled_override: "CompiledWorkflow | None" = None,
+        trigger_depth: int = 0,
+        workspace_id_override: str | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Execute a workflow end-to-end, yielding WebSocket events.
 
@@ -1369,6 +1390,12 @@ class ExecutionEngine:
             gate_agent_ids=gate_agent_ids,
             parent_run_id=parent_run_id,
             cancel_event=cancel_event,
+            # spec 014 R-18/R-19: the constructor-time chain depth (context.py's own
+            # docstring: "the '+1' propagation logic itself lives at the caller"). 0 for
+            # every normal launch ⇒ DORMANT / byte-identical; parent+1 when this run was
+            # minted by run_trigger_workflow, which is what lets that delegate's
+            # exact-equality-to-5 guard fail closed on the 6th hop of a real chain.
+            trigger_depth=trigger_depth,
         )
         # ── A.3 (Phase 43): register the RUNNING run's live in-process ExecutionContext ──
         # Keyed by run_id into the app-layer process-local registry via the INJECTED callback
@@ -1469,6 +1496,19 @@ class ExecutionEngine:
             )
             if _recovered_ws is not None:
                 ectx.workspace_id = _recovered_ws
+            elif workspace_id_override:
+                # ── spec 014 R-15: an INHERITED workspace (cross-workflow trigger) ──
+                # A run minted by ``run_trigger_workflow`` must execute IN THE SAME
+                # workspace as the run that triggered it — that shared id is what puts
+                # both runs' spend in one ``BudgetManager.workspace_ceiling`` aggregate
+                # and what AC-05 asserts on the two ``WorkflowRun`` rows. Minting a
+                # fresh workspace here would silently overwrite the id
+                # ``_launch_run_core`` already stamped on the row (via ``set_run_scope``
+                # a few lines below), so the inheritance has to be honoured HERE, not
+                # only at mint time. Same shape as the resume recovery above: an
+                # explicitly-supplied id is reused instead of created. ``None`` (every
+                # HTTP/WS/golden caller) ⇒ mint fresh, byte/event-identical (INV-3).
+                ectx.workspace_id = workspace_id_override
             else:
                 ectx.workspace_id = await scoped_store.create_workspace(pipeline_run_id)
             scoped_store._workspace_id = ectx.workspace_id  # stamp later writes
@@ -2549,16 +2589,20 @@ class ExecutionEngine:
             # into the SHIPPED five-action gate consumer. The output is NOT stashed here —
             # it is seeded at the loop entry from the freshly-hydrated graph (hydrated above
             # at ``_resume_from > 0``). Generic keying: parse the agent id out of
-            # ``gate_key = f"{run}:{agent_id}"`` (INV-1). No-op when no review gate is open
-            # (``derive_open_gate`` → ``(None, None)``) ⇒ the sentinel stays unset and every
-            # non-gate resume is byte/event-identical (INV-3). Best-effort — a read failure
-            # degrades to a normal (model-running) resume of the step (fail-safe).
+            # ``gate_key = f"{run}:{agent_id}:{visit_count}"`` (INV-1). R-08: strip BOTH the
+            # run_id prefix (first colon) and the visit_count suffix (last colon) rather than
+            # a plain ``split(":", 1)[1]`` — a custom-agent id (``custom-agent:<instance_id>``)
+            # itself contains a colon, so only the outer two must be peeled. No-op when no
+            # review gate is open (``derive_open_gate`` → ``(None, None)``) ⇒ the sentinel
+            # stays unset and every non-gate resume is byte/event-identical (INV-3).
+            # Best-effort — a read failure degrades to a normal (model-running) resume of the
+            # step (fail-safe).
             if 0 <= _resume_from < len(ordered_agents):
                 try:
                     _rr_rows = await scoped_store.read_events(pipeline_run_id, 0)
                     _rr_kind, _rr_gate_key = derive_open_gate(_rr_rows)
                     if _rr_kind == "review" and _rr_gate_key:
-                        _rr_target = _rr_gate_key.split(":", 1)[1]
+                        _rr_target = _rr_gate_key.split(":", 1)[1].rsplit(":", 1)[0]
                         _rr_spec = ordered_agents[_resume_from]
                         if getattr(_rr_spec, "id", None) == _rr_target:
                             ectx.gate_reentry = {
@@ -2582,8 +2626,10 @@ class ExecutionEngine:
         # agent-id literal, no spec.id comparison (SC-001/INV-1).
         _failed_agent_ids: set[str] = set()
 
+        cursor = 0
         try:
-            for i, spec in enumerate(ordered_agents):
+            while cursor < len(ordered_agents):
+                spec = ordered_agents[cursor]
                 # ── RESUME-04 mid-run offset (D-06/D-07) ─────────────────────────
                 # A resumed run re-enters THIS SAME loop (no forked dispatch path —
                 # INV-12) at the first incomplete step: every step BEFORE the resume
@@ -2592,7 +2638,8 @@ class ExecutionEngine:
                 # downstream steps via the 12-02 content-hash key); re-invoking it
                 # would re-spend the model. ``_resume_from == 0`` (normal run) never
                 # skips, so this is byte/event-identical for every non-resumed run.
-                if i < _resume_from:
+                if cursor < _resume_from:
+                    cursor += 1
                     continue
                 # ── Sibling-group parallelism (subagents.mode: parallel) ─────────
                 # A parallel group's children are dispatched by their parent via
@@ -2601,13 +2648,14 @@ class ExecutionEngine:
                 # compiler-derived and empty for every manifest not using the mode.
                 _step_for_dispatch = _steps_by_agent.get(spec.id)
                 if getattr(_step_for_dispatch, "dispatched_by", ""):
+                    cursor += 1
                     continue
                 # ── Cooperative state-machine check at the STEP BOUNDARY ─────────
                 # A terminal event inside _run_agent only ends ITS generator; this loop
                 # would keep dispatching steps and then report "completed" at Step 5.
                 # Checked before cancel_event so a state-machine-only cancellation
                 # (no event set) is caught too.
-                if self._state_machine.get_state(pipeline_run_id) in ("cancelled", "failed"):
+                if self._state_machine.get_state(pipeline_run_id) in ("cancelled", "failed", "diverted"):
                     return
                 if cancel_event and cancel_event.is_set():
                     # ── ISS-007 (16-02): pre-agent cooperative cancel ─────────
@@ -2626,7 +2674,7 @@ class ExecutionEngine:
                     # cancel signal only (no workflow/model name, SC-001).
                     logger.info("Workflow cancelled before agent %s", spec.id)
                     _cur = self._state_machine.get_state(pipeline_run_id)
-                    if _cur not in ("cancelled", "failed"):
+                    if _cur not in ("cancelled", "failed", "diverted"):
                         self._state_machine.transition(pipeline_run_id, "cancelled")
                     await self._persist_budget_snapshot_if_active(ectx)
                     yield {
@@ -2692,7 +2740,7 @@ class ExecutionEngine:
                         # completion while the state machine sat stranded in
                         # waiting_for_user.
                         _cur = self._state_machine.get_state(pipeline_run_id)
-                        if _cur not in ("cancelled", "failed"):
+                        if _cur not in ("cancelled", "failed", "diverted"):
                             self._state_machine.transition(
                                 pipeline_run_id, "cancelled"
                             )
@@ -2710,6 +2758,10 @@ class ExecutionEngine:
                         return
                     if _outcome in ("block", "wait_human"):
                         _halted = True
+                    # NOTE: no ``elif _outcome == "route":`` arm here — the
+                    # ``conditional`` gate (the only "route" emitter) is a
+                    # POST-step gate (see ``_POST_STEP_GATES``); its route-jump
+                    # handling lives in the post-step gate loop below.
                     # ── WR-04 (13 review fix): apply a declared-gate edit ─────
                     # The human gate threads an approve-with-edits payload on
                     # the terminal sentinel's detail. A declared pre-step gate
@@ -2730,6 +2782,7 @@ class ExecutionEngine:
                 if _halted:
                     # The step is halted at its boundary — skip the strategy + the
                     # post-step gates/post_step for this agent (additive halt).
+                    cursor += 1
                     continue
 
                 # ── [08-07 / 08-08 / D-09] before_step hook firing (additive) ────
@@ -2742,10 +2795,11 @@ class ExecutionEngine:
                 # a declared blocking hook would halt the step additively.
                 _hook_outcome = await self._fire_hooks(
                     "before_step", step, ectx, _registry,
-                    extra={"agent_name": spec.name, "step_index": i},
+                    extra={"agent_name": spec.name, "step_index": cursor},
                 )
                 if _hook_outcome == "block":
                     # Additive halt — no new WS event, the step simply does not run.
+                    cursor += 1
                     continue
 
                 strategy = _registry.resolve("strategy", strategy_name)
@@ -2763,7 +2817,7 @@ class ExecutionEngine:
                     # the RUN, not just the step. The inline review gate's reject
                     # handler (_run_agent :4458) cancels the run and returns — but a
                     # generator ``return`` only ends THAT step, so without this the
-                    # loop advanced to step i+1 and the run terminated on
+                    # loop advanced to step cursor+1 and the run terminated on
                     # ``pipeline_complete``. The post-rejection steps bill nothing
                     # (every _run_agent short-circuits on the :3329 terminal guard),
                     # but fan-out still wrote ``subagent_runs='complete'`` /
@@ -2807,25 +2861,189 @@ class ExecutionEngine:
                 # declared hooks → nothing fires here (same as before_step).
                 await self._fire_hooks(
                     "after_step", step, ectx, _registry,
-                    extra={"agent_name": spec.name, "step_index": i},
+                    extra={"agent_name": spec.name, "step_index": cursor},
                 )
 
-                # ── [D-03] Post-step gates (validation) ──────────────────────────
-                # Post-step gates (validation) evaluate AFTER the strategy completes:
-                # they run the step's declared validators + the block-critical /
-                # warn-non-critical policy, emitting the additive ``validation_warning``
-                # + ``gate_*`` events. A ``block`` here is surfaced as the additive
-                # ``gate_blocked`` event (the deliverable already produced; this is the
-                # declarative post-build validation entry point, NOT the inline
-                # task_loop build-loop validation which stays put per D-06).
+                # ── [D-03] Post-step gates (validation, conditional) ─────────────
+                # Post-step gates evaluate AFTER the strategy completes. ``validation``
+                # runs the step's declared validators + the block-critical / warn-
+                # non-critical policy, emitting the additive ``validation_warning`` +
+                # ``gate_*`` events; its ``block`` is surfaced as the additive
+                # ``gate_blocked`` event only (the deliverable already produced; this
+                # is the declarative post-build validation entry point, NOT the
+                # inline task_loop build-loop validation which stays put per D-06).
+                #
+                # ``conditional`` (spec 014 / T14) is ALSO post-step here (moved
+                # from the pre-step loop above) because by default it reads THIS
+                # step's own ``route_decision`` artifact (route.condition_agent
+                # defaults to the step's own id), which does not exist until the
+                # strategy above has run. Unlike ``validation``'s block, its
+                # ``route`` outcome IS consumed below — it redirects the cursor.
+                _routed = False
                 async for _ge, _outcome, _gdetail in self._evaluate_gates(
                     step, ectx, _registry, phase="post"
                 ):
-                    # WR-04: skip the terminal (None, outcome) sentinel — post-step
-                    # gates surface events only (the deliverable is already
-                    # produced); the sentinel must not reach the event stream.
+                    # WR-04: skip the terminal (None, outcome) sentinel when
+                    # forwarding (keeps the emitted stream identical) but still
+                    # honor a ``route`` outcome below.
                     if _ge is not None:
                         yield _ge
+                    if _outcome == "route":
+                        # ── [spec 014 / T14] ConditionalGate route outcome ────
+                        # ``_gdetail`` is the ``GateOutcome.detail`` the
+                        # ConditionalGate (agents/capabilities/gates/conditional.py)
+                        # sets on a matched route: ``{"trigger": ..., "target": ...}``.
+                        _route_trigger = (
+                            _gdetail.get("trigger") if isinstance(_gdetail, dict) else None
+                        )
+                        _route_target = (
+                            _gdetail.get("target") if isinstance(_gdetail, dict) else None
+                        )
+                        if _route_trigger == "step":
+                            # Resolve the target step's index in ordered_agents and
+                            # jump the cursor directly to it — forward or backward,
+                            # same code path (T13's while-loop conversion). R-10
+                            # (compiler._validate_route_targets) already guarantees
+                            # a "step" target names a real step id at compile time.
+                            #
+                            # R-05/R-10 dual-identity: a composed custom-agent step's
+                            # ordered_agents entry carries the FULL
+                            # "custom-agent:<instance_id>" id, but ``target`` is
+                            # author-facing and commonly the bare ``instance_id`` (the
+                            # same dual-identity the compiler's
+                            # ``_validate_route_targets`` ``by_name`` map already
+                            # accepts at compile time — see that method's docstring).
+                            # Try an exact match first (byte-identical for every
+                            # non-composed / already-full-id target); fall back to a
+                            # ``":<target>"`` suffix match only when no exact match
+                            # exists.
+                            _route_index = next(
+                                (i for i, s in enumerate(ordered_agents) if s.id == _route_target),
+                                None,
+                            )
+                            if _route_index is None:
+                                _route_index = next(
+                                    (
+                                        i for i, s in enumerate(ordered_agents)
+                                        if s.id.endswith(f":{_route_target}")
+                                    ),
+                                    None,
+                                )
+                            if _route_index is not None:
+                                if _route_index <= cursor:
+                                    # ── [spec 014 / T18] R-07 loop-cap enforcement ──
+                                    # A backward (or self) "step" jump is a LOOP
+                                    # (forward branches never touch
+                                    # step_visit_counts — R-06/data-model.md).
+                                    # Check the jump TARGET's already-recorded
+                                    # visit count against ``loop_max_iterations``
+                                    # BEFORE letting the jump proceed. The cap
+                                    # lives on THIS step's own ``route`` (the
+                                    # step currently being dispatched, already
+                                    # bound as ``step``) — RouteSpec is only
+                                    # ever attached to the step declaring
+                                    # ``gates: [conditional]`` (R-03), never to
+                                    # its jump target (confirmed against the
+                                    # A1 fixture: ``check`` declares
+                                    # ``route.loop_max_iterations: 3``; its
+                                    # target ``greet`` has no ``route`` at
+                                    # all). Fail closed: raise the existing
+                                    # BudgetExceeded (caught by the
+                                    # ``except BudgetExceeded`` graceful-abort
+                                    # handler below) rather than silently
+                                    # capping the count. Only increment AFTER
+                                    # the check passes.
+                                    _step_route = getattr(step, "route", None)
+                                    _loop_max = (
+                                        _step_route.loop_max_iterations
+                                        if _step_route is not None
+                                        else 5
+                                    )
+                                    _visits = ectx.step_visit_counts.get(_route_target, 0)
+                                    if _visits >= _loop_max:
+                                        raise BudgetExceeded(
+                                            "loop_iterations",
+                                            f"step {_route_target!r} would be "
+                                            f"revisited {_visits + 1} time(s), "
+                                            f"exceeding loop_max_iterations="
+                                            f"{_loop_max} (R-07)",
+                                        )
+                                    ectx.step_visit_counts[_route_target] = _visits + 1
+                                cursor = _route_index
+                                _routed = True
+                        elif _route_trigger == "workflow":
+                            # ── [spec 014 / T29] Cross-workflow trigger (R-12/R-13/R-14) ──
+                            # Mint + spawn a NEW, independent WorkflowRun via the T28
+                            # kernel delegate (``ectx.runner`` is the KernelServices
+                            # handle, D-03) — this run does NOT wait on it (R-13,
+                            # Option 2: the mint/spawn call is the only await; it
+                            # returns as soon as the new run exists, not when it
+                            # finishes).
+                            _diverted_to_run_id, _diverted_to_workflow = (
+                                await ectx.runner.run_trigger_workflow(
+                                    step, ectx, workflow_ref=_route_target
+                                )
+                            )
+                            # R-14: the SAME state_machine.transition mechanism
+                            # cancelled/failed use elsewhere in this file (persists
+                            # to WorkflowRun.status via StateMachine._persist).
+                            self._state_machine.transition(pipeline_run_id, "diverted")
+                            # ── [spec 014 / R-20 audit finding, T41] diverted_at_step_id ──
+                            # Same best-effort DB-write shape StateMachine._persist (T71)
+                            # already uses for WorkflowRun.status: a fresh SessionLocal, a
+                            # single row lookup, one attribute set, one commit — applied
+                            # here as an additional small write on the SAME row this
+                            # transition() call just updated, not a new DB-access pattern.
+                            # Non-fatal: a DB hiccup here must not break the
+                            # already-persisted "diverted" transition or the yield below.
+                            try:
+                                from app.models.database import SessionLocal
+                                from app.models.workflow import WorkflowRun
+
+                                _divert_db = SessionLocal()
+                                try:
+                                    _divert_wr = (
+                                        _divert_db.query(WorkflowRun)
+                                        .filter(WorkflowRun.id == pipeline_run_id)
+                                        .first()
+                                    )
+                                    if _divert_wr is not None:
+                                        _divert_wr.diverted_at_step_id = step.instance_id
+                                        _divert_db.commit()
+                                finally:
+                                    _divert_db.close()
+                            except Exception as _divert_exc:  # noqa: BLE001 — non-fatal
+                                logger.debug(
+                                    "diverted_at_step_id persist failed (non-fatal): %s",
+                                    _divert_exc,
+                                )
+                            # ── [spec 014 / R-28] pipeline_diverted — additive event,
+                            # emitted through the SAME generic event-forward path
+                            # ``pipeline_cancelled`` already uses (a bare ``yield``
+                            # here; INV-3, decision-log #18). ``diverted_to_workflow``
+                            # is the ``target_pipeline_type`` ``run_trigger_workflow``
+                            # already resolved before minting — never the manifest's
+                            # literal ``"self"`` sentinel, even when ``_route_target``
+                            # (the raw manifest ``target``) was ``"self"``.
+                            yield {
+                                "type": "pipeline_diverted",
+                                "data": {
+                                    "pipeline_run_id": pipeline_run_id,
+                                    "diverted_to_run_id": _diverted_to_run_id,
+                                    "diverted_to_workflow": _diverted_to_workflow,
+                                },
+                            }
+                            # R-13: THIS run's dispatch loop ends here — no
+                            # default_next, no cursor advance, no post_step
+                            # capability, no pipeline_complete.
+                            return
+                if _routed:
+                    # The conditional gate redirected the cursor to the route
+                    # target — skip the post_step capability and the default
+                    # ``cursor += 1`` (the jump above already set the exact next
+                    # cursor; forward and backward targets are the same code path,
+                    # T13).
+                    continue
 
                 # ── Declared post-step capability (INV-1 / CR-06) ────────────────
                 # After the step's strategy finishes, run any declared ``post_step``
@@ -2838,6 +3056,24 @@ class ExecutionEngine:
                 post_step_name = getattr(step, "post_step", None)
                 if post_step_name:
                     await _registry.resolve("post_step", post_step_name).run(step, ectx)
+
+                # ── [spec 014 / T13-T14 fix] Stop at a LEAF step, don't fall through ──
+                # ``step.is_leaf`` (R-26, compiler._compute_is_leaf) is True iff nothing
+                # in the compiled graph legitimately continues from this step — but a
+                # leaf step is not always array-LAST: a forward branch's target (e.g.
+                # ``say-hello`` in sample_conditional_branch_new) is a leaf sitting
+                # BEFORE the other branch's target in array order. A bare ``cursor += 1``
+                # here walked straight into that other branch's exclusive target — the
+                # T25 mutual-exclusivity failure. Advancing all the way past
+                # ``ordered_agents`` on a leaf ends the walk instead, exactly like the
+                # natural end-of-array case already did (is_leaf's own docstring: for a
+                # step with no route, is_leaf is True only at array-end OR when the next
+                # array slot is stolen by another branch — this makes both cases end the
+                # loop). Every non-leaf step still gets the plain ``cursor + 1`` it
+                # always had (parity for every pre-014 / non-branching workflow).
+                cursor = (
+                    len(ordered_agents) if getattr(step, "is_leaf", False) else cursor + 1
+                )
 
         except asyncio.CancelledError:
             self._state_machine.transition(pipeline_run_id, "cancelled")
@@ -2928,7 +3164,7 @@ class ExecutionEngine:
         # deliverable ref write — composes with the 13-05 guard — and no
         # pipeline_complete). Counters only — no workflow-name branch (SC-001).
         if (
-            current_state not in ("cancelled", "failed")
+            current_state not in ("cancelled", "failed", "diverted")
             and not results
             and _failed_agent_ids
         ):
@@ -2955,7 +3191,7 @@ class ExecutionEngine:
             }
             return
 
-        if current_state not in ("cancelled", "failed"):
+        if current_state not in ("cancelled", "failed", "diverted"):
             self._state_machine.transition(pipeline_run_id, "completed")
 
         # Determine the final deliverable below via the DECLARED deliverable resolver
@@ -3194,14 +3430,20 @@ class ExecutionEngine:
         # defensive floor keeps any _failed_agent_ids agent that completed NOTHING
         # at all, so a future agent_error path that skips the recorder can't silently
         # regress to a clean completion.
+        # R-08: ``visit_count`` folded into the triple too — otherwise a step re-
+        # entered via a route loop-back's pass-2 COMPLETION (same agent_id/task_number,
+        # different visit_count) would mask a pass-1 hard failure. ``.get("visit_count",
+        # 0)`` defaults results entries that predate this field (e.g. the RESUME-17
+        # gate-reentry short-circuit) to 0, matching ``step_visit_counts``'s own default.
         _completed_pairs = {
-            (r.get("agent_id"), r.get("task_number", "") or "") for r in results
+            (r.get("agent_id"), r.get("task_number", "") or "", r.get("visit_count", 0))
+            for r in results
         }
         _completed_agent_ids = {r.get("agent_id") for r in results}
         _unrecovered_agents = {
             agent_id
-            for (agent_id, task_number) in getattr(ectx, "failed_invocations", set())
-            if (agent_id, task_number) not in _completed_pairs
+            for (agent_id, task_number, visit_count) in getattr(ectx, "failed_invocations", set())
+            if (agent_id, task_number, visit_count) not in _completed_pairs
         }
         # Floor (no regression): an errored agent with zero completions anywhere.
         _unrecovered_agents |= (_failed_agent_ids - _completed_agent_ids)
@@ -3215,7 +3457,7 @@ class ExecutionEngine:
         # to "completed" past a rejection (``_reconcile_terminal_status``). Its own
         # terminal event (``pipeline_cancelled`` / ``pipeline_failed``) was already
         # emitted at the point of cancellation/failure.
-        if current_state not in ("cancelled", "failed"):
+        if current_state not in ("cancelled", "failed", "diverted"):
             yield {
                 "type": "pipeline_complete",
                 "data": _pipeline_complete_data,
@@ -3601,10 +3843,11 @@ class ExecutionEngine:
 
     @staticmethod
     def _record_failed_invocation(ectx, agent_id: str) -> None:
-        """ISS-028: record an UNRECOVERED ``(agent_id, task_number)`` failure pair.
+        """ISS-028: record an UNRECOVERED ``(agent_id, task_number, visit_count)`` failure
+        triple.
 
         Called at every ``_run_agent`` ``agent_error`` emission so the terminal
-        degraded decision (``_execute_impl``) can key on the per-invocation pair
+        degraded decision (``_execute_impl``) can key on the per-invocation triple
         rather than collapsing on ``agent_id`` alone. ``task_number`` is read from the
         per-task build scratch (``ectx.build_task_number`` — set by
         ``KernelServices.run_agent`` for a task_loop invocation, "" for a single_shot
@@ -3612,10 +3855,17 @@ class ExecutionEngine:
         DIFFERENT pair, so it no longer masks this failure (the ISS-028 root cause).
         A timeout that emits a recoverable ``agent_error`` then completes in the SAME
         invocation records + completes the SAME pair, so it still subtracts cleanly
-        (WR-05 preserved). Best-effort: never abort the run on a bookkeeping miss.
+        (WR-05 preserved). ``visit_count`` (R-08) additionally distinguishes a step
+        re-entered via a route loop-back: without it, a pass-1 hard failure is masked
+        by a pass-2 completion of the SAME (agent_id, task_number) pair. Best-effort:
+        never abort the run on a bookkeeping miss.
         """
         try:
-            ectx.failed_invocations.add((agent_id, getattr(ectx, "build_task_number", "") or ""))
+            ectx.failed_invocations.add((
+                agent_id,
+                getattr(ectx, "build_task_number", "") or "",
+                ectx.step_visit_counts.get(agent_id, 0),
+            ))
         except Exception:  # noqa: BLE001 — failure bookkeeping must never break the run
             pass
 
@@ -3709,7 +3959,7 @@ class ExecutionEngine:
     def _deliverable_filename_override(
         ectx: ExecutionContext, index: int, ordered_agents: list
     ) -> str | None:
-        """The declared ``single_file`` deliverable name, for the FINAL step only.
+        """The declared ``single_file`` deliverable name, for every LEAF step.
 
         One definition, two consumers: the ``AgentContext`` the factory composes the
         prompt from, and the artifact guarantee below. They MUST agree — when they
@@ -3719,7 +3969,8 @@ class ExecutionEngine:
         silently writing the deliverable to a name the single_file readback never
         looks at.
         """
-        if index != len(ordered_agents) - 1:
+        step = getattr(ectx, "current_step", None)
+        if not getattr(step, "is_leaf", False):
             return None
         deliverable = getattr(ectx, "deliverable", None)
         if getattr(deliverable, "strategy", None) != "single_file":
@@ -3803,7 +4054,7 @@ class ExecutionEngine:
         # Guard: if the run is already in a terminal state (e.g. user rejected
         # a review gate), stop immediately without running the agent.
         current_state = self._state_machine.get_state(pipeline_run_id)
-        if current_state in ("cancelled", "failed"):
+        if current_state in ("cancelled", "failed", "diverted"):
             logger.info(
                 "_run_agent: skipping %s — pipeline already in terminal state=%s",
                 spec.id, current_state,
@@ -3869,6 +4120,9 @@ class ExecutionEngine:
                     # AND their output bytes, so without this the user (and any consumer
                     # keyed on those two) cannot tell them apart.
                     _rev_cycle, _rev_in_flight = self._stamp_revision_marks(ectx)
+                    # R-08: fold the loop-revisit count into gate_key so a step re-entered
+                    # via a route loop-back doesn't collide with its own prior firing.
+                    _visit_count = ectx.step_visit_counts.get(spec.id, 0)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
@@ -3880,10 +4134,11 @@ class ExecutionEngine:
                         revision_cycle=_rev_cycle,
                         revision_in_flight=_rev_in_flight,
                         cancel_event=cancel_event,
+                        visit_count=_visit_count,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
                             current = self._state_machine.get_state(pipeline_run_id)
-                            if current not in ("cancelled", "failed"):
+                            if current not in ("cancelled", "failed", "diverted"):
                                 self._state_machine.transition(pipeline_run_id, "cancelled")
                             yield {"type": "pipeline_cancelled", "data": {
                                 "pipeline_run_id": pipeline_run_id,
@@ -3987,6 +4242,9 @@ class ExecutionEngine:
                     # AND their output bytes, so without this the user (and any consumer
                     # keyed on those two) cannot tell them apart.
                     _rev_cycle, _rev_in_flight = self._stamp_revision_marks(ectx)
+                    # R-08: fold the loop-revisit count into gate_key so a step re-entered
+                    # via a route loop-back doesn't collide with its own prior firing.
+                    _visit_count = ectx.step_visit_counts.get(spec.id, 0)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
@@ -3998,10 +4256,11 @@ class ExecutionEngine:
                         revision_cycle=_rev_cycle,
                         revision_in_flight=_rev_in_flight,
                         cancel_event=cancel_event,
+                        visit_count=_visit_count,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
                             current = self._state_machine.get_state(pipeline_run_id)
-                            if current not in ("cancelled", "failed"):
+                            if current not in ("cancelled", "failed", "diverted"):
                                 self._state_machine.transition(pipeline_run_id, "cancelled")
                             yield {"type": "pipeline_cancelled", "data": {
                                 "pipeline_run_id": pipeline_run_id,
@@ -5015,12 +5274,16 @@ class ExecutionEngine:
                     "cache_write_tokens": agent_cache_write_tokens,
                     # ISS-028: the task identity of THIS completed invocation ("" for a
                     # single_shot agent) so the terminal degraded decision can subtract
-                    # COMPLETED (agent_id, task_number) pairs from ectx.failed_invocations.
-                    # An internal-only field — results never reaches the wire / a snapshot
-                    # (the WS layer builds its agent_outputs from EVENTS, and every reader
-                    # of ``results`` uses .get()/["output"]/["agent_id"]/len), so INV-3
-                    # byte-parity is unaffected.
+                    # COMPLETED (agent_id, task_number, visit_count) triples from
+                    # ectx.failed_invocations. An internal-only field — results never
+                    # reaches the wire / a snapshot (the WS layer builds its agent_outputs
+                    # from EVENTS, and every reader of ``results`` uses
+                    # .get()/["output"]/["agent_id"]/len), so INV-3 byte-parity is
+                    # unaffected.
                     "task_number": getattr(ectx, "build_task_number", "") or "",
+                    # R-08: this invocation's loop-revisit count, so a pass-2 completion
+                    # of the same (agent_id, task_number) doesn't mask a pass-1 failure.
+                    "visit_count": ectx.step_visit_counts.get(spec.id, 0),
                 })
                 _log_event("agent_complete", pipeline_run_id, agent_id=spec.id,
                            duration_ms=duration * 1000)
@@ -5067,6 +5330,9 @@ class ExecutionEngine:
                     # AND their output bytes, so without this the user (and any consumer
                     # keyed on those two) cannot tell them apart.
                     _rev_cycle, _rev_in_flight = self._stamp_revision_marks(ectx)
+                    # R-08: fold the loop-revisit count into gate_key so a step re-entered
+                    # via a route loop-back doesn't collide with its own prior firing.
+                    _visit_count = ectx.step_visit_counts.get(spec.id, 0)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
@@ -5078,12 +5344,13 @@ class ExecutionEngine:
                         revision_cycle=_rev_cycle,
                         revision_in_flight=_rev_in_flight,
                         cancel_event=cancel_event,
+                        visit_count=_visit_count,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
                             # User rejected — cancel the pipeline
                             # Guard: only transition if not already in a terminal state
                             current = self._state_machine.get_state(pipeline_run_id)
-                            if current not in ("cancelled", "failed"):
+                            if current not in ("cancelled", "failed", "diverted"):
                                 self._state_machine.transition(pipeline_run_id, "cancelled")
                             yield {"type": "pipeline_cancelled", "data": {
                                 "pipeline_run_id": pipeline_run_id,
@@ -5196,7 +5463,7 @@ class ExecutionEngine:
                 from agents.execution_engine.state_machine import StateMachineError
                 if isinstance(exc, StateMachineError):
                     current = self._state_machine.get_state(pipeline_run_id)
-                    if current in ("cancelled", "failed"):
+                    if current in ("cancelled", "failed", "diverted"):
                         logger.info(
                             "Agent %s: pipeline already in terminal state=%s — stopping",
                             spec.id, current,
@@ -5620,7 +5887,13 @@ class ExecutionEngine:
     # BEFORE the strategy runs (they decide whether the step proceeds); validation
     # gates AFTER (it inspects the produced deliverable). An unknown/unclassified
     # gate name defaults to pre-step (fail-safe: evaluate it before the work).
-    _POST_STEP_GATES = frozenset({"validation"})
+    # ``conditional`` is likewise POST-step (spec 014): by default it reads its OWN
+    # step's route_decision artifact (route.condition_agent defaults to the step's
+    # own id — conditional.py's decision_source), which does not exist until the
+    # step's own agent has run. Evaluating it pre-step always finds no content, so
+    # every match fails closed to gate_blocked and the routing cursor jump (T14)
+    # never fires.
+    _POST_STEP_GATES = frozenset({"validation", "conditional"})
 
     # WR-03 (13 review fix): gates whose ``block`` outcome is an EXPLICIT human
     # rejection (the user clicked Reject at the HITL pause) — run-cancellation
@@ -5989,7 +6262,7 @@ class ExecutionEngine:
                     yield {"type": "_gate_rejected"}
                     return
                 current_state = self._state_machine.get_state(pipeline_run_id)
-                if current_state in ("cancelled", "failed"):
+                if current_state in ("cancelled", "failed", "diverted"):
                     yield {"type": "_gate_rejected"}
                     return
 
@@ -6144,7 +6417,7 @@ class ExecutionEngine:
             elif sub_event.get("type") == "_gate_rejected":
                 # Stop button fired during the sub-pipeline
                 current = self._state_machine.get_state(pipeline_run_id)
-                if current not in ("cancelled", "failed"):
+                if current not in ("cancelled", "failed", "diverted"):
                     self._state_machine.transition(pipeline_run_id, "cancelled")
                 yield {"type": "pipeline_cancelled", "data": {
                     "pipeline_run_id": pipeline_run_id,
@@ -6250,6 +6523,7 @@ class ExecutionEngine:
         revision_cycle: int = 0,
         revision_in_flight: bool = False,
         cancel_event: asyncio.Event | None = None,
+        visit_count: int = 0,
     ) -> AsyncGenerator[dict, None]:
         """Pause the pipeline for human review of an agent's output.
 
@@ -6287,8 +6561,14 @@ class ExecutionEngine:
         N, ``(N, False)`` at pass N's re-opened gate. Both come from generic run scratch
         (see ``_stamp_revision_marks``) — no workflow or agent name — and both default to the
         no-revision value on the declared/user gate path, exactly as ``redoable`` does.
+
+        ``visit_count`` (R-08) folds a step's loop-revisit count into ``gate_key`` itself:
+        without it, a step re-entered via a ``route.loop_back_to`` jump collides with its
+        own prior firing on the SAME gate_key (the review-event/response store is keyed on
+        this string). Callers pass ``ectx.step_visit_counts.get(agent_id, 0)`` — 0 for a
+        step's first/only firing, matching every workflow that never declares ``route:``.
         """
-        gate_key = f"{pipeline_run_id}:{agent_id}"
+        gate_key = f"{pipeline_run_id}:{agent_id}:{visit_count}"
 
         # Arm the event BEFORE emitting so a fast response doesn't miss it
         event = await self._store.get_review_event(gate_key)
@@ -6297,7 +6577,7 @@ class ExecutionEngine:
         # Guard: if the run is already in a terminal state (e.g. user rejected
         # a previous gate), don't open another gate — just signal rejection.
         current_state = self._state_machine.get_state(pipeline_run_id)
-        if current_state in ("cancelled", "failed"):
+        if current_state in ("cancelled", "failed", "diverted"):
             logger.info(
                 "Review gate skipped: pipeline=%s agent=%s already in terminal state=%s",
                 pipeline_run_id, agent_id, current_state,
@@ -7594,10 +7874,28 @@ class ExecutionEngine:
         goldens: within one process write order == version order, and no golden
         producer emits a higher-version kind before a lower-version different kind, so
         "max version, later-insertion tie-break" == "last inserted" (parity-guarded).
+
+        R-05 fallback (spec 014 / conditional gates): a composed custom-agent step's
+        typed artifacts are always written under its FULL ``"custom-agent:<instance_id>"``
+        producer id (engine.py's per-step dual-write), but a ``route.condition_agent``
+        is author-facing and commonly names the step's bare ``instance_id`` (the same
+        dual-identity acceptance the compiler's R-27/R-10 route-target validation
+        already allows — see ``compiler.py::_validate_route_targets``'s ``by_name``
+        map). When no ref matches ``producer_agent`` exactly, retry against a
+        ``":<producer_agent>"`` suffix. Purely additive — every existing caller passes
+        a full id that matches on the first pass, so this is byte-identical for them.
         """
         best = None
         for ref in ectx.artifacts.tree(ectx.run_id):
             if ref.producer_agent == producer_agent and (
+                best is None or ref.version >= best.version
+            ):
+                best = ref
+        if best is not None:
+            return best.content
+        _suffix = f":{producer_agent}"
+        for ref in ectx.artifacts.tree(ectx.run_id):
+            if ref.producer_agent.endswith(_suffix) and (
                 best is None or ref.version >= best.version
             ):
                 best = ref
@@ -8563,6 +8861,11 @@ class ExecutionEngine:
         The returned index is the resume offset for the SINGLE dispatch loop: every step
         before it is skipped (already done), the loop re-enters at it. When every step is
         already complete the offset is ``len(ordered_agents)`` (nothing left to drive).
+
+        R-11 (v1 scope cut): resumes at the first incomplete step by ORIGINAL array position,
+        which assumes each step id appears at most once per run — for a mid-loop/branch
+        crash-restart (a step id visited more than once) this may resume at the wrong
+        occurrence. Documented v1 limitation, not solved here.
         """
         store = getattr(ectx, "scoped_store", None)
 
@@ -8647,14 +8950,18 @@ class ExecutionEngine:
         # from the SAME durable run_events already read above (no extra round-trip); when a
         # review gate is open, return the gated step so ``_run_agent`` re-enters it in GATE
         # MODE (model-skip, output reconstructed from the persisted max-version ref).
-        # Generic keying ONLY: parse the agent id out of ``gate_key = f"{run}:{agent_id}"``
-        # (:4802) and match ``ordered_agents[j].id`` — zero workflow/agent-name literals
-        # (INV-1). No-op when ``derive_open_gate`` returns ``(None, None)`` ⇒ every non-gate
-        # resume offset is byte/event-identical (proven by the branch-(b) resume tests that
-        # seed no ``review_gate_ready``).
+        # Generic keying ONLY: parse the agent id out of
+        # ``gate_key = f"{run}:{agent_id}:{visit_count}"`` (:4802) and match
+        # ``ordered_agents[j].id`` — zero workflow/agent-name literals (INV-1). R-08: strip
+        # BOTH the run_id prefix (first colon) and the visit_count suffix (last colon) rather
+        # than a plain ``split(":", 1)[1]`` — a custom-agent id (``custom-agent:<instance_id>``)
+        # itself contains a colon, so only the outer two must be peeled. No-op when
+        # ``derive_open_gate`` returns ``(None, None)`` ⇒ every non-gate resume offset is
+        # byte/event-identical (proven by the branch-(b) resume tests that seed no
+        # ``review_gate_ready``).
         _open_kind, _open_gate_key = derive_open_gate(durable_rows)
         if _open_kind == "review" and _open_gate_key:
-            _gate_target = _open_gate_key.split(":", 1)[1]
+            _gate_target = _open_gate_key.split(":", 1)[1].rsplit(":", 1)[0]
             for _j in range(len(ordered_agents)):
                 if getattr(ordered_agents[_j], "id", None) == _gate_target:
                     return _j

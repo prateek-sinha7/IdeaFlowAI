@@ -49,6 +49,32 @@ from app.agents.static_check import static_check as _static_check
 logger = logging.getLogger("agents.execution_engine.kernel_services")
 
 
+def _is_file_backed_workflow(workflow_ref: str) -> bool:
+    """Does ``workflow_ref`` name a FILE-BACKED workflow (spec 014 R-12)?
+
+    True iff the ref is a member of the disk-DERIVED closed set
+    ``SUPPORTED_PIPELINE_TYPES`` (``agents/loader.py`` — the names of real
+    directories, computed once at import) AND that directory actually authors a
+    ``workflow.yaml``. The membership test comes FIRST and is the path-traversal
+    guard (T-04-09): a ``route.outcomes[...].target`` on a ``trust="db"`` manifest
+    is user-authored, so an arbitrary string must never reach a filesystem read —
+    a non-member short-circuits before the ``exists()`` probe. The second half
+    excludes a supported type that has agents but no manifest yet (e.g.
+    ``spec_kit``), which ``compile_for_run`` could not route anyway.
+
+    Used by ``run_trigger_workflow`` to pick between file-backed resolution and
+    the DB ``user_workflow_id`` (``_owned``) lookup — the two are disjoint (a DB
+    id is a UUID, never a directory name).
+    """
+    from agents.execution_engine.engine import _WORKFLOWS_DIR
+    from agents.loader import SUPPORTED_PIPELINE_TYPES
+
+    return (
+        workflow_ref in SUPPORTED_PIPELINE_TYPES
+        and (_WORKFLOWS_DIR / workflow_ref / "workflow.yaml").exists()
+    )
+
+
 class _NullAsyncLock:
     """No-op async context manager — defensive fallback if an ``ectx`` predates
     the ``scratch_lock`` field (KRN-005). Every real ``ExecutionContext`` carries
@@ -263,6 +289,7 @@ class KernelServices:
         return self._engine._state_machine.get_state(self.run_id) in (
             "cancelled",
             "failed",
+            "diverted",
         )
 
     # ── The run's user message (read/write) ────────────────────────────────────
@@ -1274,6 +1301,206 @@ class KernelServices:
             cancel_event=self.cancel_event,
         ):
             yield event
+
+    # ── Cross-workflow trigger delegate (spec 014 / R-17, NEW) ──────────────────
+    async def run_trigger_workflow(
+        self, step: Any, ectx: Any, *, workflow_ref: str
+    ) -> tuple[str, str]:
+        """Mint + spawn a NEW, independent ``WorkflowRun`` for a ``trigger: workflow``
+        conditional-gate outcome (spec 014 R-12) and return ``(run_id,
+        resolved_workflow_id)`` — the second element is the SAME ``target_pipeline_type``
+        this method already resolves below to mint the new run (R-28: never the manifest's
+        literal ``"self"`` sentinel, since the ``"self"`` branch resolves it to THIS run's
+        own ``self._pipeline_type`` before minting).
+
+        Parallel to ``run_human_gate`` / ``run_fanout`` — NOT folded into either: a
+        workflow trigger is neither a HITL pause nor a same-run fan-out. It stops
+        THIS run and hands off to an entirely separate ``WorkflowRun`` (R-13, Option
+        2 — stop-and-hand-off; no wait on the new run's completion).
+
+        ``workflow_ref`` resolution (R-12):
+          * ``"self"`` — a fresh, independent run of THIS SAME workflow definition.
+            No DB lookup: reuses this run's own already-resolved ``pipeline_type`` +
+            ordered agent roster.
+          * a FILE-BACKED workflow id (``agents/workflows/<id>/workflow.yaml``) —
+            resolved the SAME way ``launch_run``'s Case 1 (``LaunchSource.
+            FILE_PIPELINE``) resolves one: the id IS the ``pipeline_type``, the
+            roster comes from ``get_pipeline_agents`` with ``launch_run``'s own
+            ``compile_for_run(...).steps`` fallback for a composed
+            (``custom-agent:<instance_id>``) manifest whose steps have no
+            ``AGENT.md`` on disk, and ``compiled`` stays ``None`` so the engine
+            file-compiles it itself. R-10's compile-time target check accepts any
+            non-``"self"`` target as a SYNTACTIC reference (see
+            ``compiler._validate_route_targets``) precisely because resolution
+            happens HERE — and the checked-in A3 reference fixture
+            (``sample_conditional_launch_new`` → ``target:
+            sample_conditional_target``) names a file-backed workflow, not a DB
+            row, so this branch is what makes that fixture divert at all.
+            Membership in ``SUPPORTED_PIPELINE_TYPES`` (a disk-DERIVED closed set,
+            ``agents/loader.py``) is the path-traversal guard: a target string
+            that is not literally the name of a real workflow directory can never
+            reach the filesystem read (T-04-09), which matters because a
+            ``trust="db"`` manifest's ``target`` is user-authored.
+          * anything else — a saved ``user_workflow_id``, resolved via ``_owned``
+            (``app/api/user_workflows.py:413``) — the SAME (and only) existing
+            ``user_workflow_id`` lookup T5 identified in the codebase, reused
+            verbatim (not a second helper). A cross-owner / unknown id raises the
+            SAME ``HTTPException`` (404, IDOR→404) it always has. The resolved
+            row's ``manifest_json`` then branches exactly like ``launch_run``'s
+            Case 2 (flat ``agent_ids``) / Case 3 (composed ``{"steps": [...]}``
+            manifest) detection. A DB ``user_workflow_id`` is a UUID, so it can
+            never collide with a disk-derived pipeline-type name — the two
+            branches are disjoint by construction.
+
+        R-18/R-19 depth guard: ``ectx.trigger_depth`` (Phase 2 T7/T9 — the
+        in-memory counter, preferred over walking the ``parent_run_id`` DB chain
+        now that T9 has confirmed its propagation) is checked for EXACT equality
+        to the fixed ceiling ``5`` — not a variable/``>=`` check, since the
+        compiler (T5/R-19) already rejects any manifest-declared
+        ``trigger_max_depth`` other than ``5``, so a depth already AT 5 is the
+        only way this can be breached. Raises ``BudgetExceeded`` (the same
+        fail-closed pattern R-07's loop cap uses) BEFORE any mint, so a refused
+        trigger leaves zero side effects. The counter that guard reads is
+        INCREMENTED here, at the mint: ``trigger_depth=ectx.trigger_depth + 1`` is
+        passed to ``_launch_run_core`` and threaded down to the new run's
+        ``ExecutionContext`` — a real chain therefore reaches 5 and fails closed
+        on the 6th hop.
+
+        Mint (R-15/R-16): delegates to T27's extracted ``_launch_run_core`` — the
+        SAME mint-and-spawn core the HTTP launch handler uses — with
+        ``parent_run_id_override=ectx.run_id`` and ``owner_id_override`` /
+        ``workspace_id_override`` set UNCONDITIONALLY to ``ectx``'s own values
+        (R-15 — never independently specified, never left null; this is also what
+        puts the new run's spend in the SAME ``BudgetManager.workspace_ceiling``
+        aggregate as this run). A lightweight ``SimpleNamespace(id=ectx.owner_id)``
+        stands in for the ``User`` object ``_launch_run_core`` needs — it (and the
+        driver it spawns) reads only ``.id`` off that object, and that id IS this
+        run's own owner principal.
+        """
+        from agents.execution_engine.budget import BudgetExceeded
+
+        # ── R-18/R-19: FIXED ceiling of 5, exact-equality (not a >= check) ──────
+        if getattr(ectx, "trigger_depth", 0) == 5:
+            raise BudgetExceeded(
+                "trigger_depth",
+                f"trigger_depth is already at the fixed ceiling (5) for run "
+                f"{ectx.run_id!r} — refusing to mint another triggered workflow "
+                f"(R-18/R-19)",
+            )
+
+        # ── (1) Resolve workflow_ref (R-12) ──────────────────────────────────────
+        if workflow_ref == "self":
+            target_pipeline_type = self._pipeline_type
+            target_agents: list | None = self._ordered_agents
+            target_compiled = None
+        elif _is_file_backed_workflow(workflow_ref):
+            # ── Case 1 parity — a FILE-BACKED workflow id (the A3 fixture's shape) ──
+            # Mirrors launch_run's LaunchSource.FILE_PIPELINE resolution: the id is
+            # the pipeline_type, the roster is get_pipeline_agents(...) with the
+            # compiled-plan fallback launch_run already uses for a composed manifest
+            # whose custom-agent steps have no AGENT.md, and `compiled` stays None so
+            # the engine's own compile_for_run(pipeline_type) is what routes the run.
+            from agents.execution_engine.engine import compile_for_run
+            from agents.loader import load_agent_spec
+            from agents.registry import get_pipeline_agents
+
+            target_pipeline_type = workflow_ref
+            target_compiled = None
+            target_agents = get_pipeline_agents(workflow_ref)
+            if not target_agents:
+                target_agents = [
+                    load_agent_spec(s.agent_id)
+                    for s in compile_for_run(workflow_ref).steps
+                ]
+        else:
+            from app.api.run_engine import _get_db
+            from app.api.user_workflows import _owned
+
+            db = _get_db()
+            try:
+                row = _owned(db, workflow_ref, SimpleNamespace(id=ectx.owner_id))
+                manifest_json = row.manifest_json
+                base_pipeline_type = row.base_pipeline_type
+                row_agents_json = row.agents
+                row_id = row.id
+            finally:
+                db.close()
+
+            if isinstance(manifest_json, dict) and "steps" in manifest_json:
+                # Case 3 — composed manifest (mirrors launch_run's
+                # USER_WORKFLOW_MANIFEST branch, minus the request-body override
+                # chain: a trigger carries no request body, so the row's own
+                # saved values are authoritative, with the SAME hardcoded
+                # fallbacks launch_run uses when a value is absent).
+                from agents.execution_engine.engine import (
+                    _CAPABILITY_REGISTRY,
+                    _WORKFLOW_COMPILER,
+                )
+                from agents.workflows.manifest import build_manifest_from_dict
+
+                raw_manifest = dict(manifest_json)
+                raw_manifest.setdefault("id", f"user-workflow-{row_id}")
+                raw_manifest.setdefault(
+                    "deliverable", {"strategy": "streamed_text", "name": "output.md"}
+                )
+                raw_manifest.setdefault("planner", "skip")
+                raw_manifest.setdefault("clarify", {"mode": "skip", "defaults": []})
+                raw_manifest.setdefault("capabilities", {})
+                parsed_manifest = build_manifest_from_dict(
+                    raw_manifest, f"workflow:{row_id}"
+                )
+                target_compiled = _WORKFLOW_COMPILER.compile(
+                    parsed_manifest, _CAPABILITY_REGISTRY, trust="db"
+                )
+                target_pipeline_type = base_pipeline_type
+                target_agents = None
+            else:
+                # Case 2 — flat agent_ids (mirrors launch_run's
+                # USER_WORKFLOW_FLAT branch).
+                import json as _json
+
+                from agents.loader import load_agent_spec
+
+                agent_ids = _json.loads(row_agents_json) if row_agents_json else []
+                target_agents = [load_agent_spec(aid) for aid in agent_ids]
+                if target_agents:
+                    from app.api.composition_order import presort_specs
+
+                    target_agents = presort_specs(target_agents)
+                target_pipeline_type = base_pipeline_type
+                target_compiled = None
+
+        # ── (3)/(4) Mint via T27's core — parent_run_id + owner_id/workspace_id
+        # unconditionally inherited from ectx (R-15) ─────────────────────────────
+        from app.api.run_commands import _launch_run_core
+
+        result = await _launch_run_core(
+            content="",
+            pipeline_type=target_pipeline_type,
+            agents=target_agents,
+            compiled=target_compiled,
+            od_context=None,
+            validated_images=[],
+            model_overrides={},
+            user=SimpleNamespace(id=ectx.owner_id),
+            source_workflow_run_id=None,
+            selections=None,
+            gate_agent_ids=None,
+            attached_skills=None,
+            attached_hooks=None,
+            parent_run_id_override=ectx.run_id,
+            owner_id_override=ectx.owner_id,
+            workspace_id_override=ectx.workspace_id,
+            # R-18/R-19: the "+1" propagation itself (context.py's own docstring
+            # names THIS call site as its owner — "the FUTURE minting call site").
+            # Without it every triggered run would start back at 0 and the
+            # exact-equality-to-5 guard above could never fire for a real chain,
+            # i.e. an unbounded mint (AC-06). Threaded through _launch_run_core →
+            # _drive_launch_to_queue → engine.execute() → ExecutionContext.
+            trigger_depth=getattr(ectx, "trigger_depth", 0) + 1,
+        )
+        # (5) Return the new run's id + the resolved workflow id (R-28).
+        return result["run_id"], target_pipeline_type
 
     # ── Gate-event read handle (10-03 / D-03 first-exec memory) ─────────────────
     async def read_gate_events(self, run_id: str) -> list:

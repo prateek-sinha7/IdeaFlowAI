@@ -16,6 +16,17 @@ const mockDeleteWorkflow = vi.fn<(token: string, id: string) => Promise<void>>()
 // for the summary column — KPI / per-agent breakdown / version timeline / failure
 // banner. Controllable so a test can drive the RunDetailPage-rendered failure banner.
 const mockGetRunSummary = vi.fn<(token: string, id: string) => Promise<RunSummary>>();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  useSearchParams: () => ({
+    get: vi.fn(() => null),
+  }),
+}));
+
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getWorkflows: (token: string, opts?: { limit?: number }) => mockGetWorkflows(token, opts),

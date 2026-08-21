@@ -217,6 +217,44 @@ class FanoutSpec:
 
 
 @dataclass
+class RouteOutcome:
+    """One destination a conditional gate can send execution to (spec 014 / R-05b).
+
+    Attached under a ``RouteSpec.outcomes`` entry, keyed by the condition value the
+    gate matched against. Pure data (INV-5) — the compiler only RECORDS the
+    trigger/target pair; the conditional-gate kernel resolves WHICH outcome applies
+    at runtime and owns the dispatch control flow.
+    """
+
+    trigger: str   # "step" (in-workflow cursor jump) | "workflow" (cross-workflow trigger) — R-05b
+    target: str    # trigger="step": a step id in THIS compiled workflow. trigger="workflow": a
+                   # saved user_workflow_id, or the literal "self". Both compile-time validated (R-10).
+
+
+@dataclass
+class RouteSpec:
+    """Declarative conditional-branch spec (spec 014 / R-02). INERT until the conditional-gate
+    kernel lands (Phase 2+).
+
+    Attached to a ``Step`` via the sibling ``route:`` manifest key, only meaningful when
+    ``"conditional"`` is present in that step's ``gates:`` list (R-03 — the compiler rejects
+    the mismatch either direction). Pure data (INV-5) — the conditional-gate kernel owns the
+    condition-evaluation control flow, the compiler only materializes the data.
+    """
+
+    condition_agent: str | None = None  # None = this step's own artifact (R-05); may name an
+                                         # earlier step, including one gated `human`
+    outcomes: dict[str, RouteOutcome] = field(default_factory=dict)  # condition value → destination
+    default_next: str | None = None     # fallback step id when no outcome matches; None = the
+                                         # run terminates at this step (R-13)
+    loop_max_iterations: int = 5        # cap on revisits to any ONE trigger="step" backward-jump
+                                         # target (R-07); enforced via ExecutionContext.step_visit_counts
+    trigger_max_depth: int = 5          # cap on parent_run_id chain depth for trigger="workflow"
+                                         # outcomes (R-18); FIXED at 5 in v1 (R-19) — the compiler
+                                         # rejects any other declared value
+
+
+@dataclass
 class RetryPolicy:
     """Per-step retry policy (§21). INERT in Phase 4; ACTIVATED in Phase 12 (RESUME-02).
 
@@ -374,6 +412,17 @@ class Step:
     fix: FixPolicy | None = None                             # Q23/Q25
     compaction: str | None = None                            # Q35 — capability name
     fanout: FanoutSpec | None = None                         # Q12
+    route: RouteSpec | None = None                           # spec 014 / R-02
+    # Declared typed-artifact kinds this step's own output supplies. Currently only
+    # meaningful for the conditional-gate decision contract (spec 014 / R-05b): a
+    # step supplying a routing decision declares produces: ["route_decision"] — the
+    # exact artifact compiler.py's R-27 check (_validate_route_targets) requires of
+    # a route's resolved decision-source step. Empty for every step that omits it
+    # (parity — no pre-014 manifest authors this key). A built-in agent's real
+    # produces/consumes routing contract lives on AgentSpec (loaded from AGENT.md);
+    # this is the per-instance manifest override a custom-agent step (no AGENT.md
+    # of its own) has no other way to declare. Pure data (INV-5).
+    produces: list[str] = field(default_factory=list)        # spec 014 / R-05b / R-27
     on_conflict: str = "human_gate"                          # §13
     retry: RetryPolicy | None = None                         # §21
     injects: list[str] = field(default_factory=list)
@@ -426,6 +475,14 @@ class Step:
     # SERIAL dispatch, not from the plan. Empty on every existing step, so the
     # skip below is dead code for every workflow that does not use the mode.
     dispatched_by: str = ""
+
+    # is_leaf: Compiler-COMPUTED, never authored (spec 014 / R-26). True iff no `route`
+    # outcome (from any step) or default linear-next relationship points FROM this step
+    # to a later continuation — i.e., nothing is compiled to run after it on any path
+    # that reaches it. Drives the engine's `single_file` deliverable readback (replaces
+    # the old `index == len(ordered_agents) - 1` check). Default False until the
+    # conditional-gate compiler pass computes it.
+    is_leaf: bool = False
 
     @property
     def id(self) -> str:

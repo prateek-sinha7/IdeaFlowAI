@@ -1,16 +1,8 @@
 "use client";
 
-// ─── Full-screen App Builder IDE ──────────────────────────────────────────────
-// Opened in a new tab by AppBuilderPreview's "Full Screen" button.
-// Files are passed via sessionStorage key "__app_preview__".
-//
-// Why sessionStorage works:
-//   window.open("/preview-fullscreen", "_blank") — WITHOUT "noopener" —
-//   keeps the new tab in the same browsing context group, so it can read
-//   sessionStorage written by the opener tab. Adding "noopener" would sever
-//   that link and the read would always return null.
-
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { routes } from "@/lib/routes";
 import { AppBuilderPreview, type ParsedFile } from "@/components/preview/AppBuilderPreview";
 import { Code2, AlertCircle } from "lucide-react";
 
@@ -19,43 +11,69 @@ interface PreviewPayload {
   projectName: string;
 }
 
-type PageState = "loading" | "ready" | "error" | "quota";
+type PageState = "checking" | "loading" | "ready" | "quota";
 
+/**
+ * `/preview-fullscreen` serves TWO distinct callers:
+ *
+ * 1. This spec's deep-linkable redirect: `?runId=...` → `/runs/{id}/preview/full`.
+ *    Addressable without an opener tab.
+ * 2. The live App Builder "Full Screen" button (AppBuilderPreview.handleFullscreen),
+ *    which opens this bare path with NO query params (or `?error=quota` if the
+ *    session-storage write failed) and passes files via sessionStorage key
+ *    "__app_preview__". window.open is called WITHOUT "noopener" so the new tab
+ *    shares the opener's browsing context and can read that key.
+ *
+ * Precedence: a runId always wins (case 1, unchanged). Otherwise this falls back
+ * to reading the sessionStorage payload (case 2, restoring pre-015 behavior), and
+ * only redirects to run history if that payload is also missing/unparseable.
+ */
 export default function PreviewFullscreenPage() {
+  const router = useRouter();
   const [payload, setPayload] = useState<PreviewPayload | null>(null);
-  const [state, setState] = useState<PageState>("loading");
+  const [state, setState] = useState<PageState>("checking");
 
   useEffect(() => {
-    // Check for quota error flag from opener
     const params = new URLSearchParams(window.location.search);
+    const runId = params.get("runId");
+
+    if (runId) {
+      // Redirect to the new route
+      router.replace(routes.runPreviewFull(runId));
+      return;
+    }
+
+    // Check for quota error flag from opener
     if (params.get("error") === "quota") {
       setState("quota");
       return;
     }
+
+    setState("loading");
 
     // Small delay to ensure sessionStorage write from opener has flushed
     const timer = setTimeout(() => {
       try {
         const raw = sessionStorage.getItem("__app_preview__");
         if (!raw) {
-          setState("error");
+          router.replace(routes.runHistory());
           return;
         }
         const data = JSON.parse(raw) as PreviewPayload;
         if (!data.files?.length) {
-          setState("error");
+          router.replace(routes.runHistory());
           return;
         }
         setPayload(data);
         document.title = `${data.projectName || "Project"} — IDE Preview`;
         setState("ready");
       } catch {
-        setState("error");
+        router.replace(routes.runHistory());
       }
     }, 100); // 100ms is enough for sessionStorage to be readable
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [router]);
 
   if (state === "loading") {
     return (
@@ -86,36 +104,19 @@ export default function PreviewFullscreenPage() {
     );
   }
 
-  if (state === "error" || !payload) {
+  if (state === "ready" && payload) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#f5f5f0]">
-        <div className="flex flex-col items-center gap-4 text-center max-w-sm px-6">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 border border-gray-200">
-            <AlertCircle className="h-6 w-6 text-gray-400" />
-          </div>
-          <p className="text-[13px] font-semibold text-gray-700">No preview data found</p>
-          <p className="text-[11px] text-gray-400 leading-relaxed">
-            Click the <span className="font-medium text-gray-600">Full Screen</span> button
-            in the App Builder preview panel — don&apos;t navigate here directly.
-          </p>
-          <button
-            onClick={() => window.close()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1B2A4A] text-white text-[11px] font-medium hover:bg-[#243656] transition-colors"
-          >
-            Close tab
-          </button>
-        </div>
+      <div className="h-screen w-screen overflow-hidden">
+        <AppBuilderPreview
+          files={payload.files}
+          projectName={payload.projectName}
+          // No onRevise in fullscreen — revisions happen in the main panel
+        />
       </div>
     );
   }
 
-  return (
-    <div className="h-screen w-screen overflow-hidden">
-      <AppBuilderPreview
-        files={payload.files}
-        projectName={payload.projectName}
-        // No onRevise in fullscreen — revisions happen in the main panel
-      />
-    </div>
-  );
+  // "checking" (runId redirect in progress) or a not-yet-resolved state —
+  // render nothing while a redirect is in flight.
+  return null;
 }

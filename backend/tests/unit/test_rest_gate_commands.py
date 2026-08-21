@@ -298,7 +298,7 @@ def test_update_specs_carries_analysis_report_in_instructions(env):
 # ────────────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("terminal_status", ["cancelled", "failed", "degraded"])
+@pytest.mark.parametrize("terminal_status", ["cancelled", "failed", "degraded", "diverted"])
 def test_gate_on_terminal_run_returns_pipeline_not_running(env, terminal_status):
     """KAN-100: any gate action on a terminal run is fenced with
     ``pipeline_not_running`` (recoverable:false) — a Redo cannot resume a

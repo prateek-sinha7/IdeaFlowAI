@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import {
   ChevronLeft, Activity,
@@ -8,6 +9,7 @@ import {
 } from "lucide-react";
 import { getToken, getAnalyticsSummary, getPreferences } from "@/lib/api";
 import type { AnalyticsSummary } from "@/lib/api";
+import { routes } from "@/lib/routes";
 import { BarChart } from "./charts/BarChart";
 import { DonutChart } from "./charts/DonutChart";
 
@@ -112,11 +114,26 @@ function StatCard({ label, value, rawValue, sub, format }: {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dateFilter, setDateFilter] = useState<DateFilter>("30d");
-  const [pipelineFilter, setPipelineFilter] = useState<PipelineFilter>("all");
+  const [dateFilter, setDateFilter] = useState<DateFilter>(() => {
+    const param = searchParams.get("range");
+    if (param === "today" || param === "3d" || param === "7d" || param === "30d" || param === "90d" || param === "all") {
+      return param;
+    }
+    return "30d";
+  });
+  const [pipelineFilter, setPipelineFilter] = useState<PipelineFilter>(() => {
+    const param = searchParams.get("pipeline");
+    if (param === "all" || param === "user_stories" || param === "ppt" || param === "prototype" || param === "app_builder" || param === "custom") {
+      return param;
+    }
+    return "all";
+  });
   const [modelFilter, setModelFilter] = useState<string>("all");
   const [preferredModelId, setPreferredModelId] = useState<string | null>(null);
 
@@ -265,7 +282,10 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
             {/* Date pills — each selection re-queries the server (SC-1). */}
             <div className="flex items-center gap-0.5 bg-surface-warm rounded-[9px] p-[3px]">
               {(["today", "3d", "7d", "30d", "90d", "all"] as DateFilter[]).map(f => (
-                <button key={f} onClick={() => setDateFilter(f)}
+                <button key={f} onClick={() => {
+                  setDateFilter(f);
+                  router.replace(routes.analytics({ range: f === "30d" ? undefined : f, pipeline: pipelineFilter === "all" ? undefined : pipelineFilter }));
+                }}
                   className={`px-3 py-1.5 rounded-[7px] text-[11px] font-semibold transition-all ${
                     dateFilter === f ? "bg-surface-white text-ink-900 shadow-sm" : "text-ink-500 hover:text-ink-700"
                   }`}>
@@ -274,7 +294,11 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
               ))}
             </div>
             {/* Pipeline select — narrows the fetched rollup arrays client-side. */}
-            <select value={pipelineFilter} onChange={e => setPipelineFilter(e.target.value as PipelineFilter)}
+            <select value={pipelineFilter} onChange={e => {
+              const newPipeline = e.target.value as PipelineFilter;
+              setPipelineFilter(newPipeline);
+              router.replace(routes.analytics({ range: dateFilter === "30d" ? undefined : dateFilter, pipeline: newPipeline === "all" ? undefined : newPipeline }));
+            }}
               aria-label="Filter by pipeline"
               name="pipeline-filter"
               className="text-[12.5px] font-medium border border-line-control rounded-[9px] px-3 py-2 bg-surface-card text-ink-700 focus:outline-none focus:border-brand transition-colors">

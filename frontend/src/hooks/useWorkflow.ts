@@ -326,6 +326,7 @@ const TERMINAL_MARKER_BY_STATUS: Record<string, "cancelled" | "failed" | "degrad
   cancelled: "cancelled",
   failed: "failed",
   degraded: "degraded",
+  diverted: null,
 };
 
 /** The terminal marker patch for a terminal status. Callers pass a known member. */
@@ -865,6 +866,36 @@ export function handlePipelineMessage(
       return true;
     }
 
+    case "pipeline_diverted": {
+      // R-28/R-20 (014-conditional-gates, T38 live case): a `trigger: workflow`
+      // route outcome fired — this run's dispatch loop ended (R-13) and a new,
+      // separate WorkflowRun took over. Additive terminal event (contract
+      // guarantee #1): mirrors pipeline_cancelled's teardown but does NOT set
+      // the `cancelled` marker — a diverted run is not a cancellation, and the
+      // run-view must render "Diverted to X" rather than "Cancelled"/"Completed".
+      try {
+        sessionStorage.removeItem("active_pipeline_run_id");
+        sessionStorage.removeItem("active_pipeline_type");
+      } catch { /* non-fatal */ }
+      const divertedToRunId = msg.diverted_to_run_id as string;
+      const divertedToWorkflow = msg.diverted_to_workflow as string;
+      setPipelineState((prev) => {
+        const updated: AgentRunState[] = prev.agents.map((a) =>
+          a.status === "thinking" || a.status === "running"
+            ? { ...a, status: "idle", thinking: "" }
+            : a
+        );
+        return {
+          ...prev,
+          agents: updated,
+          isRunning: false,
+          divertedTo: { runId: divertedToRunId, workflowId: divertedToWorkflow },
+          completedCount: updated.filter((a) => a.status === "done").length,
+        };
+      });
+      return true;
+    }
+
     case "pipeline_reconnected": {
       // Phase 12 / 12-08 (RESUME-04 FE half, UAT Gap 2b) — previously this
       // event was silently dropped, so after a backend restart mid-run the
@@ -884,7 +915,7 @@ export function handlePipelineMessage(
       // let the subsequent agent_*/wave_*/pipeline_complete events drive state.
       if (live !== false) return true;
 
-      const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "error"];
+      const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "error", "diverted"];
       if (status && TERMINAL_STATUSES.includes(status)) {
         // No live task and the run already finished — the durable tail was
         // replayed by the WS layer before this event, so resolve the run out

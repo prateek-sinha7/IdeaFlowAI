@@ -606,12 +606,15 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     } else if (file.id === "presentation-pptx" && pptContent) {
       setDownloadingId(file.id);
       try {
-        const { getToken } = await import("@/lib/api");
+        // FR-015: authedFetch alongside getToken — both raw fetches below need
+        // the shared 401 -> handleSessionExpiry() guard (the export POST reads
+        // a Blob, so it can't go through request()).
+        const { authedFetch, getToken } = await import("@/lib/api");
         const token = getToken();
         const title = file.name.replace(".pptx", "").replace(/-/g, " ");
         let workflowId = "";
         try {
-          const res = await fetch(`${ENV.API_URL}/api/runs?type=ppt&limit=20`, {
+          const res = await authedFetch(`${ENV.API_URL}/api/runs?type=ppt&limit=20`, {
             headers: { "Authorization": `Bearer ${token}` },
           });
           if (res.ok) {
@@ -624,7 +627,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
             if (!workflowId && runs.length > 0) workflowId = runs[0].id;
           }
         } catch {}
-        const response = await fetch(`${ENV.API_URL}/api/runs/export-pptx`, {
+        const response = await authedFetch(`${ENV.API_URL}/api/runs/export-pptx`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify({ html: pptContent, workflow_id: workflowId, title }),

@@ -36,6 +36,13 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "migration",
         "mulesoft_to_springboot",
         "dotnet_to_azure",
+        # spec-014 conditional-gates integration: QA found these 5 were not
+        # entitled to any tier despite user_launchable: true.
+        "sample_conditional_branch_new",
+        "sample_conditional_previous_step",
+        "sample_conditional_human_input",
+        "sample_conditional_launch_new",
+        "sample_conditional_target",
     },
 }
 

@@ -93,3 +93,40 @@ def test_module_imports_no_legacy_factory_or_engine_internals() -> None:
     assert offenders == [], f"context.py imports legacy engine/factory internals: {offenders}"
     # Positive: the only imports are stdlib dataclasses + __future__ annotations.
     assert any("from dataclasses import" in ln for ln in import_lines)
+
+
+def test_trigger_depth_propagates_correctly_across_multi_level_chain() -> None:
+    """``trigger_depth`` propagates as parent+1 across a mocked chain (R-18 / T10).
+
+    ExecutionContext is a plain value object — the trigger depth is a constructor-time
+    parameter, not computed internally. This test confirms that a chain of explicit
+    trigger_depth values (0 → 1 → 2) is threaded correctly through construction.
+    """
+    # Parent run: non-triggered (the default).
+    parent = ExecutionContext(run_id="parent_run", owner_id="user", trigger_depth=0)
+    assert parent.trigger_depth == 0
+
+    # Child run triggered by parent: passes parent.trigger_depth + 1.
+    child = ExecutionContext(
+        run_id="child_run",
+        owner_id="user",
+        parent_run_id="parent_run",
+        trigger_depth=parent.trigger_depth + 1,
+    )
+    assert child.trigger_depth == 1
+    assert child.trigger_depth == parent.trigger_depth + 1
+
+    # Grandchild run triggered by child: passes child.trigger_depth + 1.
+    grandchild = ExecutionContext(
+        run_id="grandchild_run",
+        owner_id="user",
+        parent_run_id="child_run",
+        trigger_depth=child.trigger_depth + 1,
+    )
+    assert grandchild.trigger_depth == 2
+    assert grandchild.trigger_depth == child.trigger_depth + 1
+
+    # Verify the chain: each level is exactly parent+1.
+    assert parent.trigger_depth < child.trigger_depth < grandchild.trigger_depth
+    assert child.trigger_depth - parent.trigger_depth == 1
+    assert grandchild.trigger_depth - child.trigger_depth == 1
