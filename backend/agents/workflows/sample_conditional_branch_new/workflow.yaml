@@ -16,7 +16,7 @@
 
 id: sample_conditional_branch_new
 user_launchable: true
-is_beta: true
+is_beta: false
 display_name: Conditional Gate — branch to a new node
 short_name: Branch (Hello World)
 icon: GitBranch
@@ -37,22 +37,23 @@ limits:
 
 steps:
 - agent: custom-agent
-  instance_id: greet
-  name: Greet
-  prompt: Do not call any tools. You do not need to write anything. Respond with exactly this text and nothing else: "hi"
+  instance_id: emoji
+  name: Emoji Picker
+  prompt: Pick a random emoji.
   gates: []
   tools:
     read_files: false
-    write_files: false
+    write_files: true
     exec: false
 
 - agent: custom-agent
-  instance_id: pick
+  instance_id: language
   name: Pick Language
   produces: ["route_decision"]
   prompt: |
-    Do not call any tools. You do not need to write anything. Respond with exactly one of these lines:
+    Detect the user's message language. Reply with the JSON as your text answer — this must be your reply, not a file. Respond with exactly one line, no markdown, no code fences, no explanation:
     {"decision": "english"}
+    or
     {"decision": "spanish"}
   gates:
   - conditional
@@ -69,7 +70,7 @@ steps:
 - agent: custom-agent
   instance_id: say-hello
   name: Say Hello
-  prompt: Call write_file with path "output.txt" and content "Hello, world!". Do not ask clarifying questions. Do not explain your reasoning. Do not use any other filename or content. Call write_file now with exactly this path and content, then stop.
+  prompt: 'Respond with exactly: "Hello, world!"'
   gates: []
   tools:
     read_files: false
@@ -79,7 +80,7 @@ steps:
 - agent: custom-agent
   instance_id: say-hola
   name: Say Hola
-  prompt: Call write_file with path "output.txt" and content "¡Hola, mundo!". Do not ask clarifying questions. Do not explain your reasoning. Do not use any other filename or content. Call write_file now with exactly this path and content, then stop.
+  prompt: 'Respond with exactly: "¡Hola, mundo!"'
   gates: []
   tools:
     read_files: false

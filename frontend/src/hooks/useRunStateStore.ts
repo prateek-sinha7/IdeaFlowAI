@@ -429,6 +429,11 @@ export function useRunStateStore(): RunStateStoreReturn {
       // entry.pipelineState.divertedTo was never set and LaneRunHeader's live
       // "Diverted to X" terminal treatment (pipelineState?.divertedTo) never fired.
       "pipeline_diverted",
+      // agent_skipped (014-conditional-gates follow-up): same allowlist trap —
+      // without this, a conditional gate's skipped-sibling event never reached
+      // handlePipelineMessage's "agent_skipped" case, so StepsOverviewSpine kept
+      // showing the skipped step's default status instead of "Skipped".
+      "agent_skipped",
       "planner_start", "planner_complete", "planner_timeout",
       "planner_error", "gate_status", "clarification_limit_reached",
       "agent_input", "tool_call", "tool_result", "workflow_validated",

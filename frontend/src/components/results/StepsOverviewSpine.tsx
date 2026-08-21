@@ -13,7 +13,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from "react";
-import { Check, ChevronRight, XCircle, ListChecks, RotateCw, ShieldAlert, RefreshCw } from "lucide-react";
+import { Check, ChevronRight, ChevronsRight, XCircle, ListChecks, RotateCw, ShieldAlert, RefreshCw } from "lucide-react";
 import type { AgentRunState, ClarifyRound, PipelineRunState } from "@/types/index";
 import type { GateEventRow } from "@/lib/api";
 import { InlineGateActions } from "@/components/chat/InlineGateActions";
@@ -448,7 +448,8 @@ export function StepsOverviewSpine({
         const isRun = agent.status === "running" || agent.status === "thinking";
         const isErr = agent.status === "error";
         const isIdle = agent.status === "idle";
-        const navigable = !isIdle;
+        const isSkipped = agent.status === "skipped";
+        const navigable = !isIdle && !isSkipped;
         const rowMeta = [
           agent.duration != null ? formatDuration(agent.duration) : null,
           agent.totalTokens != null && agent.totalTokens > 0 ? `${formatTokenCount(agent.totalTokens)} tok` : null,
@@ -472,6 +473,8 @@ export function StepsOverviewSpine({
             >
               {isDone ? (
                 <span className="w-[18px] h-[18px] flex-none rounded-full bg-surface-near-black grid place-items-center"><Check className="h-2.5 w-2.5 text-white" /></span>
+              ) : isSkipped ? (
+                <span className="w-[18px] h-[18px] flex-none rounded-full border-[1.5px] border-line-faint bg-surface-white grid place-items-center"><ChevronsRight className="h-3 w-3 text-ink-300" /></span>
               ) : isRun ? (
                 <span className="w-[18px] h-[18px] flex-none rounded-full bg-brand-fill border-[1.5px] border-brand grid place-items-center shadow-[0_0_0_4px_rgba(60,44,218,0.15)]"><span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" /></span>
               ) : isErr ? (
@@ -480,7 +483,7 @@ export function StepsOverviewSpine({
                 <span className="w-[18px] h-[18px] flex-none rounded-full border-[1.5px] border-line-faint bg-surface-white" />
               )}
               <span className="min-w-0 flex items-center leading-none gap-1.5">
-                <span className={`leading-none text-[13px] font-medium font-[Manrope] ${isIdle ? "text-ink-300" : "text-ink-900"}`}>{agent.name}</span>
+                <span className={`leading-none text-[13px] font-medium font-[Manrope] ${isIdle || isSkipped ? "text-ink-300" : "text-ink-900"}`}>{agent.name}</span>
                 {isRun && (
                   <>
                     <span className="leading-none text-ink-300">·</span>
@@ -489,6 +492,7 @@ export function StepsOverviewSpine({
                 )}
               </span>
               {isIdle && failed && <span className="text-[9px] text-status-amber bg-status-amber-fill border border-status-amber-border px-1.5 py-0.5 rounded">Not run</span>}
+              {isSkipped && <span className="text-[9px] text-ink-300 bg-surface-warm border border-line-faint px-1.5 py-0.5 rounded">Skipped</span>}
               <span className="flex-1" />
               {rowMeta && <span className="text-[11.5px] text-ink-300 font-mono">{rowMeta}</span>}
               {navigable && <ChevronRight className="h-4 w-4 flex-none text-line-faint" />}

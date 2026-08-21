@@ -348,9 +348,15 @@ def create_runner(
     # PLANNING_TOOLS; MCP-bound agents flip exclude_builtin False — none of
     # those receive the preamble (their prompts stay byte-identical).
     no_tools = exclude_builtin_tools and not custom_tools
+    # Whether this step actually has write_file bound — reuses the same
+    # denied_tools computed just above (F-06 follow-up / audit.md #6): a step
+    # without it must never be told to call it in "How to deliver" below.
+    has_write_access = "write_file" not in denied_tools
     # Compose the system prompt — guardrails/skills/hooks/constitution/injection/
     # body, in the fixed injection order (see ``_compose_system_prompt``).
-    system_prompt = _compose_system_prompt(spec, ctx, no_tools=no_tools)
+    system_prompt = _compose_system_prompt(
+        spec, ctx, no_tools=no_tools, has_write_access=has_write_access,
+    )
 
     # ``max_tokens`` is intentionally NOT passed: the runner's ``build_model``
     # already defaults to ``settings.MAX_OUTPUT_TOKENS``, so leaving it unset
@@ -434,7 +440,9 @@ edit_file, or to-do blocks. Any file content you produce must appear directly
 in your response as plain text. Respond with prose or structured text only."""
 
 
-def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -> str:
+def _compose_system_prompt(
+    spec, ctx: AgentContext, *, no_tools: bool = False, has_write_access: bool = True,
+) -> str:
     """Compose the system prompt via the registered ``PromptAssemblyPolicy`` (08-05 / F1/F3).
 
     Builds a named-block mapping and delegates block ORDER + join to the
@@ -616,10 +624,20 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
         # reads the final imperative as the thing to say echoes it back as its
         # entire output (observed on Bedrock Haiku: joke-<topic>.md contained
         # the instruction, not a joke). A headed block reads as a directive.
-        parts.append(
-            f"## How to deliver\n\nCall `write_file` with path `{filename}`. "
-            "Its content is your answer — never this instruction."
-        )
+        #
+        # Gated on has_write_access (audit.md #6): a step whose tools:write_files
+        # is false has no write_file bound — telling it to call one anyway is
+        # what was driving the confused/empty replies AND the "excluded" tool
+        # calls that still executed (observed live: a write-less step's final
+        # reply going empty because it wrote its real answer to a file instead,
+        # which the conditional gate can't read route_decision from). A
+        # write-less step's own prompt (already in `parts` via ctx.step_prompt)
+        # is its complete instruction; nothing else to append here.
+        if has_write_access:
+            parts.append(
+                f"## How to deliver\n\nCall `write_file` with path `{filename}`. "
+                "Its content is your answer — never this instruction."
+            )
         prompt_body = "\n\n".join(parts)
 
     blocks["prompt_body"] = prompt_body

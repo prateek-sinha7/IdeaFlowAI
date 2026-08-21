@@ -4,9 +4,9 @@
 #
 # Steps (3 total):
 #
-#   1. greet (writes hello.txt) -> 2. check (gates:[conditional], produces:[route_decision])
+#   1. greet (responds "hello", no tools) -> 2. check (gates:[conditional], produces:[route_decision])
 #        ^                              |          |
-#        |___________ outcome: retry ___|          |___ outcome: ok ___> 3. done (reads hello.txt, terminal)
+#        |___________ outcome: retry ___|          |___ outcome: ok ___> 3. done (responds "Loop complete.", terminal)
 #
 # route.outcomes on step 2 ("check"): ok -> {step, done} | retry -> {step, greet} (loop)
 # loop_max_iterations: 3 — fails closed after 3 total passes through the loop.
@@ -40,11 +40,11 @@ steps:
 - agent: custom-agent
   instance_id: greet
   name: Greet
-  prompt: Call write_file with path "hello.txt" and content "hello". Do not ask clarifying questions. Do not explain your reasoning. Do not use any other filename or content. Call write_file now with exactly this path and content, then stop.
+  prompt: 'Respond with exactly: "hello"'
   gates: []
   tools:
-    read_files: true
-    write_files: true
+    read_files: false
+    write_files: false
     exec: false
 
 - agent: custom-agent
@@ -52,7 +52,8 @@ steps:
   name: Check
   produces: ["route_decision"]      # R-05b — dedicated typed decision, not free text
   prompt: |
-    Call read_file with path "hello.txt". Do not call write_file — you never need to write anything here. If the file's content is "hello", respond {"decision": "ok"}; otherwise respond {"decision": "retry"}.
+    Respond with exactly:
+    {"decision": "ok"}
   gates:
   - conditional
   route:
@@ -61,17 +62,17 @@ steps:
       retry: {trigger: step, target: greet}   # loop back — R-06/R-07/R-08
     loop_max_iterations: 3
   tools:
-    read_files: true
+    read_files: false
     write_files: false
     exec: false
 
 - agent: custom-agent
   instance_id: done
   name: Done
-  prompt: Call read_file with path "hello.txt" to confirm it exists. Do not call write_file — you never need to write anything here.
+  prompt: 'Respond with exactly: "Loop complete."'
   gates: []
   tools:
-    read_files: true
+    read_files: false
     write_files: false
     exec: false
 

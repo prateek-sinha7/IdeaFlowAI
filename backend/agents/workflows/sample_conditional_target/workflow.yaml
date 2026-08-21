@@ -5,7 +5,7 @@
 #
 # Steps (1 total):
 #
-#   1. welcome (writes output.txt, gates: [], no route — plain, terminal)
+#   1. welcome (responds "Welcome to the target workflow!", no tools, gates: [], no route — plain, terminal)
 #
 # Reached ONLY via sample_conditional_launch_new's "divert" outcome — never
 # launched as anyone's first step in the example flow, though
@@ -37,11 +37,11 @@ steps:
 - agent: custom-agent
   instance_id: welcome
   name: Welcome
-  prompt: Call write_file with path "output.txt" and content "Welcome to the target workflow!". Do not ask clarifying questions. Do not explain your reasoning. Do not use any other filename or content. Call write_file now with exactly this path and content, then stop.
+  prompt: 'Respond with exactly: "Welcome to the target workflow!"'
   gates: []
   tools:
     read_files: false
-    write_files: true
+    write_files: false
     exec: false
 
 name: Divert Target (Hello World)

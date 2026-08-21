@@ -41,7 +41,7 @@ Content-Type: application/json
 	// (see backend/app/api/run_commands.py). Do not "helpfully" add agent_ids back.
 	const payload = {
 		pipeline_type: "sample_conditional_human_input",
-		message: "Conditional gate reading a human gate response (A4)",
+		message: "Hi, hello!",
 	};
 	exports.launchBody = JSON.stringify(payload);
 }}

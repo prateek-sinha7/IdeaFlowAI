@@ -37,7 +37,7 @@ Content-Type: application/json
 	// (see backend/app/api/run_commands.py). Do not "helpfully" add agent_ids back.
 	const payload = {
 		pipeline_type: "sample_conditional_target",
-		message: "Divert target workflow, standalone launch",
+		message: "Hi, hello!",
 	};
 	exports.launchBody = JSON.stringify(payload);
 }}

@@ -3,10 +3,10 @@
 #
 # Steps (4 total):
 #
-#   1. greet (writes draft.txt) -> 2. review (gates:[human], PAUSES for user input)
+#   1. greet (responds "hi", no tools) -> 2. review (gates:[human], PAUSES for user input)
 #        ^                              -> 3. revise-check (gates:[conditional], produces:[route_decision],
 #        |                                                  condition_agent: review)
-#        |____________ outcome: revise __________|          |___ outcome: continue ___> 4. done (reads draft.txt, terminal)
+#        |____________ outcome: revise __________|          |___ outcome: continue ___> 4. done (responds "Done.", terminal)
 #
 # `review` (step 2) is an ordinary HUMAN gate; `revise-check` (step 3) does NOT judge its own
 # output — route.condition_agent points at `review`, reading the human's captured response (R-05).
@@ -38,22 +38,22 @@ steps:
 - agent: custom-agent
   instance_id: greet
   name: Greet
-  prompt: Call write_file with path "draft.txt" and content "hi". Do not ask clarifying questions. Do not explain your reasoning. Do not use any other filename or content. Call write_file now with exactly this path and content, then stop.
+  prompt: 'Respond with exactly: "hi"'
   gates: []
   tools:
-    read_files: true
-    write_files: true
+    read_files: false
+    write_files: false
     exec: false
 
 - agent: custom-agent
   instance_id: review
   name: Human Review
   produces: ["route_decision"]   # R-27 — revise-check's condition_agent reads THIS
-  prompt: Call read_file with path "draft.txt", then present its content to the user and ask if it needs revising. Do not call write_file — you never need to write anything here.
+  prompt: Ask the user if they'd like to revise the greeting, and wait for their response.
   gates:
   - human           # ordinary existing gate — the run pauses here for input
   tools:
-    read_files: true
+    read_files: false
     write_files: false
     exec: false
 
@@ -62,7 +62,7 @@ steps:
   name: Revise Check
   produces: ["route_decision"]
   prompt: |
-    Do not call any tools. You do not need to write anything. Based on the human reviewer's response above, respond with exactly one line:
+    Based on the human reviewer's response above, respond with exactly one line:
     {"decision": "continue"} or {"decision": "revise"}
   gates:
   - conditional
@@ -80,10 +80,10 @@ steps:
 - agent: custom-agent
   instance_id: done
   name: Done
-  prompt: Call read_file with path "draft.txt" to confirm it exists. Do not call write_file — you never need to write anything here.
+  prompt: 'Respond with exactly: "Done."'
   gates: []
   tools:
-    read_files: true
+    read_files: false
     write_files: false
     exec: false
 

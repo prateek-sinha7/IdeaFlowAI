@@ -84,7 +84,27 @@ class ConditionalGate:
 
         # ── Match found → GATE_ROUTE (the dispatch-loop cursor jump, Phase 3) ──────
         if matched is not None:
-            detail = {"trigger": matched.trigger, "target": matched.target}
+            # Every OTHER trigger="step" outcome on this route is, by definition,
+            # not being walked this pass — computed here (we already have
+            # `outcomes` in scope) so the dispatch loop only has to resolve each
+            # raw target string to a real ordered_agents id and yield, not also
+            # re-scan `route.outcomes` itself (that scan belongs in exactly one
+            # place).
+            _skipped_targets = [
+                v.target for v in outcomes.values()
+                if v.trigger == "step" and v.target != matched.target
+            ]
+            detail = {
+                "trigger": matched.trigger,
+                "target": matched.target,
+                "decision": decision,
+                "skipped_targets": _skipped_targets,
+            }
+            _all_options = ", ".join(f"{k!r}->{v.target}" for k, v in outcomes.items())
+            logger.info(
+                "condition: step %s picked %r -> target=%s | declared options: %s",
+                step_id, decision, matched.target, _all_options or "-",
+            )
             await write_gate_event(ctx, step_id, "conditional", GATE_ROUTE, detail)
             return GateOutcome(outcome=GATE_ROUTE, detail=detail)
 

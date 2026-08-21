@@ -96,6 +96,9 @@ class _PrettyFormatter(logging.Formatter):
         "agents.execution_engine.resolver": "resolver",
         "agents.execution_engine.fanout": "fanout",
         "agents.execution_engine.od_context": "od_ctx",
+        # getLogger(__name__) truncates "conditional" -> "conditiona" at width
+        # 10 (off-by-one, reads as a cut-off word) — spell it out explicitly.
+        "agents.capabilities.gates.conditional": "condition",
     }
     _PREFIX_COMPONENTS: dict[str, str] = {
         "app.api": "api",

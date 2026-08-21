@@ -718,6 +718,25 @@ export function handlePipelineMessage(
       return true;
     }
 
+    // Explicit skip signal (spec 014 follow-up): the engine emits this for
+    // every conditional-gate route outcome NOT chosen, right when it resolves
+    // the route — a definite "this step will never run, and here's why", not
+    // an inference from the step never receiving agent_start.
+    case "agent_skipped": {
+      const agentId = msg.agent_id as string;
+
+      setPipelineState((prev) => {
+        const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+        if (agentIdx === -1) return prev;
+
+        const updated = [...prev.agents];
+        updated[agentIdx] = { ...updated[agentIdx], status: "skipped", thinking: "" };
+
+        return { ...prev, agents: updated };
+      });
+      return true;
+    }
+
     case "pipeline_complete": {
       const totalDuration = (msg.total_duration as number) || null;
 

@@ -36,7 +36,7 @@ Content-Type: application/json
 	// (see backend/app/api/run_commands.py). Do not "helpfully" add agent_ids back.
 	const payload = {
 		pipeline_type: "sample_conditional_previous_step",
-		message: "Conditional gate loop back to earlier step (A1)",
+		message: "Hi, hello!",
 	};
 	exports.launchBody = JSON.stringify(payload);
 }}

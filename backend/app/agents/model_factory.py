@@ -34,11 +34,30 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
     ``max_tokens`` defaults to settings.MAX_OUTPUT_TOKENS — no per-agent cap.
     """
     # --- LOCAL OLLAMA OVERRIDE (temp, dev-only — comment out or delete when done) ---
-    from langchain_ollama import ChatOllama
-    logger.warning("=" * 78)
-    logger.warning("!!! LOCAL OLLAMA OVERRIDE ACTIVE — using qwen3.5:4b via http://localhost:11434, NOT the real configured provider !!!")
-    logger.warning("=" * 78)
-    return ChatOllama(model="qwen3.5:4b", base_url="http://localhost:11434", reasoning=True)
+    # Off unless USE_LOCAL_OLLAMA is explicitly truthy, so this block can stay
+    # pasted in without hijacking runs that should hit the real provider.
+    # Reads .env directly: pydantic loads .env into settings WITHOUT exporting to
+    # os.environ (same trap the AWS_BEARER_TOKEN_BEDROCK bridge below works around),
+    # so os.getenv alone would never see a value set in the file.
+    import os
+
+    from dotenv import dotenv_values
+
+    from app.core.config import ENV_FILE
+
+    _ollama_env = {**dotenv_values(ENV_FILE), **os.environ}  # real env wins
+    if _ollama_env.get("USE_LOCAL_OLLAMA", "").strip().lower() in ("1", "true", "yes", "on"):
+        from langchain_ollama import ChatOllama
+
+        ollama_model = _ollama_env.get("OLLAMA_MODEL") or "qwen3.5:4b"
+        ollama_url = _ollama_env.get("OLLAMA_BASE_URL") or "http://localhost:11434"
+        logger.warning("=" * 78)
+        logger.warning(
+            "!!! LOCAL OLLAMA OVERRIDE ACTIVE — using %s via %s, NOT the real configured provider !!!",
+            ollama_model, ollama_url,
+        )
+        logger.warning("=" * 78)
+        return ChatOllama(model=ollama_model, base_url=ollama_url, reasoning=True)
     # --- end override ---
 
     if max_tokens is None:

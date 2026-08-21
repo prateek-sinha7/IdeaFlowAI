@@ -41,7 +41,7 @@ Content-Type: application/json
 	// (see backend/app/api/run_commands.py). Do not "helpfully" add agent_ids back.
 	const payload = {
 		pipeline_type: "sample_conditional_launch_new",
-		message: "Conditional gate cross-workflow trigger / divert (A3)",
+		message: "Hi, hello!",
 	};
 	exports.launchBody = JSON.stringify(payload);
 }}

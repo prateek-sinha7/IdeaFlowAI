@@ -2971,6 +2971,54 @@ class ExecutionEngine:
                                     ectx.step_visit_counts[_route_target] = _visits + 1
                                 cursor = _route_index
                                 _routed = True
+                                # ── [spec 014 follow-up] explicit skip signal ──────
+                                # ConditionalGate.evaluate (conditional.py) already
+                                # scanned route.outcomes and computed which raw
+                                # targets are being skipped (_gdetail["skipped_targets"])
+                                # — this loop only does what only the dispatch loop
+                                # CAN do: resolve each raw target string to a real
+                                # ordered_agents id (dual-identity, same as
+                                # _route_target above) and yield an explicit event, so
+                                # the frontend can render "Skipped" with a definite
+                                # reason instead of inferring it from an agent never
+                                # receiving agent_start (ambiguous — that absence
+                                # can't distinguish "skipped by routing" from "run
+                                # ended mid-way for some other reason").
+                                _skipped_ids: list[str] = []
+                                for _skip_target in (
+                                    _gdetail.get("skipped_targets", []) if isinstance(_gdetail, dict) else []
+                                ):
+                                    _sib_index = next(
+                                        (i for i, s in enumerate(ordered_agents) if s.id == _skip_target),
+                                        None,
+                                    )
+                                    if _sib_index is None:
+                                        _sib_index = next(
+                                            (
+                                                i for i, s in enumerate(ordered_agents)
+                                                if s.id.endswith(f":{_skip_target}")
+                                            ),
+                                            None,
+                                        )
+                                    if _sib_index is None:
+                                        continue
+                                    _skipped_ids.append(ordered_agents[_sib_index].id)
+                                    yield {
+                                        "type": "agent_skipped",
+                                        "data": {
+                                            "agent_id": ordered_agents[_sib_index].id,
+                                            "step": step.id,
+                                            "gate": "conditional",
+                                            "reason": (
+                                                f"conditional gate routed to "
+                                                f"{_route_target!r} instead"
+                                            ),
+                                        },
+                                    }
+                                logger.info(
+                                    "condition: step %s -> next=%s, skipped=%s",
+                                    step.id, ordered_agents[_route_index].id, _skipped_ids or "-",
+                                )
                         elif _route_trigger == "workflow":
                             # ── [spec 014 / T29] Cross-workflow trigger (R-12/R-13/R-14) ──
                             # Mint + spawn a NEW, independent WorkflowRun via the T28
@@ -2979,6 +3027,10 @@ class ExecutionEngine:
                             # Option 2: the mint/spawn call is the only await; it
                             # returns as soon as the new run exists, not when it
                             # finishes).
+                            logger.info(
+                                "condition: step %s launching workflow %r (this run stops here — R-13)",
+                                step.id, _route_target,
+                            )
                             _diverted_to_run_id, _diverted_to_workflow = (
                                 await ectx.runner.run_trigger_workflow(
                                     step, ectx, workflow_ref=_route_target

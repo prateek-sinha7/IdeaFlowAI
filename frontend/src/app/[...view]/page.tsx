@@ -985,6 +985,11 @@ export default function DashboardPage() {
       "task_loop_progress",
       // pipeline_reconnected — backend confirmed reconnection to running pipeline
       "pipeline_reconnected",
+      // agent_skipped (014-conditional-gates follow-up) — same trap as
+      // pipeline_diverted above: without this, the frame never reaches
+      // useWorkflow.ts's "agent_skipped" case, so a conditional gate's skipped
+      // sibling never gets marked "skipped" on a LIVE (in-progress) run.
+      "agent_skipped",
       // Note: review_gate_ready and review_gate_approved are NOT here —
       // they go through the switch statement below to update reviewGateData state.
     ];
