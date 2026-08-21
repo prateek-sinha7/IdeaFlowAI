@@ -9,7 +9,7 @@ import type { RunSummary } from "@/lib/api";
 // ─────────────────────────────────────────────────────────────────
 // Stable mock fns we can drive per-test.
 const mockGetToken = vi.fn(() => "test-token");
-const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<WorkflowRun[]>>();
+const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<{ runs: WorkflowRun[]; total: number }>>();
 const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<WorkflowRun>>();
 const mockDeleteWorkflow = vi.fn<(token: string, id: string) => Promise<void>>();
 // SHELL-03: the terminal-run detail now mounts RunDetailPage (fed by getRunSummary)
@@ -187,12 +187,68 @@ async function renderAndOpenRun(run: WorkflowRun, onChainPipeline?: ChainHandler
   const preloadedState = {
     global: {
       workflows: [
-        { id: "user_stories", name: "User Stories", display_name: "User Stories", chained_from: [{ id: "ppt" }, { id: "prototype" }, { id: "custom" }] },
-        { id: "ppt", name: "Presentation", display_name: "Presentation", chained_from: [{ id: "user_stories" }, { id: "prototype" }, { id: "custom" }] },
-        { id: "prototype", name: "Prototype", display_name: "Prototype", chained_from: [{ id: "user_stories" }, { id: "ppt" }, { id: "custom" }] },
-        { id: "custom", name: "Custom", display_name: "Custom", chained_from: [{ id: "user_stories" }, { id: "ppt" }, { id: "prototype" }] },
+        {
+          id: "user_stories",
+          name: "User Stories",
+          display_name: "User Stories",
+          description: "Create user stories",
+          step_count: 2,
+          steps: [],
+          user_launchable: true,
+          chained_from: [
+            { id: "ppt", beta: false, text: "PPT" },
+            { id: "prototype", beta: false, text: "Prototype" },
+            { id: "custom", beta: false, text: "Custom" },
+          ],
+        },
+        {
+          id: "ppt",
+          name: "Presentation",
+          display_name: "Presentation",
+          description: "Create presentation",
+          step_count: 2,
+          steps: [],
+          user_launchable: true,
+          chained_from: [
+            { id: "user_stories", beta: false, text: "User Stories" },
+            { id: "prototype", beta: false, text: "Prototype" },
+            { id: "custom", beta: false, text: "Custom" },
+          ],
+        },
+        {
+          id: "prototype",
+          name: "Prototype",
+          display_name: "Prototype",
+          description: "Create prototype",
+          step_count: 2,
+          steps: [],
+          user_launchable: true,
+          chained_from: [
+            { id: "user_stories", beta: false, text: "User Stories" },
+            { id: "ppt", beta: false, text: "PPT" },
+            { id: "custom", beta: false, text: "Custom" },
+          ],
+        },
+        {
+          id: "custom",
+          name: "Custom",
+          display_name: "Custom",
+          description: "Create custom",
+          step_count: 0,
+          steps: [],
+          user_launchable: true,
+          chained_from: [
+            { id: "user_stories", beta: false, text: "User Stories" },
+            { id: "ppt", beta: false, text: "PPT" },
+            { id: "prototype", beta: false, text: "Prototype" },
+          ],
+        },
       ],
-      workflowWizardPath: "/workflow/create",
+      workflowsStatus: "succeeded",
+      workflowsError: null,
+      recentRuns: [],
+      recentRunsStatus: "idle",
+      recentRunsError: null,
     },
   };
   renderWithProviders(<WorkflowHistory onBack={vi.fn()} onChainPipeline={onChainPipeline} />, { preloadedState });
