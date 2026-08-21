@@ -144,6 +144,8 @@ REVISION_BASE_MAP: dict[str, str] = {
     "ppt_revision": "ppt",
     "user_stories_revision": "user_stories",
     "prototype_revision": "prototype",
+    "prototype_large_revision": "prototype",    # tiered large-revision manifest
+    "prototype_feature_revision": "prototype",  # tiered feature-revision manifest
     "app_builder_revision": "app_builder",
     "custom_revision": "custom",
 }

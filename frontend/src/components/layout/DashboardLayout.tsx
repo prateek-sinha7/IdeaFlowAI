@@ -1368,7 +1368,8 @@ export function DashboardLayout({
       // the guard fires and the reactive path is a no-op.
       const resolvedTypeStr = resolvedType as string;
       const isPptType = resolvedTypeStr === "ppt" || resolvedTypeStr === "ppt_revision";
-      const isProtoType = resolvedTypeStr === "prototype" || resolvedTypeStr === "prototype_revision";
+      const isProtoType = resolvedTypeStr === "prototype" || resolvedTypeStr === "prototype_revision"
+        || resolvedTypeStr === "prototype_large_revision" || resolvedTypeStr === "prototype_feature_revision";
       if (isPptType) { odPptNotifId.current = notifId; }
       if (isProtoType) { odProtoNotifId.current = notifId; }
       // FIX-130: inject _display_title so page.tsx onStartPipeline can set a
@@ -1476,7 +1477,8 @@ export function DashboardLayout({
       } catch {
         // Fallback: use the old approach
         const isHtmlOutput = workflowType === "ppt" || workflowType === "ppt_revision" ||
-          workflowType === "prototype" || workflowType === "prototype_revision";
+          workflowType === "prototype" || workflowType === "prototype_revision" ||
+          workflowType === "prototype_large_revision" || workflowType === "prototype_feature_revision";
         contextBlock = isHtmlOutput
           ? `=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n[${workflowType} output — HTML file]\n=== END PREVIOUS CONTEXT ===`
           : `=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n${lastPipelineOutput.slice(0, 4000)}\n=== END PREVIOUS CONTEXT ===`;
@@ -1515,7 +1517,7 @@ export function DashboardLayout({
       const chainNotifTitle = (chainBrief || enrichedInput).slice(0, 60);
       addRunningNotification(notifId, nextType, chainNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedHooks, { _display_title: chainBrief });
       } else {
@@ -1570,7 +1572,8 @@ export function DashboardLayout({
     } catch {
       // Fallback
       const isHtmlOutput = run.type === "ppt" || run.type === "ppt_revision" ||
-        run.type === "prototype" || run.type === "prototype_revision";
+        run.type === "prototype" || run.type === "prototype_revision" ||
+        run.type === "prototype_large_revision" || run.type === "prototype_feature_revision";
       const baseOutput = isHtmlOutput
         ? `[${run.title || run.type} output — HTML file]`
         : (run.output || "").slice(0, 4000);
@@ -1602,7 +1605,7 @@ export function DashboardLayout({
       const historyNotifTitle = (historyBrief || enrichedInput).slice(0, 60);
       addRunningNotification(notifId, nextType, historyNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedHooks, { _display_title: historyBrief });
       } else {
@@ -1692,7 +1695,7 @@ export function DashboardLayout({
       const pendingNotifTitle = (parsedPending.revisionInstruction ?? parsedPending.brief ?? pendingPipelineRun.message).slice(0, 60);
       addRunningNotification(notifId, pendingPipelineRun.type, pendingNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -1732,7 +1735,7 @@ export function DashboardLayout({
       const skipNotifTitle = (parsedSkip.revisionInstruction ?? parsedSkip.brief ?? pendingPipelineRun.message).slice(0, 60);
       addRunningNotification(notifId, pendingPipelineRun.type, skipNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -1825,7 +1828,9 @@ export function DashboardLayout({
   const activeReviseHandler =
     (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision") ? handleRevisePpt :
     (effectiveReviseType === "user_stories" || effectiveReviseType === "user_stories_revision") ? handleReviseUserStory :
-    (effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype :
+    (effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision"
+      || effectiveReviseType === "prototype_large_revision" || effectiveReviseType === "prototype_feature_revision"
+      || !!prototypeContent) ? handleRevisePrototype :
     (effectiveReviseType === "app_builder" || effectiveReviseType === "app_builder_revision") ? handleReviseAppBuilder :
     undefined;
 
@@ -2007,6 +2012,7 @@ export function DashboardLayout({
     effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision"
       ? pptContent
       : effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision"
+        || effectiveReviseType === "prototype_large_revision" || effectiveReviseType === "prototype_feature_revision"
         ? prototypeContent
         : userStoryContent; // user_stories, custom, app_builder, and revision variants
   const laneDerivedFilename = deriveDeliverableFilename(

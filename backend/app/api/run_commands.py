@@ -1380,7 +1380,17 @@ async def _dispose_concierge_proposal(
         # "user_stories_revision_revision" which is not in TIER_PIPELINES → 403.
         # Strip any trailing "_revision" suffix from wr_type to get the base artifact
         # family (e.g. "user_stories") before constructing the fallback target.
-        base_type = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
+        #
+        # Tiered prototype revision types (prototype_large_revision,
+        # prototype_feature_revision) already contain "_revision" embedded in their
+        # middle — removesuffix("_revision") would give "prototype_large", not
+        # "prototype". Remap these explicitly before the generic suffix strip.
+        if wr_type in ("prototype_large_revision", "prototype_feature_revision"):
+            base_type = "prototype"
+        elif wr_type.endswith("_revision"):
+            base_type = wr_type.removesuffix("_revision")
+        else:
+            base_type = wr_type
         # Two OD remap tables used to sit here (_OD_FALLBACK_MAP, _OD_TARGET_REMAP),
         # rewriting od_prototype/od_ppt targets onto their real revision pipelines.
         # They were a workaround for an incomplete alias table — the alias covered
@@ -1392,6 +1402,23 @@ async def _dispose_concierge_proposal(
         # correction and both entry points agree by construction.
         target = params.get("target") or f"{base_type}_output"
         instruction = params.get("instruction", "")
+        # ── Tiered prototype classification (Pieces 1/2/3) ──────────────────
+        # Apply the same tier classifier as create_revision() so the Concierge
+        # revision path also routes to the correct manifest.
+        if target == "prototype_output":
+            _tier = await _classify_revision_tier(
+                instruction=instruction,
+                parent_run_id=run_id,
+                model_id=getattr(current_user, "preferred_model", None),
+            )
+            target = _REVISION_TIER_TARGET_MAP.get(_tier, "prototype_output")
+            logger.info(
+                "▶ prototype revision tier selected (concierge path): %r → pipeline=%s (run=%s)",
+                _tier,
+                f"{target.removesuffix('_output')}_revision",
+                run_id,
+            )
+        # ────────────────────────────────────────────────────────────────────
         # FIX-218: when files were attached on this Concierge turn, frame them as
         # supplementary reference material. The user's chat instruction always takes
         # precedence — if the file conflicts with or is unrelated to the request,
@@ -3125,6 +3152,143 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
     return pipeline_run_id, revision_pipeline_type
 
 
+# ---------------------------------------------------------------------------
+# Tiered prototype revision classifier (Pieces 1/2/3)
+# ---------------------------------------------------------------------------
+#
+# Runs a single LLM call BEFORE _mint_revision_row to pick the right manifest:
+#   small   → prototype_revision         (existing, unchanged)
+#   large   → prototype_large_revision   (new: planner + task_loop builder)
+#   feature → prototype_feature_revision (new: specify + plan + task_loop builder)
+#
+# Lives in the app-layer REST endpoint — NOT the kernel — so SC-001/INV-1 are
+# respected. No workflow-name literal enters the kernel.
+
+_REVISION_TIER_TARGET_MAP: dict[str, str] = {
+    "small":   "prototype_output",          # → prototype_revision (existing)
+    "large":   "prototype_large_output",    # → prototype_large_revision
+    "feature": "prototype_feature_output",  # → prototype_feature_revision
+}
+
+
+async def _classify_revision_tier(
+    instruction: str,
+    parent_run_id: str,
+    model_id: str | None = None,
+) -> str:
+    """Classify a prototype revision request into a tier before minting the run.
+
+    Runs a single Bedrock LLM call with the current prototype HTML and the
+    revision instruction. Returns one of: "small" | "large" | "feature".
+
+    Degrades gracefully to "small" on any error — the existing small-revision
+    pipeline always runs as a safe fallback.
+
+    Two calling contexts:
+      1. Direct REST POST /revisions — ``instruction`` contains the full
+         ``=== EXISTING PROTOTYPE HTML ===`` block; HTML is extracted inline.
+      2. Concierge proposal disposal — ``instruction`` is plain user text with
+         NO HTML markers. The HTML is read from the parent run's ``output`` column
+         in the DB.
+
+    Tier definitions:
+      small   — targeted fix to 1-3 elements (typo, color, broken link, one field)
+      large   — structural change across multiple components (3+ pages, layout rework)
+      feature — new page/route/workflow that does NOT exist in the prototype
+    """
+    from agents.capabilities.context_providers.previous_run import (
+        _extract_existing_artifact,
+        _extract_revision_instruction,
+    )
+    from app.agents.model_factory import build_model
+
+    # ── Resolve the prototype HTML ───────────────────────────────────────────
+    # Path 1: REST endpoint wraps HTML in the instruction message.
+    existing_html = _extract_existing_artifact(instruction)
+    revision_text = _extract_revision_instruction(instruction) or instruction
+
+    # Path 2: Concierge path has no HTML markers — read from parent run output.
+    if not existing_html:
+        logger.debug(
+            "_classify_revision_tier: no HTML markers in instruction for run=%s — "
+            "falling back to parent run output",
+            parent_run_id,
+        )
+        db = _get_db()
+        try:
+            parent_wr = (
+                db.query(WorkflowRun)
+                .filter(WorkflowRun.id == parent_run_id)
+                .first()
+            )
+            if parent_wr and parent_wr.output:
+                existing_html = parent_wr.output
+            else:
+                # No HTML available — cannot make a meaningful classification.
+                # Default to "large" (safer than "small" for an unknown request).
+                logger.warning(
+                    "_classify_revision_tier: parent run %s has no output — "
+                    "defaulting to large",
+                    parent_run_id,
+                )
+                return "large"
+        finally:
+            db.close()
+        # In the concierge path the instruction IS the plain user text.
+        revision_text = instruction
+
+    # Truncate HTML for classifier context (first 8000 chars sufficient for structure)
+    html_excerpt = existing_html[:8000]
+
+    classifier_prompt = (
+        f"You are classifying a prototype revision request.\n\n"
+        f"CURRENT PROTOTYPE (excerpt, {len(existing_html)} chars total):\n"
+        f"{html_excerpt}\n"
+        f"{'[...truncated...]' if len(existing_html) > 8000 else ''}\n\n"
+        f"REVISION REQUEST:\n"
+        f"{revision_text}\n\n"
+        f"Classify this revision into EXACTLY ONE tier:\n\n"
+        f"- small: A targeted change to 1-3 elements on 1-2 pages. Examples: fix a broken\n"
+        f"  link, change a color, correct a label, add one form field, fix a typo.\n\n"
+        f"- large: A structural change affecting multiple components or pages, or a bug that\n"
+        f"  requires coordinated changes across HTML, CSS, and JavaScript. Examples: redesign\n"
+        f"  a page layout, fix broken navigation across 5+ pages, add a complex data table\n"
+        f"  with filtering and sorting.\n\n"
+        f"- feature: A new page, new workflow, or new capability that does NOT currently exist\n"
+        f"  in the prototype. Examples: add an onboarding flow, add a dashboard with charts,\n"
+        f"  add authentication pages, add a new section with multiple sub-pages.\n\n"
+        f"Reply with ONLY one word: small, large, or feature. No explanation."
+    )
+
+    try:
+        from langchain_core.messages import HumanMessage
+
+        llm = build_model(model_id, max_tokens=10)  # one-word output — tiny budget
+        logger.info(
+            "_classify_revision_tier: classifying revision for parent=%s "
+            "(html=%d chars, instruction=%r)",
+            parent_run_id, len(existing_html), revision_text[:80],
+        )
+        response = await llm.ainvoke([HumanMessage(content=classifier_prompt)])
+        tier = response.content.strip().lower()
+        if tier in ("small", "large", "feature"):
+            logger.info(
+                "_classify_revision_tier: classified as %r → pipeline=%s (parent=%s)",
+                tier, _REVISION_TIER_TARGET_MAP.get(tier, "prototype_output"), parent_run_id,
+            )
+            return tier
+        # Unexpected output — default to large (safer than small for uncertain cases)
+        logger.warning(
+            "_classify_revision_tier: unexpected output %r — defaulting to large", tier
+        )
+        return "large"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "_classify_revision_tier: classification failed (%s) — defaulting to small", exc
+        )
+        return "small"
+
+
 @router.post("/{run_id}/revisions")
 async def create_revision(
     run_id: str,
@@ -3151,11 +3315,31 @@ async def create_revision(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Unknown run"
             )
+
+        # ── NEW: classify and select the correct revision pipeline ──────────
+        # Only applies when the target is a prototype output — other revision
+        # types (user_stories, ppt) use their own existing pipelines unchanged.
+        effective_target = body.target_artifact_type
+        if body.target_artifact_type == "prototype_output":
+            tier = await _classify_revision_tier(
+                instruction=body.instruction,
+                parent_run_id=run_id,
+                model_id=getattr(current_user, "preferred_model", None),
+            )
+            effective_target = _REVISION_TIER_TARGET_MAP.get(tier, "prototype_output")
+            logger.info(
+                "▶ prototype revision tier selected: %r → pipeline=%s (run=%s)",
+                tier,
+                f"{effective_target.removesuffix('_output')}_revision",
+                run_id,
+            )
+        # ───────────────────────────────────────────────────────────────────────
+
         child_run_id, _ = _mint_revision_row(
             db,
             user=current_user,
             parent_run_id=run_id,
-            target_artifact_type=body.target_artifact_type,
+            target_artifact_type=effective_target,
             instruction=body.instruction,
         )
     finally:
@@ -3168,7 +3352,7 @@ async def create_revision(
         _drive_revision_to_queue(
             workflow_run_id=child_run_id,
             parent_run_id=run_id,
-            target_artifact_type=body.target_artifact_type,
+            target_artifact_type=effective_target,
             instruction=body.instruction,
             user=current_user,
             cancel_event=cancel_event,
@@ -3199,6 +3383,14 @@ async def _drive_revision_to_queue(
     # cards are persisted for revision runs (FIX-171) — same pattern as the
     # _run_workflow_to_queue fresh-run path. The kernel never imports app.*.
     from app.agents.chat_narrator import persist_milestone_card
+
+    # Derive the pipeline type the same way _mint_revision_row does so the log
+    # always shows the REAL manifest being dispatched (small / large / feature).
+    _revision_pipeline_type = f"{target_artifact_type.removesuffix('_output')}_revision"
+    logger.info(
+        "▶ revision driver starting: run=%s parent=%s pipeline=%s target=%s",
+        workflow_run_id, parent_run_id, _revision_pipeline_type, target_artifact_type,
+    )
 
     pipeline_complete_seen = False
     pipeline_failed_seen = False

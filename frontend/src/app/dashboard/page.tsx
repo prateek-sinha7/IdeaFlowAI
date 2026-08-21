@@ -1047,7 +1047,9 @@ export default function DashboardPage() {
             setUserStoryContent(finalOutput);
           } else if (pipelineType === "ppt" || pipelineType === "ppt_revision") {
             setPptContent(finalOutput);
-          } else if (pipelineType === "prototype" || pipelineType === "prototype_revision") {
+          } else if (pipelineType === "prototype" || pipelineType === "prototype_revision"
+            || pipelineType === "prototype_large_revision"
+            || pipelineType === "prototype_feature_revision") {
             setPrototypeContent(finalOutput);
           } else {
             // ISS-021 (18-03) + CR-01 (18 review fix): any pipeline_type matching
@@ -2471,7 +2473,9 @@ export default function DashboardPage() {
             setUserStoryContent(fullRun.output);
           } else if (fullRun.type === "ppt" || fullRun.type === "ppt_revision") {
             setPptContent(fullRun.output);
-          } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision") {
+          } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision"
+            || fullRun.type === "prototype_large_revision"
+            || fullRun.type === "prototype_feature_revision") {
             setPrototypeContent(fullRun.output);
           } else {
             // ISS-021 (18-03) / UXFIX-02 (22-03) — generic reopen fallback.
