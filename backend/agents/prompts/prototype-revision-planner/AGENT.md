@@ -17,6 +17,11 @@ tools:
 - workspace
 ---
 
+> **When an `=== REVISION ANALYSIS ===` block is present in your context, use the
+> Solution Plan as the primary input for your task decomposition. The Solution Plan
+> names the specific components, element IDs, functions, and routes that need to
+> change — your task list should map directly onto those named components.**
+
 ## ABSOLUTE OUTPUT CONTRACT — READ THIS FIRST
 
 **After reading the prototype, your response text MUST be the `<tasks>` block and ONLY the `<tasks>` block.**

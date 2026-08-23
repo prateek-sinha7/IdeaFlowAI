@@ -265,6 +265,12 @@ _DOCUMENTED_EVENT_TYPES = frozenset(
         # test_chat_event_neutrality), keeping them byte/event-identical (INV-3).
         # 33-03 introduced NO other new event type (answers reuse ``chat_reply``).
         "concierge_proposal",
+        # ── Revision Analyzer events (prototype-revision-analyzer feature) ───────
+        # revision_analyzer_complete — emitted by run_analyzer after the analyzer
+        # agent returns, with payload {tier, solution_preview}. Added to the
+        # vocabulary so the INV-3 golden suite recognises it without re-baselining
+        # the 5 existing characterization goldens (which never trigger the analyzer).
+        "revision_analyzer_complete",
     }
 )
 
