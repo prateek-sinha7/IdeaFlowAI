@@ -3,7 +3,6 @@ consumes: []
 context_from: []
 description: Performs analysis as the first step of the SC-001 test fixture. Produces an artifact demonstrating artifact generation capability.
 estimated_duration: 5.0
-gate: none
 guardrails: []
 icon: "📋"
 id: sc001-fixture-analyze
