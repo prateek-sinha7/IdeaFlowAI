@@ -199,7 +199,7 @@ def test_stream_endpoint_returns_connections(monkeypatch):
     from fastapi import FastAPI
 
     from app.api.run_stream import router
-    from app.core.dependencies import get_current_user
+    from app.core.dependencies import get_current_user_with_payload
     from app.models.database import get_db
 
     engine = _make_queuepool_engine()
@@ -215,7 +215,7 @@ def test_stream_endpoint_returns_connections(monkeypatch):
     app.include_router(router)
 
     def override_user():
-        return _FakeUser(id=_OWNER)
+        return (_FakeUser(id=_OWNER), {"jti": None, "iat": None})
 
     def override_db():
         # Mirror the REAL get_db: fresh session, closed in finally — this is what makes
@@ -226,7 +226,7 @@ def test_stream_endpoint_returns_connections(monkeypatch):
         finally:
             db.close()
 
-    app.dependency_overrides[get_current_user] = override_user
+    app.dependency_overrides[get_current_user_with_payload] = override_user
     app.dependency_overrides[get_db] = override_db
 
     # The run is NOT registered in run_engine._PIPELINE_QUEUES → live_queue is None →

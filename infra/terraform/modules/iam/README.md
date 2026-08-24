@@ -47,6 +47,7 @@ module "iam" {
 | `bedrock_inference_profile_id` | Cross-region inference profile ID the invoke policy is scoped to. | `string` | — | yes |
 | `policies_dir` | Path (relative to this module) to the policy JSON templates. | `string` | `"../../policies"` | no |
 | `attach_ssm_managed_policy` | Attach `AmazonSSMManagedInstanceCore` (enables Session Manager). | `bool` | `true` | no |
+| `cognito_user_pool_arn` | Cognito User Pool ARN the instance role may administer (Admin* actions, scoped to exactly this pool). Empty (default) creates no Cognito policy. | `string` | `""` | no |
 
 ## Outputs
 

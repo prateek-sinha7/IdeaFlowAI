@@ -1993,3 +1993,146 @@ resource "aws_cloudwatch_metric_alarm" "inode_low" {
 #     ]
 #   })
 # }
+
+# =============================================================================
+# Auth observability (COGNITO-MIGRATION-PLAN §7 Phase 6 item 6)
+# =============================================================================
+# These filters key on the `auth_event` discriminator emitted by
+# backend/app/core/auth_events.py as single-line JSON. That module's AuthEvent
+# values are a PUBLISHED INTERFACE for exactly this reason: renaming one does
+# not break the app, it silently breaks the alarm below — which then reports
+# "INSUFFICIENT_DATA"/no-data and looks healthy. Change them in lockstep.
+#
+# The app log stream carries these events (the backend logs to the `app` group);
+# a dedicated /auth group already exists for host-level auth (sshd/sudo), so the
+# application auth events are matched on `app` rather than `auth`.
+
+# --- Break-glass login: the control Decision 12 depends on -------------------
+# The break-glass account's entire justification (plan §5.6) is that every use
+# is noticed. threshold = 0 / evaluation_periods = 1 means ANY single occurrence
+# pages. There is no "acceptable rate" of break-glass logins.
+resource "aws_cloudwatch_log_metric_filter" "auth_break_glass_login" {
+  name           = "${var.name_prefix}-auth-break-glass-login"
+  log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/app"].name
+  pattern        = "{ $.auth_event = \"break_glass_login\" }"
+
+  metric_transformation {
+    name          = "AuthBreakGlassLogin"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "auth_break_glass_login" {
+  alarm_name          = "${var.name_prefix}-auth-break-glass-login"
+  alarm_description   = "A break-glass local admin login occurred. This is an incident signal by design (COGNITO-MIGRATION-PLAN section 5.6) - confirm it was an authorised operator."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "AuthBreakGlassLogin"
+  namespace           = var.cw_metric_namespace
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 0
+  # Do NOT treat missing data as breaching: no break-glass logins is the normal,
+  # healthy steady state and must not page anyone.
+  treat_missing_data = "notBreaching"
+  alarm_actions      = [aws_sns_topic.alerts.arn]
+  ok_actions         = []
+
+  tags = {
+    Component = "monitoring"
+    Concern   = "auth"
+  }
+}
+
+# --- Break-glass invariant violation ----------------------------------------
+# Should be impossible in a healthy system (more than one local admin row), and
+# when it happens the local-admin credential path is already refusing requests
+# fail-closed. Page immediately: either an operator error or an unauthorised
+# INSERT into `users`.
+resource "aws_cloudwatch_log_metric_filter" "auth_break_glass_invariant" {
+  name           = "${var.name_prefix}-auth-break-glass-invariant"
+  log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/app"].name
+  pattern        = "{ $.auth_event = \"break_glass_invariant_violated\" }"
+
+  metric_transformation {
+    name          = "AuthBreakGlassInvariantViolated"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "auth_break_glass_invariant" {
+  alarm_name          = "${var.name_prefix}-auth-break-glass-invariant-violated"
+  alarm_description   = "More than one local-password admin exists. The break-glass credential path is now refusing requests fail-closed. Investigate immediately - this is either operator error or an unauthorised users-table INSERT."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "AuthBreakGlassInvariantViolated"
+  namespace           = var.cw_metric_namespace
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+    Concern   = "auth"
+  }
+}
+
+# --- Login-failure spike: credential stuffing -------------------------------
+# The pool deliberately runs prevent_user_existence_errors = ENABLED, which
+# hides enumeration from the attacker AND from naive log analysis. This metric
+# is the compensating visibility: the aggregate failure rate is still observable
+# even though individual responses are uniform.
+resource "aws_cloudwatch_log_metric_filter" "auth_login_failure" {
+  name           = "${var.name_prefix}-auth-login-failure"
+  log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/app"].name
+  pattern        = "{ $.auth_event = \"login_failure\" }"
+
+  metric_transformation {
+    name          = "AuthLoginFailure"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "auth_login_failure_spike" {
+  alarm_name          = "${var.name_prefix}-auth-login-failure-spike"
+  alarm_description   = "Sustained authentication failures - possible credential stuffing. nginx rate-limits /api/auth/login to 10/min per IP, so a sustained breach of this threshold implies a distributed source."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = var.auth_login_failure_evaluation_periods
+  metric_name         = "AuthLoginFailure"
+  namespace           = var.cw_metric_namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = var.auth_login_failure_threshold
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+    Concern   = "auth"
+  }
+}
+
+# --- Admin blocked for missing MFA ------------------------------------------
+# Not a security incident, an OPERATIONAL one: an admin cannot do their job.
+# Worth surfacing because the failure is otherwise invisible to operators (the
+# admin sees a 403 and files a ticket hours later).
+resource "aws_cloudwatch_log_metric_filter" "auth_admin_mfa_blocked" {
+  name           = "${var.name_prefix}-auth-admin-mfa-blocked"
+  log_group_name = aws_cloudwatch_log_group.groups["/velocityai/${var.environment}/app"].name
+  pattern        = "{ $.auth_event = \"admin_mfa_blocked\" }"
+
+  metric_transformation {
+    name          = "AuthAdminMfaBlocked"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}

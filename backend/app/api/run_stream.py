@@ -39,7 +39,8 @@ from typing import Any, AsyncIterator, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user
+from app.core.config import settings
+from app.core.dependencies import get_current_user_with_payload
 from app.models.database import get_db
 from app.models.user import User
 from app.models.workflow import WorkflowRun
@@ -162,6 +163,7 @@ async def _iter_sse_frames(
     after_seq: int,
     live_queue: Any = None,
     request: Optional[Request] = None,
+    revocation_check: Optional[Any] = None,
     run_is_terminal: bool = False,
 ) -> AsyncIterator[dict]:
     """Yield the SSE frame dicts for one attached client.
@@ -170,6 +172,18 @@ async def _iter_sse_frames(
     D-14g gate re-arm (if paused) → live queue drain (until the ``None`` sentinel or
     client disconnect). ``live_queue is None`` means the run has no live task, so the
     replayed durable tail + the handshake are the complete response.
+
+    ``revocation_check`` (P1 fix, COGNITO-AUTH-QA-BUGS.md "Stream Revocation"):
+    an optional zero-arg async callable checked every
+    ``settings.SSE_REVOCATION_CHECK_EVERY_N_EVENTS`` live-drain events (never
+    during durable replay, which is a bounded, already-happened tail — only
+    the open-ended live drain needs a re-check). If it returns a truthy
+    "reason" string, the stream emits a terminal ``session_revoked`` frame
+    and closes rather than continuing to forward a privileged user's live
+    events after their credential has been invalidated. ``None`` (the
+    default, and what every pre-existing caller passes implicitly) disables
+    the check entirely — a session-less test harness with no DB/user context
+    behaves exactly as before.
 
     ``run_is_terminal`` reflects the persisted ``WorkflowRun.status`` and suppresses the
     gate re-arm alone (FIX-240 / ISS-121) — see step 3.
@@ -280,10 +294,40 @@ async def _iter_sse_frames(
         #    comment-ping (SSE_KEEPALIVE_PING_SECONDS) keeps idle proxies from buffering.
         if live_queue is None:
             return
+        _events_since_revocation_check = 0
         while True:
             if request is not None and await request.is_disconnected():
                 return
-            event = await live_queue.get()
+
+            # P1 fix (COGNITO-AUTH-QA-BUGS.md "Stream Revocation"): bound the
+            # wait on a time-based poll of `revocation_check`, not just an
+            # event-count cadence — a long-running agent with a quiet period
+            # (no events for minutes) must still be re-checked periodically,
+            # not only when the next event happens to arrive. `import asyncio`
+            # is already a module-level dependency of this file's callers;
+            # local import here keeps the generator body self-contained.
+            if revocation_check is not None:
+                import asyncio as _asyncio
+
+                try:
+                    event = await _asyncio.wait_for(
+                        live_queue.get(),
+                        timeout=settings.SSE_REVOCATION_CHECK_INTERVAL_SECONDS,
+                    )
+                except _asyncio.TimeoutError:
+                    reason = await revocation_check()
+                    if reason:
+                        replayed_through_seq += 1
+                        yield _sse_frame(
+                            replayed_through_seq,
+                            "session_revoked",
+                            {"pipeline_run_id": run_id, "reason": reason},
+                        )
+                        return
+                    continue
+            else:
+                event = await live_queue.get()
+
             if event is None:  # sentinel: pipeline finished
                 return
             data = event.get("data", {}) if isinstance(event, dict) else {}
@@ -298,6 +342,24 @@ async def _iter_sse_frames(
             replayed_through_seq = seq
             if event.get("type") in _STREAM_TERMINAL_TYPES:
                 return
+
+            # A revocation re-check ALSO fires on a cadence of events (not only
+            # on idle timeouts), so a fast, continuous stream of events is not
+            # exempt from re-checking just because it never idles long enough
+            # to hit the timeout branch above.
+            if revocation_check is not None:
+                _events_since_revocation_check += 1
+                if _events_since_revocation_check >= settings.SSE_REVOCATION_CHECK_EVERY_N_EVENTS:
+                    _events_since_revocation_check = 0
+                    reason = await revocation_check()
+                    if reason:
+                        replayed_through_seq += 1
+                        yield _sse_frame(
+                            replayed_through_seq,
+                            "session_revoked",
+                            {"pipeline_run_id": run_id, "reason": reason},
+                        )
+                        return
     finally:
         # KAN-134 / H-10: unsubscribe from the fan-out bus when the stream closes,
         # for ANY reason — client disconnect, terminal event, replay/gate-re-arm
@@ -312,7 +374,7 @@ async def stream_run_events(
     workflow_id: str,
     request: Request,
     last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
-    current_user: User = Depends(get_current_user),
+    auth: tuple[User, dict] = Depends(get_current_user_with_payload),
     db: Session = Depends(get_db),
 ):
     """Stream a run's events as SSE, resumable via ``Last-Event-ID`` (CHAT-07, D-13).
@@ -323,7 +385,20 @@ async def stream_run_events(
     (IDOR → 404, never 403). The resolved cursor is the ``Last-Event-ID`` header
     (browser-native) or 0 for a fresh attach; a non-int header degrades to a full
     replay (0) rather than erroring.
+
+    P1 fix (COGNITO-AUTH-QA-BUGS.md "Stream Revocation: Logout/Password/Role
+    Changes Don't Terminate Established Connections"): the token used to
+    authenticate THIS attach is captured (``auth_token_payload``) and
+    re-checked periodically for the stream's whole lifetime -- see
+    ``_periodic_revocation_check`` below. Once attached, this endpoint used to
+    never look at auth state again, so logout/password-change/role-or-tier
+    downgrade/expiry/per-jti revocation all left an already-open stream
+    running untouched for its full duration.
     """
+    current_user, auth_payload = auth
+    _revocation_user_id = current_user.id
+    _revocation_jti = auth_payload.get("jti")
+    _revocation_iat = auth_payload.get("iat")
     # Layer 1: owner-scoped ORM filter (cross-owner / missing → 404, never 403).
     workflow_run = (
         db.query(WorkflowRun)
@@ -399,6 +474,42 @@ async def stream_run_events(
             queue_maxsize=settings.SSE_SUBSCRIBER_QUEUE_MAXSIZE,
         )
 
+    async def _revocation_check() -> str | None:
+        """P1 fix: re-verify the attaching credential is still valid.
+
+        Runs the SAME checks ``get_current_user_with_payload`` runs on every
+        ordinary request (per-jti revocation, then the generalized blanket
+        revocation keyed on ``max(password_changed_at, tokens_valid_from)``),
+        but against a FRESH, short-lived session/row read rather than the
+        request-scoped ``db`` (which is torn down before the streaming body
+        runs, per the BUG-004 note above). Returns a short machine-readable
+        reason string when the session should be terminated, else ``None``.
+        """
+        from app.core.identity import Principal, is_revoked_by_token_validity
+        from app.core.security import is_token_revoked
+        from app.models.database import SessionLocal
+
+        rdb = SessionLocal()
+        try:
+            if _revocation_jti and is_token_revoked(_revocation_jti, rdb):
+                return "logged_out"
+            fresh_user = (
+                rdb.query(User).filter(User.id == _revocation_user_id).first()
+            )
+            if fresh_user is None:
+                return "account_removed"
+            principal = Principal(
+                provider="cognito" if fresh_user.auth_provider == "cognito" else "local",
+                sub=_revocation_user_id,
+                jti=_revocation_jti,
+                iat=_revocation_iat,
+            )
+            if is_revoked_by_token_validity(fresh_user, principal):
+                return "credentials_changed"
+            return None
+        finally:
+            rdb.close()
+
     # D11 (KAN-139): log every stream open/close so A1's 429 storm, A2's event
     # theft, and D7's pool drops are diagnosable from the application layer.
     _close_reason: list[str] = ["client_disconnect"]  # mutable to let the generator update it
@@ -412,6 +523,7 @@ async def stream_run_events(
                 after_seq=after_seq,
                 live_queue=live_queue,
                 request=request,
+                revocation_check=_revocation_check,
                 run_is_terminal=run_is_terminal,
             ):
                 # Detect close reason from the frame type as it flows through.
@@ -425,6 +537,8 @@ async def stream_run_events(
                         ft = ""
                     if ft == "stream_attached":
                         pass  # handshake — not a close
+                    elif ft == "session_revoked":
+                        _close_reason[0] = "session_revoked"
                     elif ft in _STREAM_TERMINAL_TYPES:
                         _close_reason[0] = "terminal_event"
                     elif ft == "sentinel":

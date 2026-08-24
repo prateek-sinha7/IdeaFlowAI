@@ -1,5 +1,16 @@
-"""0031 — composed workflow execution: saved-agent library, per-workflow
+"""0036 — composed workflow execution: saved-agent library, per-workflow
 skills/hooks, and durable per-run gate selection.
+
+MERGE NOTE (2026-08-17, dev -> feature/cognito-login). This revision was
+authored as ``0031`` with ``down_revision = "0030"``, but the cognito-login side
+had independently taken ``0031`` (``0031_cognito_identity_and_token_validity``)
+off the same ``0030`` parent and continued through ``0032``-``0035``. Alembic
+therefore reported "Revision 0031 is present more than once" and two heads.
+Re-homed to ``0036`` on top of ``0035`` rather than reverting either side, which
+restores a single linear head. Order-independent: the cognito chain touches only
+``users`` / ``user_api_keys``, while this revision touches only ``workflows``,
+the new ``user_agents`` table and ``workflow_runs`` — no overlap, so applying it
+last is equivalent to applying it at 0031.
 
 The single migration for the ``feat/composed-workflow-execution`` branch. It
 supersedes three separate revisions that were consolidated before merge
@@ -9,7 +20,7 @@ selection) so the branch adds exactly one link to the chain.
 ADDITIVE ONLY. Two nullable columns on ``workflows``, two on nothing else, one
 new table, one nullable column on ``workflow_runs``. No existing column, type or
 constraint is altered, so every pre-existing row keeps its current behaviour.
-Sequenced after 0030 (single-head chain) and reversible in full.
+Sequenced after 0035 (single-head chain) and reversible in full.
 
 Contents
 --------
@@ -67,8 +78,8 @@ Contents
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0031"
-down_revision = "0030"
+revision = "0036"
+down_revision = "0035"
 branch_labels = None
 depends_on = None
 

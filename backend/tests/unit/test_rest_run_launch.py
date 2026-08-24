@@ -49,9 +49,12 @@ class _FakeUser:
     def __init__(self, id: str, tier: str = "enterprise"):
         self.id = id
         self.preferred_model = None
-        # KAN-161 / ISS-055: tier is now read by launch_run + _mint_revision_row
-        # for entitlement gating. Default to "enterprise" so all existing tests
-        # (which never set tier explicitly) continue to pass unchanged.
+        # KAN-161 / ISS-055 + the P1 REST tier-gate fix: tier is now read by
+        # launch_run, resume_run_endpoint and _mint_revision_row for entitlement
+        # gating. Default to "enterprise" so pre-existing tests (which exercise
+        # ingress validation / mint / driver behavior and never set tier
+        # explicitly) pass unchanged; tier-specific behavior has its own
+        # dedicated tests below.
         self.tier = tier
 
 
@@ -308,6 +311,32 @@ def test_missing_message_is_a_422_bad_payload(env):
     resp = env["client"].post("/api/runs", json={"pipeline_type": "user_stories"})
     assert resp.status_code == 422
     assert _run_count(env) == 0
+
+
+def test_basic_tier_rejected_for_enterprise_only_pipeline(env):
+    """P1 fix (COGNITO-AUTH-QA-BUGS.md "REST Pipeline Launch Has No Tier
+    Check"): a basic-tier caller launching an enterprise-only pipeline
+    (``custom``) is denied 403 pre-mint — no WorkflowRun, no execute. Prior
+    to the fix this succeeded regardless of tier."""
+    user = _seed_user(env)
+    user.tier = "basic"
+    env["state"]["user"] = user
+    resp = _post_launch(env, message="x", pipeline_type="custom", agent_ids=[])
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["code"] == "tier_not_entitled"
+    assert _run_count(env) == 0
+    assert _RecordingEngine.invoked is False
+
+
+def test_basic_tier_allowed_for_basic_pipeline(env):
+    """A basic-tier caller CAN still launch a pipeline their tier entitles
+    them to (user_stories) — the gate is not a blanket denial."""
+    user = _seed_user(env)
+    user.tier = "basic"
+    env["state"]["user"] = user
+    resp = _post_launch(env, message="build a backlog", pipeline_type="user_stories")
+    assert resp.status_code == 200, resp.text
+    assert _run_count(env) == 1
 
 
 # ────────────────────────────────────────────────────────────────────────────

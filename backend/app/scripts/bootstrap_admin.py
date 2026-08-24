@@ -63,6 +63,7 @@ from collections.abc import Callable
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import hash_password
 from app.models.database import SessionLocal
 from app.models.user import User
@@ -216,6 +217,7 @@ def create_admin(
         logger.error("could not open a database session: %s", exc)
         return EXIT_ERROR
 
+    cognito_sub: str | None = None
     try:
         _lock_users_table(session)
 
@@ -231,10 +233,31 @@ def create_admin(
         # created_at / updated_at are intentionally omitted: the model's own
         # column defaults supply them, so this row is stamped exactly like
         # every other user instead of by a second, divergent code path.
+        #
+        # COGNITO-MIGRATION-PLAN §7 Phase 3 ("Bootstrap admin — Critical
+        # path"): when Cognito is the active provider, this is the ONLY way
+        # into a fresh environment (self-registration is 403'd; the normal
+        # POST /api/admin/users path itself requires an already-authenticated
+        # admin). So the pool user + flowin-admins membership are provisioned
+        # HERE, inside the same locked section, before the local row commits
+        # — a failure on either side leaves NO row rather than a
+        # half-bootstrapped environment. That guarantee has two compensation
+        # sites, and both are needed (KAN-167): a failure INSIDE the helper
+        # after the pool user exists is compensated by the helper itself
+        # (which then re-raises), and a failure once it has returned — the
+        # local insert/commit — is compensated by the except branch below.
+        # `AUTH_PROVIDER != "cognito"` (the default) is
+        # byte-identical to the pre-migration behaviour — every existing test
+        # in this module runs with the default settings and is unaffected.
+        if settings.AUTH_PROVIDER.lower() == "cognito":
+            cognito_sub = _bootstrap_cognito_admin(normalised_email, password)
+
         session.add(
             User(
                 email=normalised_email,
-                password_hash=hash_password(password),
+                password_hash=None if cognito_sub else hash_password(password),
+                cognito_sub=cognito_sub,
+                auth_provider="cognito" if cognito_sub else "local",
                 tier=INITIAL_ADMIN_TIER,
                 is_admin=True,
             )
@@ -247,10 +270,87 @@ def create_admin(
         # concurrent caller blocked on it proceeds instead of waiting out the
         # deploy. The message carries the email at most, never the password.
         session.rollback()
+        # Only the post-helper failures are compensated here. When the helper
+        # itself raised, `cognito_sub` is still None and the helper has already
+        # deleted the pool user — compensating again would issue a second
+        # AdminDeleteUser and log a spurious cleanup failure (KAN-167).
+        if cognito_sub is not None:
+            _compensate_delete_cognito_admin(normalised_email)
         logger.error("failed to create the initial administrator: %s", exc)
         return EXIT_ERROR
     finally:
         session.close()
+
+
+def _bootstrap_cognito_admin(email: str, password: str) -> str:
+    """Provision the pool user + flowin-admins membership for the initial admin.
+
+    Uses ``AdminSetUserPassword(..., Permanent=True)`` so the account is
+    immediately usable with the given password, with no forced
+    NEW_PASSWORD_REQUIRED challenge — this is the credential that gets
+    someone into a brand-new environment, so it must work on the first try
+    with no additional interactive step. Returns the pool user's ``sub``
+    (from ``AdminCreateUser``'s response attributes) to store as
+    ``users.cognito_sub``.
+
+    OWNS ITS OWN CLEANUP (KAN-167). ``AdminCreateUser`` is the first call, but
+    three fallible steps follow it before the ``sub`` is returned. Until that
+    return lands in ``create_admin``'s ``cognito_sub``, the caller has no way
+    to know a pool user exists, so its compensating delete cannot fire. A
+    failure in any post-create step would therefore leave an orphaned pool user
+    behind a still-empty ``users`` table — and because the table stays empty,
+    the NEXT deploy re-runs bootstrap and dies on ``UsernameExistsException``,
+    keeping a fresh environment unreachable until someone cleans the pool by
+    hand (the migration plan's R1 risk). Every step after the pool user exists
+    is therefore compensated here and the failure is re-raised unchanged, so
+    ``create_admin`` still rolls back and reports the same exit code.
+    """
+    from app.core import cognito
+    from app.core.entitlements import ADMIN_GROUP
+
+    # Outside the guard on purpose: if THIS call fails, nothing was created and
+    # there is nothing to delete.
+    create_resp = cognito.admin_create_user(email)
+
+    try:
+        cognito.admin_set_user_password(email, password, permanent=True)
+        cognito.admin_add_user_to_group(email, ADMIN_GROUP)
+        # The sub extraction is inside the guard too: a response shape that
+        # yields no `sub` raises StopIteration/KeyError with the pool user
+        # already created, which is the same orphan as an AWS-call failure.
+        return next(
+            attr["Value"]
+            for attr in create_resp["User"]["Attributes"]
+            if attr["Name"] == "sub"
+        )
+    except Exception:
+        _compensate_delete_cognito_admin(email)
+        raise
+
+
+def _compensate_delete_cognito_admin(email: str) -> None:
+    """Best-effort delete of a pool user this bootstrap attempt just created.
+
+    Called from both compensation sites: ``_bootstrap_cognito_admin`` when a
+    step after ``AdminCreateUser`` fails, and ``create_admin`` when the local
+    insert/commit fails after the pool user was fully provisioned. An orphan
+    authenticates against Cognito but has no local row, so it 401s at
+    ``resolve_principal`` — a state invisible until someone runs the
+    reconciliation report.
+
+    Never raises: the caller is already handling a failure and must be free to
+    re-raise the ORIGINAL cause rather than a cleanup error. Both outcomes are
+    logged (the email only — never the password) because "was the pool left
+    dirty?" is the first question an operator asks after a failed bootstrap.
+    """
+    from app.core import cognito
+
+    try:
+        cognito.admin_delete_user(email)
+    except Exception:  # noqa: BLE001 - best-effort; already in an error path
+        logger.error("failed to compensate-delete the orphaned Cognito admin %s", email)
+    else:
+        logger.info("compensated: deleted the partially provisioned Cognito admin %s", email)
 
 
 def _read_password_from_stdin() -> str | None:

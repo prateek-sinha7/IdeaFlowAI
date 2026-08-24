@@ -9,7 +9,7 @@ import { AppHeader } from "./AppHeader";
 import { HomeLaunchGrid } from "@/components/catalog/HomeLaunchGrid";
 import { LibraryPage } from "@/components/library/LibraryPage";
 import { WorkflowHistory } from "@/components/history/WorkflowHistory";
-import { AccountSettings } from "@/components/settings/AccountSettings";
+import { AccountSettings, type SettingsSection } from "@/components/settings/AccountSettings";
 import { AnalyticsPage } from "@/components/analytics/AnalyticsPage";
 import { SavedWorkflowsPage } from "@/components/savedworkflows/SavedWorkflowsPage";
 import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
@@ -197,6 +197,8 @@ export interface DashboardLayoutProps {
   onClearPendingOdPpt?: () => void;
   userTier?: "basic" | "pro" | "enterprise";
   userEmail?: string;
+  /** Shows the "Admin Dashboard" nav item in AppHeader only for admins. */
+  isAdmin?: boolean;
   // Phase 12 (WAVE-03) — wave groups assembled from the live `wave_*` /
   // `subagent_*` WS events by dashboard/page.tsx. Optional + defaulted to []
   // so existing callers/tests that omit it are unaffected; a non-wave run
@@ -330,6 +332,7 @@ export function DashboardLayout({
   onClearPendingOdPpt,
   userTier = "basic",
   userEmail,
+  isAdmin = false,
   waves = [],
   submittedBrief,
   specRevisionCount = 0,
@@ -360,6 +363,12 @@ export function DashboardLayout({
     }
     return "home";
   });
+  // Which Account Settings tab a navigation asked for, plus a monotonic nonce so
+  // that asking for the SAME tab twice still forces a fresh mount (see
+  // handleNavigate). Only read while mainView === "settings".
+  const [settingsRequest, setSettingsRequest] = useState<{ section: SettingsSection; nonce: number }>(
+    { section: "profile", nonce: 0 },
+  );
   const [workflowType, setWorkflowType] = useState<WorkflowType>(() => {
     if (typeof window !== "undefined") {
       if (sessionStorage.getItem("prototype.pending")) return "prototype";
@@ -1793,8 +1802,22 @@ export function DashboardLayout({
     if (onRejectReview) onRejectReview(gateKey);
   }, [onRejectReview, onResetPipeline]);
 
-  // Header navigation — free navigation even while pipeline runs
-  const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows") => {
+  // Header navigation — free navigation even while pipeline runs.
+  //
+  // `options.settingsSection` deep-links into one Account Settings tab. No
+  // caller passes it today (the profile menu's "Security" item that used it was
+  // removed); omitting it lands on "profile", which is what every current
+  // caller wants. The nonce is what makes a REPEAT request work: the settings view is
+  // keyed on it, so asking for the same tab again remounts AccountSettings and
+  // re-applies `initialSection` even when the user has since clicked another tab.
+  const handleNavigate = useCallback((
+    page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows",
+    options?: { settingsSection?: SettingsSection },
+  ) => {
+    if (page === "settings") {
+      const requested = options?.settingsSection ?? "profile";
+      setSettingsRequest((prev) => ({ section: requested, nonce: prev.nonce + 1 }));
+    }
     setMainView(page as MainView);
   }, []);
 
@@ -2176,6 +2199,7 @@ export function DashboardLayout({
         onLogout={onLogout}
         userTier={userTier}
         userEmail={userEmail}
+        isAdmin={isAdmin}
         isPipelineRunning={isPipelineRunning}
         pipelineType={effectiveReviseType}
         pipelineAgentsCompleted={pipelineState?.completedCount ?? 0}
@@ -2414,14 +2438,17 @@ export function DashboardLayout({
           {/* SETTINGS — Account settings */}
           {mainView === "settings" && (
             <motion.div
-              key="settings"
+              // Nonce in the key: a deep-link to a specific settings tab remounts
+              // AccountSettings so `initialSection` is re-applied even when this
+              // surface was already open on a different tab.
+              key={`settings-${settingsRequest.nonce}`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <AccountSettings onBack={handleGoHome} />
+              <AccountSettings onBack={handleGoHome} initialSection={settingsRequest.section} />
             </motion.div>
           )}
 

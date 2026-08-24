@@ -10,8 +10,10 @@ import {
 import {
   getToken, getMe, logout,
   adminListUsers, adminUpdateTier, adminCreateUser, adminDeleteUser,
+  adminUpdateRole,
 } from "@/lib/api";
 import type { AdminUser } from "@/lib/api";
+import { buildLoginRedirect } from "@/lib/authRedirect";
 import { TIER_LABELS } from "@/lib/entitlements";
 import type { Tier } from "@/lib/entitlements";
 import { Card } from "@/components/ui/Card";
@@ -114,6 +116,7 @@ function TierDropdown({ userId, currentTier, onUpdate }: {
 
 export default function AdminPage() {
   const router = useRouter();
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -133,6 +136,11 @@ export default function AdminPage() {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
+  // Declared BEFORE the effect that calls it, and memoized, so the effect can
+  // list it as a real dependency. Previously it was a plain function declared
+  // after the effect: the effect captured it via hoisting, which the React
+  // lint rules flag as an access-before-declaration because the effect would
+  // keep an outdated reference if the function ever closed over changing state.
   // Declared BEFORE the boot effect that calls it, and memoized, so the effect
   // can list it as a dependency. Referencing it earlier in the file relied on
   // function-scope hoisting, which pins the effect to whichever closure existed
@@ -153,13 +161,15 @@ export default function AdminPage() {
 
   useEffect(() => {
     const token = getToken();
-    if (!token) { router.replace("/login"); return; }
+    if (!token) { router.replace(buildLoginRedirect()); return; }
 
-    // Verify admin access
+    // Verify admin access — a non-admin is sent to the main application, not
+    // back through login (they ARE authenticated, just not authorized here).
     getMe(token).then(user => {
       if (!user.is_admin) { router.replace("/dashboard"); return; }
+      setCurrentUserId(user.id);
       loadUsers(token);
-    }).catch(() => router.replace("/login"));
+    }).catch(() => router.replace(buildLoginRedirect()));
   }, [router, loadUsers]);
 
   const handleUpdateTier = async (userId: string, tier: string) => {
@@ -171,6 +181,19 @@ export default function AdminPage() {
       showToast("success", `Tier updated to ${TIER_LABELS[tier as Tier]}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to update tier";
+      showToast("error", msg);
+    }
+  };
+
+  const handleUpdateRole = async (userId: string, isAdmin: boolean) => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const updated = await adminUpdateRole(token, userId, isAdmin);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_admin: updated.is_admin } : u));
+      showToast("success", isAdmin ? "Admin access granted" : "Admin access removed");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to update role";
       showToast("error", msg);
     }
   };
@@ -374,13 +397,27 @@ export default function AdminPage() {
                       <span className="text-[12px] font-semibold text-ink-700">{user.workflow_run_count}</span>
                     </td>
                     <td className="px-4 py-3.5 text-center">
-                      {user.is_admin ? (
-                        <Pill className="!bg-brand-fill !border-brand-border !text-brand text-[9px] font-bold uppercase px-1.5 py-0.5">
-                          <Shield className="h-2.5 w-2.5" /> Admin
-                        </Pill>
-                      ) : (
-                        <span className="text-[10px] text-ink-400">User</span>
-                      )}
+                      <button
+                        onClick={() => handleUpdateRole(user.id, !user.is_admin)}
+                        disabled={user.id === currentUserId && user.is_admin}
+                        aria-label={user.is_admin ? `Remove admin access from ${user.email}` : `Grant admin access to ${user.email}`}
+                        className="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-60"
+                        title={
+                          user.id === currentUserId && user.is_admin
+                            ? "You cannot remove your own admin access"
+                            : user.is_admin
+                              ? "Click to remove admin access"
+                              : "Click to grant admin access"
+                        }
+                      >
+                        {user.is_admin ? (
+                          <Pill className="!bg-brand-fill !border-brand-border !text-brand text-[9px] font-bold uppercase px-1.5 py-0.5">
+                            <Shield className="h-2.5 w-2.5" /> Admin
+                          </Pill>
+                        ) : (
+                          <span className="text-[10px] text-ink-400 hover:text-ink-700 hover:underline">User</span>
+                        )}
+                      </button>
                     </td>
                     <td className="px-4 py-3.5">
                       <span className="text-[11px] text-ink-400">

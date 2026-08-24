@@ -650,6 +650,13 @@ async def resume_run_endpoint(
                 http_status=status.HTTP_409_CONFLICT,
             )
 
+        # P1 fix: tier entitlement gate on the run's OWN type. A resume re-drives
+        # the same pipeline the run was originally launched as, so if the caller's
+        # tier no longer entitles them to it (e.g. downgraded after launch), resume
+        # must deny exactly as a fresh launch would — never a way to route around
+        # the launch-time gate.
+        _require_tier_entitlement(current_user, wr.type)
+
         # (3) Overlap mutex — the authoritative liveness signal is the in-process DRIVER
         # TASK (NOT the DB status, and NOT bare registry membership: a stale entry from a
         # driver that raised before its cleanup used to 409 this run forever). NO ``await``
@@ -2110,6 +2117,38 @@ def _reject(code: str, error: str, *, http_status: int = status.HTTP_400_BAD_REQ
     return HTTPException(status_code=http_status, detail=detail)
 
 
+def _require_tier_entitlement(current_user: User, pipeline_type: str) -> None:
+    """P1 fix (COGNITO-AUTH-QA-BUGS.md "REST Pipeline Launch Has No Tier
+    Check"): enforce ``can_run_pipeline(tier, pipeline_type)`` before a run
+    (or revision, or resume) is minted/driven. Previously ``launch_run``,
+    ``create_revision``, and ``resume_run_endpoint`` never called this at
+    all — the entitlement helper existed and was used at save-time in
+    ``user_workflows.py`` but was completely absent from every REST launch
+    codepath, so any authenticated user could run a tier-restricted pipeline
+    regardless of their subscription tier.
+
+    Reads ``current_user.tier`` — the SAME source ``user_workflows.py``'s
+    save-time gate already uses. This is the DB column, which is advisory on
+    the Cognito path relative to a live token's ``cognito:groups`` (see
+    ``core.identity``'s precedence rule) but is refreshed on every login
+    (``_refresh_role_projection``) and re-stamped synchronously on every
+    admin tier-change write (``admin.py::update_user_tier``, which also
+    forces ``AdminUserGlobalSignOut`` so a stale token cannot outlive the
+    change) — the same one-cycle staleness window ``admin.py::require_admin``
+    already documents accepting for the analogous ``is_admin`` check. Closing
+    that residual window to a per-request live-token read is a further
+    hardening step, deferred like ``require_admin``'s, not a gap this fix
+    reintroduces.
+    """
+    allowed, reason = can_run_pipeline(current_user.tier, pipeline_type)
+    if not allowed:
+        raise _reject(
+            "tier_not_entitled",
+            reason,
+            http_status=status.HTTP_403_FORBIDDEN,
+        )
+
+
 def _resolve_launch_agents(body: "LaunchCommand"):
     """Resolve + validate a launch payload's pipeline + od_context, returning
     ``(base_pipeline_type, od_context)`` or raising the matching HTTPException.
@@ -2389,14 +2428,18 @@ async def launch_run(
 
     base_pipeline_type, od_context = _resolve_launch_agents(body)
 
-    # ── Entitlement gate (tier) — KAN-161 / ISS-055 ────────────────────────────
+    # ── Entitlement gate (tier) — KAN-161 / ISS-055 + P1 REST tier-gate fix ────
+    # MERGE NOTE: both branches added a launch-time tier gate here, calling the
+    # SAME ``can_run_pipeline``. Unified onto the shared ``_require_tier_entitlement``
+    # helper so launch / resume / revision all deny through ONE seam (the helper is
+    # also called from ``resume_run_endpoint`` and ``create_revision``); the inline
+    # duplicate it replaced was byte-equivalent apart from its rejection code.
+    #
     # Use the RAW pipeline_type (not base_pipeline_type): TIER_PIPELINES carries
     # "od_prototype" and "prototype" as DISTINCT keys, and WorkflowRun.type is
     # stamped from pipeline_type too. Checking the alias-collapsed base would
     # silently mis-key the lookup for every od_prototype launch.
-    _allowed, _reason = can_run_pipeline(current_user.tier, pipeline_type)
-    if not _allowed:
-        raise _reject("pipeline_not_entitled", _reason, http_status=status.HTTP_403_FORBIDDEN)
+    _require_tier_entitlement(current_user, pipeline_type)
 
     # ── Resolve + allow-list the agents (invalid_agent_ids) ────────────────────
     # RUNS for: FILE_PIPELINE, USER_WORKFLOW_FLAT (both are agent_ids-shaped —
