@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 
 import { NotificationPanel } from "./NotificationPanel";
@@ -22,7 +22,7 @@ type PanelOverrides = Partial<React.ComponentProps<typeof NotificationPanel>>;
 
 function setup(overrides: PanelOverrides = {}) {
   const onMarkAllRead = vi.fn();
-  render(
+  renderWithProviders(
     <NotificationPanel
       notifications={[]}
       unreadCount={0}

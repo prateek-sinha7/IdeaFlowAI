@@ -1,11 +1,11 @@
 # xhs-white-editorial
 
-白底杂志风、强调重点块、macaron soft-card 分组。灵感来自 `20260409 升级版知识库/小红书图文/v2-白底版/slide_01_cover.html` 的顶部彩虹条 + 大字标题，以及 `20260412-AI测试与安全/xhs-ai-testing-safety-v2.html` 的 `.focus` 黑底白字强重点和 macaron 软色卡片系统。
+White-background magazine style, bold emphasis blocks, macaron soft-card groupings. Inspired by the top rainbow bar + oversized title of `20260409-upgraded-knowledge-base/xhs-posts/v2-white-version/slide_01_cover.html`, plus the black-background white-text `.focus` emphasis and macaron soft-color card system from `20260412-AI-testing-and-safety/xhs-ai-testing-safety-v2.html`.
 
-**Visual traits:** 纯白背景、顶部 10 色彩虹条、巨型 80-110px 标题配轻微负字距、渐变 brand 文字（紫→蓝→绿→橙→粉）、macaron 软色卡（soft-purple / pink / blue / green / orange）、胶囊 tag + dot、黑底 `.focus` 强调框、hero quote box 带淡阴影。
+**Visual traits:** pure white background, a 10-color rainbow bar across the top, oversized 80-110px titles with slight negative letter-spacing, gradient brand text (purple to blue to green to orange to pink), macaron soft-color cards (soft-purple / pink / blue / green / orange), pill-shaped tags with a dot, black-background `.focus` emphasis boxes, hero quote box with a soft shadow.
 
-**Use when:** 你需要一份能当小红书图文、也能当横屏 deck 用的白底内容帖；文字多、重点密集、需要一眼抓住关键词；面向中文读者为主。
+**Use when:** you need a white-background content post that works as both a Xiaohongshu (RED) social post and a widescreen deck; text-heavy with dense emphasis that needs to catch the eye at a glance.
 
-**Source inspiration:** `20260409` xhs v2 白底封面 + `20260412` AI 测试与安全 v2。
+**Source inspiration:** `20260409` xhs v2 white cover + `20260412` AI testing and safety v2.
 
 **Path:** `templates/full-decks/xhs-white-editorial/index.html`

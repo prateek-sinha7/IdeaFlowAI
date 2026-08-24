@@ -129,6 +129,7 @@ Use `rg` to search for anti-patterns:
 
 ```bash
 # Tool requirements expressed only in prompt text (not code)
+# (includes the Chinese phrasing "必须...工具" = "must...tool", in case prompts are non-English)
 rg "must.*tool|必须.*工具|required.*call" --type md
 
 # Tool execution without validation

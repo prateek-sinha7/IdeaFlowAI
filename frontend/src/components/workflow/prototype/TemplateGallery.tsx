@@ -146,6 +146,8 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-ink-400" />
             <input
               type="text"
+              aria-label="Search templates"
+              name="template-search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search templates…"
@@ -467,7 +469,7 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
       )}
 
       {/* Preview thumbnail */}
-      <div className="relative overflow-hidden bg-gray-50" style={{ height: "80px" }}>
+      <div className="relative overflow-hidden bg-surface-white" style={{ height: "80px" }}>
         {thumbnailUrl && shouldMount ? (
           // Pre-rendered screenshot of example.html — one cheap <img> load
           // instead of a full iframe document render. Falls back to the
@@ -506,7 +508,7 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
         ) : previewUrl && shouldMount ? (
           <>
             {!previewLoaded && (
-              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
+              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-line-faint-row to-line-divider" />
             )}
             {/* Fallback when no pre-rendered thumbnail exists yet: render the
                 template's example.html live (HTML + JS) in a sandboxed iframe,
@@ -532,7 +534,7 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
           </>
         ) : previewUrl || thumbnailUrl ? (
           // Not visible yet (IntersectionObserver hasn't fired) — shimmer
-          <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
+          <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-line-faint-row to-line-divider" />
         ) : (
           // No example.html — show what the template produces
           <NoPreviewPlaceholder template={template} />

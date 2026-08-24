@@ -1,9 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import React from "react";
+import renderWithProviders from "@/test/renderWithProviders";
 import type { WorkflowRun, RunFamily } from "@/types/index";
 import type { RunSummary } from "@/lib/api";
-
 // ─────────────────────────────────────────────────────────────────
 // Revision Families (B2 / POR §5 D3+D4): behavior specs for the history
 // family grouping (Surface 1) + the detail version timeline (Surface 2).
@@ -11,16 +11,14 @@ import type { RunSummary } from "@/lib/api";
 // WorkflowHistory renders fine in vitest. Scaffold cloned from
 // WorkflowHistory.revise.test.tsx, with getRunFamily added to the api mock.
 // ─────────────────────────────────────────────────────────────────
-
 const mockGetToken = vi.fn(() => "test-token");
-const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<WorkflowRun[]>>();
+const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<{ runs: WorkflowRun[]; total: number }>>();
 const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<WorkflowRun>>();
 const mockDeleteWorkflow = vi.fn<(token: string, id: string) => Promise<void>>();
 const mockGetRunFamily = vi.fn<(token: string, id: string) => Promise<RunFamily>>();
 // SHELL-03: the detail version timeline now renders inside the single-source
 // RunDetailPage (fed by getRunSummary). Controllable so the family walk drives it.
 const mockGetRunSummary = vi.fn<(token: string, id: string) => Promise<RunSummary>>();
-
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getWorkflows: (token: string, opts?: { limit?: number }) => mockGetWorkflows(token, opts),
@@ -34,7 +32,6 @@ vi.mock("@/lib/api", () => ({
   // B2 undefined-mock-export crash).
   getRunArtifacts: () => Promise.resolve({ workflow_id: "x", artifacts: [] }),
 }));
-
 vi.mock("@/components/preview/PPTPreview", () => ({
   PPTPreview: ({ content }: { content: string }) => <div data-testid="ppt-preview">{content.slice(0, 20)}</div>,
 }));
@@ -49,8 +46,23 @@ vi.mock("@/components/preview/MarkdownPreview", () => ({
 }));
 vi.mock("@/components/results/FilesTab", () => ({
   FilesTab: () => <div data-testid="files-tab" />,
+  deriveDeliverableFilename: (workflowType: string, content?: string, fallback?: string) => {
+    // Simple stub matching the real export's signature and behavior
+    if (workflowType === "user_stories" || workflowType === "user_stories_revision") {
+      return fallback || "user-stories.md";
+    }
+    if (workflowType === "ppt" || workflowType === "ppt_revision") {
+      return fallback || "presentation.html";
+    }
+    if (workflowType === "prototype" || workflowType === "prototype_revision") {
+      return fallback || "prototype.html";
+    }
+    if (workflowType === "app_builder" || workflowType === "app_builder_revision") {
+      return "project.zip";
+    }
+    return fallback || "deliverable";
+  },
 }));
-
 const STRIPPED_MOTION_PROPS = new Set([
   "initial", "animate", "exit", "transition", "whileHover",
   "whileTap", "whileFocus", "whileInView", "viewport", "layout",
@@ -67,13 +79,11 @@ vi.mock("motion/react", () => ({
           );
           return React.createElement(prop, cleaned, children);
         },
-    },
+    }
   ),
   AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
-
 import { WorkflowHistory } from "./WorkflowHistory";
-
 function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
   return {
     id: "hist-7",
@@ -91,13 +101,11 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     ...overrides,
   };
 }
-
 // Distinct chronological timestamps so ordering is deterministic.
 const t0 = new Date("2026-05-12T10:00:00Z").toISOString();
 const t1 = new Date("2026-05-12T11:00:00Z").toISOString();
 const t2 = new Date("2026-05-12T12:00:00Z").toISOString();
 const t3 = new Date("2026-05-12T13:00:00Z").toISOString();
-
 // A 3-member family (root + 2 revisions sharing rootRunId "root").
 function familyRuns(): WorkflowRun[] {
   return [
@@ -110,7 +118,6 @@ function familyRuns(): WorkflowRun[] {
     }),
   ];
 }
-
 function familyPayload(): RunFamily {
   return {
     root_id: "root",
@@ -121,7 +128,6 @@ function familyPayload(): RunFamily {
     ],
   };
 }
-
 // The RunDetailPage summary column renders the reused VersionTimeline off the
 // family walk (members). getRunSummary returns the same 3 members regardless of
 // the requested version so the chip row renders for every opened member.
@@ -142,7 +148,6 @@ function summaryFor(id: string): RunSummary {
     members: fam.members,
   };
 }
-
 beforeEach(() => {
   mockGetToken.mockReset().mockReturnValue("test-token");
   mockGetWorkflows.mockReset();
@@ -151,18 +156,15 @@ beforeEach(() => {
   mockGetRunFamily.mockReset();
   mockGetRunSummary.mockReset().mockImplementation((_t, id) => Promise.resolve(summaryFor(id)));
 });
-
 describe("Revision Families (B2) — history grouping (D3)", () => {
   it("groups a multi-run family into one card with a v{N} pill; standalone stays a plain row; expand shows chronological rows with revises microcopy", async () => {
     const runs = [
       ...familyRuns(),
       makeRun({ id: "solo", title: "Solo run", type: "ppt", parentRunId: null, rootRunId: "solo", createdAt: t3, output: "<html>solo</html>" }),
     ];
-    mockGetWorkflows.mockResolvedValue(runs);
+    mockGetWorkflows.mockResolvedValue({ runs, total: runs.length });
     mockGetRunFamily.mockResolvedValue(familyPayload());
-
-    render(<WorkflowHistory onBack={vi.fn()} />);
-
+    renderWithProviders(<WorkflowHistory onBack={vi.fn()} />);
     // Standalone renders as a plain row (present).
     await screen.findByText("Solo run");
     // Exactly ONE v3 count pill for the family (aria-label "3 versions").
@@ -171,29 +173,24 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
     expect(screen.getByText("Root run")).toBeInTheDocument();
     // Child version rows are hidden until expanded.
     expect(screen.queryByText("Rev one")).toBeNull();
-
     // Expand the family.
     fireEvent.click(screen.getByLabelText("Show versions"));
-
     // Three chronological version rows appear with the revises microcopy.
     await waitFor(() => expect(screen.getByText("Rev one")).toBeInTheDocument());
     expect(screen.getByText("Rev two")).toBeInTheDocument();
     expect(screen.getByText("↳ revises v1")).toBeInTheDocument(); // rev1 revises root = v1
     expect(screen.getByText("↳ revises v2")).toBeInTheDocument(); // rev2 revises rev1 = v2
   });
-
   it("child version row is a native button (aria-label) that opens the version on activation (§8 keyboard)", async () => {
-    mockGetWorkflows.mockResolvedValue(familyRuns());
+    const runs = familyRuns();
+    mockGetWorkflows.mockResolvedValue({ runs, total: runs.length });
     mockGetRunFamily.mockResolvedValue(familyPayload());
     const byId: Record<string, WorkflowRun> = Object.fromEntries(familyRuns().map((r) => [r.id, r]));
     mockGetWorkflow.mockImplementation((_t, id) => Promise.resolve(byId[id]));
-
-    render(<WorkflowHistory onBack={vi.fn()} />);
-
+    renderWithProviders(<WorkflowHistory onBack={vi.fn()} />);
     await screen.findByText("Root run");
     // Expand the family.
     fireEvent.click(screen.getByLabelText("Show versions"));
-
     // The child version row is a native BUTTON carrying the a11y label (v2 = "Rev one").
     const row = await screen.findByRole("button", { name: /Version 2, completed/ });
     // Activating it opens that version (onSelectRun → detail view): the family
@@ -201,13 +198,10 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
     fireEvent.click(row);
     await waitFor(() => expect(screen.getAllByRole("radio")).toHaveLength(3));
   });
-
   it("renders a single-member (standalone) family as a plain row — no pill, no expander (zero regression)", async () => {
     const solo = makeRun({ id: "solo", title: "Just me", type: "ppt", parentRunId: null, rootRunId: "solo", createdAt: t0, output: "<html>solo</html>" });
-    mockGetWorkflows.mockResolvedValue([solo]);
-
-    render(<WorkflowHistory onBack={vi.fn()} />);
-
+    mockGetWorkflows.mockResolvedValue({ runs: [solo], total: 1 });
+    renderWithProviders(<WorkflowHistory onBack={vi.fn()} />);
     await screen.findByText("Just me");
     // No expander.
     expect(screen.queryByLabelText("Show versions")).toBeNull();
@@ -215,22 +209,20 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
     expect(screen.queryByLabelText(/\d+ versions/)).toBeNull();
   });
 });
-
 describe("Revision Families (B2) — detail version timeline (D4)", () => {
   async function openLatestDetail() {
-    mockGetWorkflows.mockResolvedValue(familyRuns());
+    const runs = familyRuns();
+    mockGetWorkflows.mockResolvedValue({ runs, total: runs.length });
     mockGetRunFamily.mockResolvedValue(familyPayload());
-    render(<WorkflowHistory onBack={vi.fn()} />);
+    renderWithProviders(<WorkflowHistory onBack={vi.fn()} />);
     // Click the family root card body → opens the latest member (v3 = r2).
     const card = await screen.findByText("Root run");
     fireEvent.click(card);
     // Wait for the version chips to render (family fetched on open).
     await waitFor(() => expect(screen.getAllByRole("radio")).toHaveLength(3));
   }
-
   it("renders 3 chronological chips and the active chip matches the loaded version", async () => {
     await openLatestDetail();
-
     const chips = screen.getAllByRole("radio");
     expect(chips).toHaveLength(3);
     // Opened the latest = v3 → the 3rd chip is active.
@@ -239,19 +231,15 @@ describe("Revision Families (B2) — detail version timeline (D4)", () => {
     // Unified lowercase microcopy: the timeline context line reads "↳ revises v{n}".
     expect(screen.getByText(/↳ revises v/)).toBeInTheDocument();
   });
-
   it("clicking a sibling chip re-syncs BOTH columns to that version (getWorkflow reloads the deliverable; getRunSummary refetches the summary) + the active chip follows", async () => {
     // The switch is caller-owned (WorkflowHistory.handleSelectVersion): it loads
     // the version's full run (right column) AND re-keys RunDetailPage → summary
     // refetch. Key getWorkflow by id so setSelectedRun lands the clicked member.
     const byId: Record<string, WorkflowRun> = Object.fromEntries(familyRuns().map((r) => [r.id, r]));
     mockGetWorkflow.mockImplementation((_t, id) => Promise.resolve(byId[id]));
-
     await openLatestDetail();
-
     // Click the v1 sibling chip (first radio).
     fireEvent.click(screen.getAllByRole("radio")[0]);
-
     // Right column reloads the version's deliverable via getWorkflow …
     await waitFor(() => expect(mockGetWorkflow).toHaveBeenCalledWith("test-token", "root"));
     // … and the RunDetailPage summary column refetches for the same version.
@@ -263,10 +251,8 @@ describe("Revision Families (B2) — detail version timeline (D4)", () => {
       expect(chips[2].getAttribute("aria-checked")).toBe("false");
     });
   });
-
   it("exposes the chip row as a radiogroup with radio chips carrying aria-checked (a11y)", async () => {
     await openLatestDetail();
-
     expect(screen.getByRole("radiogroup")).toBeInTheDocument();
     const chips = screen.getAllByRole("radio");
     expect(chips.length).toBeGreaterThanOrEqual(2);

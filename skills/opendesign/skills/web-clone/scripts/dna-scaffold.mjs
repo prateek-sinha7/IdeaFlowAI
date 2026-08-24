@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// dna-scaffold.mjs — 生成 design-dna.json 骨架，best-effort 从 recon-site.mjs 的输出预填。
-// 用法:
-//   node scripts/dna-scaffold.mjs --out <design-dna.json> [--recon <label-recon.json>] [--name <站名>]
-// 产物:
-//   <out>  完整 DNA 骨架；有 --recon 时预填字体/色候选/框架特效信号，其余留 "" 待人工 Analyze。
-// 纪律: 只搬侦察里"真实抓到"的信号，绝不编造。拿不准角色(primary/accent)的色值统一丢进 _recon_signals 供人工指派。
+// dna-scaffold.mjs — generates a design-dna.json skeleton, best-effort prefilled from recon-site.mjs's output.
+// Usage:
+//   node scripts/dna-scaffold.mjs --out <design-dna.json> [--recon <label-recon.json>] [--name <site name>]
+// Output:
+//   <out>  full DNA skeleton; when --recon is given, prefills font/color candidates/framework-effect signals, the rest left as "" for manual Analyze.
+// Discipline: only carry over signals that recon "actually captured" — never fabricate. Color values whose role (primary/accent) is uncertain all go into _recon_signals for manual assignment.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -22,15 +22,15 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  console.log(`dna-scaffold.mjs — 生成 design-dna.json 骨架并 best-effort 预填
+  console.log(`dna-scaffold.mjs — generates a design-dna.json skeleton and best-effort prefills it
 
-  node scripts/dna-scaffold.mjs --out <design-dna.json> [--recon <label-recon.json>] [--name <站名>]
+  node scripts/dna-scaffold.mjs --out <design-dna.json> [--recon <label-recon.json>] [--name <site name>]
 
-只用在「视觉复刻 / 内容爆改」模式。忠实复刻分支不需要 DNA（真源码即真相）。
-schema 与字段含义见 references/design-dna.md。`);
+Only used in "visual clone / content overhaul" mode. The faithful-clone branch doesn't need DNA (the real source code is the truth).
+For schema and field meanings see references/design-dna.md.`);
 }
 
-// 完整 DNA 骨架（与 references/design-dna.md 对齐）
+// Full DNA skeleton (aligned with references/design-dna.md)
 function skeleton(name) {
   const ts = () => ({ size: "", weight: "", line_height: "", tracking: "" });
   return {
@@ -90,15 +90,16 @@ function skeleton(name) {
 
 const COLOR_RE = /(#[0-9a-fA-F]{3,8}\b|\brgba?\([^)]*\)|\bhsla?\([^)]*\))/;
 
-// recon-site.mjs 把信号按视口嵌在 captures[].signals 下；取最宽视口的 signals 摊平，
-// 兼容已是扁平结构的 recon 输入。摊平失败则原样返回(enrich 对缺字段已容错)。
+// recon-site.mjs embeds signals per-viewport under captures[].signals; take the widest
+// viewport's signals and flatten them, staying compatible with recon input that is already
+// flat. If flattening fails, return as-is (enrich already tolerates missing fields).
 function flattenRecon(recon) {
   if (recon && Array.isArray(recon.captures) && recon.captures.length) {
     const widest = recon.captures
       .filter((c) => c && c.signals)
       .sort((a, b) => (b?.viewport?.width || 0) - (a?.viewport?.width || 0))[0];
     if (widest && widest.signals) {
-      // 顶层 url 兜底进 href，便于 meta.source_references 预填
+      // fall back the top-level url into href, so meta.source_references can be prefilled
       return { href: recon.url, ...widest.signals };
     }
   }
@@ -109,11 +110,11 @@ function uniq(arr) {
   return Array.from(new Set(arr.filter(Boolean)));
 }
 
-// 从 recon JSON best-effort 抽信号，并预填 skeleton 的明确字段
+// Best-effort extract signals from the recon JSON, and prefill the skeleton's explicit fields
 function enrich(dna, recon) {
   const signals = { fonts: [], color_candidates: [], frameworks: {}, canvas_count: 0, css_color_vars: [] };
 
-  // 字体: fonts[] + sections[].style.fontFamily
+  // Fonts: fonts[] + sections[].style.fontFamily
   const fontList = uniq([
     ...(Array.isArray(recon.fonts) ? recon.fonts : []),
     ...((recon.sections || []).map((s) => s?.style?.fontFamily).filter(Boolean)),
@@ -127,7 +128,7 @@ function enrich(dna, recon) {
     dna.design_system.typography.font_families.mono = mono;
   }
 
-  // 颜色: CSS 变量里像颜色的 + sections 的 bg/color
+  // Colors: color-like CSS variables + sections' bg/color
   const cssVars = Array.isArray(recon.cssVariables) ? recon.cssVariables : [];
   for (const pair of cssVars) {
     const [name, val] = Array.isArray(pair) ? pair : [pair?.name, pair?.value];
@@ -144,12 +145,12 @@ function enrich(dna, recon) {
     ...signals.css_color_vars.map((v) => v.split(":").slice(1).join(":").trim()),
     ...sectionColors,
   ]).slice(0, 24);
-  // body/header 背景作为 surface.background 候选(第一个非透明的 section bg)
+  // body/header background as surface.background candidate (first non-transparent section bg)
   const firstBg = (recon.sections || []).map((s) => s?.style?.backgroundColor)
     .find((c) => c && !/rgba?\(0, 0, 0, 0\)|transparent/i.test(c));
   if (firstBg) dna.design_system.color.surface.background = firstBg;
 
-  // 框架/特效信号
+  // Framework / effect signals
   const fw = recon.frameworks || {};
   signals.frameworks = fw;
   signals.canvas_count = (recon.canvases && recon.canvases.length) || recon?.counts?.canvas || 0;
@@ -171,16 +172,16 @@ function enrich(dna, recon) {
       fw.lenis ? "lenis smooth-scroll detected" : "gsap detected";
   }
 
-  // meta 预填
+  // meta prefill
   if (recon.href) dna.meta.source_references = recon.href;
   if (!dna.meta.name && recon.title) dna.meta.name = recon.title;
 
-  // 把原始信号留在顶层供人工指派角色(不编造 primary/accent)
+  // Keep the raw signals at the top level for manual role assignment (don't fabricate primary/accent)
   dna._recon_signals = signals;
   dna._scaffold_note =
-    "best-effort 预填来自 recon。font_families/surface.background/visual_effects 已据真实信号填写；" +
-    "color 的 primary/secondary/accent 角色需人工从 _recon_signals.color_candidates 指派；" +
-    "所有 \"\" 字段需人工 Analyze 补全(见 references/design-dna.md)。确认无误后可删除 _recon_signals 与本说明。";
+    "Best-effort prefill from recon. font_families/surface.background/visual_effects have been filled from real signals; " +
+    "the primary/secondary/accent roles for colors need to be manually assigned from _recon_signals.color_candidates; " +
+    "all \"\" fields need manual Analyze to complete (see references/design-dna.md). Once confirmed correct, _recon_signals and this note can be deleted.";
   return dna;
 }
 
@@ -196,19 +197,19 @@ try {
       const recon = JSON.parse(fs.readFileSync(path.resolve(args.recon), "utf8"));
       dna = enrich(dna, flattenRecon(recon));
     } catch (e) {
-      console.warn(`⚠️ 读 recon 失败(${e.message})，只输出空骨架。`);
+      console.warn(`⚠️ Failed to read recon (${e.message}), outputting an empty skeleton only.`);
     }
   }
   const outPath = path.resolve(args.out);
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, `${JSON.stringify(dna, null, 2)}\n`);
-  console.log(`✅ design-dna 骨架已写入: ${outPath}`);
+  console.log(`✅ design-dna skeleton written to: ${outPath}`);
   if (dna._recon_signals) {
     const s = dna._recon_signals;
-    console.log(`   预填: 字体 ${s.fonts.length} 个 / 色候选 ${s.color_candidates.length} 个 / canvas ${s.canvas_count} / three=${!!s.frameworks.three} gsap=${!!s.frameworks.gsap} lenis=${!!s.frameworks.lenis}`);
+    console.log(`   Prefilled: ${s.fonts.length} font(s) / ${s.color_candidates.length} color candidate(s) / canvas ${s.canvas_count} / three=${!!s.frameworks.three} gsap=${!!s.frameworks.gsap} lenis=${!!s.frameworks.lenis}`);
   }
-  console.log(`   下一步: 人工 Analyze 补全 ""，并从 _recon_signals 指派颜色角色。schema → references/design-dna.md`);
+  console.log(`   Next: manually Analyze to fill in "" fields, and assign color roles from _recon_signals. Schema → references/design-dna.md`);
 } catch (e) {
-  console.error(`dna-scaffold 失败: ${e.message}`);
+  console.error(`dna-scaffold failed: ${e.message}`);
   process.exit(1);
 }

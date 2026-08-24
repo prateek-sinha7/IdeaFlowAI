@@ -241,12 +241,17 @@ def test_nonempty_brief_still_launches(env):
     assert _run_count(env) == 1
 
 
-def test_bare_prototype_missing_template_context_rejected_pre_mint(env):
-    """DEF-44-08-1 / F3 (13-06): a bare ``prototype`` launch whose resolved agents
-    declare ``template`` injection but carries no ``template_body`` (no ``template_id``,
-    not an od_* alias) is rejected PRE-MINT with ``missing_template_context`` — the
-    ingress guard re-homed to the REST launch path after 44-07 deleted the WS ingress
-    where it used to live. Generic (keyed on declared injects, SC-001), no mint, no execute."""
+def test_bare_prototype_without_a_template_is_still_rejected_pre_mint(env):
+    """DEF-44-08-1 / F3 (13-06): a ``prototype`` launch whose agents declare
+    ``template`` injection but which supplies NO ``template_id`` is rejected PRE-MINT
+    with ``missing_template_context``. No mint, no execute.
+
+    What changed: the guard used to fire because bare ``prototype`` could not obtain
+    od_context AT ALL — eligibility excluded any base that had a dedicated ``od_``
+    alias, so the template had to be requested via ``od_prototype``. That exclusion
+    is gone with the alias, and ``prototype`` now loads od_context under its own name
+    when a template IS supplied (see the parity test below). The guard survives on its
+    real merit: template-injecting agents with no template body still cannot run."""
     user = _seed_user(env)
     env["state"]["user"] = user
     resp = _post_launch(env, message="a pomodoro timer app", pipeline_type="prototype")
@@ -677,15 +682,20 @@ def _launch_body(**kw):
     return LaunchCommand(**kw)
 
 
-def test_od_prototype_launch_od_context_parity():
-    """od_prototype resolves base 'prototype' AND builds the SAME od_context dict
-    ``load_prototype_od_context`` produces directly (declared-signal == name-branch).
-    The dict-equality is the byte-identity pin for the Task-2 rewire."""
+def test_prototype_launch_od_context_parity():
+    """``prototype`` builds the SAME od_context dict ``load_prototype_od_context``
+    produces directly.
+
+    Was ``test_od_prototype_launch_od_context_parity``: the alias was the only label
+    that could reach this, because eligibility excluded a base with a dedicated
+    ``od_`` alias from its own declared ``opendesign`` capability. The plain name
+    now does what the alias used to — this is the assertion that the collapse
+    preserved the behaviour rather than dropping it."""
     from agents.execution_engine.od_context import load_prototype_od_context
 
     from app.api.run_commands import _resolve_launch_agents
 
-    body = _launch_body(pipeline_type="od_prototype",
+    body = _launch_body(pipeline_type="prototype",
                         template_id=_PROTO_TEMPLATE, design_system_id=_PROTO_DS)
     base, od_context = _resolve_launch_agents(body)
     expected = load_prototype_od_context(
@@ -749,15 +759,19 @@ def test_ppt_revision_rest_keeps_none():
 # ── The seam cases (Task-2 gate — RED until launch_context.py exists) ──────────
 
 
-def test_seam_od_prototype_parity_via_declared_signal():
-    """The shared seam resolves od_prototype through the DECLARED opendesign signal
-    to the SAME dict the loader produces (name-free eligibility)."""
+def test_seam_prototype_parity_via_declared_signal():
+    """The shared seam resolves ``prototype`` through the DECLARED opendesign signal
+    to the SAME dict the loader produces (name-free eligibility).
+
+    This is now eligibility's WHOLE rule. It used to carry a second clause excluding
+    any base with a dedicated ``od_`` alias, which is what made this assertion pass
+    for ``od_prototype`` and fail for ``prototype``."""
     from agents.execution_engine.od_context import load_prototype_od_context
 
     from app.api.launch_context import resolve_launch_od_context
 
     base, od_context = resolve_launch_od_context(
-        "od_prototype", _PROTO_TEMPLATE, _PROTO_DS,
+        "prototype", _PROTO_TEMPLATE, _PROTO_DS,
         custom_ds_body=None, custom_template_body=None, fatal=True)
     expected = load_prototype_od_context(
         _PROTO_TEMPLATE, _PROTO_DS, custom_ds_body=None, custom_template_body=None)

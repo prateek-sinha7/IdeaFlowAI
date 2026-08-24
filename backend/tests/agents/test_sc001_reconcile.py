@@ -292,21 +292,17 @@ def test_sc001_reconcile_zero_engine_name_literals() -> None:
     )
     engine_pkg = repo_root / "backend" / "agents" / "execution_engine"
 
+    from tests.agents._portable_grep import grep_lines_matching, grep_files_matching
+
     # (b1) ZERO synthetic-workflow name-literals anywhere under the engine package —
     # the reconcile keys on generic identity, never the workflow/agent name.
-    hits = subprocess.run(
-        ["grep", "-rn", "sc001", str(engine_pkg)],
-        capture_output=True, text=True,
-    )
+    hits = grep_lines_matching("sc001", engine_pkg)
     assert hits.returncode != 0 and hits.stdout.strip() == "", (
         f"the engine package must carry ZERO sc001 name-literals; found:\n{hits.stdout}"
     )
 
     # (b2) ZERO pipeline/spec dispatch literals (the standing INV-1 grep).
-    lit = subprocess.run(
-        ["grep", "-rlE", r"pipeline_type ==|spec\.id ==", str(engine_pkg)],
-        capture_output=True, text=True,
-    )
+    lit = grep_files_matching(r"pipeline_type ==|spec\.id ==", engine_pkg, regex=True)
     assert lit.returncode != 0 and lit.stdout.strip() == "", (
         f"the engine package must carry ZERO name-dispatch literals; found:\n{lit.stdout}"
     )

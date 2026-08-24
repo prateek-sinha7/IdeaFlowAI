@@ -14,6 +14,8 @@
  * source). It NEVER clones the mock's fixed elapsed / token values.
  */
 import type { ReactNode } from "react";
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronLeft, X } from "lucide-react";
 
 import type { PipelineRunState } from "@/types/index";
@@ -158,6 +160,58 @@ function StatusToken({ status }: { status: LaneStatus }) {
   );
 }
 
+/**
+ * The clamped title + its full-text hover tooltip. The tooltip is portaled to
+ * `document.body` (fixed-positioned from the trigger's own rect) rather than
+ * living inside the `.group` as an absolutely-positioned child — the left lane
+ * column is `overflow-hidden` (it owns its own scroll, DashboardLayout.tsx),
+ * so a same-subtree tooltip gets clipped at that column's right/bottom edge no
+ * matter its z-index. z-index only orders paint among UNclipped elements; an
+ * ancestor's `overflow: hidden/auto/scroll` clips descendants regardless of
+ * position/z-index. Escaping to the body is the only way past that.
+ */
+function TitleWithTooltip({ title, fullText }: { title: string; fullText: string }) {
+  const triggerRef = useRef<HTMLParagraphElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  const show = () => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const width = Math.min(360, window.innerWidth - rect.left - 16);
+    setPos({ top: rect.bottom + 6, left: rect.left, width });
+  };
+  const hide = () => setPos(null);
+
+  return (
+    <>
+      <p
+        ref={triggerRef}
+        data-testid="lane-run-title"
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        className="m-0 line-clamp-2 cursor-default font-sans text-[13px] font-light leading-[1.35] tracking-[-0.01em] text-ink-900"
+      >
+        {title}
+      </p>
+      {pos && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              role="tooltip"
+              onMouseEnter={show}
+              onMouseLeave={hide}
+              style={{ top: pos.top, left: pos.left, width: pos.width }}
+              className="fixed z-[1000] max-h-[60vh] max-w-[90vw] overflow-y-auto whitespace-pre-wrap rounded-[8px] border border-line-control bg-surface-card px-2.5 py-2 font-sans text-[11px] font-normal leading-relaxed text-ink-700 shadow-lg"
+            >
+              {fullText}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
 export interface LaneRunHeaderProps {
   /** The GENERIC live-run state that drives the status token (D-12, SC-001). */
   runState: RunLaneState;
@@ -167,6 +221,9 @@ export interface LaneRunHeaderProps {
   runType?: string;
   /** The run title (falls back to the caller's brief). */
   runTitle?: string;
+  /** The full, untrimmed text shown in the hover tooltip; falls back to `runTitle`
+   *  when the caller only has the short (possibly clamped) title. */
+  runTitleFull?: string;
   /** Back-to-history link — rendered only when supplied (wired by 39-05). */
   onBackToHistory?: () => void;
   /** Right-aligned actions in the back-link row (Stop / Compact while running). */
@@ -178,6 +235,7 @@ export function LaneRunHeader({
   pipelineState,
   runType,
   runTitle,
+  runTitleFull,
   onBackToHistory,
   actions,
 }: LaneRunHeaderProps) {
@@ -238,14 +296,7 @@ export function LaneRunHeader({
         </div>
       )}
 
-      {runTitle && (
-        <p
-          data-testid="lane-run-title"
-          className="m-0 font-sans text-[20px] font-light leading-[1.28] tracking-[-0.01em] text-ink-900"
-        >
-          {runTitle}
-        </p>
-      )}
+      {runTitle && <TitleWithTooltip title={runTitle} fullText={runTitleFull ?? runTitle} />}
 
       {metaParts.length > 0 && (
         <div

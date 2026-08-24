@@ -99,9 +99,8 @@ function Harness({ showToggle = false }: { showToggle?: boolean }) {
 describe("WizardStepper — toggle swaps reused galleries + slot nav", () => {
   it("hides the Web/Deck toggle by default (showToggle not passed)", () => {
     render(<Harness />);
-    // Toggle not rendered — no Web/Deck buttons visible.
-    expect(screen.queryByRole("button", { name: /web/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /deck/i })).not.toBeInTheDocument();
+    // Toggle group not rendered — the "Deliverable family" controls are absent.
+    expect(screen.queryByRole("group", { name: "Deliverable family" })).not.toBeInTheDocument();
     // Gallery still shows the correct mode (web by default).
     expect(screen.getByText("Web Alpha Dashboard")).toBeInTheDocument();
     expect(screen.queryByText("Deck Beta Pitch")).not.toBeInTheDocument();

@@ -14,8 +14,42 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "requires_api_key: test requires a live LLM provider (Bedrock/Anthropic) — skipped in CI without credentials",
     "eval: issue-scoped eval suite (evals/hybrid) — offline scripted-model tests; select with -m eval",
-
+    "requires_postgres: test requires a live PostgreSQL service — skipped without a DB (SQLite-default suites exclude this marker)",
+    "live: test makes a live network/provider call — excluded from default offline runs",
 ]
+
+# Coverage configuration for pytest-cov
+[tool.coverage.run]
+source = ["app", "agents"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+    "alembic/versions/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "if typing.TYPE_CHECKING:",
+    "@abstractmethod",
+    "@abc.abstractmethod",
+    "class .*\\(Protocol\\):",
+    "^\\s*\\.\\.\\.$",
+    "^\\s*pass\\s*$",
+]
+precision = 2
+show_missing = true
+
+[tool.coverage.html]
+directory = "htmlcov"
 
 [tool.hypothesis]
 max_examples = 100

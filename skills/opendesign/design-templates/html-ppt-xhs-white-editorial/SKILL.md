@@ -1,12 +1,12 @@
 ---
 name: White Editorial Deck
-description: 白底杂志风 deck — 纯白背景 + 顶部 10 色彩虹 bar、80-110px display 标题、紫→蓝→绿→橙→粉渐变文字、马卡龙软卡片组（粉/紫/蓝/绿/橙）、黑底白字 .focus pill、引用大块。同时适合发小红书图文 + 横版 PPT 双用。
+description: White editorial magazine-style deck — pure white background + top 10-color rainbow bar, 80-110px display headline, purple→blue→green→orange→pink gradient text, macaron soft card set (pink/purple/blue/green/orange), black-background white-text .focus pill, large pull-quote blocks. Works for both Xiaohongshu (RED) image-text posts and landscape PPT decks.
 triggers:
-  - "白底杂志"
-  - "杂志风"
+  - "white background magazine"
+  - "magazine style"
   - "xhs editorial"
   - "white editorial"
-  - "小红书白底"
+  - "xiaohongshu white background"
   - "editorial deck"
 od:
   mode: deck
@@ -20,9 +20,9 @@ od:
     requires: false
   speaker_notes: true
   animations: true
-  example_prompt: "用 html-ppt-xhs-white-editorial 模板做一份白底杂志风 PPT，中文优先。要点：80-110px display 大标题、彩虹顶部 bar、马卡龙软卡片、黑底白字 .focus pill。先告诉我主题和受众，再写 8-12 页。"
+  example_prompt: "Use the html-ppt-xhs-white-editorial template to make a white-background magazine-style PPT. Key points: 80-110px display headline, rainbow top bar, macaron soft cards, black-background white-text .focus pill. Tell me the topic and audience first, then write 8-12 slides."
 ---
-# HTML PPT · 白底杂志风
+# HTML PPT · White Editorial (Magazine Style)
 
 A focused entry point into the [`html-ppt`](../html-ppt/SKILL.md) master skill that lands the user directly on the **`xhs-white-editorial`** full-deck template.
 

@@ -8,7 +8,6 @@
 
 **Author:** lewis &lt;sudolewis@gmail.com&gt;
 **License:** MIT
-**中文文档:** [README.zh-CN.md](README.zh-CN.md)
 
 ![html-ppt — cover with live previews](docs/readme/hero.gif)
 
@@ -18,7 +17,7 @@
 
 Press `S` on any deck to pop open a dedicated presenter window with four
 draggable, resizable **magnetic cards**: current slide, next slide preview,
-speaker script (逐字稿), and timer. Two windows stay in sync via
+speaker script (full script), and timer. Two windows stay in sync via
 `BroadcastChannel`.
 
 ![Presenter mode with 4 magnetic cards](docs/readme/presenter-mode.png)
@@ -53,9 +52,9 @@ npx skills add https://github.com/lewislulu/html-ppt-skill
 That registers the skill with your agent runtime. After install, any agent
 that supports AgentSkills can author presentations by asking things like:
 
-> "做一份 8 页的技术分享 slides，用 cyberpunk 主题"
+> "make an 8-slide tech-sharing deck using the cyberpunk theme"
 > "turn this outline into a pitch deck"
-> "做一个小红书图文，9 张，白底柔和风"
+> "make a Xiaohongshu image-and-text post, 9 slides, soft white background style"
 
 ## What's in the box
 
@@ -94,14 +93,14 @@ isolated iframe so theme ≠ theme is visually guaranteed).
 Eight extracted from real-world decks, seven generic scenario scaffolds:
 
 **Extracted looks**
-- `xhs-white-editorial` — 小红书白底杂志风
-- `graphify-dark-graph` — 暗底 + 力导向知识图谱
-- `knowledge-arch-blueprint` — 蓝图 / 架构图风
-- `hermes-cyber-terminal` — 终端 cyberpunk
-- `obsidian-claude-gradient` — 紫色渐变卡
-- `testing-safety-alert` — 红 / 琥珀警示风
-- `xhs-pastel-card` — 柔和马卡龙图文
-- `dir-key-nav-minimal` — 方向键极简
+- `xhs-white-editorial` — Xiaohongshu white-background magazine style
+- `graphify-dark-graph` — dark background + force-directed knowledge graph
+- `knowledge-arch-blueprint` — blueprint / architecture-diagram style
+- `hermes-cyber-terminal` — cyberpunk terminal
+- `obsidian-claude-gradient` — purple gradient cards
+- `testing-safety-alert` — red / amber alert style
+- `xhs-pastel-card` — soft macaron pastel image-and-text
+- `dir-key-nav-minimal` — arrow-key minimalism
 
 **Scenario decks**
 - `pitch-deck`, `product-launch`, `tech-sharing`, `weekly-report`,
@@ -227,7 +226,7 @@ html-ppt-skill/
   and chart.js (optional).
 - **Senior-designer defaults.** Opinionated type scale, spacing rhythm,
   gradients and card treatments — no "Corporate PowerPoint 2006" vibes.
-- **Chinese + English first-class.** Noto Sans SC / Noto Serif SC pre-imported.
+- **Chinese + English first-class.** Noto Sans SC / Noto Serif SC pre-imported for bilingual decks.
 
 ## License
 

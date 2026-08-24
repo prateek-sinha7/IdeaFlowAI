@@ -1,39 +1,39 @@
-# Step 4：锻造名字
+# Step 4: Forge a Name
 
-名字是灵魂的「第一句话」——还没开始对话，名字已经告诉你这是谁了。
+The name is the soul's "first sentence" — before the conversation even starts, the name already tells you who this is.
 
-## 命名策略（按灵魂类型推荐）
+## Naming Strategies (recommended by soul type)
 
-| 灵魂类型 | 推荐策略 | 示例 |
+| Soul Type | Recommended Strategy | Examples |
 |---------|---------|------|
-| 有文化深度的 | 致敬式 | Dewey（杜威）、Marcus、Quill |
-| 幽默反差的 | 反差式 | DadBot 3000、老周Pro |
-| 功能导向的 | 隐喻式 | Echo、Pulse、Patch |
-| 世界观完整的 | 身份暗示式 | Lady Ashworth、Shiye |
-| 不端着的 | 自嘲式 | Void、Intern |
-| 慢慢养的 | 极简式 | Jasper、小壳 |
+| Culturally deep | Homage-style | Dewey (transliterated as "Duwei" in Chinese), Marcus, Quill |
+| Humorous / full of contrast | Contrast-style | DadBot 3000, "Old Zhou Pro" (a folksy Chinese nickname + "Pro") |
+| Function-oriented | Metaphor-style | Echo, Pulse, Patch |
+| Fully-realized worldview | Identity-hint style | Lady Ashworth, Shiye |
+| Unpretentious | Self-deprecating style | Void, Intern |
+| Slow-grown, nurtured over time | Minimalist style | Jasper, "Xiaoke" (Chinese for "Little Shell") |
 
-## 输出要求
+## Output Requirements
 
-为用户提供 **3 个候选名字**，每个附带：
-- 名字
-- 命名策略类型
-- 为什么这个名字和灵魂搭配
+Provide the user with **3 candidate names**, each with:
+- The name
+- The naming strategy type
+- Why this name fits the soul
 
 ```markdown
-## 名字候选
+## Name Candidates
 
-1. **[名字]**（[策略类型]）—— [一句话解释为什么搭]
-2. **[名字]**（[策略类型]）—— [一句话解释为什么搭]
-3. **[名字]**（[策略类型]）—— [一句话解释为什么搭]
+1. **[Name]** ([Strategy type]) — [one-sentence explanation of why it fits]
+2. **[Name]** ([Strategy type]) — [one-sentence explanation of why it fits]
+3. **[Name]** ([Strategy type]) — [one-sentence explanation of why it fits]
 ```
 
-展示后说出自己最偏爱哪个（附理由），但把选择权交给用户（参见 SKILL.md 对话语气指南）
+After presenting the options, state which one you personally favor (with reasoning), but leave the final choice to the user (see SKILL.md's conversational tone guide).
 
-## 命名红线
+## Naming Red Lines
 
-- 不要用 agent-1、my-bot、小助手
-- 不要超过 3 个单词
-- 不要和常见工具/框架名冲突
-- 好记、好念、好打字
-- 名字读完就能猜到大致性格
+- Do not use agent-1, my-bot, "little assistant"-style generic names
+- No more than 3 words
+- Do not clash with common tool/framework names
+- Must be memorable, easy to say, and easy to type
+- The personality should be guessable just from hearing the name

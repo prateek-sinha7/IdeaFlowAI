@@ -34,12 +34,15 @@ steps:
   strategy: single_shot
   gates: []
 - agent: dotnet-modernization
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: dotnet-feature-coding
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: dotnet-azure-bicep
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: dotnet-azure-ai
@@ -49,6 +52,7 @@ steps:
   strategy: single_shot
   gates: []
 - agent: dotnet-test-implementation
+  tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []
 - agent: dotnet-test-compliance

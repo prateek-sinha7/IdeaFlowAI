@@ -16,6 +16,9 @@ It carries no live-LLM marker so CI runs it offline.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -27,6 +30,22 @@ from agents.runtime.base import (
     RuntimeEnvironment,
     Workspace,
 )
+
+# The exec surface's allow-list literally spells "python3" (T-10-04). On this
+# dev machine that may resolve on PATH (e.g. a Windows Store app-execution-alias
+# stub) yet not actually run Python — probe it for real rather than trusting
+# PATH presence, so this suite skips cleanly there while still running for real
+# on Linux CI / any machine with a working python3 (see task.md Phase 0).
+try:
+    _PYTHON3_OK = (
+        subprocess.run(
+            ["python3", "-c", "print(1)"], capture_output=True, timeout=10
+        ).returncode
+        == 0
+    )
+except Exception:  # noqa: BLE001
+    _PYTHON3_OK = False
+_IS_POSIX = os.name == "posix"
 
 
 def _runtime() -> RuntimeEnvironment:
@@ -155,6 +174,7 @@ def _exec_workspace(tmp_path: Path, **policy_overrides):
     return ws, recorded
 
 
+@pytest.mark.skipif(not _PYTHON3_OK, reason="python3 not resolvable offline")
 def test_exec_allow_list_runs_and_records_allowed(tmp_path: Path) -> None:
     """An allow-listed interpreter runs; recorder records outcome=allowed exit_code=0."""
     ws, recorded = _exec_workspace(tmp_path)
@@ -210,6 +230,7 @@ def test_exec_deny_beats_allow(tmp_path: Path) -> None:
     assert recorded[-1]["outcome"] == "denied"
 
 
+@pytest.mark.skipif(not _PYTHON3_OK, reason="python3 not resolvable offline")
 def test_exec_scrubbed_env_excludes_host_creds(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -249,6 +270,7 @@ def test_exec_scrubbed_env_excludes_host_creds(
     assert not leaked, f"host-credential-class keys leaked into the child env: {leaked}"
 
 
+@pytest.mark.skipif(not _PYTHON3_OK, reason="python3 not resolvable offline")
 def test_exec_wall_clock_kill_records_killed(tmp_path: Path) -> None:
     """A runaway command is killed at the wall-clock timeout; recorder records killed."""
     import subprocess
@@ -259,6 +281,10 @@ def test_exec_wall_clock_kill_records_killed(tmp_path: Path) -> None:
     assert recorded[-1]["outcome"] == "killed"
 
 
+@pytest.mark.skipif(
+    not (_PYTHON3_OK and _IS_POSIX),
+    reason="requires python3 + os.fork (POSIX-only; no process groups on Windows)",
+)
 def test_exec_wall_clock_kills_forking_descendants(tmp_path: Path) -> None:
     """WR-01: a child that forks a grandchild has its WHOLE group killed on timeout.
 
@@ -289,7 +315,7 @@ def test_exec_wall_clock_kills_forking_descendants(tmp_path: Path) -> None:
     # The grandchild must be dead (group kill). Give the SIGKILL a beat to land.
     _time.sleep(0.5)
     assert pidfile.exists(), "grandchild never recorded its pid"
-    gc_pid = int(pidfile.read_text())
+    gc_pid = int(pidfile.read_text(encoding="utf-8"))
 
     def _alive(pid: int) -> bool:
         try:
@@ -305,6 +331,7 @@ def test_exec_wall_clock_kills_forking_descendants(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.skipif(not _PYTHON3_OK, reason="python3 not resolvable offline")
 def test_exec_output_truncated_at_64kb(tmp_path: Path) -> None:
     """Output exceeding 64KB/stream is truncated to 64KB."""
     ws, _ = _exec_workspace(tmp_path)
@@ -315,6 +342,10 @@ def test_exec_output_truncated_at_64kb(tmp_path: Path) -> None:
     assert len(out) == 65536, f"expected 64KB truncation, got {len(out)}"
 
 
+@pytest.mark.skipif(
+    not (_PYTHON3_OK and _IS_POSIX),
+    reason="requires python3 + the resource module (POSIX-only; preexec_fn rlimits)",
+)
 def test_exec_rlimit_mechanism_applied(tmp_path: Path) -> None:
     """The preexec_fn calls resource.setrlimit for RLIMIT_CPU and RLIMIT_AS.
 
@@ -465,6 +496,7 @@ class _FakeRunner:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(not _PYTHON3_OK, reason="python3 not resolvable offline")
 async def test_real_engine_recorder_adapter_audits_every_outcome(tmp_path: Path) -> None:
     """The engine's sync→async recorder adapter audits allowed/denied/killed (CR-01).
 

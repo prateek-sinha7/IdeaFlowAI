@@ -1,13 +1,13 @@
 ---
 name: Cyber Terminal Deck
-description: 暗终端 honest-review deck — #0a0c10 黑底 + 56px 赛博网格 + CRT 暗角 + 扫描线、窗口红绿灯 chrome、`$ prompt` 命令行标题、薄荷绿 #7ed3a4 大字、JetBrains Mono、stroke-only 柱状图、blinking 光标、琥珀/绿/红三档 tag、暗色代码块。适合 CLI / agent / dev tool 测评（含 trace、diff、benchmark）。
+description: Dark-terminal honest-review deck — #0a0c10 black background + 56px cyber grid + CRT vignette + scanlines, traffic-light window chrome, `$ prompt` command-line titles, large mint-green #7ed3a4 text, JetBrains Mono, stroke-only bar charts, blinking cursor, amber/green/red three-tier tags, dark code blocks. Suited for CLI / agent / dev tool reviews (including trace, diff, benchmark).
 triggers:
   - "terminal review"
   - "cli review"
   - "agent review"
   - "honest review"
   - "dev tool review"
-  - "测评"
+  - "benchmark review"
 od:
   mode: deck
   scenario: engineering
@@ -20,9 +20,9 @@ od:
     requires: false
   speaker_notes: true
   animations: true
-  example_prompt: "用 html-ppt-hermes-cyber-terminal 模板做一份 CLI / agent 测评 PPT。深色终端风 + scanlines + 命令行标题 + benchmark 柱状图。先确认：被测评对象、3-5 个对比维度、benchmark 数据。"
+  example_prompt: "Use the html-ppt-hermes-cyber-terminal template to build a CLI / agent evaluation deck. Dark terminal style + scanlines + command-line titles + benchmark bar charts. First confirm: the thing being evaluated, 3-5 comparison dimensions, and benchmark data."
 ---
-# HTML PPT · 暗终端测评
+# HTML PPT · Dark Terminal Review
 
 A focused entry point into the [`html-ppt`](../html-ppt/SKILL.md) master skill that lands the user directly on the **`hermes-cyber-terminal`** full-deck template.
 

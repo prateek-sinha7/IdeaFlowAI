@@ -51,7 +51,29 @@ vi.mock("./PPTPreview", () => ({ PPTPreview: () => <div data-testid="ppt-preview
 vi.mock("./PrototypePreview", () => ({ PrototypePreview: () => <div data-testid="proto-preview" /> }));
 vi.mock("./MarkdownPreview", () => ({ MarkdownPreview: () => <div data-testid="markdown-preview" /> }));
 vi.mock("./AppBuilderPreview", () => ({ AppBuilderPreview: () => <div data-testid="appbuilder-preview" /> }));
-vi.mock("@/components/results/FilesTab", () => ({ FilesTab: () => <div data-testid="files-tab" /> }));
+vi.mock("@/components/results/FilesTab", () => ({
+  FilesTab: () => <div data-testid="files-tab" />,
+  deriveDeliverableFilename: (workflowType: string, content?: string, fallback?: string) => {
+    if (workflowType === "user_stories" || workflowType === "user_stories_revision") {
+      if (!content) return fallback || "user-stories.md";
+      const match = content.match(/^#\s+(.+)/m);
+      if (match) return match[1].toLowerCase() + ".md";
+      return fallback || "user-stories.md";
+    }
+    if (workflowType === "ppt" || workflowType === "ppt_revision") {
+      if (!content) return fallback || "presentation.html";
+      if (content.match(/<title>/i) || content.match(/<h1[^>]*>/i)) return "presentation.html";
+      return fallback || "presentation.html";
+    }
+    if (workflowType === "prototype" || workflowType === "prototype_revision") {
+      if (!content) return fallback || "prototype.html";
+      if (content.match(/<title>/i)) return "prototype.html";
+      return fallback || "prototype.html";
+    }
+    if (workflowType === "app_builder" || workflowType === "app_builder_revision") return "project.zip";
+    return fallback || "deliverable";
+  },
+}));
 vi.mock("@/components/results/AgentThinkingTab", () => ({ AgentThinkingTab: () => <div data-testid="thinking-tab" /> }));
 
 import { PreviewPanel } from "./PreviewPanel";

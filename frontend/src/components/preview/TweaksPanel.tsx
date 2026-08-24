@@ -293,9 +293,9 @@ export function TweaksPanel({
         {/* ── Typography ────────────────────────────────────────────── */}
         <Section title="Typography" icon={<Type className="h-3.5 w-3.5" />}>
           <div className="space-y-2">
-            <label className="block text-[10px] font-medium text-gray-500 uppercase tracking-wider mb-1">
+            <p className="block text-[10px] font-medium text-gray-500 uppercase tracking-wider mb-1">
               Font family
-            </label>
+            </p>
             <div className="space-y-1">
               {FONT_OPTIONS.map((opt) => (
                 <button
@@ -327,7 +327,7 @@ export function TweaksPanel({
         <Section title="Edit HTML" icon={<Code2 className="h-3.5 w-3.5" />} defaultOpen={false}>
           <div className="space-y-2">
             <p className="text-[10px] text-gray-400 leading-relaxed">
-              Edit the HTML directly. Click "Apply" to reload the preview with your changes.
+              Edit the HTML directly. Click &quot;Apply&quot; to reload the preview with your changes.
               Token tweaks will be baked in automatically.
             </p>
             <textarea
@@ -336,6 +336,8 @@ export function TweaksPanel({
                 setLocalHtml(e.target.value);
                 setHtmlDirty(true);
               }}
+              aria-label="Edit HTML directly"
+              name="tweak-html"
               spellCheck={false}
               className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-[10px] font-mono text-gray-800 focus:border-gray-400 focus:bg-white focus:outline-none transition-colors resize-none leading-relaxed"
               style={{
@@ -406,6 +408,8 @@ function ColorRow({
         {/* Hex value display */}
         <input
           type="text"
+          aria-label={`${label} hex value`}
+          name={`color-${label.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}`}
           value={isColor ? value : "—"}
           readOnly={!isColor}
           onChange={(e) => {

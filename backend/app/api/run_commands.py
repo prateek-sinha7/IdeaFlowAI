@@ -88,6 +88,10 @@ from app.api.run_engine import (
     _validate_model_overrides,
 )
 
+# API-001 (task.md R-05): the single canonical terminal-status set (engine.py —
+# see its own docstring for why it now exists beside NON_TERMINAL_RUN_STATUSES).
+from agents.execution_engine.engine import TERMINAL_RUN_STATUSES
+
 logger = logging.getLogger("app.api.run_commands")
 
 router = APIRouter(prefix="/api/runs", tags=["run-commands"])
@@ -341,6 +345,25 @@ async def submit_answers(
     """
     if not _review_gate_owned_by(run_id, current_user.id):
         raise _deny_unknown_gate()
+
+    # API-001 (task.md R-05): this endpoint had ZERO terminal-status fencing —
+    # unlike /gate (KAN-100's ``_review_gate_run_is_terminal`` check) and /cancel
+    # (its own idempotent-terminal branch), a clarify-answers POST against an
+    # already-terminal (cancelled/failed/degraded/completed) run was accepted
+    # unconditionally and written straight to the store. Mirror /gate's fence —
+    # ``_review_gate_run_is_terminal`` takes a ``{run_id}:{agent_id}``-shaped
+    # ``gate_key``, and a bare ``run_id`` parses identically (split on the first
+    # ``:``, which is absent here → the whole string is the run_id — see its
+    # docstring), so passing ``run_id`` directly is correct, not a workaround.
+    if _review_gate_run_is_terminal(run_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "Pipeline is no longer running",
+                "code": "pipeline_not_running",
+                "recoverable": False,
+            },
+        )
 
     responses = list(body.responses or [])
     # The global freeform "anything else" note rides as question_id="freeform"
@@ -612,8 +635,15 @@ async def resume_run_endpoint(
 
         # (2) Eligibility — failed, degraded, and cancelled runs are resumable; anything else → 409.
         # A "degraded" run completed partially (some agents failed, some succeeded) —
-        # the user should be able to resume it to retry the failed portion.
-        if wr.status not in {"failed", "cancelled", "degraded"}:
+        # the user should be able to resume it to retry the failed portion. A
+        # successfully "completed" run is DELIBERATELY excluded (not resumable) even
+        # though it IS in the canonical terminal set — resume-eligibility is a
+        # NARROWER predicate than "is this run terminal", so it stays its own literal
+        # rather than reusing TERMINAL_RUN_STATUSES directly (API-001 unified the
+        # SEPARATE stray duplicate of this exact set that used to live in
+        # ``_review_gate_run_is_terminal``, not this deliberately-different one).
+        _RESUMABLE_STATUSES = frozenset(TERMINAL_RUN_STATUSES) - {"completed"}
+        if wr.status not in _RESUMABLE_STATUSES:
             raise _reject(
                 "run_not_resumable",
                 f"Run is {wr.status!r}; only failed, degraded, or cancelled runs are resumable",
@@ -1357,30 +1387,45 @@ async def _dispose_concierge_proposal(
         # "user_stories_revision_revision" which is not in TIER_PIPELINES → 403.
         # Strip any trailing "_revision" suffix from wr_type to get the base artifact
         # family (e.g. "user_stories") before constructing the fallback target.
-        base_type = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
-        # FIX-216b (corrected): od_prototype_revision is excluded from hexaware tier
-        # and has no agents, so od_prototype on hexaware must fall back to prototype_revision.
-        # Only apply the OD→base fallback when the natural od_*_revision is not entitled.
-        _OD_FALLBACK_MAP = {"od_prototype": "prototype"}
-        if base_type in _OD_FALLBACK_MAP:
-            natural_revision = f"{base_type}_revision"
-            if not can_run_pipeline(current_user.tier, natural_revision)[0]:
-                base_type = _OD_FALLBACK_MAP[base_type]
+        #
+        # Tiered prototype revision types (prototype_large_revision,
+        # prototype_feature_revision) already contain "_revision" embedded in their
+        # middle — removesuffix("_revision") would give "prototype_large", not
+        # "prototype". Remap these explicitly before the generic suffix strip.
+        if wr_type in ("prototype_large_revision", "prototype_feature_revision"):
+            base_type = "prototype"
+        elif wr_type.endswith("_revision"):
+            base_type = wr_type.removesuffix("_revision")
+        else:
+            base_type = wr_type
+        # Two OD remap tables used to sit here (_OD_FALLBACK_MAP, _OD_TARGET_REMAP),
+        # rewriting od_prototype/od_ppt targets onto their real revision pipelines.
+        # They were a workaround for an incomplete alias table — the alias covered
+        # the BASE label but never the ``_revision`` variant — and because they lived
+        # in this handler only, the REST ``POST /runs/{id}/revisions`` entry point
+        # skipped them entirely: the same revision succeeded from chat and failed
+        # from REST. Both labels are now collapsed at the root (registry, manifests,
+        # entitlements, and the persisted rows), so the derivation below needs no
+        # correction and both entry points agree by construction.
         target = params.get("target") or f"{base_type}_output"
-        # OD target remapping: od_prototype_output → prototype_output unconditionally.
-        # od_prototype_revision has no registered agents so it can never be dispatched.
-        # This applies whether the Concierge stored the target explicitly or the fallback
-        # derived it — both paths must produce a dispatchable revision pipeline type.
-        # od_ppt_output stays as-is (od_ppt_revision has agents and is entitled).
-        _OD_TARGET_REMAP = {"od_prototype_output": "prototype_output"}
-        target = _OD_TARGET_REMAP.get(target, target)
-        # Stale-proposal correction: a proposal created before FIX-216b may have
-        # stored target="ppt_output" for an od_ppt parent run. Remap to the correct
-        # od_ppt_output so the revision uses od_ppt_revision (1 agent), not ppt_revision.
-        _base_for_correction = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
-        if _base_for_correction == "od_ppt" and target == "ppt_output":
-            target = "od_ppt_output"
         instruction = params.get("instruction", "")
+        # ── Tiered prototype classification (Pieces 1/2/3) ──────────────────
+        # Apply the same tier classifier as create_revision() so the Concierge
+        # revision path also routes to the correct manifest.
+        if target == "prototype_output":
+            _tier = await _classify_revision_tier(
+                instruction=instruction,
+                parent_run_id=run_id,
+                model_id=getattr(current_user, "preferred_model", None),
+            )
+            target = _REVISION_TIER_TARGET_MAP.get(_tier, "prototype_output")
+            logger.info(
+                "▶ prototype revision tier selected (concierge path): %r → pipeline=%s (run=%s)",
+                _tier,
+                f"{target.removesuffix('_output')}_revision",
+                run_id,
+            )
+        # ────────────────────────────────────────────────────────────────────
         # FIX-218: when files were attached on this Concierge turn, frame them as
         # supplementary reference material. The user's chat instruction always takes
         # precedence — if the file conflicts with or is unrelated to the request,
@@ -2474,13 +2519,30 @@ async def launch_run(
     # merely include a template-injecting agent skip this (factory _compose_injection
     # degrades gracefully when od_context is empty).
     # `agents or []`: Case 3 (USER_WORKFLOW_MANIFEST) leaves `agents` as None —
-    # harmless here since its pipeline_type is always "custom", never one of
-    # the template-requiring types below, so `_needs_template` is always False
-    # for it regardless of this list's contents.
+    # harmless here since its pipeline_type is always "custom", which does not
+    # declare `opendesign`, so `_needs_template` is False for it.
     _template_injecting = [
         spec.id for spec in (agents or []) if "template" in (getattr(spec, "injects", None) or [])
     ]
-    _needs_template = pipeline_type in ("prototype", "ppt", "od_prototype")
+    # The second half of the predicate was a pipeline-name allow-list —
+    # ``pipeline_type in ("prototype", "ppt", "od_prototype")`` — which is exactly
+    # the SC-001 leak this block's own comment above disclaims, sitting three lines
+    # under it. The manifest already declares the thing being tested: a deliverable
+    # that needs template/design-system context says so with
+    # ``context_providers: [opendesign]``. That is what separates prototype/ppt from
+    # a `custom` composition that merely happens to include a template-injecting
+    # agent, and it means a new template-driven deliverable is covered by declaring
+    # one manifest line instead of editing this tuple.
+    from agents.execution_engine.engine import compile_for_run as _compile_for_run
+
+    try:
+        _needs_template = "opendesign" in (
+            _compile_for_run(base_pipeline_type).context_providers or []
+        )
+    except FileNotFoundError:
+        # No manifest for this id — the SUPPORTED_PIPELINE_TYPES gate above already
+        # rejected it, or will; fail closed rather than demand a template.
+        _needs_template = False
     if (
         _template_injecting
         and _needs_template
@@ -2490,8 +2552,8 @@ async def launch_run(
         raise _reject(
             "missing_template_context",
             f"Pipeline {pipeline_type!r} agents {_template_injecting} declare template "
-            "injection, so the run requires a template (template_id) or an od_* alias — "
-            "no template body could be loaded.",
+            "injection, so the run requires a template (template_id) — no template "
+            "body could be loaded.",
         )
 
     # ── model_overrides ingress validation (D-07, MODEL-03) ────────────────────
@@ -2693,6 +2755,11 @@ def _apply_terminal_output_columns(
             current_agent["total_tokens"] = data.get("total_tokens", 0)
             current_agent["cache_read_tokens"] = data.get("cache_read_tokens", 0)
             current_agent["cache_write_tokens"] = data.get("cache_write_tokens", 0)
+            # ISS-165: the engine already emits the resolved per-agent model on this
+            # event (engine.py agent_complete payload) — carry it into agent_outputs
+            # so it survives past the live stream instead of only being visible
+            # while the SSE connection is open.
+            current_agent["model_id"] = data.get("model_id")
             if current_agent.get("agent_id"):
                 agent_outputs_collector.append(current_agent)
             current_agent = {}
@@ -3073,6 +3140,30 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
     pipeline_run_id = str(_uuid.uuid4())
     revision_pipeline_type = f"{target_artifact_type.removesuffix('_output')}_revision"
 
+    # ── Existence gate — BEFORE the entitlement gate, and that order matters ───
+    # Some pipelines have no revision implementation at all: `dotnet_to_azure` and
+    # `mulesoft_to_springboot` are launchable and produce a deliverable, but neither
+    # has a *_revision manifest, agents, or a tier entry. Reaching the entitlement
+    # gate first meant the user was told "This pipeline is not available on your
+    # current plan" — on enterprise, where UPGRADE_PATH is None and so no upgrade is
+    # even offered. The plan was never the problem and no plan change could fix it.
+    #
+    # Answer the question that is actually true first: the feature does not exist.
+    # A 400 (not 403) because this is not an authorization outcome.
+    #
+    # The predicate is ``get_pipeline_agents`` — the SAME one the engine uses for its
+    # own pre-dispatch guard (engine.py, "No revision pipeline is registered"). Using
+    # the registry rather than a directory probe keeps one definition of "this
+    # pipeline exists" and moves the engine's check earlier, before the row is minted.
+    _rev_agents = get_pipeline_agents(revision_pipeline_type)
+    if not _rev_agents:
+        raise _reject(
+            "revision_unsupported",
+            f"Revisions aren't available for this workflow yet — {revision_pipeline_type!r} "
+            f"has no pipeline behind it. Launch a new run instead.",
+            http_status=status.HTTP_400_BAD_REQUEST,
+        )
+
     # ── Entitlement gate (tier) — KAN-161 / ISS-055 ────────────────────────────
     # Single insertion covers all 3 production call sites (create_revision,
     # CHANNEL_REVISION in post_message, Concierge "revision" disposal). Fails fast
@@ -3083,7 +3174,6 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
     if not _rev_allowed:
         raise _reject("pipeline_not_entitled", _rev_reason, http_status=status.HTTP_403_FORBIDDEN)
 
-    _rev_agents = get_pipeline_agents(revision_pipeline_type)
     # Inherit workspace_id from the parent run (required — run_events.workspace_id
     # is NOT NULL; a revision row without it fails on the first event write).
     parent_wr = db.query(WorkflowRun).filter(WorkflowRun.id == parent_run_id).first()
@@ -3103,6 +3193,143 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
     db.add(wr)
     db.commit()
     return pipeline_run_id, revision_pipeline_type
+
+
+# ---------------------------------------------------------------------------
+# Tiered prototype revision classifier (Pieces 1/2/3)
+# ---------------------------------------------------------------------------
+#
+# Runs a single LLM call BEFORE _mint_revision_row to pick the right manifest:
+#   small   → prototype_revision         (existing, unchanged)
+#   large   → prototype_large_revision   (new: planner + task_loop builder)
+#   feature → prototype_feature_revision (new: specify + plan + task_loop builder)
+#
+# Lives in the app-layer REST endpoint — NOT the kernel — so SC-001/INV-1 are
+# respected. No workflow-name literal enters the kernel.
+
+_REVISION_TIER_TARGET_MAP: dict[str, str] = {
+    "small":   "prototype_output",          # → prototype_revision (existing)
+    "large":   "prototype_large_output",    # → prototype_large_revision
+    "feature": "prototype_feature_output",  # → prototype_feature_revision
+}
+
+
+async def _classify_revision_tier(
+    instruction: str,
+    parent_run_id: str,
+    model_id: str | None = None,
+) -> str:
+    """Classify a prototype revision request into a tier before minting the run.
+
+    Runs a single Bedrock LLM call with the current prototype HTML and the
+    revision instruction. Returns one of: "small" | "large" | "feature".
+
+    Degrades gracefully to "small" on any error — the existing small-revision
+    pipeline always runs as a safe fallback.
+
+    Two calling contexts:
+      1. Direct REST POST /revisions — ``instruction`` contains the full
+         ``=== EXISTING PROTOTYPE HTML ===`` block; HTML is extracted inline.
+      2. Concierge proposal disposal — ``instruction`` is plain user text with
+         NO HTML markers. The HTML is read from the parent run's ``output`` column
+         in the DB.
+
+    Tier definitions:
+      small   — targeted fix to 1-3 elements (typo, color, broken link, one field)
+      large   — structural change across multiple components (3+ pages, layout rework)
+      feature — new page/route/workflow that does NOT exist in the prototype
+    """
+    from agents.capabilities.context_providers.previous_run import (
+        _extract_existing_artifact,
+        _extract_revision_instruction,
+    )
+    from app.agents.model_factory import build_model
+
+    # ── Resolve the prototype HTML ───────────────────────────────────────────
+    # Path 1: REST endpoint wraps HTML in the instruction message.
+    existing_html = _extract_existing_artifact(instruction)
+    revision_text = _extract_revision_instruction(instruction) or instruction
+
+    # Path 2: Concierge path has no HTML markers — read from parent run output.
+    if not existing_html:
+        logger.debug(
+            "_classify_revision_tier: no HTML markers in instruction for run=%s — "
+            "falling back to parent run output",
+            parent_run_id,
+        )
+        db = _get_db()
+        try:
+            parent_wr = (
+                db.query(WorkflowRun)
+                .filter(WorkflowRun.id == parent_run_id)
+                .first()
+            )
+            if parent_wr and parent_wr.output:
+                existing_html = parent_wr.output
+            else:
+                # No HTML available — cannot make a meaningful classification.
+                # Default to "large" (safer than "small" for an unknown request).
+                logger.warning(
+                    "_classify_revision_tier: parent run %s has no output — "
+                    "defaulting to large",
+                    parent_run_id,
+                )
+                return "large"
+        finally:
+            db.close()
+        # In the concierge path the instruction IS the plain user text.
+        revision_text = instruction
+
+    # Truncate HTML for classifier context (first 8000 chars sufficient for structure)
+    html_excerpt = existing_html[:8000]
+
+    classifier_prompt = (
+        f"You are classifying a prototype revision request.\n\n"
+        f"CURRENT PROTOTYPE (excerpt, {len(existing_html)} chars total):\n"
+        f"{html_excerpt}\n"
+        f"{'[...truncated...]' if len(existing_html) > 8000 else ''}\n\n"
+        f"REVISION REQUEST:\n"
+        f"{revision_text}\n\n"
+        f"Classify this revision into EXACTLY ONE tier:\n\n"
+        f"- small: A targeted change to 1-3 elements on 1-2 pages. Examples: fix a broken\n"
+        f"  link, change a color, correct a label, add one form field, fix a typo.\n\n"
+        f"- large: A structural change affecting multiple components or pages, or a bug that\n"
+        f"  requires coordinated changes across HTML, CSS, and JavaScript. Examples: redesign\n"
+        f"  a page layout, fix broken navigation across 5+ pages, add a complex data table\n"
+        f"  with filtering and sorting.\n\n"
+        f"- feature: A new page, new workflow, or new capability that does NOT currently exist\n"
+        f"  in the prototype. Examples: add an onboarding flow, add a dashboard with charts,\n"
+        f"  add authentication pages, add a new section with multiple sub-pages.\n\n"
+        f"Reply with ONLY one word: small, large, or feature. No explanation."
+    )
+
+    try:
+        from langchain_core.messages import HumanMessage
+
+        llm = build_model(model_id, max_tokens=10)  # one-word output — tiny budget
+        logger.info(
+            "_classify_revision_tier: classifying revision for parent=%s "
+            "(html=%d chars, instruction=%r)",
+            parent_run_id, len(existing_html), revision_text[:80],
+        )
+        response = await llm.ainvoke([HumanMessage(content=classifier_prompt)])
+        tier = response.content.strip().lower()
+        if tier in ("small", "large", "feature"):
+            logger.info(
+                "_classify_revision_tier: classified as %r → pipeline=%s (parent=%s)",
+                tier, _REVISION_TIER_TARGET_MAP.get(tier, "prototype_output"), parent_run_id,
+            )
+            return tier
+        # Unexpected output — default to large (safer than small for uncertain cases)
+        logger.warning(
+            "_classify_revision_tier: unexpected output %r — defaulting to large", tier
+        )
+        return "large"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "_classify_revision_tier: classification failed (%s) — defaulting to small", exc
+        )
+        return "small"
 
 
 @router.post("/{run_id}/revisions")
@@ -3131,18 +3358,31 @@ async def create_revision(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Unknown run"
             )
-        # P1 fix: tier entitlement gate on the DERIVED revision pipeline type
-        # (mirrors _mint_revision_row's own derivation), BEFORE any child row
-        # is minted.
-        _revision_pipeline_type = (
-            f"{body.target_artifact_type.removesuffix('_output')}_revision"
-        )
-        _require_tier_entitlement(current_user, _revision_pipeline_type)
+
+        # ── NEW: classify and select the correct revision pipeline ──────────
+        # Only applies when the target is a prototype output — other revision
+        # types (user_stories, ppt) use their own existing pipelines unchanged.
+        effective_target = body.target_artifact_type
+        if body.target_artifact_type == "prototype_output":
+            tier = await _classify_revision_tier(
+                instruction=body.instruction,
+                parent_run_id=run_id,
+                model_id=getattr(current_user, "preferred_model", None),
+            )
+            effective_target = _REVISION_TIER_TARGET_MAP.get(tier, "prototype_output")
+            logger.info(
+                "▶ prototype revision tier selected: %r → pipeline=%s (run=%s)",
+                tier,
+                f"{effective_target.removesuffix('_output')}_revision",
+                run_id,
+            )
+        # ───────────────────────────────────────────────────────────────────────
+
         child_run_id, _ = _mint_revision_row(
             db,
             user=current_user,
             parent_run_id=run_id,
-            target_artifact_type=body.target_artifact_type,
+            target_artifact_type=effective_target,
             instruction=body.instruction,
         )
     finally:
@@ -3155,7 +3395,7 @@ async def create_revision(
         _drive_revision_to_queue(
             workflow_run_id=child_run_id,
             parent_run_id=run_id,
-            target_artifact_type=body.target_artifact_type,
+            target_artifact_type=effective_target,
             instruction=body.instruction,
             user=current_user,
             cancel_event=cancel_event,
@@ -3186,6 +3426,14 @@ async def _drive_revision_to_queue(
     # cards are persisted for revision runs (FIX-171) — same pattern as the
     # _run_workflow_to_queue fresh-run path. The kernel never imports app.*.
     from app.agents.chat_narrator import persist_milestone_card
+
+    # Derive the pipeline type the same way _mint_revision_row does so the log
+    # always shows the REAL manifest being dispatched (small / large / feature).
+    _revision_pipeline_type = f"{target_artifact_type.removesuffix('_output')}_revision"
+    logger.info(
+        "▶ revision driver starting: run=%s parent=%s pipeline=%s target=%s",
+        workflow_run_id, parent_run_id, _revision_pipeline_type, target_artifact_type,
+    )
 
     pipeline_complete_seen = False
     pipeline_failed_seen = False

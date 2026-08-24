@@ -132,7 +132,7 @@ export default function DashboardPage() {
   const prototypeContentRef = useRef("");
   const userStoryContentRef = useRef("");
   const handlePipelineMsgRef = useRef<((msg: { type: string; [key: string]: unknown }) => boolean) | null>(null);
-  // Staged od_prototype run — written when authenticated, consumed when connected.
+  // Staged prototype run — written when authenticated, consumed when connected.
   // `gateAgentIds` (Phase 6, T5b) is present ONLY when the templates wizard's
   // Review-gates section was touched; absent ⇒ backend static gate default.
   const pendingOdProtoRef = useRef<{
@@ -143,7 +143,7 @@ export default function DashboardPage() {
     agentIds?: string[];
   } | null>(null);
 
-  // Staged od_ppt run — written when authenticated, consumed when connected.
+  // Staged ppt run — written when authenticated, consumed when connected.
   const pendingOdPptRef = useRef<{
     templateId: string; designSystemId: string | null; brief: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
@@ -374,7 +374,7 @@ export default function DashboardPage() {
     revisionCycle?: number;
     revisionInFlight?: boolean;
   } | null>(null);
-  // Pending od_prototype params — set when questionnaire is triggered, consumed by DashboardLayout.
+  // Pending prototype params — set when questionnaire is triggered, consumed by DashboardLayout.
   // `gateAgentIds` (Phase 6, T5b) flows into DashboardLayout's `gate_agent_ids`
   // extraParam; it is set ONLY when the wizard's Review-gates section was touched.
   const [pendingOdProtoParams, setPendingOdProtoParams] = useState<{
@@ -384,7 +384,7 @@ export default function DashboardPage() {
     images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
   } | null>(null);
-  // Pending od_ppt params
+  // Pending ppt params
   const [pendingOdPptParams, setPendingOdPptParams] = useState<{
     brief: string; templateId: string; designSystemId: string | null; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
@@ -417,12 +417,12 @@ export default function DashboardPage() {
       });
   }, [router, dispatch]);
 
-  // Stage an od_prototype run into a ref as soon as we're authenticated.
-  // NOTE: We do NOT remove od_prototype.pending here — we remove it only
+  // Stage a prototype run into a ref as soon as we're authenticated.
+  // NOTE: We do NOT remove prototype.pending here — we remove it only
   // when the WebSocket connects and we actually fire the questionnaire.
   useEffect(() => {
     if (!isAuthenticated) return;
-    const pending = sessionStorage.getItem("od_prototype.pending");
+    const pending = sessionStorage.getItem("prototype.pending");
     if (!pending) return;
     try {
       const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "{}") as {
@@ -458,8 +458,8 @@ export default function DashboardPage() {
     } catch { /* ignore malformed session data */ }
   }, [isAuthenticated]);
 
-  // Stage an od_ppt run into a ref as soon as we're authenticated.
-  // NOTE: We do NOT remove od_ppt.pending here — we remove it only when
+  // Stage a ppt run into a ref as soon as we're authenticated.
+  // NOTE: We do NOT remove ppt.pending here — we remove it only when
   // the WebSocket connects and we actually fire the questionnaire. This
   // makes the flow resilient to backend restarts between auth and connect.
   useEffect(() => {
@@ -476,7 +476,7 @@ export default function DashboardPage() {
       };
       // FIX-216c: allow empty brief when chaining (the chain context block IS the
       // brief; wizard canContinue guard already validated it). Only require templateId.
-      // ISS-155: explicit coercion — see the od_prototype twin above.
+      // ISS-155: explicit coercion — see the prototype twin above.
       if (!draft.templateId) return;
       pendingOdPptRef.current = {
         templateId: draft.templateId,
@@ -1048,7 +1048,9 @@ export default function DashboardPage() {
             setUserStoryContent(finalOutput);
           } else if (pipelineType === "ppt" || pipelineType === "ppt_revision") {
             setPptContent(finalOutput);
-          } else if (pipelineType === "prototype" || pipelineType === "prototype_revision" || pipelineType === "od_prototype") {
+          } else if (pipelineType === "prototype" || pipelineType === "prototype_revision"
+            || pipelineType === "prototype_large_revision"
+            || pipelineType === "prototype_feature_revision") {
             setPrototypeContent(finalOutput);
           } else {
             // ISS-021 (18-03) + CR-01 (18 review fix): any pipeline_type matching
@@ -1809,7 +1811,7 @@ export default function DashboardPage() {
   // requestOpenTab; PreviewPanel consumes the pending {tab, nonce} (all tabs).
   const runTabDeepLink = useTabDeepLink();
 
-  // Fire a staged od_prototype run once the SSE connection is ready (idle maps
+  // Fire a staged prototype run once the SSE connection is ready (idle maps
   // to "connected" — an idle app with no live run is still ready to launch over
   // REST). Re-reads from sessionStorage so a staged run survives a reload.
   useEffect(() => {
@@ -1817,7 +1819,7 @@ export default function DashboardPage() {
 
     let pending = pendingOdProtoRef.current;
     if (!pending) {
-      const flag = sessionStorage.getItem("od_prototype.pending");
+      const flag = sessionStorage.getItem("prototype.pending");
       if (!flag) return;
       try {
         const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "{}") as {
@@ -1854,7 +1856,7 @@ export default function DashboardPage() {
     }
 
     pendingOdProtoRef.current = null;
-    sessionStorage.removeItem("od_prototype.pending");
+    sessionStorage.removeItem("prototype.pending");
     sessionStorage.removeItem("prototype.draft");    // FIX-005: clear stale draft so next fresh wizard open starts empty
 
     setUserStoryContent("");
@@ -1907,7 +1909,7 @@ export default function DashboardPage() {
           agentIds?: string[];
         };
         // ISS-155: brief clause dropped to match the direct path at :463 (see the
-        // od_prototype twin above) — the reload path must not reach a different verdict
+        // prototype twin above) — the reload path must not reach a different verdict
         // on the same staged draft.
         if (!draft.templateId) return;
         pending = {
@@ -2472,7 +2474,9 @@ export default function DashboardPage() {
             setUserStoryContent(fullRun.output);
           } else if (fullRun.type === "ppt" || fullRun.type === "ppt_revision") {
             setPptContent(fullRun.output);
-          } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision" || fullRun.type === "od_prototype") {
+          } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision"
+            || fullRun.type === "prototype_large_revision"
+            || fullRun.type === "prototype_feature_revision") {
             setPrototypeContent(fullRun.output);
           } else {
             // ISS-021 (18-03) / UXFIX-02 (22-03) — generic reopen fallback.

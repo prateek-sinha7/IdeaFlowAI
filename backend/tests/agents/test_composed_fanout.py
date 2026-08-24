@@ -637,11 +637,10 @@ def test_composed_fanout_kernel_names_no_workflow() -> None:
         ).stdout.strip()
     )
     engine_pkg = repo_root / "backend" / "agents" / "execution_engine"
+    from tests.agents._portable_grep import grep_files_matching
+
     for needle in ("composed_fanout", _PRODUCER_ID, _WORKER_ID):
-        hits = subprocess.run(
-            ["grep", "-rl", needle, str(engine_pkg)],
-            capture_output=True, text=True,
-        ).stdout.strip()
+        hits = grep_files_matching(needle, engine_pkg).stdout.strip()
         assert hits == "", (
             f"the kernel names the composed workflow/agent '{needle}' (INV-1 violation) in:\n{hits}"
         )

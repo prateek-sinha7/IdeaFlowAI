@@ -1,19 +1,19 @@
 ---
 name: video-hyperframes
-zh_name: "Hyperframes 视频脚本"
+zh_name: "Hyperframes Video Script"
 en_name: "Hyperframes Video"
 emoji: "🎞️"
-description: "Hyperframes / Remotion 兼容的连续帧动画, 可自动播放"
+description: "Hyperframes / Remotion-compatible continuous frame animation, auto-plays"
 category: video
 scenario: video
 aspect_hint: "1920×1080 (16:9)"
 recommended: 5
-tags: ["video", "hyperframes", "remotion", "视频"]
+tags: ["video", "hyperframes", "remotion", "script"]
 example_id: sample-hyperframes-workflow
-example_name: "Hyperframes · AI workflow 视频"
+example_name: "Hyperframes · AI workflow video"
 example_format: markdown
-example_tagline: "8 帧自动播放, 含进度条 + 元数据"
-example_desc: "电影感动画脚本, 可直接喂给 Remotion 做成 mp4"
+example_tagline: "8 auto-playing frames, with progress bar + metadata"
+example_desc: "Cinematic animation script, ready to feed directly into Remotion to render an mp4"
 example_source_url: "https://github.com/heygen-com/hyperframes"
 example_source_label: "heygen-com/hyperframes"
 od:
@@ -28,15 +28,15 @@ od:
     reload: debounce-100
   design_system:
     requires: false
-  example_prompt: "用「Hyperframes 视频脚本」模板把我的内容做成一段「Hyperframes / Remotion 兼容的连续帧动画, 可自动播放」。保持模板的视觉签名，使用真实内容和数据，避免 lorem ipsum 和占位图片。"
+  example_prompt: "Use the \"Hyperframes Video Script\" template to turn my content into a \"Hyperframes / Remotion-compatible continuous frame animation, auto-plays\" video. Keep the template's visual signature, use real content and data, and avoid lorem ipsum and placeholder images."
 ---
 
-【模板: Hyperframes 视频帧】
-- 输出 N 个连续 `<section class="frame">`, 每个 `w-[1920px] h-[1080px]`; N 由【用户内容】信息密度决定 (短脚本 6-10 帧起步, 长脚本应更多, 每帧只承载一个镜头/概念)。
-- 每帧表达一个镜头/概念: 文字 + 视觉构图 (中央构图 / 黄金分割 / 三分法)。
-- 每帧底部隐藏标记 `<!-- frame:N duration:3000 transition:fade -->` 供后续 Remotion / Hyperframes 渲染脚本读取。
-- 顶部加一段 JavaScript 自动播放: 每 3 秒切换到下一帧, 也支持点击 / 方向键控制; 角落显示进度条。
-- 第 1 帧是 hook (一个数据 / 一个反常识 / 一个问题), 第 2-N 是论证, 最后是结论 + CTA。
-- 字号巨大 (text-9xl), 一句话即可, 不要堆砌。
-- 配色统一一套电影感 (深色背景 + 1 个霓虹强调色)。
-- 输出最后包含一段简短注释 `<!-- HYPERFRAMES_META: ... -->`, 包含每帧 duration / transition / sceneSummary 的 JSON 元数据, 用于后续转 Remotion。
+[Template: Hyperframes Video Frames]
+- Output N consecutive `<section class="frame">` elements, each `w-[1920px] h-[1080px]`; N is determined by the information density of [user content] (short scripts start at 6-10 frames, longer scripts should have more; each frame carries only one shot/concept).
+- Each frame expresses one shot/concept: text + visual composition (centered composition / golden ratio / rule of thirds).
+- Each frame has a hidden marker at the bottom `<!-- frame:N duration:3000 transition:fade -->` for downstream Remotion / Hyperframes rendering scripts to read.
+- Add JavaScript at the top for autoplay: advance to the next frame every 3 seconds, also supporting click / arrow-key control; show a progress bar in the corner.
+- Frame 1 is the hook (a data point / a counterintuitive fact / a question), frames 2-N build the argument, and the last frame is the conclusion + CTA.
+- Type size is huge (text-9xl), one sentence is enough -- don't pile on text.
+- Use one unified cinematic color scheme (dark background + 1 neon accent color).
+- End the output with a short comment `<!-- HYPERFRAMES_META: ... -->` containing JSON metadata for each frame's duration / transition / sceneSummary, for later conversion to Remotion.

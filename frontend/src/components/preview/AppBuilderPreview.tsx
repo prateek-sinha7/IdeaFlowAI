@@ -506,6 +506,8 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-ink-400" />
               <input
+                aria-label="Search files"
+                name="file-search"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 placeholder="Search files..."
@@ -605,6 +607,8 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
         <div className="flex-shrink-0 border-t border-line-control bg-surface-white px-4 py-3 flex items-center gap-3">
           <input
             type="text"
+            aria-label="Revision instructions"
+            name="app-revision"
             value={revisionText}
             onChange={e => setRevisionText(e.target.value)}
             onKeyDown={e => {

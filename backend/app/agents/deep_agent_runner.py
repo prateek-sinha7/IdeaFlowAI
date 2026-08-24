@@ -324,6 +324,13 @@ class DeepAgentRunner:
         # explicitly, keyed on the agent's DECLARED tools.
         sanitize_fabricated_xml: bool | None = None,
         skills_sources: list[str] | None = None,
+        # denied_tools: native tool names the STEP's compiled permissions do not
+        # grant (``agents/factory.py::_denied_tools_for``). Unioned into the
+        # exclusion set below and applied LAST, so a permission the manifest did
+        # not grant cannot be handed back by any other branch — including skills
+        # staging. Empty/None ⇒ nothing extra denied (every direct-construction
+        # test path is unaffected).
+        denied_tools: frozenset[str] | None = None,
     ) -> None:
         self.system_prompt = system_prompt
         self.tools = list(tools or [])
@@ -354,6 +361,21 @@ class DeepAgentRunner:
             # forward-protection against a future sandbox backend, not a
             # change in bound tools today.
             excluded = frozenset({_LIBRARY_SUBAGENT_TOOL, "execute"})
+
+        # ── The manifest has the last word ───────────────────────────────────
+        # ``denied_tools`` is decided by ``agents/workflows/permission_caps.py``
+        # and passed in — the runner does not compute or reinterpret it. Applied
+        # AFTER every branch above, so a tool the step's permissions did not grant
+        # cannot be reinstated by skills staging or by any future branch added
+        # here. This is where the manifest's ``tools:`` block takes effect.
+        if denied_tools:
+            excluded = excluded | frozenset(denied_tools)
+
+        logger.debug(
+            "bound_tools %s: %s",
+            (thread_id or "?").split(":")[-1],
+            ",".join(sorted(_BUILTIN_TOOLS - excluded)) or "-",
+        )
 
         # F4 (13-02) / ISS-004: sanitize fabricated tool-call XML from the
         # streamed + terminal output ONLY for agents DECLARED text-only
@@ -551,9 +573,11 @@ class DeepAgentRunner:
                         turn_streamed_text = True
                         full_output += text
                         yield {"type": "chunk", "chunk": text}
-                    # Live reasoning stream (e.g. langchain_ollama with
-                    # reasoning=True puts it in additional_kwargs["reasoning_content"]
-                    # on chunks where ``content`` is empty while reasoning streams).
+                    # Live reasoning stream. ChatAnthropic / ChatBedrockConverse
+                    # (extended thinking) stream reasoning as a content BLOCK, not
+                    # additional_kwargs — see _extract_thinking. The additional_kwargs
+                    # check below is a defensive fallback for providers that shape
+                    # reasoning that way instead.
                     # Yielded live, same per-delta granularity as the ``chunk`` text
                     # above — not buffered until turn-end. Also still accumulated
                     # into ``turn_reasoning`` for the existing end-of-turn debug
@@ -561,7 +585,9 @@ class DeepAgentRunner:
                     # just yields nothing.
                     try:
                         chunk_kwargs = getattr(event["data"]["chunk"], "additional_kwargs", {}) or {}
-                        chunk_reasoning = chunk_kwargs.get("reasoning_content")
+                        chunk_reasoning = chunk_kwargs.get("reasoning_content") or _extract_thinking(
+                            event["data"]["chunk"].content
+                        )
                         if chunk_reasoning:
                             turn_reasoning += str(chunk_reasoning)
                             yield {"type": "thinking", "thinking": str(chunk_reasoning)}
@@ -973,6 +999,31 @@ def _extract_text(content: Any) -> str:
             if isinstance(block, dict) and block.get("type") == "text"
         )
     return ""
+
+
+def _extract_thinking(content: Any) -> str:
+    """Pull streamed extended-thinking text out of a message content payload.
+
+    Extended thinking arrives as a content BLOCK (never in ``additional_kwargs``),
+    in one of two shapes depending on provider:
+      - ChatAnthropic:        {"type": "thinking", "thinking": "<delta>"}
+      - ChatBedrockConverse:  {"type": "reasoning_content",
+                                "reasoning_content": {"type": "text", "text": "<delta>"}}
+    A plain string ``content`` (no blocks) carries no thinking, so returns "".
+    """
+    if not isinstance(content, list):
+        return ""
+    out = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "thinking":
+            out.append(block.get("thinking", ""))
+        elif block.get("type") == "reasoning_content":
+            rc = block.get("reasoning_content")
+            if isinstance(rc, dict):
+                out.append(rc.get("text", ""))
+    return "".join(out)
 
 
 def _cache_token_counts(meta: Any) -> tuple[int, int]:

@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, within, waitFor } from "@testing-library/react";
+import { renderWithProviders, screen, within, waitFor } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
@@ -43,17 +43,15 @@ function createTestStore() {
 function setup(overrides: HeaderOverrides = {}) {
   const onNavigate = vi.fn();
   const onLogout = vi.fn();
-  render(
-    <Provider store={createTestStore()}>
-      <AppHeader
-        currentPage="saved-workflows"
-        onNavigate={onNavigate}
-        onLogout={onLogout}
-        userEmail="qa@flowin.test"
-        userTier="basic"
-        {...overrides}
-      />
-    </Provider>,
+  renderWithProviders(
+    <AppHeader
+      currentPage="saved-workflows"
+      onNavigate={onNavigate}
+      onLogout={onLogout}
+      userEmail="qa@flowin.test"
+      userTier="basic"
+      {...overrides}
+    />,
   );
   return { onNavigate, onLogout };
 }
@@ -137,6 +135,7 @@ describe("AppHeader — profile menu a11y", () => {
     // "Dark mode" is the theme toggle; it lives in this menu as a menuitem too.
     // The standalone "Security" item was removed from this menu; the MFA
     // controls remain reachable as a tab inside Account Settings.
+    // Account Settings / Analytics / Run History / Dark mode / Log out
     expect(items).toHaveLength(5);
     expect(
       within(menu).getByRole("menuitem", { name: /account settings/i }),

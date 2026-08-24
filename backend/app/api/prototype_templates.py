@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from agents.execution_engine.ndjson_adapter import run_od_prototype_pipeline
+from agents.execution_engine.ndjson_adapter import run_prototype_pipeline
 from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.models.user import User
@@ -273,7 +273,7 @@ async def run_prototype(
 
     async def event_stream():
         try:
-            async for event in run_od_prototype_pipeline(
+            async for event in run_prototype_pipeline(
                 template_id=payload.template_id,
                 design_system_id=payload.design_system_id,
                 brief=payload.brief,

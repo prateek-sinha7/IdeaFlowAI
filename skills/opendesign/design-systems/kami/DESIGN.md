@@ -1,11 +1,11 @@
-# Design System Inspired by kami (紙 / 纸)
+# Design System Inspired by kami (paper)
 
 > Category: Editorial & Print
 > Editorial paper system: warm parchment canvas, ink-blue accent, serif-led hierarchy. Built for resumes, one-pagers, white papers, portfolios, slide decks — anything that should feel like high-quality print rather than UI. Multilingual by design (EN · zh-CN · ja).
 
 ## 1. Visual Theme & Atmosphere
 
-kami compresses into one sentence: **warm parchment canvas, ink-blue accent, serif carries hierarchy, no cool grays, no hard shadows.** It is not a UI framework — it is a constraint system for the page, designed to keep deliverables stable, clear, and unmistakably *printed*. The name reads as **kami / 紙 / 纸** — the same word for "paper" across Japanese and Chinese — and the system is co-designed across English, Simplified Chinese, and Japanese typesetting from the ground up, not retrofitted.
+kami compresses into one sentence: **warm parchment canvas, ink-blue accent, serif carries hierarchy, no cool grays, no hard shadows.** It is not a UI framework — it is a constraint system for the page, designed to keep deliverables stable, clear, and unmistakably *printed*. The name reads as **kami (paper)** — the same word for "paper" across Japanese and Chinese — and the system is co-designed across English, Simplified Chinese, and Japanese typesetting from the ground up, not retrofitted.
 
 The page background is parchment (`#f5f4ed`), never pure white. Text sits on cream. The single chromatic move is ink-blue (`#1B365D`) — used on section numbers, primary CTAs, the left rule of a quote, the W500 weight in a metric. Everything else is a warm neutral with a yellow-brown undertone; cool blue-grays are absent on purpose.
 

@@ -13,8 +13,8 @@ triggers:
   - "github briefing"
   - "github digest"
   - "pr digest"
-  - "github 简报"
-  - "代码活动汇总"
+  - "github brief"
+  - "code activity summary"
 od:
   mode: prototype
   platform: desktop

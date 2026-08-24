@@ -195,18 +195,20 @@ def _infra_files(sandbox: Any) -> list[Path]:
 
     found: list[Path] = []
     seen: set[Path] = set()
+    resolved_root = root_path.resolve()
     for pattern in _INFRA_GLOBS:
         try:
             for candidate in root_path.glob(pattern):
                 # Confinement: a resolved path that escapes the sandbox root is never
-                # read (path-traversal safety, T-19-02-01).
+                # read (path-traversal safety, T-19-02-01). Structural containment via
+                # `is_relative_to` — never a separator-sensitive string prefix check
+                # (a hardcoded "/" join never matched on Windows, where resolved paths
+                # use "\", silently excluding every candidate file).
                 try:
                     resolved = candidate.resolve()
                 except OSError:
                     continue
-                if resolved == root_path.resolve() or str(resolved).startswith(
-                    str(root_path.resolve()) + "/"
-                ):
+                if resolved == resolved_root or resolved.is_relative_to(resolved_root):
                     if resolved.is_file() and resolved not in seen:
                         seen.add(resolved)
                         found.append(resolved)

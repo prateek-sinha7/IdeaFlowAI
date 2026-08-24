@@ -36,17 +36,15 @@ const DEFAULT_MODEL_ID = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 const PIPELINE_LABELS: Record<string, string> = {
   user_stories: "User Stories", user_stories_revision: "User Stories",
   ppt: "Presentation", ppt_revision: "Presentation",
-  od_ppt: "Presentation", od_ppt_revision: "Presentation",
   prototype: "Prototype", prototype_revision: "Prototype",
-  od_prototype: "Prototype", od_prototype_revision: "Prototype",
   app_builder: "App Builder", app_builder_revision: "App Builder",
   custom: "Custom", mulesoft_to_springboot: "Mulesoft Migration",
   dotnet_to_azure: ".NET Migration",
 };
 
-/** Normalise od_/revision type variants onto their base type (display grouping). */
+/** Normalise revision type variants onto their base type (display grouping). */
 function normalizeType(type: string): string {
-  return type.replace("od_ppt", "ppt").replace("od_prototype", "prototype").replace("_revision", "");
+  return type.replace("_revision", "");
 }
 
 // ─── Formatters (aligned to the mock's number format: compact 1-dp tokens,
@@ -277,6 +275,8 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
             </div>
             {/* Pipeline select — narrows the fetched rollup arrays client-side. */}
             <select value={pipelineFilter} onChange={e => setPipelineFilter(e.target.value as PipelineFilter)}
+              aria-label="Filter by pipeline"
+              name="pipeline-filter"
               className="text-[12.5px] font-medium border border-line-control rounded-[9px] px-3 py-2 bg-surface-card text-ink-700 focus:outline-none focus:border-brand transition-colors">
               <option value="all">All pipelines</option>
               <option value="user_stories">User Stories</option>
@@ -288,6 +288,8 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
             {/* Model select — only shown when multiple models appear in the range. */}
             {availableModelIds.length > 1 && (
               <select value={modelFilter} onChange={e => setModelFilter(e.target.value)}
+                aria-label="Filter by model"
+                name="model-filter"
                 className="text-[12.5px] font-medium border border-line-control rounded-[9px] px-3 py-2 bg-surface-card text-ink-700 focus:outline-none focus:border-brand transition-colors">
                 <option value="all">All models</option>
                 {availableModelIds.map(id => (

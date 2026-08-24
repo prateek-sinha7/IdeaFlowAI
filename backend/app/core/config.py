@@ -167,7 +167,7 @@ class Settings(BaseSettings):
     # extended-thinking budget, enable-only; 0 disables (never fires); clamped to
     # [1024, MAX_OUTPUT_TOKENS-1] in build_model. Threads a thinking budget into
     # both provider branches of build_model when > 0.
-    THINKING_BUDGET_TOKENS: int = 0
+    THINKING_BUDGET_TOKENS: int = 32767
 
     # ---- SSE transport down-channel (CHAT-07 / D-13) ----
     # The per-run SSE stream ``GET /api/runs/{id}/events/stream``

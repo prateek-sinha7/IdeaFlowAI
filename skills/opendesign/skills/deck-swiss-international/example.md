@@ -1,15 +1,15 @@
-# Open Design · 2026 路线图
+# Open Design · 2026 Roadmap
 
-> Klein Blue 主题, 双页预览: S01 Cover + S06 KPI Tower
+> Klein Blue theme, two-page preview: S01 Cover + S06 KPI Tower
 
-## 一句话
-打造世界级 AI 写作 / 设计基础设施。
+## One-liner
+Building world-class AI writing / design infrastructure.
 
-## Q1-Q4 关键指标
+## Q1-Q4 Key Metrics
 
-| 维度 | 数字 |
+| Metric | Value |
 |---|---|
-| 模板数 | 75 → 200 |
-| 周活用户 | 12K → 80K |
-| Agent 适配 | 17 → 28 |
+| Templates | 75 → 200 |
+| Weekly Active Users | 12K → 80K |
+| Agent Integrations | 17 → 28 |
 | GitHub Stars | 4.2K → 25K |

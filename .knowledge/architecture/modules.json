@@ -1,0 +1,1475 @@
+{
+  "generated_at": "2026-08-20",
+  "modules": [
+    {
+      "id": "MOD-backend",
+      "path": "backend",
+      "language": "python",
+      "file_count": 1,
+      "files": [
+        "backend/init_db.py"
+      ],
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
+    },
+    {
+      "id": "MOD-backend-agents",
+      "path": "backend/agents",
+      "language": "python",
+      "file_count": 120,
+      "files": [
+        "backend/agents/__init__.py",
+        "backend/agents/artifact_store/__init__.py",
+        "backend/agents/artifact_store/store.py",
+        "backend/agents/artifacts/__init__.py",
+        "backend/agents/artifacts/graph.py",
+        "backend/agents/authz.py",
+        "backend/agents/capabilities/__init__.py",
+        "backend/agents/capabilities/base.py",
+        "backend/agents/capabilities/compaction/__init__.py",
+        "backend/agents/capabilities/compaction/chat_history.py",
+        "backend/agents/capabilities/compaction/html_skeleton.py",
+        "backend/agents/capabilities/context_pack/__init__.py",
+        "backend/agents/capabilities/context_pack/pack.py",
+        "backend/agents/capabilities/context_providers/__init__.py",
+        "backend/agents/capabilities/context_providers/conversation.py",
+        "backend/agents/capabilities/context_providers/opendesign.py",
+        "backend/agents/capabilities/context_providers/previous_run.py",
+        "backend/agents/capabilities/context_providers/repo.py",
+        "backend/agents/capabilities/context_providers/uploaded_files.py",
+        "backend/agents/capabilities/deliverables/__init__.py",
+        "backend/agents/capabilities/deliverables/_artifact.py",
+        "backend/agents/capabilities/deliverables/_mimetype.py",
+        "backend/agents/capabilities/deliverables/ppt.py",
+        "backend/agents/capabilities/deliverables/repo_diff.py",
+        "backend/agents/capabilities/deliverables/serialized_sandbox.py",
+        "backend/agents/capabilities/deliverables/single_file.py",
+        "backend/agents/capabilities/deliverables/streamed_text.py",
+        "backend/agents/capabilities/gate_pendency.py",
+        "backend/agents/capabilities/gates/__init__.py",
+        "backend/agents/capabilities/gates/approval.py",
+        "backend/agents/capabilities/gates/base.py",
+        "backend/agents/capabilities/gates/human.py",
+        "backend/agents/capabilities/gates/security.py",
+        "backend/agents/capabilities/gates/validation.py",
+        "backend/agents/capabilities/gates/write.py",
+        "backend/agents/capabilities/hooks/__init__.py",
+        "backend/agents/capabilities/hooks/audit_logger.py",
+        "backend/agents/capabilities/hooks/base.py",
+        "backend/agents/capabilities/hooks/behavioral.py",
+        "backend/agents/capabilities/hooks/otel_tracing.py",
+        "backend/agents/capabilities/hooks/secret_scan.py",
+        "backend/agents/capabilities/hooks/write.py",
+        "backend/agents/capabilities/input_providers/__init__.py",
+        "backend/agents/capabilities/input_providers/run_images.py",
+        "backend/agents/capabilities/integration_providers/__init__.py",
+        "backend/agents/capabilities/integration_providers/providers.py",
+        "backend/agents/capabilities/mcp_servers/__init__.py",
+        "backend/agents/capabilities/mcp_servers/catalog.py",
+        "backend/agents/capabilities/merge/__init__.py",
+        "backend/agents/capabilities/merge/base.py",
+        "backend/agents/capabilities/merge/copy_disjoint.py",
+        "backend/agents/capabilities/merge/git_3way.py",
+        "backend/agents/capabilities/merge/html_fragment.py",
+        "backend/agents/capabilities/merge/json_merge.py",
+        "backend/agents/capabilities/model_catalog.py",
+        "backend/agents/capabilities/model_pricing.py",
+        "backend/agents/capabilities/post_steps/__init__.py",
+        "backend/agents/capabilities/post_steps/api_prefix_audit.py",
+        "backend/agents/capabilities/post_steps/revision_validation.py",
+        "backend/agents/capabilities/prompt/__init__.py",
+        "backend/agents/capabilities/prompt/policy.py",
+        "backend/agents/capabilities/registry.py",
+        "backend/agents/capabilities/repo_inventory/__init__.py",
+        "backend/agents/capabilities/repo_inventory/inventory.py",
+        "backend/agents/capabilities/runtimes/__init__.py",
+        "backend/agents/capabilities/runtimes/langchain_deepagents.py",
+        "backend/agents/capabilities/skills/__init__.py",
+        "backend/agents/capabilities/skills/providers.py",
+        "backend/agents/capabilities/strategies/__init__.py",
+        "backend/agents/capabilities/strategies/fanout_batch.py",
+        "backend/agents/capabilities/strategies/parallel_group.py",
+        "backend/agents/capabilities/strategies/single_shot.py",
+        "backend/agents/capabilities/strategies/task_loop.py",
+        "backend/agents/capabilities/strategies/wave_scheduler.py",
+        "backend/agents/capabilities/task_identity.py",
+        "backend/agents/capabilities/task_parsers/__init__.py",
+        "backend/agents/capabilities/task_parsers/heading_tasks.py",
+        "backend/agents/capabilities/task_parsers/json_tasks.py",
+        "backend/agents/capabilities/tools/__init__.py",
+        "backend/agents/capabilities/tools/internet.py",
+        "backend/agents/capabilities/tools/providers.py",
+        "backend/agents/capabilities/validators/__init__.py",
+        "backend/agents/capabilities/validators/_exec_support.py",
+        "backend/agents/capabilities/validators/api_prefix.py",
+        "backend/agents/capabilities/validators/code_compile.py",
+        "backend/agents/capabilities/validators/code_lint.py",
+        "backend/agents/capabilities/validators/code_test.py",
+        "backend/agents/capabilities/validators/severity.py",
+        "backend/agents/capabilities/validators/spec_plan_coverage.py",
+        "backend/agents/capabilities/validators/task_done_when.py",
+        "backend/agents/execution_engine/__init__.py",
+        "backend/agents/execution_engine/budget.py",
+        "backend/agents/execution_engine/clarify_engine.py",
+        "backend/agents/execution_engine/context.py",
+        "backend/agents/execution_engine/engine.py",
+        "backend/agents/execution_engine/fanout.py",
+        "backend/agents/execution_engine/kernel_services.py",
+        "backend/agents/execution_engine/ndjson_adapter.py",
+        "backend/agents/execution_engine/od_context.py",
+        "backend/agents/execution_engine/resolver.py",
+        "backend/agents/execution_engine/run_log.py",
+        "backend/agents/execution_engine/state_machine.py",
+        "backend/agents/factory.py",
+        "backend/agents/loader.py",
+        "backend/agents/model_policy.py",
+        "backend/agents/planner/__init__.py",
+        "backend/agents/planner/smart_planner.py",
+        "backend/agents/planner/tools.py",
+        "backend/agents/registry.py",
+        "backend/agents/runtime/__init__.py",
+        "backend/agents/runtime/base.py",
+        "backend/agents/workflow_memory/__init__.py",
+        "backend/agents/workflow_memory/memory.py",
+        "backend/agents/workflows/__init__.py",
+        "backend/agents/workflows/artifacts.py",
+        "backend/agents/workflows/compiler.py",
+        "backend/agents/workflows/manifest.py",
+        "backend/agents/workflows/permission_caps.py",
+        "backend/agents/workflows/plan.py",
+        "backend/agents/workflows/selections.py"
+      ],
+      "imports": [
+        "MOD-backend-app",
+        "MOD-backend-app-agents",
+        "MOD-backend-app-core",
+        "MOD-backend-app-models",
+        "MOD-backend-app-services"
+      ],
+      "imported_by": [
+        "MOD-backend-app",
+        "MOD-backend-app-agents",
+        "MOD-backend-app-api"
+      ],
+      "external_deps": [
+        "botocore",
+        "langchain_anthropic",
+        "langchain_core",
+        "opentelemetry",
+        "yaml"
+      ]
+    },
+    {
+      "id": "MOD-backend-alembic",
+      "path": "backend/alembic",
+      "language": "python",
+      "file_count": 1,
+      "files": [
+        "backend/alembic/env.py"
+      ],
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
+    },
+    {
+      "id": "MOD-backend-alembic-versions",
+      "path": "backend/alembic/versions",
+      "language": "python",
+      "file_count": 31,
+      "files": [
+        "backend/alembic/versions/0001_initial_schema.py",
+        "backend/alembic/versions/0002_handoff_tables.py",
+        "backend/alembic/versions/0004_add_token_usage.py",
+        "backend/alembic/versions/0005_add_user_tier.py",
+        "backend/alembic/versions/0006_add_is_admin.py",
+        "backend/alembic/versions/0007_add_preferred_model.py",
+        "backend/alembic/versions/0008_add_workflow_run_model_id.py",
+        "backend/alembic/versions/0009_schema_debt.py",
+        "backend/alembic/versions/0010_artifact_store.py",
+        "backend/alembic/versions/0011_workflow_tables.py",
+        "backend/alembic/versions/0012_workflow_run_extended.py",
+        "backend/alembic/versions/0013_collapse_pipeline_run_id.py",
+        "backend/alembic/versions/0014_typed_artifacts_persistence.py",
+        "backend/alembic/versions/0015_drop_thin_artifact_store.py",
+        "backend/alembic/versions/0016_capability_hardening_tables.py",
+        "backend/alembic/versions/0017_repositories_repo_workspace.py",
+        "backend/alembic/versions/0018_exec_runs.py",
+        "backend/alembic/versions/0019_subagent_runs.py",
+        "backend/alembic/versions/0020_wave_runs.py",
+        "backend/alembic/versions/0021_saved_user_workflows.py",
+        "backend/alembic/versions/0022_workflow_run_deliverable_mimetype.py",
+        "backend/alembic/versions/0023_workflow_run_selections.py",
+        "backend/alembic/versions/0024_run_events_uniqueness.py",
+        "backend/alembic/versions/0025_deep_link_nonces.py",
+        "backend/alembic/versions/0026_subagent_task_identity.py",
+        "backend/alembic/versions/0027_workflow_run_od_context.py",
+        "backend/alembic/versions/0028_repair_0024_0025_drift.py",
+        "backend/alembic/versions/0029_enforce_seq_uniqueness_after_repair.py",
+        "backend/alembic/versions/0030_workflow_runs_user_created_index.py",
+        "backend/alembic/versions/0031_composed_workflow_execution.py",
+        "backend/alembic/versions/0032_collapse_od_prototype_label.py"
+      ],
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
+    },
+    {
+      "id": "MOD-backend-app",
+      "path": "backend/app",
+      "language": "python",
+      "file_count": 2,
+      "files": [
+        "backend/app/__init__.py",
+        "backend/app/main.py"
+      ],
+      "imports": [
+        "MOD-backend-agents",
+        "MOD-backend-app-agents",
+        "MOD-backend-app-api",
+        "MOD-backend-app-core",
+        "MOD-backend-app-models"
+      ],
+      "imported_by": [
+        "MOD-backend-agents",
+        "MOD-backend-app-agents",
+        "MOD-backend-app-api",
+        "MOD-backend-app-core",
+        "MOD-backend-app-models",
+        "MOD-backend-app-scripts",
+        "MOD-backend-app-services"
+      ],
+      "external_deps": [
+        "fastapi"
+      ]
+    },
+    {
+      "id": "MOD-backend-app-agents",
+      "path": "backend/app/agents",
+      "language": "python",
+      "file_count": 38,
+      "files": [
+        "backend/app/agents/__init__.py",
+        "backend/app/agents/cached_invoke.py",
+        "backend/app/agents/chat/__init__.py",
+        "backend/app/agents/chat/concierge.py",
+        "backend/app/agents/chat_narrator.py",
+        "backend/app/agents/chat_runner.py",
+        "backend/app/agents/checkpointer.py",
+        "backend/app/agents/deep_agent_runner.py",
+        "backend/app/agents/handoff/__init__.py",
+        "backend/app/agents/handoff/classifier.py",
+        "backend/app/agents/handoff/coder.py",
+        "backend/app/agents/handoff/compliance_agent.py",
+        "backend/app/agents/handoff/test_agent.py",
+        "backend/app/agents/hooks_catalog.py",
+        "backend/app/agents/llm_errors.py",
+        "backend/app/agents/mcp/__init__.py",
+        "backend/app/agents/mcp/client.py",
+        "backend/app/agents/model_factory.py",
+        "backend/app/agents/modes.py",
+        "backend/app/agents/prompt_overrides.py",
+        "backend/app/agents/render_check.py",
+        "backend/app/agents/repo_index/__init__.py",
+        "backend/app/agents/repo_index/index.py",
+        "backend/app/agents/route_table.py",
+        "backend/app/agents/runtime/__init__.py",
+        "backend/app/agents/runtime/local.py",
+        "backend/app/agents/sandbox.py",
+        "backend/app/agents/skill_staging.py",
+        "backend/app/agents/skills.py",
+        "backend/app/agents/skills_catalog.py",
+        "backend/app/agents/static_check.py",
+        "backend/app/agents/tools/__init__.py",
+        "backend/app/agents/tools/runner_tools.py",
+        "backend/app/agents/types.py",
+        "backend/app/agents/validators/__init__.py",
+        "backend/app/agents/validators/design_quality.py",
+        "backend/app/agents/validators/html_render.py",
+        "backend/app/agents/validators/html_static.py"
+      ],
+      "imports": [
+        "MOD-backend-agents",
+        "MOD-backend-app",
+        "MOD-backend-app-core",
+        "MOD-backend-app-models"
+      ],
+      "imported_by": [
+        "MOD-backend-agents",
+        "MOD-backend-app",
+        "MOD-backend-app-api",
+        "MOD-backend-app-services"
+      ],
+      "external_deps": [
+        "boto3",
+        "botocore",
+        "deepagents",
+        "langchain",
+        "langchain_anthropic",
+        "langchain_core",
+        "langgraph"
+      ]
+    },
+    {
+      "id": "MOD-backend-app-api",
+      "path": "backend/app/api",
+      "language": "python",
+      "file_count": 30,
+      "files": [
+        "backend/app/api/__init__.py",
+        "backend/app/api/admin.py",
+        "backend/app/api/agents.py",
+        "backend/app/api/analytics.py",
+        "backend/app/api/api_key_auth.py",
+        "backend/app/api/auth.py",
+        "backend/app/api/capabilities.py",
+        "backend/app/api/chat_router.py",
+        "backend/app/api/chats.py",
+        "backend/app/api/composition_order.py",
+        "backend/app/api/file_extract.py",
+        "backend/app/api/handoff.py",
+        "backend/app/api/hooks.py",
+        "backend/app/api/install.py",
+        "backend/app/api/launch_context.py",
+        "backend/app/api/mcp.py",
+        "backend/app/api/ppt_templates.py",
+        "backend/app/api/prototype_templates.py",
+        "backend/app/api/run_commands.py",
+        "backend/app/api/run_engine.py",
+        "backend/app/api/run_files.py",
+        "backend/app/api/run_shutdown.py",
+        "backend/app/api/run_stream.py",
+        "backend/app/api/runs.py",
+        "backend/app/api/settings.py",
+        "backend/app/api/skills.py",
+        "backend/app/api/user_agents.py",
+        "backend/app/api/user_workflows.py",
+        "backend/app/api/websocket_handoff.py",
+        "backend/app/api/workflows.py"
+      ],
+      "imports": [
+        "MOD-backend-agents",
+        "MOD-backend-app",
+        "MOD-backend-app-agents",
+        "MOD-backend-app-core",
+        "MOD-backend-app-models",
+        "MOD-backend-app-services"
+      ],
+      "imported_by": [
+        "MOD-backend-app"
+      ],
+      "external_deps": [
+        "fastapi",
+        "httpx",
+        "pptx",
+        "pydantic",
+        "yaml"
+      ]
+    },
+    {
+      "id": "MOD-backend-app-core",
+      "path": "backend/app/core",
+      "language": "python",
+      "file_count": 7,
+      "files": [
+        "backend/app/core/__init__.py",
+        "backend/app/core/config.py",
+        "backend/app/core/crypto.py",
+        "backend/app/core/dependencies.py",
+        "backend/app/core/entitlements.py",
+        "backend/app/core/logging.py",
+        "backend/app/core/security.py"
+      ],
+      "imports": [
+        "MOD-backend-app",
+        "MOD-backend-app-models"
+      ],
+      "imported_by": [
+        "MOD-backend-agents",
+        "MOD-backend-app",
+        "MOD-backend-app-agents",
+        "MOD-backend-app-api",
+        "MOD-backend-app-models",
+        "MOD-backend-app-scripts"
+      ],
+      "external_deps": [
+        "bcrypt",
+        "cryptography",
+        "fastapi",
+        "pydantic",
+        "pydantic_settings"
+      ]
+    },
+    {
+      "id": "MOD-backend-app-models",
+      "path": "backend/app/models",
+      "language": "python",
+      "file_count": 24,
+      "files": [
+        "backend/app/models/__init__.py",
+        "backend/app/models/artifact_ref.py",
+        "backend/app/models/chat.py",
+        "backend/app/models/database.py",
+        "backend/app/models/exec_runs.py",
+        "backend/app/models/gate_events.py",
+        "backend/app/models/handoff.py",
+        "backend/app/models/hook_runs.py",
+        "backend/app/models/mcp_credential.py",
+        "backend/app/models/repository.py",
+        "backend/app/models/revoked_token.py",
+        "backend/app/models/run_capabilities.py",
+        "backend/app/models/run_event.py",
+        "backend/app/models/schemas.py",
+        "backend/app/models/subagent_run.py",
+        "backend/app/models/user.py",
+        "backend/app/models/user_agent.py",
+        "backend/app/models/validation_results.py",
+        "backend/app/models/wave_run.py",
+        "backend/app/models/workflow.py",
+        "backend/app/models/workflow_clarification.py",
+        "backend/app/models/workflow_definition.py",
+        "backend/app/models/workflow_memory.py",
+        "backend/app/models/workspace.py"
+      ],
+      "imports": [
+        "MOD-backend-app",
+        "MOD-backend-app-core"
+      ],
+      "imported_by": [
+        "MOD-backend-agents",
+        "MOD-backend-app",
+        "MOD-backend-app-agents",
+        "MOD-backend-app-api",
+        "MOD-backend-app-core",
+        "MOD-backend-app-scripts"
+      ],
+      "external_deps": [
+        "pydantic"
+      ]
+    },
+    {
+      "id": "MOD-backend-app-scripts",
+      "path": "backend/app/scripts",
+      "language": "python",
+      "file_count": 2,
+      "files": [
+        "backend/app/scripts/__init__.py",
+        "backend/app/scripts/bootstrap_admin.py"
+      ],
+      "imports": [
+        "MOD-backend-app",
+        "MOD-backend-app-core",
+        "MOD-backend-app-models"
+      ],
+      "imported_by": [],
+      "external_deps": []
+    },
+    {
+      "id": "MOD-backend-app-services",
+      "path": "backend/app/services",
+      "language": "python",
+      "file_count": 5,
+      "files": [
+        "backend/app/services/__init__.py",
+        "backend/app/services/handoff_github.py",
+        "backend/app/services/handoff_pipeline.py",
+        "backend/app/services/od_loader.py",
+        "backend/app/services/pptx_export.py"
+      ],
+      "imports": [
+        "MOD-backend-app",
+        "MOD-backend-app-agents"
+      ],
+      "imported_by": [
+        "MOD-backend-agents",
+        "MOD-backend-app-api"
+      ],
+      "external_deps": [
+        "httpx",
+        "yaml"
+      ]
+    },
+    {
+      "id": "MOD-backend-evals",
+      "path": "backend/evals",
+      "language": "python",
+      "file_count": 9,
+      "files": [
+        "backend/evals/__init__.py",
+        "backend/evals/minimal/checks.py",
+        "backend/evals/minimal/cli.py",
+        "backend/evals/minimal/judge.py",
+        "backend/evals/minimal/report.py",
+        "backend/evals/minimal/run.py",
+        "backend/evals/minimal/score.py",
+        "backend/evals/minimal/store.py",
+        "backend/evals/minimal/workflow.py"
+      ],
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
+    },
+    {
+      "id": "MOD-backend-scripts",
+      "path": "backend/scripts",
+      "language": "python",
+      "file_count": 6,
+      "files": [
+        "backend/scripts/audit_lost_run_events.py",
+        "backend/scripts/cutover_legacy_runs.py",
+        "backend/scripts/derive_compatible_agents.py",
+        "backend/scripts/generate_template_thumbnails.py",
+        "backend/scripts/seed_test_users.py",
+        "backend/scripts/skills_audit.py"
+      ],
+      "imports": [],
+      "imported_by": [],
+      "external_deps": []
+    },
+    {
+      "id": "MOD-frontend-src",
+      "path": "frontend/src",
+      "language": "typescript",
+      "file_count": 32,
+      "files": [
+        "frontend/src/store/GlobalPreloadIndicator.tsx",
+        "frontend/src/store/StoreProvider.tsx",
+        "frontend/src/store/api/admin.ts",
+        "frontend/src/store/api/agents.ts",
+        "frontend/src/store/api/api.ts",
+        "frontend/src/store/api/auth.ts",
+        "frontend/src/store/api/capabilities.ts",
+        "frontend/src/store/api/chats.ts",
+        "frontend/src/store/api/files.ts",
+        "frontend/src/store/api/handoff.ts",
+        "frontend/src/store/api/health.ts",
+        "frontend/src/store/api/hooks.ts",
+        "frontend/src/store/api/http.ts",
+        "frontend/src/store/api/install.ts",
+        "frontend/src/store/api/mcp.ts",
+        "frontend/src/store/api/ppt.ts",
+        "frontend/src/store/api/prototype.ts",
+        "frontend/src/store/api/runs.ts",
+        "frontend/src/store/api/settings.ts",
+        "frontend/src/store/api/skills.ts",
+        "frontend/src/store/api/userWorkflows.test.ts",
+        "frontend/src/store/api/userWorkflows.ts",
+        "frontend/src/store/api/workflows.ts",
+        "frontend/src/store/hooks.ts",
+        "frontend/src/store/index.ts",
+        "frontend/src/store/listenerMiddleware.ts",
+        "frontend/src/store/slices/agentsSlice.ts",
+        "frontend/src/store/slices/authSlice.ts",
+        "frontend/src/store/slices/globalSlice.test.ts",
+        "frontend/src/store/slices/globalSlice.ts",
+        "frontend/src/store/slices/hooksSlice.ts",
+        "frontend/src/store/slices/skillsSlice.ts"
+      ],
+      "imports": [
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-app",
+        "MOD-frontend-src-components-catalog",
+        "MOD-frontend-src-components-chat",
+        "MOD-frontend-src-components-layout",
+        "MOD-frontend-src-components-library",
+        "MOD-frontend-src-components-workflow",
+        "MOD-frontend-src-hooks"
+      ],
+      "external_deps": [
+        "@reduxjs/toolkit",
+        "axios",
+        "lucide-react",
+        "react",
+        "react-redux",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-app",
+      "path": "frontend/src/app",
+      "language": "typescript",
+      "file_count": 25,
+      "files": [
+        "frontend/src/app/admin/admin.reskin.test.tsx",
+        "frontend/src/app/admin/page.tsx",
+        "frontend/src/app/dashboard/attachRunOnOpen.source.test.ts",
+        "frontend/src/app/dashboard/bridgeTerminality.source.test.ts",
+        "frontend/src/app/dashboard/contentSourceRunScope.source.test.ts",
+        "frontend/src/app/dashboard/contentSourceRunType.source.test.ts",
+        "frontend/src/app/dashboard/deadRevisionRefs.source.test.ts",
+        "frontend/src/app/dashboard/freshLaunchTranscriptReset.source.test.ts",
+        "frontend/src/app/dashboard/launchImageAndRecents.source.test.ts",
+        "frontend/src/app/dashboard/liveRunSwitch.fix201.test.ts",
+        "frontend/src/app/dashboard/page.tsx",
+        "frontend/src/app/dashboard/reviseGuard.source.test.ts",
+        "frontend/src/app/dashboard/revisionFamilyLinkage.source.test.ts",
+        "frontend/src/app/dashboard/terminalReopenReconcile.source.test.ts",
+        "frontend/src/app/handoff/[token]/page.tsx",
+        "frontend/src/app/handoff/settings/page.tsx",
+        "frontend/src/app/layout.tsx",
+        "frontend/src/app/login/login.reskin.test.tsx",
+        "frontend/src/app/login/page.tsx",
+        "frontend/src/app/page.tsx",
+        "frontend/src/app/preview-fullscreen/page.tsx",
+        "frontend/src/app/register/page.tsx",
+        "frontend/src/app/test-preview/page.tsx",
+        "frontend/src/app/workflow/create/page.tsx",
+        "frontend/src/app/workflow/page.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src",
+        "MOD-frontend-src-components-handoff",
+        "MOD-frontend-src-components-layout",
+        "MOD-frontend-src-components-preview",
+        "MOD-frontend-src-components-ui",
+        "MOD-frontend-src-components-workflow",
+        "MOD-frontend-src-context",
+        "MOD-frontend-src-hooks",
+        "MOD-frontend-src-lib",
+        "MOD-frontend-src-providers",
+        "MOD-frontend-src-types"
+      ],
+      "imported_by": [],
+      "external_deps": [
+        "@testing-library/react",
+        "@testing-library/user-event",
+        "fs",
+        "lucide-react",
+        "motion",
+        "next",
+        "path",
+        "react",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-analytics",
+      "path": "frontend/src/components/analytics",
+      "language": "typescript",
+      "file_count": 6,
+      "files": [
+        "frontend/src/components/analytics/AnalyticsPage.test.tsx",
+        "frontend/src/components/analytics/AnalyticsPage.tsx",
+        "frontend/src/components/analytics/charts/BarChart.test.tsx",
+        "frontend/src/components/analytics/charts/BarChart.tsx",
+        "frontend/src/components/analytics/charts/DonutChart.test.tsx",
+        "frontend/src/components/analytics/charts/DonutChart.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-components-layout"
+      ],
+      "external_deps": [
+        "@testing-library/react",
+        "@testing-library/user-event",
+        "lucide-react",
+        "motion",
+        "react",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-catalog",
+      "path": "frontend/src/components/catalog",
+      "language": "typescript",
+      "file_count": 4,
+      "files": [
+        "frontend/src/components/catalog/HomeLaunchGrid.inspect.test.tsx",
+        "frontend/src/components/catalog/HomeLaunchGrid.test.tsx",
+        "frontend/src/components/catalog/HomeLaunchGrid.tsx",
+        "frontend/src/components/catalog/NameWorkflowModal.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src",
+        "MOD-frontend-src-components-workflow",
+        "MOD-frontend-src-hooks",
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-components-layout",
+        "MOD-frontend-src-components-savedworkflows",
+        "MOD-frontend-src-components-workflow"
+      ],
+      "external_deps": [
+        "@/test",
+        "@testing-library/user-event",
+        "lucide-react",
+        "motion",
+        "next",
+        "react",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-chat",
+      "path": "frontend/src/components/chat",
+      "language": "typescript",
+      "file_count": 38,
+      "files": [
+        "frontend/src/components/chat/ArtifactCard.tsx",
+        "frontend/src/components/chat/ChatAttachments.test.tsx",
+        "frontend/src/components/chat/ChatAttachments.tsx",
+        "frontend/src/components/chat/ChatInput.tsx",
+        "frontend/src/components/chat/ChatPanel.test.tsx",
+        "frontend/src/components/chat/ChatPanel.tsx",
+        "frontend/src/components/chat/ChatTokenWidget.test.tsx",
+        "frontend/src/components/chat/ChatTokenWidget.tsx",
+        "frontend/src/components/chat/ErrorMessage.tsx",
+        "frontend/src/components/chat/InlineClarifyActions.test.tsx",
+        "frontend/src/components/chat/InlineClarifyActions.tsx",
+        "frontend/src/components/chat/InlineGateActions.test.tsx",
+        "frontend/src/components/chat/InlineGateActions.tsx",
+        "frontend/src/components/chat/LaneRunHeader.test.tsx",
+        "frontend/src/components/chat/LaneRunHeader.tsx",
+        "frontend/src/components/chat/MessageBubble.tsx",
+        "frontend/src/components/chat/ProcessSteps.tsx",
+        "frontend/src/components/chat/ResultCard.test.tsx",
+        "frontend/src/components/chat/ResultCard.tsx",
+        "frontend/src/components/chat/RunChatLane.fix192.test.tsx",
+        "frontend/src/components/chat/RunChatLane.test.tsx",
+        "frontend/src/components/chat/RunChatLane.tsx",
+        "frontend/src/components/chat/TypingIndicator.tsx",
+        "frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx",
+        "frontend/src/components/chat/blocks/FileOpsSummary.tsx",
+        "frontend/src/components/chat/blocks/ThinkingBlock.tsx",
+        "frontend/src/components/chat/blocks/blocks.test.tsx",
+        "frontend/src/components/chat/runtime/blocks.types.ts",
+        "frontend/src/components/chat/runtime/buildBlocks.test.ts",
+        "frontend/src/components/chat/runtime/buildBlocks.ts",
+        "frontend/src/components/chat/runtime/partial-json.test.ts",
+        "frontend/src/components/chat/runtime/partial-json.ts",
+        "frontend/src/components/chat/runtime/streaming-json.test.ts",
+        "frontend/src/components/chat/runtime/streaming-json.ts",
+        "frontend/src/components/chat/runtime/tool-renderers.test.tsx",
+        "frontend/src/components/chat/runtime/tool-renderers.tsx",
+        "frontend/src/components/chat/runtime/useMeasuredVirtualWindow.test.ts",
+        "frontend/src/components/chat/runtime/useMeasuredVirtualWindow.ts"
+      ],
+      "imports": [
+        "MOD-frontend-src",
+        "MOD-frontend-src-components-results",
+        "MOD-frontend-src-components-ui",
+        "MOD-frontend-src-hooks",
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-components-layout",
+        "MOD-frontend-src-components-preview",
+        "MOD-frontend-src-components-results"
+      ],
+      "external_deps": [
+        "@/test",
+        "@testing-library/react",
+        "fs",
+        "lucide-react",
+        "motion",
+        "path",
+        "react",
+        "react-dom",
+        "react-markdown",
+        "remark-gfm",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-handoff",
+      "path": "frontend/src/components/handoff",
+      "language": "typescript",
+      "file_count": 8,
+      "files": [
+        "frontend/src/components/handoff/DiffView.tsx",
+        "frontend/src/components/handoff/HandoffAgentPanel.tsx",
+        "frontend/src/components/handoff/HandoffPreviewPanel.tsx",
+        "frontend/src/components/handoff/HandoffWorkflow.tsx",
+        "frontend/src/components/handoff/IntegrationsCard.tsx",
+        "frontend/src/components/handoff/ReportViews.tsx",
+        "frontend/src/components/handoff/types.ts",
+        "frontend/src/components/handoff/useHandoffPipelineState.ts"
+      ],
+      "imports": [
+        "MOD-frontend-src-hooks",
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-app"
+      ],
+      "external_deps": [
+        "lucide-react",
+        "motion",
+        "next",
+        "react"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-history",
+      "path": "frontend/src/components/history",
+      "language": "typescript",
+      "file_count": 11,
+      "files": [
+        "frontend/src/components/history/RevisionFamilyView.tsx",
+        "frontend/src/components/history/RunDetailPage.test.tsx",
+        "frontend/src/components/history/RunDetailPage.tsx",
+        "frontend/src/components/history/WorkflowHistory.family.test.tsx",
+        "frontend/src/components/history/WorkflowHistory.genericReopen.test.tsx",
+        "frontend/src/components/history/WorkflowHistory.grouping.test.tsx",
+        "frontend/src/components/history/WorkflowHistory.openRun.test.tsx",
+        "frontend/src/components/history/WorkflowHistory.revise.test.tsx",
+        "frontend/src/components/history/WorkflowHistory.runInput.test.tsx",
+        "frontend/src/components/history/WorkflowHistory.test.tsx",
+        "frontend/src/components/history/WorkflowHistory.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src-components-preview",
+        "MOD-frontend-src-components-results",
+        "MOD-frontend-src-components-ui",
+        "MOD-frontend-src-hooks",
+        "MOD-frontend-src-lib",
+        "MOD-frontend-src-types"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-components-layout"
+      ],
+      "external_deps": [
+        "@/test",
+        "@testing-library/react",
+        "@testing-library/user-event",
+        "lucide-react",
+        "motion",
+        "react",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-home",
+      "path": "frontend/src/components/home",
+      "language": "typescript",
+      "file_count": 1,
+      "files": [
+        "frontend/src/components/home/CreationHub.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [],
+      "external_deps": [
+        "lucide-react",
+        "motion",
+        "next",
+        "react"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-layout",
+      "path": "frontend/src/components/layout",
+      "language": "typescript",
+      "file_count": 7,
+      "files": [
+        "frontend/src/components/layout/AppHeader.a11y.test.tsx",
+        "frontend/src/components/layout/AppHeader.tsx",
+        "frontend/src/components/layout/DashboardLayout.catalogHome.test.tsx",
+        "frontend/src/components/layout/DashboardLayout.fix194.test.tsx",
+        "frontend/src/components/layout/DashboardLayout.laneTitle.test.tsx",
+        "frontend/src/components/layout/DashboardLayout.launchLatch.test.tsx",
+        "frontend/src/components/layout/DashboardLayout.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src",
+        "MOD-frontend-src-components-analytics",
+        "MOD-frontend-src-components-catalog",
+        "MOD-frontend-src-components-chat",
+        "MOD-frontend-src-components-history",
+        "MOD-frontend-src-components-library",
+        "MOD-frontend-src-components-preview",
+        "MOD-frontend-src-components-results",
+        "MOD-frontend-src-components-savedworkflows",
+        "MOD-frontend-src-components-settings",
+        "MOD-frontend-src-components-ui",
+        "MOD-frontend-src-components-workflow",
+        "MOD-frontend-src-context",
+        "MOD-frontend-src-hooks",
+        "MOD-frontend-src-lib",
+        "MOD-frontend-src-providers"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-app"
+      ],
+      "external_deps": [
+        "@/test",
+        "@testing-library/react",
+        "@testing-library/user-event",
+        "lucide-react",
+        "motion",
+        "next",
+        "react",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-library",
+      "path": "frontend/src/components/library",
+      "language": "typescript",
+      "file_count": 3,
+      "files": [
+        "frontend/src/components/library/LibraryPage.reskin.test.tsx",
+        "frontend/src/components/library/LibraryPage.test.tsx",
+        "frontend/src/components/library/LibraryPage.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src",
+        "MOD-frontend-src-components-ui",
+        "MOD-frontend-src-components-workflow",
+        "MOD-frontend-src-context",
+        "MOD-frontend-src-hooks",
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-components-layout"
+      ],
+      "external_deps": [
+        "@/test",
+        "@reduxjs/toolkit",
+        "@testing-library/react",
+        "lucide-react",
+        "motion",
+        "react",
+        "react-redux",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-preview",
+      "path": "frontend/src/components/preview",
+      "language": "typescript",
+      "file_count": 18,
+      "files": [
+        "frontend/src/components/preview/AppBuilderPreview.tsx",
+        "frontend/src/components/preview/MarkdownPreview.security.test.tsx",
+        "frontend/src/components/preview/MarkdownPreview.tsx",
+        "frontend/src/components/preview/PPTPreview.tsx",
+        "frontend/src/components/preview/PreviewChrome.tsx",
+        "frontend/src/components/preview/PreviewPanel.degraded.test.tsx",
+        "frontend/src/components/preview/PreviewPanel.genericDeliverable.test.tsx",
+        "frontend/src/components/preview/PreviewPanel.revisionChip.test.tsx",
+        "frontend/src/components/preview/PreviewPanel.test.tsx",
+        "frontend/src/components/preview/PreviewPanel.tsx",
+        "frontend/src/components/preview/PreviewPanel.versionChip.test.tsx",
+        "frontend/src/components/preview/PrototypePreview.tsx",
+        "frontend/src/components/preview/ReadOnlyVersionBanner.tsx",
+        "frontend/src/components/preview/RunHeader.test.tsx",
+        "frontend/src/components/preview/RunHeader.tsx",
+        "frontend/src/components/preview/TweaksPanel.tsx",
+        "frontend/src/components/preview/UserStoryPreview.tsx",
+        "frontend/src/components/preview/__tests__/PreviewPanel.switcher.test.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src-components-chat",
+        "MOD-frontend-src-components-results",
+        "MOD-frontend-src-components-ui",
+        "MOD-frontend-src-hooks",
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-app",
+        "MOD-frontend-src-components-history",
+        "MOD-frontend-src-components-layout",
+        "MOD-frontend-src-components-results"
+      ],
+      "external_deps": [
+        "@testing-library/react",
+        "lucide-react",
+        "motion",
+        "react",
+        "react-markdown",
+        "remark-gfm",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-results",
+      "path": "frontend/src/components/results",
+      "language": "typescript",
+      "file_count": 27,
+      "files": [
+        "frontend/src/components/results/AgentDetailPanel.artifactCards.test.tsx",
+        "frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx",
+        "frontend/src/components/results/AgentDetailPanel.liveOutput.test.tsx",
+        "frontend/src/components/results/AgentDetailPanel.tsx",
+        "frontend/src/components/results/AgentThinkingTab.narrativeOrder.test.tsx",
+        "frontend/src/components/results/AgentThinkingTab.prototypePreamble.test.tsx",
+        "frontend/src/components/results/AgentThinkingTab.test.tsx",
+        "frontend/src/components/results/AgentThinkingTab.tsx",
+        "frontend/src/components/results/ArtifactVersionPicker.test.tsx",
+        "frontend/src/components/results/ArtifactVersionPicker.tsx",
+        "frontend/src/components/results/AuditTab.tsx",
+        "frontend/src/components/results/ClarificationsCard.test.tsx",
+        "frontend/src/components/results/ClarificationsCard.tsx",
+        "frontend/src/components/results/FilesTab.baseVersion.test.tsx",
+        "frontend/src/components/results/FilesTab.runInput.test.tsx",
+        "frontend/src/components/results/FilesTab.test.tsx",
+        "frontend/src/components/results/FilesTab.tsx",
+        "frontend/src/components/results/StartingPointCard.test.tsx",
+        "frontend/src/components/results/StartingPointCard.tsx",
+        "frontend/src/components/results/StepsOverviewSpine.activityLine.test.ts",
+        "frontend/src/components/results/StepsOverviewSpine.tsx",
+        "frontend/src/components/results/TaskDetailPanel.tsx",
+        "frontend/src/components/results/ValidatorIssuePanel.tsx",
+        "frontend/src/components/results/__tests__/AuditTab.test.tsx",
+        "frontend/src/components/results/__tests__/StepsDrilldown.test.tsx",
+        "frontend/src/components/results/artifactPreview.test.tsx",
+        "frontend/src/components/results/artifactPreview.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src-components-chat",
+        "MOD-frontend-src-components-preview",
+        "MOD-frontend-src-components-workflow",
+        "MOD-frontend-src-hooks",
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-components-chat",
+        "MOD-frontend-src-components-history",
+        "MOD-frontend-src-components-layout",
+        "MOD-frontend-src-components-preview"
+      ],
+      "external_deps": [
+        "@testing-library/react",
+        "lucide-react",
+        "motion",
+        "react",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-savedworkflows",
+      "path": "frontend/src/components/savedworkflows",
+      "language": "typescript",
+      "file_count": 2,
+      "files": [
+        "frontend/src/components/savedworkflows/SavedWorkflowsPage.test.tsx",
+        "frontend/src/components/savedworkflows/SavedWorkflowsPage.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src-components-catalog",
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-components-layout"
+      ],
+      "external_deps": [
+        "@testing-library/react",
+        "@testing-library/user-event",
+        "lucide-react",
+        "motion",
+        "react",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-settings",
+      "path": "frontend/src/components/settings",
+      "language": "typescript",
+      "file_count": 3,
+      "files": [
+        "frontend/src/components/settings/AccountSettings.render.test.tsx",
+        "frontend/src/components/settings/AccountSettings.test.tsx",
+        "frontend/src/components/settings/AccountSettings.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src-components-ui",
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-components-layout"
+      ],
+      "external_deps": [
+        "@testing-library/react",
+        "@testing-library/user-event",
+        "lucide-react",
+        "motion",
+        "react",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-sidebar",
+      "path": "frontend/src/components/sidebar",
+      "language": "typescript",
+      "file_count": 2,
+      "files": [
+        "frontend/src/components/sidebar/ChatSessionItem.tsx",
+        "frontend/src/components/sidebar/Sidebar.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [],
+      "external_deps": [
+        "lucide-react",
+        "motion",
+        "react"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-ui",
+      "path": "frontend/src/components/ui",
+      "language": "typescript",
+      "file_count": 11,
+      "files": [
+        "frontend/src/components/ui/Badge.tsx",
+        "frontend/src/components/ui/Button.tsx",
+        "frontend/src/components/ui/Card.tsx",
+        "frontend/src/components/ui/CompletionToast.tsx",
+        "frontend/src/components/ui/ErrorBoundary.tsx",
+        "frontend/src/components/ui/NotificationPanel.a11y.test.tsx",
+        "frontend/src/components/ui/NotificationPanel.fix195.test.tsx",
+        "frontend/src/components/ui/NotificationPanel.tsx",
+        "frontend/src/components/ui/Pill.tsx",
+        "frontend/src/components/ui/Tabs.tsx",
+        "frontend/src/components/ui/__tests__/primitives.test.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src-hooks",
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-app",
+        "MOD-frontend-src-components-chat",
+        "MOD-frontend-src-components-history",
+        "MOD-frontend-src-components-layout",
+        "MOD-frontend-src-components-library",
+        "MOD-frontend-src-components-preview",
+        "MOD-frontend-src-components-settings",
+        "MOD-frontend-src-components-workflow"
+      ],
+      "external_deps": [
+        "@/test",
+        "@testing-library/react",
+        "@testing-library/user-event",
+        "lucide-react",
+        "motion",
+        "react",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-components-workflow",
+      "path": "frontend/src/components/workflow",
+      "language": "typescript",
+      "file_count": 56,
+      "files": [
+        "frontend/src/components/workflow/AdvancedExpander.test.tsx",
+        "frontend/src/components/workflow/AgentDrawer.test.tsx",
+        "frontend/src/components/workflow/AgentLibrary.tsx",
+        "frontend/src/components/workflow/AgentLibraryData.ts",
+        "frontend/src/components/workflow/AgentModelPicker.test.tsx",
+        "frontend/src/components/workflow/AgentModelPicker.tsx",
+        "frontend/src/components/workflow/AgentNode.tsx",
+        "frontend/src/components/workflow/AgentsPopup.reskin.test.tsx",
+        "frontend/src/components/workflow/AgentsPopup.tsx",
+        "frontend/src/components/workflow/CapabilityPaletteSection.test.tsx",
+        "frontend/src/components/workflow/IdeaInputPage.declaredCapabilities.test.tsx",
+        "frontend/src/components/workflow/IdeaInputPage.imageInput.test.tsx",
+        "frontend/src/components/workflow/IdeaInputPage.modelOverrides.test.tsx",
+        "frontend/src/components/workflow/IdeaInputPage.selections.test.tsx",
+        "frontend/src/components/workflow/IdeaInputPage.tsx",
+        "frontend/src/components/workflow/LaunchWizard.test.tsx",
+        "frontend/src/components/workflow/LaunchWizard.tsx",
+        "frontend/src/components/workflow/PipelineGraph.tsx",
+        "frontend/src/components/workflow/ReviewGatesSection.test.tsx",
+        "frontend/src/components/workflow/ReviewGatesSection.tsx",
+        "frontend/src/components/workflow/SkillManager.tsx",
+        "frontend/src/components/workflow/TokenUsageSummary.cache.test.tsx",
+        "frontend/src/components/workflow/TokenUsageSummary.tsx",
+        "frontend/src/components/workflow/WizardStepper.test.tsx",
+        "frontend/src/components/workflow/WizardStepper.tsx",
+        "frontend/src/components/workflow/WorkflowControls.tsx",
+        "frontend/src/components/workflow/WorkflowDialog.test.tsx",
+        "frontend/src/components/workflow/WorkflowDialog.tsx",
+        "frontend/src/components/workflow/WorkflowView.tsx",
+        "frontend/src/components/workflow/__fixtures__/launchContract.ts",
+        "frontend/src/components/workflow/composer/AgentRow.test.tsx",
+        "frontend/src/components/workflow/composer/AgentRow.tsx",
+        "frontend/src/components/workflow/composer/AgentSkillsPicker.tsx",
+        "frontend/src/components/workflow/composer/CanvasConfigRail.test.tsx",
+        "frontend/src/components/workflow/composer/CanvasConfigRail.tsx",
+        "frontend/src/components/workflow/composer/CanvasNode.tsx",
+        "frontend/src/components/workflow/composer/CanvasView.test.tsx",
+        "frontend/src/components/workflow/composer/CanvasView.tsx",
+        "frontend/src/components/workflow/composer/ComposerPage.test.tsx",
+        "frontend/src/components/workflow/composer/ComposerPage.tsx",
+        "frontend/src/components/workflow/composer/IdentityCard.tsx",
+        "frontend/src/components/workflow/composer/SubAgentReadOnlyList.tsx",
+        "frontend/src/components/workflow/composer/SummaryRail.tsx",
+        "frontend/src/components/workflow/composer/treeLayout.ts",
+        "frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx",
+        "frontend/src/components/workflow/prototype/CustomDesignSystemModal.tsx",
+        "frontend/src/components/workflow/prototype/CustomTemplateModal.tsx",
+        "frontend/src/components/workflow/prototype/DesignSpecView.tsx",
+        "frontend/src/components/workflow/prototype/DesignSystemDetailModal.tsx",
+        "frontend/src/components/workflow/prototype/DesignSystemPicker.reskin.test.tsx",
+        "frontend/src/components/workflow/prototype/DesignSystemPicker.tsx",
+        "frontend/src/components/workflow/prototype/DiscoveryForm.tsx",
+        "frontend/src/components/workflow/prototype/TemplateCard.tsx",
+        "frontend/src/components/workflow/prototype/TemplateDetailModal.tsx",
+        "frontend/src/components/workflow/prototype/TemplateGallery.reskin.test.tsx",
+        "frontend/src/components/workflow/prototype/TemplateGallery.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src",
+        "MOD-frontend-src-components-catalog",
+        "MOD-frontend-src-components-ui",
+        "MOD-frontend-src-context",
+        "MOD-frontend-src-hooks",
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-app",
+        "MOD-frontend-src-components-catalog",
+        "MOD-frontend-src-components-layout",
+        "MOD-frontend-src-components-library",
+        "MOD-frontend-src-components-results",
+        "MOD-frontend-src-lib"
+      ],
+      "external_deps": [
+        "@/test",
+        "@testing-library/react",
+        "@testing-library/user-event",
+        "fs",
+        "lucide-react",
+        "motion",
+        "next",
+        "path",
+        "react",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-context",
+      "path": "frontend/src/context",
+      "language": "typescript",
+      "file_count": 1,
+      "files": [
+        "frontend/src/context/SkillsHooksContext.tsx"
+      ],
+      "imports": [],
+      "imported_by": [
+        "MOD-frontend-src-app",
+        "MOD-frontend-src-components-layout",
+        "MOD-frontend-src-components-library",
+        "MOD-frontend-src-components-workflow"
+      ],
+      "external_deps": [
+        "react"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-hooks",
+      "path": "frontend/src/hooks",
+      "language": "typescript",
+      "file_count": 32,
+      "files": [
+        "frontend/src/hooks/__fixtures__/reducerHarness.ts",
+        "frontend/src/hooks/__tests__/terminalStatusReconcile.test.ts",
+        "frontend/src/hooks/__tests__/useWorkflow.pipelineCancelled.test.ts",
+        "frontend/src/hooks/useAgentLibrary.ts",
+        "frontend/src/hooks/useChatAttachments.test.ts",
+        "frontend/src/hooks/useChatAttachments.ts",
+        "frontend/src/hooks/useHandoffSocket.ts",
+        "frontend/src/hooks/useHooksCatalog.ts",
+        "frontend/src/hooks/useNotifications.fix202.test.tsx",
+        "frontend/src/hooks/useNotifications.test.tsx",
+        "frontend/src/hooks/useNotifications.ts",
+        "frontend/src/hooks/useRunChat.test.ts",
+        "frontend/src/hooks/useRunChat.ts",
+        "frontend/src/hooks/useRunStateStore.ts",
+        "frontend/src/hooks/useRunStream.test.ts",
+        "frontend/src/hooks/useRunStream.ts",
+        "frontend/src/hooks/useSkillsCatalog.ts",
+        "frontend/src/hooks/useSmoothText.test.ts",
+        "frontend/src/hooks/useSmoothText.ts",
+        "frontend/src/hooks/useSpeechRecognition.ts",
+        "frontend/src/hooks/useTabDeepLink.test.ts",
+        "frontend/src/hooks/useTabDeepLink.ts",
+        "frontend/src/hooks/useTextToSpeech.ts",
+        "frontend/src/hooks/useTheme.ts",
+        "frontend/src/hooks/useWorkflow.accumulators.test.ts",
+        "frontend/src/hooks/useWorkflow.clarifyRetention.test.ts",
+        "frontend/src/hooks/useWorkflow.imagePayload.test.ts",
+        "frontend/src/hooks/useWorkflow.reconnect.test.ts",
+        "frontend/src/hooks/useWorkflow.regenerateReset.test.ts",
+        "frontend/src/hooks/useWorkflow.specRevisionCount.test.ts",
+        "frontend/src/hooks/useWorkflow.ts",
+        "frontend/src/hooks/useWorkflowMetadata.ts"
+      ],
+      "imports": [
+        "MOD-frontend-src",
+        "MOD-frontend-src-lib",
+        "MOD-frontend-src-providers",
+        "MOD-frontend-src-types"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-app",
+        "MOD-frontend-src-components-catalog",
+        "MOD-frontend-src-components-chat",
+        "MOD-frontend-src-components-handoff",
+        "MOD-frontend-src-components-history",
+        "MOD-frontend-src-components-layout",
+        "MOD-frontend-src-components-library",
+        "MOD-frontend-src-components-preview",
+        "MOD-frontend-src-components-results",
+        "MOD-frontend-src-components-ui",
+        "MOD-frontend-src-components-workflow",
+        "MOD-frontend-src-lib",
+        "MOD-frontend-src-providers"
+      ],
+      "external_deps": [
+        "@testing-library/react",
+        "fs",
+        "path",
+        "react",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-lib",
+      "path": "frontend/src/lib",
+      "language": "typescript",
+      "file_count": 39,
+      "files": [
+        "frontend/src/lib/__tests__/wsRunScope.test.ts",
+        "frontend/src/lib/api-handoff.ts",
+        "frontend/src/lib/api.getRunArtifacts.test.ts",
+        "frontend/src/lib/api.getRunFamily.test.ts",
+        "frontend/src/lib/api.requestTimeout.test.ts",
+        "frontend/src/lib/api.test.ts",
+        "frontend/src/lib/api.ts",
+        "frontend/src/lib/clarifications.test.ts",
+        "frontend/src/lib/clarifications.ts",
+        "frontend/src/lib/constants.ts",
+        "frontend/src/lib/design-system-colors.ts",
+        "frontend/src/lib/design-system-preview.ts",
+        "frontend/src/lib/entitlements.ts",
+        "frontend/src/lib/env.ts",
+        "frontend/src/lib/exporters/auditExporter.ts",
+        "frontend/src/lib/exporters/pptExporter.ts",
+        "frontend/src/lib/exporters/prototypeExporter.ts",
+        "frontend/src/lib/exporters/storyExporter.ts",
+        "frontend/src/lib/launchDraft.parity.test.ts",
+        "frontend/src/lib/launchDraft.ts",
+        "frontend/src/lib/parseFailedAgents.ts",
+        "frontend/src/lib/parsers/pptParser.ts",
+        "frontend/src/lib/parsers/streamParser.ts",
+        "frontend/src/lib/parsers/userStoryParser.ts",
+        "frontend/src/lib/ppt-api.ts",
+        "frontend/src/lib/prototype-api.ts",
+        "frontend/src/lib/resizeImage.test.ts",
+        "frontend/src/lib/resizeImage.ts",
+        "frontend/src/lib/runInput.test.ts",
+        "frontend/src/lib/runInput.ts",
+        "frontend/src/lib/runStats.ts",
+        "frontend/src/lib/skillIcons.ts",
+        "frontend/src/lib/sseFrame.test.ts",
+        "frontend/src/lib/sseFrame.ts",
+        "frontend/src/lib/workflowChaining.test.ts",
+        "frontend/src/lib/workflowChaining.ts",
+        "frontend/src/lib/workflowIcons.ts",
+        "frontend/src/lib/wsReplayState.test.ts",
+        "frontend/src/lib/wsReplayState.ts"
+      ],
+      "imports": [
+        "MOD-frontend-src-components-workflow",
+        "MOD-frontend-src-hooks"
+      ],
+      "imported_by": [
+        "MOD-frontend-src",
+        "MOD-frontend-src-app",
+        "MOD-frontend-src-components-analytics",
+        "MOD-frontend-src-components-catalog",
+        "MOD-frontend-src-components-chat",
+        "MOD-frontend-src-components-handoff",
+        "MOD-frontend-src-components-history",
+        "MOD-frontend-src-components-home",
+        "MOD-frontend-src-components-layout",
+        "MOD-frontend-src-components-library",
+        "MOD-frontend-src-components-preview",
+        "MOD-frontend-src-components-results",
+        "MOD-frontend-src-components-savedworkflows",
+        "MOD-frontend-src-components-settings",
+        "MOD-frontend-src-components-sidebar",
+        "MOD-frontend-src-components-ui",
+        "MOD-frontend-src-components-workflow",
+        "MOD-frontend-src-hooks",
+        "MOD-frontend-src-providers"
+      ],
+      "external_deps": [
+        "lucide-react",
+        "pptxgenjs",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-providers",
+      "path": "frontend/src/providers",
+      "language": "typescript",
+      "file_count": 2,
+      "files": [
+        "frontend/src/providers/RunConnectionProvider.test.tsx",
+        "frontend/src/providers/RunConnectionProvider.tsx"
+      ],
+      "imports": [
+        "MOD-frontend-src-hooks",
+        "MOD-frontend-src-lib"
+      ],
+      "imported_by": [
+        "MOD-frontend-src-app",
+        "MOD-frontend-src-components-layout",
+        "MOD-frontend-src-hooks"
+      ],
+      "external_deps": [
+        "@testing-library/react",
+        "react",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-styles",
+      "path": "frontend/src/styles",
+      "language": "typescript",
+      "file_count": 2,
+      "files": [
+        "frontend/src/styles/__tests__/token-layer.test.ts",
+        "frontend/src/styles/theme.ts"
+      ],
+      "imports": [],
+      "imported_by": [],
+      "external_deps": [
+        "fs",
+        "path",
+        "vitest"
+      ]
+    },
+    {
+      "id": "MOD-frontend-src-types",
+      "path": "frontend/src/types",
+      "language": "typescript",
+      "file_count": 2,
+      "files": [
+        "frontend/src/types/deriveDeliverableMimetype.test.ts",
+        "frontend/src/types/index.ts"
+      ],
+      "imports": [],
+      "imported_by": [
+        "MOD-frontend-src-app",
+        "MOD-frontend-src-components-history",
+        "MOD-frontend-src-hooks"
+      ],
+      "external_deps": [
+        "vitest"
+      ]
+    }
+  ]
+}

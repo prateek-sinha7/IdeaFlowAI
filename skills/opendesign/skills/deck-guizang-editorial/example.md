@@ -1,12 +1,12 @@
-# 关于「HTML 取代 Markdown」
+# On "HTML Replacing Markdown"
 
-> 墨水经典调色板, 双页预览: L02 章节封页 + L03 Big Numbers
+> Ink Classic palette, two-page preview: L02 Act Divider + L03 Big Numbers
 
-## 主题
-Claude Code 团队全面转向 HTML — 我们为什么也该跟上。
+## Topic
+The Claude Code team has fully switched to HTML — why we should follow too.
 
-## 关键数据
-- 75: HTML Anything 现有模板数
-- 17: 已接入的本地 AI agent
-- 80s: 平均一次"杂志风网页 PPT"生成耗时
-- 0: 用户需要的 API key 数量
+## Key data
+- 75: existing templates in HTML Anything
+- 17: connected local AI agents
+- 80s: average generation time for one "magazine-style web deck"
+- 0: API keys required from the user

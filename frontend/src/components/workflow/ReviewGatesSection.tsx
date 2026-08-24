@@ -146,6 +146,7 @@ export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewG
                 </span>
                 <input
                   type="checkbox"
+                  name={`review-gate-${agent.id}`}
                   checked={checked}
                   onChange={() => toggle(agent.id)}
                   className="sr-only"

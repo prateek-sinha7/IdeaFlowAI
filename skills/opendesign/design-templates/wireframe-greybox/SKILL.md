@@ -7,7 +7,7 @@ description: |
   borders, and a single monospace redline accent for annotations. Reads
   like a structural blueprint before any visual design is applied. Use
   when the brief asks for "greybox", "blueprint wireframe", "lo-fi
-  dashboard", "low fidelity", "线框图", or "灰盒原型".
+  dashboard", "low fidelity", "wireframe diagram", or "greybox prototype".
 triggers:
   - "greybox"
   - "grey box wireframe"
@@ -15,8 +15,8 @@ triggers:
   - "lo-fi dashboard"
   - "low fidelity"
   - "wireframe"
-  - "线框图"
-  - "灰盒"
+  - "wireframe diagram"
+  - "greybox"
 od:
   mode: prototype
   platform: desktop

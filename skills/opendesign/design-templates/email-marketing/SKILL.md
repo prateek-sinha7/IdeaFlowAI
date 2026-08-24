@@ -13,8 +13,8 @@ triggers:
   - "email blast"
   - "product launch email"
   - "mjml"
-  - "邮件营销"
-  - "邮件模板"
+  - "email marketing"
+  - "marketing email template"
 od:
   mode: prototype
   platform: desktop

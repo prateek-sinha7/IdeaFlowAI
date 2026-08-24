@@ -51,7 +51,6 @@ _DISPATCHABLE = sorted(_MANIFEST_BACKED_IDS - {"chat", "reverse_engineer"})
 # change.
 _EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
     "ppt": ["target_audience", "tone_and_style", "key_objectives", "slide_count", "content_depth", "data_availability", "visual_style", "key_sections"],
-    "od_prototype": ["target_audience", "scope", "priority", "style", "user_journeys", "key_screens", "interactions", "personas"],
     "prototype": ["target_audience", "scope", "priority", "style", "user_journeys", "key_screens", "interactions", "personas"],
     "user_stories": ["target_audience", "scope", "priority", "technology", "personas", "user_journeys", "business_rules", "compliance_security"],
     "app_builder": ["technology", "scope", "target_audience", "security", "user_journeys", "data_model", "integrations", "performance"],
@@ -66,6 +65,9 @@ _EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
     "sample_fanout": [],
     "sample_wave": [],
     "sample_brownfield": [],
+    # clarify.mode: skip as well — the composed-workflow revision manifest takes
+    # its instruction straight from the revision panel and asks nothing.
+    "custom_revision": [],
 }
 # The fallback for any id absent from the dict above (the *_revision manifests +
 # chat/reverse_engineer) — these were NOT touched by KAN-74 and still declare the
@@ -78,9 +80,16 @@ _CUSTOM_DEFAULTS = ["target_audience", "key_objectives", "scope", "priority"]
 # ── resolve_alias (MAN-05) ──────────────────────────────────────────────────
 
 
-def test_od_prototype_resolves_to_prototype() -> None:
-    """The sole id-alias: od_prototype -> prototype."""
-    assert resolve_alias("od_prototype") == "prototype"
+def test_retired_labels_are_not_resolvable() -> None:
+    """A retired run-label resolves to ITSELF, not to a base pipeline.
+
+    ``od_prototype`` used to be the sole id-alias. Collapsing it (registry
+    ``_OD_ALIAS_BASE`` is empty; persisted rows migrated in 0032) means the label
+    is no longer special-cased anywhere — the resolver must not invent a mapping
+    for it, exactly as it does not for any other unknown string.
+    """
+    assert resolve_alias("od_prototype") == "od_prototype"
+    assert resolve_alias("od_ppt") == "od_ppt"
 
 
 @pytest.mark.parametrize("key", sorted(PIPELINE_AGENTS))
@@ -89,9 +98,16 @@ def test_every_real_pipeline_key_resolves_to_itself(key: str) -> None:
     assert resolve_alias(key) == key
 
 
-def test_od_prototype_is_the_only_alias() -> None:
-    """The resolver maps exactly one label and is the single point of aliasing."""
-    assert _OD_ALIAS_BASE == {"od_prototype": "prototype"}
+def test_there_are_no_aliases() -> None:
+    """The alias table is EMPTY and the resolver is the identity function.
+
+    Aliases cost more than they saved: ``od_prototype`` covered the base label but
+    never its ``_revision`` variant, so one pipeline's launch and revision halves
+    carried different labels and had to be bridged by hand-written remap tables in
+    the API layer. Both labels are collapsed at the root now. A new entry here
+    should be a deliberate decision, not a migration shortcut.
+    """
+    assert _OD_ALIAS_BASE == {}
     # Identity for an arbitrary unknown label (resolver never invents a mapping).
     assert resolve_alias("totally_unknown_label") == "totally_unknown_label"
 
@@ -99,7 +115,7 @@ def test_od_prototype_is_the_only_alias() -> None:
 # ── compile_for_run sources the agent sequence (MAN-04, concern 1) ──────────
 
 
-@pytest.mark.parametrize("pipeline_type", _DISPATCHABLE + ["od_prototype"])
+@pytest.mark.parametrize("pipeline_type", _DISPATCHABLE)
 def test_compiled_agent_sequence_matches_registry_order(pipeline_type: str) -> None:
     """The compiled plan's step order equals the registry's agent order (no reorder).
 
@@ -127,9 +143,16 @@ def test_compiled_agent_sequence_matches_registry_order(pipeline_type: str) -> N
     assert compiled_ids == expected
 
 
-def test_od_prototype_runs_prototypes_plan() -> None:
-    """The od_prototype alias compiles to the prototype manifest's plan (D-04)."""
-    compiled = compile_for_run("od_prototype")
+def test_prototype_runs_its_own_plan() -> None:
+    """``prototype`` compiles to its own manifest under its own name.
+
+    Was ``test_od_prototype_runs_prototypes_plan``: the alias was the ONLY label
+    that reached this plan, because a bare ``prototype`` launch was rejected
+    upstream (``missing_template_context``) by a clause that excluded a base from
+    its own declared ``opendesign`` capability whenever it had an ``od_`` alias.
+    Both are gone; the plain name is now the only name.
+    """
+    compiled = compile_for_run("prototype")
     assert compiled.id == "prototype"
     assert [s.agent_id for s in compiled.steps] == [
         a.id for a in get_pipeline_agents("prototype")
@@ -139,7 +162,7 @@ def test_od_prototype_runs_prototypes_plan() -> None:
 # ── compile_for_run sources clarify defaults (MAN-04, concern 3) ────────────
 
 
-@pytest.mark.parametrize("pipeline_type", _DISPATCHABLE + ["od_prototype"])
+@pytest.mark.parametrize("pipeline_type", _DISPATCHABLE)
 def test_compiled_clarify_defaults_match_engine_dict(pipeline_type: str) -> None:
     """The compiled clarify.defaults reproduce the engine's former _pipeline_defaults.
 
@@ -168,6 +191,12 @@ _RUN_REVISION_DISPATCHED = frozenset({
     "ppt_revision",
     "prototype_revision",
     "user_stories_revision",
+    # Added with the composed-workflow revision manifest, which declares
+    # planner: skip like its siblings but was never listed here.
+    "custom_revision",
+    # Flipped to planner: skip — it was authored as `run` and so could never be
+    # revision-dispatched (CR-02 refused it; the run died with 0 events).
+    "app_builder_revision",
 })
 
 # Sibling trap: keep in lockstep with tests/agents/test_manifest_parity.py's
@@ -179,7 +208,7 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
 }
 
 
-@pytest.mark.parametrize("pipeline_type", _DISPATCHABLE + ["od_prototype"])
+@pytest.mark.parametrize("pipeline_type", _DISPATCHABLE)
 def test_compiled_planner_is_run_everywhere(pipeline_type: str) -> None:
     """Every dispatchable manifest declares planner: run — EXCEPT the
     run_revision-dispatched manifests (planner: skip as of Phase 14; see

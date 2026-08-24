@@ -149,6 +149,9 @@ export function ResultCard({ message, onRequestOpenTab }: ResultCardProps) {
         data-card-kind={kind}
         className="my-1"
       >
+        {kind === "deliverable" && (
+          <p className="text-[12px] font-semibold text-ink-900">Deliverable</p>
+        )}
         <p className="font-serif text-[13px] leading-relaxed text-ink-900">
           {inlineText}
         </p>

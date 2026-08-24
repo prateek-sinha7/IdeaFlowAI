@@ -66,7 +66,7 @@ interface ModeConfig {
   /** AgentLibraryData `pipeline_type` for the default lineup. */
   agentPipeline: "prototype" | "ppt";
   /** `base_pipeline_type` sent to POST /api/user-workflows on Save. */
-  savePipeline: "od_prototype" | "ppt";
+  savePipeline: "od_prototype" | "od_ppt";
   title: string;
   chainingTitle: string;
   eyebrow: string;
@@ -91,7 +91,7 @@ const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
   },
   ppt: {
     agentPipeline: "ppt",
-    savePipeline: "ppt",
+    savePipeline: "od_ppt",
     title: "Configure your presentation",
     chainingTitle: "Pick a template",
     eyebrow: "New presentation",
@@ -106,7 +106,7 @@ const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
 /** Copy for the chain context/banner, keyed on the source pipeline (data map). */
 const CHAIN_SOURCE_LABEL: Record<string, string> = {
   ppt: "Presentation", ppt_revision: "Presentation",
-  od_prototype: "Prototype", prototype: "Prototype", prototype_revision: "Prototype",
+  prototype: "Prototype", prototype_revision: "Prototype",
   user_stories: "User Stories", user_stories_revision: "User Stories",
   app_builder: "App Builder", app_builder_revision: "App Builder",
 };
@@ -174,6 +174,12 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedConfirm, setSavedConfirm] = useState(false);
+  // ISS-167: the saved row's identity, restored from the draft when this wizard
+  // was opened from an existing saved workflow — Save then updates it in place
+  // instead of always creating a new row + asking for a name.
+  const [userWorkflowId, setUserWorkflowId] = useState<string | undefined>(undefined);
+  const [savedName, setSavedName] = useState<string | undefined>(undefined);
+  const [savedDescription, setSavedDescription] = useState<string | undefined>(undefined);
 
   const isChaining = Boolean(chainFrom);
 
@@ -211,6 +217,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         customDsBody?: string; customTemplateBody?: string;
         agentIds?: string[]; gateAgentIds?: string[];
         selections?: Record<string, Record<string, unknown>>;
+        id?: string; name?: string; description?: string;
       };
       if (d.templateId) setSelectedTemplateId(d.templateId);
       if (d.designSystemId) setSelectedDsId(d.designSystemId);
@@ -225,6 +232,12 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       }
       if (d.selections) selectionsRef.current = d.selections;
       if (d.gateAgentIds !== undefined) gateSelectionRef.current = { ids: d.gateAgentIds, touched: true };
+      // ISS-167: restored BEFORE the AgentsPopup below (keyed on userWorkflowId)
+      // remounts, so its initialSelections seed reads the now-populated ref
+      // instead of the empty one from its first mount.
+      if (d.id) setUserWorkflowId(d.id);
+      if (d.name) setSavedName(d.name);
+      if (d.description) setSavedDescription(d.description);
       sessionStorage.removeItem(draftKey);
     } catch { /* ignore malformed session data */ }
   }, [authChecked, initialMode]);
@@ -447,6 +460,10 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       ...(customTemplateBody ? { customTemplateBody } : {}),
     };
     try {
+      // Reverted to always-create (not routed through saveUserWorkflow /
+      // userWorkflowId) — unconfirmed whether this page-level button should
+      // ever update an existing row in place; AgentsPopup's own footer save
+      // button is the one confirmed to need that (see AgentsPopup.tsx).
       await createUserWorkflow(jwt, {
         name,
         description: description || undefined,
@@ -608,6 +625,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
               <textarea
                 value={brief}
                 onChange={(e) => setBrief(e.target.value)}
+                name="brief"
                 aria-label="Brief"
                 placeholder={isListening ? "Listening... speak your idea" : cfg.placeholder}
                 rows={5}
@@ -803,6 +821,12 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       </main>
 
       <AgentsPopup
+        // ISS-167: AgentsPopup seeds its live selections from `initialSelections`
+        // ONCE at mount (a useState initializer, not reactive to prop changes) —
+        // so on a reopened saved workflow, remount it the moment the draft
+        // restore populates selectionsRef.current, or it mounts empty and stays
+        // that way for the rest of the session regardless of what the ref holds.
+        key={userWorkflowId ?? "new"}
         isOpen={showAgents}
         onClose={() => setShowAgents(false)}
         agents={pipelineAgents}
@@ -811,7 +835,11 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         onRemoveAgent={handleRemoveAgent}
         onReorder={handleReorderAgents}
         canAddMore={canAddMore}
+        initialSelections={selectionsRef.current}
         onSelectionsChange={handleSelectionsChange}
+        userWorkflowId={userWorkflowId}
+        savedName={savedName}
+        savedDescription={savedDescription}
       />
 
       {showSaveModal && (

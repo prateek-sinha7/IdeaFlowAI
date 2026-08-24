@@ -49,6 +49,22 @@ from app.agents.static_check import static_check as _static_check
 logger = logging.getLogger("agents.execution_engine.kernel_services")
 
 
+class _NullAsyncLock:
+    """No-op async context manager — defensive fallback if an ``ectx`` predates
+    the ``scratch_lock`` field (KRN-005). Every real ``ExecutionContext`` carries
+    a real ``asyncio.Lock`` via its ``default_factory``; this only guards a
+    hand-built/stubbed context in an older test that never set the field."""
+
+    async def __aenter__(self) -> None:
+        return None
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        return None
+
+
+_NULL_LOCK = _NullAsyncLock()
+
+
 # ---------------------------------------------------------------------------
 # DeliverableContext (D-04) — the kernel-pure target a Validator receives.
 #
@@ -1363,49 +1379,77 @@ class KernelServices:
         spec = self._spec_for(step)
         index = self._index_for(spec)
 
-        # Build-loop scratch (task_loop path): set the per-task counters + block so
-        # the engine's generic context injector emits the CURRENT TASK marker exactly
-        # as the legacy per-task build loop did. For single_shot (no task_number)
-        # these stay "" — byte-identical to a non-build agent.
-        prev_num = self._ectx.build_task_number
-        prev_total = self._ectx.build_task_total
-        prev_block = self._ectx.current_task_block
-        prev_skeleton = getattr(self._ectx, "current_prototype_skeleton", "")
-        # Bind the current step (08-08 / CR-01) so the engine's before_write hook
-        # firing reads ``step.hooks`` — declaration-driven (only DECLARED hooks fire).
-        prev_step = getattr(self._ectx, "current_step", None)
-        self._ectx.current_step = step
-        if task_number is not None:
-            self._ectx.build_task_number = str(task_number)
-            self._ectx.build_task_total = str(total_tasks or task_number)
-            self._ectx.current_task_block = task_block or ""
-            self._ectx.current_prototype_skeleton = skeleton or ""
-        try:
-            async for event in self._engine._run_agent(
-                spec,
-                index,
-                self._ordered_agents,
-                self._user_message,
-                self.sandbox,
-                self.run_id,
-                self._pipeline_type,
-                self._planning_context,
-                self._attached_skills,
-                self._attached_hooks,
-                self._model_id,
-                self._results,
-                self.cancel_event,
-                self._ectx,
-                invocation_gated=invocation_gated,
-            ):
-                yield event
-        finally:
-            # Reset the build scratch (only meaningful for the task_loop path).
-            self._ectx.build_task_number = prev_num
-            self._ectx.build_task_total = prev_total
-            self._ectx.current_task_block = prev_block
-            self._ectx.current_prototype_skeleton = prev_skeleton
-            self._ectx.current_step = prev_step
+        # KRN-005 (task.md R-03): a parallel fan-out spawns N children that all
+        # call ``run_agent`` against this SAME ``ectx`` (one KernelServices/one
+        # ExecutionContext per RUN, not per fan-out child — INV-2 governs the
+        # engine singleton, not sibling isolation). The bound scratch fields
+        # (``current_step``/``build_task_number``/``build_task_total``/
+        # ``current_task_block``/``current_prototype_skeleton``) are read
+        # THROUGHOUT ``_run_agent`` (thread-id derivation, context composition,
+        # step_injects/step_skills resolution, the roster build) — not just once
+        # at bind time — so the whole invocation, not merely the save/restore
+        # window, must run under a stable snapshot of them. The run's
+        # ``scratch_lock`` is therefore held for the FULL invocation: this
+        # serializes concurrent fan-out children's turns at using the shared
+        # scratch (one child's agent call runs to completion before the next
+        # child's scratch bind proceeds), trading fan-out's wall-clock
+        # concurrency for correctness rather than letting two children silently
+        # stomp each other's task/step scratch mid-flight. Genuine per-child
+        # context isolation (giving each worker its own scratch fields) is the
+        # further architectural fix task.md's KRN-005 gestures at, but it
+        # requires threading a per-child context through ``_run_agent``'s
+        # thousand-plus lines of ``ectx.<scratch>`` reads — out of scope for
+        # this change; this closes the DATA-RACE half of R-03 without that
+        # rewrite. A non-fan-out single_shot call acquires an uncontended lock —
+        # no observable behavior change (INV-3 byte-parity holds).
+        lock = getattr(self._ectx, "scratch_lock", None)
+        if lock is None:  # pragma: no cover - defensive; every real ectx has one
+            lock = _NULL_LOCK
+
+        async with lock:
+            # Build-loop scratch (task_loop path): set the per-task counters + block so
+            # the engine's generic context injector emits the CURRENT TASK marker exactly
+            # as the legacy per-task build loop did. For single_shot (no task_number)
+            # these stay "" — byte-identical to a non-build agent.
+            prev_num = self._ectx.build_task_number
+            prev_total = self._ectx.build_task_total
+            prev_block = self._ectx.current_task_block
+            prev_skeleton = getattr(self._ectx, "current_prototype_skeleton", "")
+            # Bind the current step (08-08 / CR-01) so the engine's before_write hook
+            # firing reads ``step.hooks`` — declaration-driven (only DECLARED hooks fire).
+            prev_step = getattr(self._ectx, "current_step", None)
+            self._ectx.current_step = step
+            if task_number is not None:
+                self._ectx.build_task_number = str(task_number)
+                self._ectx.build_task_total = str(total_tasks or task_number)
+                self._ectx.current_task_block = task_block or ""
+                self._ectx.current_prototype_skeleton = skeleton or ""
+            try:
+                async for event in self._engine._run_agent(
+                    spec,
+                    index,
+                    self._ordered_agents,
+                    self._user_message,
+                    self.sandbox,
+                    self.run_id,
+                    self._pipeline_type,
+                    self._planning_context,
+                    self._attached_skills,
+                    self._attached_hooks,
+                    self._model_id,
+                    self._results,
+                    self.cancel_event,
+                    self._ectx,
+                    invocation_gated=invocation_gated,
+                ):
+                    yield event
+            finally:
+                # Reset the build scratch (only meaningful for the task_loop path).
+                self._ectx.build_task_number = prev_num
+                self._ectx.build_task_total = prev_total
+                self._ectx.current_task_block = prev_block
+                self._ectx.current_prototype_skeleton = prev_skeleton
+                self._ectx.current_step = prev_step
 
     # ── The Both-validation + bounded internal fix-loop (L-build region C) ─────
     async def run_validation_fix_loop(

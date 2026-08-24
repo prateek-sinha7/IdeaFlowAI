@@ -23,7 +23,11 @@ const TOKEN_KEY = "auth_token";
 // --- Token management ---
 
 export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
+  // Guard on localStorage itself, not on `window`. They are not the same test:
+  // Node test runners and some SSR shims define a partial `window` with no
+  // localStorage, so the window check passed and this threw
+  // "Cannot read properties of undefined (reading 'getItem')".
+  if (typeof localStorage === "undefined") return null;
   return localStorage.getItem(TOKEN_KEY);
 }
 
@@ -1508,6 +1512,37 @@ export async function updateUserWorkflow(
     headers: authHeaders(token),
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * Save a workflow — the ONE create-vs-update dispatch point (ISS-167). Every
+ * "Save workflow" surface (Composer, the prototype/ppt LaunchWizard, ...) calls
+ * this instead of each re-implementing `userWorkflowId ? update : create`.
+ * `base_pipeline_type`/`agent_ids` are required in `body` because `createUserWorkflow`
+ * needs them; when `userWorkflowId` is set they're simply not forwarded — PATCH
+ * doesn't accept them (composition is immutable post-create).
+ */
+export async function saveUserWorkflow(
+  token: string,
+  userWorkflowId: string | undefined,
+  body: {
+    name: string;
+    description?: string;
+    base_pipeline_type: string;
+    agent_ids: string[];
+    model_overrides?: Record<string, string>;
+    selections?: Record<string, Record<string, unknown>>;
+    attached_skills?: Array<Record<string, unknown>>;
+    attached_hooks?: Array<Record<string, unknown>>;
+  }
+): Promise<UserWorkflowSummary> {
+  if (userWorkflowId) {
+    const { base_pipeline_type: _bpt, agent_ids: _aids, ...updateBody } = body;
+    void _bpt;
+    void _aids;
+    return updateUserWorkflow(token, userWorkflowId, updateBody);
+  }
+  return createUserWorkflow(token, body);
 }
 
 /**

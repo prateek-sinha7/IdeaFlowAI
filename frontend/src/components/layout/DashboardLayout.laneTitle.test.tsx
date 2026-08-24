@@ -9,11 +9,12 @@
  *
  * RunChatLane is stubbed to echo its `runTitle` prop into `lane-run-title` so the
  * assertion targets DashboardLayout's title DERIVATION (the bug), not the lane
- * internals. Execution view is forced via the od_prototype.pending sessionStorage
+ * internals. Execution view is forced via the prototype.pending sessionStorage
  * latch the layout reads at mount (DashboardLayout.tsx:238-249).
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { screen, cleanup } from "@testing-library/react";
+import { renderWithProviders } from "@/test/renderWithProviders";
 import React from "react";
 import type { PipelineRunState, WorkflowRun } from "@/types/index";
 
@@ -135,7 +136,7 @@ function renderLayout(overrides: Partial<DashboardLayoutProps>) {
     pipelineState: idlePipelineState(),
     ...overrides,
   };
-  return render(
+  return renderWithProviders(
     <SkillsHooksProvider>
       <DashboardLayout {...props} />
     </SkillsHooksProvider>,
@@ -145,7 +146,7 @@ function renderLayout(overrides: Partial<DashboardLayoutProps>) {
 beforeEach(() => {
   cleanup();
   // Force the execution view at mount (DashboardLayout reads this latch).
-  sessionStorage.setItem("od_prototype.pending", "1");
+  sessionStorage.setItem("prototype.pending", "1");
 });
 afterEach(() => {
   sessionStorage.clear();
@@ -188,13 +189,13 @@ describe("DashboardLayout — lane-run-type chip tracks the viewed run (BUG-006)
 
   it("launch flow (contentSourceRunId null) shows the launched workflowType — no regression", () => {
     renderLayout({ recentRuns: [APP_RUN, RUN_B, RUN_C], contentSourceRunId: null });
-    // Under the od_prototype.pending latch the launch consumer sets workflowType to "prototype".
+    // Under the prototype.pending latch the launch consumer sets workflowType to "prototype".
     expect(screen.getByTestId("lane-run-type")).toHaveTextContent("prototype");
   });
 });
 
 describe("DashboardLayout — non-terminal reopen shows the viewed type (BUG-012 follow-up)", () => {
-  const PROTO_RUN = makeRun("run-proto", "Prototype for a fitness app", "od_prototype");
+  const PROTO_RUN = makeRun("run-proto", "Prototype for a fitness app", "prototype");
 
   // A reopened clarify/build run: the durable replay leaves the pipeline "running".
   function runningPipelineState(pipeline_type: WorkflowRun["type"]): PipelineRunState {
@@ -210,20 +211,20 @@ describe("DashboardLayout — non-terminal reopen shows the viewed type (BUG-012
 
   // Test A (fail-before, pass-after): a NON-terminal reopen — isPipelineRunning=true
   // drives mainView→execution via the sync effect (:343-344), so we do NOT set the
-  // od_prototype.pending latch (that would force workflowType="prototype" and mask
+  // prototype.pending latch (that would force workflowType="prototype" and mask
   // the bug). With the latch absent and pipeline_type="user_stories", workflowType
   // stays the stale "user_stories" default. Before the fix the `!isPipelineRunning`
   // gate makes viewedRunType undefined ⇒ effectiveReviseType falls back to the stale
   // "user_stories". After the fix the durable contentSourceRunType wins.
   it("non-terminal reopen renders the reopened run's type, not the stale workflowType", () => {
-    sessionStorage.removeItem("od_prototype.pending");
+    sessionStorage.removeItem("prototype.pending");
     renderLayout({
       recentRuns: [RUN_A, PROTO_RUN, RUN_C],
       contentSourceRunId: PROTO_RUN.id,
-      contentSourceRunType: "od_prototype",
+      contentSourceRunType: "prototype",
       pipelineState: runningPipelineState("user_stories"),
     });
-    expect(screen.getByTestId("lane-run-type")).toHaveTextContent("od_prototype");
+    expect(screen.getByTestId("lane-run-type")).toHaveTextContent("prototype");
     expect(screen.getByTestId("lane-run-type")).not.toHaveTextContent("user_stories");
   });
 
@@ -231,7 +232,7 @@ describe("DashboardLayout — non-terminal reopen shows the viewed type (BUG-012
   // undefined ⇒ effectiveReviseType === workflowType, which the sync effect normalises
   // to "prototype" from pipeline_type. Byte-identical launch path (green before + after).
   it("live launch (contentSourceRunType null) shows the launched type — byte-identical", () => {
-    sessionStorage.removeItem("od_prototype.pending");
+    sessionStorage.removeItem("prototype.pending");
     renderLayout({
       recentRuns: [RUN_A, RUN_B, RUN_C],
       contentSourceRunId: null,

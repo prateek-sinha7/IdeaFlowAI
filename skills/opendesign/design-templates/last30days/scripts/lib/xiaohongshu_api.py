@@ -14,7 +14,10 @@ from . import http
 def _to_int(value: Any) -> int:
     """Convert Xiaohongshu count strings to int.
 
-    Supports plain ints and Chinese suffixes like 1.2万 / 3亿.
+    Supports plain ints and the Chinese magnitude suffixes the Xiaohongshu API
+    returns in count fields: 万 = 10,000 and 亿 = 100,000,000 (so "1.2万" is
+    12,000). These are WIRE VALUES from the upstream API, not display text —
+    they must stay as-is or the parse below stops matching.
     """
     if value is None:
         return 0
@@ -86,6 +89,10 @@ def search_feeds(
         raise http.HTTPError("Xiaohongshu API reachable but not logged in")
 
     # API supports filters; use recency-oriented defaults.
+    # The filter values below are the literal strings the Xiaohongshu API
+    # expects — NOT display text. English glosses:
+    #   一天内 = within a day | 一周内 = within a week | 半年内 = within six months
+    #   综合   = comprehensive/relevance sort        | 不限   = any / no restriction
     publish_time = "一天内" if depth == "quick" else "一周内" if depth == "default" else "半年内"
     payload = {
         "keyword": topic,

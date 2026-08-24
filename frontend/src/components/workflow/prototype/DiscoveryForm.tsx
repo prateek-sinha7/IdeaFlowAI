@@ -166,6 +166,7 @@ function FieldText({
       {description && <span className="text-[11px] text-gray-500">{description}</span>}
       <input
         type="text"
+        name={label.toLowerCase().replace(/\s+/g, "-")}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="mt-0.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"

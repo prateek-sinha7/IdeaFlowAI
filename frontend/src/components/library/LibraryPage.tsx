@@ -22,7 +22,7 @@ import type { AgentDef } from "@/types/index";
 
 type CategoryEntry = { id: string; label: string; section?: boolean };
 
-const BETA_WORKFLOWS = new Set(["user_stories_revision", "ppt_revision", "prototype_revision", "app_builder_revision", "mulesoft_to_springboot", "dotnet_to_azure", "sample_brownfield", "sample_fanout", "sample_wave", "od_prototype", "reverse_engineer"]);
+const BETA_WORKFLOWS = new Set(["user_stories_revision", "ppt_revision", "prototype_revision", "app_builder_revision", "mulesoft_to_springboot", "dotnet_to_azure", "sample_brownfield", "sample_fanout", "sample_wave", "reverse_engineer"]);
 
 // Token-based avatar tints (was a retired-hex array) — cycle brand/warm
 // surfaces + ink/brand text so every agent chip stays on the Phase-32 palette.
@@ -430,7 +430,19 @@ export function LibraryPage() {
 
   const [activeCategory, setActiveCategory] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedAgent, setSelectedAgent] = useState<{ agent: AgentDef; index: number } | null>(null);
+  // Carries the persisted skills/selections SNAPSHOT taken when the drawer was
+  // opened. Reading `savedSkillsRef`/`savedSelectionsRef` inline in the drawer's
+  // JSX instead would be a render-time ref read (react-hooks/refs): React does
+  // not re-render on a ref write, so that read only ever reflected whatever the
+  // ref held during some arbitrary earlier render. Snapshotting at open time —
+  // inside a click handler, where ref reads are legal — captures exactly the same
+  // value the drawer used to receive, deterministically.
+  const [selectedAgent, setSelectedAgent] = useState<{
+    agent: AgentDef;
+    index: number;
+    savedSkills?: string[];
+    savedSelections?: SelectionsMap;
+  } | null>(null);
   const [mainTab, setMainTab] = useState<"agents" | "skills" | "hooks">("agents");
   const [skillCategory, setSkillCategory] = useState("all");
   const [skillSearch, setSkillSearch] = useState("");
@@ -513,6 +525,8 @@ export function LibraryPage() {
           <div className="relative w-[280px] flex-shrink-0">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[15px] w-[15px] text-ink-200" />
             <input type="text"
+              aria-label={`Search ${mainTab}`}
+              name="library-search"
               value={mainTab === "agents" ? searchQuery : mainTab === "skills" ? skillSearch : hookSearch}
               onChange={e => {
                 if (mainTab === "agents") setSearchQuery(e.target.value);
@@ -562,7 +576,13 @@ export function LibraryPage() {
                   const workflowLabel = workflow?.name || workflow?.display_name || agent.pipeline_type;
                   return (
                     <Card key={`${agent.pipeline_type}-${agent.id}`}
-                      onClick={() => !BETA_WORKFLOWS.has(agent.pipeline_type) && setSelectedAgent({ agent, index: filteredAgents.indexOf(agent) })}
+                      onClick={() => !BETA_WORKFLOWS.has(agent.pipeline_type) && setSelectedAgent({
+                        agent,
+                        index: filteredAgents.indexOf(agent),
+                        // Snapshot the persisted drawer state at OPEN time.
+                        savedSkills: savedSkillsRef.current[agent.id],
+                        savedSelections: savedSelectionsRef.current[agent.id],
+                      })}
                       className={`flex flex-col p-[17px] min-h-[180px] transition-colors group ${
                         BETA_WORKFLOWS.has(agent.pipeline_type)
                           ? "opacity-60 cursor-not-allowed"
@@ -749,14 +769,12 @@ export function LibraryPage() {
             // Seed the Skills tab from the persisted set so a reopen restores it.
             agent={{
               ...selectedAgent.agent,
-              skills:
-                savedSkillsRef.current[selectedAgent.agent.id] ??
-                selectedAgent.agent.skills,
+              skills: selectedAgent.savedSkills ?? selectedAgent.agent.skills,
             }}
             agentIndex={selectedAgent.index}
             onClose={() => setSelectedAgent(null)}
             asDrawer
-            initialSelections={savedSelectionsRef.current[selectedAgent.agent.id] ?? {}}
+            initialSelections={selectedAgent.savedSelections ?? {}}
             onSelectionsChange={(next) => {
               // Persist the selections for this agent so reopening restores them.
               savedSelectionsRef.current[selectedAgent.agent.id] = next;

@@ -212,7 +212,7 @@ function GenericDeliverablePreview({
     // presentation.html from a custom-composer PPT run → PPTPreview for the
     // styled deck viewer with navigation chrome. Keyed on filename (SC-001).
     if (deliverable.filename === "presentation.html") {
-      return <PPTPreview content={content} isStreaming={false} pipelineType="od_ppt" onRevise={undefined} />;
+      return <PPTPreview content={content} isStreaming={false} pipelineType="ppt" onRevise={undefined} />;
     }
     return (
       <div className="h-full flex flex-col overflow-hidden">
@@ -574,7 +574,8 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   const renderType = detectedType === "user_stories_revision" ? "user_stories"
     : detectedType === "ppt_revision" ? "ppt"
     : detectedType === "prototype_revision" ? "prototype"
-    : detectedType === "od_prototype" ? "prototype"
+    : detectedType === "prototype_large_revision" ? "prototype"
+    : detectedType === "prototype_feature_revision" ? "prototype"
     : detectedType === "app_builder_revision" ? "app_builder"
     : detectedType;
 

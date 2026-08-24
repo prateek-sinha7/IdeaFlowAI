@@ -203,7 +203,7 @@ def test_migration_0022_is_additive_only() -> None:
         / "versions"
         / "0022_workflow_run_deliverable_mimetype.py"
     )
-    src = mig.read_text()
+    src = mig.read_text(encoding="utf-8")
     assert 'revision = "0022"' in src
     assert 'down_revision = "0021"' in src
     # upgrade() body: additive add_column only; no destructive ops on existing cols.

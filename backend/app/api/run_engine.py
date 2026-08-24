@@ -798,7 +798,11 @@ def _review_gate_run_is_terminal(gate_key: str) -> bool:
         db.close()
     if row is None:
         return False
-    return row.status in ("cancelled", "failed", "degraded")
+    # API-001: the single canonical terminal set (engine.py — imported locally to
+    # avoid a module-load-order cycle between run_engine and the engine module).
+    from agents.execution_engine.engine import is_terminal_run_status
+
+    return is_terminal_run_status(row.status)
 
 
 def _review_gate_advertises_update_specs(gate_key: str) -> bool:

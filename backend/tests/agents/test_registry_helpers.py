@@ -197,11 +197,12 @@ class TestAllowListRealIdsAndOdFix:
         retired = {"requirements-analyst", "html-prototype-builder", "prototype-polisher"}
         assert not (retired & allowed), f"retired ids leaked: {retired & allowed}"
 
-    def test_od_prototype_resolves_to_prototype(self):
-        """The od_prototype alias (not a registry key) resolves to prototype."""
-        assert allowed_custom_agent_ids("od_prototype") == allowed_custom_agent_ids(
-            "prototype"
-        )
+    def test_retired_od_prototype_label_grants_nothing(self):
+        """The retired od_prototype label is no longer a key and no longer aliased,
+        so it falls to the security fallback (∅) like any unknown type — it must not
+        silently inherit prototype's allow-list."""
+        assert allowed_custom_agent_ids("od_prototype") == set()
+        assert allowed_custom_agent_ids("prototype")
 
     def test_ppt_is_non_empty_bug_fix(self):
         """The legacy ``od_ppt → ∅`` bug rejected every od_ppt custom run. The

@@ -921,6 +921,8 @@ export function AuditTab({ workflowRunId, runMeta, isRunning }: AuditTabProps) {
             <Search className="h-3.5 w-3.5 text-ink-400 flex-none" />
             <input
               data-testid="audit-search"
+              aria-label="Search audit log"
+              name="audit-search"
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

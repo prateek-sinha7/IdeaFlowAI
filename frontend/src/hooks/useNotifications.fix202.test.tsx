@@ -28,8 +28,8 @@ vi.stubGlobal("localStorage", localStorageMock);
 
 const RUN_A = "run-A";
 const RUN_B = "run-B";
-const NOTIF_STORAGE_KEY = "flowin.notifications.v2";
-const DISMISSED_STORAGE_KEY = "flowin.notifications.dismissed.v2";
+const NOTIF_STORAGE_KEY = "flowin.notifications.v3";
+const DISMISSED_STORAGE_KEY = "flowin.notifications.dismissed.v3";
 
 beforeEach(() => {
   localStorageMock.clear();
@@ -46,6 +46,8 @@ describe("FIX-202-A — localStorage hydration", () => {
     const { result } = renderHook(() => useNotifications());
     act(() => {
       result.current.addRunningNotification(RUN_A, "prototype", "My run", 4);
+      // FIX-204: only terminal notifications are persisted; running/gate are ephemeral.
+      result.current.markCompleted(RUN_A);
     });
     expect(result.current.notifications.length).toBe(1);
     // Unmount and re-mount WITHOUT pre-seeding storage → should reload from storage.
@@ -60,6 +62,8 @@ describe("FIX-202-A — localStorage hydration", () => {
     const { result } = renderHook(() => useNotifications());
     act(() => {
       result.current.addRunningNotification(RUN_A, "prototype", "My run", 4);
+      // FIX-204: only terminal notifications are persisted; running/gate are ephemeral.
+      result.current.markCompleted(RUN_A);
     });
     const raw = localStorageMock.getItem(NOTIF_STORAGE_KEY);
     expect(raw).not.toBeNull();
@@ -195,12 +199,17 @@ describe("FIX-202-C — clearAll wipes localStorage", () => {
 // D — ToastItem workflowRunId type contract (FIX-202 adds the field)
 // ─────────────────────────────────────────────────────────────────────────────
 describe("FIX-202-D — ToastItem workflowRunId field", () => {
-  it("FIX-202-D ToastItem accepts optional workflowRunId at the type level", async () => {
-    // Import the ToastItem type to prove the new field compiles.
-    const { type } = await import("@/components/ui/CompletionToast");
-    // The type export is the interface itself — just verify the module loads.
-    expect(type).toBeUndefined(); // no named export named "type"; this is a TypeScript-only check
-    // The real guard: constructing a ToastItem with workflowRunId must compile.
+  it("FIX-202-D ToastItem accepts optional workflowRunId at the type level", () => {
+    // The guard here is purely a COMPILE-time one: `import(...)` in type position
+    // (below) is erased at runtime and is enforced by `tsc --noEmit`.
+    //
+    // This used to also `await import("@/components/ui/CompletionToast")` at runtime
+    // and assert `expect(type).toBeUndefined()`. That assertion is a tautology — the
+    // module has no export named `type` — so the dynamic import bought no signal while
+    // pulling the entire CompletionToast component graph through Vite's transform. That
+    // cold transform could exceed this test's 5s timeout whenever other suites were
+    // competing for the pool, making the test flake for reasons unrelated to FIX-202.
+    // The type annotation retains the full contract at zero runtime cost.
     const item: import("@/components/ui/CompletionToast").ToastItem = {
       id: "t1",
       workflowType: "prototype",
@@ -242,6 +251,9 @@ describe("FIX-202-E — existing transitions still work after persistence layer"
     const { result } = renderHook(() => useNotifications());
     act(() => { result.current.addRunningNotification(RUN_A, "prototype", "A", 5); });
     act(() => { result.current.updateProgress(RUN_A, 3); });
+    // FIX-204: only terminal notifications are persisted; running/gate are ephemeral.
+    // Transition to completed so updateProgress is visible in storage.
+    act(() => { result.current.markCompleted(RUN_A); });
 
     const raw = localStorageMock.getItem(NOTIF_STORAGE_KEY);
     const parsed = JSON.parse(raw!) as PipelineNotification[];

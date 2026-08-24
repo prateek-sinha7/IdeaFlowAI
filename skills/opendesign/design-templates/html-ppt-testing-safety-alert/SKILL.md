@@ -1,13 +1,13 @@
 ---
 name: Safety & Risk Review
-description: 红琥珀警示 deck — 顶/底 45° 红黑 hazard 条纹、红色删除线否定标题、L1/L2/L3 绿/琥珀/红 tier 卡片、圆点状态 alert box、policy-yaml 代码块（红左边框 + bad 关键词高亮）、红绿 checklist、Q1 事故堆叠柱状图。适合安全 / 风险 / 事故复盘 / 红队 / 上线前 AI 评审 / policy-as-code。
+description: Red/amber alert deck — top/bottom 45° red-black hazard stripes, red strikethrough negation headline, L1/L2/L3 green/amber/red tier cards, dot-status alert boxes, policy-yaml code block (red left border + highlighted "bad" keywords), red/green checklist, Q1 incident stacked bar chart. Suited for safety / risk / incident postmortem / red team / pre-launch AI review / policy-as-code.
 triggers:
   - "safety alert"
   - "incident"
   - "red team"
   - "risk review"
-  - "事故复盘"
-  - "安全评审"
+  - "incident postmortem"
+  - "safety review"
   - "policy as code"
 od:
   mode: deck
@@ -21,9 +21,9 @@ od:
     requires: false
   speaker_notes: true
   animations: true
-  example_prompt: "用 html-ppt-testing-safety-alert 模板做一份事故复盘 / 安全评审 PPT。红黑 hazard 条 + 红色删除线 + L1/L2/L3 tier 卡片 + policy-yaml 代码块。先告诉我事件时间线、根因、影响范围。"
+  example_prompt: "Use the html-ppt-testing-safety-alert template to make an incident postmortem / safety review deck. Red-black hazard stripes + red strikethrough + L1/L2/L3 tier cards + policy-yaml code block. First tell me the incident timeline, root cause, and blast radius."
 ---
-# HTML PPT · 红琥珀警示
+# HTML PPT · Red/Amber Alert
 
 A focused entry point into the [`html-ppt`](../html-ppt/SKILL.md) master skill that lands the user directly on the **`testing-safety-alert`** full-deck template.
 

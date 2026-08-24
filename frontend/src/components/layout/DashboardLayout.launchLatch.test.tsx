@@ -14,7 +14,8 @@
  * double-invoke, and assert onStartPipeline fires exactly once per param object.
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { renderWithProviders, rerenderWithProviders } from "@/test/renderWithProviders";
+import { cleanup } from "@testing-library/react";
 import React from "react";
 import type { PipelineRunState } from "@/types/index";
 
@@ -103,7 +104,7 @@ function baseProps(overrides: Partial<DashboardLayoutProps>): DashboardLayoutPro
 }
 
 function renderStrict(props: DashboardLayoutProps) {
-  return render(
+  return renderWithProviders(
     <React.StrictMode>
       <SkillsHooksProvider>
         <DashboardLayout {...props} />
@@ -129,7 +130,7 @@ describe("DashboardLayout — launch consumers mint once per param object (BUG-0
       onStartPipeline: spy,
     }));
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy.mock.calls[0][0]).toBe("od_prototype");
+    expect(spy.mock.calls[0][0]).toBe("prototype");
   });
 
   it("a genuinely new od_prototype param object still mints (latch keys on identity, not a permanent block)", () => {
@@ -144,7 +145,7 @@ describe("DashboardLayout — launch consumers mint once per param object (BUG-0
     expect(spy).toHaveBeenCalledTimes(1);
 
     const paramsB = { brief: "test brief B", templateId: "t2", designSystemId: "ds2", discovery: undefined };
-    rerender(
+    rerenderWithProviders(
       <React.StrictMode>
         <SkillsHooksProvider>
           <DashboardLayout {...baseProps({
@@ -156,7 +157,7 @@ describe("DashboardLayout — launch consumers mint once per param object (BUG-0
       </React.StrictMode>,
     );
     expect(spy).toHaveBeenCalledTimes(2);
-    expect(spy.mock.calls[1][0]).toBe("od_prototype");
+    expect(spy.mock.calls[1][0]).toBe("prototype");
     expect(spy.mock.calls[1][1]).toBe("test brief B");
   });
 
@@ -169,6 +170,6 @@ describe("DashboardLayout — launch consumers mint once per param object (BUG-0
       onStartPipeline: spy,
     }));
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy.mock.calls[0][0]).toBe("od_ppt");
+    expect(spy.mock.calls[0][0]).toBe("ppt");
   });
 });

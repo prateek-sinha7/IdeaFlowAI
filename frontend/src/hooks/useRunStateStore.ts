@@ -278,7 +278,25 @@ export function useRunStateStore(): RunStateStoreReturn {
   const agentStartTimesMapRef = useRef<Map<string, React.MutableRefObject<Record<string, number>>>>(new Map());
 
   // Which run is currently in the viewport.
+  //
+  // Kept as a REF for all internal reads: frame handling mutates and reads it
+  // synchronously within a single SSE frame, so it must not lag behind a React
+  // state flush (a stale read here would project the wrong run's state).
   const viewedRunIdRef = useRef<string | null>(null);
+  // ...and mirrored into STATE purely for the value this hook returns. Returning
+  // `viewedRunIdRef.current` directly is a render-time ref read
+  // (react-hooks/refs): React does not re-render when a ref mutates, so any
+  // consumer reading `viewedRunId` would silently keep the value from whichever
+  // render it last happened to run in. The two are written together in
+  // `setViewedRun` below so they can never diverge.
+  const [viewedRunId, setViewedRunIdState] = useState<string | null>(null);
+
+  // The single writer for the viewed-run pair — keeps ref (sync) and state
+  // (render-safe) in lockstep. Never assign `viewedRunIdRef.current` directly.
+  const setViewedRun = useCallback((runId: string | null) => {
+    viewedRunIdRef.current = runId;
+    setViewedRunIdState(runId);
+  }, []);
 
   // The projected React state — triggers re-renders when the viewed run updates.
   const [viewedState, setViewedState] = useState<PerRunState>(() =>
@@ -351,7 +369,7 @@ export function useRunStateStore(): RunStateStoreReturn {
     // (handleWebSocketMessage) which calls runStoreSwitchViewToRef.current() directly.
     // This auto-set only handles the null case (very first run of the session).
     if (msg.type === "pipeline_start" && viewedRunIdRef.current === null) {
-      viewedRunIdRef.current = runId;
+      setViewedRun(runId);
     }
     const WAVE_EVENT_TYPES = [
       "wave_started", "wave_completed", "wave_failed",
@@ -441,7 +459,7 @@ export function useRunStateStore(): RunStateStoreReturn {
         project({ ...entry });
       }
     }
-  }, [getOrCreate, getAgentStartTimes, project]);
+  }, [getOrCreate, getAgentStartTimes, project, setViewedRun]);
 
   const update = useCallback((runId: string, patch: PerRunStateUpdate) => {
     const entry = getOrCreate(runId);
@@ -484,13 +502,13 @@ export function useRunStateStore(): RunStateStoreReturn {
   }, [getOrCreate, project]);
 
   const switchViewTo = useCallback((runId: string) => {
-    viewedRunIdRef.current = runId;
+    setViewedRun(runId);
     // FIX-224: reset the projection guard when switching views so the new run's
     // pipelineState is always projected fresh (not gated on the old run's ref).
     lastProjectedPipelineStateRef.current = null;
     const entry = getOrCreate(runId);
     project({ ...entry });
-  }, [getOrCreate, project]);
+  }, [getOrCreate, project, setViewedRun]);
 
   const initRun = useCallback((runId: string, initialState?: Partial<PerRunState>) => {
     const fresh = makeInitialRunState(runId);
@@ -518,7 +536,7 @@ export function useRunStateStore(): RunStateStoreReturn {
 
   return {
     viewed: viewedState,
-    viewedRunId: viewedRunIdRef.current,
+    viewedRunId,
     handleFrame,
     update,
     updatePipelineState,

@@ -16,25 +16,25 @@
  *   5. ND-12: no workflow visibility / team-sharing control is built.
  *   6. INV-3: the standalone AgentModelPicker is NOT mounted/imported (the inline
  *      Model lever already satisfies per-agent model selection).
- *   7. Save wires to the owner-scoped `createUserWorkflow` via NameWorkflowModal.
+ *   7. Save wires to the owner-scoped `saveUserWorkflow` via NameWorkflowModal.
  *
  * `getCapabilities` is mocked so the palette/expander render without a real
  * `/api/capabilities` fetch (same pattern as AdvancedExpander.test.tsx).
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { renderWithProviders, screen, waitFor, within } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { CapabilitiesPalette } from "@/lib/api";
 
 const mockGetCapabilities = vi.fn();
-const mockCreateUserWorkflow = vi.fn();
+const mockSaveUserWorkflow = vi.fn();
 vi.mock("@/lib/api", () => ({
   getToken: () => "test-token",
   getCapabilities: (token: string) => mockGetCapabilities(token),
-  createUserWorkflow: (...args: unknown[]) => mockCreateUserWorkflow(...args),
+  saveUserWorkflow: (...args: unknown[]) => mockSaveUserWorkflow(...args),
 }));
 
 import {
@@ -123,7 +123,7 @@ describe("AgentsPopup reskin — token gate", () => {
 describe("AgentsPopup reskin — AdvancedExpander preserved contracts", () => {
   it("EMP-04: selecting a validator auto-attaches the coupled `validation` gate", async () => {
     const onSelectionsChange = vi.fn();
-    render(
+    renderWithProviders(
       <AdvancedExpander agents={AGENTS} onSelectionsChange={onSelectionsChange} />,
     );
     await userEvent.click(
@@ -145,7 +145,7 @@ describe("AgentsPopup reskin — AdvancedExpander preserved contracts", () => {
 
   it("WIRE-02: the retry lever offers ints [1,2,3] (not a bool toggle)", async () => {
     const onSelectionsChange = vi.fn();
-    render(
+    renderWithProviders(
       <AdvancedExpander agents={AGENTS} onSelectionsChange={onSelectionsChange} />,
     );
     await userEvent.click(
@@ -169,7 +169,7 @@ describe("AgentsPopup reskin — AdvancedExpander preserved contracts", () => {
 // ── 4. CapabilityPaletteSection reads the LIVE registry (user_allowed lock) ──────
 describe("AgentsPopup reskin — CapabilityPaletteSection live registry", () => {
   it("SC-001: a user_allowed=false capability renders locked (Engineer-only)", async () => {
-    render(<CapabilityPaletteSection />);
+    renderWithProviders(<CapabilityPaletteSection />);
     // Whole payload rendered from the mocked live registry.
     await screen.findByText("code_test");
     // The locked cap is present AND flagged Engineer-only (never hidden).
@@ -205,13 +205,13 @@ describe("AgentsPopup reskin — deferred-out + no dual-impl", () => {
     expect(AGENTS_POPUP_SRC).not.toMatch(/<AgentModelPicker|import.*AgentModelPicker/);
   });
 
-  it("Save is wired to the owner-scoped createUserWorkflow", () => {
-    expect(AGENTS_POPUP_SRC).toMatch(/createUserWorkflow/);
+  it("Save is wired to the owner-scoped saveUserWorkflow", () => {
+    expect(AGENTS_POPUP_SRC).toMatch(/saveUserWorkflow/);
   });
 });
 
-// ── 7. Save → createUserWorkflow via NameWorkflowModal (behavioral) ─────────────
-describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
+// ── 7. Save → saveUserWorkflow via NameWorkflowModal (behavioral) ─────────────
+describe("AgentsPopup reskin — Save wires to saveUserWorkflow", () => {
   const SAVE_AGENTS: AgentDef[] = [
     {
       id: "requirements-analyst",
@@ -222,15 +222,15 @@ describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
     } as AgentDef,
   ];
 
-  it("opens NameWorkflowModal and calls createUserWorkflow with the composed payload", async () => {
-    mockCreateUserWorkflow.mockResolvedValue({
+  it("opens NameWorkflowModal and calls saveUserWorkflow with the composed payload", async () => {
+    mockSaveUserWorkflow.mockResolvedValue({
       id: "wf-1",
       name: "My workflow",
       base_pipeline_type: "prototype",
       agent_ids: ["requirements-analyst"],
     });
 
-    render(
+    renderWithProviders(
       <SkillsHooksProvider>
         <AgentsPopup
           isOpen
@@ -251,8 +251,8 @@ describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
     await userEvent.type(nameInput, "My workflow");
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
-    await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalledTimes(1));
-    const [, body] = mockCreateUserWorkflow.mock.calls[0];
+    await waitFor(() => expect(mockSaveUserWorkflow).toHaveBeenCalledTimes(1));
+    const [, , body] = mockSaveUserWorkflow.mock.calls[0];
     expect(body).toMatchObject({
       name: "My workflow",
       base_pipeline_type: "prototype",
@@ -261,14 +261,14 @@ describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
   });
 
   it("WR-03: does NOT persist a stale model_overrides seed (model lives in selections)", async () => {
-    mockCreateUserWorkflow.mockResolvedValue({
+    mockSaveUserWorkflow.mockResolvedValue({
       id: "wf-2",
       name: "No stale overrides",
       base_pipeline_type: "prototype",
       agent_ids: ["requirements-analyst"],
     });
 
-    render(
+    renderWithProviders(
       <SkillsHooksProvider>
         <AgentsPopup
           isOpen
@@ -288,13 +288,13 @@ describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
     await userEvent.type(nameInput, "No stale overrides");
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
-    await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalledTimes(1));
-    const [, body] = mockCreateUserWorkflow.mock.calls[0];
+    await waitFor(() => expect(mockSaveUserWorkflow).toHaveBeenCalledTimes(1));
+    const [, , body] = mockSaveUserWorkflow.mock.calls[0];
     expect(body).not.toHaveProperty("model_overrides");
   });
 
-  it("51-06: threads a composed FAN-OUT selection into the createUserWorkflow SAVE payload", async () => {
-    mockCreateUserWorkflow.mockResolvedValue({
+  it("51-06: threads a composed FAN-OUT selection into the saveUserWorkflow SAVE payload", async () => {
+    mockSaveUserWorkflow.mockResolvedValue({
       id: "wf-3",
       name: "Fanned workflow",
       base_pipeline_type: "prototype",
@@ -315,7 +315,7 @@ describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
       },
     };
 
-    render(
+    renderWithProviders(
       <SkillsHooksProvider>
         <AgentsPopup
           isOpen
@@ -332,20 +332,20 @@ describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
     await userEvent.type(nameInput, "Fanned workflow");
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
-    await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalledTimes(1));
-    const [, body] = mockCreateUserWorkflow.mock.calls[0];
+    await waitFor(() => expect(mockSaveUserWorkflow).toHaveBeenCalledTimes(1));
+    const [, , body] = mockSaveUserWorkflow.mock.calls[0];
     expect(body.selections).toEqual(FANOUT_SELECTION);
   });
 
   it("51-06: omits selections from the SAVE payload when no lever is set (INV-3)", async () => {
-    mockCreateUserWorkflow.mockResolvedValue({
+    mockSaveUserWorkflow.mockResolvedValue({
       id: "wf-4",
       name: "Bare workflow",
       base_pipeline_type: "prototype",
       agent_ids: ["requirements-analyst"],
     });
 
-    render(
+    renderWithProviders(
       <SkillsHooksProvider>
         <AgentsPopup
           isOpen
@@ -361,8 +361,8 @@ describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
     await userEvent.type(nameInput, "Bare workflow");
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
-    await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalledTimes(1));
-    const [, body] = mockCreateUserWorkflow.mock.calls[0];
+    await waitFor(() => expect(mockSaveUserWorkflow).toHaveBeenCalledTimes(1));
+    const [, , body] = mockSaveUserWorkflow.mock.calls[0];
     expect(body).not.toHaveProperty("selections");
   });
 });

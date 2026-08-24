@@ -193,31 +193,33 @@ broadsheet, hairline coordinate ladder up the left edge, and a small
 "FIN." dotted seal in the upper-right. Page type: closing CTA plate.
 ```
 
-## 4. Chinese project input template
+## 4. Non-English project input template
 
-Use only when the model copy must be Chinese; otherwise prefer English
-for legibility. Keep verbatim text short.
+Use only when the model copy must be in a language other than English;
+otherwise prefer English for legibility. Keep verbatim text short.
 
 ```text
-请生成一张 16:9 横版网页视觉稿，风格为高级创意 AI 工作室官网：现代瑞士编辑排版、
-包豪斯几何、古典石膏雕塑拼贴、极简建筑、手工纸张肌理、细线工程制图标记。
+Please generate a 16:9 landscape web page visual, styled as a premium
+creative AI studio homepage: modern Swiss editorial layout, Bauhaus
+geometry, classical plaster sculpture collage, minimal architecture,
+handmade paper texture, thin engineering-drafting marks.
 
-品牌文字："<品牌名>"
-导航："<导航1>", "<导航2>", "<导航3>", "<导航4>"
-小标签："<小标签>"
-主标题必须逐字渲染："<主标题>"
-强调词（斜体衬线）："<强调词>"
-正文必须逐字渲染："<正文>"
-按钮文字："<按钮1>", "<按钮2>"
+Brand text: "<BRAND_NAME>"
+Navigation: "<NAV_1>", "<NAV_2>", "<NAV_3>", "<NAV_4>"
+Eyebrow label: "<EYEBROW>"
+Main headline (must render verbatim): "<MAIN_HEADLINE>"
+Emphasis words (italic serif): "<ITALIC_WORDS>"
+Body copy (must render verbatim): "<BODY_COPY>"
+Button text: "<PRIMARY_CTA>", "<SECONDARY_CTA>"
 
-画面主体：<主体描述>
-贴图与元素：<天空 / 石材 / 植物 / 人物 / 眼睛 / 山脉 / 水面 / UI 截图等>
-构图：<左文右图 / 右文左图 / 顶部大标题下方横向卡片 / 中央拼贴 / 时间线分栏>
-色彩：暖象牙白纸张、黑色文字、石灰/混凝土灰、炭黑、低饱和珊瑚红点缀、
-     少量芥末黄或浅天蓝。
+Main subject: <subject description>
+Texture/motif overlays: <sky / stone / plant / figure / eye / mountain / water / UI screenshot, etc.>
+Composition: <text-left image-right / image-left text-right / large headline atop horizontal cards / center collage / timeline columns>
+Color palette: warm ivory paper, black text, lime/concrete gray, charcoal
+     black, muted coral-red accents, a touch of mustard yellow or pale sky blue.
 
-限制：文字清晰可读、不添加多余文字、不要水印、不要卡通、不要霓虹、
-     不要厚重阴影、不要俗套科技蓝紫渐变。
+Constraints: text crisp and legible, no extra text added, no watermark,
+     no cartoon style, no neon, no heavy shadows, no clichéd tech blue-purple gradient.
 ```
 
 ## 5. Calling convention

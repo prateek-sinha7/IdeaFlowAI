@@ -150,8 +150,9 @@ def test_known_names_match_expected_exactly() -> None:
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 
-def test_resolve_alias_maps_od_prototype(registry: CapabilityRegistry) -> None:
-    assert registry.resolve_alias("od_prototype") == "prototype"
+def test_resolve_alias_is_identity(registry: CapabilityRegistry) -> None:
+    """No aliases remain: the retired od_prototype label resolves to itself."""
+    assert registry.resolve_alias("od_prototype") == "od_prototype"
 
 
 def test_resolve_alias_is_identity_for_real_keys(

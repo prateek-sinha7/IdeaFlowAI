@@ -136,6 +136,8 @@ export function MarkdownPreview({ content, onRevise }: MarkdownPreviewProps) {
         <div className="flex-shrink-0 border-t border-line-divider bg-surface-white px-4 py-3 flex items-center gap-3">
           <input
             type="text"
+            aria-label="Revision instructions"
+            name="markdown-revision"
             value={revisionText}
             onChange={(e) => setRevisionText(e.target.value)}
             onKeyDown={(e) => {

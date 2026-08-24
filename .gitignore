@@ -49,6 +49,10 @@ out/
 .specify/
 CLAUDE.md
 
+# Kiro IDE local tooling — settings, agents, hooks; never tracked
+.claude/
+.kiro/settings/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -56,6 +60,13 @@ Thumbs.db
 # Generated ESLint output files
 frontend/eslint_code.txt
 frontend/eslint_out.txt
+
+# Test coverage reports (generated locally and in CI, not committed)
+backend/htmlcov/
+backend/coverage.xml
+backend/.coverage
+frontend/coverage/
+frontend/.coverage
 
 # Generated OpenDesign gallery thumbnails — produced at build time
 # (backend/scripts/generate_template_thumbnails.py, run from the backend
@@ -123,3 +134,4 @@ TODO.md
 
 # Stale local run output — the live RUNS_ROOT is /tmp/flowin-runs, nothing references this
 backend/.runs-local/
+graphify-out/

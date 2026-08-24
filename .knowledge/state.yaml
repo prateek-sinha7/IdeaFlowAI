@@ -1,0 +1,13 @@
+schema_version: 1
+last_sync_commit: 1c239ba8ee148c6de65529d04a082cc0e8e52469
+last_sync_date: '2026-08-19'
+cards_count: 499
+cards_by_type:
+  adr: 12
+  bug: 42
+  fix: 276
+  issue: 169
+cards_by_kind:
+  event: 487
+  state: 12
+architecture_count: 36

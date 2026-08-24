@@ -46,7 +46,6 @@ _CHAT_EVENT_TYPES = frozenset(
 # The 5 characterization pipelines whose golden event streams must stay chat-free.
 _GOLDEN_PIPELINES = (
     "prototype",
-    "od_prototype",
     "ppt",
     "prototype_revision",
     "app_builder",

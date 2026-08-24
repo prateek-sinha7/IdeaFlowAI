@@ -27,6 +27,7 @@ imports the kernel (``agents.execution_engine``) or the web layer.
 
 from __future__ import annotations
 
+import logging
 import re
 
 from agents.capabilities.registry import CapabilityRegistry
@@ -44,8 +45,14 @@ from agents.workflows.plan import (
     Step,
     TaskSource,
     ToolPermissions,
-    intersect_permissions,
 )
+from agents.workflows.permission_caps import (
+    ALLOWED_GRANT_KEYS,
+    apply_cap,
+    parse_grant,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class CompilerError(Exception):
@@ -151,19 +158,9 @@ _ALLOWED_ON_CONFLICT: frozenset[str] = frozenset(
 # EXACTLY the keys a step ``tools:`` grant block may declare (D-08 at the nested
 # level / D-07). These are the §8 ToolPermissions grant fields — pure data, no
 # control flow (INV-5). Mirrors ``ToolPermissions`` (plan.py:45-) one-for-one.
-_ALLOWED_TOOLS_KEYS: frozenset[str] = frozenset(
-    {
-        "read_files",
-        "write_files",
-        "exec",
-        "git",
-        "network",
-        "secrets",
-        "mcp",
-        "integrations",
-        "spawn_subagents",
-    }
-)
+# DERIVED from ToolPermissions via permission_caps — never hand-listed, so a new
+# permission cannot be silently rejected here by a stale copy.
+_ALLOWED_TOOLS_KEYS: frozenset[str] = ALLOWED_GRANT_KEYS
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +230,9 @@ class WorkflowCompiler:
                 ``(kind, name)``); or the Step DAG has a duplicate agent id / cycle.
         """
         trusted = trust in _TRUSTED_SOURCES
+        # Recorded only so the tool_permission trace can name the workflow a step
+        # belongs to — the step compiler has no other handle on the manifest.
+        self._workflow_id = manifest.id
 
         # ── instance_id / prompt / subagents validation over the FLATTENED tree ──
         # (spec 012 R-02/R-03/R-05/R-06/R-09/F-03/F-11). Runs BEFORE per-step
@@ -856,24 +856,16 @@ class WorkflowCompiler:
                     f"declare gates: [security, approval] (D-01)"
                 )
 
-        # ── Trust-conditional workflow ceiling (D-07 / INV-9 / GRANT-PATH) ───
-        # For TRUSTED (file/builtin) trust the ceiling permits ``exec`` to survive
-        # ``intersect_permissions`` so a file/builtin exec grant binds True; for an
-        # untrusted trust the bare §8 least-privilege ceiling collapses exec OFF
-        # (the user/db guard above already rejected the grant). ``network``/
-        # ``secrets`` stay OFF in the ceiling for BOTH trust levels this phase — they
-        # remain gate-blocked at runtime (out of scope here), so a file-trust
-        # ``network:true`` grant still intersects to False.
-        # ``spawn_subagents`` rides the SAME trust-conditional ceiling as ``exec``
-        # (Phase 11 / FANOUT-03 / T-11-05-03): a TRUSTED (file/builtin) manifest may
-        # grant the privileged fan-out spawn, so it survives the intersection and binds
-        # True; an UNTRUSTED (user/db) manifest's ceiling collapses it OFF (and the
-        # CAP-03 ``_check_trust`` of the ``tool:spawn_subagents`` reference — which is
-        # ``user_allowed=False`` — already rejects the user/db grant upstream). Mirrors
-        # the exec posture exactly: the privilege is engineer-authored-only.
-        workflow_ceiling = ToolPermissions(exec=trusted, spawn_subagents=trusted)
-        effective_tools = intersect_permissions(
-            workflow_ceiling, workflow_ceiling, step_grant
+        # ── Permissions (D-07 / INV-9 / GRANT-PATH) ─────────────────────────
+        # The cap, the intersection and the trace all live in
+        # ``agents/workflows/permission_caps.py``. The compiler does not decide
+        # permissions — it hands the step's request and the manifest's trust to
+        # the one module that does, and stores the answer on the Step.
+        effective_tools = apply_cap(
+            step_grant,
+            trust,
+            workflow=getattr(self, "_workflow_id", ""),
+            agent=agent_id,
         )
 
         # ── Declarative fan-out (Phase 11 / Q12 / FANOUT-03) ─────────────────
@@ -1157,16 +1149,9 @@ class WorkflowCompiler:
                 f"manifests are pure data; a control-flow/DSL field has nowhere "
                 f"to live (INV-5)"
             )
-        bool_fields = ("read_files", "write_files", "exec", "git", "network", "spawn_subagents")
-        list_fields = ("secrets", "mcp", "integrations")
-        kwargs: dict = {}
-        for f in bool_fields:
-            if f in raw_tools:
-                kwargs[f] = bool(raw_tools[f])
-        for f in list_fields:
-            if f in raw_tools:
-                kwargs[f] = list(raw_tools[f] or [])
-        return ToolPermissions(**kwargs)
+        # The vocabulary and the parse both live in ``permission_caps`` — the
+        # compiler raises the diagnostic, it does not define what a permission is.
+        return parse_grant(raw_tools)
 
     @staticmethod
     def _validate_mcp_grant(

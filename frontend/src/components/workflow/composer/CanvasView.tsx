@@ -890,6 +890,7 @@ export function CanvasView({
         </div>
         <select
           aria-label="Deliverable strategy"
+          name="deliverable-strategy"
           value={deliverableStrategy}
           disabled={!onRunConfigChange}
           onChange={(e) => {
@@ -910,6 +911,7 @@ export function CanvasView({
           <input
             type="text"
             aria-label="Output file name"
+            name="output-filename"
             value={deliverableBaseName}
             disabled={!onRunConfigChange}
             onChange={(e) =>
@@ -925,6 +927,7 @@ export function CanvasView({
           />
           <select
             aria-label="Output format"
+            name="output-format"
             value={currentFormat}
             disabled={!onRunConfigChange || formatLocked}
             onChange={(e) =>
@@ -1277,7 +1280,7 @@ export function CanvasView({
               <div>
                 <p className="flex items-center gap-1.5 font-sans text-[13px] font-semibold text-ink-900">
                   <InfoHint>
-                    The instruction sent to the workflow's first agent when this run starts — describe what
+                    The instruction sent to the workflow&apos;s first agent when this run starts — describe what
                     you want built.
                   </InfoHint>
                   Brief instruction

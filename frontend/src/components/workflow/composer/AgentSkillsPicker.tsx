@@ -154,6 +154,7 @@ export function AgentSkillsPicker({
                 placeholder="Search skills…"
                 disabled={readOnly}
                 aria-label="Search skills"
+                name="skills-search"
                 data-testid="agent-skills-search"
                 className="w-full rounded-[7px] border border-line-faint-row bg-surface-warm py-1.5 pl-7 pr-2 font-sans text-[11px] text-ink-900 placeholder-ink-300 focus:border-line-control focus:outline-none disabled:opacity-50"
               />

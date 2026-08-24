@@ -43,7 +43,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...actual,
     getToken: () => "tok",
-    getWorkflows: vi.fn(async () => RUNS),
+    getWorkflows: vi.fn(async () => ({ runs: RUNS, total: RUNS.length })),
   };
 });
 

@@ -356,7 +356,7 @@ export function DashboardLayout({
     // start directly in execution view — avoids the home screen flash while
     // waiting for the WebSocket to connect and fire the pipeline.
     if (typeof window !== "undefined" && (
-      sessionStorage.getItem("od_prototype.pending") ||
+      sessionStorage.getItem("prototype.pending") ||
       sessionStorage.getItem("ppt.pending")
     )) {
       return "execution";
@@ -371,7 +371,7 @@ export function DashboardLayout({
   );
   const [workflowType, setWorkflowType] = useState<WorkflowType>(() => {
     if (typeof window !== "undefined") {
-      if (sessionStorage.getItem("od_prototype.pending")) return "prototype";
+      if (sessionStorage.getItem("prototype.pending")) return "prototype";
       if (sessionStorage.getItem("ppt.pending")) return "ppt";
     }
     return "user_stories";
@@ -387,12 +387,20 @@ export function DashboardLayout({
   // resume attempt fails (instead of silently navigating home). Cleared on the
   // next pipeline_start (the run actually resumes) or when a new run is started.
   const [resumeError, setResumeError] = useState<string | null>(null);
+  // FIX-226: true between "Run Again" click and the first pipeline_start arriving
+  // (the run is accepted but not yet building). Shows an animated "Restarting run…"
+  // indicator in the chat footer. Cleared on pipeline_start or error.
+  const [runRestarting, setRunRestarting] = useState(false);
   const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{
     id: string; question: string; options: string[]; answerType?: string;
     recommendedAnswer?: string; recommendedReasoning?: string;
     recommendedDisplay?: string; ambiguityCategory?: string; impactLevel?: string;
   }[]>([]);
   const [questionnaireLoading, setQuestionnaireLoading] = useState(false);
+  // FIX-225: true only between mid-run answer submission and the next
+  // questionnaire_ready (round 2+ preparing) or pipeline_start (build began).
+  // Distinct from questionnaireLoading to avoid side-effects on other consumers.
+  const [clarifyPreparing, setClarifyPreparing] = useState(false);
   const [pendingPipelineRun, setPendingPipelineRun] = useState<{
     type: WorkflowType;
     message: string;
@@ -547,9 +555,7 @@ export function DashboardLayout({
       if (mainView !== "execution") {
         setMainView("execution");
       }
-      const pt = pipelineState.pipeline_type as WorkflowType | "od_prototype";
-      // Normalise od_prototype → prototype.
-      const normalised: WorkflowType = pt === "od_prototype" ? "prototype" : (pt as WorkflowType);
+      const normalised = pipelineState.pipeline_type as WorkflowType;
       if (normalised && normalised !== workflowType) {
         setWorkflowType(normalised);
       }
@@ -738,8 +744,7 @@ export function DashboardLayout({
   useEffect(() => {
     if (
       pipelineState?.isRunning &&
-      (pipelineState.pipeline_type === "od_prototype" || pipelineState.pipeline_type === "prototype" ||
-       pipelineState.pipeline_type === "ppt")
+      (pipelineState.pipeline_type === "prototype" || pipelineState.pipeline_type === "ppt")
     ) {
       if (odProtoNotifCreated.current) return;
       odProtoNotifCreated.current = true;
@@ -840,7 +845,11 @@ export function DashboardLayout({
   // only this effect clears it). The empty deps-array on the outer useCallback
   // is safe because this effect runs on each isPipelineRunning change.
   useEffect(() => {
-    if (isPipelineRunning) setResumeError(null);
+    if (isPipelineRunning) {
+      setResumeError(null);
+      // FIX-226: pipeline started — clear the "Restarting run…" indicator.
+      setRunRestarting(false);
+    }
   }, [isPipelineRunning]);
 
   // Extract Agent 3's (ppt-code-generator) output for early PPTX download
@@ -968,12 +977,24 @@ export function DashboardLayout({
     if (questionnaireData && questionnaireData.questions) {
       setQuestionnaireQuestions(questionnaireData.questions);
       setQuestionnaireLoading(false);
+      // FIX-225: new round arrived — no longer preparing.
+      setClarifyPreparing(false);
     } else if (!questionnaireData) {
       // questionnaireData was cleared — clear the questions so the Steps panel
       // does not show stale questions from a previous run.
       setQuestionnaireQuestions([]);
     }
   }, [questionnaireData]);
+
+  // FIX-225: clear clarifyPreparing when agents start building (pipeline_start
+  // has fired and agents are in the list). This covers the case where clarify
+  // ends without a further round — the build starts and preparing must stop.
+  const pipelineAgentCount = pipelineState?.agents?.length ?? 0;
+  useEffect(() => {
+    if (pipelineAgentCount > 0) {
+      setClarifyPreparing(false);
+    }
+  }, [pipelineAgentCount]);
 
   // If the WebSocket reconnects while a pipeline run is in-flight (i.e. the
   // user submitted the questionnaire but the connection dropped before the
@@ -1064,10 +1085,10 @@ export function DashboardLayout({
       addRunningNotification(notifId, "prototype", pendingOdProtoParams.brief.slice(0, 60), 0);
       const agentIds = pendingOdProtoParams.agentIds ?? [];
       if (connectionStatus === "connected") {
-        onStartPipeline("od_prototype" as WorkflowType, pendingOdProtoParams.brief, agentIds, attachedHooks, extraParams);
+        onStartPipeline("prototype", pendingOdProtoParams.brief, agentIds, attachedHooks, extraParams);
       } else {
         pendingStartOnConnectRef.current = {
-          type: "od_prototype" as WorkflowType,
+          type: "prototype",
           message: pendingOdProtoParams.brief,
           agentIds,
           extraParams,
@@ -1224,7 +1245,7 @@ export function DashboardLayout({
 
     // For PPT and Prototype saved workflows, extract _wizard config and route
     // directly to the wizard page (restoring templateId, designSystemId, brief, etc.)
-    if (saved.base_pipeline_type === "od_ppt" || saved.base_pipeline_type === "ppt") {
+    if (saved.base_pipeline_type === "ppt") {
       const wizard = (saved.selections?._wizard ?? {}) as Record<string, unknown>;
       const draft: Record<string, unknown> = {
         templateId: wizard.templateId ?? null,
@@ -1239,13 +1260,19 @@ export function DashboardLayout({
           ? { selections: Object.fromEntries(Object.entries(saved.selections).filter(([k]) => k !== "_wizard")) }
           : {}),
         agentIds: saved.agent_ids,
+        // ISS-167: carry the saved row's identity through so re-saving updates
+        // it in place instead of always prompting for a new name (the Canvas
+        // already does this via initialUserWorkflowId — the wizard never had it).
+        id: saved.id,
+        name: saved.name,
+        description: saved.description ?? undefined,
       };
       sessionStorage.setItem("ppt.draft", JSON.stringify(draft));
       router.push("/workflow/create?mode=ppt");
       return;
     }
 
-    if (saved.base_pipeline_type === "od_prototype" || saved.base_pipeline_type === "prototype") {
+    if (saved.base_pipeline_type === "prototype") {
       const wizard = (saved.selections?._wizard ?? {}) as Record<string, unknown>;
       const draft: Record<string, unknown> = {
         templateId: wizard.templateId ?? null,
@@ -1260,6 +1287,12 @@ export function DashboardLayout({
           ? { selections: Object.fromEntries(Object.entries(saved.selections).filter(([k]) => k !== "_wizard")) }
           : {}),
         agentIds: saved.agent_ids,
+        // ISS-167: carry the saved row's identity through so re-saving updates
+        // it in place instead of always prompting for a new name (the Canvas
+        // already does this via initialUserWorkflowId — the wizard never had it).
+        id: saved.id,
+        name: saved.name,
+        description: saved.description ?? undefined,
       };
       sessionStorage.setItem("prototype.draft", JSON.stringify(draft));
       router.push("/workflow/create?mode=prototype");
@@ -1343,10 +1376,9 @@ export function DashboardLayout({
       // !odProtoNotifId.current (prototype) — set them here for those types so
       // the guard fires and the reactive path is a no-op.
       const resolvedTypeStr = resolvedType as string;
-      const isPptType = resolvedTypeStr === "ppt" || resolvedTypeStr === "od_ppt" ||
-        resolvedTypeStr === "ppt_revision" || resolvedTypeStr === "od_ppt_revision";
-      const isProtoType = resolvedTypeStr === "prototype" || resolvedTypeStr === "od_prototype" ||
-        resolvedTypeStr === "prototype_revision" || resolvedTypeStr === "od_prototype_revision";
+      const isPptType = resolvedTypeStr === "ppt" || resolvedTypeStr === "ppt_revision";
+      const isProtoType = resolvedTypeStr === "prototype" || resolvedTypeStr === "prototype_revision"
+        || resolvedTypeStr === "prototype_large_revision" || resolvedTypeStr === "prototype_feature_revision";
       if (isPptType) { odPptNotifId.current = notifId; }
       if (isProtoType) { odProtoNotifId.current = notifId; }
       // FIX-130: inject _display_title so page.tsx onStartPipeline can set a
@@ -1454,7 +1486,8 @@ export function DashboardLayout({
       } catch {
         // Fallback: use the old approach
         const isHtmlOutput = workflowType === "ppt" || workflowType === "ppt_revision" ||
-          workflowType === "od_prototype" || workflowType === "prototype" || workflowType === "prototype_revision";
+          workflowType === "prototype" || workflowType === "prototype_revision" ||
+          workflowType === "prototype_large_revision" || workflowType === "prototype_feature_revision";
         contextBlock = isHtmlOutput
           ? `=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n[${workflowType} output — HTML file]\n=== END PREVIOUS CONTEXT ===`
           : `=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n${lastPipelineOutput.slice(0, 4000)}\n=== END PREVIOUS CONTEXT ===`;
@@ -1493,7 +1526,7 @@ export function DashboardLayout({
       const chainNotifTitle = (chainBrief || enrichedInput).slice(0, 60);
       addRunningNotification(notifId, nextType, chainNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = nextType as string; if (t === "ppt" || t === "od_ppt" || t === "ppt_revision" || t === "od_ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "od_prototype" || t === "prototype_revision" || t === "od_prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedHooks, { _display_title: chainBrief });
       } else {
@@ -1548,7 +1581,8 @@ export function DashboardLayout({
     } catch {
       // Fallback
       const isHtmlOutput = run.type === "ppt" || run.type === "ppt_revision" ||
-        run.type === "od_prototype" || run.type === "prototype" || run.type === "prototype_revision";
+        run.type === "prototype" || run.type === "prototype_revision" ||
+        run.type === "prototype_large_revision" || run.type === "prototype_feature_revision";
       const baseOutput = isHtmlOutput
         ? `[${run.title || run.type} output — HTML file]`
         : (run.output || "").slice(0, 4000);
@@ -1580,7 +1614,7 @@ export function DashboardLayout({
       const historyNotifTitle = (historyBrief || enrichedInput).slice(0, 60);
       addRunningNotification(notifId, nextType, historyNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = nextType as string; if (t === "ppt" || t === "od_ppt" || t === "ppt_revision" || t === "od_ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "od_prototype" || t === "prototype_revision" || t === "od_prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedHooks, { _display_title: historyBrief });
       } else {
@@ -1629,6 +1663,14 @@ export function DashboardLayout({
       }
       setQuestionnaireQuestions([]);
       setQuestionnaireLoading(false);
+      // FIX-225: show "Preparing your questions…" only when this is the first
+      // round submitting (clarifications.length === 0 means no rounds answered
+      // yet). A second+ round submit is likely the final one before build starts,
+      // so we don't show the indicator to avoid it lingering during agent startup.
+      const roundsAnsweredSoFar = pipelineState?.clarifications?.length ?? 0;
+      if (roundsAnsweredSoFar === 0) {
+        setClarifyPreparing(true);
+      }
       onSubmitQuestionnaire(activePipelineRunId, responses);
       return;
     }
@@ -1662,7 +1704,7 @@ export function DashboardLayout({
       const pendingNotifTitle = (parsedPending.revisionInstruction ?? parsedPending.brief ?? pendingPipelineRun.message).slice(0, 60);
       addRunningNotification(notifId, pendingPipelineRun.type, pendingNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "od_ppt" || t === "ppt_revision" || t === "od_ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "od_prototype" || t === "prototype_revision" || t === "od_prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -1702,7 +1744,7 @@ export function DashboardLayout({
       const skipNotifTitle = (parsedSkip.revisionInstruction ?? parsedSkip.brief ?? pendingPipelineRun.message).slice(0, 60);
       addRunningNotification(notifId, pendingPipelineRun.type, skipNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "od_ppt" || t === "ppt_revision" || t === "od_ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "od_prototype" || t === "prototype_revision" || t === "od_prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -1809,7 +1851,9 @@ export function DashboardLayout({
   const activeReviseHandler =
     (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision") ? handleRevisePpt :
     (effectiveReviseType === "user_stories" || effectiveReviseType === "user_stories_revision") ? handleReviseUserStory :
-    (effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision" || effectiveReviseType === "od_prototype" || !!prototypeContent) ? handleRevisePrototype :
+    (effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision"
+      || effectiveReviseType === "prototype_large_revision" || effectiveReviseType === "prototype_feature_revision"
+      || !!prototypeContent) ? handleRevisePrototype :
     (effectiveReviseType === "app_builder" || effectiveReviseType === "app_builder_revision") ? handleReviseAppBuilder :
     undefined;
 
@@ -1913,6 +1957,8 @@ export function DashboardLayout({
     }
     // Clear any prior inline resume error before attempting.
     setResumeError(null);
+    // FIX-226: show "Restarting run…" indicator immediately.
+    setRunRestarting(true);
 
     const doResume = (token: string, id: string): Promise<void> =>
       postResume(token, id).then(({ run_id }) => {
@@ -1951,6 +1997,7 @@ export function DashboardLayout({
         runConnection.attachRun(runId);
         return;
       }
+      setRunRestarting(false);
       setResumeError("Could not resume the run — please try again.");
     });
   }, [lastCancelledRunId, pipelineState, contentSourceRunId, activePipelineRunId, runConnection, handleGoHome]);
@@ -1959,7 +2006,13 @@ export function DashboardLayout({
   // workflow name). Priority: gate > clarify > building > terminal-failure >
   // complete (has deliverable) > idle.
   const laneHasDeliverable = !!(userStoryContent || pptContent || prototypeContent || genericDeliverable?.content);
-  const laneClarifyOpen = questionnaireQuestions.length > 0 && (!!pendingPipelineRun || !!activePipelineRunId);
+  // FIX-225: laneClarifyOpen is also true when clarifyPreparing is true — i.e.
+  // the user just submitted answers and we're waiting for the next questionnaire_ready
+  // (inter-round gap). This keeps runLaneState in "clarify" so RunChatLane shows
+  // "Preparing your questions…". clarifyPreparing is cleared by:
+  //   1. questionnaire_ready firing (new questions set in questionnaireData effect)
+  //   2. agents starting (pipelineAgentCount > 0 effect — clarification is done)
+  const laneClarifyOpen = (questionnaireQuestions.length > 0 || clarifyPreparing) && (!!pendingPipelineRun || !!activePipelineRunId);
   // Terminal keys off the GENERIC plan-05 markers (cancelled / failed /
   // degraded) — never a workflow name (SC-001, LIVE-STATE-CONTRACT §1).
   const runLaneState: RunLaneState =
@@ -1981,8 +2034,8 @@ export function DashboardLayout({
   const laneActiveContent =
     effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision"
       ? pptContent
-      : effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision" ||
-        effectiveReviseType === "od_prototype"
+      : effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision"
+        || effectiveReviseType === "prototype_large_revision" || effectiveReviseType === "prototype_feature_revision"
         ? prototypeContent
         : userStoryContent; // user_stories, custom, app_builder, and revision variants
   const laneDerivedFilename = deriveDeliverableFilename(
@@ -2026,6 +2079,11 @@ export function DashboardLayout({
     return stripped || undefined;
   })();
   const runHeaderTitle = cleanLatestTitle ?? submittedBrief;
+  // The header tooltip wants the ORIGINAL untrimmed brief, not the (possibly
+  // 60-char-truncated) DB title used for the clamped display line above.
+  // `viewedRun.input` is the reopened run's own `run.input` column; live runs
+  // (no viewedRun yet) fall back to the just-submitted brief.
+  const runHeaderTitleFull = viewedRun?.input || submittedBrief;
 
   // The gate the lane surfaces (mirrors the Steps ReviewGatePanel props). The
   // KAN-101 spec-loop affordance + approve relabel are mapped off the declared
@@ -2184,8 +2242,7 @@ export function DashboardLayout({
             const targetRunId = n.workflowRunId ?? recentRuns?.find(
               (r) =>
                 LIVE_RUN_STATUSES.has(r.status) &&
-                (r.type === n.workflowType ||
-                  (n.workflowType === "prototype" && (r.type === "od_prototype" || r.type === "prototype"))),
+                r.type === n.workflowType,
             )?.id;
             if (targetRunId && onSwitchToLiveRun) {
               // FIX-201 (KAN-168): sync currentPipelineNotifId and currentPipelineNotifRunId
@@ -2419,7 +2476,7 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <SavedWorkflowsPage onLaunchSaved={handleLaunchSaved} />
+              <SavedWorkflowsPage onLaunchSaved={handleLaunchSaved} onCreateNew={() => handleSelectFeature("custom")} />
             </motion.div>
           )}
 
@@ -2560,6 +2617,7 @@ export function DashboardLayout({
                       // the pipeline_type string, never a workflow-name branch).
                       onBackToHistory={() => setMainView("history")}
                       runTitle={runHeaderTitle}
+                      runTitleFull={runHeaderTitleFull}
                       runType={effectiveReviseType || pipelineState?.pipeline_type}
                       // KAN-128 (FIX-141): pass the content-derived filename so the
                       // left chat panel "Run summary" DeliverableCard shows the same
@@ -2572,6 +2630,7 @@ export function DashboardLayout({
                       onRelaunch={handleResumeRun}
                       onEditBrief={handleEditBrief}
                       relaunchError={resumeError}
+                      runRestarting={runRestarting}
                       suggestions={laneSuggestions}
                       onSuggestion={handleLaneSuggestion}
                       // 43-02 (A.1 CRUX) — Concierge props wired at the mount.
@@ -2595,6 +2654,7 @@ export function DashboardLayout({
                       onUpdateSpecs={onUpdateSpecsReview}
                       // Plan-05 clarify quick-actions.
                       clarifyQuestions={questionnaireQuestions}
+                      clarifyPreparing={clarifyPreparing}
                       onSubmitAnswers={handleLaneSubmitAnswers}
                       onSkipClarify={handleQuestionnaireSkip}
                       // Phase 42-02 (§A2 re-home) — Cancel-Workflow on the inline

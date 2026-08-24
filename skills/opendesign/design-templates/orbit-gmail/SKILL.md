@@ -14,8 +14,8 @@ triggers:
   - "gmail briefing"
   - "inbox digest"
   - "email summary"
-  - "gmail 简报"
-  - "邮件摘要"
+  - "gmail digest"
+  - "daily mail recap"
 od:
   mode: prototype
   platform: desktop
@@ -54,8 +54,8 @@ job is to **reproduce it**, not reinterpret it.
 - **Do not** render an inbox list of other emails. Only the opened
   digest email is shown.
 - Same digest-body sections in the same order: greeting → summary
-  strip → 需要处理 → 值得关注 → 仅供知悉 → digest footer.
-- Same reply bar at the bottom (回复 / 全部回复 / 转发).
+  strip → Needs Action → Worth A Look → FYI → digest footer.
+- Same reply bar at the bottom (Reply / Reply All / Forward).
 - Same `<script>` block at the end (action-btn / reply-btn link
   injection).
 
@@ -70,7 +70,7 @@ as mock content only. Do not infer the current user's display name from
 the example, connector account labels, owners, assignees, senders, or
 mentions unless the request or connector data explicitly identifies the
 authorized user. If no explicit current-user name is available, use
-neutral wording such as `you`, `your`, `current user`, `我`, or `你`.
+neutral wording such as `you`, `your`, `current user`, `I`, or `one`.
 
 The sections below are a **reference for tokens and visual language** —
 not a license to extend the page.
@@ -118,7 +118,7 @@ Type stack:
 1. **Gmail top header** (`<header>`) — full width, white.
    Left: hamburger (☰) + Gmail wordmark (`Gmail`, first `G` red).
    Center: rounded search bar (`#eaf1fb` bg, search icon left, settings
-   icon right, placeholder `搜索邮件`).
+   icon right, placeholder `Search mail`).
    Right: ❓ help, ⚙ settings, ▦ Google apps launcher, round avatar.
 
 2. **Email chrome** (`<main class="digest-wrap"> <div class="email-chrome">`)
@@ -129,22 +129,22 @@ Type stack:
       / spacer / prev / next.
 
    b. **Email subject area** — `<h1 class="email-subject">` with the
-      digest subject (e.g. `☀ 你昨天的 6 封重要邮件 — Open Orbit
-      Daily`) followed by an inline `Orbit` tag.
+      digest subject (e.g. `☀ Your 6 Important Emails From Yesterday —
+      Open Orbit Daily`) followed by an inline `Orbit` tag.
 
    c. **Sender row** — round avatar `O` + `Open Orbit
-      <orbit@opendesign.local>` + 收件人 `我 ▾` + date right-aligned +
+      <orbit@opendesign.local>` + to `me ▾` + date right-aligned +
       reply icon + more icon.
 
    d. **Digest body** (`<div class="digest-body">`):
       - greeting paragraph
-      - summary strip — 3 numeric cells (urgent / 值得关注 / 仅供知悉)
-      - section **🔴 需要处理** — cards with `action-btn primary`
-      - section **🟡 值得关注** — cards with `action-btn ghost`
-      - section **⚪ 仅供知悉** — cards
+      - summary strip — 3 numeric cells (urgent / worth a look / FYI)
+      - section **🔴 Needs Action** — cards with `action-btn primary`
+      - section **🟡 Worth A Look** — cards with `action-btn ghost`
+      - section **⚪ FYI** — cards
       - `digest-footer` micro-tag
 
-   e. **Reply bar** — bottom row with 回复 / 全部回复 / 转发 buttons.
+   e. **Reply bar** — bottom row with Reply / Reply All / Forward buttons.
 
 ## Pill / icon rules
 
@@ -160,11 +160,11 @@ Type stack:
 |---|---|
 | Render a left rail (Compose / system labels / colored labels) | Skip the rail entirely; the page is single-column under the header |
 | Render an inbox list of other emails | Show only the opened Orbit Daily Digest email |
-| Render a Categories tab strip (主要 / 社交 / 推广) | Skip it; the digest occupies the reading view directly |
+| Render a Categories tab strip (Primary / Social / Promotions) | Skip it; the digest occupies the reading view directly |
 | Use non-Google typography | Use `'Google Sans', 'Roboto', -apple-system, system-ui, sans-serif` |
 | Add drop shadows on the Gmail chrome | Flat surfaces; only the subtle Material 1 elevation when an element is focused |
 | Render avatars as squares | Always circles — sender 40px, card 32px, inline 28px |
-| Use lorem ipsum | Write real-shaped Gmail copy: "Q3 预算确认", "Login redesign 反馈", senders like Allen Liu / Marie / Nina Park |
+| Use lorem ipsum | Write real-shaped Gmail copy: "Q3 Budget Sign-off", "Login redesign feedback", senders like Allen Liu / Marie / Nina Park |
 | Use dark mode | Stay on Gmail's default light theme (`#f6f8fc` page) |
 | Brand the Gmail chrome with Orbit | Orbit branding lives only inside the digest body (subject `Orbit` tag + footer micro-tag) |
 | Put yellow important stars on multiple inbox rows | Only the Orbit Daily Digest row can carry the important marker |

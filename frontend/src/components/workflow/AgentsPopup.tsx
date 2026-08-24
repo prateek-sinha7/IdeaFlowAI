@@ -23,7 +23,7 @@ import {
   getAgentPrompt,
   saveAgentPromptOverride,
   deleteAgentPromptOverride,
-  createUserWorkflow,
+  saveUserWorkflow,
   type CapabilityEntry,
   type CapabilityModelEntry,
   type AgentPromptData,
@@ -42,6 +42,17 @@ import { useAppSelector } from "@/store/hooks";
 interface AgentsPopupProps {
   isOpen: boolean;
   onClose: () => void;
+  /**
+   * ISS-167 (follow-up) — the reopened saved workflow's identity, so this
+   * popup's OWN footer "Save workflow" button (distinct from any page-level
+   * save button a caller may also render) updates the existing row in place
+   * instead of always creating a new one via NameWorkflowModal. Absent ⇒
+   * always creates new (today's behavior, unchanged) — a caller that hasn't
+   * been wired to restore a saved workflow's id simply omits these.
+   */
+  userWorkflowId?: string;
+  savedName?: string;
+  savedDescription?: string;
   agents: AgentDef[];
   pipelineType: WorkflowType;
   onAddAgent?: (agent: AgentDef) => void;
@@ -181,7 +192,6 @@ export const PIPELINE_LABEL: Record<string, string> = {
   user_stories: "User Stories", ppt: "Presentation", prototype: "Prototype",
   app_builder: "App Builder", custom: "Custom",
   mulesoft_to_springboot: "Mulesoft → Spring Boot", dotnet_to_azure: ".NET → Azure",
-  hello_html: "Hello HTML",
 };
 
 const ICON_STYLES = [
@@ -378,6 +388,8 @@ export function AgentPromptSection({
                         value={draftContent}
                         onChange={e => setDraftContent(e.target.value)}
                         rows={12}
+                        aria-label="Custom agent prompt"
+                        name="agent-prompt"
                         className="w-full px-3 py-2 text-[11px] font-mono bg-surface-white text-ink-900 border border-line-control rounded-lg focus:outline-none focus:border-ink-400 resize-none leading-relaxed transition-colors"
                         placeholder="Enter custom prompt instructions…"
                       />
@@ -668,21 +680,25 @@ export function AgentCapabilitiesModal({
             </div>
           )}
 
-          {/* 3. System prompt — full edit affordances (Edit / Save / Revert) moved
-              here from Config so users can read AND edit the prompt in one place
-              (KAN-119 UX improvement). */}
-          <AgentPromptSection agent={agent} />
+          {/* 3. System Prompt (ND-7 / LOCK-E) — read-only surface showing the base
+              agent prompt with optional override state. surfaceOnly hides write affordances. */}
+          <AgentPromptSection agent={agent} surfaceOnly={true} />
+
           </>
           )}
 
           {/* Config tab — per-agent configuration levers (Model · Validator · Gate ·
-              Retry) shown FLAT — no expand/collapse chrome. System Prompt editor
-              is in the Overview tab. */}
+              Retry) shown FLAT — no expand/collapse chrome. ND-7/LOCK-E: System
+              Prompt surfaces READ-ONLY (surfaceOnly) in Config tab; durable override
+              persistence is DEFERRED (no PUT/DELETE path reachable). */}
           {drawerTab === "config" && (
           <>
           <p className="text-[12px] text-ink-500 leading-relaxed">
             Overrides for this agent. Defaults inherit from the workflow.
           </p>
+
+          {/* System Prompt (ND-7 / LOCK-E) — surfaceOnly hides the write affordances */}
+          <AgentPromptSection agent={agent} surfaceOnly={true} />
 
           {/* Flat lever rows (reuse useAgentCapabilities + applyLeverPatch — same
               source as AdvancedExpander, no forked logic, INV-12). */}
@@ -900,6 +916,8 @@ export function HooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-ink-400" />
                 <input
+                  aria-label="Search hooks"
+                  name="hook-search"
                   value={hookSearch}
                   onChange={e => setHookSearch(e.target.value)}
                   placeholder="Search hooks..."
@@ -2072,6 +2090,7 @@ export function AgentsPopup({
   onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
   onSelectionsChange, initialSelections,
   declaredCapabilities,
+  userWorkflowId, savedName, savedDescription,
 }: AgentsPopupProps) {
   const { attachedHooks } = useSkillsHooks();
   const workflows = useAppSelector((state) => state.global.workflows);
@@ -2126,7 +2145,10 @@ export function AgentsPopup({
       setSaveError(null);
       setCanvasResetLayoutSignal((n) => n + 1);
       try {
-        await createUserWorkflow(token, {
+        // ISS-167 (follow-up): saveUserWorkflow updates the reopened row in
+        // place when userWorkflowId is known, instead of always minting a
+        // new one — same dispatch LaunchWizard's page-level save uses.
+        await saveUserWorkflow(token, userWorkflowId, {
           name,
           ...(description ? { description } : {}),
           base_pipeline_type: pipelineType,
@@ -2148,7 +2170,7 @@ export function AgentsPopup({
         setSaving(false);
       }
     },
-    [agents, pipelineType, liveSelections, onClose],
+    [agents, pipelineType, liveSelections, onClose, userWorkflowId],
   );
 
   const handleRemove = useCallback((agentId: string) => {
@@ -2315,7 +2337,17 @@ export function AgentsPopup({
                 Cancel
               </button>
               <button
-                onClick={() => { setSaveError(null); setSaveModalOpen(true); }}
+                onClick={() => {
+                  setSaveError(null);
+                  // ISS-167 (follow-up): editing an already-saved workflow updates
+                  // it in place under its existing name — only a brand-new save
+                  // needs one asked.
+                  if (userWorkflowId && savedName) {
+                    handleSaveWorkflow(savedName, savedDescription ?? "");
+                  } else {
+                    setSaveModalOpen(true);
+                  }
+                }}
                 className="px-5 py-2.5 rounded-xl bg-brand text-[12px] font-semibold text-surface-white hover:bg-brand-pressed transition-colors"
               >
                 Save workflow
@@ -2323,7 +2355,7 @@ export function AgentsPopup({
             </div>
           </motion.div>
 
-          {/* Save-to-catalogue modal (REUSE — owner-scoped createUserWorkflow;
+          {/* Save-to-catalogue modal (REUSE — owner-scoped saveUserWorkflow;
               ND-12 controls DECLARED OUT — owner-only CRUD is the whole surface). */}
           <AnimatePresence>
             {saveModalOpen && (

@@ -3265,28 +3265,27 @@ async def test_failed_run_with_open_gate_resumes_into_gate(monkeypatch):
 
 
 # ===========================================================================
-# BUG-R01 / BUG-R02 (quick 260719-ghn) — the od_prototype id-alias empty-roster
-# bail that black-holes restart clarify-answers and gate-approvals.
+# BUG-R01 / BUG-R02 (quick 260719-ghn) — the restart empty-roster bail that
+# black-holes restart clarify-answers and gate-approvals.
 #
 # On restart both re-arm drivers rebuild the roster with
-# ``get_pipeline_agents(wr.type)`` using the RAW stored pipeline type. ``od_prototype``
-# is a routing id-alias with NO AGENT.md of its own (its agents declare
-# ``pipeline_type: prototype``), so ``get_pipeline_agents("od_prototype") == []`` →
-# the driver logs "empty agent list" and EARLY-RETURNS before re-creating the
-# coroutine that awaits the gate/clarify response → every restart od_prototype
-# clarify-answer and gate-approve is a silent black hole. The fresh path is immune
-# because ``_execute_impl`` keys off the RESOLVED ``compiled.id``. The fix resolves
-# the id-alias before the roster lookup in BOTH drivers:
-# ``get_pipeline_agents(resolve_alias(pipeline_type))``.
+# ``get_pipeline_agents(wr.type)`` using the RAW stored pipeline type. The original
+# trigger was the ``od_prototype`` id-alias: it had NO AGENT.md of its own (its
+# agents declare ``pipeline_type: prototype``), so ``get_pipeline_agents`` returned
+# [] for the stored label → the driver logged "empty agent list" and EARLY-RETURNED
+# before re-creating the coroutine awaiting the gate/clarify response → every
+# restart clarify-answer and gate-approve on such a run was a silent black hole.
+# The fresh path was immune because ``_execute_impl`` keys off the RESOLVED
+# ``compiled.id``. The fix resolved the alias before the roster lookup in BOTH
+# drivers: ``get_pipeline_agents(resolve_alias(pipeline_type))``.
 #
-# These two tests seed a durable ``od_prototype`` run parked at a gate and drive the
-# REAL ``get_pipeline_agents`` — ``_ResumeHarness._patched_gpa`` delegates to the
-# real registry for any non-fixture type (``od_prototype`` != ``sample_wave``), so
-# the id-alias path IS exercised (the coverage hole every existing test misses by
-# using the always-non-empty ``sample_wave`` fixture). Each asserts the driver
-# proceeds PAST the roster bail into the offset / replay re-entry instead of
-# early-returning. RED on pre-fix HEAD (empty roster → bail → downstream never
-# reached); GREEN after the alias is resolved.
+# That resolve call is now a no-op — the alias table is empty and the persisted
+# rows were migrated — so the raw-vs-resolved divergence can no longer arise. The
+# tests are kept because the BAIL they guard is generic: any stored type whose
+# roster comes back empty still black-holes the restart. They now seed a
+# ``prototype`` run and assert the drivers proceed PAST the roster bail into the
+# offset / replay re-entry, and separately assert the retired label grants nothing
+# rather than silently inheriting prototype's roster.
 # ===========================================================================
 
 
@@ -3295,9 +3294,8 @@ class _ReachedPastRoster(Exception):
 
 
 @pytest.mark.asyncio
-async def test_resume_run_od_prototype_alias_resolves_roster_not_bail():
-    """BUG-R02: a review-gate-parked ``od_prototype`` run, on restart re-arm, must
-    resolve the ``od_prototype``→``prototype`` id-alias for the roster lookup and
+async def test_resume_run_prototype_reaches_offset_not_bail():
+    """BUG-R02: a review-gate-parked ``prototype`` run, on restart re-arm, must
     reach the resume-offset re-entry — NOT bail at the empty-agent-list check that
     black-holes the gate approval. Drives the REAL ``get_pipeline_agents`` (non-
     fixture type), so the missing ``resolve_alias`` is visible."""
@@ -3307,7 +3305,7 @@ async def test_resume_run_od_prototype_alias_resolves_roster_not_bail():
     ws = "ws-odp"
     _seed_workflow_run(
         session, run_id, owner=owner, status="waiting_for_user",
-        type_="od_prototype", workspace_id=ws,
+        type_="prototype", workspace_id=ws,
     )
     gate_key = f"{run_id}:prototype-specify"
     await _seed_open_review_gate(session, run_id, owner, ws, gate_key)
@@ -3319,11 +3317,17 @@ async def test_resume_run_od_prototype_alias_resolves_roster_not_bail():
         # an EMPTY roster for the raw id-alias and 5 agents for the resolved base.
         import agents.registry as _reg
 
-        assert _reg.get_pipeline_agents("od_prototype") == [], (
-            "precondition: raw od_prototype roster must be empty (the bug's cause)"
-        )
+        # BUG-R02's cause was an id-alias whose RAW roster was empty while its
+        # resolved base had 5 agents, so the driver bailed at the empty-agent-list
+        # check. The alias is gone (registry._OD_ALIAS_BASE is empty) and persisted
+        # rows were migrated to the base label, so the divergence cannot recur — a
+        # run's own type now always yields its own roster. Assert that directly.
         assert len(_reg.get_pipeline_agents("prototype")) == 5, (
-            "precondition: the resolved prototype roster must be non-empty (5 agents)"
+            "precondition: the prototype roster must be non-empty (5 agents)"
+        )
+        assert _reg.get_pipeline_agents("od_prototype") == [], (
+            "the retired label must resolve to nothing rather than silently "
+            "inheriting prototype's roster"
         )
 
         reached = {"offset": False}
@@ -3340,16 +3344,15 @@ async def test_resume_run_od_prototype_alias_resolves_roster_not_bail():
             pass
 
     assert reached["offset"] is True, (
-        "resume_run must resolve od_prototype→prototype and reach the resume-offset "
-        "re-entry; pre-fix it bails at the empty-agent-list check (BUG-R02 black hole)"
+        "resume_run must reach the resume-offset re-entry; pre-fix it bailed at "
+        "the empty-agent-list check (BUG-R02 black hole)"
     )
     session.close()
 
 
 @pytest.mark.asyncio
-async def test_replay_clarify_run_od_prototype_alias_resolves_roster_not_bail():
-    """BUG-R01: a clarify-parked ``od_prototype`` run, on restart re-arm, must
-    resolve the ``od_prototype``→``prototype`` id-alias for the roster lookup and
+async def test_replay_clarify_run_prototype_reaches_offset_not_bail():
+    """BUG-R01: a clarify-parked ``prototype`` run, on restart re-arm, must
     reach the replay drive (``_drive_resumed_stream``) — NOT bail at the empty-
     agent-list check that black-holes the clarify answer. Drives the REAL
     ``get_pipeline_agents`` (non-fixture type)."""
@@ -3359,7 +3362,7 @@ async def test_replay_clarify_run_od_prototype_alias_resolves_roster_not_bail():
     ws = "ws-odc"
     _seed_workflow_run(
         session, run_id, owner=owner, status="waiting_for_user",
-        type_="od_prototype", workspace_id=ws,
+        type_="prototype", workspace_id=ws,
     )
     questions = [{
         "question_id": "r1_q1", "question_text": "Scope?",
@@ -3373,11 +3376,17 @@ async def test_replay_clarify_run_od_prototype_alias_resolves_roster_not_bail():
 
         import agents.registry as _reg
 
-        assert _reg.get_pipeline_agents("od_prototype") == [], (
-            "precondition: raw od_prototype roster must be empty (the bug's cause)"
-        )
+        # BUG-R02's cause was an id-alias whose RAW roster was empty while its
+        # resolved base had 5 agents, so the driver bailed at the empty-agent-list
+        # check. The alias is gone (registry._OD_ALIAS_BASE is empty) and persisted
+        # rows were migrated to the base label, so the divergence cannot recur — a
+        # run's own type now always yields its own roster. Assert that directly.
         assert len(_reg.get_pipeline_agents("prototype")) == 5, (
-            "precondition: the resolved prototype roster must be non-empty (5 agents)"
+            "precondition: the prototype roster must be non-empty (5 agents)"
+        )
+        assert _reg.get_pipeline_agents("od_prototype") == [], (
+            "the retired label must resolve to nothing rather than silently "
+            "inheriting prototype's roster"
         )
 
         reached = {"drive": False}
@@ -3390,7 +3399,7 @@ async def test_replay_clarify_run_od_prototype_alias_resolves_roster_not_bail():
         await engine._replay_clarify_run(run_id)
 
     assert reached["drive"] is True, (
-        "_replay_clarify_run must resolve od_prototype→prototype and reach the replay "
+        "_replay_clarify_run must reach the replay "
         "drive; pre-fix it bails at the empty-agent-list check (BUG-R01 black hole)"
     )
     session.close()
@@ -3581,6 +3590,41 @@ def test_apply_terminal_output_columns_populates_all_columns():
     assert wr.deliverable_mimetype == "text/markdown"
     assert wr.deliverable_filename == "backlog.md"
     assert wr.model_id == "claude-x"
+
+
+def test_apply_terminal_output_columns_captures_per_agent_model_id():
+    """ISS-165: the engine's ``agent_complete`` event carries the resolved per-agent
+    ``model_id`` (engine.py) — the accumulator must carry it into ``agent_outputs`` so
+    it survives past the live stream, instead of only ``wr.model_id`` (a single
+    run-level value sourced from the caller's ``user.preferred_model``, unrelated to
+    which model each agent actually ran on)."""
+    import json as _json
+
+    from app.api.run_commands import _apply_terminal_output_columns
+    from app.models.workflow import WorkflowRun
+
+    events = [
+        ("agent_start", {"agent_id": "prototype-build", "name": "Build Agent"}),
+        ("agent_chunk", {"chunk": "built it"}),
+        ("agent_complete", {"duration": 1.0, "input_tokens": 10, "output_tokens": 5,
+                             "total_tokens": 15,
+                             "model_id": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"}),
+    ]
+    wr = WorkflowRun(id="issue963-helper", user_id="o", owner_id="o",
+                      status="completed", type="prototype", input="brief")
+    _apply_terminal_output_columns(wr, events, model_id=None, duration_seconds=1.0)
+
+    agents = _json.loads(wr.agent_outputs)
+    assert agents[0]["model_id"] == "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+
+def test_summary_safe_agent_keys_exposes_model_id():
+    """ISS-165: persisting model_id into agent_outputs is not enough on its own —
+    /api/runs/{id}/summary filters every agent dict through this allow-list, so an
+    unlisted key never reaches the response even once it exists in the DB."""
+    from app.api.runs import _SUMMARY_SAFE_AGENT_KEYS
+
+    assert "model_id" in _SUMMARY_SAFE_AGENT_KEYS
 
 
 @pytest.mark.parametrize(

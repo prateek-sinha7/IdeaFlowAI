@@ -609,6 +609,8 @@ export function BriefAttachBox({
     <>
       <textarea
         ref={textareaRef}
+        name="brief"
+        aria-label="Brief description"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -738,13 +740,6 @@ const TYPE_CONFIG: Record<WorkflowType, {
   prototype: {
     tag: "Build an interactive prototype",
     heading: "Describe the product",
-    subtitle: "Translate a brief, story set, or wireframes into a navigable, high-fidelity HTML prototype.",
-    placeholder: "e.g. Build a dashboard for tracking SaaS subscription metrics with charts and filters.",
-    icon: Layout,
-  },
-  od_prototype: {
-    tag: "Build an interactive prototype",
-    heading: "Describe the product",
     subtitle: "Translate a brief into a multi-page SPA prototype using a selected template and design system.",
     placeholder: "e.g. Build a project management SaaS with login, dashboard, and settings.",
     icon: Layout,
@@ -804,13 +799,6 @@ const TYPE_CONFIG: Record<WorkflowType, {
     subtitle: "Decompose the Mule estate into Spring Boot 3 services on AWS, with parallel-run validation before cutover.",
     placeholder: "e.g. Migrate three Mulesoft 4 apps powering our orders + claims platform onto AWS, splitting into Spring Boot microservices with Aurora Postgres and SQS messaging.",
     icon: GitBranch,
-  },
-  hello_html: {
-    tag: "Hello page from one word",
-    heading: "Give one word",
-    subtitle: "One word in, one page out — an emoji, a line of text, and a single HTML page. Local test workflow.",
-    placeholder: "e.g. lighthouse",
-    icon: Sparkles,
   },
   dotnet_to_azure: {
     tag: ".NET → Azure (AI-augmented)",
@@ -1154,7 +1142,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
 
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-surface-paper">
-      <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-10 max-w-2xl mx-auto w-full">
+      <div className="flex flex-col items-center px-4 sm:px-6 py-10 max-w-2xl mx-auto w-full">
 
         {/* Back */}
         <motion.div

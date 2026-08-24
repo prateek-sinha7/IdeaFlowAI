@@ -10,9 +10,9 @@ triggers:
   - "video template"
   - "pixel motion deck"
   - "retro presentation video"
-  - "Hyperframes 模板"
-  - "视频模板"
-  - "像素风动效"
+  - "hyperframes template"
+  - "video template"
+  - "pixel-style motion"
 od:
   mode: template
   surface: video

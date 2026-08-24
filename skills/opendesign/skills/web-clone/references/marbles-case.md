@@ -1,31 +1,31 @@
-# 旗舰案例 · Glass Marbles（真架构 vs AI 臆造）
+# Flagship Case Study · Glass Marbles (Real Architecture vs. AI Fabrication)
 
-源站 https://chiuhans111.github.io/marbles/ ·作者 Hans Chiu ·单文件 1067 行 ·许可证 **NONE**。
-完整逐行拆解见 `./website-clones/marbles-clone/TEARDOWN.md`，这里是给 skill 用的精华版。
+Source site https://chiuhans111.github.io/marbles/ · Author Hans Chiu · single file, 1067 lines · License **NONE**.
+Full line-by-line teardown at `./website-clones/marbles-clone/TEARDOWN.md`; this is the condensed version for skill use.
 
-## 一句话真架构
+## The Real Architecture In One Sentence
 
-一个全屏 WebGL 片段着色器，用**解析法（二次方程 `b*b-c`）**求光线与球的交点、做最多 4 次折射/反射迭代，把光学结果编码成一张**位移图 PNG**（RG=像素位移、B=菲涅尔值）；再用一个 SVG `<filter>` 的 `feDisplacementMap(scale=200)` 拿这张图去扭曲**真实的、活的、可交互的网页 DOM**（背景色块 + 标题文字）。
+A full-screen WebGL fragment shader uses an **analytic method (quadratic equation `b*b-c`)** to find ray-sphere intersections, performing up to 4 refraction/reflection iterations, and encodes the optical result into a **displacement-map PNG** (RG = pixel displacement, B = Fresnel value); then an SVG `<filter>`'s `feDisplacementMap(scale=200)` uses this map to distort the **real, live, interactive page DOM** (background color blocks + heading text).
 
-> 你拖动的玻璃球本质是个透镜，透镜后面就是这页 HTML。WebGL 全程不碰 DOM 像素——折射这件事是 SVG filter 干的。物理、音频均为纯手写、零库。
+> The glass marble you drag is essentially a lens, and behind that lens is this page's HTML. WebGL never touches the DOM pixels at any point — the refraction is done entirely by the SVG filter. Both the physics and the audio are hand-written from scratch, with zero libraries.
 
-## 三大支柱（真实实现要点）
+## The Three Pillars (Key Points of the Real Implementation)
 
-1. **WebGL 光学**：解析球求交（非 ray-marching）；折射率 N=1.3、迭代 4 次；菲涅尔 `0.05+0.95*pow(1-cosθ,2.0)`（指数 2，非 Schlick 的 5）；内部 2 气泡 + 抛物面彩色核 + Beer-Lambert 体积吸收；**一套 shader 靠 `u_mode`(0折射/1反射/2前景高光/3阴影) 复用**；位移编码 `DISPLACEMENT_SCALE=200` 与 SVG 端严格对齐。
-2. **SVG Filter 合成**：4 个 canvas（1 主 + 3 离屏），离屏图每帧 `toDataURL` 喂给 `<feImage>`。真实链：阴影 `feGaussianBlur(8)` → `feBlend multiply` 乘到 DOM → 折射 `feDisplacementMap` → 反射 `feDisplacementMap` → `feGaussianBlur(2)` → 用反射图 B 通道(菲涅尔)经 `feColorMatrix` 做 alpha mask → `feComposite` 两步合成。被折射的 `SourceGraphic` 就是挂了 `filter:url(#marble-filter)` 的 `#container`。
-3. **物理**：纯手写，`mass=r³`、重力 0.8、3D 弹性碰撞(恢复 0.8、只在靠近时解算)、地面恢复 0.55 + 微弹跳归零、四元数滚动、拖拽抬升 targetZ=200；`settleFrames` 静止时完全停渲染。
-4. **音频**：Web Audio 程序化合成(零文件)，基频 `800+(60-r)*20` + 5 泛音，音量随碰撞速度。
+1. **WebGL Optics**: Analytic sphere intersection (not ray-marching); refractive index N=1.3, 4 iterations; Fresnel `0.05+0.95*pow(1-cosθ,2.0)` (exponent 2, not Schlick's 5); interior has 2 bubbles + a paraboloid colored core + Beer-Lambert volumetric absorption; **a single shader reused via `u_mode`** (0=refraction/1=reflection/2=foreground highlight/3=shadow); displacement encoding `DISPLACEMENT_SCALE=200` is kept strictly consistent with the SVG side.
+2. **SVG Filter Compositing**: 4 canvases (1 main + 3 offscreen); each frame the offscreen images are fed to `<feImage>` via `toDataURL`. The real chain: shadow `feGaussianBlur(8)` → `feBlend multiply` onto the DOM → refraction `feDisplacementMap` → reflection `feDisplacementMap` → `feGaussianBlur(2)` → the reflection map's B channel (Fresnel) is turned into an alpha mask via `feColorMatrix` → two-step `feComposite` for final compositing. The `SourceGraphic` being refracted is `#container`, which has `filter:url(#marble-filter)` attached.
+3. **Physics**: Entirely hand-written — `mass=r³`, gravity 0.8, 3D elastic collisions (restitution 0.8, solved only when close), ground restitution 0.55 + micro-bounce zeroing, quaternion rolling, drag-lift `targetZ=200`; rendering is fully paused during `settleFrames` (at rest).
+4. **Audio**: Procedural synthesis via Web Audio (zero files) — base frequency `800+(60-r)*20` plus 5 harmonics, volume scales with collision velocity.
 
-## ⚠️ AI 分析文档错在哪（反面教材，记住这些坑型）
+## Where the AI Analysis Document Went Wrong (Cautionary Example — Remember These Failure Patterns)
 
-那份 `弹珠网站复刻分析.md` 正文的**概念骨架基本对**（8 步、三支柱方向都对），但**附带的"复刻代码块"几乎全是臆造**：
+That `Marbles Site Clone Analysis` document's main text has a **roughly correct conceptual skeleton** (8 steps, and the three-pillar framing is directionally right), but the **accompanying "clone code blocks" are almost entirely fabricated**:
 
-| 臆造 | 真相 | 坑型（通用警示） |
+| Fabrication | Reality | Failure Pattern (General Warning) |
 |---|---|---|
-| ray-marching + SDF + `MAX_STEPS=100` + 6 次差分求法线 | 解析求交，法线 `normalize(rp-center)` | **别凭直觉假设折射 demo 用 ray-marching**——球有闭式解，很多 demo 用解析法，又快又准 |
-| `sampler2D uBackground` 把 DOM 当纹理采样 | 着色器不读背景；折射靠位移图交给 SVG | **搞反了 GPU↔DOM 的层级**——最核心的架构创意被丢 |
-| `feBlend screen` + 单个 displacement + `feComposite over` 合阴影 | 双 displacement + 菲涅尔 mask + multiply 阴影 | **二手分析的 filter 链不可信，以真源码逐节点核对** |
-| `MARBLE_COUNT=5`、数组开 10 | 硬编码 2 | 连常量都靠猜 |
-| 屏幕中心 NDC 坐标 | 左上角像素 + Y 翻转 | 坐标系约定全凭臆测 |
+| ray-marching + SDF + `MAX_STEPS=100` + 6-sample finite-difference normals | Analytic intersection, normal is `normalize(rp-center)` | **Don't assume a refraction demo uses ray-marching just on instinct** — a sphere has a closed-form solution, and many demos use the analytic method because it's faster and more accurate |
+| `sampler2D uBackground` samples the DOM as a texture | The shader never reads the background; refraction is handed off to SVG via the displacement map | **This inverts the GPU↔DOM layering** — the single most important architectural idea gets lost |
+| `feBlend screen` + a single displacement + `feComposite over` to composite the shadow | Dual displacement + Fresnel mask + multiply shadow | **Don't trust a secondhand analysis's filter chain — always verify node-by-node against the real source** |
+| `MARBLE_COUNT=5`, array sized to 10 | Hardcoded at 2 | Even constants get guessed |
+| Screen-center NDC coordinates | Top-left pixel origin + Y-flip | Coordinate system conventions are pure speculation |
 
-**教训**：AI 写的"复刻施工图"= 参考其思路骨架，**代码块一行都别直接抄**，必须拿真源码核对。这就是本 skill 头号铁律的来源。
+**Lesson**: Treat AI-written "clone blueprints" as reference for their overall thinking skeleton only — **never copy a single line of the code blocks directly**; you must verify against the real source code. This is the origin of this skill's #1 iron rule.

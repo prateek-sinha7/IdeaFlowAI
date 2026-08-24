@@ -62,6 +62,8 @@ import json
 import uuid
 from contextlib import contextmanager
 
+import dataclasses
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -1036,18 +1038,27 @@ async def test_fe_target_cross_owner_still_denied_on_realistic_parent(
 
 @pytest.mark.asyncio
 async def test_planner_run_target_rejected_before_dispatch(
-    engine: ExecutionEngine, db_factory
+    engine: ExecutionEngine, db_factory, monkeypatch
 ) -> None:
     """CR-02 (14 review): a target whose derived alias resolves a REGISTERED
     revision pipeline carrying ``planner: run`` (e.g. ``app_builder_output`` →
     ``app_builder_revision``) is rejected with ValueError BEFORE dispatch —
     never parked at the clarify gate's no-timeout ``event.wait()``.
 
-    ISS-050 (KAN-156): retargeted from ``prototype_output`` to
-    ``app_builder_output`` — prototype_revision was flipped to
-    ``planner: skip`` (now dispatchable) so it can no longer be used as the
-    CR-02 rejection example. ``app_builder_revision`` still declares
-    ``planner: run`` and is correctly rejected.
+    Retargeted TWICE by the same mechanism, and now off real manifests entirely:
+    first from ``prototype_output`` to ``app_builder_output`` when
+    prototype_revision was flipped to ``planner: skip`` (ISS-050 / KAN-156), and
+    now off ``app_builder_revision`` too — it was authored ``planner: run`` by
+    copy-paste from app_builder's own manifest and so had NEVER dispatched (the
+    API returned 200 and the run died with 0 events), which is the bug that flip
+    fixed. All five ``*_revision`` manifests now declare ``skip``, so no real
+    target can exercise this guard.
+
+    The guard itself is unchanged and still load-bearing — a ``planner: run``
+    target parks on the clarify gate's no-timeout ``event.wait()`` and leaks a
+    stuck task plus a row frozen "revising". So the planner verdict is stubbed
+    here rather than sourced from a manifest. If a future revision manifest is
+    authored ``planner: run``, this test still describes what must happen to it.
 
     The FR-014 artifact guard does NOT block this exploit: the deliverable
     chain link (link 2) resolves for ANY target kind, so an owned completed
@@ -1066,6 +1077,20 @@ async def test_planner_run_target_rejected_before_dispatch(
 
     async def ws(e: dict) -> None:
         events.append(e)
+
+    # Stub ONLY the planner verdict for the target's derived alias; every other
+    # compiled field stays real, so the code path under test is untouched.
+    import agents.execution_engine.engine as _eng
+
+    _real_compile = _eng.compile_for_run
+
+    def _compile_with_planner_run(pipeline_type: str):
+        compiled = _real_compile(pipeline_type)
+        if pipeline_type == "app_builder_revision":
+            return dataclasses.replace(compiled, planner="run")
+        return compiled
+
+    monkeypatch.setattr(_eng, "compile_for_run", _compile_with_planner_run)
 
     with pytest.raises(ValueError, match="not revision-dispatchable"):
         await engine._handle_revision(

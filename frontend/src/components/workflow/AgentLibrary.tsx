@@ -51,7 +51,7 @@ const HIDDEN_FROM_CUSTOM = new Set([
   "ppt-content-strategist", "domain-analyst", "requirements-analyst", "material-analyzer",
 ]);
 
-const BETA_WORKFLOWS = new Set(["user_stories_revision", "ppt_revision", "prototype_revision", "app_builder_revision", "mulesoft_to_springboot", "dotnet_to_azure", "sample_brownfield", "sample_fanout", "sample_wave", "od_prototype", "reverse_engineer"]);
+const BETA_WORKFLOWS = new Set(["user_stories_revision", "ppt_revision", "prototype_revision", "app_builder_revision", "mulesoft_to_springboot", "dotnet_to_azure", "sample_brownfield", "sample_fanout", "sample_wave", "reverse_engineer"]);
 
 // Monochrome icon — no colors, just gray
 function getInitials(name: string): string {
@@ -186,6 +186,8 @@ export function AgentLibrary({
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
                   <input
                     type="text"
+                    aria-label="Search agents"
+                    name="agent-search"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search agents..."

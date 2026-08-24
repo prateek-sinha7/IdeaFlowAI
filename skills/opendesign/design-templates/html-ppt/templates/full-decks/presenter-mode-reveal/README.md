@@ -1,102 +1,102 @@
-# presenter-mode-reveal · 演讲者模式模板
+# presenter-mode-reveal · Presenter Mode Template
 
-一份专为**带逐字稿的技术分享**设计的 full-deck 模板。核心卖点是真正可用的**磁吸卡片式演讲者视图**：当前页 iframe 预览 + 下页 iframe 预览 + 大字号逐字稿 + 计时器，4 个卡片可任意拖拽/缩放，全部集成在 `runtime.js` 里，零依赖。
+A full-deck template built specifically for **technical talks with a real speaker script**. The core selling point is a genuinely usable **magnetic card-based presenter view**: current-slide iframe preview + next-slide iframe preview + large-type speaker script + timer, all as 4 freely draggable/resizable cards, entirely self-contained inside `runtime.js`, zero dependencies.
 
-## 使用场景
+## Use cases
 
-- 技术分享 / tech talk（30-60 min）
-- 产品发布会主讲
-- 课程讲授
-- 任何**需要照着讲、但不能念稿**的正式演讲
+- Technical talks (30-60 min)
+- Product launch keynotes
+- Course lectures
+- Any **formal talk where you need to speak from notes but can't sound like you're reading a script**
 
-## 快速开始
+## Quick start
 
 ```bash
 cp -r templates/full-decks/presenter-mode-reveal examples/my-talk
 open examples/my-talk/index.html
 ```
 
-## 键盘操作
+## Keyboard shortcuts
 
-| 键 | 动作 |
+| Key | Action |
 |---|---|
-| `S` | 打开演讲者窗口（弹出新窗口，原页面不动） |
-| `T` | 切换主题（5 种预设） |
-| `←` `→` | 翻页 |
-| `Space` / `PgDn` | 下一页 |
-| `F` | 全屏 |
-| `O` | 总览缩略图 |
-| `R` | 重置计时器（仅演讲者视图下） |
-| `Esc` | 关闭所有浮层 |
+| `S` | Open the presenter window (pops a new window, audience page stays untouched) |
+| `T` | Switch theme (5 presets) |
+| `←` `→` | Navigate slides |
+| `Space` / `PgDn` | Next slide |
+| `F` | Fullscreen |
+| `O` | Overview / thumbnail grid |
+| `R` | Reset timer (presenter view only) |
+| `Esc` | Close all overlays |
 
-## 主题切换
+## Theme switching
 
-模板预设了 5 个适配演讲场景的主题，在 `<html data-themes="...">` 属性里：
+The template ships with 5 presenter-friendly themes preset in the `<html data-themes="...">` attribute:
 
 ```html
-<html lang="zh-CN" data-themes="tokyo-night,dracula,catppuccin-mocha,nord,corporate-clean">
+<html lang="en" data-themes="tokyo-night,dracula,catppuccin-mocha,nord,corporate-clean">
 ```
 
-按 `T` 循环切换。可以改成任何 `assets/themes/*.css` 里的主题。
+Press `T` to cycle through them. You can swap in any theme from `assets/themes/*.css`.
 
-## 写逐字稿的规范
+## Speaker-script conventions
 
-**每一页的 `<aside class="notes">` 里写 150–300 字**。三条铁律：
+**Write 150–300 words inside `<aside class="notes">` on every slide.** Three iron rules:
 
-1. **不是讲稿，是提示信号** — 核心点加粗、过渡句成段、数据列清楚
-2. **150–300 字/页** — 按 2–3 分钟/页的节奏
-3. **用口语写** — "因此" → "所以"；"该方案" → "这个方案"；读一遍不拗口才对
+1. **Not a script — prompt signals** — bold the core points, give transition lines their own paragraph, spell out data clearly
+2. **150–300 words per slide** — paced for roughly 2–3 minutes per slide
+3. **Write it in spoken language** — "therefore" → "so"; "the aforementioned approach" → "this approach"; read it out loud, it should sound natural
 
-示例：
+Example:
 ```html
 <aside class="notes">
-  <p>大家好，今天跟大家聊一个 <strong>很多人忽略的问题</strong>——...</p>
-  <p>我先抛一个观点：<em>做 PPT 和讲 PPT 是两件事</em>。</p>
-  <p>接下来我会用 3 个例子证明这个观点...</p>
+  <p>Hey everyone, today I want to talk about <strong>something a lot of people overlook</strong>——...</p>
+  <p>Let me open with a claim: <em>building a deck and delivering a talk are two different things</em>.</p>
+  <p>I'll prove this with 3 examples...</p>
 </aside>
 ```
 
-支持的 inline 标签：
-- `<strong>` — 高亮（橘色）
-- `<em>` — 斜体强调（蓝色）
-- `<code>` — 等宽字体
-- `<p>` — 分段（推荐每段讲 30-60 秒的内容）
+Supported inline tags:
+- `<strong>` — highlight (orange)
+- `<em>` — italic emphasis (blue)
+- `<code>` — monospace
+- `<p>` — paragraph break (recommended: 30-60 seconds of content per paragraph)
 
-## 文件结构
+## File structure
 
 ```
 presenter-mode-reveal/
-├── index.html       # 6 张示例 slide，每页都有完整逐字稿
-├── style.css        # scoped .tpl-presenter-mode-reveal 样式
-└── README.md        # 本文件
+├── index.html       # 6 example slides, each with a full speaker script
+├── style.css         # scoped .tpl-presenter-mode-reveal styles
+└── README.md          # this file
 ```
 
-## 修改 / 扩展
+## Modifying / extending
 
-- **加页**：复制任意 `<section class="slide">` 块，改内容和 `<aside class="notes">`
-- **换主题**：改 `data-themes` 列表，或直接改 `<link id="theme-link" href="...">`
-- **改样式**：只动 `style.css`，不要碰根目录的 `assets/base.css`
-- **加动效**：在元素上加 `data-anim="fade-up"` 等（参考 `references/animations.md`）
+- **Add a slide**: duplicate any `<section class="slide">` block and edit its content and `<aside class="notes">`
+- **Change theme**: edit the `data-themes` list, or directly change `<link id="theme-link" href="...">`
+- **Change styling**: only touch `style.css` — don't touch the root `assets/base.css`
+- **Add motion**: add `data-anim="fade-up"` etc. to elements (see `references/animations.md`)
 
-## 演讲者窗口的 4 个卡片
+## The 4 cards in the presenter window
 
-按 `S` 后弹出的窗口里有：
+Pressing `S` pops open a window containing:
 
-- 🔵 **CURRENT** — 当前页 iframe 预览（加载 `?preview=N` 模式，像素级完美，与观众端同 CSS/主题/字体）
-- 🟣 **NEXT** — 下一页预览，帮助准备过渡
-- 🟠 **SPEAKER SCRIPT** — 大字号逐字稿，可滚动
-- 🟢 **TIMER** — 经过时间 + 页码 + Prev/Next/Reset 按钮
+- 🔵 **CURRENT** — current-slide iframe preview (loaded via `?preview=N` mode, pixel-perfect, sharing the same CSS/theme/fonts as the audience view)
+- 🟣 **NEXT** — next-slide preview, to help you prep transitions
+- 🟠 **SPEAKER SCRIPT** — large-type speaker script, scrollable
+- 🟢 **TIMER** — elapsed time + slide count + Prev/Next/Reset buttons
 
-卡片操作：
-- **拖卡片头**（彩色圆点 + 标题的顶部条）→ 移动卡片
-- **拖卡片右下角** → 调整大小
-- 位置 + 尺寸自动存 localStorage，下次打开恢复
-- 底部 "重置布局" 按钮可恢复默认卡片排列
+Card behavior:
+- **Drag the card header** (the colored dot + title bar at the top) → move the card
+- **Drag the bottom-right corner** → resize
+- Position + size auto-save to localStorage and restore on next open
+- The "Reset Layout" button at the bottom restores the default card arrangement
 
-翻页丝滑：iframe 只加载一次，后续翻页通过 `postMessage` 切换内部 slide，**不重新加载不闪烁**。两窗口通过 `BroadcastChannel` 双向同步。
+Slide navigation is seamless: the iframe loads once, and subsequent navigation switches the internal slide via `postMessage` — **no reload, no flicker**. The two windows stay in sync in both directions via `BroadcastChannel`.
 
-## 注意事项
+## Notes
 
-- **观众永远看不到 `.notes` 内容** — CSS 默认 `display:none`，只在演讲者视图里可见
-- **别把只给自己看的话写在 slide 本体上** — 所有提词必须在 `<aside class="notes">` 里
-- **双屏演讲**：打开 `index.html` 按 S 弹出演讲者窗口，把观众窗口拖到投影/外接屏 F 全屏，演讲者窗口留在自己屏幕
+- **The audience never sees `.notes` content** — CSS defaults it to `display:none`, visible only in presenter view
+- **Don't write anything meant only for yourself directly on the slide body** — all prompts belong inside `<aside class="notes">`
+- **Dual-screen presenting**: open `index.html`, press S to pop the presenter window, drag the audience window to the projector/external display and press F for fullscreen, and keep the presenter window on your own screen

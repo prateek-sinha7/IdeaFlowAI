@@ -1,72 +1,72 @@
-# 静态构建站的 1:1 忠实复刻：全量资产镜像
+# 1:1 faithful clone of statically-built sites: full asset mirroring
 
-> 适用：**Astro / Vite SSG / Hugo / Eleventy / 任何把客户端运行时输出成可下载静态资产的站**——哪怕它是 WebGL/Canvas/高斯泼溅重前端。
-> 不适用：真·服务端渲染 / 数据驱动 SPA（业务数据在 API 后面）→ 走 `network-capture.mjs` 做 API 替身，不是这条。
+> Applies to: **Astro / Vite SSG / Hugo / Eleventy / any site whose client-side runtime outputs downloadable static assets** — even if it's a WebGL/Canvas/Gaussian-splat-heavy frontend.
+> Does not apply to: true server-side rendering / data-driven SPAs (business data lives behind an API) → use `network-capture.mjs` to stub the API instead — not this approach.
 
-## 核心认知（为什么这能做到 1:1）
-这类站的"**真源码不在 GitHub**"，但**部署出来的静态资产就是真相**：HTML + 打包 bundle + CSS + 运行时 fetch 的二进制（`.sog`/`.buf`/`.wasm`/`.riv`/字体/图/视频）。把这些**原样**镜像下来、从 web 根目录服务，跑的就是**真代码 + 真资产**，不是重建——所以能逐字节 1:1，连原站的 bug/怪癖都一并还原。
+## Core insight (why this achieves 1:1)
+For these sites, "**the real source isn't on GitHub**", but **the deployed static assets are the ground truth**: HTML + bundled JS + CSS + binaries fetched at runtime (`.sog`/`.buf`/`.wasm`/`.riv`/fonts/images/video). Mirror these **as-is** and serve them from the web root, and what runs is **the real code + real assets** — not a rebuild — so it can be byte-for-byte 1:1, reproducing even the original site's bugs/quirks.
 
-这是"真源码至上"铁律在静态站上的延伸：**对静态站，"拿到真源码" = "镜像部署资产整套"**。
+This is an extension of the "real source above all" rule to static sites: for a static site, "**obtaining the real source**" = "**mirroring the entire deployed asset set**".
 
-> ⚠️ 决策树坑：别看到 `astro:true` 就甩去"主题市场找源主题"——那只对**用现成开源主题**的站成立。**定制 Astro 站（如 Lusion oryzo.ai）没有可买的主题**，正解是本条的全量镜像。
+> ⚠️ Decision-tree pitfall: don't see `astro:true` and jump to "go find the source theme on a theme marketplace" — that only applies to sites **using an off-the-shelf open-source theme**. **Custom Astro sites (e.g. Lusion oryzo.ai) have no theme you can buy** — the correct approach is the full mirror described here.
 
-## 为什么必须"真浏览器全程滚动捕获"，不能只 grep / wget
-- `.buf`/`.sog`/`.riv` 等二进制是 **JS 运行时按滚动进度 fetch** 的，URL 常是代码里**动态拼接**的 → grep bundle 抓不全，`wget --mirror` 也发现不了（它只跟 HTML 静态链接）。
-- 唯一可靠：**真浏览器加载 + 从头滚到尾**，把每一个**真实发生的网络请求**记下来，再按这份"实际请求清单"镜像。
+## Why you must "capture with a real browser, scrolling through the whole page" — you can't just grep / wget
+- Binaries like `.buf`/`.sog`/`.riv` are **fetched by the JS runtime based on scroll progress**, and the URLs are often **assembled dynamically in the code** → grepping the bundle won't find them all, and `wget --mirror` won't discover them either (it only follows static links in the HTML).
+- The only reliable method: **load with a real browser and scroll from top to bottom**, recording every **network request that actually happens**, then mirror based on that "list of actual requests".
 
-## 一键脚本
+## One-line script
 ```bash
 node "$WEB_CLONE_SKILL_DIR/scripts/mirror-site.mjs" \
-  --url https://<站>/ \
+  --url https://<site>/ \
   --out "$WEB_CLONE_PROJECT"
 ```
-产物：
-- `<out>/site/…`：镜像的**同源**资产（保留路径；目录 URL 存 `index.html`）
-- `<out>/own-asset-urls.txt`：同源资产清单
-- `<out>/third-party.json`：第三方 host + **需自托管的 webfont CSS**（Typekit/Google）提示
-- `<out>/mirror-manifest.json`：全部请求 + 状态
+Output:
+- `<out>/site/…`: mirrored **same-origin** assets (paths preserved; directory URLs saved as `index.html`)
+- `<out>/own-asset-urls.txt`: list of same-origin assets
+- `<out>/third-party.json`: third-party hosts + hints for **webfont CSS that needs self-hosting** (Typekit/Google)
+- `<out>/mirror-manifest.json`: all requests + status
 
-脚本用真浏览器全程滚动捕获 + 走浏览器网络栈下载（cookie/TUN/代理与页面一致）。
+The script uses a real browser to capture the full scroll + downloads via the browser's network stack (cookies/TUN/proxy match the page).
 
-## 镜像后的手工收尾（让它离线 1:1 跑）
-脚本只搬同源资产、不自动改写——**第三方按 `third-party.json` 人工处理**：
+## Manual cleanup after mirroring (to make it run offline, 1:1)
+The script only pulls same-origin assets and doesn't rewrite anything automatically — **handle third parties manually per `third-party.json`**:
 
-1. **自托管锁域名字体（最常见=Adobe Typekit）**
-   Typekit kit 锁授权域名，远程 `@import` 换域名后可能不渲染 → 自托管：
+1. **Self-host domain-locked fonts (most commonly Adobe Typekit)**
+   Typekit kits lock authorization to a domain — remote `@import` may fail to render after a domain change → self-host instead:
    ```bash
-   # ① 下 kit CSS（直连，typekit 常被代理挡 → 不要走 proxy）
-   curl -sL -A "Mozilla/5.0 …Chrome…" -e "https://<站>/" "https://use.typekit.net/<kit>.css" -o site/typekit/kit.css
-   # ② 从 kit.css 的 @font-face src 抠出 use.typekit.net/af/... 字体 URL，逐个下到 site/typekit/fonts/
-   #    同一字体 3 个后缀: /l=woff2  /d=woff  /a=otf（以文件魔数 wOF2/wOFF/0x00010000 为准，别信文件名）
-   # ③ 写本地 @font-face（相对 url + 保留 format 提示），见下
+   # 1. Download the kit CSS (direct connection — Typekit is often blocked by proxies → don't use a proxy)
+   curl -sL -A "Mozilla/5.0 …Chrome…" -e "https://<site>/" "https://use.typekit.net/<kit>.css" -o site/typekit/kit.css
+   # 2. Extract the use.typekit.net/af/... font URLs from kit.css's @font-face src, download each to site/typekit/fonts/
+   #    Each font has 3 suffixes: /l=woff2  /d=woff  /a=otf (verify by file magic number wOF2/wOFF/0x00010000, not the filename)
+   # 3. Write local @font-face rules (relative url + keep format hints), see below
    ```
-   本地 `@font-face`：
+   Local `@font-face`:
    ```css
-   @font-face{ font-family:"<同名>"; src:url("./fonts/x.woff2") format("woff2"),
+   @font-face{ font-family:"<same name>"; src:url("./fonts/x.woff2") format("woff2"),
      url("./fonts/x.woff") format("woff"), url("./fonts/x.otf") format("opentype");
-     font-display:swap; font-weight:<原范围>; }
+     font-display:swap; font-weight:<original range>; }
    ```
-   然后把引用处改成本地——**注意 Typekit 常是主 CSS 第一行 `@import"https://use.typekit.net/<kit>.css"`，不是 HTML `<link>`**：
+   Then update the reference — **note that Typekit is often the first line of the main CSS, `@import"https://use.typekit.net/<kit>.css"`, not an HTML `<link>`**:
    ```bash
-   perl -0pi -e 's{\@import"https://use\.typekit\.net/<kit>\.css"}{\@import"/typekit/kit-local.css"}g' site/_astro/<主>.css
+   perl -0pi -e 's{\@import"https://use\.typekit\.net/<kit>\.css"}{\@import"/typekit/kit-local.css"}g' site/_astro/<main>.css
    ```
 
-2. **删追踪**：cloudflare beacon / GA / 像素——精确切 `<script>`。
+2. **Remove tracking**: Cloudflare beacon / GA / pixels — cut the `<script>` tag precisely.
 
-3. **公共 CDN（Rive wasm@unpkg / 第三方 player）**：公共 CDN 跨域可在线加载，本地服务+联网时正常 → 可留在线（离线则失效，NOTES 标注）。要彻底离线再镜像它们并改写注入点。
+3. **Public CDNs (Rive wasm@unpkg / third-party players)**: public CDNs can load fine cross-origin while served locally with internet access → can be left pointing online (fails offline; note it in NOTES). To go fully offline, mirror these too and rewrite the injection points.
 
-4. **Vimeo/YouTube 嵌入**：iframe 在线播，离线不可用 → 一般非核心首屏，NOTES 标注即可。
+4. **Vimeo/YouTube embeds**: iframes play online, unavailable offline → usually not above the fold, so just note it in NOTES.
 
-## 服务 + 验证
+## Serve + verify
 ```bash
 cd "$WEB_CLONE_PROJECT/site"
-python3 -m http.server 8124      # 必须从 site/ 作 web 根，根相对路径(/_astro /models …)才解析
+python3 -m http.server 8124      # must serve from site/ as the web root, or root-relative paths (/_astro /models …) won't resolve
 ```
-然后按 SKILL.md Step 5：浏览器 0 console error + `visual-diff.mjs` 像素对照原站。重 WebGL 站记得**滚动到各段截图**对照（静态全页截图抓不到滚动触发的 GL 帧）。
+Then follow SKILL.md Step 5: 0 console errors in the browser + pixel comparison against the original site with `visual-diff.mjs`. For heavy WebGL sites, remember to **screenshot each section while scrolling** for comparison (a static full-page screenshot won't capture GL frames triggered by scrolling).
 
-## worked example：oryzo.ai（Lusion，L6）
-- 135 个同源资产（HTML+bundle+CSS + 25×`.buf` 几何/相机动画 + 2×`.sog` 高斯泼溅 + 排序 wasm + `.riv` + MSDF + 字体 + 80+ 图）
-- 唯一改写：Typekit `@import`→本地自托管 halyard + 删 cloudflare beacon
-- 结果：`scrollHeight` 精确一致、**0 console error**、hero 像素 diff **36/1.3M（5/5）**
-- 留在线：Vimeo 画廊视频 + unpkg Rive wasm（非核心）
-- 完整记录：`./website-clones/oryzo-clone/`（NOTES.md + TEARDOWN.md）
+## Worked example: oryzo.ai (Lusion, L6)
+- 135 same-origin assets (HTML+bundle+CSS + 25×`.buf` geometry/camera animation + 2×`.sog` Gaussian splats + sorting wasm + `.riv` + MSDF + fonts + 80+ images)
+- Only rewrite needed: Typekit `@import` → locally self-hosted halyard + removed Cloudflare beacon
+- Result: `scrollHeight` exactly matches, **0 console errors**, hero pixel diff **36/1.3M (5/5)**
+- Left online: Vimeo gallery videos + unpkg Rive wasm (non-critical)
+- Full record: `./website-clones/oryzo-clone/` (NOTES.md + TEARDOWN.md)

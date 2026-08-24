@@ -92,12 +92,12 @@ function score(original, clone, visualDiff) {
   return {
     sourceEvidence: 3,
     structure,
-    visual: visualDiff ? `${visualDiff.visualScore}/5` : "需人工看截图或传 --visual-diff",
+    visual: visualDiff ? `${visualDiff.visualScore}/5` : "needs manual screenshot review or pass --visual-diff",
     interaction,
     responsive,
     functional,
-    contentReplacement: "需人工看文案残留",
-    legalRisk: "需人工核查 license / 素材",
+    contentReplacement: "needs manual review of leftover copy",
+    legalRisk: "needs manual review of license / assets",
   };
 }
 
@@ -117,8 +117,8 @@ function routePath(url) {
 
 function routesSection(files, evidence) {
   if (!evidence.originalRoutes || !evidence.cloneRoutes) {
-    return `## 路由覆盖
-- 未提供 route-crawl 结果。多页面站需要传 --original-routes / --clone-routes。
+    return `## Route coverage
+- No route-crawl results provided. Multi-page sites need --original-routes / --clone-routes.
 `;
   }
   const originalSet = new Set((evidence.originalRoutes.routes || []).map((route) => routePath(route.url)));
@@ -127,14 +127,14 @@ function routesSection(files, evidence) {
   const missing = Array.from(originalSet).filter((item) => !cloneSet.has(item));
   const extra = Array.from(cloneSet).filter((item) => !originalSet.has(item));
   const coverage = originalSet.size ? Math.round((matched.length / originalSet.size) * 100) : 100;
-  return `## 路由覆盖
-- 原站路由: ${originalSet.size}
-- 克隆路由: ${cloneSet.size}
-- 覆盖率: ${coverage}%
-- 原站 route map: ${files.originalRoutes}
-- 克隆 route map: ${files.cloneRoutes}
-- 缺失路由: ${missing.join(", ") || "无"}
-- 额外路由: ${extra.join(", ") || "无"}
+  return `## Route coverage
+- Original routes: ${originalSet.size}
+- Clone routes: ${cloneSet.size}
+- Coverage: ${coverage}%
+- Original route map: ${files.originalRoutes}
+- Clone route map: ${files.cloneRoutes}
+- Missing routes: ${missing.join(", ") || "none"}
+- Extra routes: ${extra.join(", ") || "none"}
 `;
 }
 
@@ -144,8 +144,8 @@ function changedActionCount(interactions) {
 
 function interactionSection(files, evidence) {
   if (!evidence.originalInteractions || !evidence.cloneInteractions) {
-    return `## 交互覆盖
-- 未提供 interaction-probe 结果。交互站需要传 --original-interactions / --clone-interactions。
+    return `## Interaction coverage
+- No interaction-probe results provided. Interactive sites need --original-interactions / --clone-interactions.
 `;
   }
   const originalActions = evidence.originalInteractions.actions || [];
@@ -156,16 +156,16 @@ function interactionSection(files, evidence) {
   const cloneCanvas = evidence.cloneInteractions.discovered?.canvases?.length || 0;
   const originalInteractive = evidence.originalInteractions.discovered?.interactive?.length || 0;
   const cloneInteractive = evidence.cloneInteractions.discovered?.interactive?.length || 0;
-  return `## 交互覆盖
-- 原站可见交互目标: ${originalInteractive}
-- 克隆可见交互目标: ${cloneInteractive}
-- 原站 canvas 目标: ${originalCanvas}
-- 克隆 canvas 目标: ${cloneCanvas}
-- 原站 changed actions: ${originalChanged}/${originalActions.length}
-- 克隆 changed actions: ${cloneChanged}/${cloneActions.length}
-- 原站 interaction probe: ${files.originalInteractions}
-- 克隆 interaction probe: ${files.cloneInteractions}
-- 判断: ${originalChanged === cloneChanged && originalCanvas === cloneCanvas ? "交互数量信号接近，仍需看截图确认状态质量。" : "交互数量信号不一致，需要检查缺失状态或过度实现。"}
+  return `## Interaction coverage
+- Original visible interaction targets: ${originalInteractive}
+- Clone visible interaction targets: ${cloneInteractive}
+- Original canvas targets: ${originalCanvas}
+- Clone canvas targets: ${cloneCanvas}
+- Original changed actions: ${originalChanged}/${originalActions.length}
+- Clone changed actions: ${cloneChanged}/${cloneActions.length}
+- Original interaction probe: ${files.originalInteractions}
+- Clone interaction probe: ${files.cloneInteractions}
+- Verdict: ${originalChanged === cloneChanged && originalCanvas === cloneCanvas ? "Interaction count signals are close; still needs screenshot review to confirm state quality." : "Interaction count signals differ; check for missing states or over-implementation."}
 `;
 }
 
@@ -178,17 +178,17 @@ function report(files, original, clone, evidence) {
   const cloneFlags = boolList(c.frameworks);
   const counts = ["sections", "links", "images", "video", "canvas", "forms", "buttons", "inputs", "interactive", "scripts"];
 
-  return `# ${original.label || "original"} vs ${clone.label || "clone"} · 克隆评估报告
+  return `# ${original.label || "original"} vs ${clone.label || "clone"} · Clone Evaluation Report
 
-## 结论
-- 原站 URL: ${original.url}
-- 克隆 URL: ${clone.url}
-- 自动推断复杂度: ${complexity}
-- 复刻模式建议: ${complexity === "L5" ? "技术拆解 / 忠实复刻优先" : complexity === "L6" ? "展示层视觉复刻" : "视觉复刻 / 内容爆改"}
-- 自动报告边界: 结构、数量、框架、console 可自动比；传入 visual-diff 后可纳入像素差异分。内容残留和法务仍需审计。
+## Conclusion
+- Original URL: ${original.url}
+- Clone URL: ${clone.url}
+- Auto-inferred complexity: ${complexity}
+- Recommended clone mode: ${complexity === "L5" ? "Technical teardown / faithful recreation first" : complexity === "L6" ? "Presentation-layer visual clone" : "Visual clone / content overhaul"}
+- Automated report scope: structure, counts, frameworks, and console can be compared automatically; passing visual-diff adds a pixel-diff score. Leftover content and legal review still need manual audit.
 
-## 技术信号
-| 项目 | 原站 | 克隆站 |
+## Technical signals
+| Item | Original | Clone |
 |---|---|---|
 | title | ${o.title || ""} | ${c.title || ""} |
 | lang | ${o.lang || ""} | ${c.lang || ""} |
@@ -196,42 +196,42 @@ function report(files, original, clone, evidence) {
 | scrollHeight | ${o.scrollHeight || 0} | ${c.scrollHeight || 0} |
 | h1 | ${line(o.h1)} | ${line(c.h1)} |
 
-## 数量对比
-| 指标 | 原站 | 克隆站 | 自动评分 |
+## Count comparison
+| Metric | Original | Clone | Auto score |
 |---|---:|---:|---:|
 ${counts.map((key) => `| ${key} | ${o.counts?.[key] || 0} | ${c.counts?.[key] || 0} | ${ratioScore(o.counts?.[key] || 0, c.counts?.[key] || 0)}/5 |`).join("\n")}
 
-## 复刻评分
-- 源证据: ${scores.sourceEvidence}/5
-- 结构保真: ${scores.structure}/5
-- 视觉保真: ${scores.visual}
-- 动效/交互: ${scores.interaction}/5
-- 响应式: ${scores.responsive}/5
-- 功能完整: ${scores.functional}/5
-- 内容替换: ${scores.contentReplacement}
-- 法务/部署风险: ${scores.legalRisk}
+## Clone score
+- Source evidence: ${scores.sourceEvidence}/5
+- Structural fidelity: ${scores.structure}/5
+- Visual fidelity: ${scores.visual}
+- Motion/interaction: ${scores.interaction}/5
+- Responsive: ${scores.responsive}/5
+- Functional completeness: ${scores.functional}/5
+- Content replacement: ${scores.contentReplacement}
+- Legal/deployment risk: ${scores.legalRisk}
 
 ## Console
-- 原站 console errors: ${original.console?.errors?.length || 0}
-- 克隆 console errors: ${clone.console?.errors?.length || 0}
-- 原站 page errors: ${original.console?.pageErrors?.length || 0}
-- 克隆 page errors: ${clone.console?.pageErrors?.length || 0}
+- Original console errors: ${original.console?.errors?.length || 0}
+- Clone console errors: ${clone.console?.errors?.length || 0}
+- Original page errors: ${original.console?.pageErrors?.length || 0}
+- Clone page errors: ${clone.console?.pageErrors?.length || 0}
 
 ${routesSection(files, evidence)}
 
 ${interactionSection(files, evidence)}
 
-## 截图证据
-- 原站侦察: ${files.original}
-- 克隆侦察: ${files.clone}
-- 像素差异: ${files.visualDiff || "未提供"}
-- 像素差异率: ${evidence.visualDiff ? evidence.visualDiff.diffPixelRatio : "未提供"}
-- 原站截图: ${(original.captures || []).map((capture) => capture.screenshot).join(", ")}
-- 克隆截图: ${(clone.captures || []).map((capture) => capture.screenshot).join(", ")}
+## Screenshot evidence
+- Original recon: ${files.original}
+- Clone recon: ${files.clone}
+- Visual diff: ${files.visualDiff || "not provided"}
+- Visual diff ratio: ${evidence.visualDiff ? evidence.visualDiff.diffPixelRatio : "not provided"}
+- Original screenshots: ${(original.captures || []).map((capture) => capture.screenshot).join(", ")}
+- Clone screenshots: ${(clone.captures || []).map((capture) => capture.screenshot).join(", ")}
 
-## 已知缺口
-- 未传入 visual-diff 时，视觉保真需要打开截图人工确认。
-- 法务、素材授权、品牌替换完整度需要人工核查。
+## Known gaps
+- Without visual-diff, visual fidelity needs manual screenshot review to confirm.
+- Legal, asset licensing, and brand-replacement completeness need manual review.
 `;
 }
 

@@ -98,6 +98,13 @@ _RUN_REVISION_DISPATCHED = frozenset({
     "ppt_revision",
     "prototype_revision",
     "user_stories_revision",
+    # Authored with the composed-workflow builder; declares planner: skip like
+    # its siblings but was never added here. Sibling trap: keep in lockstep with
+    # tests/agents/test_id_alias_resolver.py::_RUN_REVISION_DISPATCHED.
+    "custom_revision",
+    # Flipped to planner: skip — it was authored as `run` and so could never be
+    # revision-dispatched (CR-02 refused it; the run died with 0 events).
+    "app_builder_revision",
 })
 
 # sample_subagents_parallel is a separate, non-revision planner-skip case: a
@@ -124,7 +131,6 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
 # clarify.defaults is deliberately changed, update this copy to match.
 _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     "ppt":           ["target_audience", "tone_and_style", "key_objectives", "slide_count", "content_depth", "data_availability", "visual_style", "key_sections"],
-    "od_prototype":  ["target_audience", "scope", "priority", "style", "user_journeys", "key_screens", "interactions", "personas"],
     "prototype":     ["target_audience", "scope", "priority", "style", "user_journeys", "key_screens", "interactions", "personas"],
     "user_stories":  ["target_audience", "scope", "priority", "technology", "personas", "user_journeys", "business_rules", "compliance_security"],
     "app_builder":   ["technology", "scope", "target_audience", "security", "user_journeys", "data_model", "integrations", "performance"],
@@ -134,6 +140,9 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     # clarify.mode: skip — a composed spec-012 shape test takes its topic
     # straight from the run input and asks nothing (ADR-0005 made it visible).
     "sample_subagents_parallel": [],
+    # clarify.mode: skip for the same reason — the revision panel supplies the
+    # instruction directly.
+    "custom_revision": [],
 }
 # The fallback for any id absent from the dict above — the *_revision manifests
 # (ppt_revision, prototype_revision, user_stories_revision, app_builder_revision),

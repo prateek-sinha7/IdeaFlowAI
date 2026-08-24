@@ -107,7 +107,7 @@ export interface GateContext {
   /**
    * GENERIC artifact kind from _artifact_kind_for (backend) — "spec", "task_list",
    * "summary", "html_file", etc. Passed to discriminateArtifact so agents whose
-   * output has no XML wrapper tag (e.g. user_stories domain-analyst produces plain
+   * output has no XML wrapper tag (e.g. domain-specific agents produce plain
    * markdown with kind="summary") still render the correct preview renderer.
    * SC-001: never a workflow/agent-name literal — the backend derives this
    * structurally from _AGENT_KIND_MAP (with "summary" as the generic fallback).
@@ -227,6 +227,9 @@ export interface RunChatLaneProps {
   onBackToHistory?: () => void;
   /** The run title (falls back to the caller's brief / first user turn). */
   runTitle?: string;
+  /** The full, untrimmed text for the header's hover tooltip; falls back to
+   *  `runTitle` / the first user turn. */
+  runTitleFull?: string;
   /** An explicit run-type label; falls back to the humanized `pipeline_type`. */
   runType?: string;
   /** The settled deliverable filename — renders the "open in preview" card when
@@ -249,6 +252,12 @@ export interface RunChatLaneProps {
    * no error message (normal path, zero regression).
    */
   relaunchError?: string | null;
+  /**
+   * FIX-226: true between "Run Again" click and the first pipeline_start
+   * confirming the run is building. Shows an animated "Restarting run…"
+   * indicator in the chat footer so the user gets immediate feedback.
+   */
+  runRestarting?: boolean;
   /**
    * "Edit brief & run again" — navigates home so the user can modify their
    * brief and start a fresh run. Distinct from `onRelaunch` (resume from
@@ -295,6 +304,9 @@ export interface RunChatLaneProps {
 
   // ── Plan-05 clarify quick-actions ─────────────────────────────────────────
   clarifyQuestions?: ClarifyQuestion[];
+  /** FIX-225: true while answers were submitted and we're waiting for the next
+   *  round of questions from the backend (between submit and questionnaire_ready). */
+  clarifyPreparing?: boolean;
   onSubmitAnswers?: (responses: ClarifyResponse[]) => void;
   onSkipClarify?: () => void;
   /** Cancel the active pipeline from the inline clarify (Phase 42-02 §A2 re-home). */
@@ -997,6 +1009,7 @@ function FreeTextComposer({
           }}
           rows={1}
           placeholder={placeholder}
+          name="run-chat-message"
           aria-label="Chat message input"
           className="max-h-[132px] flex-1 resize-none overflow-y-auto border-none bg-transparent font-serif text-[13px] leading-[1.3] text-ink-900 placeholder-ink-200 focus:outline-none"
         />
@@ -1069,6 +1082,7 @@ export function RunChatLane({
   onRequestOpenTab,
   onBackToHistory,
   runTitle,
+  runTitleFull,
   runType,
   deliverableFilename,
   deliverableVersion,
@@ -1076,6 +1090,7 @@ export function RunChatLane({
   onRevise,
   onRelaunch,
   relaunchError,
+  runRestarting,
   onEditBrief,
   suggestions,
   onSuggestion,
@@ -1090,6 +1105,7 @@ export function RunChatLane({
   onRedo,
   onUpdateSpecs,
   clarifyQuestions,
+  clarifyPreparing,
   onSubmitAnswers,
   onSkipClarify,
   onCancelWorkflow,
@@ -1528,23 +1544,20 @@ export function RunChatLane({
                 data-suggestion-id={s.id}
                 disabled={isBeta}
                 onClick={() => !isBeta && onSuggestion?.(s.id)}
-                className={`group relative w-full flex items-center justify-between rounded-[var(--radius-card)] border px-4 py-3 transition-all ${
+                className={`group relative w-full flex items-center justify-between rounded-[var(--radius-card)] border px-3 py-1.5 transition-all ${
                   isBeta
                     ? "border-line-border bg-surface-card text-ink-600 cursor-not-allowed"
                     : "border-line-control bg-surface-white text-ink-700 cursor-pointer hover:border-brand hover:bg-brand/5 hover:shadow-md hover:-translate-y-0.5 shimmer-effect"
                 }`}
               >
-                <div className="flex items-center gap-3">
-                  <span className={`grid h-8 w-8 place-items-center rounded-[6px] flex-shrink-0 ${
+                <div className="flex items-center gap-2.5">
+                  <span className={`grid h-6 w-6 place-items-center rounded-[6px] flex-shrink-0 ${
                     isBeta ? "bg-surface-warm text-ink-400" : "bg-brand-fill text-brand"
                   }`}>
-                    <WorkflowIcon className="h-4 w-4" />
+                    <WorkflowIcon className="h-3.5 w-3.5" />
                   </span>
                   <div className="flex flex-col text-left">
-                    <span className="text-[12px] font-semibold">{s.text || s.label}</span>
-                    <span className={`text-[10px] mt-0.5 ${isBeta ? "text-ink-400" : "text-ink-500"}`}>
-                      {s.display_name || s.label}
-                    </span>
+                    <span className="text-[12px] font-semibold">{s.display_name || s.label}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1650,6 +1663,28 @@ export function RunChatLane({
         );
 
       case "terminal": {
+        // FIX-226: while the resume is in flight (between "Run Again" click and
+        // pipeline_start), show an animated "Restarting run…" indicator. This
+        // gives immediate feedback without persisting a message to the transcript.
+        // Uses the same three-dot brand animation as "Preparing your questions…".
+        if (runRestarting) {
+          return (
+            <div className="ml-[31px] flex items-center gap-[9px] font-sans text-[11.5px] font-medium text-ink-500">
+              <span className="flex items-center gap-[3px]">
+                {[0, 1, 2].map((i) => (
+                  <motion.span
+                    key={i}
+                    className="h-[5px] w-[5px] rounded-full bg-brand"
+                    animate={{ opacity: [0.3, 0.9, 0.3] }}
+                    transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.15, ease: "easeInOut" }}
+                  />
+                ))}
+              </span>
+              Restarting run…
+            </div>
+          );
+        }
+
         // Terminal variant keys off the GENERIC pipelineState markers (plan 05)
         // — cancelled / failed / degraded — never a workflow name (SC-001).
         const failedIds = pipelineState?.failedAgents ?? [];
@@ -1896,6 +1931,29 @@ export function RunChatLane({
     // Live — clarify: status card only (the questions live in the composer + Steps).
     if (runState === "clarify") {
       const n = clarifyQuestions?.length ?? 0;
+
+      // FIX-225: answers were just submitted — show "Preparing your questions…"
+      // animated indicator while waiting for the next questionnaire_ready event.
+      // Same three-dot brand animation used for the first-round "preparing" state
+      // in the building branch above (INV-12 — one animation pattern).
+      if (clarifyPreparing) {
+        return (
+          <div className="ml-[31px] flex items-center gap-[9px] font-sans text-[11.5px] font-medium text-ink-500">
+            <span className="flex items-center gap-[3px]">
+              {[0, 1, 2].map((i) => (
+                <motion.span
+                  key={i}
+                  className="h-[5px] w-[5px] rounded-full bg-brand"
+                  animate={{ opacity: [0.3, 0.9, 0.3] }}
+                  transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.15, ease: "easeInOut" }}
+                />
+              ))}
+            </span>
+            Preparing your questions…
+          </div>
+        );
+      }
+
       return (
         <AwaitingCard
           testid="lane-clarify-status"
@@ -2083,6 +2141,7 @@ export function RunChatLane({
         pipelineState={pipelineState}
         runType={runType}
         runTitle={runTitle ?? firstUserTurn}
+        runTitleFull={runTitleFull ?? firstUserTurn}
         onBackToHistory={onBackToHistory}
         actions={headerActions}
       />

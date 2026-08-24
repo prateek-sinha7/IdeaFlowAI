@@ -145,6 +145,8 @@ export function AgentModelPicker({
                 {agent.name}
               </p>
               <select
+                aria-label={`Model for ${agent.name}`}
+                name={`model-override-${agent.id}`}
                 value={overrides[agent.id] ?? ""}
                 onChange={(e) => setAgentModel(agent.id, e.target.value)}
                 className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] max-w-[140px]"

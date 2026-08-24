@@ -15,7 +15,7 @@ will read it as part of its system prompt.
   coral accent. Pairs with [`skills/open-design-landing/`](../skills/open-design-landing/)
   and [`skills/open-design-landing-deck/`](../skills/open-design-landing-deck/)
   for the canonical landing-page and slide-deck renderings.
-- **`kami/`** — 紙 / 纸. Editorial paper system distilled from
+- **`kami/`** — "Paper". Editorial paper system distilled from
   [`tw93/kami`](https://github.com/tw93/kami) (MIT). Warm parchment canvas,
   ink-blue accent, serif at one weight, no italic, no cool grays. Pairs with
   the [`templates/kami-deck.html`](../templates/kami-deck.html) starter for

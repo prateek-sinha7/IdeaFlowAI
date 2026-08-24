@@ -13,8 +13,8 @@ triggers:
   - "linear briefing"
   - "linear digest"
   - "issue digest"
-  - "linear 简报"
-  - "issue 汇总"
+  - "linear brief"
+  - "issue summary"
 od:
   mode: prototype
   platform: desktop

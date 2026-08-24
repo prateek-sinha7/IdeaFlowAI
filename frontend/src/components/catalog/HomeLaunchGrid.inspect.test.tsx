@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import type {
@@ -102,7 +102,21 @@ describe("HomeLaunchGrid — WR-02 WorkflowDialog inspect affordance", () => {
   });
 
   it("renders a per-row inspect affordance (distinct from the launch button)", async () => {
-    render(<HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" />);
+    renderWithProviders(
+      <HomeLaunchGrid onSelectFeature={vi.fn()} userTier="enterprise" />,
+      {
+        preloadedState: {
+          global: {
+            workflows: ROWS,
+            workflowsStatus: "succeeded",
+            workflowsError: null,
+            recentRuns: [],
+            recentRunsStatus: "succeeded",
+            recentRunsError: null,
+          },
+        },
+      }
+    );
     // The inspect control is present, labelled, and NOT the launch button.
     const inspect = await screen.findByRole("button", {
       name: /inspect Generate product requirements details/i,
@@ -112,7 +126,21 @@ describe("HomeLaunchGrid — WR-02 WorkflowDialog inspect affordance", () => {
 
   it("opens the read-only WorkflowDialog on inspect WITHOUT launching", async () => {
     const onSelectFeature = vi.fn();
-    render(<HomeLaunchGrid onSelectFeature={onSelectFeature} userTier="enterprise" />);
+    renderWithProviders(
+      <HomeLaunchGrid onSelectFeature={onSelectFeature} userTier="enterprise" />,
+      {
+        preloadedState: {
+          global: {
+            workflows: ROWS,
+            workflowsStatus: "succeeded",
+            workflowsError: null,
+            recentRuns: [],
+            recentRunsStatus: "succeeded",
+            recentRunsError: null,
+          },
+        },
+      }
+    );
 
     const inspect = await screen.findByRole("button", {
       name: /inspect Generate product requirements details/i,

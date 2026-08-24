@@ -204,7 +204,7 @@ def test_discriminator_introduces_no_agent_id_literal() -> None:
     from a workflow/agent-id comparison (SC-001) — mirrors the eligibility guard."""
     import agents.execution_engine.engine as engine_mod
 
-    lines = Path(engine_mod.__file__).read_text().splitlines()
+    lines = Path(engine_mod.__file__).read_text(encoding="utf-8").splitlines()
     stamp_lines = [ln for ln in lines if _CYCLE in ln or _IN_FLIGHT in ln]
     assert stamp_lines, "the revision discriminator never appears in engine.py"
     for ln in stamp_lines:

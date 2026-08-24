@@ -1,27 +1,27 @@
-# 5 个让你的 AI 编辑用得更顺手的小习惯
+# 5 small habits that make your AI editing workflow smoother
 
-## 封面
-建议收藏 · AI 工具党 必看
+## Cover
+Save this · A must-read for AI power users
 
-## 卡 1: 放弃完美 prompt
-你写的 prompt 不可能一次完美。把它当**对话**, 不是 SQL。
+## Card 1: Give up on the "perfect prompt"
+Your prompt will never be perfect on the first try. Treat it as a **conversation**, not SQL.
 
-## 卡 2: 让 AI 看见你的格式
-贴一段 markdown / CSV 之前, 先告诉它"我希望输出像 X 风格"——
-给一个具体参考, 比给 50 个形容词管用。
+## Card 2: Let the AI see your format
+Before pasting a chunk of markdown / CSV, tell it "I want the output to look like style X" —
+a concrete reference beats 50 adjectives.
 
-## 卡 3: 用模板, 别每次重写
-把好用的提示词存成模板。HTML Anything 直接选模板就行,
-9 套世界级设计 system 现成的。
+## Card 3: Use templates, don't rewrite every time
+Save your good prompts as templates. With HTML Anything you just pick a template —
+9 world-class design systems ready to go.
 
-## 卡 4: 二次编辑跑 diff
-重新生成不是从 0 开始。改完内容只发 diff, 让 AI 在已有 HTML 上微调,
-省 80% token + 保持设计风格。
+## Card 4: Second edits should just run a diff
+Regenerating doesn't mean starting from zero. After a content change, only send the diff and let the AI
+fine-tune the existing HTML — saves 80% of the tokens and keeps the design style intact.
 
-## 卡 5: 复用本地 session
-不用 API Key, 让本地 Claude / Cursor / Codex 跑。0 边际成本,
-速度比远程 API 快得多。
+## Card 5: Reuse your local session
+No API key needed — run it on your local Claude / Cursor / Codex. Zero marginal cost,
+and much faster than a remote API.
 
-## 总结
-工具不是越多越好, 流程顺才是真的好用。
-关注我, 每周更新 AI workflow 实战。
+## Summary
+More tools isn't always better — a smooth workflow is what actually works.
+Follow me for weekly AI workflow tips.

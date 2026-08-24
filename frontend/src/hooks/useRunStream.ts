@@ -38,6 +38,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { clearToken, getToken, refreshAccessToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import { parseSseBlock } from "@/lib/sseFrame";
+import { STREAM_TERMINAL_TYPES } from "@/types";
 
 /**
  * The connection state machine (D-14d). `connecting`/`reconnecting` mirror the
@@ -279,15 +280,17 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
         if (data.live === true) setPhase("live");
       }
 
-      // BUG-015 (stop-button reconnecting banner): pipeline_cancelled / pipeline_failed
-      // are TERMINAL events — the backend intentionally closes the stream right after
-      // draining them. Mark the connection as "non-live" so the close-branch below
-      // calls setPhase("disconnected") instead of scheduleReconnect(). Without this,
-      // sawNonLiveAttachRef stays false (was a live stream_attached{live:true}) and
-      // the stream close triggers a yellow "Reconnecting…" banner on every Stop click.
-      // The detachRun call in dashboard/page.tsx is additive insurance; this ref-set
-      // is guaranteed synchronous within the same microtask as the frame dispatch.
-      if (type === "pipeline_cancelled" || type === "pipeline_failed") {
+      // BUG-015 / ISS-147 (terminal → non-live attach): the members of STREAM_TERMINAL_TYPES
+      // are the ONLY events that close the stream — the backend intentionally closes the
+      // stream right after draining them. Mark the connection as "non-live" so the
+      // close-branch below calls setPhase("disconnected") instead of scheduleReconnect().
+      // Without this, sawNonLiveAttachRef stays false (was a live stream_attached{live:true})
+      // and the stream close triggers a yellow "Reconnecting…" banner on every Stop click
+      // or every successful pipeline_complete. The detachRun call in dashboard/page.tsx
+      // is additive insurance; this ref-set is guaranteed synchronous within the same
+      // microtask as the frame dispatch. ISS-147: moved to constant to prevent future
+      // omission (e.g. pipeline_complete was missing, now consolidated in STREAM_TERMINAL_TYPES).
+      if (STREAM_TERMINAL_TYPES.has(type)) {
         sawNonLiveAttachRef.current = true;
       }
 
@@ -379,12 +382,26 @@ export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {
           for (;;) {
             const { value, done } = await reader.read();
             if (done) break;
-            // Normalize CRLF -> LF on decode so the backend's `\r\n\r\n` frame
-            // separators (sse-starlette) boundary-match the `indexOf("\n\n")`
-            // split below. This targets only line-ending CRLF; JSON string data
-            // escapes newlines as literal `\n`, never raw `\r\n`, so payloads are
+            // Normalize CRLF -> LF so the backend's `\r\n\r\n` frame separators
+            // (sse-starlette) boundary-match the `indexOf("\n\n")` split below.
+            // This targets only line-ending CRLF; JSON string data escapes
+            // newlines as literal `\n`, never raw `\r\n`, so payloads are
             // untouched (BUG-014-B).
-            buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+            //
+            // SSE-003: normalize AFTER appending to `buf`, never per-chunk. A chunk
+            // boundary can fall BETWEEN the `\r` and the `\n` of a CRLF, and neither
+            // chunk then contains the pair for the regex to match — so normalizing
+            // each chunk in isolation (the previous
+            // `buf += decode(...).replace(...)`) let that CRLF through un-normalized
+            // and leaked a stray `\r` into the tail of a data line. Appending raw and
+            // normalizing the accumulated buffer closes the split across the seam:
+            // the lone trailing `\r` stays in `buf`, and the next chunk's leading
+            // `\n` completes the pair for this same replace. Idempotent on the
+            // retained remainder (after a pass, no `\r\n` survives), and `buf` is
+            // drained to at most one partial frame per iteration, so re-scanning it
+            // is bounded.
+            buf += decoder.decode(value, { stream: true });
+            buf = buf.replace(/\r\n/g, "\n");
             let idx: number;
             while ((idx = buf.indexOf("\n\n")) !== -1) {
               const rawBlock = buf.slice(0, idx);

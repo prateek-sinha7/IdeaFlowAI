@@ -318,3 +318,37 @@ def _forbid_live_model_clients(request, monkeypatch):
         return
     for class_name, cls in _guarded_classes():
         monkeypatch.setattr(cls, "__init__", _blocked_init(nodeid, class_name))
+
+
+@pytest.fixture(autouse=True)
+def _isolate_compiled_plan_cache():
+    """Give every test a fresh ``compile_for_run`` cache.
+
+    ``agents.execution_engine.engine.compile_for_run`` is ``@lru_cache``d, so it
+    returns the SAME ``CompiledWorkflow`` instance to every caller in the process.
+    The offline harnesses need to force ``clarify.mode = "off"`` / ``planner =
+    "skip"`` before driving a pipeline, and ~23 of them do it by mutating the object
+    that call handed back — which is the cached one.
+
+    ``monkeypatch`` restores the patched FUNCTION on teardown; nothing undoes a write
+    to the cached OBJECT. So a harness that flipped ``user_stories`` to
+    ``clarify.mode="off"`` left it that way for the rest of the process, and tests in
+    other files asserting the manifest's real values failed — but only when the
+    mutating file ran first. That is why the failures moved between runs, vanished
+    when a file was run alone, and pointed at innocent tests:
+    ``test_id_alias_resolver[user_stories]``, ``test_live_contract``,
+    ``test_live_harness``, ``test_iss033`` ×2.
+
+    Clearing the cache per test makes any such mutation die with the test that made
+    it. That is strictly better than fixing the 23 call sites: it also covers the
+    24th, and the cost is one manifest recompile per test (YAML parse + validate —
+    all 18 manifests compile in about a second).
+
+    Three harnesses already deep-copy before mutating (``_scripted_model``,
+    ``live_harness``, ``test_iss033``) and are unaffected either way.
+    """
+    from agents.execution_engine.engine import compile_for_run
+
+    compile_for_run.cache_clear()
+    yield
+    compile_for_run.cache_clear()

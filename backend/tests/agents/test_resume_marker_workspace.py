@@ -206,3 +206,65 @@ async def test_stamp_resume_marker_without_durable_rows_does_not_raise():
     )
     assert rows == [], "a None workspace must never produce a persisted marker row"
     session.close()
+
+
+# ===========================================================================
+# (4) — DB-001 (task.md R-02): concurrent resume-marker writers do not
+#       silently collide. Before the fix, ``_stamp_resume_marker`` did a
+#       single unretried read-max(seq)+1-then-append_event; a losing writer's
+#       IntegrityError was swallowed by the bare ``except Exception`` and its
+#       marker was dropped with no trace. After the fix (routing through
+#       ``ScopedStore.append_event_next_seq``), every concurrent marker call
+#       survives with a distinct seq — none are silently lost.
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_stamp_resume_marker_survives_concurrent_racing_writers():
+    import asyncio
+
+    from agents.authz import ScopedStore
+    from app.models.run_event import RunEvent
+    from app.models.workflow import WorkflowRun
+
+    session, db_engine = _make_session()
+    run_id = f"cc-{uuid.uuid4().hex[:8]}"
+    owner = "cc-user"
+    workspace_id = "ws-cc"
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+    # Seed one durable row so the marker's seq computation has a real tail to race
+    # against (an empty tail would make every concurrent writer race for seq=1).
+    seed_store = ScopedStore(owner_id=owner, workspace_id=workspace_id, session=session)
+    await seed_store.append_event(
+        run_id, seq=1, event_id="cc-seed", type="agent_chunk_1", payload_json={"seq": 1},
+    )
+    session.commit()
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        engine = h.make_engine()
+        wr = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+
+        # N "concurrent" resume-marker attempts against the SAME run — the harness's
+        # shared SQLite session makes these interleave cooperatively (asyncio.gather)
+        # rather than truly parallel-thread, but each call still independently reads
+        # the tail and attempts an insert, exercising the exact race the fix targets:
+        # two callers computing the same next_seq before either commits.
+        N = 6
+        await asyncio.gather(*[engine._stamp_resume_marker(wr) for _ in range(N)])
+
+    read_store = ScopedStore(owner_id=owner, workspace_id=workspace_id, session=session)
+    rows = await read_store.read_events(run_id, after_seq=0)
+    markers = [r for r in rows if r.type == "run_resuming"]
+
+    assert len(markers) == N, (
+        f"every concurrent _stamp_resume_marker call must persist its OWN marker row "
+        f"(no silent collision-drop) — expected {N}, got {len(markers)}"
+    )
+    seqs = [m.seq for m in markers]
+    assert len(set(seqs)) == len(seqs), f"marker seqs must be unique, got {seqs}"
+    # No gaps/duplicates across the whole persisted log for this run either.
+    all_seqs = sorted(r.seq for r in rows)
+    assert all_seqs == list(range(1, len(rows) + 1)), (
+        f"the run's full seq log must stay contiguous and unique, got {all_seqs}"
+    )
+    session.close()

@@ -220,6 +220,7 @@ export function CanvasConfigRail({
           <input
             key={agent.id}
             aria-label="Agent name"
+            name="agent-name"
             value={nameDraft ?? agent.name}
             onChange={(e) => setNameDraft(e.target.value)}
             onBlur={commitRename}
@@ -272,6 +273,7 @@ export function CanvasConfigRail({
             {agent.isCustom ? (
               <textarea
                 aria-label="Custom agent prompt"
+                name="canvas-agent-prompt"
                 value={agent.prompt ?? ""}
                 onChange={(e) => onPromptChange?.(agent.id, e.target.value)}
                 placeholder="What should this agent do?"
@@ -418,13 +420,14 @@ export function CanvasConfigRail({
       <>
       {/* MODEL (whole catalog — SC-001) */}
       <p className="mb-2 mt-5 flex items-center gap-1.5 font-sans text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-300">
-        <InfoHint>Overrides the default model for this agent's step. &quot;Default&quot; uses the workflow's own model choice.</InfoHint>
+        <InfoHint>Overrides the default model for this agent&apos;s step. &quot;Default&quot; uses the workflow&apos;s own model choice.</InfoHint>
         Model
       </p>
       <div className="relative">
         <span className="pointer-events-none absolute left-[11px] top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-brand" />
         <select
           aria-label="Model"
+          name="agent-model"
           disabled={loading}
           value={sel.model ?? ""}
           onChange={(e) => patch({ model: e.target.value })}
@@ -448,7 +451,7 @@ export function CanvasConfigRail({
       <div className="flex items-center justify-between border-b border-line-faint-row py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 font-sans text-[12.5px] font-semibold text-ink-900">
-            <InfoHint>Runs a registered validator against this step's output before the pipeline continues.</InfoHint>
+            <InfoHint>Runs a registered validator against this step&apos;s output before the pipeline continues.</InfoHint>
             Validator
           </div>
           <div className="font-serif text-[11px] text-ink-300">
@@ -542,14 +545,14 @@ export function CanvasConfigRail({
               Run one worker per task the source step lists
             </div>
           </div>
-          {/* Disabled: fan-out requires the source step to emit `## Task N:` headings,
-              which nothing in a custom workflow guarantees. Left visible (and any
-              already-saved `fanout_batch` still renders as ON) so an existing workflow
-              is not silently rewritten — it just cannot be turned on from here. */}
+          {/* Toggle is disabled when there's no upstream (no prior agents), since
+              fan-out requires a source step that can emit `## Task N:` headings.
+              Left visible (and any already-saved `fanout_batch` still renders as ON)
+              so an existing workflow is not silently rewritten. */}
           <Toggle
             on={fanoutOn}
             label="Fan out over a list"
-            disabled
+            disabled={!canFanout}
             onToggle={() =>
               fanoutOn
                 ? patch({
@@ -583,6 +586,7 @@ export function CanvasConfigRail({
               <span className="pointer-events-none absolute left-[11px] top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-brand" />
               <select
                 aria-label="Source list from"
+                name="fanout-source"
                 value={currentSource}
                 onChange={(e) =>
                   patch({
@@ -631,6 +635,7 @@ export function CanvasConfigRail({
           <div className="relative">
             <select
               aria-label="Sub-agent strategy"
+              name="subagent-strategy"
               value={childStrategy}
               onChange={(e) =>
                 onStrategyChange?.(

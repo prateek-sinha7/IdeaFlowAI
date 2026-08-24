@@ -66,10 +66,11 @@ export function NameWorkflowModal({
 
         {/* Workflow name — input analog AgentsPopup.tsx:374-381 */}
         <div className="mb-3">
-          <label className="text-[10px] font-semibold text-ink-500 uppercase tracking-wide block mb-1">
+          <label htmlFor="nwm-name" className="text-[10px] font-semibold text-ink-500 uppercase tracking-wide block mb-1">
             Workflow name
           </label>
           <input
+            id="nwm-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -81,10 +82,11 @@ export function NameWorkflowModal({
 
         {/* Description — textarea analog AgentsPopup.tsx:387-393 */}
         <div className="mb-5">
-          <label className="text-[10px] font-semibold text-ink-500 uppercase tracking-wide block mb-1">
+          <label htmlFor="nwm-description" className="text-[10px] font-semibold text-ink-500 uppercase tracking-wide block mb-1">
             Description <span className="text-ink-400 normal-case font-normal">(optional)</span>
           </label>
           <textarea
+            id="nwm-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}

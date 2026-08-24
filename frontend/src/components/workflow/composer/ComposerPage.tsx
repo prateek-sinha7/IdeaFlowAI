@@ -24,7 +24,7 @@ import {
   useBriefAttachments,
   BriefAttachBox,
 } from "../IdeaInputPage";
-import { createUserWorkflow, updateUserWorkflow, getToken, getWorkflowDetail } from "@/lib/api";
+import { saveUserWorkflow, getToken, getWorkflowDetail } from "@/lib/api";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import {
   addChildInTree,
@@ -121,8 +121,8 @@ const MAX_OPTIONAL = 8;
  * AgentPromptSection) — the AgentsPopup MODAL wrapper is RETAINED for the
  * wizard/input inline-edit flow, so this is NOT a dual implementation (INV-3).
  *
- * The header carries a Simple ⇄ Canvas toggle (D-03); Simple is active here and
- * renders the mock-fidelity Simple view. The Canvas view mounts in 41-05.
+ * The header carries a Simple ⇄ Canvas toggle (D-03); Canvas is active by
+ * default. Simple renders the mock-fidelity flat-list view.
  */
 export function ComposerPage({
   workflowType,
@@ -442,7 +442,7 @@ export function ComposerPage({
   }
   const declaredChips = Array.from(declaredSet);
 
-  // ── Save-to-catalogue (REUSE — owner-scoped createUserWorkflow) ──────────────
+  // ── Save-to-catalogue (owner-scoped, via the shared saveUserWorkflow dispatch) ──
   const handleSave = useCallback(
     async (wfName: string, wfDescription: string) => {
       setSaveError(null);
@@ -492,22 +492,20 @@ export function ComposerPage({
         // save this session after the first create) → PATCH the existing row so
         // re-saving under the same name updates it instead of 409ing on a
         // duplicate. agent_ids/base_pipeline_type are immutable post-create, so
-        // only name/description/selections/hooks round-trip here.
-        const resp = userWorkflowId
-          ? await updateUserWorkflow(token, userWorkflowId, {
-              name: wfName,
-              description: wfDescription,
-              ...selectionsBody,
-              ...hooksBody,
-            })
-          : await createUserWorkflow(token, {
-              name: wfName,
-              ...(wfDescription ? { description: wfDescription } : {}),
-              base_pipeline_type: workflowType,
-              agent_ids: pipelineAgents.map((a) => a.id),
-              ...selectionsBody,
-              ...hooksBody,
-            });
+        // only name/description/selections/hooks round-trip on update —
+        // saveUserWorkflow (ISS-167, lib/api.ts) owns that split so this isn't
+        // hand-rolled per caller.
+        const resp = await saveUserWorkflow(token, userWorkflowId, {
+          name: wfName,
+          // Update always sends description (so clearing it in the UI actually
+          // clears the stored value); create omits an empty one rather than
+          // persisting an explicit empty string — preserved exactly as before.
+          ...(userWorkflowId || wfDescription ? { description: wfDescription } : {}),
+          base_pipeline_type: workflowType,
+          agent_ids: pipelineAgents.map((a) => a.id),
+          ...selectionsBody,
+          ...hooksBody,
+        });
         setUserWorkflowId(resp.id);
         setName(wfName);
         setDescription(wfDescription);
@@ -696,6 +694,7 @@ export function ComposerPage({
           <input
             ref={nameInputRef}
             aria-label="Workflow name"
+            name="workflow-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Untitled workflow"
@@ -703,6 +702,7 @@ export function ComposerPage({
           />
           <input
             aria-label="Workflow description"
+            name="workflow-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Add a description…"
