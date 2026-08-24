@@ -1,9 +1,8 @@
 ---
 consumes:
 - prototype-specify
+- prototype-revision-feature-specify
 context_from:
-- $previous
-description: Decomposes the spec into an ordered build plan — the full HTML shell first, then one page per task, then validation.
 estimated_duration: 15.0
 gate: Human_Gate
 guardrails: []
@@ -15,7 +14,9 @@ injects:
 max_tokens: 32768
 name: Task Planner Agent
 order: 2
-pipeline_type: prototype
+pipeline_type:
+  - prototype
+  - prototype_feature_revision
 produces:
 - prototype-plan
 role: Build Planning & Task Decomposition

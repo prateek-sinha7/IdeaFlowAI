@@ -26,14 +26,14 @@ steps:
   - human
 
 # Step 2: Plan the implementation — human reviews task breakdown
-- agent: prototype-revision-feature-plan
+- agent: prototype-plan
   tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates:
   - human
 
 # Step 3: Build the feature (task_loop — matches main prototype build)
-- agent: prototype-feature-builder
+- agent: prototype-build
   tools: {read_files: true, write_files: true}
   strategy: task_loop
   gates: []
@@ -41,7 +41,7 @@ steps:
     kind: parsed
     parser: heading_tasks
     target: tasks.md
-    source_step: prototype-revision-feature-plan
+    source_step: prototype-plan
     spec_step: prototype-revision-feature-specify
   validators:
   - html_static
@@ -51,7 +51,7 @@ steps:
   compaction: html_skeleton
 
 # Step 4: Final validation
-- agent: prototype-feature-validate
+- agent: prototype-validate
   tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []

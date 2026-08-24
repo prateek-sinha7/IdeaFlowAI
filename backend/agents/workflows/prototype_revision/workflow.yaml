@@ -40,7 +40,7 @@ steps:
   - html_render
   require_render: true
   post_step: revision_validation
-- agent: prototype-revision-validate
+- agent: prototype-validate
   tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []

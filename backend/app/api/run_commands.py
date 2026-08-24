@@ -1156,6 +1156,10 @@ class _ConciergeCtx:
         # The run's persisted status (WorkflowRun.status) — used to distinguish a
         # live-building run from a completed one so the prompt label is accurate.
         self.run_status = run_status or ""
+        # active_revision_run_id: when the parent run has an active child revision run,
+        # this holds the child's run_id so get_run_progress can read that run's events
+        # and list_agents can see the revision agents.
+        self.active_revision_run_id: str | None = None
         # ISS-092: DECLARE the ``conversation`` inject so ``context_provider:conversation``
         # surfaces this run's bounded chat transcript. Before this, the Concierge's only
         # cross-turn memory was the unbounded read_events tool happening to return chat
@@ -1408,13 +1412,56 @@ async def _dispose_concierge_proposal(
         # entitlements, and the persisted rows), so the derivation below needs no
         # correction and both entry points agree by construction.
         target = params.get("target") or f"{base_type}_output"
+        # Guard: if the target looks like a run ID (UUID) rather than an artifact type
+        # (which must end with "_output"), discard it and use the derived default.
+        # The LLM sometimes passes a run_id as target when confused by the docstring.
+        import re as _re_uuid
+        _UUID_RE = _re_uuid.compile(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+            _re_uuid.IGNORECASE
+        )
+        if target and not target.endswith("_output") and _UUID_RE.match(target):
+            logger.warning(
+                "_dispose_concierge_proposal: target %r looks like a run ID, not an "
+                "artifact type — discarding and using derived default %r",
+                target, f"{base_type}_output",
+            )
+            target = f"{base_type}_output"
         instruction = params.get("instruction", "")
-        # ── Tiered prototype classification (Pieces 1/2/3) ──────────────────
-        # Apply the same tier classifier as create_revision() so the Concierge
-        # revision path also routes to the correct manifest.
+        # ── Tiered prototype classification via run_analyzer (Pieces 1/2/3) ──
+        # Apply the same analyzer as create_revision() so the Concierge revision
+        # path also routes to the correct manifest and seeds ectx.analyzer_solution.
+        _analyzer_solution = ""
         if target == "prototype_output":
-            _tier = await _classify_revision_tier(
+            from app.agents.revision_analyzer import run_analyzer  # noqa: PLC0415
+
+            # In the Concierge path, instruction is plain user text with no HTML
+            # markers. Source existing_html from the parent run's output column —
+            # identical to how _classify_revision_tier sourced it (Path 2 fallback).
+            _existing_html = ""
+            _db_html = _get_db()
+            try:
+                _parent_wr = (
+                    _db_html.query(WorkflowRun)
+                    .filter(WorkflowRun.id == run_id)
+                    .first()
+                )
+                if _parent_wr and _parent_wr.output:
+                    _existing_html = _parent_wr.output
+            finally:
+                _db_html.close()
+
+            # Pre-generate child_run_id so run_analyzer events land on the correct
+            # queue before the DB row is minted.
+            _child_run_id_pre = str(_uuid.uuid4())
+            _cancel_event_pre = asyncio.Event()
+            _CANCEL_EVENTS[_child_run_id_pre] = _cancel_event_pre
+            _event_queue_pre = _get_or_create_queue(_child_run_id_pre)
+
+            _tier, _analyzer_solution = await run_analyzer(
                 instruction=instruction,
+                existing_html=_existing_html,
+                event_queue=_event_queue_pre,
                 parent_run_id=run_id,
                 model_id=getattr(current_user, "preferred_model", None),
             )
@@ -1425,6 +1472,10 @@ async def _dispose_concierge_proposal(
                 f"{target.removesuffix('_output')}_revision",
                 run_id,
             )
+        else:
+            _child_run_id_pre = None
+            _cancel_event_pre = None
+            _event_queue_pre = None
         # ────────────────────────────────────────────────────────────────────
         # FIX-218: when files were attached on this Concierge turn, frame them as
         # supplementary reference material. The user's chat instruction always takes
@@ -1444,17 +1495,29 @@ async def _dispose_concierge_proposal(
                 + "\n=== END REFERENCE MATERIAL ==="
             )
             instruction = file_section
+
+        # If the analyzer path ran, reuse the pre-generated child_run_id, cancel_event,
+        # and event_queue. Otherwise generate fresh ones now (non-prototype paths).
+        if _child_run_id_pre is not None:
+            child_run_id = _child_run_id_pre
+            cancel_event = _cancel_event_pre
+            event_queue = _event_queue_pre
+        else:
+            child_run_id = str(_uuid.uuid4())
+            cancel_event = asyncio.Event()
+            _CANCEL_EVENTS[child_run_id] = cancel_event
+            event_queue = _get_or_create_queue(child_run_id)
+
         rdb = _get_db()
         try:
-            child_run_id, _ = _mint_revision_row(
+            _mint_revision_row(
                 rdb, user=current_user, parent_run_id=run_id,
                 target_artifact_type=target, instruction=instruction,
+                pipeline_run_id=child_run_id,
+                extra_agent_count=1 if _child_run_id_pre is not None else 0,
             )
         finally:
             rdb.close()
-        cancel_event = asyncio.Event()
-        _CANCEL_EVENTS[child_run_id] = cancel_event
-        event_queue = _get_or_create_queue(child_run_id)
         task = asyncio.create_task(
             _drive_revision_to_queue(
                 workflow_run_id=child_run_id,
@@ -1464,6 +1527,7 @@ async def _dispose_concierge_proposal(
                 user=current_user,
                 cancel_event=cancel_event,
                 event_queue=event_queue,
+                analyzer_solution=_analyzer_solution,
             )
         )
         _PIPELINE_TASKS[child_run_id] = task
@@ -1517,6 +1581,25 @@ async def post_message(
         wr_status = wr.status
         wr_workspace = wr.workspace_id
         wr_type = wr.type
+
+        # Check if there is an active child revision run for this parent.
+        # The Concierge runs in the context of the PARENT run (which may be "completed"),
+        # but a child revision run may be actively running. Surface the child's status
+        # so the Concierge correctly reports "a revision is in progress" instead of
+        # treating the parent's "completed" status as the full picture.
+        active_child_revision = (
+            db.query(WorkflowRun)
+            .filter(
+                WorkflowRun.parent_run_id == run_id,
+                WorkflowRun.user_id == current_user.id,
+                WorkflowRun.status == "revising",
+            )
+            .order_by(WorkflowRun.created_at.desc())
+            .first()
+        )
+        if active_child_revision is not None:
+            # A revision is running — override the status the Concierge sees.
+            wr_status = "revising"
         # FIX-116: capture the run's title + first 400 chars of its deliverable output
         # so the Concierge knows what THIS run produced without calling read_events first.
         # Generic — uses wr.title (plain text) and wr.output (deliverable text), never
@@ -1663,11 +1746,17 @@ async def post_message(
         if validated_turn_images:
             apply_turn_images(ectx, validated_turn_images)
         # FIX-218 (KAN-170): when file contents are attached during a RUNNING phase,
-        # also inject them as a steering note for the next agent dispatch. Mirrors the
-        # steering path (INV-12 — same apply_steering seam, no new path). Payload-
-        # transient (ND-10). Degrade-safe: no-op when ectx is None or block is empty.
+        # also inject them as a steering note for the next agent dispatch. Include
+        # the user's message so agents know WHAT to do with the file.
+        # Payload-transient (ND-10). Degrade-safe: no-op when ectx is None or block is empty.
         _steering_file_block = _build_attached_files_block(body.file_contents)
         if _steering_file_block:
+            _user_msg_direct = (body.text or "").strip()
+            if _user_msg_direct:
+                _steering_file_block = (
+                    f"USER INSTRUCTION: {_user_msg_direct}\n\n"
+                    f"{_steering_file_block}"
+                )
             apply_steering(ectx, {"text": _steering_file_block, "sticky": False})
     elif dispatch.channel == CHANNEL_REVISION:
         # revision → mint + drive the shipped family child run (D-02), the exact seam
@@ -1801,15 +1890,30 @@ async def post_message(
             # persisted. Absent ⇒ "" ⇒ dormant (byte-identical prompt, INV-3).
             attached_files=_build_attached_files_block(body.file_contents),
         )
+        # If a child revision run is active, set it on the ctx so get_run_progress
+        # can read its events and list its agents correctly.
+        if active_child_revision is not None:
+            ctx.active_revision_run_id = active_child_revision.id
         # FIX-218 (KAN-170): when file contents were attached AND a running pipeline
-        # exists (live ectx), also inject the file text as a sticky steering note so
+        # exists (live ectx), also inject the file text as a steering note so
         # the NEXT agent dispatch receives it as a === USER GUIDANCE === block. This
         # mirrors the existing CHANNEL_STEERING apply_steering path (INV-12) — we reuse
         # the SAME seam rather than building a new one. Payload-transient (ND-10).
         # Degrade-safe: if ectx is None (run not live in this process), no-op.
+        # Also include the user's message text so agents know WHAT to do with the file,
+        # not just that it exists (the missing instruction gap identified in the
+        # concierge-chat-upload feature).
         _attached_block = getattr(ctx, "attached_files", "") or ""
         if _attached_block and ectx is not None:
-            apply_steering(ectx, {"text": _attached_block, "sticky": False})
+            _user_msg = (body.text or "").strip()
+            if _user_msg:
+                _steering_text = (
+                    f"USER INSTRUCTION: {_user_msg}\n\n"
+                    f"{_attached_block}"
+                )
+            else:
+                _steering_text = _attached_block
+            apply_steering(ectx, {"text": _steering_text, "sticky": False})
         # ── Option B: STREAM the reply on the POST response body (text/event-stream). ──
         # The model's ordered text deltas ride the POST the FE already makes as TRANSIENT
         # ``chat_reply_chunk`` frames (never persisted → never replayed → never
@@ -3130,14 +3234,25 @@ class RevisionCommand(BaseModel):
 
 
 def _mint_revision_row(db, *, user: User, parent_run_id: str,
-                       target_artifact_type: str, instruction: str) -> tuple[str, str]:
+                       target_artifact_type: str, instruction: str,
+                       extra_agent_count: int = 0,
+                       pipeline_run_id: str | None = None) -> tuple[str, str]:
     """Mint the child revision WorkflowRun (mirror websocket.py:2475-2524) and return
     ``(run_id, revision_pipeline_type)``. ``agent_count`` derives from the LIVE
     registry membership of the derived revision alias (Pitfall 6 — never a
-    hardcoded 1)."""
+    hardcoded 1).
+
+    ``extra_agent_count``: optional additional agents to include in the total
+    agent_count (e.g. +1 for the pre-mint Analyzer step on prototype revisions).
+
+    ``pipeline_run_id``: optional pre-generated run ID. When provided, used as
+    the row ID directly instead of generating a new UUID. Allows the caller to
+    pre-create the event queue before calling this function.
+    """
     from agents.registry import get_pipeline_agents
 
-    pipeline_run_id = str(_uuid.uuid4())
+    if pipeline_run_id is None:
+        pipeline_run_id = str(_uuid.uuid4())
     revision_pipeline_type = f"{target_artifact_type.removesuffix('_output')}_revision"
 
     # ── Existence gate — BEFORE the entitlement gate, and that order matters ───
@@ -3188,7 +3303,7 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
         type=revision_pipeline_type,
         status="revising",
         input=instruction,
-        agent_count=len(_rev_agents) or 1,
+        agent_count=(len(_rev_agents) or 1) + extra_agent_count,
     )
     db.add(wr)
     db.commit()
@@ -3358,39 +3473,79 @@ async def create_revision(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Unknown run"
             )
+    finally:
+        db.close()
 
-        # ── NEW: classify and select the correct revision pipeline ──────────
-        # Only applies when the target is a prototype output — other revision
-        # types (user_stories, ppt) use their own existing pipelines unchanged.
-        effective_target = body.target_artifact_type
-        if body.target_artifact_type == "prototype_output":
-            tier = await _classify_revision_tier(
-                instruction=body.instruction,
-                parent_run_id=run_id,
-                model_id=getattr(current_user, "preferred_model", None),
-            )
-            effective_target = _REVISION_TIER_TARGET_MAP.get(tier, "prototype_output")
-            logger.info(
-                "▶ prototype revision tier selected: %r → pipeline=%s (run=%s)",
-                tier,
-                f"{effective_target.removesuffix('_output')}_revision",
-                run_id,
-            )
-        # ───────────────────────────────────────────────────────────────────────
+    # Pre-generate the child run ID and queue so run_analyzer events land on the
+    # correct run ID before the DB row is minted (avoids the ordering constraint
+    # that event_queue requires child_run_id which requires _mint_revision_row).
+    child_run_id = str(_uuid.uuid4())
+    cancel_event = asyncio.Event()
+    _CANCEL_EVENTS[child_run_id] = cancel_event
+    event_queue = _get_or_create_queue(child_run_id)
 
-        child_run_id, _ = _mint_revision_row(
+    # ── NEW: run the analyzer before tier classification ──────────────────────
+    # Only applies when the target is a prototype output — other revision types
+    # (user_stories, ppt) use their own existing pipelines unchanged.
+    effective_target = body.target_artifact_type
+    analyzer_solution = ""
+    if body.target_artifact_type == "prototype_output":
+        from agents.capabilities.context_providers.previous_run import (  # noqa: PLC0415
+            _extract_existing_artifact,
+        )
+        from app.agents.revision_analyzer import run_analyzer  # noqa: PLC0415
+
+        # Extract existing HTML from the instruction (REST path wraps it inside
+        # the instruction message with === EXISTING PROTOTYPE HTML === markers).
+        existing_html = _extract_existing_artifact(body.instruction) or ""
+
+        # If no HTML markers in instruction, fall back to parent run output.
+        if not existing_html:
+            db2 = _get_db()
+            try:
+                parent_wr = (
+                    db2.query(WorkflowRun)
+                    .filter(WorkflowRun.id == run_id)
+                    .first()
+                )
+                if parent_wr and parent_wr.output:
+                    existing_html = parent_wr.output
+            finally:
+                db2.close()
+
+        tier, analyzer_solution = await run_analyzer(
+            instruction=body.instruction,
+            existing_html=existing_html,
+            event_queue=event_queue,
+            parent_run_id=run_id,
+            model_id=getattr(current_user, "preferred_model", None),
+        )
+        effective_target = _REVISION_TIER_TARGET_MAP.get(tier, "prototype_output")
+        logger.info(
+            "▶ prototype revision tier selected: %r → pipeline=%s (run=%s)",
+            tier,
+            f"{effective_target.removesuffix('_output')}_revision",
+            run_id,
+        )
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Mint the revision row using the pre-generated child_run_id. Pass
+    # extra_agent_count=1 when the analyzer path ran (prototype_output) so the
+    # frontend progress bar accounts for the pre-mint Analyzer step.
+    db = _get_db()
+    try:
+        _mint_revision_row(
             db,
             user=current_user,
             parent_run_id=run_id,
             target_artifact_type=effective_target,
             instruction=body.instruction,
+            pipeline_run_id=child_run_id,
+            extra_agent_count=1 if body.target_artifact_type == "prototype_output" else 0,
         )
     finally:
         db.close()
 
-    cancel_event = asyncio.Event()
-    _CANCEL_EVENTS[child_run_id] = cancel_event
-    event_queue = _get_or_create_queue(child_run_id)
     task = asyncio.create_task(
         _drive_revision_to_queue(
             workflow_run_id=child_run_id,
@@ -3400,6 +3555,7 @@ async def create_revision(
             user=current_user,
             cancel_event=cancel_event,
             event_queue=event_queue,
+            analyzer_solution=analyzer_solution,
         )
     )
     _PIPELINE_TASKS[child_run_id] = task
@@ -3416,6 +3572,7 @@ async def _drive_revision_to_queue(
     user: User,
     cancel_event: asyncio.Event,
     event_queue: asyncio.Queue,
+    analyzer_solution: str = "",
 ) -> None:
     """Run the revision engine and push every event into the per-run queue, owning
     the terminal-status persistence on ``workflow_run_id`` (never left "revising").
@@ -3434,6 +3591,25 @@ async def _drive_revision_to_queue(
         "▶ revision driver starting: run=%s parent=%s pipeline=%s target=%s",
         workflow_run_id, parent_run_id, _revision_pipeline_type, target_artifact_type,
     )
+
+    # ── Build the live_ectx_register wrapper ──────────────────────────────────
+    # When analyzer_solution is non-empty, wrap the standard register_live_ectx
+    # callback to atomically set ectx.analyzer_solution BEFORE the first agent step.
+    # This is the one place where the solution is wired into the ectx — no HTTP
+    # abort needed; the engine already wraps register failures in try/except.
+    if analyzer_solution:
+        def _ectx_register_with_solution(run_id: str, ectx: "Any") -> None:  # noqa: ANN001
+            try:
+                ectx.analyzer_solution = analyzer_solution
+            except Exception as _exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to set analyzer_solution on ectx for run=%s: %s",
+                    run_id, _exc,
+                )
+            register_live_ectx(run_id, ectx)
+        _live_reg = _ectx_register_with_solution
+    else:
+        _live_reg = register_live_ectx
 
     pipeline_complete_seen = False
     pipeline_failed_seen = False
@@ -3497,6 +3673,11 @@ async def _drive_revision_to_queue(
             # and pipeline_complete ("Delivered") cards are persisted for revision
             # runs — the same milestone_sink pattern _run_workflow_to_queue uses.
             milestone_sink=persist_milestone_card,
+            # Thread the live_ectx callbacks so the analyzer_solution wrapper
+            # (or the plain register function) fires at ectx construction time,
+            # before the first agent step. None → dormant (backward-compat).
+            live_ectx_register=_live_reg,
+            live_ectx_unregister=unregister_live_ectx,
         )
         _persist_terminal_status(
             "cancelled"

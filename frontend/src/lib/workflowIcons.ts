@@ -77,3 +77,22 @@ export function getWorkflowTypeIcon(workflowType: string | null | undefined): Lu
   const iconName = WORKFLOW_TYPE_ICONS[workflowType];
   return iconName ? WORKFLOW_ICONS[iconName] : Sparkles;
 }
+
+/** Return a single canonical pipeline-type string for display, sort, and filter.
+ *  Shared agents (prototype-validate, prototype-build, prototype-plan) now
+ *  declare `pipeline_type` as a list in their AGENT.md — the backend forwards
+ *  that list as-is. Use the first element as the primary pipeline for all UI
+ *  purposes; callers that need multi-pipeline membership checks should use
+ *  `agentMatchesPipelineType` instead. */
+export function getPrimaryPipelineType(pt: string | string[]): string {
+  return Array.isArray(pt) ? pt[0] : pt;
+}
+
+/** Returns true when an agent's pipeline_type (string or list) includes the
+ *  given pipeline type identifier — handles both single and multi-pipeline agents. */
+export function agentMatchesPipelineType(
+  pt: string | string[],
+  pipelineType: string,
+): boolean {
+  return Array.isArray(pt) ? pt.includes(pipelineType) : pt === pipelineType;
+}

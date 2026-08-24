@@ -101,7 +101,8 @@ class TestH2AccessibilityGuardrail:
         "prototype-build",
         "prototype-validate",
         "prototype-revision-agent",
-        "prototype-revision-validate",
+        # prototype-revision-validate was deleted in revision-pipeline-agent-reuse spec
+        # (task 5.1): the pipeline now reuses prototype-validate directly.
     ]
 
     def _compose(self, agent_id: str):

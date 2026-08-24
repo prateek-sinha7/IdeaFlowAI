@@ -36,10 +36,14 @@ class TestNoOrphanedAgent:
     def test_every_agent_pipeline_type_is_a_known_key(self):
         for agent_id in _all_agent_ids_on_disk():
             spec = load_agent_spec(agent_id)
-            assert spec.pipeline_type in PIPELINE_AGENTS, (
-                f"{agent_id!r}: pipeline_type {spec.pipeline_type!r} has no "
-                "PIPELINE_AGENTS entry"
-            )
+            # pipeline_type may be a list (revision-pipeline-agent-reuse spec):
+            # every element must resolve to a known PIPELINE_AGENTS key.
+            pts = spec.pipeline_type if isinstance(spec.pipeline_type, list) else [spec.pipeline_type]
+            for pt in pts:
+                assert pt in PIPELINE_AGENTS, (
+                    f"{agent_id!r}: pipeline_type element {pt!r} has no "
+                    "PIPELINE_AGENTS entry"
+                )
 
     def test_every_agent_id_appears_in_its_pipeline_entry(self):
         """...except declared TEMPLATE agents, which are deliberately not members.
@@ -59,9 +63,13 @@ class TestNoOrphanedAgent:
             if agent_id in TEMPLATE_AGENT_IDS_BY_FLAG:
                 continue
             spec = load_agent_spec(agent_id)
-            assert agent_id in PIPELINE_AGENTS[spec.pipeline_type], (
+            # pipeline_type may be a list (revision-pipeline-agent-reuse spec):
+            # the agent must appear in at least one of its declared pipelines.
+            pts = spec.pipeline_type if isinstance(spec.pipeline_type, list) else [spec.pipeline_type]
+            found = any(agent_id in PIPELINE_AGENTS[pt] for pt in pts)
+            assert found, (
                 f"{agent_id!r} is on disk with pipeline_type={spec.pipeline_type!r} "
-                f"but is missing from PIPELINE_AGENTS[{spec.pipeline_type!r}]"
+                f"but is missing from all its PIPELINE_AGENTS entries"
             )
 
     def test_template_agents_are_reachable_but_never_pipeline_members(self):
@@ -112,11 +120,14 @@ class TestGetAllAgentsFlatCompleteness:
 
     def test_includes_every_agent_with_a_supported_pipeline_type(self):
         flat_ids = {s.id for s in get_all_agents_flat()}
-        expected = {
-            agent_id
-            for agent_id in _all_agent_ids_on_disk()
-            if load_agent_spec(agent_id).pipeline_type in SUPPORTED_PIPELINE_TYPES
-        }
+        expected = set()
+        for agent_id in _all_agent_ids_on_disk():
+            pt = load_agent_spec(agent_id).pipeline_type
+            # pipeline_type may be a list (revision-pipeline-agent-reuse spec):
+            # include the agent if any element is a supported pipeline type.
+            pts = pt if isinstance(pt, list) else [pt]
+            if any(p in SUPPORTED_PIPELINE_TYPES for p in pts):
+                expected.add(agent_id)
         assert expected <= flat_ids, (
             f"agents missing from get_all_agents_flat(): {expected - flat_ids}"
         )

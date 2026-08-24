@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { getToken, extractFileText, createUserWorkflow } from "@/lib/api";
 import { ATTACH_MAX_CHARS } from "@/lib/constants";
+import { agentMatchesPipelineType } from "@/lib/workflowIcons";
 import { buildLoginRedirect } from "@/lib/authRedirect";
 import {
   listDesignSystems,
@@ -112,7 +113,7 @@ const CHAIN_SOURCE_LABEL: Record<string, string> = {
 };
 
 const defaultAgentsFor = (libraryAgents: AgentDef[], mode: LaunchMode): AgentDef[] =>
-  libraryAgents.filter((a) => a.pipeline_type === MODE_CONFIG[mode].agentPipeline).sort(
+  libraryAgents.filter((a) => agentMatchesPipelineType(a.pipeline_type, MODE_CONFIG[mode].agentPipeline)).sort(
     (a, b) => a.order - b.order,
   );
 

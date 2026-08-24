@@ -17,6 +17,7 @@ import { collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflow
 import { createUserWorkflow, getToken, getWorkflowDetail, extractFileText } from "@/lib/api";
 import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import { resizeImage } from "@/lib/resizeImage";
+import { agentMatchesPipelineType } from "@/lib/workflowIcons";
 import { AnimatePresence } from "motion/react";
 import type { WorkflowType, AgentDef, AttachedSkill, AttachedHook } from "@/types/index";
 
@@ -867,7 +868,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // Custom workflow: start blank — user adds agents themselves via recommendations
     // or the Browse Agents library. CUSTOM_AGENTS are available there, not pre-loaded.
     if (type === "custom") return [];
-    return LIBRARY_AGENTS.filter((a) => a.pipeline_type === type).sort((a, b) => a.order - b.order);
+    return LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, type)).sort((a, b) => a.order - b.order);
   });
 
   const { attachedHooks } = useSkillsHooks();
@@ -973,7 +974,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     if (effectiveType === "custom") {
       setPipelineAgents([]);
     } else {
-      setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order));
+      setPipelineAgents(LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, effectiveType)).sort((a, b) => a.order - b.order));
     }
   }, [LIBRARY_AGENTS, effectiveType, initialAgentIds]);
 
@@ -1092,7 +1093,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const defaultAgentIds = new Set(
     effectiveType === "custom"
       ? [] // custom has no locked defaults — every agent the user adds is optional
-      : LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).map((a) => a.id)
+      : LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, effectiveType)).map((a) => a.id)
   );
   const optionalAgentCount = pipelineAgents.filter((a) => !defaultAgentIds.has(a.id)).length;
   const maxOptional = effectiveType === "custom" ? 16 : 5; // generous cap for custom
@@ -1107,7 +1108,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       const currentDefaults = new Set(
         effectiveType === "custom"
           ? []
-          : LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).map((a) => a.id)
+          : LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, effectiveType)).map((a) => a.id)
       );
       const currentOptional = prev.filter((a) => !currentDefaults.has(a.id)).length;
       const limit = effectiveType === "custom" ? 16 : 5;

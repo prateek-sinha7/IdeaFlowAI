@@ -123,7 +123,7 @@ class ExecutionContext:
     # gate_agent_ids: per-run HITL gate selection. None ⇒ the static AGENT.md
     # `gate: Human_Gate` set (today's behavior); a list ⇒ gate exactly those ids.
     gate_agent_ids: list[str] | None = None
-    # parent_run_id: prototype_revision only — the original run whose spec/design/tasks
+    # parent_run_id: revision workflows only — the original run whose spec/design/tasks
     # are seeded into this run's sandbox.
     parent_run_id: str | None = None
     # checkpointer: the process-wide cached LangGraph checkpointer (get_checkpointer()).
@@ -166,6 +166,13 @@ class ExecutionContext:
     # revision_baseline_console: console-error signatures of the pre-edit render (empty
     # when render is unavailable).
     revision_baseline_console: set[str] = field(default_factory=set)
+    # analyzer_solution: the Revision_Analyzer's pre-analyzed implementation
+    # blueprint. Published before the first agent step by create_revision /
+    # _dispose_concierge_revision so _compose_context_message can inject the
+    # === REVISION ANALYSIS === block at position 5 (after === USER GUIDANCE ===).
+    # Default "" → DORMANT on every non-analyzer run → INV-3 byte-parity holds.
+    # Additive field (same D-03 idiom as redo_directive / steering_notes).
+    analyzer_solution: str = ""
 
     # ── Run-wide odds and ends ────────────────────────────────────────────────────────
     # (The sanctioned temporary prior-agent output mirror was DELETED in 05-07 once the
