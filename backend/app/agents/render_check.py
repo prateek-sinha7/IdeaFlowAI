@@ -139,6 +139,24 @@ class RenderResult:
         return "OK" if not bits else "; ".join(bits)
 
 
+def _subprocess_supported() -> bool:
+    """Return False when the current event loop cannot spawn subprocesses.
+
+    On Windows, asyncio uses SelectorEventLoop by default (uvicorn does NOT switch to
+    ProactorEventLoop), which raises NotImplementedError from create_subprocess_exec.
+    Playwright spawns its browser server as a subprocess, so it will always fail on
+    this loop. Detect this cheaply before entering async_playwright() so the
+    background Connection.run() task never fires and pollutes the asyncio error log.
+    """
+    import asyncio
+    import sys
+    if sys.platform != "win32":
+        return True
+    loop = asyncio.get_event_loop()
+    # ProactorEventLoop supports subprocesses; SelectorEventLoop does not.
+    return isinstance(loop, asyncio.ProactorEventLoop)
+
+
 async def render_check(
     html_path: str | Path,
     *,
@@ -154,6 +172,16 @@ async def render_check(
     it for slow/async routers that repaint after a microtask/animation frame.
     """
     path = Path(html_path)
+
+    # Pre-flight: on Windows with SelectorEventLoop, subprocess spawning is not
+    # supported. Playwright's Connection.run() fires as a background asyncio Task and
+    # raises NotImplementedError before our try/except can intercept it, producing
+    # "Task exception was never retrieved" spam. Bail out cleanly before entering
+    # async_playwright() so no background task is ever created.
+    if not _subprocess_supported():
+        logger.warning("render_check: subprocess spawning not supported on this platform — skipping render")
+        return RenderResult(ok=True, available=False, note="render_check not supported on this platform (subprocess unavailable)")
+
     try:
         from playwright.async_api import async_playwright
     except Exception as exc:  # noqa: BLE001 — unavailable browser is a skip, not an error
@@ -168,12 +196,13 @@ async def render_check(
     nav_results: list[NavResult] = []
     coverage_errors: list[str] = []
 
-    async with async_playwright() as pw:
-        try:
-            browser = await pw.chromium.launch(args=["--no-sandbox"])
-        except Exception as exc:  # noqa: BLE001 — browser binary absent → skip, not fail
-            logger.warning("render_check: Chromium launch failed (%s) — skipping", exc)
-            return RenderResult(ok=True, available=False, note=f"Chromium unavailable: {exc}")
+    try:
+        async with async_playwright() as pw:
+            try:
+                browser = await pw.chromium.launch(args=["--no-sandbox"])
+            except Exception as exc:  # noqa: BLE001 — browser binary absent → skip, not fail
+                logger.warning("render_check: Chromium launch failed (%s) — skipping", exc)
+                return RenderResult(ok=True, available=False, note=f"Chromium unavailable: {exc}")
         try:
             page = await browser.new_page()
             page.on(
@@ -222,6 +251,9 @@ async def render_check(
             page_errors.append(f"render harness error: {exc}")
         finally:
             await browser.close()
+    except Exception as exc:  # noqa: BLE001 — any other async_playwright() failure
+        logger.warning("render_check: async_playwright context failed (%s) — skipping", exc)
+        return RenderResult(ok=True, available=False, note=f"render_check error: {exc}")
 
     ok = (
         not console_errors
