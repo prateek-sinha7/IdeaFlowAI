@@ -24,15 +24,31 @@ resolves.
 Reversible: ``downgrade`` restores the label on ``workflow_runs`` only for rows
 that would have carried it — but see the note there, the mapping is lossy.
 
-Revision ID: 0032
-Revises: 0031
+Revision ID: 0037
+Revises: 0036
+
+Originally authored as revision ``0032``, which COLLIDED with
+``0032_cognito_refresh_token_storage`` (also ``0032``, also ``down_revision =
+"0031"``). Alembic resolved the duplicate name to this file and dropped the other
+from the graph, so ``0033``'s ``down_revision = "0032"`` became ambiguous and the
+ledger reported TWO heads (``0032`` and ``0036``). ``alembic upgrade head`` then
+failed with "Multiple head revisions are present" — which crash-loops the backend
+container, since ``docker-entrypoint.sh`` runs it under ``set -eu``.
+
+The cognito revision keeps ``0032`` because that is the ID every deployed
+``alembic_version`` row actually recorded; this migration moves to the tip
+instead. Re-parenting it is safe precisely because it is order-independent:
+``upgrade`` is a bounded ``UPDATE ... WHERE col = :old`` (idempotent — a second
+run matches nothing) and ``downgrade`` is a deliberate no-op. A database already
+stamped ``0036`` therefore picks this up as new work and finally gets the
+collapse it never received under the duplicate ID.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0032"
-down_revision = "0031"
+revision = "0037"
+down_revision = "0036"
 branch_labels = None
 depends_on = None
 

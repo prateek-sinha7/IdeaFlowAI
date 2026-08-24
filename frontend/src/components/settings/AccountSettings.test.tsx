@@ -26,6 +26,8 @@ const mockGetCapabilities = vi.fn();
 const mockChangePassword = vi.fn();
 const mockUpdatePreferences = vi.fn();
 
+const mockGetMfaStatus = vi.fn();
+
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getMe: (t: string) => mockGetMe(t),
@@ -33,6 +35,17 @@ vi.mock("@/lib/api", () => ({
   getCapabilities: (t: string) => mockGetCapabilities(t),
   changePassword: (t: string, c: string, n: string) => mockChangePassword(t, c, n),
   updatePreferences: (t: string, m: string | null) => mockUpdatePreferences(t, m),
+  getMfaStatus: (t: string) => mockGetMfaStatus(t),
+  enableEmailMfa: vi.fn(),
+  disableEmailMfa: vi.fn(),
+  ApiError: class ApiError extends Error {},
+}));
+
+// Stable singleton, matching next/navigation's real identity (see the note in
+// AccountSettings.render.test.tsx).
+const mockRouter = { push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() };
+vi.mock("next/navigation", () => ({
+  useRouter: () => mockRouter,
 }));
 
 import { AccountSettings } from "./AccountSettings";
@@ -50,6 +63,13 @@ beforeEach(() => {
   mockGetCapabilities.mockResolvedValue({ model_catalog: [] });
   mockChangePassword.mockResolvedValue({ message: "ok" });
   mockUpdatePreferences.mockResolvedValue({ preferred_model: "live-model-x", available_models: [] });
+  mockGetMfaStatus.mockResolvedValue({
+    supported: true,
+    enabled: false,
+    required: false,
+    email_available: true,
+    factors: [],
+  });
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({ ok: true, json: async () => ({ content: "" }) }),
@@ -74,6 +94,26 @@ describe("AccountSettings — mock relabel (Usage & Limits, stable id)", () => {
 
     // No tab reads the bare pre-relabel label.
     expect(screen.queryByRole("tab", { name: /^Limits$/ })).toBeNull();
+  });
+});
+
+describe("AccountSettings — tab order (Security last, after Constitution)", () => {
+  it("renders the five section tabs in order with Security appended", async () => {
+    render(<AccountSettings onBack={() => {}} />);
+    await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
+
+    const labels = screen.getAllByRole("tab").map((t) => t.textContent?.trim());
+    expect(labels).toEqual([
+      "Profile",
+      "AI Model",
+      "Usage & Limits",
+      "Constitution",
+      "Security",
+    ]);
+    // Stable id for the relocated section, mirroring tab-limits.
+    expect(screen.getByTestId("tab-security")).toBe(
+      screen.getByRole("tab", { name: /^Security$/ }),
+    );
   });
 });
 

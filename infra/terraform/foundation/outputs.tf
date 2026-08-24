@@ -91,3 +91,14 @@ output "parameter_path_prefix" {
   description = "SSM Parameter Store prefix VelocityAI reads from (/velocityai/<env>)."
   value       = module.secrets.parameter_path_prefix
 }
+
+# --- Cognito -----------------------------------------------------------------
+output "cognito_user_pool_id" {
+  description = "Cognito User Pool ID, or null when cognito_enabled = false."
+  value       = var.cognito_enabled ? module.cognito[0].user_pool_id : null
+}
+
+output "cognito_client_id" {
+  description = "Cognito app client ID, or null when cognito_enabled = false."
+  value       = var.cognito_enabled ? module.cognito[0].client_id : null
+}

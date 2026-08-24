@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getToken } from "@/lib/api";
+import { buildLoginRedirect } from "@/lib/authRedirect";
 import { WorkflowView } from "@/components/workflow/WorkflowView";
 import { AgentLibrary } from "@/components/workflow/AgentLibrary";
 import { BookOpen } from "lucide-react";
@@ -20,7 +21,7 @@ export default function WorkflowPage() {
   useEffect(() => {
     const storedToken = getToken();
     if (!storedToken) {
-      router.replace("/login");
+      router.replace(buildLoginRedirect());
       return;
     }
     setToken(storedToken);

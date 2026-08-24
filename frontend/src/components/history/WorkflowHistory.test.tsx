@@ -244,10 +244,10 @@ async function renderAndOpenRun(run: WorkflowRun, onChainPipeline?: ChainHandler
           ],
         },
       ],
-      workflowsStatus: "succeeded",
+      workflowsStatus: "succeeded" as const,
       workflowsError: null,
       recentRuns: [],
-      recentRunsStatus: "idle",
+      recentRunsStatus: "idle" as const,
       recentRunsError: null,
     },
   };

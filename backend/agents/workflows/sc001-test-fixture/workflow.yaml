@@ -1,0 +1,27 @@
+id: sc001-test-fixture
+version: 1
+user_launchable: false
+is_beta: false
+display_name: SC-001 Test Fixture
+short_name: SC-001 Test
+icon: TestTube
+description: Manifest-only fixture to validate SC-001 (zero engine edits for custom workflows). Demonstrates artifact production and human review gates.
+planner: run
+clarify:
+  mode: disabled
+deliverable:
+  strategy: streamed_text
+  name: analysis.md
+context_providers: []
+seed_files: {}
+steps:
+- agent: sc001-fixture-analyze
+  strategy: single_shot
+  gates:
+    - gate_id: review_specification
+      gate_type: Human_Gate
+      description: Human review of generated analysis
+- agent: sc001-fixture-builder
+  strategy: single_shot
+  gates: []
+name: SC-001 Test Fixture

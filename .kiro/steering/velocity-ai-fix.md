@@ -166,7 +166,7 @@ grep_search query="FIX-NNN" includePattern="**/.planning/FIX-TEST-REGISTER.md"
 | Frontend pipeline state | `frontend/src/hooks/useWorkflow.ts` | |
 | Frontend run screen | `frontend/src/app/dashboard/page.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | |
 | Auth / entitlements | `backend/app/api/auth.py`, `backend/app/core/entitlements.py` | |
-| DB / migrations | `backend/alembic/versions/`, `backend/app/models/` | Head: 0026 |
+| DB / migrations | `backend/alembic/versions/`, `backend/app/models/` | Head: 0037 — verify with `alembic heads` (must be ONE) |
 | Scoped store / IDOR | `backend/agents/authz.py` | |
 | Concierge | `backend/app/agents/chat/concierge.py` | |
 | Gate pendency | `backend/agents/capabilities/gate_pendency.py` | Resume gate re-entry |

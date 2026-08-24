@@ -6,6 +6,34 @@
 # Secrets and per-env values are injected via TF_VAR_* from the CI runner / SSM
 # — never committed here. Resource names derive from environment: prod ->
 # velocityai (bare, no suffix).
+#
+# COGNITO STATUS (P2 finding, COGNITO-AUTH-QA-BUGS.md "Committed Prod tfvars
+# Does Not Enable Cognito") — DELIBERATELY LEFT UNRESOLVED HERE, flagged for an
+# operator decision rather than silently flipped:
+#
+#   `cognito_enabled` is NOT set below, so it resolves to its module default
+#   (`false`, foundation/variables.tf). dev.tfvars explicitly sets it `true`;
+#   prod does not. This means ONE of the following is true and MUST be
+#   confirmed against the live account before treating this file as
+#   authoritative:
+#
+#     (a) Production genuinely has not cut over to Cognito yet and is still on
+#         local/break-glass auth for every non-bootstrap user — in which case
+#         this file is accurate and cutover is still pending
+#         (.planning/COGNITO-MIGRATION-PLAN.md Phase 5).
+#     (b) Production HAS been cut over, but via an uncommitted CI/CD
+#         TF_VAR_cognito_enabled=true override or a manual `terraform apply
+#         -var=...` — in which case this committed file no longer describes
+#         production's real state, and every one of `cognito_mfa_configuration`
+#         / `cognito_feature_plan` / `cognito_threat_protection_mode` /
+#         `auth_provider` / `auth_allow_legacy_jwt` (all default to
+#         permissive/off values when omitted, see foundation/variables.tf) is
+#         ALSO unaudited and unreviewed here.
+#
+#   Do not add `cognito_enabled = true` to this file without first running
+#   `python3 scripts/verify_cognito_cutover.py --check-pool` against the prod
+#   account and confirming which of (a)/(b) is the actual state — this
+#   deployment is not something to change through documentation alone.
 
 environment = "prod"
 

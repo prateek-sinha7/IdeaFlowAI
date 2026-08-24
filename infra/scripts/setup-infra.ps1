@@ -236,7 +236,15 @@ function New-BootstrapTfvars {
         $lines += "deploy_permissions_boundary_arn = `"$DeployBoundaryArn`""
     }
 
-    Set-Content -Path $path -Value $lines -Encoding UTF8
+    # Write LF endings and NO BOM, deliberately, rather than using Set-Content:
+    # on Windows PowerShell 5.1 `Set-Content -Encoding UTF8` emits CRLF plus a
+    # UTF-8 BOM. Both break tooling that treats this as a real Terraform file --
+    # `terraform fmt -check -recursive` (run by .pre-commit-config.yaml) fails on
+    # CRLF, so a Windows operator who ran this script could not get a clean fmt
+    # gate. .gitattributes already mandates `*.tfvars text eol=lf` for tracked
+    # files; this keeps the GENERATED file consistent with that rule.
+    $content = ($lines -join "`n") + "`n"
+    [System.IO.File]::WriteAllText($path, $content, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "  Wrote $path" -ForegroundColor DarkGray
 }
 

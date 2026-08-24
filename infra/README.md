@@ -41,8 +41,20 @@ infra/
 
 ### Why foundation / app (and what lives where)
 
+> **Cognito.** As of the Cognito migration
+> (`.planning/COGNITO-MIGRATION-PLAN.md`), the **foundation** layer also creates
+> an Amazon Cognito User Pool per environment — the credential authority for
+> user logins and, via four fixed groups, the role/tier authority. It is gated
+> on `cognito_enabled` (default **false**), so an environment is unaffected
+> until an operator opts in. Module: `infra/terraform/modules/cognito`.
+> Cutover procedure: **`infra/COGNITO-CUTOVER-RUNBOOK.md`**.
+>
+> No Cognito Identity Pool and no hosted UI are created: the browser never calls
+> AWS directly (the backend mediates auth via `AdminInitiateAuth`), so temporary
+> AWS credentials in the browser have no use case here.
+
 - **foundation** is the slow-changing base for one environment: the project KMS
-  CMK, the VPC + endpoints, the EC2 instance role, the SSM Parameter Store
+  CMK, the VPC + endpoints, the EC2 instance role, the Cognito user pool, the SSM Parameter Store
   secrets, and the S3 backup bucket + AWS Backup vault.
 - **app** is the deployable unit: the EC2 instance + data EBS volume + EIP, the
   public DNS record, the `docker-compose.yml` + `deploy.env` objects in S3

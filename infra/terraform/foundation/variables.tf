@@ -244,3 +244,150 @@ variable "object_lock_retention_days" {
   type        = number
   default     = 35
 }
+
+# --- Cognito (COGNITO-MIGRATION-PLAN Phase 1) -------------------------------
+
+variable "cognito_enabled" {
+  description = "Create the Cognito User Pool + app client + groups for this environment. Default false — an operator opts in per-environment (COGNITO-MIGRATION-PLAN §7 Phase 1). Creating a pool is not something to do by accident on a plan."
+  type        = bool
+  default     = false
+}
+
+variable "cognito_mfa_configuration" {
+  description = "Pool-wide MFA setting. OFF/OPTIONAL/ON. OPTIONAL at cutover per the migration plan's Decision 4."
+  type        = string
+  default     = "OPTIONAL"
+
+  validation {
+    condition     = contains(["OFF", "OPTIONAL", "ON"], var.cognito_mfa_configuration)
+    error_message = "cognito_mfa_configuration must be one of: OFF, OPTIONAL, ON."
+  }
+}
+
+variable "cognito_email_mfa_enabled" {
+  description = <<-EOT
+    Enable email one-time-password (EMAIL_OTP) as the second factor.
+
+    Requires cognito_ses_source_arn to be set — Cognito rejects email MFA on a
+    pool using the built-in sender.
+
+    ACCEPTED TRADEOFF: AWS forbids email being both the second factor and the
+    account-recovery channel, and this pool collects no phone numbers. Enabling
+    this switches account recovery to `admin_only`, which SURRENDERS
+    self-service password reset — resets become an administrator operation via
+    POST /api/admin/users/{id}/reset-password. The backend is told via the
+    SSM-published AUTH_EMAIL_MFA_ENABLED so /api/auth/forgot-password reports
+    this explicitly rather than accepting a request that produces no email.
+  EOT
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.cognito_email_mfa_enabled || length(var.cognito_ses_source_arn) > 0
+    error_message = "cognito_email_mfa_enabled requires cognito_ses_source_arn to be set."
+  }
+}
+
+variable "cognito_ses_source_arn" {
+  description = "ARN of a VERIFIED SES identity (domain or email) for pool email. Empty keeps Cognito's built-in sender, which is rate limited well below production need and cannot carry email MFA."
+  type        = string
+  default     = ""
+}
+
+variable "cognito_ses_from_email_address" {
+  description = "From: address for pool email. Must belong to the verified cognito_ses_source_arn identity. Required when that is set."
+  type        = string
+  default     = ""
+}
+
+variable "cognito_ses_reply_to_email_address" {
+  description = "Optional Reply-To: address for pool email."
+  type        = string
+  default     = ""
+}
+
+variable "cognito_auth_session_validity_minutes" {
+  description = "Lifetime of the Cognito auth-flow session, and therefore how long a delivered MFA code stays valid. 3-15 minutes; AWS defaults to 3, which is tight for emailed codes."
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = var.cognito_auth_session_validity_minutes >= 3 && var.cognito_auth_session_validity_minutes <= 15
+    error_message = "cognito_auth_session_validity_minutes must be between 3 and 15."
+  }
+}
+
+variable "cognito_access_token_validity_minutes" {
+  description = "Cognito access/ID token lifetime in minutes."
+  type        = number
+  default     = 60
+}
+
+variable "cognito_refresh_token_validity_days" {
+  description = "Cognito refresh token lifetime in days."
+  type        = number
+  default     = 30
+}
+
+# --- Feature plan / threat protection (P2 fix, COGNITO-AUTH-QA-BUGS.md) ----
+# The cognito module already supports both (Decision 8 / Phase 6 item 2), but
+# the foundation layer never exposed them as variables -- ESSENTIALS and
+# NO_ACTION were the only reachable values for every environment regardless
+# of what an operator wanted, closing off threat protection entirely without
+# a manual module-level Terraform edit.
+
+variable "cognito_feature_plan" {
+  description = "Cognito user pool feature plan: LITE, ESSENTIALS, or PLUS. ESSENTIALS (default) provides TOTP MFA. PLUS additionally enables threat protection (compromised-credential detection, adaptive auth) and costs more per MAU."
+  type        = string
+  default     = "ESSENTIALS"
+
+  validation {
+    condition     = contains(["LITE", "ESSENTIALS", "PLUS"], var.cognito_feature_plan)
+    error_message = "cognito_feature_plan must be one of: LITE, ESSENTIALS, PLUS."
+  }
+}
+
+variable "cognito_threat_protection_mode" {
+  description = "Threat-protection enforcement for the standard auth flow. Requires cognito_feature_plan = PLUS; ignored (and the underlying resource skipped) otherwise. AUDIT logs risk assessments without blocking; ENFORCED applies the configured automatic responses; NO_ACTION disables it."
+  type        = string
+  default     = "NO_ACTION"
+
+  validation {
+    condition     = contains(["NO_ACTION", "AUDIT", "ENFORCED"], var.cognito_threat_protection_mode)
+    error_message = "cognito_threat_protection_mode must be one of: NO_ACTION, AUDIT, ENFORCED."
+  }
+}
+
+# --- Auth cutover flags (COGNITO-MIGRATION-PLAN §7 Phase 5) -----------------
+# Only take effect when cognito_enabled = true (see main.tf). Published to SSM
+# so step 7 of the cutover checklist (flip AUTH_ALLOW_LEGACY_JWT to false) is a
+# parameter change + restart per environment, not a code change.
+
+variable "auth_provider" {
+  description = "Active credential authority for NEW logins: \"local\" or \"cognito\". Stays \"local\" until this environment is actually cut over (Phase 5 step 1 deploys the code with Cognito available but not yet authoritative)."
+  type        = string
+  default     = "local"
+
+  validation {
+    condition     = contains(["local", "cognito"], var.auth_provider)
+    error_message = "auth_provider must be \"local\" or \"cognito\"."
+  }
+}
+
+variable "auth_allow_legacy_jwt" {
+  description = "Dual-accept window (Decision 11): accept BOTH legacy HS256 and Cognito RS256 tokens so cutover forces zero logouts. Flip to false only after step 8 (legacy tokens aged out)."
+  type        = bool
+  default     = true
+}
+
+variable "break_glass_enabled" {
+  description = "Keep the single local-password break-glass admin reachable (Decision 12). Leave true unless you have a specific reason to close that path."
+  type        = bool
+  default     = true
+}
+
+variable "admin_mfa_required" {
+  description = "Require a confirmed second factor for admin operations (Phase 6 item 1 / P0 fix COGNITO-AUTH-QA-BUGS.md). Default false so shipping this cannot lock out admins who have not enrolled + re-authenticated through an MFA challenge yet. Enable per-environment only after verifying every admin has completed the challenge at least once (enrolling alone does not satisfy the session-bound gate)."
+  type        = bool
+  default     = false
+}

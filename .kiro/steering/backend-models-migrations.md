@@ -11,8 +11,12 @@ fileMatchPattern: "backend/app/models/**,backend/alembic/**"
 
 ## Migration Chain (Q3 — additive only)
 
-Head: **0030** (`0030_workflow_runs_user_created_index.py`, verified 2026-08-12). This number
-drifts — read it, don't trust it: `ls backend/alembic/versions/ | sort | tail -1`.
+Head: **0037** (`0037_collapse_od_prototype_label.py`, verified 2026-08-24). This number
+drifts — read it, don't trust it, and read it from the LEDGER not the directory
+listing: `cd backend && alembic heads`. It must print exactly ONE head.
+
+`ls | tail -1` is not a substitute: it cannot see a duplicate revision ID, which
+is how this chain has broken twice (see the collision table below).
 
 | Migration | What it adds | Phase |
 |-----------|-------------|-------|
@@ -29,6 +33,36 @@ drifts — read it, don't trust it: `ls backend/alembic/versions/ | sort | tail 
 | 0024 | UNIQUE constraints on `run_events` (`scope_event`, `scope_seq`) | Phase 29 |
 | 0025 | `deep_link_nonces` table | Phase 43 |
 | 0026 | +2 nullable cols on `subagent_runs`: `task_id`, `worker_index` | Phase 46 |
+| 0027 | +1 nullable col on `workflow_runs`: OD context | — |
+| 0028 | repair of the 0024/0025 `run_events` uniqueness drift | — |
+| 0029 | enforce `run_events` seq uniqueness after the 0028 repair | — |
+| 0030 | `(user_id, created_at)` index on `workflow_runs` | KAN-131 |
+| 0031 | Cognito identity mapping + token-validity revocation | Cognito |
+| 0032 | +1 nullable col on `users`: `encrypted_cognito_refresh_token` | Cognito |
+| 0033 | user API-key expiry | Cognito |
+| 0034 | `users.mfa_verified_at` | Cognito |
+| 0035 | make auth timestamp columns timezone-aware | Cognito |
+| 0036 | composed workflow execution (saved-agent library, per-run gate selection) | — |
+| 0037 | data-only: collapse the `od_prototype` run-label onto `prototype` | — |
+
+### Revision-ID collisions (both already hit us)
+
+Two branches independently took the same revision number off the same parent.
+Alembic keeps ONE file under the duplicate name, silently drops the other from
+the graph, and the ledger reports two heads — so `alembic upgrade head` fails
+with *"Multiple head revisions are present"* and the container crash-loops.
+
+| Collision | Resolution |
+|---|---|
+| `0031` taken by both the cognito branch and composed-workflow-execution | composed-workflow re-homed to `0036` on top of `0035` |
+| `0032` taken by both `cognito_refresh_token_storage` and `collapse_od_prototype_label` | the collapse re-homed to `0037` on top of `0036` |
+
+The rule both resolutions followed: **the revision already recorded in deployed
+`alembic_version` rows keeps its ID**; the other one moves to the tip. Re-homing
+is only safe for a migration whose effect is order-independent — the collapse
+qualified because its `upgrade` is an idempotent `UPDATE ... WHERE col = :old`
+and its `downgrade` is a no-op. A schema migration that depends on its parent's
+state does NOT qualify; that one needs a real merge revision.
 
 ---
 

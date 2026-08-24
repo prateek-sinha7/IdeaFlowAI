@@ -14,10 +14,13 @@ This test:
   1. Starts ``postgres:16`` in docker (the SAME fixture pattern
      ``test_phase8_resume.py::postgres_url`` uses — skips cleanly if docker is
      unavailable, e.g. this repo's Windows dev environment).
-  2. Runs ``alembic upgrade head`` against it (DB-002: proves migration head
-     0032 applies cleanly to a real, empty PostgreSQL instance, and that the
+  2. Runs ``alembic upgrade head`` against it (DB-002: proves the migration head
+     applies cleanly to a real, empty PostgreSQL instance, and that the
      ``uq_run_events_scope_seq``/``uq_run_events_scope_event`` constraints
-     0024/0028/0029 restored actually exist afterward).
+     0024/0028/0029 restored actually exist afterward). The head revision is
+     resolved from the ledger, never named here — hardcoding it goes stale on
+     every new migration (this docstring said ``0032`` until the head reached
+     ``0037``).
   3. Drives N concurrent ``ScopedStore.append_event_next_seq`` callers against
      the SAME run_id under real PostgreSQL — the exact allocator
      ``_stamp_resume_marker`` now uses (DB-001) — and asserts every writer
@@ -132,7 +135,7 @@ def postgres_url():
 
 
 def _migrate_to_head(db_url: str) -> None:
-    """DB-002: run the REAL migration chain (0001..0032) against ``db_url``."""
+    """DB-002: run the REAL migration chain (0001..head) against ``db_url``."""
     from alembic import command
     from alembic.config import Config
 
@@ -144,7 +147,7 @@ def _migrate_to_head(db_url: str) -> None:
 
 @pytest.mark.requires_postgres
 def test_migration_head_applies_cleanly_to_real_postgres(postgres_url):
-    """DB-002: migration head 0032 applies to a real, empty PostgreSQL 16
+    """DB-002: the migration head applies to a real, empty PostgreSQL 16
     instance with no manual intervention, and the run_events uniqueness
     backstops (0024/0028/0029) actually exist afterward."""
     from sqlalchemy import create_engine, inspect
