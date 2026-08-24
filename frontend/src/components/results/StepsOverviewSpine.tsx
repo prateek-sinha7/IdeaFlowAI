@@ -13,7 +13,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from "react";
-import { Check, ChevronRight, ChevronsRight, XCircle, ListChecks, RotateCw, ShieldAlert, RefreshCw } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, ChevronRight, ChevronsRight, XCircle, ListChecks, RotateCw, ShieldAlert, RefreshCw, GitBranch, CornerUpLeft } from "lucide-react";
 import type { AgentRunState, ClarifyRound, PipelineRunState } from "@/types/index";
 import type { GateEventRow } from "@/lib/api";
 import { InlineGateActions } from "@/components/chat/InlineGateActions";
@@ -23,6 +24,43 @@ import type { ClarifyQuestion } from "@/types/index";
 import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 import { ClarificationsCard } from "./ClarificationsCard";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
+import { routes } from "@/lib/routes";
+
+// ─── Divert-link spine row — same source/target relationship
+// RevisionFamilyView's DivertBadge renders as a Run-History breadcrumb,
+// surfaced here inline in the Steps spine: "target" (this run was continued
+// INTO by a divert) prepends "Continued from {A}" before the agent rows;
+// "source" (this run diverted OUT) appends "Diverted to {X}" after them —
+// same shape a -> b -> c -> {X} / {A} -> x -> y -> z the relationship
+// actually has.
+export interface StepsDivertLink {
+  direction: "source" | "target";
+  otherRunId: string;
+  otherTitle: string;
+}
+
+function DivertLinkRow({ link }: { link: StepsDivertLink }) {
+  const router = useRouter();
+  const Icon = link.direction === "source" ? GitBranch : CornerUpLeft;
+  const text = link.direction === "source"
+    ? `Diverted to ${link.otherTitle} →`
+    : `← Continued from ${link.otherTitle}`;
+  return (
+    <button
+      type="button"
+      data-testid="steps-divert-link-row"
+      onClick={() => router.push(routes.runStream(link.otherRunId))}
+      aria-label={link.direction === "source" ? `Diverted to ${link.otherTitle}, open triggered run` : `Continued from ${link.otherTitle}, open originating run`}
+      className="w-full flex items-center gap-2.5 rounded-[11px] border border-transparent px-3 py-2.5 mb-1.5 text-left transition-colors hover:bg-surface-warm cursor-pointer"
+    >
+      <span className="w-[18px] h-[18px] flex-none rounded-full border-[1.5px] border-brand-border bg-brand-fill grid place-items-center">
+        <Icon className="h-2.5 w-2.5 text-brand" />
+      </span>
+      <span className="min-w-0 flex-1 truncate leading-[1.4] text-[13px] font-medium font-[Manrope] text-brand">{text}</span>
+      <ChevronRight className="h-4 w-4 flex-none text-line-faint" />
+    </button>
+  );
+}
 
 // Live per-row activity word (RUNUI-xx) — derived from the SAME toolCalls/
 // thinkingText the Thinking tab already reads, no new event/store plumbing.
@@ -189,6 +227,8 @@ export interface StepsOverviewSpineProps {
    *  update_specs fired and specify→plan→analyze is re-running. Generic, keyed on
    *  the counter value (SC-001 — never a workflow/agent-name literal). */
   specRevisionCount?: number;
+  /** This run's divert relationship (if any) to another run — see StepsDivertLink. */
+  divertLink?: StepsDivertLink | null;
 }
 
 // The "Awaiting you" card chrome from the mock (brand-tinted, focus-ring shadow).
@@ -300,7 +340,7 @@ export function StepsOverviewSpine({
   agents, pipelineState, clarifications, clarificationsLoading, onOpenAgent, topSlot, gateEvents,
   laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
   clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow,
-  specRevisionCount = 0,
+  specRevisionCount = 0, divertLink,
 }: StepsOverviewSpineProps) {
   const total = agents.length;
   const isRunning = pipelineState?.isRunning ?? false;
@@ -438,6 +478,13 @@ export function StepsOverviewSpine({
         </div>
       )}
 
+      {/* "Continued from {A}[, step S]" — this run is the divert TARGET, so it
+          leads the spine, ahead of its own agent rows (mirrors a -> b -> c ->
+          {X} / {A} -> x -> y -> z: the divert is the reason this run exists,
+          so it comes first). Shown regardless of hasClarify — it describes a
+          different, already-settled run, not this run's own in-flight state. */}
+      {divertLink?.direction === "target" && <DivertLinkRow link={divertLink} />}
+
       {/* compact navigable agent rows + gate strips.
           Defense-in-depth: hide ALL agent rows while the run is paused at clarify.
           The run hasn't started its agent phase yet — any agent visible here belongs
@@ -524,6 +571,11 @@ export function StepsOverviewSpine({
           </div>
         );
       })}
+
+      {/* "Diverted to {X} →" — this run is the divert SOURCE, so it closes the
+          spine, after its own agent rows (see the "Continued from" comment
+          above for the ordering rationale). */}
+      {divertLink?.direction === "source" && <DivertLinkRow link={divertLink} />}
 
       {/* Fallback: an active gate that maps to no visible agent row still shows. */}
       {showGateFallback && (

@@ -100,7 +100,7 @@ re-run findings — see there for the latest status.)
 ## 6. Live-model finding — NOT FIXED, pending approval
 
 Found while running the `run.http` suite against a live backend with a local Ollama model
-(`qwen3.5:4b`) standing in for the real provider, to exercise the 5 `sample_conditional_*`
+(`qwen3.5:4b`) standing in for the real provider, to exercise the 5 `ex_A*`
 fixtures end-to-end for the first time (previously only exercised via scripted/mocked models
 in `tests/unit`/`tests/agents`). This is a bug in shared code, **outside spec 014's own diff**
 — `backend/agents/factory.py` lines 602-623, the custom-agent prompt-composition path used by
@@ -122,7 +122,7 @@ Call `write_file` with path `{filename}`. Its content is your answer — never t
    `review`) get a contradictory instruction: their own prompt says write to a real,
    downstream-consumed filename (e.g. `input.txt`), while the auto-append says write to a
    different, made-up one (`greet-test.md`). Confirmed live: `qwen3.5:4b` looped 20+ tool-call
-   turns on the `greet` step of `sample_conditional_branch_new`, alternating between the two
+   turns on the `greet` step of `ex_A2_branch`, alternating between the two
    filenames and wrong argument names (`path` vs `file_path`), before eventually settling.
 2. Steps with `write_files: false` — **`pick`, `check`, `revise-check`, `decide`, i.e. every
    actual conditional-gate decision step in all 5 fixtures** — still receive the same
@@ -222,20 +222,20 @@ launch time. Flagged for awareness only; not investigated further, not in scope 
 
 ## 8. `.http` suite re-run findings — in progress, sequential file-by-file
 
-Re-running all 5 `sample_conditional_*` fixtures one at a time (each followed to its actual
+Re-running all 5 `ex_A*` fixtures one at a time (each followed to its actual
 terminal state, one full QA report per file at
 `specs/014-conditional-gates/tests/{name}_report.md`), now that entitlements, the model tag,
 prompt tightening, and the display-name fix (§7) have all landed. Each file's individual report
 is the source of truth; this section tracks cross-file findings and status only.
 
-### 8a. `sample_conditional_branch_new` — FAIL (AC #3 only)
+### 8a. `ex_A2_branch` — FAIL (AC #3 only)
 
 Gate routing (AC #1/#2) correct — exactly one of the two forward branches ran, `pipeline_complete`
 reached, display names correct. AC #3 (deliverable content) failed: `greet`/`say-hello` ignored
 their `write_file` instructions, matching the §6 root cause. Full report:
-`specs/014-conditional-gates/tests/sample_conditional_branch_new_report.md`.
+`specs/014-conditional-gates/tests/ex_A2_branch_report.md`.
 
-### 8b. `sample_conditional_previous_step` — FAIL (loop never exercised) + NEW engine finding
+### 8b. `ex_A1_loop` — FAIL (loop never exercised) + NEW engine finding
 
 Same §6 write_file-adherence root cause, but with a worse cascade here: `greet` never wrote
 `hello.txt`, so `check` never produced a parseable `{"decision": ...}`, so the `conditional`
@@ -261,9 +261,9 @@ per the same no-code-change-without-approval constraint as §6.
 Also confirmed: this run executed against the *pre-tightening* step prompts (the yaml edits in
 §6's mitigation landed on disk mid-run) — a fresh re-run against the current, tightened prompts
 is needed before treating write_file-adherence as re-verified for this fixture. Full report:
-`specs/014-conditional-gates/tests/sample_conditional_previous_step_report.md`.
+`specs/014-conditional-gates/tests/ex_A1_loop_report.md`.
 
-### 8c–8e. `sample_conditional_human_input`, `sample_conditional_launch_new`, `sample_conditional_target`
+### 8c–8e. `ex_A4_human_gate`, `ex_A3_divert`, `ex_A3_target`
 
 Not yet run.
 
@@ -285,10 +285,10 @@ In progress. Two real findings outstanding, both pending approval, neither fixed
 step's own effective permissions and threads it into `_compose_system_prompt`, so the
 "How to deliver" append is only emitted for a step that actually has `write_file` bound.
 A write-less step is no longer told to call a tool it cannot call. The five
-`sample_conditional_*` fixtures were also rewritten (tools removed where not needed,
+`ex_A*` fixtures were also rewritten (tools removed where not needed,
 positive phrasing, `write_files: true` on the delivery steps only).
 
-`sample_conditional_branch_new` re-ran clean afterwards: routing correct for both the
+`ex_A2_branch` re-ran clean afterwards: routing correct for both the
 english and spanish outcomes, ~14s, no spurious `gate_blocked`, deliverables written.
 
 ### 9b. §8b `gate_blocked` not halting the run — FIXED
@@ -331,13 +331,13 @@ own-prompt steps would be the consistent fix.
    model run.
 
 The §6 fix plus the fixture prompt tightening already cleared the symptom this was blamed
-for (`sample_conditional_branch_new` passes), so this is a latent prompt-shape concern, not
+for (`ex_A2_branch` passes), so this is a latent prompt-shape concern, not
 an active defect.
 
 ### 10b. Fixture re-runs
 
-`sample_conditional_previous_step`, `sample_conditional_human_input`,
-`sample_conditional_launch_new` and `sample_conditional_target` have not been re-run since
+`ex_A1_loop`, `ex_A4_human_gate`,
+`ex_A3_divert` and `ex_A3_target` have not been re-run since
 the §6 fix, the `agent_skipped` event, and the §8b fix landed. `previous_step` in particular
 never exercised its loop mechanism (R-06/R-07/R-08) — its earlier failure was entirely
 downstream of §6, so it is the one most likely to behave differently now.

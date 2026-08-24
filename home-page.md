@@ -100,9 +100,9 @@
             - generic [ref=f48e231]: Coming Soon
           - button "Inspect Conditional Gate — loop to previous step details" [disabled]
         - generic [ref=f48e232]:
-          - button "Conditional Gate — divert target The plain workflow sample_conditional_launch_new diverts execution into. ~1 agents Coming Soon" [disabled] [ref=f48e233]:
+          - button "Conditional Gate — divert target The plain workflow ex_A3_divert diverts execution into. ~1 agents Coming Soon" [disabled] [ref=f48e233]:
             - heading "Conditional Gate — divert target" [level=2] [ref=f48e243]
-            - paragraph [ref=f48e244]: The plain workflow sample_conditional_launch_new diverts execution into.
+            - paragraph [ref=f48e244]: The plain workflow ex_A3_divert diverts execution into.
             - generic [ref=f48e245]: ~1 agents
             - generic [ref=f48e246]: Coming Soon
           - button "Inspect Conditional Gate — divert target details" [disabled]

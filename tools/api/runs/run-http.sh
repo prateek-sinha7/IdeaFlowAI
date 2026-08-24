@@ -14,12 +14,15 @@
 #        ./run-http.sh dotnet_to_azure
 #        ./run-http.sh mulesoft_to_springboot
 #        ./run-http.sh custom
-#        ./run-http.sh sample_conditional_branch_new
-#        ./run-http.sh sample_conditional_branch_new_hola
-#        ./run-http.sh sample_conditional_previous_step
-#        ./run-http.sh sample_conditional_human_input
-#        ./run-http.sh sample_conditional_launch_new
-#        ./run-http.sh sample_conditional_target
+#        ./run-http.sh ex_A2_branch
+#        ./run-http.sh ex_A2_branch_hola
+#        ./run-http.sh ex_A2_branch_dutch
+#        ./run-http.sh ex_A1_loop
+#        ./run-http.sh ex_A4_human_gate
+#        ./run-http.sh ex_A4_human_gate_auto
+#        ./run-http.sh ex_A3_divert
+#        ./run-http.sh ex_A3_divert_spanish
+#        ./run-http.sh ex_A3_divert_dutch
 #
 # Requires: backend running at http://localhost:8000 (see ./run.sh),
 # httpyac installed globally (npm install -g httpyac).

@@ -775,10 +775,10 @@ workaround step in every fixture:
 
 | File | Mechanism | Mirrors example |
 |---|---|---|
-| `backend/agents/workflows/sample_conditional_previous_step/workflow.yaml` | Loop back to an earlier step, condition source = the gate's own step | A1 |
-| `backend/agents/workflows/sample_conditional_branch_new/workflow.yaml` | Mutually-exclusive forward branch to one of two new nodes | A2 |
-| `backend/agents/workflows/sample_conditional_launch_new/workflow.yaml` (+ its target, `sample_conditional_target/workflow.yaml`) | Stop-and-hand-off to a different workflow | A3 |
-| `backend/agents/workflows/sample_conditional_human_input/workflow.yaml` | Loop back, condition source = an earlier HUMAN gate's captured response | A4 |
+| `backend/agents/workflows/ex_A1_loop/workflow.yaml` | Loop back to an earlier step, condition source = the gate's own step | A1 |
+| `backend/agents/workflows/ex_A2_branch/workflow.yaml` | Mutually-exclusive forward branch to one of two new nodes | A2 |
+| `backend/agents/workflows/ex_A3_divert/workflow.yaml` (+ its target, `ex_A3_target/workflow.yaml`) | Stop-and-hand-off to a different workflow | A3 |
+| `backend/agents/workflows/ex_A4_human_gate/workflow.yaml` | Loop back, condition source = an earlier HUMAN gate's captured response | A4 |
 
 ## 6c. Open gaps — not yet resolved by any requirement above
 

@@ -1,7 +1,7 @@
 ---
-built_from_commit: a5521269a66f60c91ea0873bda58ba443281f212
+built_from_commit: 9cf42ca8eb944fb988b55a2ecc7e4dee1217e6f7
 built_at: 2026-08-17
-cards_indexed: 499
+cards_indexed: 530
 modules_indexed: 36
 ---
 
@@ -63,12 +63,12 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 
 | type | total | open/active |
 |---|---|---|
-| adr | 12 | 12 |
-| fix | 276 | 17 |
-| issue | 169 | 56 |
+| adr | 19 | 19 |
+| fix | 298 | 17 |
+| issue | 171 | 58 |
 | bug | 42 | 18 |
 
-**adr (12):**
+**adr (19):**
 - [ADR-0001](cards/20260727-ADR-0001.md) — That terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher
 - [ADR-0002](cards/20260811-ADR-0002.md) — That `workflow` is the only vocabulary the system knows and `pipeline` is removed rather than deprecated
 - [ADR-0003](cards/20260811-ADR-0003.md) — The compiled plan is the single source of the roster and the assertion is deleted rather than relaxed
@@ -81,6 +81,13 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 - [ADR-0010](cards/20260811-ADR-0010.md) — To RETIRE run-level skill attachment entirely (UI, launch payload and save payload) and make `AgentSkillsPicke
 - [ADR-0011](cards/20260813-ADR-0011.md) — The delivery block's `artifact_name(instance_id, topic)` is AUTHORITATIVE and a filename written into a step p
 - [ADR-0012](cards/20260813-ADR-0012.md) — The grants are FIXED (`read_files` and `write_files` always on, `exec` and `spawn_subagents` always off) and n
+- [ADR-0013](cards/20260824-1630-ADR-0013.md) — A human gate declares WHEN it runs in its own name — `human` is post-step, `before-human` is pre-step
+- [ADR-0014](cards/20260824-1630-ADR-0014.md) — A built-in workflow opens on the canvas at its own URL and can only be saved as a copy
+- [ADR-0015](cards/20260824-1630-ADR-0015.md) — A conditional gate moves a mutable dispatch cursor, and a cross-workflow trigger STOPS the run rather than waiting for its child
+- [ADR-0016](cards/20260824-1630-ADR-0016.md) — An unsaved composition may be launched by sending its manifest inline, compiled at trust="user"
+- [ADR-0017](cards/20260824-1630-ADR-0017.md) — Route targets are authored BARE and resolved by suffix in the engine — every other consumer must normalise to the composed id itself
+- [ADR-0018](cards/20260824-1631-ADR-0018.md) — Every URL in the app is built and parsed by routes.ts, and all 34 screens render behind one required catch-all segment
+- [ADR-0019](cards/20260824-1631-ADR-0019.md) — Session expiry is handled by one guarded fetch wrapper, not at each call site
 
 Start every card lookup at [INDEX.md](INDEX.md) — one line per card, each carrying a `compact_summary` that states the root cause or resolution. Match the query against those lines, then open only the handful of cards that matched. Never read or grep `cards/*.md` in bulk (see section 5).
 

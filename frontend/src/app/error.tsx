@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { motion } from "motion/react";
 import { AlertCircle } from "lucide-react";
@@ -15,7 +15,6 @@ export default function ErrorPage({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
@@ -84,7 +83,12 @@ export default function ErrorPage({
 
               <Button
                 variant="secondary"
-                onClick={() => router.push(routes.home())}
+                // A client-side router.push() only changes the URL — it doesn't
+                // unmount this error boundary, so the crashed tree stayed on
+                // screen underneath the (now-wrong) address bar. These two
+                // buttons exist specifically to escape a broken render, so they
+                // need a hard navigation, not the soft one everywhere else uses.
+                onClick={() => { window.location.href = routes.home(); }}
                 className="w-full py-3 text-[13px]"
               >
                 Back to dashboard
@@ -92,7 +96,7 @@ export default function ErrorPage({
 
               <Button
                 variant="secondary"
-                onClick={() => router.push(routes.login())}
+                onClick={() => { window.location.href = routes.login(); }}
                 className="w-full py-3 text-[13px]"
               >
                 Back to login

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   ArrowLeft, ArrowRight, Paperclip, File, X, FileText,
@@ -19,6 +19,7 @@ import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import { resizeImage } from "@/lib/resizeImage";
 import { AnimatePresence } from "motion/react";
 import type { WorkflowType, AgentDef, AttachedSkill, AttachedHook } from "@/types/index";
+import { useWorkflowCatalogEntry } from "@/hooks/useWorkflowMetadata";
 
 // Migration is a meta-pipeline: the home page sends `workflowType="migration"`
 // and this page lets the user pick the concrete sub-pipeline before running.
@@ -707,6 +708,21 @@ interface IdeaInputPageProps {
   initialInput?: string;
   // SAVE-GATES — pre-fill the review gate selection when reopening a saved workflow
   initialGateIds?: string[];
+  /** Hand the composition the panel is CURRENTLY holding to the full-page Composer.
+   *  Surfaced as "Open in full canvas" in the Advanced modal, which already renders
+   *  composer/CanvasView — so this is the same canvas at full size. */
+  onOpenInCanvas?: (composition: {
+    agentIds: string[];
+    /** The workflow's own manifest steps. ComposerPage PREFERS this over agentIds —
+     *  a composed step is `custom-agent:<instance_id>` with no library entry, so
+     *  agentIds alone resolves to nothing and the canvas opens BLANK. This is also
+     *  the only channel carrying prompts, tools, gates and routes across. */
+    manifestSteps?: import("@/types/index").ManifestStep[];
+    modelOverrides: Record<string, string>;
+    selections: Record<string, Record<string, unknown>>;
+    brief?: string;
+    gateAgentIds?: string[];
+  }) => void;
   // SURF-03 — the known backend workflow id of the launchable/saved workflow being
   // opened in the composer (built-in: the workflow id == the resolved pipeline type;
   // saved: its `base_pipeline_type`). When present, the composer fetches the compiled
@@ -716,13 +732,22 @@ interface IdeaInputPageProps {
   workflowId?: string;
 }
 
-const TYPE_CONFIG: Record<WorkflowType, {
+type PageCopy = {
   tag: string;
   heading: string;
   subtitle: string;
   placeholder: string;
   icon: typeof FileText;
-}> = {
+};
+
+// Hand-written copy for the CURATED pipelines. Deliberately Partial and keyed by string,
+// not Record<WorkflowType, …>: the catalog is manifest-derived (any manifest with
+// user_launchable: true and is_beta: false gets a card), so the set of types reaching
+// this page is open-ended and always wider than a union maintained here. A total Record
+// made the lookup look statically safe, so `config.tag` was dereferenced unguarded and
+// every launchable type absent from the map crashed the page. Partial forces callers
+// through the catalog fallback below.
+const TYPE_CONFIG: Partial<Record<string, PageCopy>> = {
   user_stories: {
     tag: "Generate product requirements",
     heading: "Provide the brief",
@@ -809,7 +834,7 @@ const TYPE_CONFIG: Record<WorkflowType, {
   },
 };
 
-export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides, initialSelections, initialInput, initialGateIds, workflowId }: IdeaInputPageProps) {
+export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides, initialSelections, initialInput, initialGateIds, workflowId, onOpenInCanvas }: IdeaInputPageProps) {
   const { libraryAgents: LIBRARY_AGENTS, customAgents: CUSTOM_AGENTS, allAgents: ALL_LIBRARY_AGENTS } = useAgentLibrary();
   const [ideaInput, setIdeaInput] = useState(initialInput ?? "");
   const [showAgents, setShowAgents] = useState(false);
@@ -911,15 +936,47 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const [declaredCapabilities, setDeclaredCapabilities] = useState<
     { step: string; capabilities: string[] }[] | undefined
   >(undefined);
+  // The workflow's steps as AgentDefs, built from the SAME manifest fetch below.
+  //
+  // LIBRARY_AGENTS is sourced from AGENT.md files, so it only knows agents that
+  // declare a `pipeline_type`. A COMPOSED workflow is N instances of the
+  // `custom-agent` template (`custom-agent:<instance_id>`) and has no AGENT.md per
+  // step, so the library filter returns [] for it and Advanced rendered empty — no
+  // agent rows, no canvas, nothing to configure. The compiled manifest is the only
+  // place those steps exist, and GET /api/workflows/{id} already projects them.
+  const [manifestAgents, setManifestAgents] = useState<AgentDef[] | undefined>(undefined);
+  // The manifest's raw steps, kept verbatim for the "Open in full canvas" hand-off —
+  // ComposerPage seeds from these, not from agentIds.
+  const [manifestRawSteps, setManifestRawSteps] = useState<
+    import("@/types/index").ManifestStep[] | undefined
+  >(undefined);
+  // The manifest's per-step `gates`, in the shape the canvas reads them from.
+  //
+  // A node renders as a conditional (diamond + branch edges) only when BOTH
+  // `agent.route` has outcomes AND `selections[agent.id].gates` includes
+  // "conditional" (CanvasView's own test). Gates live in `selections`, not on
+  // AgentDef, because in the composer they are a user-toggled lever. A workflow
+  // opened from its manifest has them DECLARED rather than toggled, so without
+  // seeding this the `check` step of ex_A1_loop drew as an ordinary node — its
+  // route was there, but the gate half of the test was never satisfied.
+  const [manifestSelections, setManifestSelections] = useState<
+    Record<string, Record<string, unknown>> | undefined
+  >(undefined);
   useEffect(() => {
     if (!workflowId) {
       setDeclaredCapabilities(undefined);
+      setManifestAgents(undefined);
+      setManifestSelections(undefined);
+      setManifestRawSteps(undefined);
       return;
     }
     let cancelled = false;
     const jwt = getToken();
     if (!jwt) {
       setDeclaredCapabilities(undefined);
+      setManifestAgents(undefined);
+      setManifestSelections(undefined);
+      setManifestRawSteps(undefined);
       return;
     }
     getWorkflowDetail(jwt, workflowId)
@@ -941,16 +998,155 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
           })
           .filter((d) => d.capabilities.length > 0);
         setDeclaredCapabilities(mapped.length > 0 ? mapped : undefined);
+        // The step list itself, built from the RAW manifest steps when the API
+        // supplies them. The compiled `detail.steps` projection is lossy — it has no
+        // prompt, tools, instance_id or `route` — so a step that hands off to another
+        // workflow rendered as an ordinary node with nothing indicating the handoff.
+        // `ManifestStep.route` and `AgentDef.route` are the same shape, so the
+        // conditional-gate branches the canvas already knows how to draw just need
+        // passing through. Falls back to the compiled projection for anything the
+        // manifest could not be read for.
+        const raw = detail.manifest_steps;
+        setManifestRawSteps(raw ?? undefined);
+        console.log("[wf] 1. fetched", workflowId, {
+          compiledSteps: detail.steps.length,
+          manifestSteps: raw?.length ?? 0,
+          stepsWithGates: (raw ?? []).filter((x) => (x.gates ?? []).length > 0)
+            .map((x) => `${x.instance_id}:${(x.gates ?? []).join("|")}`),
+          stepsWithRoute: (raw ?? []).filter((x) => x.route).map((x) => x.instance_id),
+        });
+        if (raw && raw.length > 0) {
+          // instance_id -> node id. Route targets in a hand-authored manifest are
+          // BARE instance ids ("done"), because the engine resolves them with a
+          // suffix fallback. The canvas has no such fallback — it compares targets
+          // against node ids ("custom-agent:done"), the same convention depends_on
+          // uses. Unnormalised, `done` was never seen as a route target, so it
+          // rendered as an orphan and every branch edge failed to resolve.
+          // trigger:"workflow" targets are workflow ids, NOT steps — left alone.
+          const nodeIdOf = new Map<string, string>();
+          for (const st of raw) {
+            const b = st.agent || "custom-agent";
+            if (st.instance_id) nodeIdOf.set(st.instance_id, `${b}:${st.instance_id}`);
+          }
+          const normaliseRoute = (r: AgentDef["route"]): AgentDef["route"] => {
+            if (!r?.outcomes) return r;
+            const outcomes = Object.fromEntries(
+              Object.entries(r.outcomes).map(([k, o]) => [
+                k,
+                o.trigger === "step"
+                  ? { ...o, target: nodeIdOf.get(o.target) ?? o.target }
+                  : o,
+              ]),
+            );
+            return {
+              ...r,
+              outcomes,
+              default_next: r.default_next
+                ? (nodeIdOf.get(r.default_next) ?? r.default_next)
+                : r.default_next,
+            };
+          };
+
+          const sel: Record<string, Record<string, unknown>> = {};
+          for (const st of raw) {
+            const base = st.agent || "custom-agent";
+            const sid = st.instance_id ? `${base}:${st.instance_id}` : base;
+            if (st.gates && st.gates.length > 0) sel[sid] = { gates: [...st.gates] };
+          }
+          console.log("[wf] 2. manifest selections (gates the canvas reads)", sel);
+          setManifestSelections(Object.keys(sel).length > 0 ? sel : undefined);
+          setManifestAgents(
+            raw.map((st, i) => {
+              const agentBase = st.agent || "custom-agent";
+              const id = st.instance_id ? `${agentBase}:${st.instance_id}` : agentBase;
+              const compiled = detail.steps.find((c) => c.agent_id === id);
+              return {
+                id,
+                name: st.name || compiled?.name || id,
+                role: compiled?.role || "Workflow step",
+                description: compiled?.role || "",
+                pipeline_type: workflowId,
+                order: compiled?.order ?? i + 1,
+                icon: "\u{1F9E9}",
+                estimated_duration: 0,
+                has_skill: (st.skills?.length ?? 0) > 0,
+                gate: compiled?.declared_gate ?? null,
+                // Authoring fields the canvas renders — route is what surfaces
+                // "this outcome triggers workflow X" / "jumps to step Y".
+                isCustom: agentBase === "custom-agent",
+                instance_id: st.instance_id,
+                prompt: st.prompt,
+                skills: st.skills,
+                tools: st.tools,
+                route: normaliseRoute(st.route as AgentDef["route"]),
+              };
+            }),
+          );
+          console.log("[wf] 3. manifest agents", raw.map((st) => {
+            const b = st.agent || "custom-agent";
+            const id = st.instance_id ? `${b}:${st.instance_id}` : b;
+            return {
+              id,
+              name: st.name,
+              route: st.route
+                ? Object.entries(st.route.outcomes ?? {}).map(
+                    ([k, o]) => `${k}->${o.trigger}:${o.target}`,
+                  )
+                : null,
+            };
+          }));
+          console.log("[wf] 3b. route targets normalised to node ids", raw
+            .filter((st) => st.route)
+            .map((st) => {
+              const r = normaliseRoute(st.route as AgentDef["route"]);
+              return Object.entries(r?.outcomes ?? {}).map(
+                ([k, o]) => `${st.instance_id}.${k} -> ${o.trigger}:${o.target}`,
+              );
+            })
+            .flat());
+        } else {
+          setManifestAgents(
+            detail.steps.map((st, i) => ({
+              id: st.agent_id,
+              name: st.name || st.agent_id,
+              role: st.role || "Workflow step",
+              description: st.role || "",
+              pipeline_type: workflowId,
+              order: st.order ?? i + 1,
+              icon: "\u{1F9E9}",
+              estimated_duration: 0,
+              has_skill: (st.skills?.length ?? 0) > 0,
+              gate: st.declared_gate ?? null,
+            })),
+          );
+        }
       })
       .catch(() => {
         // Unknown id (404) or transient error ⇒ treat as "nothing declared":
         // leave it undefined so the strip simply does not render (no noisy UI).
-        if (!cancelled) setDeclaredCapabilities(undefined);
+        if (!cancelled) {
+          setDeclaredCapabilities(undefined);
+          setManifestAgents(undefined);
+          setManifestSelections(undefined);
+          setManifestRawSteps(undefined);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [workflowId]);
+
+  // Declared gates first, so a saved or user-set lever for the SAME step still
+  // overrides them rather than being masked by the manifest. Memoized because the
+  // popup keys state off this object; rebuilding it every render would churn.
+  const mergedInitialSelections = useMemo(
+    () =>
+      manifestSelections
+        ? { ...manifestSelections, ...(cleanSelections ?? {}) }
+        : cleanSelections,
+    [manifestSelections, cleanSelections],
+  );
+
 
   useEffect(() => {
     // Phase 21 (gotcha #1) — GUARD: when launching a saved workflow the seed lives
@@ -984,16 +1180,51 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     if (effectiveType === "custom") {
       setPipelineAgents([]);
     } else {
-      setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order));
+      const fromLibrary = LIBRARY_AGENTS
+        .filter((a) => a.pipeline_type === effectiveType)
+        .sort((a, b) => a.order - b.order);
+      // A composed workflow has no AGENT.md-backed library agents, so the filter
+      // above is empty for it and Advanced would render with nothing in it. Fall
+      // back to the compiled manifest's own steps (fetched above). Ordinary
+      // AGENT.md-backed pipelines keep the library rows untouched — the manifest
+      // list is only consulted when the library has nothing to offer.
+      console.log("[wf] 4. roster for", effectiveType, {
+        fromLibrary: fromLibrary.length,
+        fromManifest: manifestAgents?.length ?? 0,
+        using: fromLibrary.length > 0 ? "library" : "manifest",
+      });
+      setPipelineAgents(
+        fromLibrary.length > 0 ? fromLibrary : (manifestAgents ?? []),
+      );
     }
-  }, [LIBRARY_AGENTS, effectiveType, initialAgentIds, ALL_LIBRARY_AGENTS]);
+  }, [LIBRARY_AGENTS, effectiveType, initialAgentIds, ALL_LIBRARY_AGENTS, manifestAgents]);
 
   // Reset the sub-choice when the parent switches us off the migration meta-type.
   useEffect(() => {
     if (!isMigrationMeta) setMigrationChoice(null);
   }, [isMigrationMeta]);
 
-  const config = TYPE_CONFIG[effectiveType];
+  // Dynamic catalog ids (e.g. a conditional-gate sample pipeline like
+  // "ex_A4_human_gate") aren't in this static, hand-authored map — fall back
+  // to the generic "custom" copy rather than crashing on `config.tag` below.
+  // Curated copy when it exists; otherwise derive it from the live catalog row, so a
+  // workflow nobody hand-wrote copy for still shows ITS OWN name and description rather
+  // than borrowing another pipeline's. Falling back to TYPE_CONFIG.custom stops the
+  // crash but labels every such page "custom", which is wrong for all seven ex_*
+  // fixtures. Last branch covers the render before the catalog has loaded.
+  const catalogEntry = useWorkflowCatalogEntry();
+  const config: PageCopy = useMemo(() => {
+    const curated = TYPE_CONFIG[effectiveType];
+    if (curated) return curated;
+    const row = catalogEntry(effectiveType);
+    return {
+      tag: row?.display_name || row?.name || "Run a workflow",
+      heading: "Provide the brief",
+      subtitle: row?.description || "Describe what you want and this workflow will run its steps.",
+      placeholder: "e.g. Describe what you'd like this workflow to do.",
+      icon: FileText,
+    };
+  }, [effectiveType, catalogEntry]);
 
   useEffect(() => {
     if (isListening && transcript) setIdeaInput(preSpeechTextRef.current ? `${preSpeechTextRef.current} ${transcript}` : transcript);
@@ -1049,7 +1280,29 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
             ...(hasImages ? { images: briefAttachments.attachedImages } : {}),
           }
         : undefined;
-    onRun(finalMessage, pipelineAgents.map((a) => a.id), dispatchType, finalExtraParams);
+    // A COMPOSED workflow's steps are `custom-agent:<instance_id>` instances with no
+    // AGENT.md. The launch endpoint allow-lists supplied agent_ids against
+    // allowed_custom_agent_ids() — a registry lookup (PIPELINE_AGENTS[base] |
+    // PIPELINE_AGENTS["custom"]) that cannot know those synthetic ids — so sending
+    // them is rejected 400 invalid_agent_ids, which is why running a composed
+    // workflow from this panel failed. Sending NO agent_ids makes the backend source
+    // the roster from the compiled plan instead (run_commands.py's `else` branch
+    // falls back to compile_for_run + _specs_from_plan for exactly this case), which
+    // is the same roster we are displaying. So omit them when the roster is the
+    // manifest's own, unchanged — send them only when the user actually composed a
+    // different set, where the explicit list is the whole point.
+    const manifestRoster = manifestAgents?.map((a) => a.id) ?? null;
+    const currentRoster = pipelineAgents.map((a) => a.id);
+    const isUnmodifiedManifestRoster =
+      manifestRoster !== null &&
+      manifestRoster.length === currentRoster.length &&
+      manifestRoster.every((id, i) => id === currentRoster[i]);
+    onRun(
+      finalMessage,
+      isUnmodifiedManifestRoster ? [] : currentRoster,
+      dispatchType,
+      finalExtraParams,
+    );
   };
 
   // Phase 21 (SAVE-FROM-BOTH composer entry) — "Save workflow" persists the
@@ -1450,8 +1703,40 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       </div>
 
       <AgentsPopup
+        // AgentsPopup seeds `liveSelections` from this prop with a useState
+        // INITIALIZER — read once, at ITS mount. The popup is rendered
+        // unconditionally (isOpen only toggles visibility), so it mounts with the
+        // page, BEFORE the manifest fetch resolves; the declared gates arriving a
+        // moment later would never enter that state, and the canvas would keep
+        // drawing a conditional step as an ordinary node. Keying on whether the
+        // manifest has landed remounts it exactly once, so the initializer sees the
+        // real seed. Stable for the rest of the session (the flag only flips
+        // undefined -> set), and the popup is still closed when it flips.
+        key={`${effectiveType}:${manifestSelections ? "seeded" : "pending"}`}
         isOpen={showAgents}
         onClose={() => setShowAgents(false)}
+        onOpenInCanvas={onOpenInCanvas ? () => {
+          // Snapshot the LIVE panel state — refs, not the initial* props, so edits
+          // made inside this modal travel to the full canvas instead of being lost.
+          setShowAgents(false);
+          console.log("[wf] 6. handing off to full canvas", {
+            workflowId,
+            agentIds: pipelineAgents.map((a) => a.id),
+            manifestSteps: manifestRawSteps?.length ?? 0,
+            manifestStepsIsUndefined: manifestRawSteps === undefined,
+            selections: Object.keys(selectionsRef.current),
+          });
+          onOpenInCanvas({
+            agentIds: pipelineAgents.map((a) => a.id),
+            manifestSteps: manifestRawSteps,
+            modelOverrides: modelOverridesRef.current,
+            selections: selectionsRef.current,
+            brief: ideaInput.trim() || undefined,
+            gateAgentIds: gateSelectionRef.current.touched
+              ? gateSelectionRef.current.ids
+              : initialGateIds,
+          });
+        } : undefined}
         agents={pipelineAgents}
         pipelineType={effectiveType}
         onAddAgent={handleAddAgent}
@@ -1461,7 +1746,8 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         onModelOverridesChange={handleModelOverridesChange}
         onSelectionsChange={handleSelectionsChange}
         initialModelOverrides={initialModelOverrides}
-        initialSelections={cleanSelections}
+        initialSelections={mergedInitialSelections}
+        debugLabel={`${effectiveType}:${manifestSelections ? "seeded" : "pending"}`}
         declaredCapabilities={declaredCapabilities}
       />
     </div>

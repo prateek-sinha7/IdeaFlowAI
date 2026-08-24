@@ -1,4 +1,4 @@
-"""T24 (spec 014 / Phase 3 dispatch loop): ``sample_conditional_previous_step`` (A1, the
+"""T24 (spec 014 / Phase 3 dispatch loop): ``ex_A1_loop`` (A1, the
 loop fixture) driven end-to-end via the shared offline scripted-model harness
 (``tests.agents._scripted_model._drive``), with the ``check`` step scripted to ALWAYS
 answer ``{"decision": "retry"}`` (never ``"ok"``).
@@ -26,7 +26,7 @@ import pytest
 from tests.agents import _scripted_model as _sm
 from tests.agents._scripted_model import _ScriptedTurn, _drive
 
-_PIPELINE = "sample_conditional_previous_step"
+_PIPELINE = "ex_A1_loop"
 
 
 def _always_retry_scripts_for(agent_id: str) -> list[_ScriptedTurn]:

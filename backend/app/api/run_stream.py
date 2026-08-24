@@ -83,7 +83,18 @@ from agents.capabilities.gate_pendency import (  # noqa: E402
 # derives it from gate_pendency.REVIEW_RESOLUTIONS (gated, not hardcoded); the
 # frontend imports the constant directly for its terminal guard (BUG-015).
 # A test in backend/tests/unit/test_sse_stream.py verifies both stay in sync.
-_STREAM_TERMINAL_TYPES = _GATE_RESOLUTION_TYPES - frozenset({"review_gate_approved"})
+#
+# ``pipeline_diverted`` is UNIONED IN rather than added to the gate vocabulary: a
+# cross-workflow divert is not a gate resolution, and ``_GATE_RESOLUTION_TYPES`` also
+# derives ``_GATE_REARM_TYPES`` below — widening it there would change gate re-arm
+# semantics as a side effect. It genuinely ends the stream though: R-13 says a
+# ``trigger: workflow`` outcome stops the run (the engine yields the frame and returns,
+# with no pipeline_complete to follow). Omitting it meant the connection dropped without
+# any terminal type being recognised, so the client rendered "Reconnecting…", reconnected,
+# and only then replayed the divert — the banner arrived AFTER a spurious warning.
+_STREAM_TERMINAL_TYPES = (
+    _GATE_RESOLUTION_TYPES - frozenset({"review_gate_approved"})
+) | frozenset({"pipeline_diverted"})
 
 # D-14g gate-re-arm vocabulary: the event types whose LAST occurrence decides whether a
 # review gate is still open. DERIVED from gate_pendency (RESUME-17 / INV-12: that module

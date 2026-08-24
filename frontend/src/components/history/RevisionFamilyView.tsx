@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import type { WorkflowRun, WorkflowStatus, RunFamily } from "@/types/index";
 import { parseRunInput } from "@/lib/runInput";
+import { useWorkflowShortNames } from "@/hooks/useWorkflowMetadata";
 // INV-12: the run-stat formatters live once in @/lib/runStats — no local copy.
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
 
@@ -83,6 +84,51 @@ function formatDate(dateStr: string): string {
 // (SC-001: generic suffix, never a workflow-name branch).
 export function baseWorkflowType(type: string): string {
   return type.replace("_revision", "");
+}
+
+const KNOWN_FRAMEWORK_BASE_TYPES = new Set(["user_stories", "ppt", "prototype", "app_builder"]);
+
+// Which type-filter-tab bucket a run belongs to: one of the 4 fixed framework
+// keys, or "custom" for everything else — including literal type "custom" AND
+// any other non-framework pipeline id (a conditional-gate sample pipeline, a
+// saved Composer workflow's own type, a retired/renamed sample_conditional_*
+// id, ...). Every pipeline that isn't one of the 4 frameworks IS a custom
+// pipeline by definition, whether or not FamilyGroupCard can also resolve it
+// a specific catalog name to display. Without this, each distinct non-framework
+// type string was bucketing (and counting) itself instead of folding into the
+// "Custom" tab, so the tab underrepresented how many runs were actually custom.
+export function filterBucketFor(type: string): string {
+  const base = baseWorkflowType(type);
+  return KNOWN_FRAMEWORK_BASE_TYPES.has(base) ? base : "custom";
+}
+
+// Last-resort label for a type that resolves to neither a known framework nor
+// a live catalog entry — a retired/renamed pipeline id (e.g. a pre-rename
+// sample_conditional_branch_new row still in the DB after the live workflow
+// catalog moved on to ex_A2_branch). Slug -> Title Case is honest about being
+// a raw identifier without collapsing all the way to uninformative "Custom".
+function humanizeType(type: string): string {
+  return type
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+// Single source of truth for "what do we call this pipeline type" — used both
+// for a card's own type badge and for the DivertBadge breadcrumb, so a
+// diverted-to run is identified by its WORKFLOW (e.g. "Spanish Greeter"), not
+// by the message it was launched with or the raw gate/step id that triggered
+// it. `shortNameFor` is the caller's own `useWorkflowShortNames()` resolver —
+// passed in rather than called here since this isn't itself a hook.
+function resolveWorkflowTypeLabel(
+  type: string,
+  shortNameFor: (type: string) => string | undefined,
+): string {
+  const meta = TYPE_META[type] || TYPE_META.custom;
+  const needsCatalogLookup = type !== "custom" && !TYPE_META[type];
+  if (!needsCatalogLookup) return meta.label;
+  return shortNameFor(type) ?? humanizeType(type);
 }
 
 // ─── statusDotClass — semantic status → dot color. INHERITED map (UI-SPEC §0
@@ -416,12 +462,16 @@ function RowStats({ run }: { run: WorkflowRun }) {
 // row's existing secondary-text sizing + the brand accent already used by
 // StatusBadge/statusDotClass above (no new color introduced).
 function DivertBadge({ link, onSelectRun }: { link: DivertLink; onSelectRun: (run: WorkflowRun) => void }) {
-  const otherMeta = TYPE_META[link.other.type] || TYPE_META.custom;
-  const otherLabel = cleanDisplayTitle(link.other.title, otherMeta.label, link.other.input) || otherMeta.label;
+  // The OTHER run's WORKFLOW, not its brief/message or the raw step id it
+  // diverted at — "Spanish Greeter", not "Tu saludo también debe incluir..." /
+  // "step language". The run's own title still identifies IT on its own row;
+  // this breadcrumb's job is to say what the link goes TO.
+  const shortNameFor = useWorkflowShortNames();
+  const otherLabel = resolveWorkflowTypeLabel(link.other.type, shortNameFor);
   const Icon = link.direction === "source" ? GitBranch : CornerUpLeft;
   const text = link.direction === "source"
     ? `Diverted to ${otherLabel} →`
-    : `← Continued from ${otherLabel}${link.stepId ? `, step ${link.stepId}` : ""}`;
+    : `← Continued from ${otherLabel}`;
   return (
     <button
       type="button"
@@ -458,6 +508,15 @@ export function FamilyGroupCard({
   const rootMeta = TYPE_META[group.root.type] || TYPE_META.custom;
   const RootIcon = rootMeta.icon;
   const isMulti = group.members.length >= 2;
+  // Only genuinely ad-hoc composer runs (type === "custom" exactly) have no
+  // specific catalog identity to show — every such run shares the same
+  // generic catalog entry regardless of which agents were actually picked, so
+  // agent count remains their best available disambiguator. Everything else
+  // (a conditional-gate sample pipeline, a retired/renamed id, ...) resolves
+  // to its real workflow name via the shared resolver — see resolveWorkflowTypeLabel.
+  const shortNameFor = useWorkflowShortNames();
+  const baseLabel = resolveWorkflowTypeLabel(group.root.type, shortNameFor);
+  const rootLabel = `${baseLabel} · ${group.root.agentCount} agent${group.root.agentCount === 1 ? "" : "s"}`;
 
   // ─── Single-member family: byte-identical to today's flat row (no pill, no
   // expander) — visually indistinguishable from today, delete included.
@@ -482,7 +541,7 @@ export function FamilyGroupCard({
         <div className="flex-1 min-w-0">
           <p className="text-[13px] font-semibold text-ink-900 leading-tight">{cleanDisplayTitle(run.title, rootMeta.label, run.input)}</p>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-[10px] text-ink-400">{rootMeta.label}</span>
+            <span className="text-[10px] text-ink-400">{rootLabel}</span>
             {run.duration ? (
               <>
                 <span className="text-ink-200">·</span>
@@ -536,7 +595,7 @@ export function FamilyGroupCard({
         <div className="flex-1 min-w-0">
           <p className="text-[13px] font-semibold text-ink-900 leading-tight">{cleanDisplayTitle(group.root.title, rootMeta.label, group.root.input)}</p>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-[10px] text-ink-400">{rootMeta.label}</span>
+            <span className="text-[10px] text-ink-400">{rootLabel}</span>
             {latest.duration ? (
               <>
                 <span className="text-ink-200">·</span>

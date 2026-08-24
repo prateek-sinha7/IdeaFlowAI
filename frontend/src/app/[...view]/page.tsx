@@ -122,6 +122,16 @@ function initialMainViewFor(parsed: ParsedView): MainView | undefined {
     case "create-app":
     case "create-user-stories":
       return "input";
+    // Any other catalog workflow launched by URL. Same shell as the two named
+    // create screens — the launch panel — with the type carried separately via
+    // initialWorkflowTypeFor so the panel opens on the RIGHT workflow.
+    case "create-workflow":
+      return "input";
+    // A built-in opened on the full canvas. Same shell as the saved-workflow editor;
+    // what differs is that there is no row behind it, so Save copies (see
+    // builtinCanvasType below and ComposerPage's copy-only mode).
+    case "workflow-canvas":
+      return "composer";
     case "workflow-new":
     case "workflow-edit":
       return "composer";
@@ -284,6 +294,27 @@ function wizardModeFor(parsed: ParsedView): "ppt" | "prototype" | undefined {
  * (`DashboardLayout.tsx:1324-1441`) — data-model.md's `/workflows/{id}/run`
  * row.
  */
+/**
+ * The pipeline_type carried by a generic `/create/{type}` cold load. The click
+ * path sets this in DashboardLayout state before pushing the URL, so it only
+ * matters on a cold mount (typed, refreshed, or a shared link) — where nothing
+ * else knows which workflow the URL meant.
+ */
+function initialWorkflowTypeFor(parsed: ParsedView): string | undefined {
+  return parsed.screen === "create-workflow" ? parsed.pipelineType : undefined;
+}
+
+/**
+ * The pipeline_type behind `/workflows/{type}/canvas`. Because it is in the URL, the
+ * composer can rebuild itself from the API on ANY mount — a refresh, a shared link, or
+ * the double-mount that happens when this page briefly renders null through one of its
+ * cold-mount gates. The earlier sessionStorage handoff existed only to survive that
+ * remount; carrying the identity in the URL removes the need for it.
+ */
+function builtinCanvasTypeFor(parsed: ParsedView): string | undefined {
+  return parsed.screen === "workflow-canvas" ? parsed.pipelineType : undefined;
+}
+
 function workflowRunIdFor(parsed: ParsedView): string | undefined {
   return parsed.screen === "workflow-run" ? parsed.workflowId : undefined;
 }
@@ -365,6 +396,39 @@ export default function DashboardPage({
   const [mounted, setMounted] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  // `/workflows/{type}/canvas` — seed the composer straight from the manifest. The
+  // workflow is named in the URL, so this is a plain fetch on mount: no handoff to
+  // carry, nothing to lose across a remount, and a refresh or shared link rebuilds
+  // the same canvas.
+  const builtinCanvasType = builtinCanvasTypeFor(parsedView);
+  useEffect(() => {
+    if (!isAuthenticated || !builtinCanvasType) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getWorkflowDetail, getToken } = await import("@/lib/api");
+        const jwt = getToken();
+        if (!jwt) return;
+        const detail = await getWorkflowDetail(jwt, builtinCanvasType);
+        if (cancelled) return;
+        setInitialSavedComposition({
+          // NO `id`: a built-in has no WorkflowDefinition row, so Save must POST a new
+          // one rather than PATCH something that does not exist. That absence is what
+          // puts the composer in copy-only mode.
+          agentIds: detail.steps.map((st) => st.agent_id),
+          manifestSteps: detail.manifest_steps ?? undefined,
+          modelOverrides: {},
+          selections: {},
+          name: detail.name,
+          description: detail.description,
+        });
+      } catch {
+        if (!cancelled) setInitialSavedComposition(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, builtinCanvasType]);
   const [user, setUser] = useState<User | null>(null);
 
   // Run synchronously after DOM paint but before the browser repaints —
@@ -3542,6 +3606,9 @@ export default function DashboardPage({
         initialMainViewFor(parsedView) ??
         (parsedView.screen === "workflow-run" ? workflowRunMainView ?? undefined : undefined)
       }
+      initialWorkflowType={initialWorkflowTypeFor(parsedView) ?? builtinCanvasType}
+      // Copy-only: the canvas is showing a file-backed manifest, not a row the user owns.
+      builtinCanvasType={builtinCanvasType}
       initialSavedComposition={initialSavedComposition}
       initialSettingsSection={initialSettingsSectionFor(parsedView)}
       onStartPipeline={(type, message, agentIds, attachedHooks, extraParams) => {

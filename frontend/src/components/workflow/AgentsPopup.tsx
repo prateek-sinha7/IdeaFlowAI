@@ -6,7 +6,7 @@ import {
   X, Plus, Lock, GripVertical, Info,
   Clock, Zap, BookMarked, CheckCircle2, ChevronRight, ChevronDown,
   Puzzle, Webhook, Search, Check, Sliders, AlertCircle, Settings2, Cpu,
-  FileText, Edit3, RotateCcw,
+  FileText, Edit3, RotateCcw, Maximize2,
 } from "lucide-react";
 import { AgentLibrary } from "./AgentLibrary";
 import { CanvasView } from "./composer/CanvasView";
@@ -42,6 +42,13 @@ import { useAppSelector } from "@/store/hooks";
 interface AgentsPopupProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Debug only: names the remount generation, so the console shows whether this
+   *  mount saw the manifest-seeded selections or the empty pre-fetch ones. */
+  debugLabel?: string;
+  /** Reopen this same composition in the FULL-PAGE Composer. This modal already
+   *  renders composer/CanvasView, so it is the same canvas at full size — not a
+   *  second surface. Omitted by callers that have nowhere to navigate to. */
+  onOpenInCanvas?: () => void;
   /**
    * ISS-167 (follow-up) — the reopened saved workflow's identity, so this
    * popup's OWN footer "Save workflow" button (distinct from any page-level
@@ -1625,7 +1632,34 @@ function ConfigLeversFlat({
   // identical ("Default" in every select) and avoids the layout shift.
 
   const selectedValidator = sel.validators?.[0] ?? "";
-  const selectedGate = (sel.gates ?? []).find((g) => g !== COUPLED_GATE) ?? "";
+  // Phased, not one-of-N — see CanvasConfigRail's note. Pre-step gates
+  // (security/approval/human) run BEFORE the agent generates, post-step
+  // (validation/conditional) after, so a step can carry one of each. The single
+  // select here had the same destructive rebuild: picking a gate replaced the
+  // whole array and dropped the other phase's gate.
+  const POST_STEP_GATES = ["validation", "conditional", "human"];
+  const isPostGate = (g: string) => POST_STEP_GATES.includes(g);
+  const HITL_GATES = ["before-human", "human", "approval"];
+  const GATE_LABELS: Record<string, string> = {
+    "before-human": "Human gate",
+    human: "Human gate",
+    approval: "Approval gate",
+    security: "Security gate",
+    conditional: "Conditional gate",
+  };
+  const declaredGates = sel.gates ?? [];
+  const selectableGates = gateOptions.filter((g) => g !== COUPLED_GATE);
+  const preGateChoices = selectableGates.filter((g) => !isPostGate(g));
+  const postGateChoices = selectableGates.filter((g) => isPostGate(g));
+  const toggleGate = (name: string, on: boolean) => {
+    const keepCoupled = (sel.validators?.length ?? 0) > 0 ? [COUPLED_GATE] : [];
+    let next = declaredGates.filter((g) => g !== name && g !== COUPLED_GATE);
+    if (on) {
+      if (HITL_GATES.includes(name)) next = next.filter((g) => !HITL_GATES.includes(g));
+      next = [...next, name];
+    }
+    updateLever({ gates: [...keepCoupled, ...next] });
+  };
   const selectedRetry = sel.retry !== undefined ? String(sel.retry) : "";
 
   return (
@@ -1650,18 +1684,44 @@ function ConfigLeversFlat({
         />
       </ConfigLeverRow>
 
-      <ConfigLeverRow label="Gate" description="Pause for human review">
-        <ConfigLeverSelect
-          leverId="gate" openLever={openLever} setOpenLever={setOpenLever}
-          ariaLabel={`Gate for ${agentName}`}
-          value={selectedGate}
-          options={gateOptions.map((n) => ({ value: n, label: n }))}
-          onChange={(picked) => {
-            const keepCoupled = (sel.validators?.length ?? 0) > 0 ? [COUPLED_GATE] : [];
-            updateLever({ gates: picked ? [...keepCoupled, picked] : keepCoupled });
-          }}
-        />
-      </ConfigLeverRow>
+      {/* `gates:` is a LIST — checkboxes, grouped by the phase the engine evaluates
+          them in. One human-review gate per step (shared durable gate_key). */}
+      {[
+        { key: "pre", title: "Before execute", names: preGateChoices },
+        { key: "post", title: "After execute", names: postGateChoices },
+      ].map((group) =>
+        group.names.length === 0 ? null : (
+          <div key={group.key} className="py-1">
+            <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-400">
+              {group.title}
+            </p>
+            {group.names.map((name) => {
+              const checked = declaredGates.includes(name);
+              const blocked =
+                !checked &&
+                HITL_GATES.includes(name) &&
+                declaredGates.some((g) => HITL_GATES.includes(g));
+              return (
+                <label
+                  key={name}
+                  title={blocked ? "Only one human-review gate per step" : undefined}
+                  className={`flex items-center gap-2 py-0.5 text-[12px] ${blocked ? "opacity-40" : "cursor-pointer"}`}
+                >
+                  <input
+                    type="checkbox"
+                    aria-label={`${group.title}: ${GATE_LABELS[name] ?? name} for ${agentName}`}
+                    checked={checked}
+                    disabled={blocked}
+                    onChange={(e) => toggleGate(name, e.target.checked)}
+                    className="h-3.5 w-3.5 accent-brand"
+                  />
+                  <span className="text-ink-700">{GATE_LABELS[name] ?? name}</span>
+                </label>
+              );
+            })}
+          </div>
+        ),
+      )}
 
       <ConfigLeverRow label="Retry" description="Auto-retry on failure">
         <ConfigLeverSelect
@@ -2091,7 +2151,7 @@ export function AdvancedExpander({
 // ─── AgentsPopup (main) ───────────────────────────────────────────────────────
 
 export function AgentsPopup({
-  isOpen, onClose, agents, pipelineType,
+  isOpen, onClose, onOpenInCanvas, debugLabel, agents, pipelineType,
   onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
   onSelectionsChange, initialSelections,
   declaredCapabilities,
@@ -2128,9 +2188,15 @@ export function AgentsPopup({
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [liveSelections, setLiveSelections] = useState<SelectionsMap>(
-    initialSelections ?? {},
-  );
+  const [liveSelections, setLiveSelections] = useState<SelectionsMap>(() => {
+    // Runs ONCE per mount — the whole reason IdeaInputPage keys this component on
+    // whether the manifest has landed.
+    console.log("[wf] 5. AgentsPopup mount", debugLabel, {
+      seededSelections: initialSelections ?? {},
+      agents: agents.map((a) => a.id),
+    });
+    return initialSelections ?? {};
+  });
   const handleSelectionsChange = useCallback(
     (next: SelectionsMap) => {
       setLiveSelections(next);
@@ -2236,17 +2302,35 @@ export function AgentsPopup({
             className="relative w-[96vw] bg-surface-white rounded-2xl shadow-2xl flex flex-col"
             style={{ height: "95vh" }}
           >
-            {/* Header */}
-            <div className="px-8 pt-6 pb-0 flex-shrink-0">
-              <div className="flex items-start justify-between mb-1">
-                <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-[0.18em]">Advanced</p>
-                <button onClick={onClose} className="h-7 w-7 flex items-center justify-center rounded-lg text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-all">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="mb-3">
-                <p className="text-[11px] text-ink-500 mb-1">{workflowName}</p>
-                <h2 className="text-[20px] font-bold text-ink-900">Workflow configuration</h2>
+            {/* Header — ONE line. The eyebrow ("Advanced"), the workflow name and a
+                20px "Workflow configuration" heading each used to take their own row,
+                spending ~90px of a 95vh modal on three restatements of where you are.
+                Folded into a single title so that height goes to the canvas, which is
+                the thing the modal exists to show. */}
+            <div className="px-8 pt-4 pb-0 flex-shrink-0">
+              <div className="flex items-center justify-between gap-4 mb-2">
+                <h2 className="text-[14px] font-semibold text-ink-900 truncate">
+                  Advanced Workflow Configuration
+                  {workflowName ? (
+                    <span className="font-normal text-ink-500"> — {workflowName}</span>
+                  ) : null}
+                </h2>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {onOpenInCanvas && (
+                    <button
+                      type="button"
+                      onClick={onOpenInCanvas}
+                      title="Open this workflow in the full-page canvas"
+                      className="h-7 px-2.5 flex items-center gap-1.5 rounded-lg border border-line-border text-[11px] font-medium text-ink-600 hover:bg-surface-warm hover:text-ink-900 transition-all"
+                    >
+                      <Maximize2 className="h-3 w-3" />
+                      Open in full canvas
+                    </button>
+                  )}
+                  <button onClick={onClose} className="h-7 w-7 flex items-center justify-center rounded-lg text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-all">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
 
               {/* Tabs */}

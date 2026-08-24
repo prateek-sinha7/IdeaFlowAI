@@ -230,6 +230,18 @@ class RouteOutcome:
     target: str    # trigger="step": a step id in THIS compiled workflow. trigger="workflow": a
                    # saved user_workflow_id, or the literal "self". Both compile-time validated (R-10).
 
+    # R-28 — authored retry guidance. Injected into the TARGET step's context on a
+    # BACKWARD (loop) jump, under the automatic retry block. Optional and inert when
+    # absent, so every pre-R-28 manifest composes byte-identical context.
+    #
+    # Why it exists: a loop-back re-dispatches its target with context rebuilt from
+    # scratch — same brief, no upstream outputs (_filter_consumed_outputs stops at the
+    # current step, so a loop target can never consume its own downstream judge). Same
+    # input therefore produced the same output, the same decision, and the loop could
+    # only ever run to loop_max_iterations and fail closed. Observed live: greet emitted
+    # a byte-identical 12-char answer on passes 2, 3 and 4.
+    feedback: str | None = None
+
 
 @dataclass
 class RouteSpec:
@@ -423,6 +435,19 @@ class Step:
     # this is the per-instance manifest override a custom-agent step (no AGENT.md
     # of its own) has no other way to declare. Pure data (INV-5).
     produces: list[str] = field(default_factory=list)        # spec 014 / R-05b / R-27
+    # R-29 — the author-facing half of the produces/consumes routing contract. An
+    # upstream step's output is injected into THIS step's context iff its ``produces``
+    # intersects this ``consumes`` (engine._filter_consumed_outputs), rendered as its own
+    # ``--- Output from <name> ---`` block, separate from the brief's
+    # ``=== ORIGINAL USER REQUEST ===`` envelope.
+    #
+    # Why it was missing: spec 014 added ``produces`` to Step for R-27's route_decision
+    # check but never the other half, and ``consumes`` was absent from
+    # compiler._ALLOWED_STEP_KEYS — so no file manifest could declare it and
+    # _filter_consumed_outputs read [] for every manifest step. The consequence was
+    # observable on every fixture as ``context_sources: []``: a judging step was shown
+    # only the brief and asked to assess an output it had never been given.
+    consumes: list[str] = field(default_factory=list)        # R-29
     on_conflict: str = "human_gate"                          # §13
     retry: RetryPolicy | None = None                         # §21
     injects: list[str] = field(default_factory=list)

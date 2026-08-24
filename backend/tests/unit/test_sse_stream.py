@@ -1341,6 +1341,9 @@ class TestSSETerminalTypesSyncWithFrontend:
             "pipeline_failed",
             "budget_aborted",
             "error",
+            # 014-conditional-gates R-13: a `trigger: workflow` outcome ends the run
+            # with this frame and no pipeline_complete, so it closes the stream too.
+            "pipeline_diverted",
         }
 
         assert backend_terminals == frozenset(expected), (

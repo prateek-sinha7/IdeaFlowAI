@@ -1,4 +1,4 @@
-"""T25 (spec 014 / Phase 3 dispatch loop): ``sample_conditional_branch_new`` (A2, the
+"""T25 (spec 014 / Phase 3 dispatch loop): ``ex_A2_branch`` (A2, the
 forward-branch fixture) driven end-to-end via the shared offline scripted-model harness
 (``tests.agents._scripted_model._drive``), with the ``pick`` step scripted to answer
 ``{"decision": "english"}`` in one run and ``{"decision": "spanish"}`` in the other.
@@ -24,7 +24,7 @@ import pytest
 from tests.agents import _scripted_model as _sm
 from tests.agents._scripted_model import _ScriptedTurn, _drive
 
-_PIPELINE = "sample_conditional_branch_new"
+_PIPELINE = "ex_A2_branch"
 
 
 def _scripts_for_decision(decision: str):

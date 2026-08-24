@@ -87,6 +87,10 @@ export const routes = {
   workflow: (id: string): string => `/workflows/${id}`,
 
   workflowEdit: (id: string): string => `/workflows/${id}/edit`,
+  /** A BUILT-IN workflow on the full canvas: explore, change, Run — Save makes a copy.
+   *  `workflowEdit` is the saved-row counterpart, whose Save overwrites. */
+  workflowCanvas: (pipelineType: string): string =>
+    `/workflows/${encodeURIComponent(pipelineType)}/canvas`,
 
   workflowRun: (id: string): string => `/workflows/${id}/run`,
 
@@ -143,6 +147,16 @@ export type ParsedView =
   | { screen: 'create-prototype' }
   | { screen: 'create-app' }
   | { screen: 'create-user-stories' }
+  // Any other /create/{type}: a catalog-driven workflow with no hand-written
+  // route of its own. Carries the raw pipeline_type so a COLD load can open the
+  // right launch panel — see the parser note below.
+  | { screen: 'create-workflow'; pipelineType: string }
+  // /workflows/{pipelineType}/canvas — a BUILT-IN workflow opened on the full canvas.
+  // Distinct from `workflow-edit` ({uuid}/edit), which targets a saved row the user
+  // owns and whose Save overwrites it. A built-in is a workflow.yaml on disk: there is
+  // no row to write back to, so its canvas is explore-and-copy — Run works, Save
+  // creates a NEW user workflow.
+  | { screen: 'workflow-canvas'; pipelineType: string }
   | { screen: 'workflow-new' }
   | { screen: 'run-history'; type?: string; sort?: string }
   | { screen: 'run-detail'; runId: string }
@@ -214,7 +228,16 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
     if (mode === 'app') return { screen: 'create-app' };
     if (mode === 'user-stories') return { screen: 'create-user-stories' };
 
-    return { screen: 'unknown' };
+    // Everything else is a live-catalog workflow (any manifest with
+    // user_launchable: true and is_beta: false gets a card, so this set is
+    // open-ended and cannot be enumerated here). It used to fall through to
+    // 'unknown', which was fine for the CLICK path — DashboardLayout sets the
+    // view optimistically before pushing the URL, and 'unknown' produces no
+    // initialMainView to stomp it (see createRouteForType's note). But a COLD
+    // load of the same URL — typed, refreshed, or shared — had no in-memory
+    // state and nothing to render from, so /create/ex_A2_branch failed. Carry
+    // the type instead so the cold path can resolve the same launch panel.
+    return { screen: 'create-workflow', pipelineType: decodeURIComponent(mode) };
   }
 
   if (head === 'workflows') {
@@ -234,6 +257,13 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
     }
 
     const action = segments[2];
+    if (action === 'canvas') {
+      // The segment is a pipeline_type (a manifest directory name), not a saved-row
+      // UUID. The two can never collide: a UUID is not a legal directory name here,
+      // and `/{uuid}/canvas` is not a route anyone builds. No hardcoded workflow list
+      // is needed to tell them apart (SC-001) — the URL's own verb does it.
+      return { screen: 'workflow-canvas', pipelineType: decodeURIComponent(workflowSegment) };
+    }
     if (action === 'edit') {
       return { screen: 'workflow-edit', workflowId };
     }

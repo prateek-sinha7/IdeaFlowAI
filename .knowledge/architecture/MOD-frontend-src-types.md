@@ -7,7 +7,8 @@ path: frontend/src/types
 language: typescript
 file_count: 2
 code_signature: 717fd62e1df5
-prose_signature: 714e0787e0dc
+prose_symbols_signature: da39a3ee5e6b
+prose_signature: 717fd62e1df5
 last_synced: '2026-08-20'
 ---
 
@@ -49,7 +50,7 @@ the module.
 
 ## Shape
 
-**One flat, non-namespaced file.** [index.ts](../../frontend/src/types/index.ts) is ~775 lines of `export interface` / `export type`
+**One flat, non-namespaced file.** [index.ts](../../frontend/src/types/index.ts) is ~1,000 lines of `export interface` / `export type`
 declarations with no sub-modules, no barrel re-exports and no internal imports; sections are
 delimited only by comment banners. There is nothing to draw — the declarations do not call each
 other, they compose.

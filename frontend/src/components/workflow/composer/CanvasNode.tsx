@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { Lock, X, Plus, Pencil, Check, ExternalLink, AlertTriangle } from "lucide-react";
 import { getRole, getAgentInitials, type StepSelection } from "../AgentsPopup";
 import type { AgentDef, WorkflowType } from "@/types/index";
 import type { CapabilityModelEntry } from "@/lib/api";
 import { userWorkflowsApi, type UserWorkflowSummary } from "@/store/api/userWorkflows";
 import { getWorkflowDefinitions, getToken } from "@/lib/api";
-import { routes } from "@/lib/routes";
 import { WorkflowPickerModal } from "./WorkflowPickerModal";
 
 /** Unified shape for the workflow-target picker (T43, extended) — a system
@@ -294,55 +292,6 @@ export function resolveWorkflowTarget(
     isUnresolved: !isSelf && resolvedName === undefined,
     label: isSelf ? "self (this workflow)" : resolvedName ?? (id || "Select a workflow…"),
   };
-}
-
-export function ExternalPipelineCard({
-  workflowId,
-  workflowNameById,
-}: {
-  workflowId: string;
-  workflowNameById: Map<string, string>;
-}) {
-  const { id, isSelf, isUnresolved, label } = resolveWorkflowTarget(workflowId, workflowNameById);
-
-  const cardCls =
-    "mt-1 flex items-center gap-1.5 rounded-[8px] border border-dashed border-brand-border bg-surface-white px-2 py-1";
-  const labelCls = `min-w-0 flex-1 truncate font-sans text-[10.5px] font-semibold ${
-    isSelf || isUnresolved ? "italic text-ink-400" : "text-brand"
-  }`;
-  const body = (
-    <>
-      <ExternalLink className="h-3 w-3 flex-none text-brand" />
-      <span className={labelCls}>{label}</span>
-      <span className="flex-none rounded-full border border-brand-border bg-brand-fill px-1.5 py-0.5 font-sans text-[8px] font-bold uppercase tracking-[0.05em] text-brand">
-        Diverts run
-      </span>
-    </>
-  );
-
-  // Launch affordance only for a real, resolvable target: "self" has no
-  // concrete workflow id this component can navigate to (the composer's own
-  // in-progress workflow may not even be saved yet, and its id isn't threaded
-  // into CanvasNode), and an empty target has nowhere to go. An unresolved
-  // (not-yet-loaded, or genuinely unknown) id still gets the link — it's a
-  // real id the author picked/typed, same as SavedWorkflowsPage's Edit action.
-  if (!isSelf && id) {
-    return (
-      <Link
-        data-testid="canvas-external-pipeline-card"
-        href={routes.workflowEdit(id)}
-        className={`${cardCls} hover:border-brand`}
-      >
-        {body}
-      </Link>
-    );
-  }
-
-  return (
-    <div data-testid="canvas-external-pipeline-card" className={cardCls}>
-      {body}
-    </div>
-  );
 }
 
 /** Canvas width of an external-workflow node — deliberately narrower than an

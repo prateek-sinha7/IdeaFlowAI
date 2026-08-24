@@ -10,7 +10,7 @@ import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
 // sub-sections (ToolCallsSection / InputPromptSection / OutputPreviewSection /
 // ContextSourcesRow) are RETIRED here and re-homed inside AgentDetailPanel
 // (INV-3 — single implementation, no dual list).
-import { StepsOverviewSpine } from "./StepsOverviewSpine";
+import { StepsOverviewSpine, type StepsDivertLink } from "./StepsOverviewSpine";
 import { AgentDetailPanel } from "./AgentDetailPanel";
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import { StartingPointCard } from "./StartingPointCard";
@@ -104,6 +104,84 @@ export function AgentThinkingTab({
     })();
     return () => { cancelled = true; };
   }, [runId]);
+
+  // ── Divert-link fetch (R-20 adjacent) — same source/target relationship
+  // RevisionFamilyView's DivertBadge already renders as a Run-History
+  // breadcrumb; surfaced here as a spine row so it shows up wherever the
+  // relationship actually happened, not only in the list view. No dedicated
+  // endpoint carries this: a diverting run's own record has no forward
+  // pointer to what it diverted into (only `diverted_at_step_id`), so the
+  // source direction needs a reverse search over a recent batch — same
+  // reasoning as buildDivertLinks. The target direction is cheap: a run's
+  // own `parentRunId` already points at the parent; whether that parent's
+  // `status === "diverted"` is what distinguishes "continued from a divert"
+  // from an ordinary revision chain (parentRunId serves both).
+  const [divertLink, setDivertLink] = useState<StepsDivertLink | null>(null);
+  // The LIVE divert marker, set by useWorkflow's `pipeline_diverted` case. This
+  // effect used to be keyed on [runId] alone — which never changes while a run is
+  // being watched — so a run that diverted in front of the user rendered no
+  // "Diverted to X" row at all: the relationship only appeared after a reload
+  // remounted the component. Keying on the marker too is what makes the row show
+  // up at the moment the handoff happens.
+  const liveDivertedToRunId = pipelineState?.divertedTo?.runId;
+  useEffect(() => {
+    if (!runId) { setDivertLink(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getWorkflow, getWorkflows, getWorkflowDefinitions, getToken } = await import("@/lib/api");
+        const token = getToken() || "";
+        // Label the link with the WORKFLOW's name, not the run's title. A run title is
+        // derived from its launch input, so the source row read "Diverted to Saludo
+        // también…" (the child is minted with the parent's feedback as its content) and
+        // the target row echoed back the user's own message. Neither identifies the
+        // workflow. The catalog is manifest-derived (SC-001) so this needs no hardcoded
+        // type→label map and picks up new fixtures automatically.
+        let defs: { id: string; name: string; display_name?: string | null; short_name?: string | null }[] = [];
+        try { defs = await getWorkflowDefinitions(token); } catch { /* fall back to titles */ }
+        const labelFor = (type: string, fallback: string) => {
+          const d = defs.find((w) => w.id === type);
+          return d?.short_name || d?.display_name || d?.name || fallback;
+        };
+        // Live path: the pipeline_diverted event already carried the child's run
+        // id, so neither the status round-trip nor the 100-run reverse scan below
+        // is needed — one fetch for the child's title is the whole cost. (The
+        // child row is committed before the event is emitted: run_trigger_workflow
+        // mints it, then the engine yields.)
+        if (liveDivertedToRunId) {
+          const child = await getWorkflow(token, liveDivertedToRunId);
+          if (cancelled) return;
+          setDivertLink({
+            direction: "source",
+            otherRunId: liveDivertedToRunId,
+            otherTitle: labelFor(child.type, child.title),
+          });
+          return;
+        }
+        const self = await getWorkflow(token, runId);
+        if (cancelled) return;
+        if (self.status === "diverted") {
+          const { runs } = await getWorkflows(token, { limit: 100 });
+          if (cancelled) return;
+          const child = runs.find((r) => r.parentRunId === runId);
+          setDivertLink(child ? { direction: "source", otherRunId: child.id, otherTitle: labelFor(child.type, child.title) } : null);
+        } else if (self.parentRunId) {
+          const parent = await getWorkflow(token, self.parentRunId);
+          if (cancelled) return;
+          setDivertLink(
+            parent.status === "diverted"
+              ? { direction: "target", otherRunId: parent.id, otherTitle: labelFor(parent.type, parent.title) }
+              : null
+          );
+        } else {
+          setDivertLink(null);
+        }
+      } catch {
+        if (!cancelled) setDivertLink(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [runId, liveDivertedToRunId]);
 
   const resolvedClarifications = clarifications ?? pipelineState?.clarifications;
   const hasAnyData = pipelineState?.plannerStatus ||
@@ -233,6 +311,7 @@ export function AgentThinkingTab({
             onSkipClarify={onSkipClarify}
             onCancelWorkflow={onCancelWorkflow}
             specRevisionCount={specRevisionCount}
+            divertLink={divertLink}
           />
         )}
       </div>

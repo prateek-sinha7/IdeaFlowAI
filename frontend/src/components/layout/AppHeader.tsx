@@ -44,7 +44,7 @@ const LIVE_STATUSES = new Set([
 ]);
 
 interface AppHeaderProps {
-  currentPage: "home" | "library" | "workflow" | "execution" | "history" | "analytics" | "catalog" | "saved-workflows";
+  currentPage: "home" | "library" | "workflow" | "execution" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows";
   onNavigate: (page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows") => void;
   onLogout: () => void;
   userEmail?: string;

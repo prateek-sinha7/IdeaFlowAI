@@ -321,7 +321,7 @@ describe("LaunchWizard — ported behaviors", () => {
 
     await waitFor(() => expect(createUserWorkflowMock).toHaveBeenCalledTimes(1));
     const [, body] = createUserWorkflowMock.mock.calls[0];
-    expect(body.base_pipeline_type).toBe("od_prototype");
+    expect(body.base_pipeline_type).toBe("prototype");
     expect(body.selections._wizard.brief).toBe("Savable");
     expect(body.selections._wizard.templateId).toBe("kanban");
   });

@@ -75,12 +75,12 @@ const NODES = {
     guards: ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'],
     prompt: `You are Validator V1 for Phase 1 (compiler) of spec 014 (conditional gates). Guards: T1-T6.
 
-Using the five fixtures at backend/agents/workflows/sample_conditional_*/workflow.yaml, run the compile-and-print-leaves script and the R-03/R-27 negative-rejection checks described in specs/014-conditional-gates/quickstart.md's "After Phase 1 (compiler)" section. Report each fixture's compile result and leaf set against plan.md's Phase 1 Accept criteria and spec.md's AC-01, AC-02, AC-09 (compile-time half), AC-10.
+Using the five fixtures at backend/agents/workflows/ex_A*/workflow.yaml, run the compile-and-print-leaves script and the R-03/R-27 negative-rejection checks described in specs/014-conditional-gates/quickstart.md's "After Phase 1 (compiler)" section. Report each fixture's compile result and leaf set against plan.md's Phase 1 Accept criteria and spec.md's AC-01, AC-02, AC-09 (compile-time half), AC-10.
 
 PASS requires ALL of:
 (a) all five fixtures compile with zero CompilerError
-(b) sample_conditional_branch_new reports exactly two leaves (say_hello, say_hola)
-(c) sample_conditional_target reports exactly one leaf (welcome)
+(b) ex_A2_branch reports exactly two leaves (say_hello, say_hola)
+(c) ex_A3_target reports exactly one leaf (welcome)
 (d) the negative check (stripping "conditional" from check's gates while route: stays) raises CompilerError
 (e) a fixture with produces: ["route_decision"] removed from a condition_agent step also raises CompilerError (write this negative check if quickstart.md doesn't already cover R-27)
 
@@ -175,19 +175,19 @@ No changes to resolve()/is_registered() themselves. Report the exact diffs you m
   },
   T23: {
     kind: 'task', model: 'sonnet', phase: 'Phase 3 - Dispatch loop', deps: ['T22'], files: [],
-    prompt: `Using a scripted-model test harness (find and match this repo's existing pattern for launching a run programmatically with a scripted model response - likely in tests/agents/_scripted_model.py or similar, per backend/CLAUDE.md's testing notes), run sample_conditional_previous_step (A1, the loop fixture) end-to-end with a model scripted to answer {"decision": "retry"} twice then {"decision": "ok"}. Assert: greet and check each ran exactly 3 times; done ran exactly once; the run completed normally (not BudgetExceeded, since 3 <= loop_max_iterations). Report the exact assertions and their results.`,
+    prompt: `Using a scripted-model test harness (find and match this repo's existing pattern for launching a run programmatically with a scripted model response - likely in tests/agents/_scripted_model.py or similar, per backend/CLAUDE.md's testing notes), run ex_A1_loop (A1, the loop fixture) end-to-end with a model scripted to answer {"decision": "retry"} twice then {"decision": "ok"}. Assert: greet and check each ran exactly 3 times; done ran exactly once; the run completed normally (not BudgetExceeded, since 3 <= loop_max_iterations). Report the exact assertions and their results.`,
   },
   T24: {
     kind: 'task', model: 'sonnet', phase: 'Phase 3 - Dispatch loop', deps: ['T22'], files: [],
-    prompt: `Using the same scripted-model test harness as T23, script the model to ALWAYS answer {"decision": "retry"} (never "ok") and confirm the run for sample_conditional_previous_step fails closed with BudgetExceeded after exactly loop_max_iterations (3, per this fixture's declared value) passes - not 4, not unbounded, not silently swallowed. Report the exact assertion and result.`,
+    prompt: `Using the same scripted-model test harness as T23, script the model to ALWAYS answer {"decision": "retry"} (never "ok") and confirm the run for ex_A1_loop fails closed with BudgetExceeded after exactly loop_max_iterations (3, per this fixture's declared value) passes - not 4, not unbounded, not silently swallowed. Report the exact assertion and result.`,
   },
   T25: {
     kind: 'task', model: 'sonnet', phase: 'Phase 3 - Dispatch loop', deps: ['T22'], files: [],
-    prompt: `Using the same scripted-model test harness as T23, run sample_conditional_branch_new (A2, the forward-branch fixture) end-to-end twice - once scripted to answer {"decision": "english"}, once {"decision": "spanish"}. Assert: in the first run, say_hello ran and say_hola did NOT run (and vice versa for the second run) - confirms R-06/R-09's mutual exclusivity holds for a forward branch, not just the loop case. Also add an assertion that the SKIPPED branch's step_visit_counts stay at 0 (this specific assertion is required per the Phase 3 validator's AC-04 check). Report the exact assertions and their results.`,
+    prompt: `Using the same scripted-model test harness as T23, run ex_A2_branch (A2, the forward-branch fixture) end-to-end twice - once scripted to answer {"decision": "english"}, once {"decision": "spanish"}. Assert: in the first run, say_hello ran and say_hola did NOT run (and vice versa for the second run) - confirms R-06/R-09's mutual exclusivity holds for a forward branch, not just the loop case. Also add an assertion that the SKIPPED branch's step_visit_counts stay at 0 (this specific assertion is required per the Phase 3 validator's AC-04 check). Report the exact assertions and their results.`,
   },
   T26: {
     kind: 'task', model: 'sonnet', phase: 'Phase 3 - Dispatch loop', deps: ['T22'], files: [],
-    prompt: `Using the same scripted-model test harness as T23, run sample_conditional_human_input (A4, the human-gate-as-condition-source fixture) end-to-end, scripting BOTH the human-gate response (whatever mechanism this repo's existing human gate tests use to supply a scripted human answer) AND confirm revise_check's condition_agent: review correctly reads that captured response rather than its own (empty) output. Script one pass that answers "revise" (expect a loop back to greet) and one pass that answers "continue" (expect done to run). This is the one fixture proving R-05's "condition source can be an earlier, non-self, non-agent-typed step" claim end-to-end. Report the exact assertions and their results.`,
+    prompt: `Using the same scripted-model test harness as T23, run ex_A4_human_gate (A4, the human-gate-as-condition-source fixture) end-to-end, scripting BOTH the human-gate response (whatever mechanism this repo's existing human gate tests use to supply a scripted human answer) AND confirm revise_check's condition_agent: review correctly reads that captured response rather than its own (empty) output. Script one pass that answers "revise" (expect a loop back to greet) and one pass that answers "continue" (expect done to run). This is the one fixture proving R-05's "condition source can be an earlier, non-self, non-agent-typed step" claim end-to-end. Report the exact assertions and their results.`,
   },
   V3: {
     kind: 'validator', model: 'sonnet', phase: 'Phase 3 - Dispatch loop', deps: ['T23', 'T24', 'T25', 'T26'],
@@ -239,8 +239,8 @@ Report the exact diff you made.`,
     guards: ['T27', 'T28', 'T29', 'T30', 'T31', 'T32', 'T33'],
     prompt: `You are Validator V4 for Phase 4 (cross-workflow triggering) of spec 014 (conditional gates). Guards: T27-T33.
 
-Using the harness from Phase 3's T23, run sample_conditional_launch_new (A3, the divert fixture) end-to-end scripted to answer {"decision": "divert"}. Assert against spec.md's AC-05, AC-06, AC-11 explicitly:
-AC-05 - the first run's WorkflowRun.status == "diverted", a second WorkflowRun exists with parent_run_id == first run's id, workflow type == sample_conditional_target, owner_id/workspace_id == the first run's values, and the first run dispatched no further steps of its own;
+Using the harness from Phase 3's T23, run ex_A3_divert (A3, the divert fixture) end-to-end scripted to answer {"decision": "divert"}. Assert against spec.md's AC-05, AC-06, AC-11 explicitly:
+AC-05 - the first run's WorkflowRun.status == "diverted", a second WorkflowRun exists with parent_run_id == first run's id, workflow type == ex_A3_target, owner_id/workspace_id == the first run's values, and the first run dispatched no further steps of its own;
 AC-06 - build (or reuse if one already exists) a 6-level-deep trigger chain and confirm the 6th attempt fails closed with BudgetExceeded, not a silent infinite mint;
 AC-11 - the first run's SSE stream emitted exactly one pipeline_diverted event, with the correct payload shape, before the stream closed.
 Also re-run T31's grep audit one more time as a final sweep (confirm nothing new was introduced by T32/T33 that hardcodes the terminal-state set).

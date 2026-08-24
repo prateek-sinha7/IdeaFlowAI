@@ -148,6 +148,29 @@ export const selectWorkflowLabel = (type: string) => (state: RootState) => {
  * build its `(type) => label` resolver from a single selector subscription. */
 export { selectWorkflowLabelIndex, FALLBACK_WORKFLOW_LABELS };
 
+/** state.global.workflows indexed by id -> short_name (falling back to the
+ * catalog's plain `name`), memoized. Sibling to selectWorkflowLabelIndex —
+ * same slice, different field: short_name is the concise/technical label
+ * ("Dutch Target (Hello World)") fit for tight UI surfaces like run-history
+ * type badges, vs display_name's action-phrase framing ("Pitch an idea")
+ * meant for the catalog/launch surfaces. No static fallback map here (unlike
+ * selectWorkflowLabel) — a type absent from the live catalog has no
+ * shorter/nicer name to fall back to; callers handle the "unresolved" case
+ * (index[type] undefined) themselves. */
+const selectWorkflowShortNameIndex = createSelector(
+  (state: RootState) => state.global.workflows,
+  (workflows) => {
+    const index: Record<string, string> = {};
+    for (const w of workflows) {
+      const short = w.short_name ?? w.name;
+      if (short) index[w.id] = short;
+    }
+    return index;
+  },
+);
+
+export { selectWorkflowShortNameIndex };
+
 // ─────────────────────────────────────────────────────────────────────────
 // Workflow chaining — backend-owned (Plan 34-01), reducer-derived.
 //

@@ -97,6 +97,7 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "fanout",
         "route",
         "produces",     # spec 014 / R-05b: declared typed-artifact kinds (R-27's produces check)
+        "consumes",     # R-29: the matching half — which upstream outputs reach this step
         "on_conflict",
         "retry",
         "injects",
@@ -167,8 +168,11 @@ _ALLOWED_ROUTE_KEYS: frozenset[str] = frozenset(
 # spec 014 / conditional outcomes). ``trigger`` is the condition predicate that must match;
 # ``target`` names the next step to dispatch to. Pure data (INV-5): conditional routing
 # evaluates the trigger expression and selects the target, purely declarative.
+# ``feedback`` (R-28) is authored guidance injected into the target step's context on a
+# BACKWARD jump — still pure data (INV-5): the compiler only records the string, the
+# kernel decides when it applies.
 _ALLOWED_OUTCOME_KEYS: frozenset[str] = frozenset(
-    {"trigger", "target"}
+    {"trigger", "target", "feedback"}
 )
 
 # EXACTLY the §13 on_conflict policy set a step may declare (FANOUT-08). The kernel
@@ -790,6 +794,21 @@ class WorkflowCompiler:
                 raise CompilerError(f"unknown gate '{gate}' in {where}")
             self._check_trust(registry, "gate", gate, trusted, where)
 
+        # At most ONE human-family gate per step. A HITL pause is keyed durably on
+        # ``gate_key = f"{run_id}:{agent_id}:{visit_count}"`` (engine.py) — the gate
+        # NAME is not part of it — so two HITL gates on the same step in the same
+        # visit would resolve to the same durable slot: the second pause would read
+        # the first one's resolution and the run would advance past a review nobody
+        # answered. Rejecting it here makes that a compile error naming the step
+        # rather than a silent mis-resume at runtime.
+        _hitl = [g for g in gates if g in ("human", "before-human", "approval")]
+        if len(_hitl) > 1:
+            raise CompilerError(
+                f"step in {where} declares more than one human-review gate "
+                f"({', '.join(sorted(_hitl))}) — a step may declare at most one, "
+                f"because all HITL gates share one durable gate_key per visit"
+            )
+
         # Declared executable hooks (08-08 / CR-01/WR-03): a step fires ONLY the
         # hooks it declares here (filtered by permission at the firing point) — NOT
         # every registered executable hook. A legacy step (prototype/od_/ppt/code-gen)
@@ -928,6 +947,10 @@ class WorkflowCompiler:
         # accepted-but-materialized precedent as the fields above. A step omitting
         # the key keeps the dataclass default ([]) — parity.
         produces = list(raw.get("produces") or [])
+        # R-29: pure data pass-through, same shape as ``produces`` above. The match is a
+        # plain set intersection of arbitrary strings (engine._filter_consumed_outputs),
+        # so a label like "greeting" is as valid as a registered artifact kind.
+        consumes = list(raw.get("consumes") or [])
 
         # ── R-03 cross-field check (spec 014): gates:[conditional] ⇔ route: ────
         # A one-off check, NOT a generalized "capability requires gate" mechanism
@@ -1011,6 +1034,7 @@ class WorkflowCompiler:
             fanout=fanout,
             route=route,
             produces=produces,
+            consumes=consumes,
             on_conflict=on_conflict,
             model=model,
             retry=retry,
@@ -1166,7 +1190,16 @@ class WorkflowCompiler:
                     f"route outcome {outcome_key!r} in {where} has a missing or "
                     f"empty 'target' — must be a non-empty string"
                 )
-            outcomes[outcome_key] = RouteOutcome(trigger=trigger, target=target)
+            feedback = raw_outcome.get("feedback")
+            if feedback is not None and not isinstance(feedback, str):
+                raise CompilerError(
+                    f"route outcome {outcome_key!r} in {where} has a non-string "
+                    f"'feedback' ({type(feedback).__name__}) — must be a string "
+                    f"or omitted (R-28)"
+                )
+            outcomes[outcome_key] = RouteOutcome(
+                trigger=trigger, target=target, feedback=feedback
+            )
 
         trigger_max_depth = raw_route.get("trigger_max_depth", 5)
         if trigger_max_depth != 5:
@@ -1496,7 +1529,7 @@ class WorkflowCompiler:
         — matches against) PLUS, for a custom-agent instance, its bare
         ``instance_id`` too. A custom-agent step's ``agent_id`` is the synthesized
         ``"custom-agent:<instance_id>"`` (`_compile_step`, R-03a/D-01) — but the
-        checked-in reference fixtures (``sample_conditional_previous_step``/
+        checked-in reference fixtures (``ex_A1_loop``/
         ``branch_new``/…) author every ``route`` target as the bare
         ``instance_id`` (e.g. ``target: greet``, matching the step declaring
         ``instance_id: greet``), the natural human-facing id a workflow author
@@ -1599,7 +1632,7 @@ class WorkflowCompiler:
             outcome target / ``default_next`` anywhere in the workflow — plain
             array-adjacency is the step's implicit continuation UNLESS that next
             step is really a branch sibling reached only via a jump (the
-            ``sample_conditional_branch_new`` case: ``say_hello``/``say_hola`` sit
+            ``ex_A2_branch`` case: ``say_hello``/``say_hola`` sit
             array-adjacent under one shared route step, R-26's whole point — a
             naive index+1 check would wrongly mark ``say_hello`` as non-leaf).
 

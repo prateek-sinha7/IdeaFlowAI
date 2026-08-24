@@ -216,14 +216,62 @@ export function CanvasConfigRail({
   // one gateOptions happens to return — a single boolean toggle could only
   // ever bind to whichever gate sorted first (e.g. "human"), leaving
   // "conditional" unreachable from Canvas once it became a second option.
-  const reviewGateOptions = gateOptions.filter((g) => g !== COUPLED_GATE);
-  const reviewGate = (sel.gates ?? []).find((g) => g !== COUPLED_GATE) ?? "";
+  // ── Gates are PHASED, not one-of-N ────────────────────────────────────────
+  // The engine splits a step's declared gates by when they run: pre-step gates
+  // (security/approval/human) evaluate BEFORE the agent generates; post-step
+  // gates (`_POST_STEP_GATES` = validation/conditional) evaluate AFTER. So one
+  // step legitimately carries one of each — ex_A4_human_divert's `pick-language`
+  // is exactly that: pause for a human, generate, then branch on the result.
+  //
+  // A single select could not express it. Worse, it silently DESTROYED it:
+  // `patch({ gates: [value] })` replaced the whole array, so touching the
+  // control on a two-gate step deleted the gate you weren't looking at (and the
+  // coupled `validation` with it). Two phase-scoped selects, each writing only
+  // its own phase and preserving everything else, is the fix.
+  // Mirrors the engine's own `_POST_STEP_GATES`. `human` is POST-step (reviews this
+  // step's own output, supports redo); `before-human` is the PRE-step variant
+  // (reviews the previous step's output, the edit becomes this step's input).
+  const POST_STEP_GATES = ["validation", "conditional", "human"];
+  const isPostGate = (g: string) => POST_STEP_GATES.includes(g);
+  // Human-family gates are MUTUALLY EXCLUSIVE per step: gate_key is
+  // f"{run}:{agent_id}:{visit_count}" with no gate name in it, so two HITL pauses on
+  // one step share a durable slot. The compiler rejects it; the UI shouldn't let you
+  // build it in the first place.
+  const HITL_GATES = ["before-human", "human", "approval"];
+  const GATE_LABELS: Record<string, string> = {
+    "before-human": "Human gate",
+    human: "Human gate",
+    approval: "Approval gate",
+    security: "Security gate",
+    conditional: "Conditional gate",
+  };
+  const GATE_HINTS: Record<string, string> = {
+    "before-human": "Pause and review the previous step's output; your edit becomes this step's input",
+    human: "Pause and review this step's output; edit, reject, or re-run it",
+    approval: "Explicit sign-off before this step runs",
+    security: "Deny exec/network/secrets unless signed off",
+    conditional: "Branch on this step's decision — to another step, or another workflow",
+  };
+  const declared = sel.gates ?? [];
+  // `validation` is not offered here: it is coupled to the Validator lever above.
+  const selectableGates = gateOptions.filter((g) => g !== COUPLED_GATE);
+  const preGateChoices = selectableGates.filter((g) => !isPostGate(g));
+  const postGateChoices = selectableGates.filter((g) => isPostGate(g));
+  const toggleGate = (name: string, on: boolean) => {
+    let next = declared.filter((g) => g !== name);
+    if (on) {
+      if (HITL_GATES.includes(name)) next = next.filter((g) => !HITL_GATES.includes(g));
+      next = [...next, name];
+    }
+    patch({ gates: next });
+  };
+  const conditionalOnFor = declared.includes("conditional");
   const retry = sel.retry ?? 0;
 
   // ── Route editor (spec 014 / R-02, moved here from the canvas node card —
   //    see CanvasNode.tsx's Route badge comment for why) — revealed the
   //    moment reviewGate is set to "conditional", right under that control.
-  const conditionalOn = reviewGate === "conditional";
+  const conditionalOn = conditionalOnFor;
   // Read directly off `agent.route` — no local mirror. Unlike the old
   // per-node CanvasNode instance (freshly mounted, keyed by agent.id, one per
   // node), this rail is a SINGLE instance reused across whichever node is
@@ -599,30 +647,63 @@ export function CanvasConfigRail({
         />
       </div>
 
-      <div className="flex items-center justify-between border-b border-line-faint-row py-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 font-sans text-[12.5px] font-semibold text-ink-900">
-            <InfoHint>Pauses the run after this step so a human can approve its output, or branches the run based on this step&apos;s typed decision, before the pipeline continues.</InfoHint>
-            Review gate
-          </div>
-          <div className="font-serif text-[11px] text-ink-300">
-            Pause for approval, or branch on a condition
-          </div>
+      {/* GATES — a step's `gates:` is a LIST, so this is a checkbox group, not a
+          select. Grouped by WHEN the engine evaluates each one (`_POST_STEP_GATES`),
+          because that is what actually differs: `before-human` reviews the PREVIOUS
+          step's output before this one runs, `human` reviews THIS step's output after
+          it runs. Both were spelled `human` until the split, with the phase decided
+          invisibly by whether the agent had an AGENT.md gate flag. */}
+      <div className="border-b border-line-faint-row py-3">
+        <div className="mb-2 flex items-center gap-1.5 font-sans text-[12.5px] font-semibold text-ink-900">
+          <InfoHint>Gates pause or redirect the run at this step. Only one human-review gate per step — they share one durable slot.</InfoHint>
+          Gates
         </div>
-        <select
-          aria-label="Review gate"
-          disabled={loading || reviewGateOptions.length === 0}
-          value={reviewGate}
-          onChange={(e) => patch({ gates: e.target.value ? [e.target.value] : [] })}
-          className="appearance-none rounded-[8px] border border-status-amber-border bg-status-amber-fill/40 px-2 py-1.5 font-sans text-[11.5px] font-semibold text-status-amber focus:border-brand focus:outline-none disabled:opacity-50"
-        >
-          <option value="">Off</option>
-          {reviewGateOptions.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
+
+        {[
+          { key: "pre", title: "Before execute", names: preGateChoices },
+          { key: "post", title: "After execute", names: postGateChoices },
+        ].map((group) =>
+          group.names.length === 0 ? null : (
+            <div key={group.key} className="mt-2 first:mt-0">
+              <p className="mb-1 font-sans text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-300">
+                {group.title}
+              </p>
+              {group.names.map((name) => {
+                const checked = declared.includes(name);
+                // Ticking a second HITL gate is blocked rather than silently
+                // swapping the first — the exclusivity should be visible.
+                const blocked =
+                  !checked &&
+                  HITL_GATES.includes(name) &&
+                  declared.some((g) => HITL_GATES.includes(g));
+                return (
+                  <label
+                    key={name}
+                    title={blocked ? "Only one human-review gate per step" : GATE_HINTS[name]}
+                    className={`flex items-start gap-2 py-1 ${blocked ? "opacity-40" : "cursor-pointer"}`}
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label={`${group.title}: ${GATE_LABELS[name] ?? name}`}
+                      checked={checked}
+                      disabled={loading || blocked}
+                      onChange={(e) => toggleGate(name, e.target.checked)}
+                      className="mt-[3px] h-3.5 w-3.5 flex-shrink-0 accent-brand"
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-sans text-[12px] font-medium text-ink-900">
+                        {GATE_LABELS[name] ?? name}
+                      </span>
+                      <span className="block font-serif text-[11px] leading-snug text-ink-300">
+                        {GATE_HINTS[name] ?? name}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          ),
+        )}
       </div>
 
       {/* Route editor (spec 014 / R-02, redesigned) — revealed the moment

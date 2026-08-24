@@ -1,6 +1,6 @@
 """V4 (spec 014 / Phase 4 validator, NOT a numbered task — ad hoc harness written
 during PASS/FAIL validation): end-to-end divert scenario for
-``sample_conditional_launch_new`` (A3) driven through the REAL launch path
+``ex_A3_divert`` (A3) driven through the REAL launch path
 (``_launch_run_core`` -> ``_drive_launch_to_queue`` -> ``ExecutionEngine.execute()``)
 for BOTH the triggering and the triggered run — not the DB-less
 ``_scripted_model._drive`` harness T23-T26 use, because AC-05 requires checking
@@ -121,7 +121,7 @@ async def test_divert_end_to_end_AC05_AC11(env, scripted_engine):
     # ── Mint + drive the TRIGGERING run for real (mirrors T27's regression test) ──
     mint_result = await rc._launch_run_core(
         content="go",
-        pipeline_type="sample_conditional_launch_new",
+        pipeline_type="ex_A3_divert",
         agents=[],
         compiled=None,
         od_context=None,
@@ -167,7 +167,7 @@ async def test_divert_end_to_end_AC05_AC11(env, scripted_engine):
         "pipeline_run_id", "diverted_to_run_id", "diverted_to_workflow",
     }, f"AC-11 payload shape wrong: {payload}"
     assert payload["pipeline_run_id"] == first_run_id
-    assert payload["diverted_to_workflow"] == "sample_conditional_target", (
+    assert payload["diverted_to_workflow"] == "ex_A3_target", (
         f"AC-11/R-28: diverted_to_workflow must be the ACTUAL resolved workflow "
         f"id, never the literal 'self' — got {payload['diverted_to_workflow']!r}"
     )
@@ -192,7 +192,7 @@ async def test_divert_end_to_end_AC05_AC11(env, scripted_engine):
     )
 
     # ── R-20 (T41): diverted_at_step_id is the instance_id of "decide" (the
-    # conditional-gate step in sample_conditional_launch_new/workflow.yaml
+    # conditional-gate step in ex_A3_divert/workflow.yaml
     # whose `route.outcomes.divert` fired this trigger), and it flows through
     # the SAME _run_response the real GET /api/runs/{id} endpoint uses. ────
     from app.api.runs import _run_response
@@ -219,7 +219,7 @@ async def test_divert_end_to_end_AC05_AC11(env, scripted_engine):
     second_row = verify2.query(WorkflowRun).filter(WorkflowRun.id == second_run_id).first()
     assert second_row is not None, "AC-05: no second WorkflowRun was minted at all"
     assert second_row.parent_run_id == first_run_id
-    assert second_row.type == "sample_conditional_target"
+    assert second_row.type == "ex_A3_target"
     assert second_row.owner_id == first_owner_id
     assert second_row.workspace_id == first_workspace_id
     verify2.close()

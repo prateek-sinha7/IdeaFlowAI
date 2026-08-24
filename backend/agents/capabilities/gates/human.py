@@ -58,10 +58,36 @@ _UPDATE_SPECS = "_gate_update_specs"
     "gate",
     "human",
     user_allowed=True,
-    description="Pause the run for a human review gate (HITL) and resume on approval.",
+    description="Pause AFTER this step and review its own output (HITL); supports redo.",
+)
+@register(
+    "gate",
+    "before-human",
+    user_allowed=True,
+    description="Pause BEFORE this step runs and review the previous step's output (HITL).",
 )
 class HumanGate:
-    """HITL review gate (``name='human'``) delegating to the unchanged review gate.
+    """HITL review gate delegating to the unchanged review gate.
+
+    Registered under TWO names that differ only in WHEN the engine evaluates them
+    (``_POST_STEP_GATES`` decides that, not this class):
+
+      * ``human``        — POST-step. Reviews this step's OWN output; the edit
+        rewrites this step's artifact, and redo re-runs the step. This is what
+        every shipping pipeline means by a human gate, and what the inline
+        ``_should_gate``/``AGENT.md gate: Human_Gate`` path has always done.
+      * ``before-human`` — PRE-step. Reviews the PREVIOUS step's output; the edit
+        rewrites THAT step's artifact and so becomes this step's input. The rarer
+        case, previously reachable only by declaring ``gates: [human]`` on a step
+        whose agent had no ``AGENT.md`` — identical spelling, opposite behaviour,
+        with nothing in the manifest to tell them apart. Naming the phase is the
+        whole point of the split.
+
+    ONE human-family gate per step. ``gate_key`` is
+    ``f"{run_id}:{agent_id}:{visit_count}"`` — the gate NAME is not part of it — so
+    two HITL pauses on the same step in the same visit would collide on durable
+    gate state. The compiler rejects that combination rather than letting it fail
+    at runtime.
 
     Satisfies the ``GateHandler`` port structurally (``name`` + ``async evaluate``).
     """

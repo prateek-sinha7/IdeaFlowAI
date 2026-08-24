@@ -27,7 +27,7 @@ import { resolveReopenMimetype } from "@/types/index";
 import { useWorkflowChaining } from "@/hooks/useWorkflowMetadata";
 // Revision Families (B2 / D3): client-side grouping by rootRunId + the family
 // root card (REUSE-FIRST — WORKSTREAM-B-UI-SPEC.md Surface 1).
-import { groupRunsByFamily, FamilyGroupCard, baseWorkflowType, bucketAndSortFamilies, buildDivertLinks, type HistorySortKey } from "./RevisionFamilyView";
+import { groupRunsByFamily, FamilyGroupCard, baseWorkflowType, filterBucketFor, bucketAndSortFamilies, buildDivertLinks, type HistorySortKey } from "./RevisionFamilyView";
 // SHELL-03: the terminal-run detail's summary surfaces (KPI / per-agent breakdown /
 // version timeline / failure banner) render via the single-source RunDetailPage
 // (fed by getRunSummary) — no dual implementation with the deliverable wrapper.
@@ -233,6 +233,59 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       .catch(() => {});
   }, [recentRuns]);
 
+  // Manual + auto refresh — same "no skeleton flash" shape as the T38 silent
+  // refetch above, just user/timer-triggered instead of recentRuns-triggered.
+  // Re-requests however many rows are already loaded so a Load More'd list
+  // doesn't silently truncate back to 50 on refresh.
+  const [isRefreshingRuns, setIsRefreshingRuns] = useState(false);
+  const [runsRefreshMs, setRunsRefreshMs] = useState(0);
+  // Counts down in whole seconds so the Refresh button can show it directly —
+  // ticks the actual refresh at 0 rather than running a second, driftable timer.
+  const [runsSecondsLeft, setRunsSecondsLeft] = useState(0);
+  const refreshRuns = useCallback(() => {
+    const token = getToken();
+    if (!token) return;
+    setIsRefreshingRuns(true);
+    getWorkflows(token, { limit: Math.max(50, runs.length) })
+      .then(({ runs: data, total }) => {
+        setRuns(data);
+        setTotalRuns(total);
+      })
+      .catch(() => {})
+      .finally(() => {
+        setIsRefreshingRuns(false);
+        // Resume the countdown only once the fetch actually finishes, so a
+        // slow refresh doesn't silently eat into the next interval.
+        if (runsRefreshMs) setRunsSecondsLeft(runsRefreshMs / 1000);
+      });
+  }, [runs.length, runsRefreshMs]);
+  const handleManualRefreshRuns = useCallback(() => {
+    refreshRuns();
+    if (runsRefreshMs) setRunsSecondsLeft(runsRefreshMs / 1000);
+  }, [refreshRuns, runsRefreshMs]);
+  // Ticks the countdown down to 0 and HOLDS there — it does not trigger the
+  // refresh or reset itself. That split matters: "Reloading" must reflect
+  // however long the fetch actually takes, not just the one tick it started
+  // on, so the reset-to-full lives in refreshRuns's `.finally()` above, fired
+  // only when the fetch truly completes.
+  useEffect(() => {
+    if (!runsRefreshMs) {
+      setRunsSecondsLeft(0);
+      return;
+    }
+    setRunsSecondsLeft(runsRefreshMs / 1000);
+    const id = setInterval(() => {
+      setRunsSecondsLeft((s) => (s <= 1 ? 0 : s - 1));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [runsRefreshMs]);
+  // Fires the refresh exactly once, the moment the countdown reaches 0.
+  useEffect(() => {
+    if (runsRefreshMs && runsSecondsLeft === 0 && !isRefreshingRuns) {
+      refreshRuns();
+    }
+  }, [runsSecondsLeft, runsRefreshMs, isRefreshingRuns, refreshRuns]);
+
   const handleLoadMore = useCallback(() => {
     const token = getToken();
     if (!token || loadingMore || runs.length >= totalRuns) return;
@@ -370,9 +423,12 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // Revision Families (B2): the per-run filter predicate, extracted so the
   // grouped list can match a family if ANY member matches (UI-SPEC Surface 1).
   // Same normalize-then-match logic as before (od_prototype→prototype, od_ppt→
-  // ppt, strip _revision; search on title) — via the SHARED baseWorkflowType.
+  // ppt, strip _revision; search on title) — via the SHARED filterBucketFor,
+  // which additionally folds every non-framework type (a conditional-gate
+  // sample pipeline, a retired/renamed id, ...) into "custom" so the Custom
+  // tab actually shows every custom run, not just literal type === "custom".
   const matchesFilter = useCallback((r: WorkflowRun) => {
-    const baseType = baseWorkflowType(r.type);
+    const baseType = filterBucketFor(r.type);
     const matchType = filterType === "all" || baseType === filterType || r.type === filterType;
     const matchSearch = !searchQuery || (r.title || "").toLowerCase().includes(searchQuery.toLowerCase());
     return matchType && matchSearch;
@@ -895,8 +951,9 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
   const typeCounts: Record<string, number> = { all: families.length };
   families.forEach((g) => {
-    // Count the FAMILY once under its base type (normalized from the root).
-    const base = baseWorkflowType(g.root.type);
+    // Count the FAMILY once under its filter bucket (one of the 4 frameworks,
+    // or "custom" for every non-framework type — see filterBucketFor).
+    const base = filterBucketFor(g.root.type);
     typeCounts[base] = (typeCounts[base] || 0) + 1;
   });
 
@@ -911,10 +968,36 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           >
             <ArrowLeft className="h-4 w-4 text-ink-500" />
           </button>
-          <div>
+          <div className="flex-1">
             <h1 className="text-[18px] font-normal italic text-ink-900 leading-tight font-serif">Run History</h1>
             <p className="text-[11px] text-ink-400 mt-0.5">{runs.length} runs</p>
           </div>
+          <button
+            type="button"
+            onClick={handleManualRefreshRuns}
+            disabled={isRefreshingRuns}
+            aria-label={runsRefreshMs ? `Refresh run history — next auto-refresh in ${runsSecondsLeft}s` : "Refresh run history"}
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-button)] border border-line-border bg-surface-white px-2.5 py-1 text-[11px] font-medium text-ink-600 transition-colors hover:bg-surface-warm disabled:opacity-50"
+          >
+            {isRefreshingRuns ? (
+              <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw aria-hidden className="h-3.5 w-3.5" />
+            )}
+            {runsRefreshMs ? `${runsSecondsLeft}s` : "Refresh"}
+          </button>
+          <select
+            aria-label="Auto-refresh interval"
+            value={runsRefreshMs}
+            onChange={(e) => setRunsRefreshMs(Number(e.target.value))}
+            className="appearance-none rounded-[var(--radius-button)] border border-line-border bg-surface-white px-2 py-1 text-[11px] font-medium text-ink-600 transition-colors hover:bg-surface-warm"
+          >
+            <option value={0}>Auto-refresh: Off</option>
+            <option value={10000}>Every 10s</option>
+            <option value={15000}>Every 15s</option>
+            <option value={30000}>Every 30s</option>
+            <option value={60000}>Every 1m</option>
+          </select>
         </div>
 
         {/* Search */}

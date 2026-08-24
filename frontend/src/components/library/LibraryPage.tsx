@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams, useParams, notFound } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -542,6 +542,20 @@ export function LibraryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [librarySlug?.type, librarySlug?.slug, agentsStatus, skillsStatus, hooksStatus, ALL_AGENTS_COMBINED, SKILLS, HOOKS]);
 
+  // Closes whichever detail modal is open via the URL, not local state directly
+  // — mirrors what browser Back already does, so the T16 effect below is the
+  // ONE place that clears selectedAgent/Skill/Hook, and the URL never goes
+  // stale the way it did when this only called setSelectedX(null) (a refresh
+  // right after closing via the X button would reopen the modal, since the
+  // URL still pointed at /library/{type}/{slug}).
+  const closeDetailModal = useCallback(() => {
+    const category =
+      mainTab === "skills" ? skillCategory :
+      mainTab === "hooks" ? hookEvent :
+      activeCategory;
+    router.push(routes.library({ tab: mainTab, category: category === "all" ? undefined : category }));
+  }, [router, mainTab, activeCategory, skillCategory, hookEvent]);
+
   // T16 (015-frontend-routing, FR-006): when the URL changes (e.g., via browser back),
   // close any modal that no longer matches the current URL. This allows the browser
   // back button to close the modal and return to the list view.
@@ -935,7 +949,7 @@ export function LibraryPage() {
               skills: selectedAgent.savedSkills ?? selectedAgent.agent.skills,
             }}
             agentIndex={selectedAgent.index}
-            onClose={() => setSelectedAgent(null)}
+            onClose={closeDetailModal}
             asDrawer
             initialSelections={selectedAgent.savedSelections ?? {}}
             onSelectionsChange={(next) => {
@@ -952,10 +966,10 @@ export function LibraryPage() {
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {selectedSkill && <SkillDetailModal skill={selectedSkill} onClose={() => setSelectedSkill(null)} />}
+        {selectedSkill && <SkillDetailModal skill={selectedSkill} onClose={closeDetailModal} />}
       </AnimatePresence>
       <AnimatePresence>
-        {selectedHook && <HookDetailModal hook={selectedHook} onClose={() => setSelectedHook(null)} />}
+        {selectedHook && <HookDetailModal hook={selectedHook} onClose={closeDetailModal} />}
       </AnimatePresence>
     </div>
   );

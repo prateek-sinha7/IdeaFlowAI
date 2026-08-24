@@ -7,7 +7,8 @@ path: frontend/src/lib
 language: typescript
 file_count: 42
 code_signature: d1a6e271b258
-prose_signature: 79c2f53e7f13
+prose_symbols_signature: da39a3ee5e6b
+prose_signature: d1a6e271b258
 last_synced: '2026-08-21'
 ---
 
@@ -90,7 +91,7 @@ lucide-react, pptxgenjs, vitest
 
 The frontend's non-UI core: everything that talks to the FastAPI backend, and every
 piece of parsing, serialization and formatting logic that would otherwise live inside a
-React closure. [api.ts](../../frontend/src/lib/api.ts) carries the bulk of it — ~40 endpoint functions covering auth,
+React closure. [api.ts](../../frontend/src/lib/api.ts) carries the bulk of it — ~55 endpoint functions covering auth,
 chats, workflow runs, run commands, analytics, catalog discovery and the audit tabs.
 [sseFrame.ts](../../frontend/src/lib/sseFrame.ts) and [wsReplayState.ts](../../frontend/src/lib/wsReplayState.ts) carry the live-run wire handling that
 `frontend/src/hooks` builds its stream state on.
@@ -134,6 +135,14 @@ wrapper, and the only thing they genuinely share is [env.ts](../../frontend/src/
   throwing. [wsReplayState.ts](../../frontend/src/lib/wsReplayState.ts) holds the reconnect-idempotency helpers —
   `shouldApplyEvent`, `resetReplayState`, `isForeignRunFrame`, `resolveFrameRunId`,
   `isAgentScopedFrame`.
+
+- **URL parsing/building (spec 015-frontend-routing)** — [routes.ts](../../frontend/src/lib/routes.ts) is the single source for
+  both directions: `routes.*()` builder functions construct every URL the app pushes, and
+  `parseViewPath(segments)` parses `[...view]/page.tsx`'s catch-all segments back into a
+  `ParsedView` discriminated union (`{screen, ...params}`). An unrecognized `/create/{type}`
+  segment resolves to `{screen:"create-workflow", pipelineType}` rather than falling through to
+  `{screen:"unknown"}` (which 404s) — this is what lets a spec-014 `ex_A*` (or any future
+  catalog-only) pipeline's launch URL survive a cold load/refresh, not just an in-app click.
 
 - **Marker and draft serialization** — [runInput.ts](../../frontend/src/lib/runInput.ts) (`parseRunInput`) decomposes a run's
   `input` string into its FE-composed marker families (attachments, existing-artifact

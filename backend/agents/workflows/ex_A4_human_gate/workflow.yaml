@@ -1,0 +1,146 @@
+# ex_A4_human_gate — hello-world for spec 014's HUMAN-AS-CONDITION-SOURCE case (A4).
+#
+# Deliberately the SAME 3-way language branch as ex_A2_branch, so the ONLY variable
+# between the two fixtures is WHO decides: A2's `language` step infers it from the
+# launch message; here a HUMAN types it at a review gate.
+#
+#   1. ask          "(awaiting language choice)"   ← a placeholder the human overwrites
+#        |
+#   2. pick-language   gates: [human, conditional]
+#        |   PRE  human gate  -> run pauses; the human's approve-with-edits payload
+#        |                       replaces `ask`'s output (a NEW artifact version)
+#        |   generates        -> consumes human_choice, emits {"decision": ...}
+#        |   POST conditional -> routes on the line it just generated
+#        |
+#        |__ english ___> 3a. say-hello   "Hello, world!"
+#        |__ spanish ___> 3b. say-hola    "Hola, mundo!"
+#        |__ dutch   ___> 3c. say-hallo   "Hallo, wereld!"
+#
+# WHY IT IS SHAPED THIS WAY — the review gate has only three outcomes (engine.py
+# _run_review_gate): approve, reject, and approve-with-edits. Only the last carries the
+# human's text, and `_apply_declared_gate_edit` writes it to the PREVIOUS step's typed
+# artifact. So a human cannot hand text forward directly; they can only overwrite the
+# artifact of the step being reviewed. `ask` exists to BE that artifact — a slot whose
+# placeholder the human replaces. The edit lands as a new ref version and
+# `_latest_typed_content` serves it to downstream consumers (ART-03), so
+# `consumes: [human_choice]` is what carries the human's words forward.
+#
+# NOTE both gates sit on ONE step on purpose: `human` is a PRE-step gate and
+# `conditional` is POST-step (`_POST_STEP_GATES`), and `_evaluate_gates` filters by
+# phase — so they fire on opposite sides of the same generation without interfering.
+#
+# `condition_agent` is deliberately ABSENT. An earlier draft pointed it at the human
+# gate's own step, which cannot work: that step's output is model prose, not the JSON
+# the gate parses, so the gate failed closed to GATE_BLOCK on every run. Here
+# pick-language judges its OWN output, exactly like ex_A1_loop's `check`.
+#
+# ORDERING: every step after `ask` declares `depends_on` explicitly. `consumes` gives the
+# resolver a REAL dag edge (ask -> pick-language, artifact_type human_choice), and it then
+# re-sorts the manifest — the three branch steps have no edges of their own, so on the
+# first run they floated AHEAD of pick-language. Execution order came out
+# ask, say-hello, say-hola, say-hallo, pick-language; say-hello is a leaf, so the run
+# ended at step 2 and the human gate never fired. ex_A2_branch never hits this because it
+# declares no `consumes` and therefore has no edges at all. Per ADR-0004 a declared
+# depends_on overrides the inferred DAG where they disagree, so pinning the chain is the fix.
+#
+# Approve WITHOUT editing and the placeholder survives; pick-language then has no real
+# choice to read and the run ends at the gate with no matching outcome (there is no
+# default_next, by design — same as A2).
+
+id: ex_A4_human_gate
+user_launchable: true
+is_beta: false
+display_name: Ask a Human, Then Decide
+short_name: Human Gate
+icon: GitBranch
+description: Smallest example of a human choosing the branch at a review gate.
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  strategy: single_file
+  name: greeting.md
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 300
+
+steps:
+- agent: custom-agent
+  instance_id: ask
+  name: Ask For Language
+  produces: ["human_choice"]
+  prompt: 'Respond with exactly: "(awaiting language choice)"'
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: pick-language
+  name: Pick Language
+  produces: ["route_decision"]
+  consumes: ["human_choice"]
+  depends_on: ["custom-agent:ask"]
+  prompt: |
+    The human's language choice is shown above. Map it to one of three languages and reply with the JSON as your text answer — this must be your reply, not a file. Respond with exactly one line, no markdown, no code fences, no explanation. Use exactly one of:
+    {"decision": "english"}
+    {"decision": "spanish"}
+    {"decision": "dutch"}
+  gates:
+  # PRE-step: pauses before this step generates and reviews the PREVIOUS step's
+  # output, so the human's edit becomes THIS step's input. Spelled `human` until the
+  # HITL split; `human` now means the POST-step review of a step's OWN output, which
+  # is a different thing and would break this fixture.
+  - before-human
+  - conditional
+  route:
+    outcomes:
+      english: {trigger: step, target: say-hello}
+      spanish: {trigger: step, target: say-hola}
+      dutch:   {trigger: step, target: say-hallo}
+    # No default_next — an unrecognised choice terminates the run here.
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: say-hello
+  depends_on: ["custom-agent:pick-language"]
+  name: Say Hello
+  prompt: 'Respond with exactly: "Hello, world!"'
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: say-hola
+  depends_on: ["custom-agent:pick-language"]
+  name: Say Hola
+  prompt: 'Respond with exactly: "Hola, mundo!"'
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: say-hallo
+  depends_on: ["custom-agent:pick-language"]
+  name: Say Hallo
+  prompt: 'Respond with exactly: "Hallo, wereld!"'
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+name: Human Gate

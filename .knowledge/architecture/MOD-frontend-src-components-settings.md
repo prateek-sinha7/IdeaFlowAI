@@ -42,6 +42,10 @@ the user's "constitution" (standing instructions prepended to every agent run). 
   own success/error banner. The constitution tab is a nested `ConstitutionSection` component in the
   same file, calling `/api/settings/constitution` directly (GET/PUT/DELETE) rather than through
   `lib/api`.
+- **Section tab mirrors the URL (spec 015-frontend-routing)**: `SECTION_ROUTE` maps each `section`
+  value to its `routes.settings*()` URL (the reverse of what `parseViewPath` reads on cold mount);
+  a tab click now pushes that URL so the address bar tracks which section is open, not just a
+  fresh `/settings/{section}` navigation.
 
 ## Why this shape
 

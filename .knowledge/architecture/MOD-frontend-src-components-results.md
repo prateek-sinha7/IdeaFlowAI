@@ -72,6 +72,15 @@ tab components for reopened and in-flight runs.
   (`selectedAgentId`/`selectedTaskIndex` state) between `StepsOverviewSpine` (L1), `AgentDetailPanel`
   (L2), and `TaskDetailPanel` (L3). Fetches gate events itself (`getRunGateEvents`) to interleave
   "Review gate … approved" strips into the spine.
+- **Divert-link row (spec 014 conditional-gates adjacent)**: `AgentThinkingTab.tsx` also fetches and
+  renders a "Diverted to X →" / "← Continued from X" spine row — the same source/target
+  relationship `RevisionFamilyView`'s `DivertBadge` renders in Run History, surfaced here too so it
+  shows up wherever the handoff actually happened. No dedicated endpoint carries the forward
+  pointer (a diverting run's own record only has `diverted_at_step_id`), so the source direction is
+  a reverse search over a recent run batch; the target direction is cheap (`parentRunId` + the
+  parent's `status === "diverted"`). Keyed on both `runId` and the live `pipeline_diverted` marker
+  (not `runId` alone) so a divert that happens while the user is watching shows the row
+  immediately, not only after a reload remounts the component.
 - [StepsOverviewSpine.tsx](../../frontend/src/components/results/StepsOverviewSpine.tsx) — L1: a status line + segmented progress bar derived from live
   `pipelineState`/`agents`, the reused `ClarificationsCard`, an inline "Awaiting you" gate/clarify card
   (`InlineGateActions`/`InlineClarifyActions` borrowed from `components/chat`), and a compact per-agent

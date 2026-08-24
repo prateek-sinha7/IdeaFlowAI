@@ -76,6 +76,15 @@ execution screen. Nearly every other `components/*` page module is depended on b
 
   It consumes `useRunConnection` (SSE transport), `useNotifications`, and `SkillsHooksContext`.
 
+- **`mainView` vs the URL (spec 015-frontend-routing)**: `mainView` is set two ways — optimistically
+  by a click handler (e.g. `setMainView("input")` before `router.push`), and synced from
+  `[...view]/page.tsx`'s `initialMainViewFor(parsedView)` on cold mount/back-forward via a
+  `useEffect` that overwrites `mainView` whenever `initialMainView` is truthy and differs from the
+  current value. A route whose parsed screen maps to a DIFFERENT known `MainView` will stomp an
+  optimistic set made just before the `router.push` — `createRouteForType` exists specifically to
+  route dynamic-catalog pipeline types to a URL that avoids this (a bare fallback route parsed to a
+  truthy, wrong `MainView` and silently no-op'd the click).
+
 - `*.test.tsx` files cover accessibility (`AppHeader.a11y`) and layout-specific regression fixes
   (`catalogHome`, `fix194`, `laneTitle`, `launchLatch`).
 

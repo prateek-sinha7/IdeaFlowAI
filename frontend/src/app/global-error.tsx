@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { motion } from "motion/react";
 import { AlertCircle } from "lucide-react";
@@ -15,7 +15,6 @@ export default function GlobalErrorPage({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
@@ -86,7 +85,10 @@ export default function GlobalErrorPage({
 
                   <Button
                     variant="secondary"
-                    onClick={() => router.push(routes.home())}
+                    // Same reason as error.tsx: this boundary replaces the whole
+                    // <html>, so the app's router context may itself be broken —
+                    // a hard navigation is the only reliable way out.
+                    onClick={() => { window.location.href = routes.home(); }}
                     className="w-full py-3 text-[13px]"
                   >
                     Back to dashboard
@@ -94,7 +96,7 @@ export default function GlobalErrorPage({
 
                   <Button
                     variant="secondary"
-                    onClick={() => router.push(routes.login())}
+                    onClick={() => { window.location.href = routes.login(); }}
                     className="w-full py-3 text-[13px]"
                   >
                     Back to login

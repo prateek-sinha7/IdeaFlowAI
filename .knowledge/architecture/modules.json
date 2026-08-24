@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-21",
+  "generated_at": "2026-08-24",
   "modules": [
     {
       "id": "MOD-backend",
@@ -1064,6 +1064,7 @@
         "@testing-library/react",
         "lucide-react",
         "motion",
+        "next",
         "react",
         "vitest"
       ]
@@ -1119,6 +1120,7 @@
         "@testing-library/user-event",
         "lucide-react",
         "motion",
+        "next",
         "react",
         "vitest"
       ]

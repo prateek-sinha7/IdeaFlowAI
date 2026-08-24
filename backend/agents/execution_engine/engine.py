@@ -1040,21 +1040,38 @@ class ExecutionEngine:
         return fragments
 
     def _specs_from_plan(self, steps: list) -> list:
-        """Load each step's AgentSpec, overlaying the composer's display_name (FIX-266).
+        """Load each step's AgentSpec, overlaying the composer's display_name (FIX-266)
+        and the step's declared ``produces``/``consumes`` (R-29).
 
         The single source for rebuilding ``agents`` from a compiled plan's steps —
         used by execute() and both resume seams, which must agree or a resumed
         composed run reports every step under its template's name ("Custom Agent").
+
+        R-29 — why produces/consumes must be overlaid here: a composed step's runtime
+        spec is ``replace(base_spec, id="custom-agent:<instance_id>")`` (loader.py), so
+        it inherits the produces/consumes of ``agents/prompts/custom-agent/AGENT.md``,
+        which declares NEITHER. ``_filter_consumed_outputs`` reads those fields off the
+        objects in ``ordered_agents`` — these specs, not the compiled Steps — so without
+        this overlay a manifest's declaration is silently inert and every composed step
+        gets ``context_sources: []``. That is observable as a judging step being shown
+        only the brief and asked to assess an output it was never given.
         """
         import dataclasses
 
         from agents.loader import load_agent_spec
 
-        return [
-            dataclasses.replace(load_agent_spec(s.agent_id), name=s.display_name)
-            if getattr(s, "display_name", "") else load_agent_spec(s.agent_id)
-            for s in steps
-        ]
+        specs = []
+        for s in steps:
+            overlay: dict = {}
+            if getattr(s, "display_name", ""):
+                overlay["name"] = s.display_name
+            if getattr(s, "produces", None):
+                overlay["produces"] = list(s.produces)
+            if getattr(s, "consumes", None):
+                overlay["consumes"] = list(s.consumes)
+            base = load_agent_spec(s.agent_id)
+            specs.append(dataclasses.replace(base, **overlay) if overlay else base)
+        return specs
 
     async def execute(
         self,
@@ -2937,6 +2954,15 @@ class ExecutionEngine:
                         _route_target = (
                             _gdetail.get("target") if isinstance(_gdetail, dict) else None
                         )
+                        # R-28 feedback travels with EITHER trigger type: the step arm
+                        # stashes it in pending_route_feedback for the re-dispatched
+                        # target (a loop-back rebuilds its context from scratch, so
+                        # without this the retry is byte-identical to the first pass);
+                        # the workflow arm below hands it to the child run as its
+                        # user message, which is otherwise empty.
+                        _route_feedback = (
+                            _gdetail.get("feedback") if isinstance(_gdetail, dict) else None
+                        )
                         if _route_trigger == "step":
                             # Resolve the target step's index in ordered_agents and
                             # jump the cursor directly to it — forward or backward,
@@ -2997,7 +3023,22 @@ class ExecutionEngine:
                                         if _step_route is not None
                                         else 5
                                     )
-                                    _visits = ectx.step_visit_counts.get(_route_target, 0)
+                                    # ── [R-08 fix] key on the COMPOSED id ──────
+                                    # This counter was WRITTEN under the authored
+                                    # target ("greet") but every other reader looks it
+                                    # up by ``spec.id`` ("custom-agent:greet") — see
+                                    # the gate_key folds at ~4270/~4392, the completion
+                                    # record at ~5431 and the failed-invocation triple
+                                    # at ~4012. All three therefore read 0 forever on a
+                                    # composed step, silently disarming R-08: a
+                                    # loop-re-entered human gate reused pass 1's
+                                    # gate_key, and a pass-2 completion masked a pass-1
+                                    # failure. Only the cap worked, because it read with
+                                    # the same bare key it wrote. Resolve once, here, to
+                                    # the form everyone else uses. The BudgetExceeded
+                                    # message still names the author-facing target.
+                                    _visit_key = ordered_agents[_route_index].id
+                                    _visits = ectx.step_visit_counts.get(_visit_key, 0)
                                     if _visits >= _loop_max:
                                         raise BudgetExceeded(
                                             "loop_iterations",
@@ -3006,7 +3047,45 @@ class ExecutionEngine:
                                             f"exceeding loop_max_iterations="
                                             f"{_loop_max} (R-07)",
                                         )
-                                    ectx.step_visit_counts[_route_target] = _visits + 1
+                                    ectx.step_visit_counts[_visit_key] = _visits + 1
+                                    # ── [R-28] Retry feedback for the loop target ──
+                                    # A loop-back re-dispatches its target with context
+                                    # rebuilt from scratch: same brief, no upstream
+                                    # outputs (_filter_consumed_outputs stops at the
+                                    # current step, so a loop target can NEVER consume
+                                    # its own downstream judge's verdict). Same input →
+                                    # same output → same decision, so before this the
+                                    # loop could only ever run to loop_max_iterations
+                                    # and fail closed. Observed live: the A1 fixture's
+                                    # `greet` emitted a byte-identical 12-char answer on
+                                    # passes 2, 3 and 4.
+                                    #
+                                    # Stash the reason here (BACKWARD jumps only — a
+                                    # forward branch target is being reached for the
+                                    # first time and has nothing to be told). The block
+                                    # is composed and consumed in
+                                    # _compose_context_message, then cleared, so it is
+                                    # delivered exactly once per jump.
+                                    _fb_store = getattr(
+                                        ectx, "pending_route_feedback", None
+                                    )
+                                    if _fb_store is None:
+                                        _fb_store = {}
+                                        ectx.pending_route_feedback = _fb_store
+                                    _fb_store[ordered_agents[_route_index].id] = {
+                                        "from_step": step.id,
+                                        "decision": (
+                                            _gdetail.get("decision")
+                                            if isinstance(_gdetail, dict) else None
+                                        ),
+                                        "from_output": getattr(ectx, "last_streamed", None),
+                                        "pass_number": _visits + 2,
+                                        "max_passes": _loop_max + 1,
+                                        "authored": (
+                                            _gdetail.get("feedback")
+                                            if isinstance(_gdetail, dict) else None
+                                        ),
+                                    }
                                 cursor = _route_index
                                 _routed = True
                                 # ── [spec 014 follow-up] explicit skip signal ──────
@@ -3040,11 +3119,22 @@ class ExecutionEngine:
                                         )
                                     if _sib_index is None:
                                         continue
-                                    _skipped_ids.append(ordered_agents[_sib_index].id)
+                                    _sib_id = ordered_agents[_sib_index].id
+                                    # Report a sibling ONLY if it never ran. A forward
+                                    # branch target (say-hola in ex_A2_branch) is
+                                    # genuinely skipped. A BACKWARD/loop target already
+                                    # executed on every earlier pass, so calling it
+                                    # "skipped" contradicts its own agent_complete
+                                    # events — the UI honours the last lifecycle signal
+                                    # and rendered a step that ran twice as Skipped,
+                                    # under-reporting the run as 3/4 agents.
+                                    if any(r.get("agent_id") == _sib_id for r in results):
+                                        continue
+                                    _skipped_ids.append(_sib_id)
                                     yield {
                                         "type": "agent_skipped",
                                         "data": {
-                                            "agent_id": ordered_agents[_sib_index].id,
+                                            "agent_id": _sib_id,
                                             "step": step.id,
                                             "gate": "conditional",
                                             "reason": (
@@ -3071,7 +3161,8 @@ class ExecutionEngine:
                             )
                             _diverted_to_run_id, _diverted_to_workflow = (
                                 await ectx.runner.run_trigger_workflow(
-                                    step, ectx, workflow_ref=_route_target
+                                    step, ectx, workflow_ref=_route_target,
+                                    content=_route_feedback or "",
                                 )
                             )
                             # R-14: the SAME state_machine.transition mechanism
@@ -3151,7 +3242,7 @@ class ExecutionEngine:
                 # ``step.is_leaf`` (R-26, compiler._compute_is_leaf) is True iff nothing
                 # in the compiled graph legitimately continues from this step — but a
                 # leaf step is not always array-LAST: a forward branch's target (e.g.
-                # ``say-hello`` in sample_conditional_branch_new) is a leaf sitting
+                # ``say-hello`` in ex_A2_branch) is a leaf sitting
                 # BEFORE the other branch's target in array order. A bare ``cursor += 1``
                 # here walked straight into that other branch's exclusive target — the
                 # T25 mutual-exclusivity failure. Advancing all the way past
@@ -4443,8 +4534,17 @@ class ExecutionEngine:
 
             yield {
                 "type": "agent_start",
+                # ``visit_count`` (R-08) is emitted ONLY when non-zero: a first dispatch
+                # omits the key entirely, so every non-looping workflow yields a
+                # byte-identical event and the 5 characterization goldens — which pin
+                # agent_start's exact key set — stay valid with no regeneration. It
+                # appears only on a RE-dispatch, which is the only time it carries
+                # information. Without it two passes of the same step are
+                # indistinguishable on the wire and a loop is invisible in the UI.
                 "data": {"agent_id": spec.id, "name": spec.name, "role": spec.role,
-                         "icon": spec.icon, "index": index, "total": len(ordered_agents)},
+                         "icon": spec.icon, "index": index, "total": len(ordered_agents),
+                         **({"visit_count": _vc}
+                            if (_vc := ectx.step_visit_counts.get(spec.id, 0)) else {})},
             }
             _log_event("agent_start", pipeline_run_id, agent_id=spec.id)
             RunLog(getattr(sandbox, "root", None)).write("step_start", agent_id=spec.id)
@@ -5383,8 +5483,14 @@ class ExecutionEngine:
                 )
                 yield {
                     "type": "agent_complete",
+                    # ``visit_count`` mirrors agent_start's (R-08) — same non-zero-only
+                    # rule, so a first dispatch stays byte-identical and the goldens
+                    # hold. Emitted on BOTH ends so a client can pair start/complete per
+                    # pass instead of collapsing repeats onto one row.
                     "data": {"agent_id": spec.id, "name": spec.name, "duration": round(duration, 2),
                              "output_length": len(output), "index": index, "total": len(ordered_agents),
+                             **({"visit_count": _vc_done}
+                                if (_vc_done := ectx.step_visit_counts.get(spec.id, 0)) else {}),
                              "input_tokens": agent_input_tokens, "output_tokens": agent_output_tokens,
                              "total_tokens": agent_total_tokens,
                              # CWF-002 (fix a): the per-agent RESOLVED primary model id (captured
@@ -5983,13 +6089,22 @@ class ExecutionEngine:
     # step's own agent has run. Evaluating it pre-step always finds no content, so
     # every match fails closed to gate_blocked and the routing cursor jump (T14)
     # never fires.
-    _POST_STEP_GATES = frozenset({"validation", "conditional"})
+    # ``human`` is POST-step: it reviews the step's OWN output and supports redo —
+    # the behaviour every shipping pipeline already gets from the inline
+    # ``_should_gate``/``AGENT.md gate: Human_Gate`` path, and what an author
+    # reasonably expects from `gates: [human]`. The PRE-step variant (review the
+    # PREVIOUS step's output, the edit becomes this step's input) is now spelled
+    # ``before-human`` so the two are distinguishable in a manifest. Previously both
+    # were spelled ``human`` and which one ran depended on whether the step's AGENT
+    # had an ``AGENT.md`` gate flag — invisible from the manifest, and the reason
+    # prototype's three `gates: [human]` declarations were silently dead lines.
+    _POST_STEP_GATES = frozenset({"validation", "conditional", "human"})
 
     # WR-03 (13 review fix): gates whose ``block`` outcome is an EXPLICIT human
     # rejection (the user clicked Reject at the HITL pause) — run-cancellation
     # parity with the inline _run_review_gate path, not a mere step skip.
     # Gate-capability names, not workflow/agent names (SC-001).
-    _HITL_GATES = frozenset({"human", "approval"})
+    _HITL_GATES = frozenset({"human", "before-human", "approval"})
 
     # WR-07 (13 review fix): gates that FAIL CLOSED. A raised exception in a
     # validation-class gate degrades to pass (a gate failure must never abort a
@@ -5997,7 +6112,10 @@ class ExecutionEngine:
     # execute WITHOUT the required sign-off — inverting the control's purpose.
     # An exception in these maps to ``block`` (the step is skipped, the run
     # continues). Gate-capability names, not workflow/agent names (SC-001).
-    _FAIL_CLOSED_GATES = frozenset({"security", "approval", "human"})
+    # ``before-human`` belongs here for the same reason ``human`` does: an exception
+    # in a HITL control must BLOCK, never degrade to pass — swallowing it would let a
+    # step execute without the sign-off the control exists to require.
+    _FAIL_CLOSED_GATES = frozenset({"security", "approval", "human", "before-human"})
 
     async def _evaluate_gates(
         self,
@@ -6059,7 +6177,21 @@ class ExecutionEngine:
             # even when the user deselected all gates in the wizard, because
             # _should_gate returns False → inline_gated=False → the dedupe only
             # fires on the inline path, not on the user-deselect path.
-            if name == "human" and phase == "pre" and (
+            # Applies to BOTH declared HITL names. The `phase == "pre"` guard this
+            # replaced was correct only while `human` was pre-step; now that `human`
+            # is POST-step the guard would never match it, and prototype's three
+            # `gates: [human]` declarations — live for the first time — would fire
+            # ALONGSIDE the inline gate on the same agent and double-prompt.
+            # `_evaluate_gates` has already filtered by phase before this point, so
+            # whichever name arrives here is in its own phase and needs the same
+            # treatment: the inline (output-bearing) gate wins, and a per-run
+            # deselection suppresses the declared gate entirely.
+            #
+            # It also protects `before-human`: gate_key is
+            # f"{run}:{agent_id}:{visit_count}" with no gate name in it, so a
+            # pre-step declared pause plus an inline post-step pause on the SAME
+            # step would collide on durable gate state.
+            if name in ("human", "before-human") and (
                 inline_gated
                 or (
                     ectx.gate_agent_ids is not None
@@ -10065,6 +10197,40 @@ class ExecutionEngine:
             effective_message = user_message
 
         parts = [f"=== ORIGINAL USER REQUEST ===\n{effective_message}\n=== END REQUEST ==="]
+
+        # ── [R-28] Retry feedback block ──────────────────────────────────────────
+        # Present only when a conditional gate jumped BACKWARD to this step (the
+        # dispatch loop stashed it in ``ectx.pending_route_feedback`` keyed by target
+        # id). Popped, so it is delivered exactly once per jump and a later pass never
+        # replays a stale reason. Sits directly under the brief because it is the most
+        # actionable thing this dispatch knows.
+        #
+        # Two halves: the AUTOMATIC part (which step sent it back, that step's decision
+        # and output, and which pass this is) is composed from data the kernel already
+        # holds, so every loop gets it with nothing authored; the AUTHORED part is the
+        # outcome's optional ``feedback:`` string. A workflow with no backward jump
+        # never populates the store, so the composed context is byte-identical to
+        # pre-R-28 for every existing manifest and golden fixture.
+        _fb_store = getattr(ectx, "pending_route_feedback", None) or {}
+        _fb = _fb_store.pop(getattr(spec, "id", None), None) if _fb_store else None
+        if _fb:
+            _fb_lines = [
+                f"=== RETRY — pass {_fb['pass_number']} of {_fb['max_passes']} ==="
+            ]
+            _fb_lines.append(
+                f"Step {_fb['from_step']!r} sent you back here"
+                + (f" with decision {_fb['decision']!r}." if _fb.get("decision") else ".")
+            )
+            if _fb.get("from_output"):
+                _fb_lines.append(f"That step's output was:\n{_fb['from_output']}")
+            if _fb.get("authored"):
+                _fb_lines.append(f"\nWhat to change:\n{_fb['authored']}")
+            _fb_lines.append(
+                "\nYour previous answer was rejected. Address the above and produce a "
+                "DIFFERENT answer — repeating it will fail again."
+            )
+            _fb_lines.append("=== END RETRY ===")
+            parts.append("\n".join(_fb_lines))
 
         # A composed step carries its own authored prompt; when no planner actually ran the
         # "Planning Context" block is a verbatim echo of the brief above, so suppress it.

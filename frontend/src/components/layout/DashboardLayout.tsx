@@ -305,6 +305,16 @@ export interface DashboardLayoutProps {
    * (e.g. `/create/ppt`), which fall back to the existing default logic.
    */
   initialMainView?: MainView;
+  /** Cold-load only: the pipeline_type from a generic `/create/{type}` URL, so a
+   *  typed/refreshed/shared link opens the launch panel on the RIGHT workflow.
+   *  Undefined on the click path, which sets workflowType directly before pushing. */
+  initialWorkflowType?: string;
+  /** Set when the canvas is showing a BUILT-IN workflow (`/workflows/{type}/canvas`).
+   *  Its manifest is a file on disk with no WorkflowDefinition row behind it, so the
+   *  composer runs copy-only: Run works on your edits, Save creates a NEW workflow you
+   *  own instead of overwriting anything. Undefined for a saved workflow, whose Save
+   *  legitimately overwrites its own row. */
+  builtinCanvasType?: string;
   /**
    * T8 (015-frontend-routing, FR-011): a saved workflow's composition,
    * fetched by page.tsx on a cold mount of `/workflows/{id}/edit`. Seeds
@@ -350,7 +360,18 @@ const COMPOSER_ENABLED_TYPES = new Set<WorkflowType>([
 function createRouteForType(type: WorkflowType): string {
   if (type === "app_builder") return routes.createApp();
   if (type === "user_stories") return routes.createUserStories();
-  return routes.create();
+  // Every other type has no dedicated URL segment in the contract. A bare
+  // routes.create() ("/create") parses back to screen "create" -> mainView
+  // "home" (page.tsx's initialMainViewFor), which the URL-sync effect there
+  // then uses to STOMP the optimistic setMainView("input") above back to
+  // "home" — silently bouncing the click for any dynamic catalog id (a
+  // conditional-gate sample pipeline, any future non-hardcoded type) with no
+  // error at all. A per-type path parses as its own "create-workflow" screen
+  // instead (routes.ts's parseViewPath), which initialMainViewFor maps
+  // straight to "input" — no stomp, and it carries the pipelineType so a
+  // cold load of the same URL (typed, refreshed, shared) resolves the same
+  // launch panel too, not just the optimistic in-app click.
+  return `/create/${encodeURIComponent(type)}`;
 }
 
 // T9 (015-frontend-routing): the header's free-navigation targets, matched to
@@ -434,6 +455,8 @@ export function DashboardLayout({
   onRequestOpenTab,
   deepLinkTarget,
   initialMainView,
+  initialWorkflowType,
+  builtinCanvasType,
   initialSavedComposition,
   initialSettingsSection,
 }: DashboardLayoutProps) {
@@ -493,6 +516,10 @@ export function DashboardLayout({
     }
   }, [initialMainView, mainView]);
   const [workflowType, setWorkflowType] = useState<WorkflowType>(() => {
+    // A cold-loaded /create/{type} URL wins: without this the panel silently
+    // opened on the "user_stories" default below, so a shared or refreshed link
+    // launched the WRONG workflow rather than the one the URL named.
+    if (initialWorkflowType) return initialWorkflowType as WorkflowType;
     if (typeof window !== "undefined") {
       if (sessionStorage.getItem("prototype.pending")) return "prototype";
       if (sessionStorage.getItem("ppt.pending")) return "ppt";
@@ -1331,6 +1358,7 @@ export function DashboardLayout({
     }
   }, [initialSavedComposition]);
 
+
   // Fused Home (SHELL-02 SC-1) — the launcher-brief captured on the home landing,
   // and the pending brief handed to the input view for the generic launch path.
   const [homeBrief, setHomeBrief] = useState("");
@@ -1346,6 +1374,40 @@ export function DashboardLayout({
     setMainView(COMPOSER_ENABLED_TYPES.has(type) ? "composer" : "input");
     router.push(COMPOSER_ENABLED_TYPES.has(type) ? routes.workflowNew() : createRouteForType(type));
   }, [router]);
+
+  // "Open in full canvas" (AgentsPopup header -> IdeaInputPage -> here): take the
+  // composition the launch panel is holding RIGHT NOW — including any edits made in
+  // the Advanced modal that were never saved anywhere — and reopen it in the
+  // full-page Composer. The modal already renders composer/CanvasView, so this is the
+  // same canvas at full size, not a second surface.
+  //
+  // No `id` is carried on purpose. A built-in pipeline is a workflow.yaml on disk with
+  // no WorkflowDefinition row, so there is nothing to PATCH; the Composer's Save must
+  // POST a NEW saved workflow owned by the user. Passing an id here would make Save
+  // try to overwrite a row that does not exist. Editing a genuinely saved workflow
+  // keeps its id via the savedComposition already in state.
+  // "Open in full canvas". NAVIGATION ONLY — deliberately no state and no
+  // sessionStorage handoff.
+  //
+  // Both existed before `/workflows/{type}/canvas` did, to carry the composition
+  // across the remount that happens when page.tsx briefly renders null. The URL now
+  // carries the workflow's identity and the composer refetches its manifest on mount,
+  // so neither is needed — and both caused a worse bug than they solved: going BACK
+  // from the canvas left `savedComposition` applied to the launch panel, whose
+  // `initialAgentIds` restore resolves ids against ALL_LIBRARY_AGENTS. A composed
+  // step (`custom-agent:emoji`) has no library entry, so every id was dropped and the
+  // panel showed "0 agents" — and the sessionStorage copy made it survive a refresh.
+  //
+  // Trade-off, accepted: unsaved edits made inside the Advanced modal do not travel to
+  // the full canvas; it opens the workflow as authored. Carrying them needs a channel
+  // that is scoped to the composer screen rather than read by whatever mounts next.
+  const handleOpenInCanvas = useCallback(() => {
+    const canvasType = workflowType && !COMPOSER_ENABLED_TYPES.has(workflowType)
+      ? workflowType
+      : undefined;
+    setMainView("composer");
+    router.push(canvasType ? routes.workflowCanvas(canvasType) : routes.workflowNew());
+  }, [router, workflowType]);
 
   // Fused Home launcher: carry the typed brief into the input view, then reuse the
   // existing home→input seam. Wizard-routed types (prototype/ppt/requiresWizard) are
@@ -1564,18 +1626,24 @@ export function DashboardLayout({
     if (!isPipelineRunning && onResetPipeline) onResetPipeline();
   }, [onResetPipeline, isPipelineRunning, router]);
 
-  // "Edit brief & run again" — navigate to the input view so the user can
-  // modify their brief and start a fresh run (does NOT resume from checkpoint).
-  // Pre-fills the brief from submittedBrief when available so the user can edit
-  // rather than retype from scratch. Resets pipeline state so the input page
-  // starts clean (no stale failed-run overlay).
-  const handleEditBrief = useCallback(() => {
-    if (!isPipelineRunning && onResetPipeline) onResetPipeline();
-    setResumeError(null);
+  // In-app "Back" buttons: go back one history step (T9's initialMainView
+  // re-sync effect above picks up the URL change) instead of always jumping
+  // home, so Back returns to wherever the user actually came from. Falls back
+  // to handleGoHome only when there's no prior in-app entry to go back to
+  // (e.g. a direct/shared URL landed straight on this screen).
+  const handleBackNav = useCallback(() => {
     setQuestionnaireQuestions([]);
-    setMainView("input");
-    router.push(createRouteForType(workflowType));
-  }, [isPipelineRunning, onResetPipeline, workflowType, router]);
+    setQuestionnaireLoading(false);
+    setPendingPipelineRun(null);
+    if (!isPipelineRunning && onResetPipeline) onResetPipeline();
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+    } else {
+      setMainView("home");
+      router.push(routes.home());
+    }
+  }, [onResetPipeline, isPipelineRunning, router]);
+
 
   // Chain to another pipeline using previous output as context
   const handleChainPipeline = useCallback(async (nextType: WorkflowType) => {
@@ -2004,6 +2072,24 @@ export function DashboardLayout({
       ? recentRuns?.find((r) => r.id === contentSourceRunId)?.type
       : undefined);
   const effectiveReviseType = viewedRunType ?? workflowType;
+
+  // "Edit brief & run again" — navigate to the input view so the user can
+  // modify their brief and start a fresh run (does NOT resume from checkpoint).
+  // Pre-fills the brief from submittedBrief when available so the user can edit
+  // rather than retype from scratch. Resets pipeline state so the input page
+  // starts clean (no stale failed-run overlay).
+  // FIX-216c-adjacent: use effectiveReviseType (the VIEWED run's own type), not
+  // the bare workflowType state — same staleness handleChainPipeline already
+  // guards against (workflowType can still be a previous run's type when
+  // viewing a history-reopened run of a different type).
+  const handleEditBrief = useCallback(() => {
+    if (!isPipelineRunning && onResetPipeline) onResetPipeline();
+    setResumeError(null);
+    setQuestionnaireQuestions([]);
+    setMainView("input");
+    router.push(createRouteForType(effectiveReviseType));
+  }, [isPipelineRunning, onResetPipeline, effectiveReviseType, router]);
+
   const activeReviseHandler =
     (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision") ? handleRevisePpt :
     (effectiveReviseType === "user_stories" || effectiveReviseType === "user_stories_revision") ? handleReviseUserStory :
@@ -2561,7 +2647,7 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <WorkflowHistory onBack={handleGoHome} onChainPipeline={handleChainFromHistory}
+              <WorkflowHistory onBack={handleBackNav} onChainPipeline={handleChainFromHistory}
             recentRuns={recentRuns}
             activeRunId={pipelineState?.pipelineRunId ?? null}
             onViewRunningPipeline={() => {
@@ -2631,7 +2717,7 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <AccountSettings initialSection={initialSettingsSection} onBack={handleGoHome} />
+              <AccountSettings initialSection={initialSettingsSection} onBack={handleBackNav} />
             </motion.div>
           )}
 
@@ -2645,7 +2731,7 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <AnalyticsPage onBack={handleGoHome} />
+              <AnalyticsPage onBack={handleBackNav} />
             </motion.div>
           )}
 
@@ -2675,7 +2761,7 @@ export function DashboardLayout({
             >
               <IdeaInputPage
                 workflowType={workflowType}
-                onBack={handleGoHome}
+                onBack={handleBackNav}
                 onRun={handleRunPipeline}
                 initialAgentIds={savedComposition?.agentIds}
                 initialModelOverrides={savedComposition?.modelOverrides}
@@ -2690,6 +2776,7 @@ export function DashboardLayout({
                 // handleLaunchSaved). Unknown ids (e.g. `custom`/`migration` meta) 404
                 // server-side and the strip simply does not render.
                 workflowId={workflowType}
+                onOpenInCanvas={handleOpenInCanvas}
               />
             </motion.div>
           )}
@@ -2727,7 +2814,7 @@ export function DashboardLayout({
                 // mid-edit.
                 key={savedComposition?.id ?? "new"}
                 workflowType={workflowType}
-                onBack={handleGoHome}
+                onBack={handleBackNav}
                 // 41-06 (D-05 / D-CMP-RUN) — Run-once launches the composed workflow
                 // through the EXISTING onStartPipeline → startPipeline seam, mirroring
                 // the revision launch sites (reset → onStartPipeline with the SAME arg
@@ -2749,6 +2836,7 @@ export function DashboardLayout({
                 // IdeaInputPage (which doesn't even use it) instead of here,
                 // silently dropping the whole sub-agent tree on every reload.
                 initialManifestSteps={savedComposition?.manifestSteps}
+                builtinCanvasType={builtinCanvasType}
                 initialSelections={
                   savedComposition?.selections
                     ? (Object.fromEntries(

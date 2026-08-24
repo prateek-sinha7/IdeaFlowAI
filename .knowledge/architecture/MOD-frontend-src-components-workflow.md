@@ -7,6 +7,8 @@ path: frontend/src/components/workflow
 language: typescript
 file_count: 57
 code_signature: 266b15b32c28
+prose_symbols_signature: da39a3ee5e6b
+prose_signature: 266b15b32c28
 last_synced: '2026-08-21'
 ---
 
@@ -119,7 +121,9 @@ Three parallel entry surfaces, all pipeline-agnostic (keyed on generic
   `SelectionsMap`/`StepSelection`, both types re-exported from [AgentsPopup.tsx](../../frontend/src/components/workflow/AgentsPopup.tsx)) and renders it
   two ways via a Simple/Canvas toggle: a linear [composer/AgentRow.tsx](../../frontend/src/components/workflow/composer/AgentRow.tsx) list (Simple) or
   [composer/CanvasView.tsx](../../frontend/src/components/workflow/composer/CanvasView.tsx) + [composer/CanvasNode.tsx](../../frontend/src/components/workflow/composer/CanvasNode.tsx) + [composer/CanvasConfigRail.tsx](../../frontend/src/components/workflow/composer/CanvasConfigRail.tsx) (a
-  hand-laid-out SVG node graph, Canvas). [composer/IdentityCard.tsx](../../frontend/src/components/workflow/composer/IdentityCard.tsx) and [composer/SummaryRail.tsx](../../frontend/src/components/workflow/composer/SummaryRail.tsx)
+  hand-laid-out SVG node graph, Canvas), with [composer/WorkflowPickerModal.tsx](../../frontend/src/components/workflow/composer/WorkflowPickerModal.tsx)
+  as the picker for a conditional outcome that diverts into another workflow.
+  [composer/IdentityCard.tsx](../../frontend/src/components/workflow/composer/IdentityCard.tsx) and [composer/SummaryRail.tsx](../../frontend/src/components/workflow/composer/SummaryRail.tsx)
   are read/edit surfaces over the same state. Save goes through `createUserWorkflow`; Run-once
   reuses the existing `onStartPipeline` seam via `resolveDispatchType` imported from
   [IdeaInputPage.tsx](../../frontend/src/components/workflow/IdeaInputPage.tsx) (no parallel dispatch path).

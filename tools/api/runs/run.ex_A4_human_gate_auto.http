@@ -1,0 +1,219 @@
+### Conditional Gate — a HUMAN picks the branch, ANSWERED AUTOMATICALLY (spec 014 A4)
+#
+# The headless twin of run.ex_A4_human_gate.http. Identical fixture; this one answers
+# the gate itself via POST /api/runs/{id}/gate with action=approve + edited_content, so
+# A4 stays a regression test rather than something only a human can run.
+#
+# The interactive runner is the one to use when YOU want to choose — this one always
+# says "spanish".
+#
+# Sequence: stream until review_gate_ready -> close the stream and capture gate_key ->
+# POST the gate -> re-attach and stream to completion. Re-attaching is safe because the
+# SSE endpoint is a durable REPLAY (run_stream.py), so nothing emitted between the two
+# subscriptions is lost.
+#
+# Run with: ./run-http.sh ex_A4_human_gate_auto
+
+### 1. Login
+POST {{apiRoot}}/api/auth/login
+Content-Type: application/json
+
+{
+	"email": "{{loginEmail}}",
+	"password": "{{loginPassword}}"
+}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	exports.jwt = response.parsedBody.token;
+	apiLine('POST /api/auth/login -> ' + response.statusCode + ' ' + response.parsedBody.user.email);
+}}
+
+### 2. Launch. No agent_ids (see the other ex_* runners for why).
+{{
+	const payload = { pipeline_type: "ex_A4_human_gate", message: "Greet me" };
+	exports.launchBody = JSON.stringify(payload);
+}}
+POST {{apiRoot}}/api/runs
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{{launchBody}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	if (response.statusCode >= 400) {
+		apiLine('FAILED: ' + JSON.stringify(response.parsedBody), 'error');
+	} else {
+		exports.runId = response.parsedBody.run_id;
+		apiLine('POST /api/runs -> ' + response.statusCode + ' run=' + exports.runId);
+	}
+}}
+
+### 3. Stream until the gate opens, then stop and capture gate_key
+SSE {{apiRoot}}/api/runs/{{runId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	const apiLine = require('./lib/api-line.js');
+	await new Promise((resolve) => {
+		let done = false;
+		const finish = () => { if (!done) { done = true; resolve(); } };
+		$requestClient.addEventListener('message', (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') { finish(); return; }
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
+			if (!data) return;
+			const d = data.data || {};
+			if (data.type === 'agent_start') apiLine('agent_start: ' + d.agent_id);
+			else if (data.type === 'review_gate_ready') {
+				apiLine('review_gate_ready: showing "' + String(d.output || '').trim() + '"');
+				exports.gateKey = d.gate_key;
+				finish();
+			}
+			else if (['pipeline_complete','pipeline_failed','pipeline_cancelled','budget_aborted','error'].includes(data.type)) {
+				apiLine('✗ run ended without opening the human gate: ' + data.type, 'error');
+				finish();
+			}
+		});
+		$requestClient.addEventListener('disconnect', finish);
+		$requestClient.addEventListener('error', finish);
+		setTimeout(finish, 5 * 60 * 1000);
+	});
+}}
+
+### 4. Answer the gate — approve WITH EDITS, which is the only outcome carrying text
+POST {{apiRoot}}/api/runs/{{runId}}/gate
+Authorization: Bearer {{jwt}}
+Content-Type: application/json
+
+{
+	"gate_key": "{{gateKey}}",
+	"action": "approve",
+	"edited_content": "spanish"
+}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	if (response.statusCode >= 400) apiLine('✗ gate POST failed: ' + JSON.stringify(response.parsedBody), 'error');
+	else apiLine('✓ gate answered with edited_content="spanish"');
+}}
+
+### 5. Re-attach and stream to completion (durable replay — nothing is missed)
+SSE {{apiRoot}}/api/runs/{{runId}}/events/stream
+Authorization: Bearer {{jwt}}
+Event: message
+
+{{@streaming
+	const apiLine = require('./lib/api-line.js');
+	await new Promise((resolve) => {
+		let done = false;
+		const finish = () => { if (!done) { done = true; resolve(); } };
+		$requestClient.addEventListener('message', (evt) => {
+			const [name, msg] = evt.detail;
+			if (name === 'error') { finish(); return; }
+			let data; try { data = JSON.parse(msg.body); } catch { data = null; }
+			if (!data) return;
+			const d = data.data || {};
+			if (data.type === 'agent_complete') apiLine('agent_complete: ' + d.agent_id);
+			else if (data.type === 'pipeline_complete') { apiLine('pipeline_complete reached'); finish(); }
+			else if (['pipeline_failed','pipeline_cancelled','budget_aborted','error'].includes(data.type)) { apiLine(data.type, 'error'); finish(); }
+		});
+		$requestClient.addEventListener('disconnect', finish);
+		$requestClient.addEventListener('error', finish);
+		setTimeout(finish, 5 * 60 * 1000);
+	});
+}}
+
+### 6. Assertions — this runner always answers "spanish"
+GET {{apiRoot}}/api/runs/{{runId}}/events
+Authorization: Bearer {{jwt}}
+
+{{
+	const apiLine = require('./lib/api-line.js');
+	const events = response.parsedBody.events || [];
+	const payloadOf = (e) => e.payload_json || e.data || {};
+	const isMine = (aid, id) => aid === id || (typeof aid === 'string' && aid.endsWith(':' + id));
+	const dispatches = (id) =>
+		events.filter(e => e.type === 'agent_start' && isMine(payloadOf(e).agent_id, id)).length;
+	const textOf = (id) => {
+		let buf = [], cap = false, out = null;
+		for (const e of events) {
+			const p = payloadOf(e), mine = isMine(p.agent_id, id);
+			if (e.type === 'agent_start' && mine) { cap = true; buf = []; }
+			else if (e.type === 'agent_chunk' && mine && cap) buf.push(p.chunk || '');
+			else if (e.type === 'agent_complete' && mine && cap) { cap = false; out = buf.join('').trim(); }
+		}
+		return out;
+	};
+
+	const BRANCHES = {
+		english: { id: 'say-hello', want: 'Hello, world!' },
+		spanish: { id: 'say-hola',  want: 'Hola, mundo!' },
+		dutch:   { id: 'say-hallo', want: 'Hallo, wereld!' },
+	};
+
+	// 1. The gate actually opened. Without this a green run could mean the gate never
+	//    fired at all (the inline_gated dedupe silently suppressing the declared gate
+	//    would look exactly like a clean pass).
+	if (events.some(e => e.type === 'review_gate_ready')) apiLine('✓ human gate opened');
+	else apiLine('✗ no review_gate_ready — the human gate never fired', 'error');
+
+	// 2. Which branch did the engine take?
+	const taken = Object.entries(BRANCHES).filter(([, b]) => dispatches(b.id) > 0);
+	const EXPECT = 'spanish';
+	if (taken.length !== 1) {
+		apiLine('✗ expected exactly one branch, got ' + taken.length + ' ' + JSON.stringify(taken.map(t => t[0])), 'error');
+	} else if (taken[0][0] !== EXPECT) {
+		apiLine('✗ wrong branch: expected ' + EXPECT + ', got ' + taken[0][0], 'error');
+	} else {
+		apiLine('✓ exactly one branch ran: ' + taken[0][0] + ' (' + taken[0][1].id + ')');
+	}
+
+	// 3. It must match what pick-language actually decided — the whole point of A4.
+	//    Read the decision from the step's own output rather than trusting the branch.
+	const decisionText = textOf('pick-language') || '';
+	let decided = null;
+	try { decided = JSON.parse(decisionText.trim()).decision; } catch { /* left null */ }
+	apiLine('pick-language decided: ' + JSON.stringify(decided) + '  (from "' + decisionText.slice(0, 60) + '")');
+	if (taken.length === 1 && decided && decided === taken[0][0]) {
+		apiLine('✓ branch matches the recorded decision');
+	} else if (taken.length === 1) {
+		apiLine('✗ branch ' + taken[0][0] + ' does not match decision ' + JSON.stringify(decided), 'error');
+	}
+
+	// 4. ask ran once; the two untaken branches are reported skipped.
+	if (dispatches('ask') === 1 && dispatches('pick-language') === 1) apiLine('✓ ask and pick-language each ran once');
+	else apiLine('✗ ask/pick-language dispatch counts wrong', 'error');
+
+	if (taken.length === 1) {
+		const skipped = events.filter(e => e.type === 'agent_skipped').map(e => payloadOf(e).agent_id);
+		const missing = Object.values(BRANCHES)
+			.filter(b => b.id !== taken[0][1].id)
+			.filter(b => !skipped.some(a => isMine(a, b.id)));
+		if (missing.length === 0) apiLine('✓ both untaken branches reported skipped');
+		else apiLine('✗ untaken branch(es) NOT reported skipped: ' + missing.map(b => b.id).join(', '), 'error');
+	}
+
+	// A blocked conditional gate does NOT halt the run (§8b: the terminate-on-block
+	// fix covered only the PRE-step loop), so the cursor just advances to the next
+	// step in sequence — which looks exactly like a correct forward branch and still
+	// reports pipeline_complete. Without this check a run where the gate never matched
+	// scored green: seen live when a model emitted
+	// '{"decision":"english"}Hello! How can I help you today?' and strict JSON parsing
+	// discarded it. If this fires, the branch below did NOT route — it fell through.
+	const blocked = events.filter(e => e.type === 'gate_blocked').map(e => payloadOf(e).step || '?');
+	if (blocked.length === 0) apiLine('✓ no gate_blocked — the conditional gate actually routed');
+	else apiLine('✗ conditional gate BLOCKED at ' + blocked.join(', ') + ' — the run fell through instead of routing', 'error');
+
+	// 5. Terminal + the chosen branch's exact line reached the output.
+	if (events.some(e => e.type === 'pipeline_complete')) apiLine('✓ pipeline_complete');
+	else apiLine('✗ pipeline_complete not found', 'error');
+
+	if (taken.length === 1) {
+		const got = textOf(taken[0][1].id) || '';
+		if (got.includes(taken[0][1].want)) apiLine('✓ branch output carries "' + taken[0][1].want + '"');
+		else apiLine('✗ branch output missing "' + taken[0][1].want + '" (got "' + got.slice(0, 60) + '")', 'error');
+	}
+}}

@@ -1304,7 +1304,7 @@ class KernelServices:
 
     # ── Cross-workflow trigger delegate (spec 014 / R-17, NEW) ──────────────────
     async def run_trigger_workflow(
-        self, step: Any, ectx: Any, *, workflow_ref: str
+        self, step: Any, ectx: Any, *, workflow_ref: str, content: str = ""
     ) -> tuple[str, str]:
         """Mint + spawn a NEW, independent ``WorkflowRun`` for a ``trigger: workflow``
         conditional-gate outcome (spec 014 R-12) and return ``(run_id,
@@ -1333,8 +1333,8 @@ class KernelServices:
             non-``"self"`` target as a SYNTACTIC reference (see
             ``compiler._validate_route_targets``) precisely because resolution
             happens HERE — and the checked-in A3 reference fixture
-            (``sample_conditional_launch_new`` → ``target:
-            sample_conditional_target``) names a file-backed workflow, not a DB
+            (``ex_A3_divert`` → ``target:
+            ex_A3_target``) names a file-backed workflow, not a DB
             row, so this branch is what makes that fixture divert at all.
             Membership in ``SUPPORTED_PIPELINE_TYPES`` (a disk-DERIVED closed set,
             ``agents/loader.py``) is the path-traversal guard: a target string
@@ -1365,6 +1365,13 @@ class KernelServices:
         passed to ``_launch_run_core`` and threaded down to the new run's
         ``ExecutionContext`` — a real chain therefore reaches 5 and fails closed
         on the 6th hop.
+
+        ``content`` (R-28) is the matched outcome's ``feedback`` string, forwarded as
+        the new run's user message. A triggered run is otherwise minted with ``""`` —
+        it inherits ``parent_run_id`` / owner / workspace / budget but NOT the parent's
+        message — so this is the ONLY channel by which a diverting parent hands its
+        child an instruction. Defaults to ``""``, which is byte-identical to the
+        previous unconditional ``content=""``.
 
         Mint (R-15/R-16): delegates to T27's extracted ``_launch_run_core`` — the
         SAME mint-and-spawn core the HTTP launch handler uses — with
@@ -1475,7 +1482,13 @@ class KernelServices:
         from app.api.run_commands import _launch_run_core
 
         result = await _launch_run_core(
-            content="",
+            # R-28: the diverting outcome's ``feedback`` string, threaded down as the
+            # child's user message. A triggered run is otherwise minted with content=""
+            # — it inherits parent_run_id/owner/workspace/budget but NOT the parent's
+            # message, so this is the only channel by which a parent hands the child an
+            # instruction. Empty string when the outcome declares no feedback, which is
+            # byte-identical to the previous unconditional content="".
+            content=content,
             pipeline_type=target_pipeline_type,
             agents=target_agents,
             compiled=target_compiled,

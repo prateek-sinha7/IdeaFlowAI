@@ -1,8 +1,10 @@
 import { useCallback } from "react";
 import { useAppSelector } from "@/store/hooks";
+import type { WorkflowSummary } from "@/lib/api";
 import {
   selectWorkflowLabelIndex,
   FALLBACK_WORKFLOW_LABELS,
+  selectWorkflowShortNameIndex,
   selectChainIntoIndex,
   type ChainTarget,
 } from "@/store/slices/globalSlice";
@@ -32,6 +34,38 @@ export function useWorkflowLabels(): (type: string) => string {
     (type: string) => index[type] ?? FALLBACK_WORKFLOW_LABELS[type] ?? type,
     [index],
   );
+}
+
+/**
+ * The whole catalog ROW for a pipeline type, not just one projected field.
+ *
+ * Sibling to the two resolvers above and reading the same live
+ * `state.global.workflows` slice, for callers that need more than a label —
+ * IdeaInputPage derives its page copy (tag/subtitle) from `display_name` +
+ * `description` when a type has no hand-written TYPE_CONFIG entry, which is
+ * what stops an unknown-but-launchable workflow from crashing the page.
+ *
+ * Returns `undefined` before the catalog has loaded, or for a type it does not
+ * carry — callers must have their own generic fallback.
+ */
+export function useWorkflowCatalogEntry(): (type: string) => WorkflowSummary | undefined {
+  const workflows = useAppSelector((state) => state.global.workflows);
+  return useCallback((type: string) => workflows.find((w) => w.id === type), [workflows]);
+}
+
+/**
+ * Reducer-backed workflow SHORT-name resolver — same catalog subscription as
+ * useWorkflowLabels, projecting short_name (falling back to name) instead of
+ * display_name. Returns `undefined` for a type the live catalog doesn't (yet)
+ * carry — deliberately no raw-type-string fallback here, so callers can tell
+ * "resolved" apart from "unresolved" and fall back to their own generic label.
+ *
+ * Call once per component (`const shortNameFor = useWorkflowShortNames();`)
+ * and use the returned function at every render-time call site.
+ */
+export function useWorkflowShortNames(): (type: string) => string | undefined {
+  const index = useAppSelector(selectWorkflowShortNameIndex);
+  return useCallback((type: string) => index[type], [index]);
 }
 
 /**

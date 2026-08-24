@@ -38,11 +38,13 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "dotnet_to_azure",
         # spec-014 conditional-gates integration: QA found these 5 were not
         # entitled to any tier despite user_launchable: true.
-        "sample_conditional_branch_new",
-        "sample_conditional_previous_step",
-        "sample_conditional_human_input",
-        "sample_conditional_launch_new",
-        "sample_conditional_target",
+        "ex_A2_branch",
+        "ex_A1_loop",
+        "ex_A4_human_gate",
+        "ex_A4_human_divert",
+        "ex_A3_divert",
+        "ex_A3_b_spanish",
+        "ex_A3_c_dutch",
     },
 }
 

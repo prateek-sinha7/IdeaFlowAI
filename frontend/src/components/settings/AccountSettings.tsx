@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
+import { routes } from "@/lib/routes";
 import {
   ArrowLeft, Eye, EyeOff, CheckCircle2, AlertCircle, Check, ShieldCheck, Info,
 } from "lucide-react";
@@ -51,7 +53,19 @@ function getBasePipelines(tier: Tier): string[] {
   return all.filter(p => !p.endsWith("_revision")).filter(p => PIPELINE_DISPLAY[p]);
 }
 
+// Same section->route mapping parseViewPath (routes.ts) reads on cold-mount,
+// in reverse — kept here since AccountSettings, unlike LibraryPage/AnalyticsPage,
+// previously had no router of its own, so a tab click never told the URL bar
+// which section it switched to (only a fresh /settings/{section} nav did).
+const SECTION_ROUTE: Record<SettingsSection, () => string> = {
+  profile: routes.settingsProfile,
+  model: routes.settingsAiModel,
+  limits: routes.settingsUsage,
+  constitution: routes.settingsConstitution,
+};
+
 export function AccountSettings({ onBack, initialSection }: AccountSettingsProps) {
+  const router = useRouter();
   const [section, setSection] = useState<SettingsSection>(initialSection ?? "profile");
   const [email, setEmail] = useState("");
   const [userTier, setUserTier] = useState<Tier>("basic");
@@ -186,7 +200,11 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
           <Tabs
             tabs={SECTION_TABS}
             active={section}
-            onChange={id => setSection(id as SettingsSection)}
+            onChange={id => {
+              const next = id as SettingsSection;
+              setSection(next);
+              router.replace(SECTION_ROUTE[next]());
+            }}
           />
         </div>
 

@@ -4,8 +4,7 @@
 B1–B4, 3 clarification rounds, 4 gaps closed as R-26/R-27 + 2 verified non-gaps)
 **Grounding**: [reports/conditional-gates.md](reports/conditional-gates.md) — file/line-level
 impact analysis
-**Reference fixtures**: `backend/agents/workflows/sample_conditional_{previous_step,branch_new,
-launch_new,target,human_input}/workflow.yaml` — checked in, `user_launchable: true`, currently
+**Reference fixtures**: `backend/agents/workflows/ex_{A1_loop,A2_branch,A3_divert,A3_target,A4_human_gate}/workflow.yaml` — checked in, `user_launchable: true`, currently
 fail to compile (this plan is what makes them compile and run)
 
 ---
@@ -158,7 +157,7 @@ per RISK-02's explicit recommendation.
    existing first.
 
 **Accept**: `_compile_route`/`_validate_route_targets`/`is_leaf` computation covered by unit
-tests using the five `sample_conditional_*` manifests as fixtures (they should now COMPILE,
+tests using the five `ex_A*` manifests as fixtures (they should now COMPILE,
 though not yet RUN — running needs Phase 3's engine change). AC-01, AC-02, AC-09 (compile-time
 half), AC-10 all pass at compiler level. `_validate_dag` regression test confirms zero drift.
 
@@ -286,8 +285,7 @@ isolate, since it touches a disjoint file set (`run_commands.py`, `kernel_servic
    regression test confirming this (a triggered run's spend IS visible in the parent
    workspace's aggregate), rather than a new mechanism.
 
-**Accept**: A3's reference fixture (`sample_conditional_launch_new` → `sample_conditional_
-target`) runs end-to-end for the first time — R1 ends `diverted`, R2 mints with correct
+**Accept**: A3's reference fixture (`ex_A3_divert` → `ex_A3_target`) runs end-to-end for the first time — R1 ends `diverted`, R2 mints with correct
 `parent_run_id`/owner/workspace, `pipeline_diverted` fires on R1's stream before it closes.
 AC-05, AC-06, AC-11 pass. RISK-03's `TERMINAL_STATES` audit is complete and documented (list of
 every call site checked, not just "should be fine").
@@ -360,7 +358,7 @@ just hand-written YAML.
 | `frontend/src/components/workflow/composer/CanvasView.tsx` | 5 | graph layout conversion; connect-to-node gesture |
 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | 5 | `route` serialization; `needsFullManifest` trigger |
 | run-history UI component(s) | 5 | linked-cards rendering (component not yet named — identify during Phase 5) |
-| `backend/agents/workflows/sample_conditional_*/workflow.yaml` | — | **already exist** (checked in this session) — Phase 1 makes them compile; Phase 3/4 make them run |
+| `backend/agents/workflows/ex_A*/workflow.yaml` | — | **already exist** (checked in this session) — Phase 1 makes them compile; Phase 3/4 make them run |
 
 **Zero new database migrations across every phase** — `parent_run_id` (R-15), `TERMINAL_STATES`
 (R-14), and `is_leaf` (R-26) are all reused-unmodified or in-memory/compiled-plan fields, not
@@ -386,7 +384,7 @@ schema changes.
   (A1/A2/A4 work, A3 does not). This is an ACCEPTABLE intermediate state (matches the
   strangler-migration precedent in `003-workflow-engine-decoupling`), but should be called out
   explicitly if Phase 3 and Phase 4 ship as separate PRs/releases rather than back-to-back —
-  the reference fixtures `sample_conditional_launch_new`/`sample_conditional_target` will
+  the reference fixtures `ex_A3_divert`/`ex_A3_target` will
   compile (Phase 1) but fail at runtime until Phase 4 lands, which is expected, not a bug.
 
 ---

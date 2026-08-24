@@ -99,6 +99,10 @@ class ConditionalGate:
                 "target": matched.target,
                 "decision": decision,
                 "skipped_targets": _skipped_targets,
+                # R-28: authored retry guidance, carried so the dispatch loop can inject
+                # it into the target's context AND so it is observable on the gate_events
+                # row (a routed outcome emits no SSE event — that row is the only record).
+                "feedback": matched.feedback,
             }
             _all_options = ", ".join(f"{k!r}->{v.target}" for k, v in outcomes.items())
             logger.info(

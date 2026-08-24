@@ -72,7 +72,7 @@ target: analyse}}`:
 ## Example (from the reference fixtures)
 
 ```yaml
-# backend/agents/workflows/sample_conditional_branch_new/workflow.yaml
+# backend/agents/workflows/ex_A2_branch/workflow.yaml
 - agent: custom-agent
   instance_id: pick
   produces: ["route_decision"]

@@ -200,6 +200,15 @@ class WorkflowDetail(BaseModel):
     context_providers: list[str] = Field(default_factory=list)
     deliverable: WorkflowDeliverable
     steps: list[WorkflowStepDetail] = Field(default_factory=list)
+    # The manifest's raw step dicts, verbatim (WorkflowManifest.steps). `steps`
+    # above is the COMPILED projection — good for display, but lossy: it carries
+    # no prompt, tools, instance_id, depends_on or route, so it cannot be turned
+    # back into an editable workflow. The composer needs the authoring shape to
+    # open an existing pipeline on its canvas; without it "open in canvas" either
+    # starts blank or silently drops every step's prompt on save. Pure data,
+    # already parsed and validated by load_manifest — no new derivation.
+    # None when the manifest could not be read (the compiled view still returns).
+    manifest_steps: list[dict] | None = None
 
 
 # --- Derivation helpers ---
@@ -356,7 +365,7 @@ def get_workflow(
         manifest = None
 
     steps: list[WorkflowStepDetail] = []
-    for step in compiled.steps:
+    for idx, step in enumerate(compiled.steps, start=1):
         spec = spec_by_id.get(step.agent_id)
         ts = None
         if step.task_source is not None:
@@ -368,9 +377,23 @@ def get_workflow(
         steps.append(
             WorkflowStepDetail(
                 agent_id=step.agent_id,
-                name=spec.name if spec else step.agent_id,
+                # A COMPOSED step is an instance of the `custom-agent` template
+                # (`custom-agent:<instance_id>`) and has no AGENT.md, so `spec` is
+                # None for it and every field below used to collapse to the raw id /
+                # "" / 0 — a launch panel built from this projection showed five rows
+                # called "custom-agent:emoji" with no ordering. The manifest's own
+                # label lives on the compiled step as `display_name` (the same field
+                # the engine overlays onto the runtime AgentSpec), so prefer it, and
+                # fall back to the AGENT.md spec for ordinary declared agents.
+                name=(getattr(step, "display_name", "") or (spec.name if spec else step.agent_id)),
                 role=spec.role if spec else "",
-                order=spec.order if spec else 0,
+                # Read top-to-bottom: `compiled.steps` IS the execution sequence, so
+                # a step's position in it is its order. Previously this returned the
+                # AGENT.md `order` for declared agents and 0 for composed ones — two
+                # different ordering systems in one list, with every composed step
+                # tied at 0. The position is both consistent and closer to the truth,
+                # since the compiled sequence is what actually runs.
+                order=idx,
                 strategy=step.strategy,
                 gates=list(step.gates),
                 validators=list(step.validators),
@@ -394,4 +417,5 @@ def get_workflow(
             name=compiled.deliverable.name,
         ),
         steps=steps,
+        manifest_steps=(list(manifest.steps) if manifest else None),
     )

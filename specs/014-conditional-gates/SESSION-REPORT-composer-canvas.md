@@ -177,7 +177,7 @@ intact on disk. No manifest change, no migration.
    step including those with their own authored prompt. Not changed: it needs a golden
    fixture regenerated (`sample_subagents_parallel.events.json` captures the literal
    string) and a live model run to judge. See `audit.md` §10a.
-5. **Four `sample_conditional_*` fixtures not re-run** since the §6/`agent_skipped`/§8b
+5. **Four `ex_A*` fixtures not re-run** since the §6/`agent_skipped`/§8b
    fixes. See `audit.md` §10b.
 6. **`target: "self"` is no longer selectable** — the picker's self row was removed as
    redundant with the saved-workflow entry. An outcome already saved with `self` shows

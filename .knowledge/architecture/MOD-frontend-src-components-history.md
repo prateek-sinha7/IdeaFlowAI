@@ -69,6 +69,18 @@ trace. Depended on by `components/layout` (mounts it as the History surface).
   run screen — chat lane, composer, SSE reattachment) is preferred when the caller wires it;
   `setSelectedRun`'s internal `RunDetailPage`/inline-detail rendering is the legacy fallback
   for callers that don't.
+- **Auto-refresh**: both `WorkflowHistory.tsx` (the list) and `RunDetailPage.tsx` independently
+  implement the same manual-refresh + interval-refresh pattern (`Off`/`10s`/`15s`/`30s`/`1m`, a
+  `Loader2` spinner while a fetch is in flight, a countdown tied to a ticker effect kept separate
+  from the fetch-trigger effect so "0 / reloading" is visibly shown, not skipped atomically).
+- **Real workflow names for dynamic-catalog types**: `RevisionFamilyView.tsx`'s
+  `resolveWorkflowTypeLabel(type, shortNameFor)` resolves a run's display label — curated
+  `TYPE_META` entry first, else the live catalog's `short_name` (via `useWorkflowShortNames`,
+  `@/hooks/useWorkflowMetadata`), else a humanized fallback — used by both `FamilyGroupCard`'s
+  label and `DivertBadge`'s "Diverted to X" text, so a spec-014 `ex_A*` fixture (or any future
+  catalog-only type) shows its real name instead of generic "Custom". `filterBucketFor(type)`
+  (same file) buckets every type outside the 4 known frameworks into the "custom" filter tab, so
+  those same dynamic types are counted and findable there too.
 - Imports `components/preview` and `components/results` (deliverable + tab reuse),
   `components/ui` (`Badge`, `Tabs`), and `lib` (`parseRunInput`, `runStats`, `clarifications`,
   `workflowChaining`, the `api` client).

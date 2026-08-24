@@ -122,6 +122,15 @@ Data-fetching / UX hooks:
   `flowin.notifications.v3`), with hydration rules that drop stale "running"/"gate"
   notifications on reload since their SSE connection no longer exists.
 
+- [useWorkflowMetadata.ts](../../frontend/src/hooks/useWorkflowMetadata.ts) — catalog-derived metadata resolvers, all reading the same
+  live `state.global.workflows` Redux slice (`globalSlice.ts`'s `fetchWorkflows`): `useWorkflowLabels`
+  (display_name, with a static legacy fallback map), `useWorkflowShortNames` (short_name, no
+  fallback — callers detect "unresolved" themselves), `useWorkflowCatalogEntry` (the whole catalog
+  row, for pages that need more than one field), and `useWorkflowChaining` (inverts each
+  workflow's own `chained_from` consent list into "what can X chain into", backend-owned so it can
+  never drift from a separately-authored frontend list). Each returns a stable `(type) => value`
+  function — call the hook once per component, use the function at every render-time call site.
+
 - [useSmoothText.ts](../../frontend/src/hooks/useSmoothText.ts) — smooths jerky bursty text deltas (chat streaming) into steady
   per-frame reveal via `requestAnimationFrame`; degrades to verbatim display when rAF is
   unavailable (tests) or disabled.

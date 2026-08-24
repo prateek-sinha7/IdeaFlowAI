@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ArrowLeft, ChevronRight, Zap, Radio } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowLeft, ChevronRight, Zap, Radio, RefreshCw, Loader2 } from "lucide-react";
 import {
   getToken,
   getRunSummary,
@@ -118,6 +118,59 @@ export function RunDetailPage({
     };
   }, [activeVersionId]);
 
+  // Manual + auto refresh: re-fetch the same summary in place (no `loading`
+  // flip, so it doesn't retrigger the full-page skeleton above on every tick).
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshMs, setRefreshMs] = useState(0);
+  // Counts down in whole seconds so the Refresh button can show it directly —
+  // ticks the actual refresh at 0 rather than running a second, driftable timer.
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const refreshSummary = useCallback(() => {
+    const jwt = getToken();
+    if (!jwt) return;
+    setIsRefreshing(true);
+    getRunSummary(jwt, activeVersionId)
+      .then((s) => {
+        setSummary(s);
+        setError(null);
+      })
+      .catch((e) => {
+        setError((e as Error)?.message ?? "Could not load this run.");
+      })
+      .finally(() => {
+        setIsRefreshing(false);
+        // Resume the countdown only once the fetch actually finishes, so a
+        // slow refresh doesn't silently eat into the next interval.
+        if (refreshMs) setSecondsLeft(refreshMs / 1000);
+      });
+  }, [activeVersionId, refreshMs]);
+  const handleManualRefresh = useCallback(() => {
+    refreshSummary();
+    if (refreshMs) setSecondsLeft(refreshMs / 1000);
+  }, [refreshSummary, refreshMs]);
+  // Ticks the countdown down to 0 and HOLDS there — it does not trigger the
+  // refresh or reset itself. That split matters: "Reloading" must reflect
+  // however long the fetch actually takes, not just the one tick it started
+  // on, so the reset-to-full lives in refreshSummary's `.finally()` above,
+  // fired only when the fetch truly completes.
+  useEffect(() => {
+    if (!refreshMs) {
+      setSecondsLeft(0);
+      return;
+    }
+    setSecondsLeft(refreshMs / 1000);
+    const id = setInterval(() => {
+      setSecondsLeft((s) => (s <= 1 ? 0 : s - 1));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [refreshMs]);
+  // Fires the refresh exactly once, the moment the countdown reaches 0.
+  useEffect(() => {
+    if (refreshMs && secondsLeft === 0 && !isRefreshing) {
+      refreshSummary();
+    }
+  }, [secondsLeft, refreshMs, isRefreshing, refreshSummary]);
+
   const backButton = (
     <button
       type="button"
@@ -207,15 +260,43 @@ export function RunDetailPage({
       <header className="flex flex-col gap-3 border-b border-line-border px-6 pb-4 pt-4">
         <div className="flex items-center justify-between gap-3">
           {backButton}
-          {isLive && onViewRunningPipeline && (
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => onViewRunningPipeline(summary.id)}
-              className="inline-flex items-center gap-1.5 rounded-[var(--radius-button)] bg-brand px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-brand-pressed"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              aria-label={refreshMs ? `Refresh run data — next auto-refresh in ${secondsLeft}s` : "Refresh run data"}
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-button)] border border-line-border bg-surface-white px-2.5 py-1 text-[11px] font-medium text-ink-600 transition-colors hover:bg-surface-warm disabled:opacity-50"
             >
-              <Radio aria-hidden className="h-3.5 w-3.5" /> View live pipeline
+              {isRefreshing ? (
+                <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw aria-hidden className="h-3.5 w-3.5" />
+              )}
+              {refreshMs ? `${secondsLeft}s` : "Refresh"}
             </button>
-          )}
+            <select
+              aria-label="Auto-refresh interval"
+              value={refreshMs}
+              onChange={(e) => setRefreshMs(Number(e.target.value))}
+              className="appearance-none rounded-[var(--radius-button)] border border-line-border bg-surface-white px-2 py-1 text-[11px] font-medium text-ink-600 transition-colors hover:bg-surface-warm"
+            >
+              <option value={0}>Auto-refresh: Off</option>
+              <option value={10000}>Every 10s</option>
+              <option value={15000}>Every 15s</option>
+              <option value={30000}>Every 30s</option>
+              <option value={60000}>Every 1m</option>
+            </select>
+            {isLive && onViewRunningPipeline && (
+              <button
+                type="button"
+                onClick={() => onViewRunningPipeline(summary.id)}
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-button)] bg-brand px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-brand-pressed"
+              >
+                <Radio aria-hidden className="h-3.5 w-3.5" /> View live pipeline
+              </button>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2.5">
           <h1 className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink-900">

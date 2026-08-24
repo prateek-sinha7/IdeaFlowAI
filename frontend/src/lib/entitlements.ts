@@ -45,6 +45,16 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     // and therefore on the backend too, or the parity test fails.
     "migration",
     "mulesoft_to_springboot", "dotnet_to_azure",
+    // spec-014 conditional-gates fixtures. Launchable, non-beta and entitled on
+    // the backend, but absent here — so the catalog rendered the cards locked
+    // behind an upgrade prompt that no tier could satisfy.
+    "ex_A2_branch",
+    "ex_A1_loop",
+    "ex_A4_human_gate",
+    "ex_A4_human_divert",
+    "ex_A3_divert",
+    "ex_A3_b_spanish",
+    "ex_A3_c_dutch",
   ]),
 };
 

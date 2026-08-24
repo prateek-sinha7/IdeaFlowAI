@@ -1307,7 +1307,7 @@ export function CanvasView({
   //    one new edge per trigger:step outcome of a `gates:[conditional]` step,
   //    resolved by instance_id against the SAME positionOf/actualCenterY the
   //    structural edges already use. trigger:workflow outcomes are skipped —
-  //    ExternalPipelineCard (T36) already represents those inline on the
+  //    ExternalWorkflowNode (T36) already represents those inline on the
   //    node, so a duplicate in-canvas edge would be redundant. ────────────
   const stepOrderIndex = useMemo(() => {
     const order = new Map<string, number>();

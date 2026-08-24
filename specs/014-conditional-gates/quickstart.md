@@ -1,7 +1,7 @@
 # 014 — Quickstart: verifying conditional gates work
 
 How to confirm each phase of [plan.md](plan.md) actually landed correctly, using the five
-reference fixtures already checked into `backend/agents/workflows/sample_conditional_*/`. No
+reference fixtures already checked into `backend/agents/workflows/ex_A*/`. No
 new fixtures need writing — this quickstart drives the existing ones.
 
 ## After Phase 1 (compiler)
@@ -18,9 +18,9 @@ from agents.capabilities.registry import CapabilityRegistry
 
 registry = CapabilityRegistry()
 base_dir = Path('agents/workflows')
-for wf_id in ['sample_conditional_previous_step', 'sample_conditional_branch_new',
-              'sample_conditional_launch_new', 'sample_conditional_target',
-              'sample_conditional_human_input']:
+for wf_id in ['ex_A1_loop', 'ex_A2_branch',
+              'ex_A3_divert', 'ex_A3_target',
+              'ex_A4_human_gate']:
     manifest = load_manifest(wf_id, base_dir)
     compiled = WorkflowCompiler().compile(manifest, registry)
     leaves = [s.agent_id for s in compiled.steps if s.is_leaf]
@@ -28,8 +28,8 @@ for wf_id in ['sample_conditional_previous_step', 'sample_conditional_branch_new
 "
 ```
 
-**Expect**: all five print `OK`, no `CompilerError`. `sample_conditional_branch_new` should
-report TWO leaves (`say_hello`, `say_hola` — R-26's whole point). `sample_conditional_target`
+**Expect**: all five print `OK`, no `CompilerError`. `ex_A2_branch` should
+report TWO leaves (`say_hello`, `say_hola` — R-26's whole point). `ex_A3_target`
 reports one leaf (`welcome`).
 
 **Negative check** — confirm R-03 actually rejects dead config:
@@ -42,7 +42,7 @@ from agents.workflows.compiler import WorkflowCompiler, CompilerError
 from agents.capabilities.registry import CapabilityRegistry
 import copy
 
-manifest = load_manifest('sample_conditional_previous_step', Path('agents/workflows'))
+manifest = load_manifest('ex_A1_loop', Path('agents/workflows'))
 # Strip 'conditional' from the gate_check step's gates, keep its route: block.
 for step in manifest.steps:
     if step.get('instance_id') == 'check':
@@ -72,13 +72,13 @@ doesn't declare `route`:
 python3.11 -m pytest tests/agents/test_characterization_*.py -v
 ```
 
-**Then** run `sample_conditional_previous_step` (A1, the loop case) end-to-end and inspect the
+**Then** run `ex_A1_loop` (A1, the loop case) end-to-end and inspect the
 visit sequence — this is the first fixture that actually exercises the new cursor mechanism:
 
 ```bash
 # via whatever this repo's existing "launch a run programmatically" test harness is
 # (see tests/unit/test_execution_engine.py for the pattern) — launch
-# sample_conditional_previous_step with a scripted model that answers {"decision": "retry"}
+# ex_A1_loop with a scripted model that answers {"decision": "retry"}
 # twice then {"decision": "ok"}, and assert:
 #   - "greet" and "check" each ran 3 times
 #   - "done" ran exactly once
@@ -91,33 +91,33 @@ fixture's declared value) passes — not 4, not unbounded.
 
 ## After Phase 4 (cross-workflow triggering)
 
-Run `sample_conditional_launch_new` end-to-end:
+Run `ex_A3_divert` end-to-end:
 
 ```bash
-# launch sample_conditional_launch_new with a scripted model answering {"decision": "divert"}
+# launch ex_A3_divert with a scripted model answering {"decision": "divert"}
 # assert:
 #   - the FIRST run's WorkflowRun.status == "diverted"
 #   - a SECOND WorkflowRun exists with parent_run_id == first run's id,
-#     workflow type == "sample_conditional_target",
+#     workflow type == "ex_A3_target",
 #     owner_id/workspace_id == the first run's values
 #   - the first run's SSE stream emitted exactly one "pipeline_diverted" event before closing
 #   - the second run completed normally, writing "Welcome to the target workflow!" to output.txt
 ```
 
 **Depth-cap check** — build a small chain of workflows that each `trigger: workflow` the next
-(reuse `sample_conditional_target` copies, or a throwaway test fixture) 6 levels deep and
+(reuse `ex_A3_target` copies, or a throwaway test fixture) 6 levels deep and
 confirm the 6th trigger attempt fails closed with `BudgetExceeded`, not a silent infinite mint.
 
 ## After Phase 5 (frontend)
 
 Manual/browser check (no automated test replaces this for the canvas UI itself):
 
-1. Open the composer, load `sample_conditional_branch_new` (once `user_launchable: true` makes
+1. Open the composer, load `ex_A2_branch` (once `user_launchable: true` makes
    it selectable).
 2. Confirm the `pick` node shows a route-target editor with two outcomes (`english`/`spanish`),
    each pointing at a real canvas edge to `say_hello`/`say_hola`.
-3. Confirm `sample_conditional_launch_new`'s `decide` node shows the NEW external-pipeline
-   reference card pointing at `sample_conditional_target`, picked from the same "My Workflows"
+3. Confirm `ex_A3_divert`'s `decide` node shows the NEW external-pipeline
+   reference card pointing at `ex_A3_target`, picked from the same "My Workflows"
    list used elsewhere.
 4. Save, reload, confirm the `route` field round-trips byte-identically through
    `buildWorkflowManifest`/`needsFullManifest`.

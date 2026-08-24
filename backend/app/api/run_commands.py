@@ -2055,6 +2055,18 @@ class LaunchCommand(BaseModel):
     attached_skills: list[dict] | None = None
     attached_hooks: list[dict] | None = None
     gate_agent_ids: list[str] | None = None
+    # An UNSAVED composition, sent inline. The Composer builds a manifest tree whose
+    # steps are dynamic `custom-agent:<instance_id>` instances; those ids can never
+    # appear in the static allow-list `agent_ids` is checked against, so before this
+    # existed the ONLY way to launch one was to save it first and pass
+    # `user_workflow_id` — "Run once" on an edited composition simply 400'd.
+    #
+    # Not a new trust surface: the identical manifest can already be POSTed to
+    # /api/user_workflows and then launched, so the same bytes were always reachable.
+    # It compiles at trust="user" (STRICTER than the saved row's trust="db"), so the
+    # compiler's own per-step capability checks — which reject exec/network/secrets
+    # grants outright for a non-file manifest — remain the security boundary.
+    manifest: dict | None = None
     model_overrides: dict | None = None
     selections: dict | None = None
     template_id: str | None = None
@@ -2408,6 +2420,9 @@ async def launch_run(
             launch_source = LaunchSource.USER_WORKFLOW_MANIFEST
         else:
             launch_source = LaunchSource.USER_WORKFLOW_FLAT
+    elif body.manifest and "steps" in body.manifest:
+        # An unsaved composition sent inline — same shape as Case 3, no row behind it.
+        launch_source = LaunchSource.USER_WORKFLOW_MANIFEST
 
     if launch_source is LaunchSource.FILE_PIPELINE:
         # Case 1 — unchanged, nothing to do here.
@@ -2446,8 +2461,14 @@ async def launch_run(
         )
         from agents.workflows.compiler import CompilerError
 
-        raw_manifest = dict(user_workflow_row.manifest_json)
-        raw_manifest.setdefault("id", f"user-workflow-{user_workflow_row.id}")
+        # Saved row, or an unsaved composition sent inline. Same shape either way;
+        # they differ only in provenance, which is what picks the trust level below.
+        _inline = user_workflow_row is None
+        raw_manifest = dict(body.manifest if _inline else user_workflow_row.manifest_json)
+        raw_manifest.setdefault(
+            "id",
+            "user-workflow-inline" if _inline else f"user-workflow-{user_workflow_row.id}",
+        )
         # Request body (this run's live Composer settings) wins over the row's
         # last-saved manifest_json, which in turn wins over the hardcoded
         # fallback — so Run once reflects whatever the Workflow-tab rail shows
@@ -2467,10 +2488,16 @@ async def launch_run(
 
         try:
             parsed_manifest = build_manifest_from_dict(
-                raw_manifest, f"workflow:{user_workflow_row.id}"
+                raw_manifest,
+                "workflow:inline" if _inline else f"workflow:{user_workflow_row.id}",
             )
+            # trust="user" for an inline manifest — the client authored it this
+            # request, so it gets the compiler's most restrictive level. A saved row
+            # keeps trust="db" (unchanged), since it was already validated on save.
             compiled = _WORKFLOW_COMPILER.compile(
-                parsed_manifest, _CAPABILITY_REGISTRY, trust="db"
+                parsed_manifest,
+                _CAPABILITY_REGISTRY,
+                trust="user" if _inline else "db",
             )
         except (ManifestValidationError, CompilerError) as exc:
             raise _reject(
@@ -2479,7 +2506,10 @@ async def launch_run(
                 http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
-        body.pipeline_type = user_workflow_row.base_pipeline_type
+        # A saved row dictates its own base type; an inline manifest keeps whatever
+        # the client asked for (the Composer sends its fixed-at-entry base, "custom").
+        if not _inline:
+            body.pipeline_type = user_workflow_row.base_pipeline_type
 
     pipeline_type = body.pipeline_type
     content = body.message

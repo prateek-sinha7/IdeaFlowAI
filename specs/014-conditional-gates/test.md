@@ -102,7 +102,7 @@ async def run_fixture(pipeline_type: str) -> None:
         engine_mod.create_runner = orig_create_runner
 
 if __name__ == "__main__":
-    asyncio.run(run_fixture(sys.argv[1] if len(sys.argv) > 1 else "sample_conditional_previous_step"))
+    asyncio.run(run_fixture(sys.argv[1] if len(sys.argv) > 1 else "ex_A1_loop"))
 ```
 
 **This is a starting skeleton, not a verified-working script** — I built it directly off the
@@ -172,7 +172,7 @@ badge — I checked `HomeLaunchGrid.tsx:247` and `LibraryPage.tsx:423`, and in b
 row is **permanently non-actionable**: `allowed = !isBeta && canRunPipeline(...)` — `isBeta`
 being true forces `allowed` false unconditionally, before the tier check even runs. The card
 renders as "Coming Soon" with a disabled button, in every environment, for every tier, with no
-override. `quickstart.md`'s own Phase 5 manual steps ("load `sample_conditional_branch_new`
+override. `quickstart.md`'s own Phase 5 manual steps ("load `ex_A2_branch`
 once `user_launchable: true` makes it selectable") don't account for this — `user_launchable`
 alone is not enough; `is_beta` blocks the click path independently.
 
@@ -188,7 +188,7 @@ TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
 
 curl -s -X POST http://localhost:8000/api/runs \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"message":"go","pipeline_type":"sample_conditional_previous_step"}'
+  -d '{"message":"go","pipeline_type":"ex_A1_loop"}'
 # -> {"run_id": "..."}  (POST /api/runs body = LaunchCommand, run_commands.py:2041 —
 #     "pipeline_type" is the fixture's manifest id)
 ```
@@ -215,7 +215,7 @@ No running-app angle — this is compile-time only, nothing executes. `V1`'s own
 The one live-adjacent sanity check, if you want it: once the backend is up,
 
 ```bash
-curl -s http://localhost:8000/api/workflows | jq '.[] | select(.id | startswith("sample_conditional"))'
+curl -s http://localhost:8000/api/workflows | jq '.[] | select(.id | startswith("ex_A"))'
 ```
 
 confirms all five fixtures parse enough to be listed with a `step_count` — cheap, but not a
@@ -230,7 +230,7 @@ Also no running-app angle — `ExecutionContext` fields, unit-tested only. Nothi
 This is the first phase with real runtime behavior. Use §0's Ollama harness for A1–A3 (fastest),
 or bring up the full app per §0b, then:
 
-**A1 — `sample_conditional_previous_step` (loop). Important caveat**: `greet` unconditionally
+**A1 — `ex_A1_loop` (loop). Important caveat**: `greet` unconditionally
 writes "hello" to `hello.txt`, and `check`'s prompt is "if it says hello, output ok, else
 retry." A real model reading that file will always correctly answer `ok` — **the retry/loop
 path is unreachable on a live run of this fixture as authored.** A live run only proves the
@@ -242,11 +242,11 @@ plan, it's why T23/T24 exist as scripted tests rather than "just run it."
 ```bash
 curl -s -X POST http://localhost:8000/api/runs -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"message":"go","pipeline_type":"sample_conditional_previous_step"}'
+  -d '{"message":"go","pipeline_type":"ex_A1_loop"}'
 # watch via /events/stream; expect greet, check, done each exactly once, status completed
 ```
 
-**A2 — `sample_conditional_branch_new` (forward branch).** The `pick` step's prompt literally
+**A2 — `ex_A2_branch` (forward branch).** The `pick` step's prompt literally
 says "pick either, this is a demo" — a live run reliably proves *mutual exclusivity* (exactly
 one of `say-hello`/`say-hola` runs, never both, never neither) but won't reliably show you both
 branches without running it several times (model bias toward one answer is a real possibility;
@@ -257,12 +257,12 @@ you see both outcomes across the batch, and never both steps in one run.
 for i in 1 2 3 4; do
   curl -s -X POST http://localhost:8000/api/runs -H "Authorization: Bearer $TOKEN" \
     -H 'Content-Type: application/json' \
-    -d '{"message":"go","pipeline_type":"sample_conditional_branch_new"}' | jq -r .run_id
+    -d '{"message":"go","pipeline_type":"ex_A2_branch"}' | jq -r .run_id
 done
 # then check each run's sandbox output.txt: "Hello, world!" or "¡Hola, mundo!", never both files
 ```
 
-**A4 — `sample_conditional_human_input` (human-gate-as-condition-source). This is the ONE
+**A4 — `ex_A4_human_gate` (human-gate-as-condition-source). This is the ONE
 fixture where you fully control the branch live**, because `review` pauses for a real human
 answer and `revise-check`'s `condition_agent: review` reads what you typed — not the model's own
 guess. This is the best live analog for AC-03's loop behavior (you can genuinely force a `retry`
@@ -286,7 +286,7 @@ gate, not in how the human gate itself is answered.)
 
 ## Phase 4 — Cross-workflow triggering (T27–T33, guarded by V4)
 
-**A3 — `sample_conditional_launch_new` (divert).** Deterministic prompt (`output ONLY
+**A3 — `ex_A3_divert` (divert).** Deterministic prompt (`output ONLY
 {"decision":"divert"}`), so a live run is a reliable way to see AC-05/AC-08/AC-11 end-to-end —
 better than the scripted harness for this one, actually, because you get to see the REAL
 `pipeline_diverted` SSE event and the REAL two-linked-cards run-history UI, not a mock of them.
@@ -294,21 +294,21 @@ better than the scripted harness for this one, actually, because you get to see 
 ```bash
 curl -s -X POST http://localhost:8000/api/runs -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"message":"go","pipeline_type":"sample_conditional_launch_new"}'
+  -d '{"message":"go","pipeline_type":"ex_A3_divert"}'
 # watch /events/stream — expect exactly one "pipeline_diverted" event (not
 # "pipeline_complete") before the stream closes, carrying diverted_to_run_id and
-# diverted_to_workflow == "sample_conditional_target" (never the literal string "self")
+# diverted_to_workflow == "ex_A3_target" (never the literal string "self")
 ```
 
 Then in the browser (needs is_beta unlocked per §0c, or just open the run-history page directly
 by URL/run id if that route isn't itself is_beta-gated): confirm the diverted run's card links
-to the new `sample_conditional_target` run and vice versa — both immediately (live, stream still
+to the new `ex_A3_target` run and vice versa — both immediately (live, stream still
 open at the moment it fires) and after a fresh page reload (historical reconstruction from
 `WorkflowRun.status == "diverted"` + `parent_run_id` alone, no live stream).
 
 **Depth-cap (AC-06)** has no convenient live analog with these five fixtures — they're not
 chained six deep. Either accept V4's scripted 6-level chain as the sole proof, or if you want to
-see it live, temporarily point `sample_conditional_launch_new`'s target at a copy of itself
+see it live, temporarily point `ex_A3_divert`'s target at a copy of itself
 repeated manually — not worth building a throwaway fixture for unless you specifically want to
 eyeball a live `BudgetExceeded` abort.
 
@@ -318,10 +318,10 @@ This is the one phase where "on the running app" isn't optional extra credit —
 these tasks get verified at all (canvas UI, composer save/reload round-trip). Needs §0c's
 `is_beta: false` flip on whichever fixture(s) you're testing.
 
-1. Composer → load `sample_conditional_branch_new` → confirm `pick` shows a route-target editor
+1. Composer → load `ex_A2_branch` → confirm `pick` shows a route-target editor
    with `english`/`spanish` outcomes, each wired to a real edge (`say-hello`/`say-hola`).
-2. Composer → load `sample_conditional_launch_new` → confirm `decide` shows the new
-   external-pipeline reference card pointing at `sample_conditional_target`.
+2. Composer → load `ex_A3_divert` → confirm `decide` shows the new
+   external-pipeline reference card pointing at `ex_A3_target`.
 3. Save → reload → confirm the `route` block round-trips byte-identically (diff the manifest
    before/after, or just confirm the editor re-renders the same outcomes after reload).
 4. Run A3 live from the composer (not curl this time) → confirm run-history's two-linked-cards

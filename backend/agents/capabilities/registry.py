@@ -108,6 +108,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("task_parser", "heading_tasks"),
     ("task_parser", "json_tasks"),     # 12-01 / WAVE-02 (structured task list)
     ("gate", "human"),
+    ("gate", "before-human"),   # spec 014 follow-up — the PRE-step half of the HITL split
     ("gate", "validation"),
     ("gate", "approval"),   # 08-02
     ("gate", "security"),   # 08-02

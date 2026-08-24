@@ -65,8 +65,10 @@ function modeFromStepper(m: "web" | "deck"): LaunchMode {
 interface ModeConfig {
   /** AgentLibraryData `pipeline_type` for the default lineup. */
   agentPipeline: "prototype" | "ppt";
-  /** `base_pipeline_type` sent to POST /api/user-workflows on Save. */
-  savePipeline: "od_prototype" | "od_ppt";
+  /** `base_pipeline_type` sent to POST /api/user-workflows on Save — must be
+   *  a live catalog id. `od_prototype`/`od_ppt` are retired aliases the
+   *  backend no longer accepts (422 "Unsupported base_pipeline_type"). */
+  savePipeline: "prototype" | "ppt";
   title: string;
   chainingTitle: string;
   eyebrow: string;
@@ -79,7 +81,7 @@ interface ModeConfig {
 const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
   prototype: {
     agentPipeline: "prototype",
-    savePipeline: "od_prototype",
+    savePipeline: "prototype",
     title: "Configure your prototype",
     chainingTitle: "Pick a template & design system",
     eyebrow: "New prototype",
@@ -91,7 +93,7 @@ const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
   },
   ppt: {
     agentPipeline: "ppt",
-    savePipeline: "od_ppt",
+    savePipeline: "ppt",
     title: "Configure your presentation",
     chainingTitle: "Pick a template",
     eyebrow: "New presentation",
@@ -250,6 +252,20 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       }
     } catch { /* ignore malformed session data */ }
   }, [authChecked, initialMode, libraryAgents]);
+
+  // `pipelineAgents`'s initial value (below) is computed once at mount from
+  // `libraryAgents` — Redux state populated by an async fetch on sign-in. If
+  // that fetch hasn't resolved yet when this component mounts, the lazy
+  // initializer captures an empty array, and a plain fresh open with no draft
+  // to restore (the effect above only re-populates agents when there IS a
+  // draft) never gets another chance — "Advanced" is stuck at 0 agents.
+  // Re-derive once real agents arrive, but only while pipelineAgents is still
+  // that empty race-loss state, so this never overwrites a user's deliberate
+  // removal of every agent.
+  useEffect(() => {
+    if (libraryAgents.length === 0 || pipelineAgents.length > 0) return;
+    setPipelineAgents(defaultAgentsFor(libraryAgents, mode));
+  }, [libraryAgents, mode]);
 
   // Load both template families + the design-system registry once authed.
   useEffect(() => {
@@ -842,6 +858,24 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         key={userWorkflowId ?? "new"}
         isOpen={showAgents}
         onClose={() => setShowAgents(false)}
+        // "Open in full canvas". LaunchWizard renders OUTSIDE DashboardLayout (a
+        // page-level early return in [...view]/page.tsx), so unlike IdeaInputPage it
+        // cannot call setSavedComposition directly. Hand off through sessionStorage —
+        // the same channel this wizard already uses for prototype.pending/ppt.pending —
+        // and let DashboardLayout pick it up when the composer route mounts.
+        //
+        // agentIds alone is enough here: a wizard pipeline's steps are real library
+        // agents with an AGENT.md, so ComposerPage resolves them against
+        // ALL_LIBRARY_AGENTS. The manifest-steps channel exists for COMPOSED workflows
+        // (custom-agent:<instance_id>), which have no library entry to resolve.
+        // "Open in full canvas" — navigation only. The canvas URL names the
+        // workflow, so the composer refetches its manifest on mount; a sessionStorage
+        // handoff is unnecessary and was read by whatever mounted next, which blanked
+        // the launch panel on the way back.
+        onOpenInCanvas={() => {
+          setShowAgents(false);
+          router.push(`/workflows/${encodeURIComponent(MODE_CONFIG[mode].agentPipeline)}/canvas`);
+        }}
         agents={pipelineAgents}
         pipelineType={MODE_CONFIG[mode].agentPipeline}
         onAddAgent={handleAddAgent}

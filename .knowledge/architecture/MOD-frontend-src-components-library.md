@@ -50,6 +50,11 @@ available across all pipeline types, each with a detail modal. Mounted by `Dashb
   sources are static: `LIBRARY_AGENTS`/`CUSTOM_AGENTS` from `components/workflow/AgentLibraryData`,
   `SKILLS` from `@/data/skills`, `HOOKS` from `@/data/hooks`.
 
+- **Modal state mirrors the URL (spec 015-frontend-routing)**: `closeDetailModal` closes whichever
+  detail modal is open via `router.push(routes.library(...))` rather than a local `setSelectedX(null)`,
+  so a page refresh right after closing doesn't reopen the modal — the URL is the source of truth,
+  matching what browser Back already did.
+
 ## Why this shape
 
 **A single-file page with in-file modals is proportionate here** — the module has no server state

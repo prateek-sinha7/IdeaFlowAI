@@ -19,6 +19,11 @@ export const STREAM_TERMINAL_TYPES: ReadonlySet<string> = new Set([
   "pipeline_failed",
   "budget_aborted",
   "error",
+  // 014-conditional-gates R-13: a `trigger: workflow` route outcome ends the run
+  // with `pipeline_diverted` and no `pipeline_complete`. It was missing here (and
+  // on the backend), so the stream closed with no recognised terminal type and the
+  // client flashed "Reconnecting…" before the divert finally arrived via replay.
+  "pipeline_diverted",
 ]);
 
 export interface User {

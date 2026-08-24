@@ -1,0 +1,125 @@
+# ex_A4_human_divert — a HUMAN picks which WORKFLOW the run hands off to (spec 014, A3+A4).
+#
+# The pair to ex_A4_human_gate: same human-as-condition-source mechanism, but the
+# outcomes are cross-workflow triggers instead of in-run steps. Shaped exactly like
+# ex_A3_divert so the ONLY variable between them is who decides — A3's `language` step
+# infers it from the launch message; here a human types it at a review gate.
+#
+#   1. ask          "(awaiting language choice)"     ← the slot the human overwrites
+#        |
+#   2. pick-language   gates: [human, conditional]
+#        |   PRE  human      -> run PAUSES; approve-with-edits replaces ask's output
+#        |   generates       -> consumes human_choice, emits {"decision": ...}
+#        |   POST conditional-> routes on that line
+#        |
+#        |__ english (trigger: step) ____> 3. a-english  "Hello, world!"
+#        |                                    stays in THIS run -> pipeline_complete
+#        |
+#        |__ spanish (trigger: workflow) _> NEW run: ex_A3_b_spanish
+#        |__ dutch   (trigger: workflow) _> NEW run: ex_A3_c_dutch
+#                                             this run STOPS: pipeline_diverted,
+#                                             diverted_at_step_id=pick-language
+#
+# Reuses ex_A3_b_spanish / ex_A3_c_dutch unchanged rather than adding target workflows —
+# which also proves a child is reachable from more than one parent.
+#
+# LIMIT worth knowing: R-28 `feedback` is a STATIC manifest string, so the human's own
+# words do NOT reach the child — only which outcome they selected does. The feedback
+# below is the same localized joke instruction ex_A3_divert sends, so the children behave
+# identically no matter which parent triggered them. Carrying the human's actual text
+# across a divert would need dynamic feedback, which does not exist today.
+#
+# ORDERING: a-english declares depends_on explicitly. `consumes` gives the resolver a real
+# dag edge (ask -> pick-language) and it then re-sorts the manifest; an unpinned branch
+# step floats AHEAD of the gated step, which on ex_A4_human_gate's first run ended the run
+# at step 2 with the gate never firing. Per ADR-0004 a declared depends_on overrides the
+# inferred DAG where they disagree.
+
+id: ex_A4_human_divert
+user_launchable: true
+is_beta: false
+display_name: Ask a Human, Then Hand Off
+short_name: Human Handoff
+icon: GitBranch
+description: A human chooses at a review gate which separate workflow the run hands off to.
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  # Only ever resolved on the ENGLISH path — the two divert paths return out of the
+  # dispatch loop before deliverable read-back.
+  strategy: single_file
+  name: greeting.md
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 300
+
+steps:
+- agent: custom-agent
+  instance_id: ask
+  name: Ask For Language
+  produces: ["human_choice"]
+  prompt: 'Respond with exactly: "(awaiting language choice)"'
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: pick-language
+  name: Pick Language
+  produces: ["route_decision"]
+  consumes: ["human_choice"]
+  depends_on: ["custom-agent:ask"]
+  prompt: |
+    The human's language choice is shown above. Map it to one of three languages and reply with the JSON as your text answer — this must be your reply, not a file. Respond with exactly one line, no markdown, no code fences, no explanation. Use exactly one of:
+    {"decision": "english"}
+    {"decision": "spanish"}
+    {"decision": "dutch"}
+  gates:
+  # PRE-step: pauses before this step generates and reviews the PREVIOUS step's
+  # output, so the human's edit becomes THIS step's input. Spelled `human` until the
+  # HITL split; `human` now means the POST-step review of a step's OWN output, which
+  # is a different thing and would break this fixture.
+  - before-human
+  - conditional
+  route:
+    outcomes:
+      english: {trigger: step, target: a-english}
+      spanish:
+        trigger: workflow
+        target: ex_A3_b_spanish
+        feedback: >-
+          Tu saludo también debe incluir un chiste de "¿por qué cruzó la gallina la
+          carretera?". Responde en español.
+      dutch:
+        trigger: workflow
+        target: ex_A3_c_dutch
+        feedback: >-
+          Je begroeting moet ook een mop bevatten over "waarom stak de kip de weg
+          over?". Antwoord in het Nederlands.
+    # No default_next — an unrecognised choice terminates the run here.
+    trigger_max_depth: 5
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+- agent: custom-agent
+  instance_id: a-english
+  name: Greet in English
+  depends_on: ["custom-agent:pick-language"]
+  prompt: 'Respond with exactly: "Hello, world!"'
+  gates: []
+  tools:
+    read_files: false
+    write_files: false
+    exec: false
+
+name: Human Handoff

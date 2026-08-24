@@ -1169,6 +1169,13 @@ export interface WorkflowDetail {
   context_providers: string[];
   deliverable: WorkflowDeliverable;
   steps: WorkflowStepDetail[];
+  /** The manifest's raw step dicts, verbatim. `steps` above is the COMPILED
+   *  projection — fine for display, but lossy: no prompt, tools, instance_id,
+   *  depends_on or route. This is the authoring shape, so a caller can render a
+   *  step's conditional-gate branches (which workflow/step each outcome hands off
+   *  to) and reconstruct an editable composition. Null when the manifest could
+   *  not be read. */
+  manifest_steps?: import("@/types/index").ManifestStep[] | null;
 }
 
 /**

@@ -90,10 +90,15 @@ router mounts, not a library other modules build on).
   users, tier dropdown); gates on `getMe().is_admin`, bounces non-admins to `/dashboard` and
   unauthenticated users to `/login`.
 
-- dashboard/page.tsx — `/dashboard`, client, the main authenticated surface: chat lane +
-  workflow runs + SSE/WS stream handling, wraps everything in `DashboardLayout`. The
-  `*.source.test.ts` / `*.fix201.test.ts` files alongside it are colocated unit tests, not
-  routes.
+- [[...view]/page.tsx](../../frontend/src/app/%5B...view%5D/page.tsx) — the catch-all route (spec 015-frontend-routing) that IS
+  `/dashboard` and every other authenticated URL (`/create/*`, `/runs/{id}/*`, `/workflows/*`,
+  `/library/*`, `/settings/*`, `/analytics`, etc.): chat lane + workflow runs + SSE/WS stream
+  handling, wrapped in `DashboardLayout`. `parseViewPath` (`@/lib/routes`) parses the URL
+  segments into a `ParsedView` discriminated union; `initialMainViewFor` maps that onto
+  `DashboardLayout`'s coarser `MainView` union for cold-mount/back-forward sync. A `screen`
+  `parseViewPath` doesn't recognize falls through to `{screen:"unknown"}`, which triggers
+  `notFound()` below — the single place a bad/stale URL 404s. The `*.source.test.ts` /
+  `*.fix201.test.ts` files alongside it are colocated unit tests, not routes.
 
 - [workflow/page.tsx](../../frontend/src/app/workflow/page.tsx) — `/workflow`, client, standalone agent-pipeline view (`WorkflowView` +
   `AgentLibrary` slide-out).

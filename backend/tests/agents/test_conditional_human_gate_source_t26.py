@@ -1,9 +1,9 @@
-"""T26 (spec 014 / Phase 3 dispatch loop): ``sample_conditional_human_input`` (A4, the
+"""T26 (spec 014 / Phase 3 dispatch loop): ``ex_A4_human_gate`` (A4, the
 human-gate-as-condition-source fixture) driven end-to-end, proving R-05's claim that a
 conditional gate's decision source ``condition_agent`` "may name an EARLIER step,
 including one whose gate is `human` — reads that gate's captured response the same way."
 
-Fixture shape (``agents/workflows/sample_conditional_human_input/workflow.yaml``):
+Fixture shape (``agents/workflows/ex_A4_human_gate/workflow.yaml``):
 
     1. greet (writes draft.txt)
     2. review        gates:[human], produces:[route_decision]  — PAUSES for input
@@ -53,7 +53,7 @@ import pytest
 from tests.agents import _scripted_model as _sm
 from tests.agents._scripted_model import _RUNS_ROOT, ScriptedFakeChatModel, _ScriptedTurn
 
-_PIPELINE = "sample_conditional_human_input"
+_PIPELINE = "ex_A4_human_gate"
 _EVENT_TIMEOUT_S = 30.0
 
 
