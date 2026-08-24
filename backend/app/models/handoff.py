@@ -72,8 +72,27 @@ class UserApiKey(Base):
     last_used_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=_now, nullable=False)
     revoked_at = Column(DateTime, nullable=True)
+    # Expiry (0033). NULL means "never expires" -- every key minted before this
+    # column existed keeps working, so the migration cannot break a live IDE/MCP
+    # integration. New keys are given a bounded lifetime at mint time.
+    expires_at = Column(DateTime, nullable=True)
 
     user = relationship("User")
+
+    def is_expired(self, now: datetime | None = None) -> bool:
+        """True when this key has passed its expiry.
+
+        Timezone handling mirrors the JWT revocation checks: SQLite (and
+        SQLAlchemy's naive DateTime) hand back naive datetimes even though we
+        wrote aware ones, so a naive value is promoted to UTC rather than
+        compared against an aware `now` (which would raise).
+        """
+        if self.expires_at is None:
+            return False
+        expires_at = self.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return (now or _now()) >= expires_at
 
 
 # Status values for HandoffSession.status

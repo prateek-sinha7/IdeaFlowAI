@@ -1393,3 +1393,54 @@ Plans:
 - [ ] 51-07-PLAN.md — FE canvas `CanvasConfigRail` fan-out control + `priorAgents` threading from `CanvasView` (FANOUT-01, FANOUT-04, FANOUT-05, FANOUT-07)
 
 > Live-Bedrock proof (SC #6) is ORCHESTRATOR-OWNED — not an executor task; offline gates (esp. the [BLOCKING] 51-05) bind phase completion.
+
+---
+
+# Cross-Cutting Track — Cognito Authentication & Authorization Migration
+
+> **Separate track.** This is **not** a phase of the Workflow-Engine-Decoupling
+> project above (different `PROJECT.md` scope, no engine-kernel surface, SC-001
+> untouched). It is recorded here so the roadmap remains the single place to see
+> everything in flight.
+>
+> **Authoritative plan:** `.planning/COGNITO-MIGRATION-PLAN.md` (locked decisions
+> §1, ordered checklist §14).
+> **Operational procedure:** `infra/COGNITO-CUTOVER-RUNBOOK.md`.
+
+**Goal.** Replace first-party email/password + HS256 JWT auth with Amazon
+Cognito User Pools, and move role/tier authorization to Cognito groups —
+without moving the two largest surfaces in the codebase: `get_current_user`'s
+signature (76 `Depends()` uses / 21 files) and the frontend `getToken()` seam
+(122 calls / 57 files). Both were held at **zero changes**.
+
+**Invariant compliance.** No engine-kernel edits (INV-1 N/A), the 5
+characterization goldens are untouched (INV-3), `lint-imports` stays green,
+and every migration is additive (`0031`–`0033`).
+
+| Phase | Scope | Status |
+|---|---|---|
+| P0 | Decisions locked (§1) + dev spike | ✅ Decisions locked |
+| P1 | `modules/cognito` (pool + confidential client + 4 precedence groups), SSM params, pool-scoped IAM, secrets-loader allowlist, `/api/auth/refresh` rate-limit zone | ✅ Code complete, `terraform validate` clean |
+| P2 | Identity core: migration `0031`, `core/cognito.py` (JWKS verify, fail-closed), `core/identity.py` (single shared resolver), both validators rewired, generalized `tokens_valid_from` revocation, group→role resolution | ✅ Complete |
+| P3 | `login` (provider branch + challenge-aware), **`/refresh` (new)**, logout + Cognito `RevokeToken`, change-password, admin create/delete/tier via groups, **`/role` (new)**, Cognito-aware `bootstrap_admin.py`, migration `0032` | ✅ Complete |
+| P4 | Frontend: challenge UI (first-login password + TOTP), role management, 401→refresh path (contract already existed) | ✅ Complete |
+| P5 | Cutover **tooling**: `verify_cognito_cutover.py` (C1–C5 gate), `create_break_glass_admin.py`, Cognito-aware `seed_test_users.py`, runtime fail-closed break-glass invariant, SSM-managed cutover flags, runbook | ✅ Tooling complete · ⏳ **operator AWS actions pending** |
+| P6 | Hardening: admin MFA gate, feature-plan/threat-protection variables, SES reset, CORS drift fix, API-key expiry (`0033`), auth observability + alarms, docs closure | ✅ Complete (cookie/BFF deliberately deferred) |
+
+**Verification.** Backend `tests/unit`: 1143 passed / 39 failed — the 39 are a
+pre-existing baseline set, confirmed identical by `git stash` comparison; net
+**+28 new tests, zero regressions**. Frontend: 727 passed / 125 failed —
+byte-identical to baseline (confirmed via JSON-reporter set-diff, not just
+counts). `ruff` clean on every touched file, `terraform fmt` clean,
+`terraform validate` clean, `tsc --noEmit` clean, `next build` succeeds,
+migrations `0031`–`0033` round-trip.
+
+**Two things a reader should not mistake for oversights:**
+
+1. **Local HS256 signing is retained permanently**, scoped to one break-glass
+   admin (Decision 12 / §5.6). The dual-validator is therefore architectural,
+   not transitional. Compensated by a fail-closed single-row invariant, a kill
+   switch, and an alarm on every use.
+2. **Cookie/BFF session is deferred.** The token remains in `localStorage`. Its
+   prerequisite (the `main.py` CORS drift) is now fixed; the rest needs CSRF
+   design and would break the `getToken()` seam that kept 122 call sites still.

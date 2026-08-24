@@ -31,7 +31,7 @@ from app.models.database import Base, get_db
 # Ensure RevokedToken's table is registered with Base.metadata before
 # create_all is called.
 from app.models.revoked_token import RevokedToken  # noqa: F401
-from app.models.user import User  # noqa: F401
+from app.models.user import User  # noqa: F401  (registers the table on Base.metadata)
 from app.models.chat import ChatSession, Message  # noqa: F401
 from app.models.workflow import WorkflowRun  # noqa: F401
 from tests.fixtures.user_factory import create_user
@@ -75,11 +75,21 @@ def client():
 
 
 def _register(client, email: str = "alice@example.com", password: str = "password123") -> dict:
-    """Create a user directly in the test DB, then log in for a real JWT.
+    """Create a local ("break-glass"-shaped) user directly in the test DB, then
+    log in and return the parsed AuthResponse JSON.
 
-    ``/api/auth/register`` is a permanent 403 (self-registration is
-    disabled by design). These tests are about JWT/logout behaviour, not
-    account creation, so the account is created directly and the token
+    ``POST /api/auth/register`` is a permanent 403 (self-registration is
+    admin-only by design), so this helper can no longer exercise it. It inserts
+    directly instead — the same shape as the real bootstrap path
+    (``app/scripts/bootstrap_admin.py`` / ``backend/scripts/seed_test_users.py``),
+    which also inserts rather than going through an HTTP registration endpoint.
+    The row is an ``auth_provider="local"`` user (the column's model default),
+    which is what account creation for a local user is at any point in the
+    codebase's history — pre- and post-Cognito.
+
+    These tests are about JWT/logout behaviour, not account creation, so the
+    insert goes through the shared ``tests.fixtures.user_factory.create_user``
+    helper (one hashing path, shared with every other auth suite) and the token
     comes from the real ``/api/auth/login`` flow — the part under test.
     """
     session = client.SessionLocal()

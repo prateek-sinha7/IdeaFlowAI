@@ -252,3 +252,27 @@ variable "backup_bucket_arn" {
   type        = string
   default     = ""
 }
+
+# --- Auth observability (COGNITO-MIGRATION-PLAN Phase 6 item 6) -------------
+
+variable "auth_login_failure_threshold" {
+  description = "Login failures per 5-minute period that trip the credential-stuffing alarm. nginx already rate-limits /api/auth/login to 10/min per IP (50 per 5 min), so a value above that implies a distributed source rather than one noisy client. Default 50."
+  type        = number
+  default     = 50
+
+  validation {
+    condition     = var.auth_login_failure_threshold > 0
+    error_message = "auth_login_failure_threshold must be greater than 0."
+  }
+}
+
+variable "auth_login_failure_evaluation_periods" {
+  description = "Consecutive 5-minute periods above auth_login_failure_threshold before alarming. Default 2 (i.e. sustained for 10 minutes) so a single burst of forgotten passwords after a long weekend does not page anyone."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.auth_login_failure_evaluation_periods >= 1
+    error_message = "auth_login_failure_evaluation_periods must be at least 1."
+  }
+}

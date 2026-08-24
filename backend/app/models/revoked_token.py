@@ -30,14 +30,18 @@ class RevokedToken(Base):
     user_id = Column(
         String, ForeignKey("users.id"), index=True, nullable=False
     )
+    # timezone=True (0035): stores timestamptz on Postgres so this instant
+    # survives the round-trip regardless of the DB session's timezone --
+    # see alembic/versions/0035_timezone_aware_auth_timestamps.py.
     revoked_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
     # Mirrors the JWT's ``exp``. Once we're past this instant the JWT can no
     # longer be presented, so the row can be deleted by ``cleanup_expired_revocations``.
-    expires_at = Column(DateTime, nullable=False)
+    # timezone=True (0035) -- see revoked_at above.
+    expires_at = Column(DateTime(timezone=True), nullable=False)
 
 
 def cleanup_expired_revocations(db: Session) -> int:

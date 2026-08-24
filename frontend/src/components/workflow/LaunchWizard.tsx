@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { getToken, extractFileText, createUserWorkflow } from "@/lib/api";
 import { ATTACH_MAX_CHARS } from "@/lib/constants";
+import { buildLoginRedirect } from "@/lib/authRedirect";
 import {
   listDesignSystems,
   listPrototypeTemplates,
@@ -185,7 +186,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   // Auth + chain pickup (mirrors the retired pages).
   useEffect(() => {
     const token = getToken();
-    if (!token) { router.replace("/login"); return; }
+    if (!token) { router.replace(buildLoginRedirect()); return; }
     setAuthChecked(true);
     const from = sessionStorage.getItem("chain.from");
     if (from) {
@@ -252,14 +253,14 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       .then((t) => { if (!cancelled) setWebTemplates(t); })
       .catch((err: Error) => {
         if (cancelled) return;
-        if (err.message.startsWith("401")) { router.replace("/login"); return; }
+        if (err.message.startsWith("401")) { router.replace(buildLoginRedirect()); return; }
         setLoadError(err.message);
       });
     listPPTTemplates(token)
       .then((t) => { if (!cancelled) setDeckTemplates(t); })
       .catch((err: Error) => {
         if (cancelled) return;
-        if (err.message.startsWith("401")) { router.replace("/login"); }
+        if (err.message.startsWith("401")) { router.replace(buildLoginRedirect()); }
       });
     listDesignSystems(token)
       .then((s) => {

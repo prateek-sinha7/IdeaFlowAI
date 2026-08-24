@@ -253,9 +253,47 @@ app = FastAPI(
 )
 
 # CORS middleware configuration
+#
+# COGNITO-MIGRATION-PLAN §3.6 / Phase 6 item 4: this block previously
+# HARDCODED the three localhost dev origins and ignored `settings.CORS_ORIGINS`
+# entirely, while still setting `allow_credentials=True`. That was harmless
+# under a pure bearer-token transport (the browser never sends ambient
+# credentials, so a permissive-but-wrong origin list grants nothing), but it is
+# a hard blocker for the Phase 6 cookie/BFF session: the moment the session
+# moves to a cookie, `allow_credentials=True` combined with an origin list that
+# doesn't match the real deployment either breaks every production request or —
+# if someone "fixes" it by widening the list — turns into a cross-origin
+# credential leak. Fixing the drift is therefore a PREREQUISITE, not a cleanup.
+#
+# The production origin list comes from SSM (`CORS_ORIGINS`, a JSON array) via
+# the on-host secrets loader. The localhost origins are appended ONLY in
+# development so a local `next dev` on :3000/:3001 keeps working without
+# operators having to hand-maintain dev origins in production config.
+_cors_origins = list(settings.CORS_ORIGINS)
+if settings.ENV.lower() == "development":
+    for _dev_origin in (
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+    ):
+        if _dev_origin not in _cors_origins:
+            _cors_origins.append(_dev_origin)
+
+# Never allow the wildcard together with credentials. The CORS spec forbids the
+# combination, and browsers reject it — but Starlette will happily emit it, so a
+# misconfigured CORS_ORIGINS would produce confusing "works in curl, fails in
+# browser" behaviour instead of a clear error. Fail fast and loudly instead.
+if "*" in _cors_origins:
+    raise RuntimeError(
+        "CORS_ORIGINS contains '*', which cannot be combined with "
+        "allow_credentials=True. List the exact origins instead."
+    )
+
+logger.info("CORS allow_origins=%s (env=%s)", _cors_origins, settings.ENV)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
