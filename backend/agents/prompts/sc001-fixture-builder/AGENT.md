@@ -5,7 +5,6 @@ context_from:
 - $previous
 description: Consumes the prior analysis step and produces a final artifact. Demonstrates artifact consumption and production in a manifest-driven workflow.
 estimated_duration: 5.0
-gate: none
 guardrails: []
 icon: "🔨"
 id: sc001-fixture-builder
