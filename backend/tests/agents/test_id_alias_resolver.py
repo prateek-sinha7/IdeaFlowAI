@@ -84,7 +84,7 @@ def test_retired_labels_are_not_resolvable() -> None:
     """A retired run-label resolves to ITSELF, not to a base pipeline.
 
     ``od_prototype`` used to be the sole id-alias. Collapsing it (registry
-    ``_OD_ALIAS_BASE`` is empty; persisted rows migrated in 0032) means the label
+    ``_OD_ALIAS_BASE`` is empty; persisted rows migrated in 0037) means the label
     is no longer special-cased anywhere — the resolver must not invent a mapping
     for it, exactly as it does not for any other unknown string.
     """
