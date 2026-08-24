@@ -1,6 +1,7 @@
 ---
 consumes:
 - prototype-build
+- prototype-revision-agent
 context_from:
 - $previous
 description: Validates the final prototype for structural integrity, navigation correctness, and delivery readiness.
@@ -10,13 +11,14 @@ guardrails:
 - accessibility
 icon: "✅"
 id: prototype-validate
-injects:
-- template
-- design_system
 max_tokens: 32768
 name: Validation Agent
 order: 5
-pipeline_type: prototype
+pipeline_type:
+- prototype
+- prototype_revision
+- prototype_large_revision
+- prototype_feature_revision
 produces:
 - prototype-validate
 role: Structural Validation & Delivery

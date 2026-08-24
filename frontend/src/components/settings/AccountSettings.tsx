@@ -16,16 +16,45 @@ import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, type BadgeStatus } from "@/components/ui/Badge";
+import { SecuritySection } from "@/components/settings/SecuritySection";
+
+/**
+ * The settings surface's tab ids. Exported so callers that deep-link into a
+ * specific tab (the header profile menu's "Security" item) reference the same
+ * union rather than a loose string.
+ */
+export type SettingsSection = "profile" | "model" | "limits" | "constitution" | "security";
 
 interface AccountSettingsProps {
   onBack: () => void;
-  // SC-001 fix: the settings sub-tab the URL named (e.g. /settings/ai-model),
-  // seeded by page.tsx via parseViewPath and threaded through DashboardLayout.
-  // Undefined for click-driven opens (defaults to "profile", same as before).
+  /**
+   * Tab to open on. Defaults to "profile".
+   *
+   * Seeded two ways: from the URL on a cold load (`/settings/ai-model` ->
+   * parseViewPath -> page.tsx -> DashboardLayout), and from in-app navigation
+   * (DashboardLayout's settingsRequest).
+   *
+   * Mount-time only, by design: the active tab is local UI state that the user
+   * owns once the surface is open, so a later prop change must not yank them off
+   * the tab they just clicked. Callers that need to force a specific tab while
+   * this surface is ALREADY open remount it (DashboardLayout keys the settings
+   * view on a per-request nonce), which is why this is `initialSection` rather
+   * than a controlled `section`.
+   */
   initialSection?: SettingsSection;
 }
 
-export type SettingsSection = "profile" | "model" | "limits" | "constitution";
+// Same section->route mapping parseViewPath (routes.ts) reads on cold-mount, in
+// reverse — kept here since AccountSettings, unlike LibraryPage/AnalyticsPage,
+// previously had no router of its own, so a tab click never told the URL bar
+// which section it switched to (only a fresh /settings/{section} nav did).
+const SECTION_ROUTE: Record<SettingsSection, () => string> = {
+  profile: routes.settingsProfile,
+  model: routes.settingsAiModel,
+  limits: routes.settingsUsage,
+  constitution: routes.settingsConstitution,
+  security: routes.settingsSecurity,
+};
 
 // Pipeline display names — used by the Usage & Limits deliverable-access grid.
 const PIPELINE_DISPLAY: Record<string, { label: string; description: string }> = {
@@ -52,17 +81,6 @@ function getBasePipelines(tier: Tier): string[] {
   const all = Array.from(TIER_PIPELINES[tier]);
   return all.filter(p => !p.endsWith("_revision")).filter(p => PIPELINE_DISPLAY[p]);
 }
-
-// Same section->route mapping parseViewPath (routes.ts) reads on cold-mount,
-// in reverse — kept here since AccountSettings, unlike LibraryPage/AnalyticsPage,
-// previously had no router of its own, so a tab click never told the URL bar
-// which section it switched to (only a fresh /settings/{section} nav did).
-const SECTION_ROUTE: Record<SettingsSection, () => string> = {
-  profile: routes.settingsProfile,
-  model: routes.settingsAiModel,
-  limits: routes.settingsUsage,
-  constitution: routes.settingsConstitution,
-};
 
 export function AccountSettings({ onBack, initialSection }: AccountSettingsProps) {
   const router = useRouter();
@@ -158,11 +176,15 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
   // The mock relabels "Limits" → "Usage & Limits" (pure fidelity fix); the
   // internal id + data-testid ("limits" / tab-limits) stay stable. No tab
   // icons — the mock's settings tab row is plain text.
+  // "Security" sits LAST (after Constitution): it absorbed the retired
+  // /settings/security route, which was the same MFA controls behind a second,
+  // parallel navigation model.
   const SECTION_TABS: TabItem[] = [
     { id: "profile", label: "Profile" },
     { id: "model", label: "AI Model" },
     { id: "limits", label: "Usage & Limits" },
     { id: "constitution", label: "Constitution" },
+    { id: "security", label: "Security" },
   ];
 
   // Token-driven feedback banner (success -> done ramp, error -> failed ramp).
@@ -191,7 +213,7 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
           </button>
           <div className="flex-1">
             <h1 className="text-[24px] font-light tracking-tight text-ink-900 leading-none font-sans">Account Settings</h1>
-            <p className="text-[12.5px] text-ink-400 mt-1.5">Profile, model preference, usage limits and your agent constitution.</p>
+            <p className="text-[12.5px] text-ink-400 mt-1.5">Profile, model preference, usage limits, your agent constitution and sign-in security.</p>
           </div>
         </div>
 
@@ -452,6 +474,11 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
           {/* ── CONSTITUTION ── */}
           {section === "constitution" && (
             <ConstitutionSection />
+          )}
+
+          {/* ── SECURITY ── two-factor authentication (was /settings/security) */}
+          {section === "security" && (
+            <SecuritySection />
           )}
 
         </AnimatePresence>

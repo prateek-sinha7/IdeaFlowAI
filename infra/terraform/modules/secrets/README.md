@@ -21,7 +21,10 @@ inputs only to import a known existing value (e.g. restoring a snapshot).
 - `random_password.app_secret_key` / `random_password.db_password`.
 - `aws_ssm_parameter.*` — `SECRET_KEY`, `DATABASE_PASSWORD` (SecureString);
   `CORS_ORIGINS`, `ACCESS_TOKEN_EXPIRE_HOURS`, `llm/region`, `llm/model_id`,
-  `llm/inference_profile_id` (String); optional `LANGSMITH_*` (count-guarded).
+  `llm/inference_profile_id` (String); optional `LANGSMITH_*` (count-guarded);
+  optional `COGNITO_USER_POOL_ID`/`COGNITO_CLIENT_ID`/`COGNITO_REGION`
+  (String) + `COGNITO_CLIENT_SECRET` (SecureString), all count-guarded on
+  `cognito_user_pool_id` being non-empty.
 
 ## Usage
 
@@ -54,7 +57,11 @@ module "secrets" {
 | `db_password` | Postgres app-user password. Empty → 32-char auto-generated. **Sensitive.** | `string` | `""` | no |
 | `langsmith_tracing` / `langsmith_api_key` / `langsmith_project` | Optional LangSmith config; empty disables creation of each parameter. | `string` | `""` | no |
 | `cors_origins` | JSON list of CORS origins. Empty → loader falls back to `["https://<fqdn>"]`. | `string` | `""` | no |
-| `access_token_expire_hours` | JWT lifetime in hours (1–168). | `number` | `12` | no |
+| `access_token_expire_hours` | JWT lifetime in hours (1–168). Governs break-glass tokens only once Cognito is active. | `number` | `12` | no |
+| `cognito_user_pool_id` / `cognito_client_id` / `cognito_client_secret` / `cognito_region` | Cognito wiring (module.cognito outputs). All empty (default) → no COGNITO_* parameters created. `cognito_client_secret` is **sensitive**. | `string` | `""` | no |
+| `auth_provider` | `"local"` or `"cognito"` — the active credential authority for new logins. Empty omits the parameter (app default `local`). | `string` | `""` | no |
+| `auth_allow_legacy_jwt` | `"true"`/`"false"` — dual-accept window. SSM-managed so the cutover flip is a parameter change + restart, not a redeploy. | `string` | `""` | no |
+| `break_glass_enabled` | `"true"`/`"false"` — kill switch for the single local-password break-glass admin. | `string` | `""` | no |
 
 ## Outputs
 

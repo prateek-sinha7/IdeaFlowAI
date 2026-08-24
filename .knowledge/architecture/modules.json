@@ -187,7 +187,7 @@
       "id": "MOD-backend-alembic-versions",
       "path": "backend/alembic/versions",
       "language": "python",
-      "file_count": 32,
+      "file_count": 37,
       "files": [
         "backend/alembic/versions/0001_initial_schema.py",
         "backend/alembic/versions/0002_handoff_tables.py",
@@ -218,9 +218,14 @@
         "backend/alembic/versions/0028_repair_0024_0025_drift.py",
         "backend/alembic/versions/0029_enforce_seq_uniqueness_after_repair.py",
         "backend/alembic/versions/0030_workflow_runs_user_created_index.py",
-        "backend/alembic/versions/0031_composed_workflow_execution.py",
-        "backend/alembic/versions/0032_collapse_od_prototype_label.py",
-        "backend/alembic/versions/0033_add_diverted_at_step_id.py"
+        "backend/alembic/versions/0031_cognito_identity_and_token_validity.py",
+        "backend/alembic/versions/0032_cognito_refresh_token_storage.py",
+        "backend/alembic/versions/0033_add_diverted_at_step_id.py",
+        "backend/alembic/versions/0033_user_api_key_expiry.py",
+        "backend/alembic/versions/0034_mfa_verified_at.py",
+        "backend/alembic/versions/0035_timezone_aware_auth_timestamps.py",
+        "backend/alembic/versions/0036_composed_workflow_execution.py",
+        "backend/alembic/versions/0037_collapse_od_prototype_label.py"
       ],
       "imports": [],
       "imported_by": [],
@@ -259,7 +264,7 @@
       "id": "MOD-backend-app-agents",
       "path": "backend/app/agents",
       "language": "python",
-      "file_count": 38,
+      "file_count": 39,
       "files": [
         "backend/app/agents/__init__.py",
         "backend/app/agents/cached_invoke.py",
@@ -284,6 +289,7 @@
         "backend/app/agents/render_check.py",
         "backend/app/agents/repo_index/__init__.py",
         "backend/app/agents/repo_index/index.py",
+        "backend/app/agents/revision_analyzer.py",
         "backend/app/agents/route_table.py",
         "backend/app/agents/runtime/__init__.py",
         "backend/app/agents/runtime/local.py",
@@ -303,6 +309,7 @@
       "imports": [
         "MOD-backend-agents",
         "MOD-backend-app",
+        "MOD-backend-app-api",
         "MOD-backend-app-core",
         "MOD-backend-app-models"
       ],
@@ -371,11 +378,14 @@
       ],
       "imported_by": [
         "MOD-backend-agents",
-        "MOD-backend-app"
+        "MOD-backend-app",
+        "MOD-backend-app-agents"
       ],
       "external_deps": [
+        "botocore",
         "fastapi",
         "httpx",
+        "langchain_core",
         "pptx",
         "pydantic",
         "yaml"
@@ -385,13 +395,16 @@
       "id": "MOD-backend-app-core",
       "path": "backend/app/core",
       "language": "python",
-      "file_count": 7,
+      "file_count": 10,
       "files": [
         "backend/app/core/__init__.py",
+        "backend/app/core/auth_events.py",
+        "backend/app/core/cognito.py",
         "backend/app/core/config.py",
         "backend/app/core/crypto.py",
         "backend/app/core/dependencies.py",
         "backend/app/core/entitlements.py",
+        "backend/app/core/identity.py",
         "backend/app/core/logging.py",
         "backend/app/core/security.py"
       ],
@@ -409,8 +422,10 @@
       ],
       "external_deps": [
         "bcrypt",
+        "boto3",
         "cryptography",
         "fastapi",
+        "httpx",
         "pydantic",
         "pydantic_settings"
       ]
@@ -528,14 +543,17 @@
       "id": "MOD-backend-scripts",
       "path": "backend/scripts",
       "language": "python",
-      "file_count": 6,
+      "file_count": 9,
       "files": [
         "backend/scripts/audit_lost_run_events.py",
+        "backend/scripts/coverage_report.py",
+        "backend/scripts/create_break_glass_admin.py",
         "backend/scripts/cutover_legacy_runs.py",
         "backend/scripts/derive_compatible_agents.py",
         "backend/scripts/generate_template_thumbnails.py",
         "backend/scripts/seed_test_users.py",
-        "backend/scripts/skills_audit.py"
+        "backend/scripts/skills_audit.py",
+        "backend/scripts/verify_cognito_cutover.py"
       ],
       "imports": [],
       "imported_by": [],
@@ -923,6 +941,7 @@
       ],
       "external_deps": [
         "@/test",
+        "@reduxjs/toolkit",
         "@testing-library/react",
         "@testing-library/user-event",
         "lucide-react",
@@ -1102,11 +1121,12 @@
       "id": "MOD-frontend-src-components-settings",
       "path": "frontend/src/components/settings",
       "language": "typescript",
-      "file_count": 3,
+      "file_count": 4,
       "files": [
         "frontend/src/components/settings/AccountSettings.render.test.tsx",
         "frontend/src/components/settings/AccountSettings.test.tsx",
-        "frontend/src/components/settings/AccountSettings.tsx"
+        "frontend/src/components/settings/AccountSettings.tsx",
+        "frontend/src/components/settings/SecuritySection.tsx"
       ],
       "imports": [
         "MOD-frontend-src-components-ui",
@@ -1372,16 +1392,19 @@
       "id": "MOD-frontend-src-lib",
       "path": "frontend/src/lib",
       "language": "typescript",
-      "file_count": 42,
+      "file_count": 45,
       "files": [
         "frontend/src/lib/__tests__/wsRunScope.test.ts",
         "frontend/src/lib/api-handoff.test.ts",
         "frontend/src/lib/api-handoff.ts",
         "frontend/src/lib/api.getRunArtifacts.test.ts",
         "frontend/src/lib/api.getRunFamily.test.ts",
+        "frontend/src/lib/api.refreshRetry.test.ts",
         "frontend/src/lib/api.requestTimeout.test.ts",
         "frontend/src/lib/api.test.ts",
         "frontend/src/lib/api.ts",
+        "frontend/src/lib/authRedirect.test.ts",
+        "frontend/src/lib/authRedirect.ts",
         "frontend/src/lib/clarifications.test.ts",
         "frontend/src/lib/clarifications.ts",
         "frontend/src/lib/constants.ts",

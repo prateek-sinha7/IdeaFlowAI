@@ -2,6 +2,7 @@
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useParams, notFound } from "next/navigation";
+import { buildLoginRedirect } from "@/lib/authRedirect";
 import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe, postGate, getRunEvents, getWorkflowDefinitions, getRunFamily, ApiError, handleSessionExpiry } from "@/lib/api";
 import type { WorkflowSummary } from "@/lib/api";
 import { useAppDispatch } from "@/store/hooks";
@@ -161,6 +162,7 @@ function initialMainViewFor(parsed: ParsedView): MainView | undefined {
     case "settings-ai-model":
     case "settings-usage":
     case "settings-constitution":
+    case "settings-security":
       return "settings";
     case "analytics":
       return "analytics";
@@ -238,6 +240,8 @@ function initialSettingsSectionFor(parsed: ParsedView): SettingsSection | undefi
       return "limits";
     case "settings-constitution":
       return "constitution";
+    case "settings-security":
+      return "security";
     default:
       return undefined;
   }
@@ -746,7 +750,7 @@ export default function DashboardPage({
   useEffect(() => {
     const storedToken = getToken();
     if (!storedToken) {
-      router.replace(routes.login());
+      router.replace(buildLoginRedirect());
       return;
     }
     setToken(storedToken);
@@ -1407,7 +1411,9 @@ export default function DashboardPage({
             setUserStoryContent(finalOutput);
           } else if (pipelineType === "ppt" || pipelineType === "ppt_revision") {
             setPptContent(finalOutput);
-          } else if (pipelineType === "prototype" || pipelineType === "prototype_revision") {
+          } else if (pipelineType === "prototype" || pipelineType === "prototype_revision"
+            || pipelineType === "prototype_large_revision"
+            || pipelineType === "prototype_feature_revision") {
             setPrototypeContent(finalOutput);
           } else {
             // ISS-021 (18-03) + CR-01 (18 review fix): any pipeline_type matching
@@ -2875,7 +2881,9 @@ export default function DashboardPage({
             setUserStoryContent(fullRun.output);
           } else if (fullRun.type === "ppt" || fullRun.type === "ppt_revision") {
             setPptContent(fullRun.output);
-          } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision") {
+          } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision"
+            || fullRun.type === "prototype_large_revision"
+            || fullRun.type === "prototype_feature_revision") {
             setPrototypeContent(fullRun.output);
           } else {
             // ISS-021 (18-03) / UXFIX-02 (22-03) — generic reopen fallback.
@@ -3821,6 +3829,7 @@ export default function DashboardPage({
       onClearPendingOdPpt={() => setPendingOdPptParams(null)}
       userTier={user?.tier ?? "basic"}
       userEmail={user?.email}
+      isAdmin={user?.is_admin ?? false}
       waves={runStore.viewed.waveGroups}
     />
   );

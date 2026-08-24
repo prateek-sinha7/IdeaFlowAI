@@ -121,6 +121,11 @@ cat > /etc/nginx/conf.d/velocityai-limits.conf <<'EOF'
 limit_req_zone $binary_remote_addr zone=velocityai_login:10m rate=10r/m;
 limit_req_zone $binary_remote_addr zone=velocityai_register:10m rate=5r/m;
 limit_req_zone $binary_remote_addr zone=velocityai_change_pw:10m rate=10r/m;
+# COGNITO-MIGRATION-PLAN §3.6 / §7 Phase 1: /api/auth/refresh is a NEW endpoint
+# (Phase 3) with no dedicated rate limit before this — silent token-refresh
+# calls are more frequent than an interactive login, so this zone is more
+# permissive than velocityai_login but still bounded.
+limit_req_zone $binary_remote_addr zone=velocityai_refresh:10m rate=30r/m;
 limit_req_zone $binary_remote_addr zone=velocityai_api:10m rate=120r/m;
 limit_conn_zone $binary_remote_addr zone=velocityai_stream:10m;
 
@@ -246,6 +251,12 @@ server {
     }
     location /api/auth/change-password {
         limit_req zone=velocityai_change_pw burst=5 nodelay;
+        limit_req_status 429;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
+    }
+    location /api/auth/refresh {
+        limit_req zone=velocityai_refresh burst=10 nodelay;
         limit_req_status 429;
         proxy_pass         http://velocityai_backend;
         include            /etc/nginx/snippets/velocityai-proxy-headers.conf;

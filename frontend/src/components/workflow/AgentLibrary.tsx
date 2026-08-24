@@ -6,7 +6,7 @@ import { X, Search, Info } from "lucide-react";
 import type { AgentDef } from "@/types/index";
 import { AgentCapabilitiesModal } from "./AgentsPopup";
 import { useAgentLibrary } from "@/hooks/useAgentLibrary";
-import { getWorkflowTypeIcon } from "@/lib/workflowIcons";
+import { getWorkflowTypeIcon, getPrimaryPipelineType, agentMatchesPipelineType } from "@/lib/workflowIcons";
 import { useAppSelector } from "@/store/hooks";
 import { isCustomAgentTemplate } from "@/store/api/userWorkflows";
 
@@ -87,7 +87,7 @@ export function AgentLibrary({
   // Use only existingAgentIds from parent — no local tracking
   // This ensures removed agents reappear in the library
   const filteredAgents = ALL_AGENTS.filter((agent) => {
-    const matchesCategory = activeCategory === "all" || agent.pipeline_type === activeCategory;
+    const matchesCategory = activeCategory === "all" || agentMatchesPipelineType(agent.pipeline_type, activeCategory);
     const matchesSearch =
       !searchQuery ||
       agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -101,17 +101,20 @@ export function AgentLibrary({
     return matchesCategory && matchesSearch && notAlreadyAdded && notHidden;
   }).sort((a, b) => {
     // Sort beta workflows to the end
-    const aBeta = BETA_WORKFLOWS.has(a.pipeline_type) ? 1 : 0;
-    const bBeta = BETA_WORKFLOWS.has(b.pipeline_type) ? 1 : 0;
+    const aPt = getPrimaryPipelineType(a.pipeline_type);
+    const bPt = getPrimaryPipelineType(b.pipeline_type);
+    const aBeta = BETA_WORKFLOWS.has(aPt) ? 1 : 0;
+    const bBeta = BETA_WORKFLOWS.has(bPt) ? 1 : 0;
     if (aBeta !== bBeta) return aBeta - bBeta;
-    return a.pipeline_type.localeCompare(b.pipeline_type) || a.order - b.order;
+    return aPt.localeCompare(bPt) || a.order - b.order;
   });
 
   const categoryCounts: Record<string, number> = { all: 0 };
   ALL_AGENTS.forEach((a) => {
     if (isCustomAgentTemplate(a) || !existingAgentIds.includes(a.id)) {
       categoryCounts.all = (categoryCounts.all || 0) + 1;
-      categoryCounts[a.pipeline_type] = (categoryCounts[a.pipeline_type] || 0) + 1;
+      const pt = getPrimaryPipelineType(a.pipeline_type);
+      categoryCounts[pt] = (categoryCounts[pt] || 0) + 1;
     }
   });
 
@@ -212,13 +215,14 @@ export function AgentLibrary({
                   <div className="grid grid-cols-2 gap-2">
                     {filteredAgents.map((agent, idx) => {
                       const initials = getInitials(agent.name);
-                      const categoryLabel = CATEGORIES.find(c => c.id === agent.pipeline_type)?.label?.toUpperCase() || agent.pipeline_type.toUpperCase();
-                      const isBeta = BETA_WORKFLOWS.has(agent.pipeline_type);
-                      const WorkflowIconComponent = getWorkflowTypeIcon(agent.pipeline_type);
+                      const pt = getPrimaryPipelineType(agent.pipeline_type);
+                      const categoryLabel = CATEGORIES.find(c => c.id === pt)?.label?.toUpperCase() || pt.toUpperCase();
+                      const isBeta = BETA_WORKFLOWS.has(pt);
+                      const WorkflowIconComponent = getWorkflowTypeIcon(pt);
 
                       return (
                         <motion.div
-                          key={`${agent.pipeline_type}-${agent.id}`}
+                          key={`${pt}-${agent.id}`}
                           data-testid={`library-card-${agent.id}`}
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}

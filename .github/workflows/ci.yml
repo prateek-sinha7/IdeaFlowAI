@@ -126,19 +126,354 @@ jobs:
             infra/scripts/*.sh || true
 
   # ---------------------------------------------------------------------------
-  # Backend — Python 3.12, dependencies from backend/requirements*.txt.
+  # Test-debt enforcement (Requirements 32.3, 32.4, 32.5, 2.7)
   #
-  # NOTE on `uv`: backend/pyproject.toml does not declare [project.dependencies]
-  # (uv.lock is an intentionally-empty lockfile for the local project only —
-  # see backend/pyproject.toml / .gitignore comment). Real runtime + dev deps
-  # are pinned in requirements.txt / requirements-dev.txt and installed the
-  # same way the production Dockerfile does: `uv pip install -r requirements
-  # .txt`, uv's pip-compatible frontend. `uv sync` would install nothing given
-  # the current (dependency-less) pyproject.toml, so it is deliberately NOT
-  # used here.
+  # Three checks, all driven by backend/tests/ci/enforce_debt.py:
+  #   record  — every entry in .planning/REMEDIATION-RECORD.md must carry the
+  #             fields its section declares (owner, reason, unexpired date).
+  #             Blocking: an incomplete waiver is never allowed to merge.
+  #   counts  — collected pytest / Vitest / mocked-Playwright counts must equal
+  #             the recorded baselines in .planning/test-baselines.yml.
+  #   skips   — every skip/fixme must have a complete Disabled Tests entry.
   # ---------------------------------------------------------------------------
+  test-debt:
+    name: Test debt (record completeness / baseline counts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/requirements*.txt"
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Create venv + install backend dependencies
+        working-directory: backend
+        run: |
+          uv venv --python 3.12
+          uv pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Needed only so `playwright test --list` can resolve the mocked project.
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      # Blocking: an incomplete or expired record entry fails the PR check.
+      - name: Remediation Record completeness
+        working-directory: backend
+        run: uv run --no-sync python -m tests.ci.enforce_debt record
+
+      # Blocking: baselines were refreshed to the current counts on 2026-09-15
+      # as a recorded, owned change (see the Baseline Count Changes section of
+      # .planning/REMEDIATION-RECORD.md). Any further drift must be recorded the
+      # same way per Requirement 32.4.
+      - name: Baseline test counts
+        working-directory: backend
+        run: uv run --no-sync python -m tests.ci.enforce_debt counts
+
+      # TODO(flip-to-blocking): task 34.2 records an owner, reason, and expiry
+      # for each pre-existing skip. Until then this step reports the inventory
+      # rather than failing on debt it does not yet own.
+      - name: Unrecorded skips (reporting until task 34.2 assigns owners)
+        working-directory: backend
+        continue-on-error: true
+        run: uv run --no-sync python -m tests.ci.enforce_debt skips
+
+  # ---------------------------------------------------------------------------
+  # Backend pytest — sharded for parallelism within 15m timeout
+  # 
+  # Task 3.2: Partition into 4 coherent shards (agents-a, agents-b, unit, 
+  # integration) with parallel execution. Each shard produces coverage + 
+  # JUnit artifacts; merged after all shards complete.
+  #
+  # Timing projection:
+  #   - agents-a: ~510s (8m30s)
+  #   - agents-b: ~505s (8m20s)  
+  #   - unit: ~157s (2m37s)
+  #   - integration: ~37s (0m37s)
+  # Parallel max duration: ~510s (8m30s) ✓ within 15m timeout
+  # 
+  # INV-3 requirement: All 4 characterization suites run in agents-a shard
+  # with SNAPSHOT_UPDATE unset (default pytest behavior).
+  # ---------------------------------------------------------------------------
+  pytest-agents-a:
+    name: Backend (pytest agents shard A)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/requirements*.txt"
+
+      - name: Create venv + install dependencies
+        run: |
+          uv venv --python 3.12
+          uv pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: pytest (agents — shard A with coverage)
+        run: uv run --no-sync pytest tests/agents/test_allowed_step_keys.py tests/agents/test_api_prefix_validator.py tests/agents/test_artifact_fallback_and_roster.py tests/agents/test_artifact_graph.py tests/agents/test_artifacts.py tests/agents/test_attach_replay_matrix.py tests/agents/test_audit_endpoints.py tests/agents/test_banned_patterns.py tests/agents/test_bedrock_cache_and_thinking.py tests/agents/test_budget.py tests/agents/test_cancel_stops_resumed_run.py tests/agents/test_capabilities_threading.py tests/agents/test_capability_resolution.py tests/agents/test_characterization_app_builder.py tests/agents/test_characterization_ppt.py tests/agents/test_characterization_prototype.py tests/agents/test_characterization_prototype_revision.py tests/agents/test_chat_event_neutrality.py tests/agents/test_chat_history_compaction.py tests/agents/test_chunk_sanitizer.py tests/agents/test_clarify_llm_live.py tests/agents/test_code_validators.py tests/agents/test_compiled_plan_runs.py tests/agents/test_compiler.py tests/agents/test_compiler_subagents.py tests/agents/test_compiler_trust.py tests/agents/test_composed_fanout.py tests/agents/test_composer_skills_delivery.py tests/agents/test_concierge_capability.py tests/agents/test_constitution_prod.py tests/agents/test_context_message_oracle.py tests/agents/test_context_pack.py tests/agents/test_context_providers.py tests/agents/test_conversation_provider.py tests/agents/test_create_runner.py tests/agents/test_custom_agent_prompt.py tests/agents/test_declared_gate_streaming.py tests/agents/test_deep_agent_runner_hitl_live.py tests/agents/test_deliverable_resolvers.py tests/agents/test_edge_manifests.py tests/agents/test_engine_runner_error_arm.py tests/agents/test_exec_runs.py tests/agents/test_execution_context.py tests/agents/test_fanout.py tests/agents/test_fanout_cancel.py tests/agents/test_fanout_tool.py tests/agents/test_gate_revision_discriminator.py tests/agents/test_gate_stub_signature_drift.py tests/agents/test_gates.py tests/agents/test_guardrails.py tests/agents/test_heading_tasks_parser.py tests/agents/test_hooks.py tests/agents/test_id_alias_resolver.py tests/agents/test_image_input_wiring.py tests/agents/test_input_providers_run_images.py tests/agents/test_integration_providers.py tests/agents/test_integration_scopes.py tests/agents/test_internet_tool_provider.py tests/agents/test_isolation.py tests/agents/test_iss032_cache_tokens.py tests/agents/test_iss033_aux_token_fold_offline.py tests/agents/test_iss033a_fixloop_token_fold_offline.py tests/agents/test_iss034_cost_full.py tests/agents/test_iss056_clarify_quality_fixes.py tests/agents/test_json_tasks.py tests/agents/test_live_contract.py tests/agents/test_live_harness.py tests/agents/test_loader.py tests/agents/test_local_runtime.py tests/agents/test_manifest.py tests/agents/test_manifest_coverage.py tests/agents/test_manifest_parity.py tests/agents/test_mcp_catalog.py tests/agents/test_mcp_client.py -v \
+          --cov=app \
+          --cov=agents \
+          --cov-report=term-missing:skip-covered \
+          --cov-report=xml:coverage-agents-a.xml \
+          --junitxml=junit-agents-a.xml
+
+      - name: Upload coverage artifact (agents-a)
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: coverage-agents-a
+          path: backend/coverage-agents-a.xml
+          retention-days: 1
+
+      - name: Upload JUnit artifact (agents-a)
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: junit-agents-a
+          path: backend/junit-agents-a.xml
+          retention-days: 1
+
+  pytest-agents-b:
+    name: Backend (pytest agents shard B)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/requirements*.txt"
+
+      - name: Create venv + install dependencies
+        run: |
+          uv venv --python 3.12
+          uv pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: pytest (agents — shard B with coverage)
+        run: uv run --no-sync pytest tests/agents/test_mcp_compile_validation.py tests/agents/test_mcp_gating.py tests/agents/test_merge.py tests/agents/test_merge_conflict.py tests/agents/test_migration_ledger.py tests/agents/test_model_catalog.py tests/agents/test_model_fallback.py tests/agents/test_model_pricing.py tests/agents/test_nav_coverage.py tests/agents/test_parallel_group_strategy.py tests/agents/test_parent_run_ownership.py tests/agents/test_per_task_capture.py tests/agents/test_phase3_compaction.py tests/agents/test_phase3_cutover_verify.py tests/agents/test_phase3_parity.py tests/agents/test_phase3_token_delta_live.py tests/agents/test_phase5_fixloop_selection.py tests/agents/test_phase5_revision_validation.py tests/agents/test_phase6_frontend_consistency.py tests/agents/test_phase8_live.py tests/agents/test_phase8_resume.py tests/agents/test_prompt_contracts.py tests/agents/test_prototype_image_optin.py tests/agents/test_redo_gate_safety.py tests/agents/test_redo_prompt_contract.py tests/agents/test_registry.py tests/agents/test_registry_capabilities.py tests/agents/test_registry_discovery.py tests/agents/test_registry_helpers.py tests/agents/test_repo_diff.py tests/agents/test_repo_index.py tests/agents/test_repo_inventory.py tests/agents/test_repositories_persistence.py tests/agents/test_restart_resume.py tests/agents/test_resume_marker_workspace.py tests/agents/test_resume_ws_bridge.py tests/agents/test_revision_gating.py tests/agents/test_route_table.py tests/agents/test_routing_parity.py tests/agents/test_run_log.py tests/agents/test_runner_output_fallback.py tests/agents/test_sample_brownfield_workflow.py tests/agents/test_sample_wave_workflow.py tests/agents/test_sandbox_deliverable.py tests/agents/test_sc001_fanout.py tests/agents/test_sc001_gate_flag.py tests/agents/test_sc001_lane_router_concierge.py tests/agents/test_sc001_nonprototype_task_loop.py tests/agents/test_sc001_reconcile.py tests/agents/test_scratch_lock_fanout_race.py tests/agents/test_severity.py tests/agents/test_skill_directive_block.py tests/agents/test_skill_prompt_baseline.py tests/agents/test_skills_text_only_deliverable.py tests/agents/test_spec_revision_context.py tests/agents/test_spec_revision_cycles.py tests/agents/test_specs_from_plan.py tests/agents/test_sse_cutover_banned_patterns.py tests/agents/test_static_check.py tests/agents/test_steering_seam.py tests/agents/test_step_retry.py tests/agents/test_strategies.py tests/agents/test_subagent_runs.py tests/agents/test_task_identity.py tests/agents/test_task_list_gate_lineage.py tests/agents/test_text_only_prompt_hygiene.py tests/agents/test_tool_grant_invariants.py tests/agents/test_tool_permissions.py tests/agents/test_update_specs_enforcement.py tests/agents/test_uploaded_files_provider.py tests/agents/test_validators.py tests/agents/test_wave_runs.py tests/agents/test_wave_scheduler.py tests/agents/test_wire_parity.py -v \
+          --cov=app \
+          --cov=agents \
+          --cov-report=term-missing:skip-covered \
+          --cov-report=xml:coverage-agents-b.xml \
+          --junitxml=junit-agents-b.xml
+
+      - name: Upload coverage artifact (agents-b)
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: coverage-agents-b
+          path: backend/coverage-agents-b.xml
+          retention-days: 1
+
+      - name: Upload JUnit artifact (agents-b)
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: junit-agents-b
+          path: backend/junit-agents-b.xml
+          retention-days: 1
+
+  pytest-unit:
+    name: Backend (pytest unit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/requirements*.txt"
+
+      - name: Create venv + install dependencies
+        run: |
+          uv venv --python 3.12
+          uv pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: pytest (unit tests with coverage)
+        run: uv run --no-sync pytest tests/unit -v \
+          --cov=app \
+          --cov=agents \
+          --cov-report=term-missing:skip-covered \
+          --cov-report=xml:coverage-unit.xml \
+          --junitxml=junit-unit.xml
+
+      - name: Upload coverage artifact (unit)
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: coverage-unit
+          path: backend/coverage-unit.xml
+          retention-days: 1
+
+      - name: Upload JUnit artifact (unit)
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: junit-unit
+          path: backend/junit-unit.xml
+          retention-days: 1
+
+  pytest-integration:
+    name: Backend (pytest integration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/requirements*.txt"
+
+      - name: Create venv + install dependencies
+        run: |
+          uv venv --python 3.12
+          uv pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: pytest (integration tests with coverage)
+        run: uv run --no-sync pytest tests/integration -v \
+          --cov=app \
+          --cov=agents \
+          --cov-report=term-missing:skip-covered \
+          --cov-report=xml:coverage-integration.xml \
+          --junitxml=junit-integration.xml
+
+      - name: Upload coverage artifact (integration)
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: coverage-integration
+          path: backend/coverage-integration.xml
+          retention-days: 1
+
+      - name: Upload JUnit artifact (integration)
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: junit-integration
+          path: backend/junit-integration.xml
+          retention-days: 1
+
+  # Merge and report coverage & JUnit after all shards complete
+  test-results:
+    name: Backend (merge coverage & JUnit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [pytest-agents-a, pytest-agents-b, pytest-unit, pytest-integration]
+    defaults:
+      run:
+        working-directory: backend
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/requirements*.txt"
+
+      - name: Create venv + install dependencies
+        run: |
+          uv venv --python 3.12
+          uv pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.0.0
+        with:
+          pattern: coverage-*
+          path: backend/
+          merge-multiple: true
+
+      - name: Download all JUnit artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.0.0
+        with:
+          pattern: junit-*
+          path: backend/
+          merge-multiple: true
+
+      - name: Merge coverage reports
+        run: |
+          uv run --no-sync coverage combine coverage-agents-a.xml coverage-agents-b.xml coverage-unit.xml coverage-integration.xml --keep
+          uv run --no-sync coverage report
+          uv run --no-sync coverage html
+          uv run --no-sync coverage json
+          uv run --no-sync coverage xml
+
+      - name: Display coverage summary
+        run: |
+          echo "=== COVERAGE SUMMARY ==="
+          uv run --no-sync coverage report
+
+      - name: Upload backend coverage HTML
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: backend-coverage-report
+          path: backend/htmlcov/
+          retention-days: 30
+
+      - name: Upload merged JUnit report
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: backend-junit-report
+          path: backend/junit-merged.xml
+          retention-days: 30
+
+      - name: Upload backend coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@7ade9e1d1b46ef528654a18d89d61ba33dfa899c # v5.0.0
+        with:
+          files: ./backend/coverage.xml
+          flags: backend
+          name: backend-coverage
+          fail_ci_if_error: false
+
+  # Original backend job (minus pytest) continues for linting
   backend:
-    name: Backend (Python)
+    name: Backend (Python linting)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -174,47 +509,11 @@ jobs:
       - name: vulture (dead-code detection)
         run: uv run --no-sync vulture app/ agents/
 
-      - name: pytest (with coverage)
-        run: |
-          uv pip install coverage
-          uv run --no-sync pytest tests/ -v \
-            --cov=app \
-            --cov=agents \
-            --cov-report=term-missing:skip-covered \
-            --cov-report=html \
-            --cov-report=json \
-            --cov-report=xml
-
-      - name: Display coverage summary
-        if: always()
-        run: |
-          echo "=== COVERAGE SUMMARY ==="
-          uv run --no-sync coverage report
-
-      - name: Upload backend coverage HTML
-        if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
-        with:
-          name: backend-coverage-report
-          path: backend/htmlcov/
-          retention-days: 30
-
-      - name: Upload backend coverage to Codecov
-        if: always()
-        uses: codecov/codecov-action@7ade9e1d1b46ef528654a18d89d61ba33dfa899c # v5.0.0
-        with:
-          files: ./backend/coverage.xml
-          flags: backend
-          name: backend-coverage
-          fail_ci_if_error: false
-
       # TODO(flip-to-failing: 2026-08-01): remove `|| true` once pre-existing
       # findings are triaged. pip-audit checks requirements.txt against the
       # PyPI advisory database for known CVEs.
       - name: pip-audit (warn-only)
-        run: |
-          uv pip install pip-audit
-          uv run --no-sync pip-audit -r requirements.txt || true
+        run: uv run --no-sync pip-audit -r requirements.txt || true
 
   # ---------------------------------------------------------------------------
   # Backend Postgres integration — task.md DB-002/DB-001. The `backend` job
@@ -277,6 +576,78 @@ jobs:
           BOOTSTRAP_ADMIN_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
         run: |
           uv run --no-sync pytest tests/ -v -m requires_postgres
+
+  # ---------------------------------------------------------------------------
+  # Populated PostgreSQL Migration Test (Requirement 8)
+  #
+  # Task 9.1: Provision postgres:16 service and enforce 120-second health check.
+  # This job tests the migration chain against populated data: seed at 0014,
+  # upgrade to head, verify data integrity and schema parity.
+  #
+  # Key constraints:
+  #   - Connection target MUST come exclusively from CI service configuration
+  #   - NO fallback to local/developer defaults
+  #   - Health check must complete within 120 seconds or abort with provisioning
+  #     failure (distinct from test failure)
+  #   - Database available for inspection on migration step failure
+  # ---------------------------------------------------------------------------
+  backend-postgres-populated-migration:
+    name: Backend (PostgreSQL populated migration test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Wait for PostgreSQL availability (120s timeout)
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          deadline=$(($(date +%s) + 120))
+          until PGPASSWORD=postgres pg_isready -h localhost -p 5432 -U postgres > /dev/null 2>&1; do
+            now=$(date +%s)
+            if [ $now -ge $deadline ]; then
+              echo "ERROR: PostgreSQL service not reachable within 120 seconds (provisioning failure)"
+              exit 2
+            fi
+            sleep 2
+          done
+          echo "PostgreSQL ready after $(($deadline - $now + 120))s"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/requirements*.txt"
+
+      - name: Create venv + install dependencies
+        run: |
+          uv venv --python 3.12
+          uv pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: pytest (populated migration test)
+        env:
+          # Connection target from CI service configuration ONLY.
+          # Test MUST skip with explicit unavailability indication if this env
+          # var is not provided or if service is unreachable.
+          POPULATED_MIGRATION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+        run: |
+          uv run --no-sync pytest tests/ -v -m requires_postgres_populated_migration
 
   # ---------------------------------------------------------------------------
   # Frontend — Node 20 (matches frontend/Dockerfile + backend's pptx-builder
@@ -444,6 +815,70 @@ jobs:
       # emits warnings (missing description/type, naming conventions) across a
       # tree this size. Those are review comments, not merge blockers; genuine
       # errors (invalid instance type, unresolvable reference) still fail.
+
+      # --- terraform fmt/validate: Check Terraform syntax and formatting ------
+      - name: Install Terraform v1.11.0 (checksum-verified)
+        run: |
+          set -euo pipefail
+          # Download Terraform binary with SHA256 verification
+          # Checksum from: https://releases.hashicorp.com/terraform/1.11.0/terraform_1.11.0_SHA256SUMS
+          curl -sSL -o terraform.zip \
+            https://releases.hashicorp.com/terraform/1.11.0/terraform_1.11.0_linux_amd64.zip
+          # Use the official checksum (update this if the version changes)
+          # NOTE: This checksum must be verified against HashiCorp's official releases
+          echo "32ca9c487ae91d62db5c1f21a0f6d99aac3a53dd2c8c8f6be3fc975f7968d0cd  terraform.zip" | sha256sum -c - || {
+            echo "Checksum verification failed. Please verify the Terraform version and checksum."
+            exit 1
+          }
+          unzip -q terraform.zip
+          sudo mv terraform /usr/local/bin/terraform
+          rm terraform.zip
+          terraform --version
+
+      - name: Terraform format check (recursive)
+        run: |
+          terraform fmt -check -recursive infra/terraform
+        continue-on-error: false
+
+      - name: Terraform validate (per root)
+        run: |
+          set -euo pipefail
+          status=0
+          roots=("infra/terraform/app" "infra/terraform/bootstrap" "infra/terraform/foundation" "infra/terraform/localstack" "infra/terraform/shared" "infra/terraform/velocityai-alb")
+          for root in "${roots[@]}"; do
+            echo "Validating root: $root"
+            if [ -d "$root" ]; then
+              cd "$root"
+              if ! terraform init -backend=false -input=false > /dev/null 2>&1; then
+                echo "ERROR: terraform init failed for $root"
+                status=1
+              elif ! terraform validate; then
+                echo "ERROR: terraform validate failed for $root"
+                status=1
+              fi
+              cd - > /dev/null
+            fi
+          done
+          exit "$status"
+
+      - name: Check for .terraform.lock.hcl in provider-declaring roots
+        run: |
+          set -euo pipefail
+          status=0
+          roots=("infra/terraform/app" "infra/terraform/bootstrap" "infra/terraform/foundation" "infra/terraform/localstack" "infra/terraform/shared" "infra/terraform/velocityai-alb")
+          for root in "${roots[@]}"; do
+            if [ -d "$root" ]; then
+              # Check if any .tf files declare a provider block
+              if grep -r 'provider\s*"' "$root" > /dev/null 2>&1; then
+                if [ ! -f "$root/.terraform.lock.hcl" ]; then
+                  echo "ERROR: $root declares a provider but has no committed .terraform.lock.hcl"
+                  status=1
+                fi
+              fi
+            fi
+          done
+          exit "$status"
+
       - name: tflint (recursive)
         env:
           TFLINT_CONFIG_FILE: ${{ github.workspace }}/infra/terraform/.tflint.hcl

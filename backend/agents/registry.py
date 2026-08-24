@@ -70,8 +70,10 @@ logger = logging.getLogger(__name__)
 # did, so one label meant "5 agents" to one and "unknown" to the other).
 #
 # Persisted rows carrying the old label are migrated in-place — see
-# alembic/versions/0043_collapse_od_prototype_label.py — so nothing needs to
-# stay compatible with it at runtime.
+# alembic/versions/0037_collapse_od_prototype_label.py — so nothing needs to
+# stay compatible with it at runtime. (That migration was authored as ``0032``
+# and re-homed to ``0037`` after the ID collided with the cognito branch's own
+# ``0032``; the file name here is the corrected one.)
 #
 # The dict stays (empty) rather than being deleted: ``resolve_alias`` is a
 # declared port with real callers, and an empty table makes it the identity
@@ -144,6 +146,8 @@ REVISION_BASE_MAP: dict[str, str] = {
     "ppt_revision": "ppt",
     "user_stories_revision": "user_stories",
     "prototype_revision": "prototype",
+    "prototype_large_revision": "prototype",    # tiered large-revision manifest
+    "prototype_feature_revision": "prototype",  # tiered feature-revision manifest
     "app_builder_revision": "app_builder",
     "custom_revision": "custom",
 }

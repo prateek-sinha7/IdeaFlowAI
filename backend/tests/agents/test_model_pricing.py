@@ -100,7 +100,7 @@ def test_catalog_carries_base_rates(model_id: str, expected: Pricing) -> None:
 
 def test_pricing_covers_every_catalog_model() -> None:
     entries = ModelCatalog().list()
-    assert len(entries) == 7
+    assert len(entries) == 8
     for entry in entries:
         assert isinstance(entry.pricing, Pricing)
 

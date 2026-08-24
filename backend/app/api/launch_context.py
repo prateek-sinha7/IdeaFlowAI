@@ -88,15 +88,25 @@ def resolve_launch_od_context(
     if "opendesign" not in (compiled.context_providers or []):
         return base_pipeline_type, None
 
-    # Nothing was ASKED for: no template id and no inline body. Return no od_context
-    # rather than calling the loader with an empty id, which raises LookupError and
-    # surfaces as ``template_not_found`` — a wrong answer, because the caller never
-    # named a template that could be "not found". The accurate rejection is the
-    # downstream ``missing_template_context`` guard, which says the agents need a
-    # template and none was supplied. (Before the alias collapse this case could not
-    # arise: a bare ``prototype`` never reached the loader at all.)
+    # Nothing was ASKED for: no template id and no inline body. This is the
+    # blank-canvas / no-template mode — pass template_id="" through to the loader,
+    # which handles it explicitly (od_context.py: `template_id in (None, "", "none")`
+    # → blank-canvas mode with design-system tokens only). Returning None here would
+    # trigger the downstream missing_template_context 400 guard, which is wrong:
+    # the user DID make a choice (no template), they just want a blank-canvas build.
+    # The accurate path: let the loader produce a no-template od_context (design
+    # system only) so agents run in blank-canvas mode with DS tokens injected.
+    # Exception: if there is no design_system_id either, the loader has nothing to
+    # inject — return None only in that case (both template AND design system absent).
     if not (template_id or custom_template_body):
-        return base_pipeline_type, None
+        if not (design_system_id or custom_ds_body):
+            # Truly nothing — let the downstream missing_template_context guard
+            # produce the right error message.
+            return base_pipeline_type, None
+        # Has a design system but no template → blank-canvas mode.
+        # Fall through to the loader with template_id="" so it enters blank-canvas
+        # path (od_context.py line 123: `template_id in (None, "", "none")`).
+        template_id = ""
 
     # ── LOADER PROFILE (preserved compatibility shim) ─────────────────────────
     # FIXME(ISS-046 / D-15/C v1): generic loader-profile *declaration* is deferred

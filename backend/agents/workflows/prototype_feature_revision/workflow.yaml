@@ -1,0 +1,58 @@
+id: prototype_feature_revision
+user_launchable: false
+is_beta: true
+display_name: Revise prototype (feature addition)
+short_name: Prototype Revision (Feature)
+description: Add a new feature or page to a prior prototype.
+icon: Layout
+version: 1
+planner: skip
+clarify:
+  mode: skip
+deliverable:
+  strategy: single_file
+  name: prototype.html
+  revises_existing: true
+context_providers:
+- previous_run
+- opendesign
+seed_files: {}
+steps:
+# Step 1: Define the new feature spec — human reviews before building
+- agent: prototype-revision-feature-specify
+  tools: {read_files: true, write_files: true}
+  strategy: single_shot
+  gates:
+  - human
+
+# Step 2: Plan the implementation — human reviews task breakdown
+- agent: prototype-plan
+  tools: {read_files: true, write_files: true}
+  strategy: single_shot
+  gates:
+  - human
+
+# Step 3: Build the feature (task_loop — matches main prototype build)
+- agent: prototype-build
+  tools: {read_files: true, write_files: true}
+  strategy: task_loop
+  gates: []
+  task_source:
+    kind: parsed
+    parser: heading_tasks
+    target: tasks.md
+    source_step: prototype-plan
+    spec_step: prototype-revision-feature-specify
+  validators:
+  - html_static
+  - html_render
+  require_render: true
+  post_step: revision_validation
+  compaction: html_skeleton
+
+# Step 4: Final validation
+- agent: prototype-validate
+  tools: {read_files: true, write_files: true}
+  strategy: single_shot
+  gates: []
+name: Prototype Revision (Feature)

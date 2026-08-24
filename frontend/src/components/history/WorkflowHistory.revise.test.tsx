@@ -11,7 +11,7 @@ import type { WorkflowRun } from "@/types/index";
 // revisions sent nothing → orphan runs. Scaffold mirrors WorkflowHistory.test.tsx.
 // ─────────────────────────────────────────────────────────────────
 const mockGetToken = vi.fn(() => "test-token");
-const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<WorkflowRun[]>>();
+const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<{ runs: WorkflowRun[]; total: number }>>();
 const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<WorkflowRun>>();
 const mockDeleteWorkflow = vi.fn<(token: string, id: string) => Promise<void>>();
 vi.mock("@/lib/api", () => ({

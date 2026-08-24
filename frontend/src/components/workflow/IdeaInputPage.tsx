@@ -17,6 +17,7 @@ import { collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflow
 import { createUserWorkflow, getToken, getWorkflowDetail, extractFileText } from "@/lib/api";
 import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import { resizeImage } from "@/lib/resizeImage";
+import { agentMatchesPipelineType } from "@/lib/workflowIcons";
 import { AnimatePresence } from "motion/react";
 import type { WorkflowType, AgentDef, AttachedSkill, AttachedHook } from "@/types/index";
 import { useWorkflowCatalogEntry } from "@/hooks/useWorkflowMetadata";
@@ -776,6 +777,20 @@ const TYPE_CONFIG: Partial<Record<string, PageCopy>> = {
     placeholder: "e.g. Swap the side filter for a top tab bar and add a dark-mode toggle.",
     icon: Layout,
   },
+  prototype_large_revision: {
+    tag: "Major overhaul of an existing prototype",
+    heading: "What should change?",
+    subtitle: "Perform a substantial rework of an existing prototype — preserve the core logic but modernise the design.",
+    placeholder: "e.g. Redesign the entire UI to use a new design system and add mobile responsiveness.",
+    icon: Layout,
+  },
+  prototype_feature_revision: {
+    tag: "Add features to an existing prototype",
+    heading: "What features should be added?",
+    subtitle: "Extend an existing prototype with new functionality while preserving the existing implementation.",
+    placeholder: "e.g. Add real-time notifications and user preferences panel to the existing dashboard.",
+    icon: Layout,
+  },
   ppt: {
     tag: "Build an executive presentation",
     heading: "Specify the topic",
@@ -883,7 +898,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // Custom workflow: start blank — user adds agents themselves via recommendations
     // or the Browse Agents library. CUSTOM_AGENTS are available there, not pre-loaded.
     if (type === "custom") return [];
-    return LIBRARY_AGENTS.filter((a) => a.pipeline_type === type).sort((a, b) => a.order - b.order);
+    return LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, type)).sort((a, b) => a.order - b.order);
   });
 
   const { attachedHooks } = useSkillsHooks();
@@ -1181,7 +1196,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       setPipelineAgents([]);
     } else {
       const fromLibrary = LIBRARY_AGENTS
-        .filter((a) => a.pipeline_type === effectiveType)
+        .filter((a) => agentMatchesPipelineType(a.pipeline_type, effectiveType))
         .sort((a, b) => a.order - b.order);
       // A composed workflow has no AGENT.md-backed library agents, so the filter
       // above is empty for it and Advanced would render with nothing in it. Fall
@@ -1356,7 +1371,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const defaultAgentIds = new Set(
     effectiveType === "custom"
       ? [] // custom has no locked defaults — every agent the user adds is optional
-      : LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).map((a) => a.id)
+      : LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, effectiveType)).map((a) => a.id)
   );
   const optionalAgentCount = pipelineAgents.filter((a) => !defaultAgentIds.has(a.id)).length;
   const maxOptional = effectiveType === "custom" ? 16 : 5; // generous cap for custom
@@ -1371,7 +1386,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       const currentDefaults = new Set(
         effectiveType === "custom"
           ? []
-          : LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).map((a) => a.id)
+          : LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, effectiveType)).map((a) => a.id)
       );
       const currentOptional = prev.filter((a) => !currentDefaults.has(a.id)).length;
       const limit = effectiveType === "custom" ? 16 : 5;

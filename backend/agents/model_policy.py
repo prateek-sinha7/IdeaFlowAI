@@ -35,8 +35,12 @@ caller re-raises, no model switch).
 
 from __future__ import annotations
 
+import logging
+
 from agents.capabilities.model_catalog import ModelCatalog
 from agents.workflows.plan import ModelPolicy
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Cost-class tier ordering (canonical, from the catalog ``cost_class`` field).
@@ -101,6 +105,21 @@ class ModelResolver:
             or (self._workflow_model.model if self._workflow_model else None)   # 4 workflow.model
             or self._session_model_id                                       # 5a session model_id
             or self._haiku_default                                          # 5b global Haiku
+        )
+
+        # Log effective model resolution so operators can verify tier-3 AGENT.md
+        # overrides (e.g. prototype-revision-analyzer using Sonnet 5) are active.
+        _tier = (
+            "tier-1/override" if override
+            else "tier-2/step.model" if step_model
+            else "tier-3/agent.md" if agent_model
+            else "tier-4/workflow" if (self._workflow_model and self._workflow_model.model)
+            else "tier-5/session"
+        )
+        agent_id = getattr(spec, "id", "?")
+        logger.info(
+            "model_resolver: agent=%r  resolved=%r  tier=%s",
+            agent_id, resolved, _tier,
         )
         # CR-01 defense-in-depth: catalog-validate tier-2 ``step.model`` when it is
         # the SELECTED tier. ``step.model`` originates from a user-composed

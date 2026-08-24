@@ -284,6 +284,12 @@ _DOCUMENTED_EVENT_TYPES = frozenset(
         "merge_started",
         "merge_completed",
         "artifact_fallback",
+        # ── Revision Analyzer events (prototype-revision-analyzer feature) ───────
+        # revision_analyzer_complete — emitted by run_analyzer after the analyzer
+        # agent returns, with payload {tier, solution_preview}. Added to the
+        # vocabulary so the INV-3 golden suite recognises it without re-baselining
+        # the 5 existing characterization goldens (which never trigger the analyzer).
+        "revision_analyzer_complete",
     }
 )
 

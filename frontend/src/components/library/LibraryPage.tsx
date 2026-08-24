@@ -16,7 +16,7 @@ import { useHooksCatalog } from "@/hooks/useHooksCatalog";
 import { useAppSelector } from "@/store/hooks";
 import { routes, parseViewPath } from "@/lib/routes";
 import { getSkillCategoryIcon } from "@/lib/skillIcons";
-import { getWorkflowTypeIcon } from "@/lib/workflowIcons";
+import { getWorkflowTypeIcon, getPrimaryPipelineType, agentMatchesPipelineType } from "@/lib/workflowIcons";
 import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -601,7 +601,7 @@ export function LibraryPage() {
   const filteredAgents = ALL_AGENTS_COMBINED.filter(agent => {
     const matchesCategory =
       activeCategory === "all" ||
-      agent.pipeline_type === activeCategory;
+      agentMatchesPipelineType(agent.pipeline_type, activeCategory);
     const matchesSearch = !searchQuery ||
       agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       agent.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -609,10 +609,12 @@ export function LibraryPage() {
     return matchesCategory && matchesSearch;
   }).sort((a, b) => {
     // Sort beta workflows to the end
-    const aBeta = BETA_WORKFLOWS.has(a.pipeline_type) ? 1 : 0;
-    const bBeta = BETA_WORKFLOWS.has(b.pipeline_type) ? 1 : 0;
+    const aPt = getPrimaryPipelineType(a.pipeline_type);
+    const bPt = getPrimaryPipelineType(b.pipeline_type);
+    const aBeta = BETA_WORKFLOWS.has(aPt) ? 1 : 0;
+    const bBeta = BETA_WORKFLOWS.has(bPt) ? 1 : 0;
     if (aBeta !== bBeta) return aBeta - bBeta;
-    return a.pipeline_type.localeCompare(b.pipeline_type) || a.order - b.order;
+    return aPt.localeCompare(bPt) || a.order - b.order;
   });
 
   const filteredSkills = SKILLS.filter(s => {
@@ -710,7 +712,7 @@ export function LibraryPage() {
             <div className="flex flex-wrap gap-[7px] mb-5">
               {CATEGORIES.map(cat => {
                 const count = cat.id === "all" ? ALL_AGENTS_COMBINED.length
-                  : ALL_AGENTS_COMBINED.filter(a => a.pipeline_type === cat.id).length;
+                  : ALL_AGENTS_COMBINED.filter(a => agentMatchesPipelineType(a.pipeline_type, cat.id)).length;
                 const isActive = activeCategory === cat.id;
                 const showIcon = cat.id !== "all" && cat.id !== "custom";
                 const IconComponent = showIcon ? getWorkflowTypeIcon(cat.id) : null;
@@ -731,13 +733,13 @@ export function LibraryPage() {
                 Array.from({ length: 6 }).map((_, i) => <AgentCardSkeleton key={i} />)
               ) : (
                 filteredAgents.map((agent) => {
-                  const WorkflowIconComponent = getWorkflowTypeIcon(agent.pipeline_type);
-                  const workflow = workflows.find(w => w.id === agent.pipeline_type);
-                  const workflowLabel = workflow?.name || workflow?.display_name || agent.pipeline_type;
+                  const WorkflowIconComponent = getWorkflowTypeIcon(getPrimaryPipelineType(agent.pipeline_type));
+                  const workflow = workflows.find(w => w.id === getPrimaryPipelineType(agent.pipeline_type));
+                  const workflowLabel = workflow?.name || workflow?.display_name || getPrimaryPipelineType(agent.pipeline_type);
                   return (
-                    <Card key={`${agent.pipeline_type}-${agent.id}`}
+                    <Card key={`${getPrimaryPipelineType(agent.pipeline_type)}-${agent.id}`}
                       onClick={() => {
-                        if (!BETA_WORKFLOWS.has(agent.pipeline_type)) {
+                        if (!BETA_WORKFLOWS.has(getPrimaryPipelineType(agent.pipeline_type))) {
                           setSelectedAgent({
                             agent,
                             index: filteredAgents.indexOf(agent),
@@ -749,7 +751,7 @@ export function LibraryPage() {
                         }
                       }}
                       className={`flex flex-col p-[17px] min-h-[180px] transition-colors group ${
-                        BETA_WORKFLOWS.has(agent.pipeline_type)
+                        BETA_WORKFLOWS.has(getPrimaryPipelineType(agent.pipeline_type))
                           ? "opacity-60 cursor-not-allowed"
                           : "hover:border-line-control cursor-pointer"
                       }`}
@@ -763,14 +765,14 @@ export function LibraryPage() {
                           <p className="text-[9px] text-ink-200 mt-1 uppercase tracking-[0.11em] font-semibold">{workflowLabel}</p>
                         </div>
                       </div>
-                    <p className={`text-[12px] font-semibold mb-1.5 ${BETA_WORKFLOWS.has(agent.pipeline_type) ? 'text-ink-400' : 'text-ink-700'}`}>{agent.role}</p>
-                    <p className={`text-[12px] leading-relaxed line-clamp-3 ${BETA_WORKFLOWS.has(agent.pipeline_type) ? 'text-ink-300' : 'text-ink-400'}`}>{agent.description}</p>
+                    <p className={`text-[12px] font-semibold mb-1.5 ${BETA_WORKFLOWS.has(getPrimaryPipelineType(agent.pipeline_type)) ? 'text-ink-400' : 'text-ink-700'}`}>{agent.role}</p>
+                    <p className={`text-[12px] leading-relaxed line-clamp-3 ${BETA_WORKFLOWS.has(getPrimaryPipelineType(agent.pipeline_type)) ? 'text-ink-300' : 'text-ink-400'}`}>{agent.description}</p>
                     <span className="flex-1" />
                     <div className="flex items-center gap-2 mt-3.5 pt-3 border-t border-line-divider">
                       <Clock className="h-[13px] w-[13px] text-ink-200" />
                       <span className="text-[11.5px] text-ink-300">~{agent.estimated_duration}s</span>
                       <span className="flex-1" />
-                      {BETA_WORKFLOWS.has(agent.pipeline_type) ? (
+                      {BETA_WORKFLOWS.has(getPrimaryPipelineType(agent.pipeline_type)) ? (
                         <span className="text-[11.5px] font-medium text-ink-400">Coming Soon</span>
                       ) : (
                         <span className="text-[11.5px] font-medium text-brand">Configure →</span>

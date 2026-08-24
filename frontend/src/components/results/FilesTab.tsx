@@ -331,6 +331,7 @@ export function deriveDeliverableFilename(
   // ── Prototype ─────────────────────────────────────────────────────────────
   if (
     workflowType === "prototype" || workflowType === "prototype_revision"
+    || workflowType === "prototype_large_revision" || workflowType === "prototype_feature_revision"
   ) {
     if (content) {
       const t = content.match(/<title>(.+?)<\/title>/i);
@@ -395,7 +396,7 @@ function deriveDeliverableFiles(
   }
 
   // ── Prototype ─────────────────────────────────────────────────────────────
-  if ((workflowType === "prototype" || workflowType === "prototype_revision") && prototypeContent) {
+  if ((workflowType === "prototype" || workflowType === "prototype_revision" || workflowType === "prototype_large_revision" || workflowType === "prototype_feature_revision") && prototypeContent) {
     let name = "prototype";
     const t = prototypeContent.match(/<title>(.+?)<\/title>/i);
     if (t) name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);

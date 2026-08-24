@@ -36,6 +36,7 @@ import { AgentSkillsPicker } from "@/components/workflow/composer/AgentSkillsPic
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import { Tabs } from "@/components/ui/Tabs";
 import { useAppSelector } from "@/store/hooks";
+import { getPrimaryPipelineType } from "@/lib/workflowIcons";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -544,7 +545,7 @@ export function AgentCapabilitiesModal({
 
   const iconStyle = ICON_STYLES[agentIndex % ICON_STYLES.length];
   const capabilities = getCapabilities(agent);
-  const pipelineLabel = PIPELINE_LABEL[agent.pipeline_type] ?? agent.pipeline_type;
+  const pipelineLabel = PIPELINE_LABEL[getPrimaryPipelineType(agent.pipeline_type)] ?? getPrimaryPipelineType(agent.pipeline_type);
 
   const suggestedHooks = HOOKS.filter(h => h.compatible_agents.includes(agent.id)).slice(0, 3);
 

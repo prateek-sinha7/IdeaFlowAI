@@ -59,11 +59,11 @@ const MOCK_AGENTS = [
 ];
 
 const MOCK_SKILLS = [
-  { id: "skill-1", name: "Brainstorming Ideas Into Designs", description: "Design skill", category: "design", content: "test", isBeta: false, tags: [] },
+  { id: "skill-1", name: "Brainstorming Ideas Into Designs", display_name: "Brainstorming Ideas Into Designs", description: "Design skill", category: "design", content: "test", isBeta: false, tags: [], compatible_agents: [] },
 ];
 
 const MOCK_HOOKS = [
-  { id: "hook-1", name: "Test Hook", event: "on_agent_start", trigger: "test", description: "test" },
+  { id: "hook-1", name: "Test Hook", display_name: "Test Hook", event: "on_agent_start", trigger: "test", description: "test", content: "test", compatible_agents: [], tags: [] },
 ];
 
 // Helper to create a test Redux store
@@ -81,31 +81,35 @@ function createTestStore() {
         agents: MOCK_AGENTS,
         totalCount: MOCK_AGENTS.length,
         pipelines: { user_stories: 2 },
-        status: "succeeded",
+        status: "succeeded" as const,
         error: null,
       },
       skills: {
         skills: MOCK_SKILLS,
+        totalCount: MOCK_SKILLS.length,
         skillCategories: [],
-        status: "succeeded",
+        status: "succeeded" as const,
         error: null,
       },
       hooks: {
         hooks: MOCK_HOOKS,
+        totalCount: MOCK_HOOKS.length,
         hookEvents: [],
-        status: "succeeded",
+        status: "succeeded" as const,
         error: null,
       },
       global: {
         workflows: [],
-        workflowsStatus: "idle",
+        workflowsStatus: "idle" as const,
+        workflowsError: null,
         recentRuns: [],
-        recentRunsStatus: "idle",
+        recentRunsStatus: "idle" as const,
+        recentRunsError: null,
       },
       auth: {
-        isSignedIn: true,
+        token: null,
         user: null,
-        signInError: null,
+        isAuthenticated: false,
       },
     },
   });

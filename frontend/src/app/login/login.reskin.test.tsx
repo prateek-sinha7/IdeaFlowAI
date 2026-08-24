@@ -22,18 +22,36 @@
  * next/navigation + @/lib/api are stubbed so the client page renders in jsdom
  * without a router context or a live transport (LOCK-B: no network).
  */
-import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import React from "react";
 
-// next/navigation — LoginPage calls useRouter() and useSearchParams() at the top of the body.
+// next/navigation — LoginPage calls useRouter() + useSearchParams() at the top
+// of the body (the latter to read the post-login ?redirect= target).
+const { pushMock, mockSearchParams } = vi.hoisted(() => ({
+  pushMock: vi.fn(),
+  mockSearchParams: { current: new URLSearchParams() },
+}));
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: pushMock, replace: vi.fn(), prefetch: vi.fn() }),
+  useSearchParams: () => mockSearchParams.current,
 }));
 
 // @/lib/api — never hit the transport from a render test (LOCK-B). The class is
 // declared INSIDE the factory because vi.mock is hoisted above module scope.
+//
+// Cognito migration (Phase 4): the page now also imports
+// `respondToLoginChallenge` + `isAuthChallenge` (the challenge-response path).
+// `isAuthChallenge` is real logic (a type guard keyed on the `challenge` field
+// presence), not network I/O, so it is safe — and necessary — to keep the real
+// implementation here rather than stub it; every test in this file resolves
+// `loginMock` with a plain AuthResponse (no `challenge` field), so
+// `isAuthChallenge` always returns false and the existing flows are untouched.
+const { loginMock, respondToLoginChallengeMock } = vi.hoisted(() => ({
+  loginMock: vi.fn(),
+  respondToLoginChallengeMock: vi.fn(),
+}));
 vi.mock("@/lib/api", () => {
   class ApiError extends Error {
     status: number;
@@ -44,7 +62,15 @@ vi.mock("@/lib/api", () => {
       this.detail = detail;
     }
   }
-  return { login: vi.fn(), ApiError };
+  function isAuthChallenge(data: unknown): boolean {
+    return Boolean(data && typeof data === "object" && "challenge" in data);
+  }
+  return {
+    login: loginMock,
+    respondToLoginChallenge: respondToLoginChallengeMock,
+    isAuthChallenge,
+    ApiError,
+  };
 });
 
 // motion/react — strip animation-only props so motion.* render as plain nodes.
@@ -70,6 +96,62 @@ vi.mock("motion/react", () => ({
 }));
 
 import LoginPage from "./page";
+
+beforeEach(() => {
+  pushMock.mockClear();
+  loginMock.mockReset();
+  mockSearchParams.current = new URLSearchParams();
+});
+
+function fillAndSubmit() {
+  fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@b.com" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret123" } });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+}
+
+describe("LoginPage — post-login routing", () => {
+  it("routes to the main application by default (no ?redirect=)", async () => {
+    loginMock.mockResolvedValue({
+      token: "tok",
+      user: { id: "1", email: "a@b.com", tier: "basic", is_admin: false },
+    });
+    render(<LoginPage />);
+    fillAndSubmit();
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
+  });
+
+  it("routes an admin to the main application too — no automatic admin redirect", async () => {
+    loginMock.mockResolvedValue({
+      token: "tok",
+      user: { id: "1", email: "admin@b.com", tier: "basic", is_admin: true },
+    });
+    render(<LoginPage />);
+    fillAndSubmit();
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
+  });
+
+  it("returns to the originally-requested internal page via ?redirect=", async () => {
+    mockSearchParams.current = new URLSearchParams("redirect=%2Fworkflow%2Fcreate%3Fmode%3Dppt");
+    loginMock.mockResolvedValue({
+      token: "tok",
+      user: { id: "1", email: "a@b.com", tier: "basic", is_admin: false },
+    });
+    render(<LoginPage />);
+    fillAndSubmit();
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/workflow/create?mode=ppt"));
+  });
+
+  it("ignores an external/malformed ?redirect= and falls back to the main application", async () => {
+    mockSearchParams.current = new URLSearchParams("redirect=" + encodeURIComponent("https://evil.com"));
+    loginMock.mockResolvedValue({
+      token: "tok",
+      user: { id: "1", email: "a@b.com", tier: "basic", is_admin: false },
+    });
+    render(<LoginPage />);
+    fillAndSubmit();
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
+  });
+});
 
 describe("LoginPage reskin — brand panel + selector-preservation contract", () => {
   it("renders #email and #password inputs (selectors preserved)", () => {

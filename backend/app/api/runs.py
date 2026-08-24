@@ -702,7 +702,12 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
             structured_summary = compiler_output[:4000]
             agent_summaries.append({"agent": "Backlog Compiler", "summary": compiler_output[:500]})
 
-    elif pipeline_type in ("prototype", "prototype_revision"):
+    elif pipeline_type in (
+        "prototype",
+        "prototype_revision",
+        "prototype_large_revision",   # tiered revision — no spec-writer output
+        "prototype_feature_revision", # tiered revision — no spec-writer output
+    ):
         # The spec writer (first agent) emits a Markdown spec wrapped in
         # <spec>...</spec>. Read THAT — not the HTML deliverable, and not the
         # retired "requirements-analyst" agent which isn't in this pipeline
@@ -715,9 +720,12 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
             spec_text = (m.group(1).strip() if m else spec_output)
             structured_summary = f"Prototype Specification:\n{spec_text[:3500]}"
             agent_summaries.append({"agent": "Spec Writer", "summary": spec_text[:500]})
-        elif pipeline_type == "prototype_revision":
-            # Extract the revision instruction from the run's input field
-            # (format: "=== EXISTING PROTOTYPE HTML ===\n...\n=== REVISION REQUEST ===\n{instruction}\n=== END REQUEST ===")
+        elif pipeline_type in ("prototype_revision", "prototype_large_revision", "prototype_feature_revision"):
+            # Tiered revision runs have no spec-writer output — extract the
+            # revision instruction from the run's input as a fallback summary.
+            # NOTE: get_chain_context should have walked up to the root prototype
+            # run before calling this; this branch only fires if the walk failed
+            # (e.g. a direct call with a revision run_id and no root found).
             import re as _re_local
             rev_match = _re_local.search(
                 r"===\s*REVISION REQUEST\s*===\s*\n(.*?)\n===\s*END REQUEST\s*===",
@@ -837,7 +845,6 @@ def get_chain_context(
     # has the structural context the chained pipeline needs.
     # Generic suffix check (SC-001/INV-1 — no pipeline-name literals).
     source_run = workflow_run
-    revision_instruction: str | None = None
     if workflow_run.type.endswith("_revision") and workflow_run.parent_run_id:
         # Walk up the revision chain to find the root non-revision ancestor.
         # Cap at 20 hops to prevent an infinite loop on corrupted data.
@@ -858,38 +865,8 @@ def get_chain_context(
             candidate = parent_run
         if candidate is not workflow_run:
             source_run = candidate
-            # Extract the revision instruction from the MOST RECENT *_revision
-            # run's input so the context_block includes "what was changed".
-            import re as _re_rev
-            rev_match = _re_rev.search(
-                r"===\s*REVISION REQUEST\s*===\s*(.*?)\s*(?:===|$)",
-                workflow_run.input or "",
-                _re_rev.DOTALL,
-            )
-            if rev_match:
-                revision_instruction = rev_match.group(1).split("\n")[0].strip()
-            else:
-                revision_instruction = workflow_run.title or None
 
     ctx = _extract_chain_context(source_run)
-
-    # Append the revision instruction to the context_block so the chained
-    # pipeline knows what the user changed in the revision (additional signal
-    # without replacing the parent's structural context).
-    if revision_instruction and ctx.context_block:
-        ctx = ChainContextResponse(
-            workflow_id=ctx.workflow_id,
-            pipeline_type=ctx.pipeline_type,
-            title=ctx.title,
-            brief=ctx.brief,
-            structured_summary=ctx.structured_summary,
-            agent_summaries=ctx.agent_summaries,
-            context_block=(
-                ctx.context_block.rstrip("=").rstrip()
-                + f"\nLatest Revision: {revision_instruction}\n"
-                + "=== END PREVIOUS CONTEXT ==="
-            ),
-        )
 
     return ctx
 
@@ -1194,8 +1171,21 @@ def _owned_family_members(
     # are collapsed now and persisted rows are migrated, so there is no ``od_``
     # prefix left to strip and the special case goes with it.
     def _canonical_base(t: str) -> str:
-        """Strip the generic ``_revision`` suffix."""
-        return t.removesuffix("_revision")
+        """Strip tiered or generic ``_revision`` suffix.
+
+        Handles the new tiered revision pipeline types introduced with the
+        multi-manifest prototype revision feature:
+          prototype_large_revision   → prototype
+          prototype_feature_revision → prototype
+          prototype_revision         → prototype  (unchanged)
+          prototype                  → prototype  (unchanged)
+        """
+        base = t
+        for suffix in ("_large_revision", "_feature_revision", "_revision"):
+            if base.endswith(suffix):
+                base = base[: -len(suffix)]
+                break
+        return base
 
     root_base_type: str | None = (
         _canonical_base(root_row.type) if root_row is not None else None

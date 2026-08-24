@@ -128,7 +128,11 @@ describe("LibraryPage 40-03 — mock composition (header leads, tab grids)", () 
       recentRunsStatus: "idle" as const,
       recentRunsError: null,
     },
-    auth: {},
+    auth: {
+      token: null,
+      user: null,
+      isAuthenticated: false,
+    },
   });
 
   it("renders the 'Library' h1 BEFORE the tablist (header leads, per the mock)", () => {
@@ -212,7 +216,11 @@ describe("LibraryPage 41-07 — agent-detail right-side drawer (ND-Z resolved)",
       recentRunsStatus: "idle" as const,
       recentRunsError: null,
     },
-    auth: {},
+    auth: {
+      token: null,
+      user: null,
+      isAuthenticated: false,
+    },
   });
 
   function openFirstAgentDrawer() {

@@ -118,6 +118,14 @@ _RUN_REVISION_DISPATCHED = frozenset({
 # workflow exists to measure.
 _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     "sample_subagents_parallel",
+    # revision-pipeline-agent-reuse spec: prototype_large_revision and
+    # prototype_feature_revision declare planner: skip (revision panel supplies
+    # the instruction directly; these are NOT run_revision-WS-dispatched, so
+    # they stay out of _RUN_REVISION_DISPATCHED and are unioned in here like
+    # sample_subagents_parallel — a pipeline that declares skip for non-dispatch
+    # reasons).
+    "prototype_large_revision",
+    "prototype_feature_revision",
 }
 
 # Hard-copied VERBATIM from each pipeline's `agents/workflows/<id>/workflow.yaml`
@@ -143,6 +151,11 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     # clarify.mode: skip for the same reason — the revision panel supplies the
     # instruction directly.
     "custom_revision": [],
+    # clarify.mode: skip — these revision pipelines share main-pipeline agents
+    # (revision-pipeline-agent-reuse spec); the revision panel supplies the
+    # instruction directly, no clarify round-trip needed.
+    "prototype_large_revision": [],
+    "prototype_feature_revision": [],
 }
 # The fallback for any id absent from the dict above — the *_revision manifests
 # (ppt_revision, prototype_revision, user_stories_revision, app_builder_revision),

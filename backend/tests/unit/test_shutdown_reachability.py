@@ -201,7 +201,7 @@ def test_sigterm_reaches_the_lifespan_shutdown_half_while_a_stream_is_live(tmp_p
         except subprocess.TimeoutExpired:
             pytest.fail(
                 f"uvicorn did not exit within {wait_budget}s of SIGTERM while an SSE "
-                f"stream was live. Markers written: {marker.read_text(encoding="utf-8") if marker.exists() else '(none)'}"
+                f"stream was live. Markers written: {marker.read_text(encoding='utf-8') if marker.exists() else '(none)'}"
             )
         elapsed = time.monotonic() - started
     finally:

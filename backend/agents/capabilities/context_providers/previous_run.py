@@ -235,6 +235,13 @@ class PreviousRunProvider:
         Reaches the message + sandbox via the ``ctx.runner`` handle (no app.* /
         kernel import). Degrades quietly when there is no handle, no message, or no
         EXISTING-artifact markers — the agent then works from the prompt alone.
+
+        Fallback path (Concierge revision): when the user_message contains no
+        ``=== EXISTING PROTOTYPE HTML ===`` markers (because the Concierge path
+        passes plain instruction text, not the frontend's full wire-block), the
+        artifact is read directly from the parent run's sandbox via the runner handle.
+        This prevents the task_loop builder from writing the full prototype from
+        scratch on every Task 1 invocation.
         """
         runner = getattr(ctx, "runner", None)
         if runner is None:
@@ -242,6 +249,33 @@ class PreviousRunProvider:
 
         user_message = getattr(runner, "user_message", None) or ""
         existing = _extract_existing_artifact(user_message)
+
+        # ── Fallback: read from parent sandbox when no HTML markers in message ────
+        # The Concierge revision path passes plain instruction text, not the
+        # frontend's full ``=== EXISTING PROTOTYPE HTML ===`` wire-block. In that
+        # case extract from the parent run's sandbox instead (the deliverable file
+        # the parent run produced). This avoids Task 1 of the task_loop having to
+        # write the full prototype from scratch every time.
+        if not existing:
+            parent_run_id = getattr(ctx, "parent_run_id", None)
+            deliverable_inner = getattr(ctx, "deliverable", None)
+            artifact_name_inner = getattr(deliverable_inner, "name", None) or _DEFAULT_ARTIFACT_NAME
+            if parent_run_id and hasattr(runner, "read_parent_file"):
+                try:
+                    existing = runner.read_parent_file(parent_run_id, artifact_name_inner) or ""
+                    if existing:
+                        logger.info(
+                            "previous_run: seeded %s from parent sandbox %s "
+                            "(no HTML markers in user_message — Concierge path)",
+                            artifact_name_inner, parent_run_id,
+                        )
+                except Exception as read_exc:  # noqa: BLE001
+                    logger.debug(
+                        "previous_run: could not read %s from parent sandbox %s (%s) — "
+                        "agent will work from prompt only",
+                        artifact_name_inner, parent_run_id, read_exc,
+                    )
+
         if not existing:
             logger.warning(
                 "previous_run: no existing artifact found in request — agent will "

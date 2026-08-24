@@ -98,6 +98,7 @@ backend/evals/minimal/report.html
 .kiro/*
 !.kiro/steering/
 !.kiro/skills/
+.kiro/steering/localsetup.md
 .run
 
 # Generated output from tools/api/runs/*.run.http integration tests — decks,

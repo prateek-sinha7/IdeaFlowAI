@@ -653,6 +653,13 @@ async def resume_run_endpoint(
                 http_status=status.HTTP_409_CONFLICT,
             )
 
+        # P1 fix: tier entitlement gate on the run's OWN type. A resume re-drives
+        # the same pipeline the run was originally launched as, so if the caller's
+        # tier no longer entitles them to it (e.g. downgraded after launch), resume
+        # must deny exactly as a fresh launch would — never a way to route around
+        # the launch-time gate.
+        _require_tier_entitlement(current_user, wr.type)
+
         # (3) Overlap mutex — the authoritative liveness signal is the in-process DRIVER
         # TASK (NOT the DB status, and NOT bare registry membership: a stale entry from a
         # driver that raised before its cleanup used to 409 this run forever). NO ``await``
@@ -1152,6 +1159,10 @@ class _ConciergeCtx:
         # The run's persisted status (WorkflowRun.status) — used to distinguish a
         # live-building run from a completed one so the prompt label is accurate.
         self.run_status = run_status or ""
+        # active_revision_run_id: when the parent run has an active child revision run,
+        # this holds the child's run_id so get_run_progress can read that run's events
+        # and list_agents can see the revision agents.
+        self.active_revision_run_id: str | None = None
         # ISS-092: DECLARE the ``conversation`` inject so ``context_provider:conversation``
         # surfaces this run's bounded chat transcript. Before this, the Concierge's only
         # cross-turn memory was the unbounded read_events tool happening to return chat
@@ -1383,7 +1394,17 @@ async def _dispose_concierge_proposal(
         # "user_stories_revision_revision" which is not in TIER_PIPELINES → 403.
         # Strip any trailing "_revision" suffix from wr_type to get the base artifact
         # family (e.g. "user_stories") before constructing the fallback target.
-        base_type = wr_type.removesuffix("_revision") if wr_type.endswith("_revision") else wr_type
+        #
+        # Tiered prototype revision types (prototype_large_revision,
+        # prototype_feature_revision) already contain "_revision" embedded in their
+        # middle — removesuffix("_revision") would give "prototype_large", not
+        # "prototype". Remap these explicitly before the generic suffix strip.
+        if wr_type in ("prototype_large_revision", "prototype_feature_revision"):
+            base_type = "prototype"
+        elif wr_type.endswith("_revision"):
+            base_type = wr_type.removesuffix("_revision")
+        else:
+            base_type = wr_type
         # Two OD remap tables used to sit here (_OD_FALLBACK_MAP, _OD_TARGET_REMAP),
         # rewriting od_prototype/od_ppt targets onto their real revision pipelines.
         # They were a workaround for an incomplete alias table — the alias covered
@@ -1394,7 +1415,71 @@ async def _dispose_concierge_proposal(
         # entitlements, and the persisted rows), so the derivation below needs no
         # correction and both entry points agree by construction.
         target = params.get("target") or f"{base_type}_output"
+        # Guard: if the target looks like a run ID (UUID) rather than an artifact type
+        # (which must end with "_output"), discard it and use the derived default.
+        # The LLM sometimes passes a run_id as target when confused by the docstring.
+        import re as _re_uuid
+        _UUID_RE = _re_uuid.compile(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+            _re_uuid.IGNORECASE
+        )
+        if target and not target.endswith("_output") and _UUID_RE.match(target):
+            logger.warning(
+                "_dispose_concierge_proposal: target %r looks like a run ID, not an "
+                "artifact type — discarding and using derived default %r",
+                target, f"{base_type}_output",
+            )
+            target = f"{base_type}_output"
         instruction = params.get("instruction", "")
+        # ── Tiered prototype classification via run_analyzer (Pieces 1/2/3) ──
+        # Apply the same analyzer as create_revision() so the Concierge revision
+        # path also routes to the correct manifest and seeds ectx.analyzer_solution.
+        _analyzer_solution = ""
+        if target == "prototype_output":
+            from app.agents.revision_analyzer import run_analyzer  # noqa: PLC0415
+
+            # In the Concierge path, instruction is plain user text with no HTML
+            # markers. Source existing_html from the parent run's output column —
+            # identical to how _classify_revision_tier sourced it (Path 2 fallback).
+            _existing_html = ""
+            _db_html = _get_db()
+            try:
+                _parent_wr = (
+                    _db_html.query(WorkflowRun)
+                    .filter(WorkflowRun.id == run_id)
+                    .first()
+                )
+                if _parent_wr and _parent_wr.output:
+                    _existing_html = _parent_wr.output
+            finally:
+                _db_html.close()
+
+            # Pre-generate child_run_id so run_analyzer events land on the correct
+            # queue before the DB row is minted.
+            _child_run_id_pre = str(_uuid.uuid4())
+            _cancel_event_pre = asyncio.Event()
+            _CANCEL_EVENTS[_child_run_id_pre] = _cancel_event_pre
+            _event_queue_pre = _get_or_create_queue(_child_run_id_pre)
+
+            _tier, _analyzer_solution = await run_analyzer(
+                instruction=instruction,
+                existing_html=_existing_html,
+                event_queue=_event_queue_pre,
+                parent_run_id=run_id,
+                model_id=getattr(current_user, "preferred_model", None),
+            )
+            target = _REVISION_TIER_TARGET_MAP.get(_tier, "prototype_output")
+            logger.info(
+                "▶ prototype revision tier selected (concierge path): %r → pipeline=%s (run=%s)",
+                _tier,
+                f"{target.removesuffix('_output')}_revision",
+                run_id,
+            )
+        else:
+            _child_run_id_pre = None
+            _cancel_event_pre = None
+            _event_queue_pre = None
+        # ────────────────────────────────────────────────────────────────────
         # FIX-218: when files were attached on this Concierge turn, frame them as
         # supplementary reference material. The user's chat instruction always takes
         # precedence — if the file conflicts with or is unrelated to the request,
@@ -1413,17 +1498,29 @@ async def _dispose_concierge_proposal(
                 + "\n=== END REFERENCE MATERIAL ==="
             )
             instruction = file_section
+
+        # If the analyzer path ran, reuse the pre-generated child_run_id, cancel_event,
+        # and event_queue. Otherwise generate fresh ones now (non-prototype paths).
+        if _child_run_id_pre is not None:
+            child_run_id = _child_run_id_pre
+            cancel_event = _cancel_event_pre
+            event_queue = _event_queue_pre
+        else:
+            child_run_id = str(_uuid.uuid4())
+            cancel_event = asyncio.Event()
+            _CANCEL_EVENTS[child_run_id] = cancel_event
+            event_queue = _get_or_create_queue(child_run_id)
+
         rdb = _get_db()
         try:
-            child_run_id, _ = _mint_revision_row(
+            _mint_revision_row(
                 rdb, user=current_user, parent_run_id=run_id,
                 target_artifact_type=target, instruction=instruction,
+                pipeline_run_id=child_run_id,
+                extra_agent_count=1 if _child_run_id_pre is not None else 0,
             )
         finally:
             rdb.close()
-        cancel_event = asyncio.Event()
-        _CANCEL_EVENTS[child_run_id] = cancel_event
-        event_queue = _get_or_create_queue(child_run_id)
         task = asyncio.create_task(
             _drive_revision_to_queue(
                 workflow_run_id=child_run_id,
@@ -1433,6 +1530,7 @@ async def _dispose_concierge_proposal(
                 user=current_user,
                 cancel_event=cancel_event,
                 event_queue=event_queue,
+                analyzer_solution=_analyzer_solution,
             )
         )
         _PIPELINE_TASKS[child_run_id] = task
@@ -1486,6 +1584,25 @@ async def post_message(
         wr_status = wr.status
         wr_workspace = wr.workspace_id
         wr_type = wr.type
+
+        # Check if there is an active child revision run for this parent.
+        # The Concierge runs in the context of the PARENT run (which may be "completed"),
+        # but a child revision run may be actively running. Surface the child's status
+        # so the Concierge correctly reports "a revision is in progress" instead of
+        # treating the parent's "completed" status as the full picture.
+        active_child_revision = (
+            db.query(WorkflowRun)
+            .filter(
+                WorkflowRun.parent_run_id == run_id,
+                WorkflowRun.user_id == current_user.id,
+                WorkflowRun.status == "revising",
+            )
+            .order_by(WorkflowRun.created_at.desc())
+            .first()
+        )
+        if active_child_revision is not None:
+            # A revision is running — override the status the Concierge sees.
+            wr_status = "revising"
         # FIX-116: capture the run's title + first 400 chars of its deliverable output
         # so the Concierge knows what THIS run produced without calling read_events first.
         # Generic — uses wr.title (plain text) and wr.output (deliverable text), never
@@ -1632,11 +1749,17 @@ async def post_message(
         if validated_turn_images:
             apply_turn_images(ectx, validated_turn_images)
         # FIX-218 (KAN-170): when file contents are attached during a RUNNING phase,
-        # also inject them as a steering note for the next agent dispatch. Mirrors the
-        # steering path (INV-12 — same apply_steering seam, no new path). Payload-
-        # transient (ND-10). Degrade-safe: no-op when ectx is None or block is empty.
+        # also inject them as a steering note for the next agent dispatch. Include
+        # the user's message so agents know WHAT to do with the file.
+        # Payload-transient (ND-10). Degrade-safe: no-op when ectx is None or block is empty.
         _steering_file_block = _build_attached_files_block(body.file_contents)
         if _steering_file_block:
+            _user_msg_direct = (body.text or "").strip()
+            if _user_msg_direct:
+                _steering_file_block = (
+                    f"USER INSTRUCTION: {_user_msg_direct}\n\n"
+                    f"{_steering_file_block}"
+                )
             apply_steering(ectx, {"text": _steering_file_block, "sticky": False})
     elif dispatch.channel == CHANNEL_REVISION:
         # revision → mint + drive the shipped family child run (D-02), the exact seam
@@ -1770,15 +1893,30 @@ async def post_message(
             # persisted. Absent ⇒ "" ⇒ dormant (byte-identical prompt, INV-3).
             attached_files=_build_attached_files_block(body.file_contents),
         )
+        # If a child revision run is active, set it on the ctx so get_run_progress
+        # can read its events and list its agents correctly.
+        if active_child_revision is not None:
+            ctx.active_revision_run_id = active_child_revision.id
         # FIX-218 (KAN-170): when file contents were attached AND a running pipeline
-        # exists (live ectx), also inject the file text as a sticky steering note so
+        # exists (live ectx), also inject the file text as a steering note so
         # the NEXT agent dispatch receives it as a === USER GUIDANCE === block. This
         # mirrors the existing CHANNEL_STEERING apply_steering path (INV-12) — we reuse
         # the SAME seam rather than building a new one. Payload-transient (ND-10).
         # Degrade-safe: if ectx is None (run not live in this process), no-op.
+        # Also include the user's message text so agents know WHAT to do with the file,
+        # not just that it exists (the missing instruction gap identified in the
+        # concierge-chat-upload feature).
         _attached_block = getattr(ctx, "attached_files", "") or ""
         if _attached_block and ectx is not None:
-            apply_steering(ectx, {"text": _attached_block, "sticky": False})
+            _user_msg = (body.text or "").strip()
+            if _user_msg:
+                _steering_text = (
+                    f"USER INSTRUCTION: {_user_msg}\n\n"
+                    f"{_attached_block}"
+                )
+            else:
+                _steering_text = _attached_block
+            apply_steering(ectx, {"text": _steering_text, "sticky": False})
         # ── Option B: STREAM the reply on the POST response body (text/event-stream). ──
         # The model's ordered text deltas ride the POST the FE already makes as TRANSIENT
         # ``chat_reply_chunk`` frames (never persisted → never replayed → never
@@ -2096,6 +2234,38 @@ def _reject(code: str, error: str, *, http_status: int = status.HTTP_400_BAD_REQ
     detail = {"error": error, "code": code, "recoverable": recoverable}
     detail.update(extra)
     return HTTPException(status_code=http_status, detail=detail)
+
+
+def _require_tier_entitlement(current_user: User, pipeline_type: str) -> None:
+    """P1 fix (COGNITO-AUTH-QA-BUGS.md "REST Pipeline Launch Has No Tier
+    Check"): enforce ``can_run_pipeline(tier, pipeline_type)`` before a run
+    (or revision, or resume) is minted/driven. Previously ``launch_run``,
+    ``create_revision``, and ``resume_run_endpoint`` never called this at
+    all — the entitlement helper existed and was used at save-time in
+    ``user_workflows.py`` but was completely absent from every REST launch
+    codepath, so any authenticated user could run a tier-restricted pipeline
+    regardless of their subscription tier.
+
+    Reads ``current_user.tier`` — the SAME source ``user_workflows.py``'s
+    save-time gate already uses. This is the DB column, which is advisory on
+    the Cognito path relative to a live token's ``cognito:groups`` (see
+    ``core.identity``'s precedence rule) but is refreshed on every login
+    (``_refresh_role_projection``) and re-stamped synchronously on every
+    admin tier-change write (``admin.py::update_user_tier``, which also
+    forces ``AdminUserGlobalSignOut`` so a stale token cannot outlive the
+    change) — the same one-cycle staleness window ``admin.py::require_admin``
+    already documents accepting for the analogous ``is_admin`` check. Closing
+    that residual window to a per-request live-token read is a further
+    hardening step, deferred like ``require_admin``'s, not a gap this fix
+    reintroduces.
+    """
+    allowed, reason = can_run_pipeline(current_user.tier, pipeline_type)
+    if not allowed:
+        raise _reject(
+            "tier_not_entitled",
+            reason,
+            http_status=status.HTTP_403_FORBIDDEN,
+        )
 
 
 def _resolve_launch_agents(body: "LaunchCommand"):
@@ -2539,14 +2709,18 @@ async def launch_run(
 
     base_pipeline_type, od_context = _resolve_launch_agents(body)
 
-    # ── Entitlement gate (tier) — KAN-161 / ISS-055 ────────────────────────────
+    # ── Entitlement gate (tier) — KAN-161 / ISS-055 + P1 REST tier-gate fix ────
+    # MERGE NOTE: both branches added a launch-time tier gate here, calling the
+    # SAME ``can_run_pipeline``. Unified onto the shared ``_require_tier_entitlement``
+    # helper so launch / resume / revision all deny through ONE seam (the helper is
+    # also called from ``resume_run_endpoint`` and ``create_revision``); the inline
+    # duplicate it replaced was byte-equivalent apart from its rejection code.
+    #
     # Use the RAW pipeline_type (not base_pipeline_type): TIER_PIPELINES carries
     # "od_prototype" and "prototype" as DISTINCT keys, and WorkflowRun.type is
     # stamped from pipeline_type too. Checking the alias-collapsed base would
     # silently mis-key the lookup for every od_prototype launch.
-    _allowed, _reason = can_run_pipeline(current_user.tier, pipeline_type)
-    if not _allowed:
-        raise _reject("pipeline_not_entitled", _reason, http_status=status.HTTP_403_FORBIDDEN)
+    _require_tier_entitlement(current_user, pipeline_type)
 
     # ── Resolve + allow-list the agents (invalid_agent_ids) ────────────────────
     # RUNS for: FILE_PIPELINE, USER_WORKFLOW_FLAT (both are agent_ids-shaped —
@@ -3212,14 +3386,25 @@ class RevisionCommand(BaseModel):
 
 
 def _mint_revision_row(db, *, user: User, parent_run_id: str,
-                       target_artifact_type: str, instruction: str) -> tuple[str, str]:
+                       target_artifact_type: str, instruction: str,
+                       extra_agent_count: int = 0,
+                       pipeline_run_id: str | None = None) -> tuple[str, str]:
     """Mint the child revision WorkflowRun (mirror websocket.py:2475-2524) and return
     ``(run_id, revision_pipeline_type)``. ``agent_count`` derives from the LIVE
     registry membership of the derived revision alias (Pitfall 6 — never a
-    hardcoded 1)."""
+    hardcoded 1).
+
+    ``extra_agent_count``: optional additional agents to include in the total
+    agent_count (e.g. +1 for the pre-mint Analyzer step on prototype revisions).
+
+    ``pipeline_run_id``: optional pre-generated run ID. When provided, used as
+    the row ID directly instead of generating a new UUID. Allows the caller to
+    pre-create the event queue before calling this function.
+    """
     from agents.registry import get_pipeline_agents
 
-    pipeline_run_id = str(_uuid.uuid4())
+    if pipeline_run_id is None:
+        pipeline_run_id = str(_uuid.uuid4())
     revision_pipeline_type = f"{target_artifact_type.removesuffix('_output')}_revision"
 
     # ── Existence gate — BEFORE the entitlement gate, and that order matters ───
@@ -3270,11 +3455,148 @@ def _mint_revision_row(db, *, user: User, parent_run_id: str,
         type=revision_pipeline_type,
         status="revising",
         input=instruction,
-        agent_count=len(_rev_agents) or 1,
+        agent_count=(len(_rev_agents) or 1) + extra_agent_count,
     )
     db.add(wr)
     db.commit()
     return pipeline_run_id, revision_pipeline_type
+
+
+# ---------------------------------------------------------------------------
+# Tiered prototype revision classifier (Pieces 1/2/3)
+# ---------------------------------------------------------------------------
+#
+# Runs a single LLM call BEFORE _mint_revision_row to pick the right manifest:
+#   small   → prototype_revision         (existing, unchanged)
+#   large   → prototype_large_revision   (new: planner + task_loop builder)
+#   feature → prototype_feature_revision (new: specify + plan + task_loop builder)
+#
+# Lives in the app-layer REST endpoint — NOT the kernel — so SC-001/INV-1 are
+# respected. No workflow-name literal enters the kernel.
+
+_REVISION_TIER_TARGET_MAP: dict[str, str] = {
+    "small":   "prototype_output",          # → prototype_revision (existing)
+    "large":   "prototype_large_output",    # → prototype_large_revision
+    "feature": "prototype_feature_output",  # → prototype_feature_revision
+}
+
+
+async def _classify_revision_tier(
+    instruction: str,
+    parent_run_id: str,
+    model_id: str | None = None,
+) -> str:
+    """Classify a prototype revision request into a tier before minting the run.
+
+    Runs a single Bedrock LLM call with the current prototype HTML and the
+    revision instruction. Returns one of: "small" | "large" | "feature".
+
+    Degrades gracefully to "small" on any error — the existing small-revision
+    pipeline always runs as a safe fallback.
+
+    Two calling contexts:
+      1. Direct REST POST /revisions — ``instruction`` contains the full
+         ``=== EXISTING PROTOTYPE HTML ===`` block; HTML is extracted inline.
+      2. Concierge proposal disposal — ``instruction`` is plain user text with
+         NO HTML markers. The HTML is read from the parent run's ``output`` column
+         in the DB.
+
+    Tier definitions:
+      small   — targeted fix to 1-3 elements (typo, color, broken link, one field)
+      large   — structural change across multiple components (3+ pages, layout rework)
+      feature — new page/route/workflow that does NOT exist in the prototype
+    """
+    from agents.capabilities.context_providers.previous_run import (
+        _extract_existing_artifact,
+        _extract_revision_instruction,
+    )
+    from app.agents.model_factory import build_model
+
+    # ── Resolve the prototype HTML ───────────────────────────────────────────
+    # Path 1: REST endpoint wraps HTML in the instruction message.
+    existing_html = _extract_existing_artifact(instruction)
+    revision_text = _extract_revision_instruction(instruction) or instruction
+
+    # Path 2: Concierge path has no HTML markers — read from parent run output.
+    if not existing_html:
+        logger.debug(
+            "_classify_revision_tier: no HTML markers in instruction for run=%s — "
+            "falling back to parent run output",
+            parent_run_id,
+        )
+        db = _get_db()
+        try:
+            parent_wr = (
+                db.query(WorkflowRun)
+                .filter(WorkflowRun.id == parent_run_id)
+                .first()
+            )
+            if parent_wr and parent_wr.output:
+                existing_html = parent_wr.output
+            else:
+                # No HTML available — cannot make a meaningful classification.
+                # Default to "large" (safer than "small" for an unknown request).
+                logger.warning(
+                    "_classify_revision_tier: parent run %s has no output — "
+                    "defaulting to large",
+                    parent_run_id,
+                )
+                return "large"
+        finally:
+            db.close()
+        # In the concierge path the instruction IS the plain user text.
+        revision_text = instruction
+
+    # Truncate HTML for classifier context (first 8000 chars sufficient for structure)
+    html_excerpt = existing_html[:8000]
+
+    classifier_prompt = (
+        f"You are classifying a prototype revision request.\n\n"
+        f"CURRENT PROTOTYPE (excerpt, {len(existing_html)} chars total):\n"
+        f"{html_excerpt}\n"
+        f"{'[...truncated...]' if len(existing_html) > 8000 else ''}\n\n"
+        f"REVISION REQUEST:\n"
+        f"{revision_text}\n\n"
+        f"Classify this revision into EXACTLY ONE tier:\n\n"
+        f"- small: A targeted change to 1-3 elements on 1-2 pages. Examples: fix a broken\n"
+        f"  link, change a color, correct a label, add one form field, fix a typo.\n\n"
+        f"- large: A structural change affecting multiple components or pages, or a bug that\n"
+        f"  requires coordinated changes across HTML, CSS, and JavaScript. Examples: redesign\n"
+        f"  a page layout, fix broken navigation across 5+ pages, add a complex data table\n"
+        f"  with filtering and sorting.\n\n"
+        f"- feature: A new page, new workflow, or new capability that does NOT currently exist\n"
+        f"  in the prototype. Examples: add an onboarding flow, add a dashboard with charts,\n"
+        f"  add authentication pages, add a new section with multiple sub-pages.\n\n"
+        f"Reply with ONLY one word: small, large, or feature. No explanation."
+    )
+
+    try:
+        from langchain_core.messages import HumanMessage
+
+        llm = build_model(model_id, max_tokens=10)  # one-word output — tiny budget
+        logger.info(
+            "_classify_revision_tier: classifying revision for parent=%s "
+            "(html=%d chars, instruction=%r)",
+            parent_run_id, len(existing_html), revision_text[:80],
+        )
+        response = await llm.ainvoke([HumanMessage(content=classifier_prompt)])
+        tier = response.content.strip().lower()
+        if tier in ("small", "large", "feature"):
+            logger.info(
+                "_classify_revision_tier: classified as %r → pipeline=%s (parent=%s)",
+                tier, _REVISION_TIER_TARGET_MAP.get(tier, "prototype_output"), parent_run_id,
+            )
+            return tier
+        # Unexpected output — default to large (safer than small for uncertain cases)
+        logger.warning(
+            "_classify_revision_tier: unexpected output %r — defaulting to large", tier
+        )
+        return "large"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "_classify_revision_tier: classification failed (%s) — defaulting to small", exc
+        )
+        return "small"
 
 
 @router.post("/{run_id}/revisions")
@@ -3303,28 +3625,89 @@ async def create_revision(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Unknown run"
             )
-        child_run_id, _ = _mint_revision_row(
+    finally:
+        db.close()
+
+    # Pre-generate the child run ID and queue so run_analyzer events land on the
+    # correct run ID before the DB row is minted (avoids the ordering constraint
+    # that event_queue requires child_run_id which requires _mint_revision_row).
+    child_run_id = str(_uuid.uuid4())
+    cancel_event = asyncio.Event()
+    _CANCEL_EVENTS[child_run_id] = cancel_event
+    event_queue = _get_or_create_queue(child_run_id)
+
+    # ── NEW: run the analyzer before tier classification ──────────────────────
+    # Only applies when the target is a prototype output — other revision types
+    # (user_stories, ppt) use their own existing pipelines unchanged.
+    effective_target = body.target_artifact_type
+    analyzer_solution = ""
+    if body.target_artifact_type == "prototype_output":
+        from agents.capabilities.context_providers.previous_run import (  # noqa: PLC0415
+            _extract_existing_artifact,
+        )
+        from app.agents.revision_analyzer import run_analyzer  # noqa: PLC0415
+
+        # Extract existing HTML from the instruction (REST path wraps it inside
+        # the instruction message with === EXISTING PROTOTYPE HTML === markers).
+        existing_html = _extract_existing_artifact(body.instruction) or ""
+
+        # If no HTML markers in instruction, fall back to parent run output.
+        if not existing_html:
+            db2 = _get_db()
+            try:
+                parent_wr = (
+                    db2.query(WorkflowRun)
+                    .filter(WorkflowRun.id == run_id)
+                    .first()
+                )
+                if parent_wr and parent_wr.output:
+                    existing_html = parent_wr.output
+            finally:
+                db2.close()
+
+        tier, analyzer_solution = await run_analyzer(
+            instruction=body.instruction,
+            existing_html=existing_html,
+            event_queue=event_queue,
+            parent_run_id=run_id,
+            model_id=getattr(current_user, "preferred_model", None),
+        )
+        effective_target = _REVISION_TIER_TARGET_MAP.get(tier, "prototype_output")
+        logger.info(
+            "▶ prototype revision tier selected: %r → pipeline=%s (run=%s)",
+            tier,
+            f"{effective_target.removesuffix('_output')}_revision",
+            run_id,
+        )
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Mint the revision row using the pre-generated child_run_id. Pass
+    # extra_agent_count=1 when the analyzer path ran (prototype_output) so the
+    # frontend progress bar accounts for the pre-mint Analyzer step.
+    db = _get_db()
+    try:
+        _mint_revision_row(
             db,
             user=current_user,
             parent_run_id=run_id,
-            target_artifact_type=body.target_artifact_type,
+            target_artifact_type=effective_target,
             instruction=body.instruction,
+            pipeline_run_id=child_run_id,
+            extra_agent_count=1 if body.target_artifact_type == "prototype_output" else 0,
         )
     finally:
         db.close()
 
-    cancel_event = asyncio.Event()
-    _CANCEL_EVENTS[child_run_id] = cancel_event
-    event_queue = _get_or_create_queue(child_run_id)
     task = asyncio.create_task(
         _drive_revision_to_queue(
             workflow_run_id=child_run_id,
             parent_run_id=run_id,
-            target_artifact_type=body.target_artifact_type,
+            target_artifact_type=effective_target,
             instruction=body.instruction,
             user=current_user,
             cancel_event=cancel_event,
             event_queue=event_queue,
+            analyzer_solution=analyzer_solution,
         )
     )
     _PIPELINE_TASKS[child_run_id] = task
@@ -3341,6 +3724,7 @@ async def _drive_revision_to_queue(
     user: User,
     cancel_event: asyncio.Event,
     event_queue: asyncio.Queue,
+    analyzer_solution: str = "",
 ) -> None:
     """Run the revision engine and push every event into the per-run queue, owning
     the terminal-status persistence on ``workflow_run_id`` (never left "revising").
@@ -3351,6 +3735,33 @@ async def _drive_revision_to_queue(
     # cards are persisted for revision runs (FIX-171) — same pattern as the
     # _run_workflow_to_queue fresh-run path. The kernel never imports app.*.
     from app.agents.chat_narrator import persist_milestone_card
+
+    # Derive the pipeline type the same way _mint_revision_row does so the log
+    # always shows the REAL manifest being dispatched (small / large / feature).
+    _revision_pipeline_type = f"{target_artifact_type.removesuffix('_output')}_revision"
+    logger.info(
+        "▶ revision driver starting: run=%s parent=%s pipeline=%s target=%s",
+        workflow_run_id, parent_run_id, _revision_pipeline_type, target_artifact_type,
+    )
+
+    # ── Build the live_ectx_register wrapper ──────────────────────────────────
+    # When analyzer_solution is non-empty, wrap the standard register_live_ectx
+    # callback to atomically set ectx.analyzer_solution BEFORE the first agent step.
+    # This is the one place where the solution is wired into the ectx — no HTTP
+    # abort needed; the engine already wraps register failures in try/except.
+    if analyzer_solution:
+        def _ectx_register_with_solution(run_id: str, ectx: "Any") -> None:  # noqa: ANN001
+            try:
+                ectx.analyzer_solution = analyzer_solution
+            except Exception as _exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to set analyzer_solution on ectx for run=%s: %s",
+                    run_id, _exc,
+                )
+            register_live_ectx(run_id, ectx)
+        _live_reg = _ectx_register_with_solution
+    else:
+        _live_reg = register_live_ectx
 
     pipeline_complete_seen = False
     pipeline_failed_seen = False
@@ -3414,6 +3825,11 @@ async def _drive_revision_to_queue(
             # and pipeline_complete ("Delivered") cards are persisted for revision
             # runs — the same milestone_sink pattern _run_workflow_to_queue uses.
             milestone_sink=persist_milestone_card,
+            # Thread the live_ectx callbacks so the analyzer_solution wrapper
+            # (or the plain register function) fires at ectx construction time,
+            # before the first agent step. None → dormant (backward-compat).
+            live_ectx_register=_live_reg,
+            live_ectx_unregister=unregister_live_ectx,
         )
         _persist_terminal_status(
             "cancelled"

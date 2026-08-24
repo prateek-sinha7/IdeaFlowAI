@@ -106,30 +106,49 @@ class WorkflowResolver:
         # Build adjacency list for cycle detection: {agent_id: set of agent_ids it depends on}
         dependencies: dict[str, set[str]] = {agent.id: set() for agent in agents}
 
-        # Validate each agent's consumes contract
+        # Validate each agent's consumes contract.
+        #
+        # Cross-pipeline shared agents (e.g. prototype-validate) may declare
+        # consumes entries for ALL pipelines they participate in, even though
+        # only a SUBSET of those entries is satisfied in any single pipeline
+        # run.  The rule therefore is:
+        #
+        #   • If ALL declared consumes entries are absent from the compiled
+        #     workflow, the DAG is unsatisfiable — the agent has no upstream
+        #     data source and cannot run (hard error).
+        #   • If AT LEAST ONE declared consumes entry IS satisfied by an
+        #     upstream producer, the unresolvable entries are silently
+        #     ignored as cross-pipeline declarations that don't apply here.
+        #
+        # Entries in _EXEMPT_TYPES (planning_context, constitution) are always
+        # available and are never counted toward the "no entries resolved" check.
         for consumer_idx, consumer in enumerate(agents):
-            for artifact_type in getattr(consumer, "consumes", []):
-                # Exempt types are always available — skip matching
-                if artifact_type in _EXEMPT_TYPES:
-                    continue
+            consumer_consumes = [
+                a for a in getattr(consumer, "consumes", [])
+                if a not in _EXEMPT_TYPES
+            ]
+            if not consumer_consumes:
+                continue  # Nothing to validate; agent is a DAG root.
 
+            resolved_any = False
+            local_unresolved: list[UnresolvedEdge] = []
+
+            for artifact_type in consumer_consumes:
                 producers = produces_map.get(artifact_type, [])
 
                 # Filter to only upstream producers (index < consumer_idx)
                 upstream = [(idx, aid) for idx, aid in producers if idx < consumer_idx]
 
                 if not upstream:
-                    unresolved_edges.append(
+                    local_unresolved.append(
                         UnresolvedEdge(
                             consuming_agent_id=consumer.id,
                             artifact_type=artifact_type,
                         )
                     )
-                    errors.append(
-                        f"Agent '{consumer.id}' consumes '{artifact_type}' but no upstream "
-                        f"agent produces it."
-                    )
                     continue
+
+                resolved_any = True
 
                 # Tie-break: fewest DAG edges (nearest upstream producer).
                 # We approximate "fewest edges" as smallest index distance.
@@ -145,6 +164,19 @@ class WorkflowResolver:
                     )
                 )
                 dependencies[consumer.id].add(best_aid)
+
+            if not resolved_any:
+                # Zero consumes entries could be satisfied — hard error.
+                for ue in local_unresolved:
+                    unresolved_edges.append(ue)
+                # Report only the FIRST unresolved entry to keep the error
+                # message concise (the others are cross-pipeline declarations).
+                first_ue = local_unresolved[0]
+                errors.append(
+                    f"Agent '{first_ue.consuming_agent_id}' consumes "
+                    f"'{first_ue.artifact_type}' but no upstream agent produces it."
+                )
+            # else: some entries resolved → silently drop cross-pipeline entries
 
         # Cycle detection via Kahn's algorithm
         if errors:
@@ -234,19 +266,31 @@ class WorkflowResolver:
         errors: list[str] = []
 
         for consumer in agents:
-            for artifact_type in getattr(consumer, "consumes", []):
-                # Exempt types are always available — never unsatisfiable.
-                if artifact_type in _EXEMPT_TYPES:
-                    continue
+            consumer_consumes = [
+                a for a in getattr(consumer, "consumes", [])
+                if a not in _EXEMPT_TYPES
+            ]
+            if not consumer_consumes:
+                continue
+
+            resolved_any = False
+            local_errors: list[str] = []
+
+            for artifact_type in consumer_consumes:
                 # Exclude self — an agent cannot be its own upstream producer.
                 producers = produces_map.get(artifact_type, set()) - {consumer.id}
                 if not producers:
-                    errors.append(
+                    local_errors.append(
                         f"Agent '{consumer.id}' consumes '{artifact_type}' but no agent "
                         f"in the workflow produces it."
                     )
                     continue
+                resolved_any = True
                 dependencies[consumer.id].update(producers)
+
+            if not resolved_any:
+                # All consumes entries are unresolvable — hard error.
+                errors.extend(local_errors)
 
         if errors:
             raise ValueError("Workflow DAG is unsatisfiable: " + "; ".join(errors))

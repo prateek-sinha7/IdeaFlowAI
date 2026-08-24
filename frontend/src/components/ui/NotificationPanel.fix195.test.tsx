@@ -50,7 +50,7 @@ function renderPanel(overrides: {
   onViewResults?: ReturnType<typeof vi.fn>;
   recentRuns?: unknown[];
 }) {
-  const onViewResults = overrides.onViewResults ?? vi.fn();
+  const onViewResults = (overrides.onViewResults ?? vi.fn()) as (n: PipelineNotification) => void;
   renderWithProviders(
     <NotificationPanel
       notifications={overrides.notifications ?? []}

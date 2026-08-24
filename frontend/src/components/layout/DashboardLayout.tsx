@@ -231,6 +231,8 @@ export interface DashboardLayoutProps {
   onClearPendingOdPpt?: () => void;
   userTier?: "basic" | "pro" | "enterprise";
   userEmail?: string;
+  /** Shows the "Admin Dashboard" nav item in AppHeader only for admins. */
+  isAdmin?: boolean;
   // Phase 12 (WAVE-03) — wave groups assembled from the live `wave_*` /
   // `subagent_*` WS events by dashboard/page.tsx. Optional + defaulted to []
   // so existing callers/tests that omit it are unaffected; a non-wave run
@@ -442,6 +444,7 @@ export function DashboardLayout({
   onClearPendingOdPpt,
   userTier = "basic",
   userEmail,
+  isAdmin = false,
   waves = [],
   submittedBrief,
   specRevisionCount = 0,
@@ -515,6 +518,27 @@ export function DashboardLayout({
       setMainView(initialMainView);
     }
   }, [initialMainView, mainView]);
+
+  // Which Account Settings tab a navigation asked for, plus a monotonic nonce so
+  // that asking for the SAME tab twice still forces a fresh mount (see
+  // handleNavigate). Only read while mainView === "settings".
+  //
+  // Seeded from `initialSettingsSection` rather than a hardcoded "profile":
+  // that prop is the URL-derived tab (parseViewPath -> page.tsx), so a cold load
+  // of /settings/ai-model opens on AI Model, while in-app navigation still goes
+  // through setSettingsRequest. One source of truth for the tab, two ways in.
+  const [settingsRequest, setSettingsRequest] = useState<{ section: SettingsSection; nonce: number }>(
+    () => ({ section: initialSettingsSection ?? "profile", nonce: 0 }),
+  );
+  // Same reason as the mainView re-sync above: back/forward between
+  // /settings/{tab} URLs changes the prop without going through handleNavigate.
+  // Bumping the nonce is what actually re-applies it — the settings view is
+  // keyed on it, so this remounts AccountSettings with the new initialSection.
+  useEffect(() => {
+    if (initialSettingsSection && initialSettingsSection !== settingsRequest.section) {
+      setSettingsRequest((prev) => ({ section: initialSettingsSection, nonce: prev.nonce + 1 }));
+    }
+  }, [initialSettingsSection, settingsRequest.section]);
   const [workflowType, setWorkflowType] = useState<WorkflowType>(() => {
     // A cold-loaded /create/{type} URL wins: without this the panel silently
     // opened on the "user_stories" default below, so a shared or refreshed link
@@ -1599,7 +1623,8 @@ export function DashboardLayout({
       // the guard fires and the reactive path is a no-op.
       const resolvedTypeStr = resolvedType as string;
       const isPptType = resolvedTypeStr === "ppt" || resolvedTypeStr === "ppt_revision";
-      const isProtoType = resolvedTypeStr === "prototype" || resolvedTypeStr === "prototype_revision";
+      const isProtoType = resolvedTypeStr === "prototype" || resolvedTypeStr === "prototype_revision"
+        || resolvedTypeStr === "prototype_large_revision" || resolvedTypeStr === "prototype_feature_revision";
       if (isPptType) { odPptNotifId.current = notifId; }
       if (isProtoType) { odProtoNotifId.current = notifId; }
       // FIX-130: inject _display_title so page.tsx onStartPipeline can set a
@@ -1715,7 +1740,8 @@ export function DashboardLayout({
       } catch {
         // Fallback: use the old approach
         const isHtmlOutput = workflowType === "ppt" || workflowType === "ppt_revision" ||
-          workflowType === "prototype" || workflowType === "prototype_revision";
+          workflowType === "prototype" || workflowType === "prototype_revision" ||
+          workflowType === "prototype_large_revision" || workflowType === "prototype_feature_revision";
         contextBlock = isHtmlOutput
           ? `=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n[${workflowType} output — HTML file]\n=== END PREVIOUS CONTEXT ===`
           : `=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n${lastPipelineOutput.slice(0, 4000)}\n=== END PREVIOUS CONTEXT ===`;
@@ -1758,7 +1784,7 @@ export function DashboardLayout({
       const chainNotifTitle = (chainBrief || enrichedInput).slice(0, 60);
       addRunningNotification(notifId, nextType, chainNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedHooks, { _display_title: chainBrief });
       } else {
@@ -1813,7 +1839,8 @@ export function DashboardLayout({
     } catch {
       // Fallback
       const isHtmlOutput = run.type === "ppt" || run.type === "ppt_revision" ||
-        run.type === "prototype" || run.type === "prototype_revision";
+        run.type === "prototype" || run.type === "prototype_revision" ||
+        run.type === "prototype_large_revision" || run.type === "prototype_feature_revision";
       const baseOutput = isHtmlOutput
         ? `[${run.title || run.type} output — HTML file]`
         : (run.output || "").slice(0, 4000);
@@ -1849,7 +1876,7 @@ export function DashboardLayout({
       const historyNotifTitle = (historyBrief || enrichedInput).slice(0, 60);
       addRunningNotification(notifId, nextType, historyNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = nextType as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedHooks, { _display_title: historyBrief });
       } else {
@@ -1939,7 +1966,7 @@ export function DashboardLayout({
       const pendingNotifTitle = (parsedPending.revisionInstruction ?? parsedPending.brief ?? pendingPipelineRun.message).slice(0, 60);
       addRunningNotification(notifId, pendingPipelineRun.type, pendingNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -1979,7 +2006,7 @@ export function DashboardLayout({
       const skipNotifTitle = (parsedSkip.revisionInstruction ?? parsedSkip.brief ?? pendingPipelineRun.message).slice(0, 60);
       addRunningNotification(notifId, pendingPipelineRun.type, skipNotifTitle, 0);
       // FIX-204: pre-empt the reactive effect for ppt/prototype types.
-      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision") { odProtoNotifId.current = notifId; } }
+      { const t = pendingPipelineRun.type as string; if (t === "ppt" || t === "ppt_revision") { odPptNotifId.current = notifId; } if (t === "prototype" || t === "prototype_revision" || t === "prototype_large_revision" || t === "prototype_feature_revision") { odProtoNotifId.current = notifId; } }
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -2039,8 +2066,22 @@ export function DashboardLayout({
     if (onRejectReview) onRejectReview(gateKey);
   }, [onRejectReview, onResetPipeline, router]);
 
-  // Header navigation — free navigation even while pipeline runs
-  const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows") => {
+  // Header navigation — free navigation even while pipeline runs.
+  //
+  // `options.settingsSection` deep-links into one Account Settings tab. No
+  // caller passes it today (the profile menu's "Security" item that used it was
+  // removed); omitting it lands on "profile", which is what every current
+  // caller wants. The nonce is what makes a REPEAT request work: the settings view is
+  // keyed on it, so asking for the same tab again remounts AccountSettings and
+  // re-applies `initialSection` even when the user has since clicked another tab.
+  const handleNavigate = useCallback((
+    page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows",
+    options?: { settingsSection?: SettingsSection },
+  ) => {
+    if (page === "settings") {
+      const requested = options?.settingsSection ?? "profile";
+      setSettingsRequest((prev) => ({ section: requested, nonce: prev.nonce + 1 }));
+    }
     setMainView(page as MainView);
     router.push(headerNavRoute(page));
   }, [router]);
@@ -2093,7 +2134,9 @@ export function DashboardLayout({
   const activeReviseHandler =
     (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision") ? handleRevisePpt :
     (effectiveReviseType === "user_stories" || effectiveReviseType === "user_stories_revision") ? handleReviseUserStory :
-    (effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype :
+    (effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision"
+      || effectiveReviseType === "prototype_large_revision" || effectiveReviseType === "prototype_feature_revision"
+      || !!prototypeContent) ? handleRevisePrototype :
     (effectiveReviseType === "app_builder" || effectiveReviseType === "app_builder_revision") ? handleReviseAppBuilder :
     undefined;
 
@@ -2279,6 +2322,7 @@ export function DashboardLayout({
     effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision"
       ? pptContent
       : effectiveReviseType === "prototype" || effectiveReviseType === "prototype_revision"
+        || effectiveReviseType === "prototype_large_revision" || effectiveReviseType === "prototype_feature_revision"
         ? prototypeContent
         : userStoryContent; // user_stories, custom, app_builder, and revision variants
   const laneDerivedFilename = deriveDeliverableFilename(
@@ -2443,6 +2487,7 @@ export function DashboardLayout({
         onLogout={onLogout}
         userTier={userTier}
         userEmail={userEmail}
+        isAdmin={isAdmin}
         isPipelineRunning={isPipelineRunning}
         pipelineType={effectiveReviseType}
         pipelineAgentsCompleted={pipelineState?.completedCount ?? 0}
@@ -2710,14 +2755,17 @@ export function DashboardLayout({
           {/* SETTINGS — Account settings */}
           {mainView === "settings" && (
             <motion.div
-              key="settings"
+              // Nonce in the key: a deep-link to a specific settings tab remounts
+              // AccountSettings so `initialSection` is re-applied even when this
+              // surface was already open on a different tab.
+              key={`settings-${settingsRequest.nonce}`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <AccountSettings initialSection={initialSettingsSection} onBack={handleBackNav} />
+              <AccountSettings initialSection={settingsRequest.section} onBack={handleBackNav} />
             </motion.div>
           )}
 

@@ -121,14 +121,24 @@ const createTestAgents = (): AgentDef[] => {
   const protoAgents: AgentDef[] = PROTO_AGENTS.map((id, idx) => ({
     id,
     name: id,
+    role: "Test Agent",
+    description: "Test description",
     pipeline_type: "prototype",
     order: idx + 1,
+    icon: "zap",
+    estimated_duration: 60,
+    has_skill: false,
   }));
   const pptAgents: AgentDef[] = PPT_AGENTS.map((id, idx) => ({
     id,
     name: id,
+    role: "Test Agent",
+    description: "Test description",
     pipeline_type: "ppt",
     order: idx + 1,
+    icon: "zap",
+    estimated_duration: 60,
+    has_skill: false,
   }));
   return [...protoAgents, ...pptAgents];
 };
@@ -144,7 +154,7 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
   it("prototype base launch writes the golden draft + pending and routes to /dashboard", async () => {
     const user = userEvent.setup();
     renderWithProviders(<LaunchWizard initialMode="prototype" />, {
-      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+      preloadedState: { agents: { agents: createTestAgents(), totalCount: createTestAgents().length, pipelines: {}, status: "succeeded" as const, error: null } },
     });
     await user.type(await screen.findByLabelText("Brief"), "Build a kanban board");
     await user.click(screen.getByTestId("pick-web"));
@@ -160,7 +170,7 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
   it("prototype blank-canvas launch writes templateId:null", async () => {
     const user = userEvent.setup();
     renderWithProviders(<LaunchWizard initialMode="prototype" />, {
-      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+      preloadedState: { agents: { agents: createTestAgents(), totalCount: createTestAgents().length, pipelines: {}, status: "succeeded" as const, error: null } },
     });
     await user.type(await screen.findByLabelText("Brief"), "Build a kanban board");
     await user.click(screen.getByTestId("pick-web-blank"));
@@ -175,7 +185,7 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
   it("ppt base launch writes the golden draft + pending", async () => {
     const user = userEvent.setup();
     renderWithProviders(<LaunchWizard initialMode="ppt" />, {
-      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+      preloadedState: { agents: { agents: createTestAgents(), totalCount: createTestAgents().length, pipelines: {}, status: "succeeded" as const, error: null } },
     });
     await user.type(await screen.findByLabelText("Brief"), "Pitch deck");
     await user.click(screen.getByTestId("pick-deck")); // pitch → dsRequired
@@ -190,7 +200,7 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
   it("ppt template not requiring a design system writes designSystemId:null", async () => {
     const user = userEvent.setup();
     renderWithProviders(<LaunchWizard initialMode="ppt" />, {
-      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+      preloadedState: { agents: { agents: createTestAgents(), totalCount: createTestAgents().length, pipelines: {}, status: "succeeded" as const, error: null } },
     });
     await user.type(await screen.findByLabelText("Brief"), "Pitch deck");
     await user.click(screen.getByTestId("pick-deck-onepager"));
@@ -204,7 +214,7 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
   it("WR-06: ppt custom template launches customTemplateBody with designSystemId:null (no DS required)", async () => {
     const user = userEvent.setup();
     renderWithProviders(<LaunchWizard initialMode="ppt" />, {
-      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+      preloadedState: { agents: { agents: createTestAgents(), totalCount: createTestAgents().length, pipelines: {}, status: "succeeded" as const, error: null } },
     });
     await user.type(await screen.findByLabelText("Brief"), "Custom deck");
     // A deck custom template has no registry entry → dsRequired=false → the
@@ -222,7 +232,7 @@ describe("LaunchWizard — SC-001 Web/Deck deliverable-mode toggle", () => {
   it("toggling to Deck switches the agent pipeline + launch target to ppt", async () => {
     const user = userEvent.setup();
     renderWithProviders(<LaunchWizard initialMode="prototype" />, {
-      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+      preloadedState: { agents: { agents: createTestAgents(), totalCount: createTestAgents().length, pipelines: {}, status: "succeeded" as const, error: null } },
     });
     expect(await screen.findByTestId("agents-pipeline")).toHaveTextContent("prototype");
 
@@ -311,7 +321,7 @@ describe("LaunchWizard — ported behaviors", () => {
   it("save-workflow: composes base_pipeline_type + _wizard config", async () => {
     const user = userEvent.setup();
     renderWithProviders(<LaunchWizard initialMode="prototype" />, {
-      preloadedState: { agents: { agents: createTestAgents(), customAgents: [] } },
+      preloadedState: { agents: { agents: createTestAgents(), totalCount: createTestAgents().length, pipelines: {}, status: "succeeded" as const, error: null } },
     });
     await user.type(await screen.findByLabelText("Brief"), "Savable");
     await user.click(screen.getByTestId("pick-web"));

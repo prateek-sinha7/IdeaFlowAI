@@ -79,9 +79,15 @@ Current state, milestone, and enforced import boundaries: `.knowledge/surface/AR
 
 ---
 
-## Alembic Migration Chain (head: 0026)
+## Alembic Migration Chain (head: 0037)
 
-`0014` → `0015` → `0016` → `0017` → `0018` → `0019` → `0020` → `0021` → `0022` → `0023` → `0024` → `0025` → `0026`
+`0014` → `0015` → `0016` → `0017` → `0018` → `0019` → `0020` → `0021` → `0022` → `0023` → `0024` → `0025` → `0026` → `0027` → `0028` → `0029` → `0030` → `0031` → `0032` → `0033` → `0034` → `0035` → `0036` → `0037`
+
+This number drifts — verify it, don't trust it: `cd backend && alembic heads` must
+print exactly ONE head. Two heads make `alembic upgrade head` fail, which
+crash-loops the container (`docker-entrypoint.sh` runs it under `set -eu`). Two
+collisions have already happened this way: `0031`→re-homed to `0036`, and
+`0032`→re-homed to `0037`.
 
 Every new table **must** carry `owner_id` + `workspace_id` (Q3, additive-only).
 

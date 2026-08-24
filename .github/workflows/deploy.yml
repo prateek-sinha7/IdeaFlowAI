@@ -153,6 +153,7 @@ jobs:
   gate:
     name: CI gate
     uses: ./.github/workflows/ci.yml
+    timeout-minutes: 60
 
   # ---------------------------------------------------------------------------
   # Resolve which environment and image tag to use based on the trigger event.
@@ -296,8 +297,7 @@ jobs:
     # <env>-latest alias) before the gate reported red. Nothing reaches ECR now
     # unless CI is green on the same commit. The cost is wall-clock: build no
     # longer overlaps the gate.
-    # NOTE: TEMPORARILY SKIPPED FOR TESTING — will be restored before prod
-    needs: [resolve]
+    needs: [gate, resolve]
     timeout-minutes: 60
     environment: ${{ needs.resolve.outputs.environment }}
     # Only this job and `deploy` mint an AWS OIDC token (see the workflow-level
@@ -521,11 +521,7 @@ jobs:
   deploy:
     name: Deploy (${{ needs.resolve.outputs.environment }})
     runs-on: ubuntu-latest
-    # NOTE: TEMPORARILY SKIPPING `gate` FOR TESTING — will be restored before
-    # prod. Must go back to `needs: [resolve, gate, build]` together with the
-    # matching bypass on the `build` job above. While this is in place a commit
-    # that fails lint / tests / secret scanning CAN reach a deployed host.
-    needs: [resolve, build]
+    needs: [resolve, gate, build]
     timeout-minutes: 50
     environment: ${{ needs.resolve.outputs.environment }}
     # See the workflow-level `permissions:` note — the AWS token is minted per

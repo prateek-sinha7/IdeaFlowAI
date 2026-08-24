@@ -1,0 +1,48 @@
+id: prototype_large_revision
+user_launchable: false
+is_beta: true
+display_name: Revise prototype (complex fix)
+short_name: Prototype Revision (Large)
+description: Plan and apply a multi-step structural revision to a prior prototype.
+icon: Layout
+version: 1
+planner: skip
+clarify:
+  mode: skip
+deliverable:
+  strategy: single_file
+  name: prototype.html
+  revises_existing: true
+context_providers:
+- previous_run
+seed_files: {}
+steps:
+# Step 1: Break the revision into discrete tasks
+- agent: prototype-revision-planner
+  tools: {read_files: true, write_files: true}
+  strategy: single_shot
+  gates: []
+
+# Step 2: Execute each task in isolation (task_loop)
+- agent: prototype-build
+  tools: {read_files: true, write_files: true}
+  strategy: task_loop
+  gates: []
+  task_source:
+    kind: parsed
+    parser: heading_tasks
+    target: tasks.md
+    source_step: prototype-revision-planner
+  validators:
+  - html_static
+  - html_render
+  require_render: false
+  post_step: revision_validation
+  compaction: html_skeleton
+
+# Step 3: Final validation
+- agent: prototype-validate
+  tools: {read_files: true, write_files: true}
+  strategy: single_shot
+  gates: []
+name: Prototype Revision (Large)

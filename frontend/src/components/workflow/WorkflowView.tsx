@@ -33,6 +33,7 @@ import { useAgentLibrary } from "@/hooks/useAgentLibrary";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import type { AgentDef, PipelineRunState } from "@/types/index";
 import { collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflows";
+import { agentMatchesPipelineType } from "@/lib/workflowIcons";
 
 interface WorkflowViewProps {
   pipelineType: "user_stories" | "ppt" | "prototype";
@@ -122,7 +123,7 @@ export function WorkflowView({
   // Update agents when type changes
   useEffect(() => {
     setPipelineAgents(
-      libraryAgents.filter((a) => a.pipeline_type === selectedType).sort((a, b) => a.order - b.order)
+      libraryAgents.filter((a) => agentMatchesPipelineType(a.pipeline_type, selectedType)).sort((a, b) => a.order - b.order)
     );
   }, [libraryAgents, selectedType]);
 

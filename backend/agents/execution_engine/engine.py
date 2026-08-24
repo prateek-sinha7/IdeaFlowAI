@@ -1339,7 +1339,7 @@ class ExecutionEngine:
                         The Phase-6 UI sends this; the inter-agent gate itself
                         stays engine-level (`_run_review_gate`) — this only
                         selects which agents trigger it.
-            parent_run_id: For ``prototype_revision`` — the pipeline_run_id of the
+            parent_run_id: For revision pipelines — the pipeline_run_id of the
                         ORIGINAL run that produced the prototype being revised
                         (the frontend's ``source_workflow_run_id``, already
                         resolved by the WS layer). When set, the engine seeds the
@@ -1396,7 +1396,7 @@ class ExecutionEngine:
         # now lives on `ectx`, threaded down through the call tree (D-03, explicit param —
         # never contextvars). gate_agent_ids selection (None ⇒ static AGENT.md
         # `gate: Human_Gate` set; a list ⇒ exactly those ids) and parent_run_id
-        # (prototype_revision parent-seed source) ride on the context too. ctx.artifacts is
+        # (parent-seed source for revision runs) ride on the context too. ctx.artifacts is
         # the per-run typed graph (default_factory=ArtifactGraph — 05-04 dual-write target).
         ectx = ExecutionContext(
             run_id=pipeline_run_id,
@@ -1747,7 +1747,7 @@ class ExecutionEngine:
         # single_file mid-stream readback (in _run_agent) fires for a FORWARD
         # single_file build (the agent writes the file fresh) but NOT for a revision
         # (whose mid-stream deliverable is the edited streamed output — the legacy
-        # L10 gate excluded prototype_revision, parity).
+        # L10 gate excluded in-place revision runs, parity).
         _is_revision_workflow = bool(
             getattr(compiled.deliverable, "revises_existing", False)
         )
@@ -7439,6 +7439,8 @@ class ExecutionEngine:
         owner_id: str | None = None,
         cancel_event: asyncio.Event | None = None,
         milestone_sink=None,
+        live_ectx_register=None,
+        live_ectx_unregister=None,
     ) -> None:
         """Handle a revision request (FR-014) — real revision-pipeline dispatch.
 
@@ -7587,7 +7589,7 @@ class ExecutionEngine:
         # The FE sends ``*_output`` artifact KINDS as the revision target
         # (ppt_output / od_ppt_output) but routes pipeline_complete previews on
         # the WORKFLOW revision aliases (ppt_revision / od_ppt_revision /
-        # prototype_revision / user_stories_revision). Emitting
+        # *_revision suffixed types). Emitting
         # ``{target}_revision`` verbatim produced ``ppt_output_revision`` —
         # matched by NO FE branch, so the revision's final_output was never
         # routed to the preview panel. Normalize with a GENERIC suffix
@@ -7675,6 +7677,12 @@ class ExecutionEngine:
             # are persisted for revision runs — same wiring as _run_workflow_to_queue.
             # None when the WS caller does not supply it (backward-compat).
             milestone_sink=milestone_sink,
+            # live_ectx_register / live_ectx_unregister: optional app-layer callbacks
+            # threaded from _drive_revision_to_queue so the ectx is registered
+            # (and analyzer_solution set) before the first agent step runs.
+            # None → dormant (INV-3 safe, backward-compat).
+            live_ectx_register=live_ectx_register,
+            live_ectx_unregister=live_ectx_unregister,
         ):
             if event.get("type") == "pipeline_complete":
                 final_output = event.get("data", {}).get("final_output")
@@ -7923,6 +7931,20 @@ class ExecutionEngine:
         "prototype-analyze": "analysis",
         "prototype-build": "html_file",
         "prototype-validate": "validation_report",
+        # Revision pipeline agents — same semantic kinds as prototype counterparts
+        # so artifact routing and FR-014 chain links work correctly (IN-01 advisory
+        # silenced: these agent ids were falling back to "summary" then using agent
+        # id as kind, which is outside ARTIFACT_KINDS).
+        "prototype-revision-agent": "html_file",
+        "prototype-revision-validate": "validation_report",
+        # Tiered revision agents (large / feature pipeline variants).
+        "prototype-revision-planner": "task_list",
+        "prototype-large-builder": "html_file",
+        "prototype-large-validate": "validation_report",
+        "prototype-revision-feature-specify": "spec",
+        "prototype-revision-feature-plan": "task_list",
+        "prototype-feature-builder": "html_file",
+        "prototype-feature-validate": "validation_report",
     }
 
     # SC-001 / KAN-101 / MD-01: the ARTIFACT KIND whose LIVE human gate offers the
@@ -10426,6 +10448,17 @@ class ExecutionEngine:
             ectx.steering_notes = [
                 n for n in steering_notes if isinstance(n, dict) and n.get("sticky")
             ]
+
+        # ── Position 5 — Revision Analysis (additive seam, INV-1 / SC-001 compliant) ──
+        # Appended IFF ectx.analyzer_solution is non-empty. Generic truthiness check on
+        # a dataclass field — no pipeline_type branch, no agent_id literal (SC-001).
+        # Default "" → DORMANT on every non-analyzer run → INV-3 byte-parity holds.
+        _analyzer_solution = getattr(ectx, "analyzer_solution", "") or ""
+        if _analyzer_solution:
+            parts.append(
+                f"\n=== REVISION ANALYSIS ===\n{_analyzer_solution}\n"
+                "=== END REVISION ANALYSIS ==="
+            )
 
         # ── Build agent: the CURRENT TASK block + current HTML (agnostic scratch) ─
         if ectx.build_task_number:

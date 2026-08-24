@@ -17,6 +17,7 @@ import {
 } from "../AgentsPopup";
 import { AgentLibrary } from "../AgentLibrary";
 import { useAgentLibrary } from "@/hooks/useAgentLibrary";
+import { agentMatchesPipelineType } from "@/lib/workflowIcons";
 import {
   getAgentRecommendations,
   COMPANION_GROUPS,
@@ -388,7 +389,7 @@ export function ComposerPage({
   const strategy = "sequential";
 
   const defaultAgentIds = new Set(
-    LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).map((a) => a.id),
+    LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, workflowType)).map((a) => a.id),
   );
   const optionalCount = pipelineAgents.filter((a) => !defaultAgentIds.has(a.id)).length;
   const canAddMore = optionalCount < MAX_OPTIONAL;

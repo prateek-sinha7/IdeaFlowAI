@@ -35,7 +35,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getToken, handleSessionExpiry, setToken } from "@/lib/api";
+import { getToken, handleSessionExpiry, refreshAccessToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import { parseSseBlock } from "@/lib/sseFrame";
 import { STREAM_TERMINAL_TYPES } from "@/types";
@@ -115,30 +115,19 @@ function jwtExpiryMs(token: string | null): number | null {
 }
 
 /**
- * Attempt a SILENT token refresh (D-14f). Best-effort: POSTs the current token
- * to `/api/auth/refresh` and, on a `{ token }` response, swaps it in. Returns
- * true only when a fresh token was obtained. Any failure (no endpoint yet, 4xx,
- * network) resolves false so the caller falls back to the natural-expiry path —
- * never throwing, never logging the user out on its own.
+ * Attempt a SILENT token refresh (D-14f). Best-effort: returns true only when a
+ * fresh token was obtained. Any failure (4xx, network, a local/break-glass user
+ * with no Cognito refresh token) resolves false so the caller falls back to the
+ * natural-expiry path — never throwing, never logging the user out on its own.
+ *
+ * Delegates to the shared `refreshAccessToken()` in `lib/api` rather than
+ * re-implementing the call: the REST client now runs the same refresh on a 401
+ * (Cognito Phase 4), and two copies would drift — and would defeat the
+ * single-flight coalescing that keeps a burst of simultaneous 401s from minting
+ * one refresh each.
  */
 async function attemptSilentRefresh(): Promise<boolean> {
-  const current = getToken();
-  if (!current) return false;
-  try {
-    const res = await fetch(`${ENV.API_URL}/api/auth/refresh`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${current}` },
-    });
-    if (!res.ok) return false;
-    const body = (await res.json().catch(() => null)) as { token?: string } | null;
-    if (body?.token) {
-      setToken(body.token);
-      return true;
-    }
-    return false;
-  } catch {
-    return false;
-  }
+  return (await refreshAccessToken()) !== null;
 }
 
 export function useRunStream(config: UseRunStreamConfig): UseRunStreamReturn {

@@ -391,7 +391,9 @@ def propose_revision(instruction: str, target: str = "") -> ProposalIntent:
 
     Args:
         instruction: What to change in the revision.
-        target: Optional artifact/ref id the revision targets.
+        target: Optional artifact TYPE string ending in '_output'
+                (e.g. 'prototype_output', 'ppt_output', 'user_stories_output').
+                NEVER pass a run ID or UUID — leave empty to use the default.
     """
     return _revision_intent(instruction, target)
 
@@ -457,7 +459,9 @@ def _collecting_proposal_tools(collector: list) -> list:
 
         Args:
             instruction: What to change in the revision.
-            target: Optional artifact/ref id the revision targets.
+            target: Optional artifact TYPE string ending in '_output'
+                    (e.g. 'prototype_output', 'ppt_output', 'user_stories_output').
+                    NEVER pass a run ID or UUID — leave empty to use the default.
         """
         intent = _revision_intent(instruction, target)
         collector.append(intent)
@@ -540,7 +544,10 @@ class ConciergeCapability:
         # converse calls keep distinct collectors, so neither sees the other's intents.
         collected: list[ProposalIntent] = []
         proposal_tools = _collecting_proposal_tools(collected)
-        tools = self._read_tools(scoped_store, run_id) + proposal_tools
+        tools = self._read_tools(
+            scoped_store, run_id,
+            active_revision_run_id=getattr(ctx, "active_revision_run_id", None),
+        ) + proposal_tools
         await self._load_conversation_context(ctx)
         system_prompt = self._compose_system_prompt(ctx)
 
@@ -699,7 +706,7 @@ class ConciergeCapability:
 
     # ── READ tools — bounded, on-demand, owner-scoped (IDOR → 404) ───────────────
     @staticmethod
-    def _read_tools(scoped_store: "ScopedStore | None", run_id: str | None) -> list:
+    def _read_tools(scoped_store: "ScopedStore | None", run_id: str | None, active_revision_run_id: str | None = None) -> list:
         """Build the run's owner-scoped READ tools (empty when no store/run).
 
         Every tool is a CLOSURE over ``scoped_store`` and ``run_id``, and that closure
@@ -731,13 +738,44 @@ class ConciergeCapability:
             """Run status and agent progress as COUNTS. Cheapest tool — call it first.
 
             Answers "what is happening", "what step", "how many agents", "is it done".
+            When a revision is in progress, reads the active revision run's events.
             """
+            # If a child revision run is active, read its events for accurate progress.
+            active_rev_id = active_revision_run_id
+            effective_run_id = active_rev_id if active_rev_id else run_id
             rows = await _events(_LIFECYCLE_EVENT_TYPES, _PROGRESS_SCAN_LIMIT)
-            return _derive_progress(rows, await _safe_run(scoped_store, run_id))
+            if active_rev_id:
+                # Read events from the child revision run via the scoped store.
+                try:
+                    rev_rows = await scoped_store.read_events_of_types(
+                        active_rev_id,
+                        _LIFECYCLE_EVENT_TYPES,
+                        limit=_PROGRESS_SCAN_LIMIT,
+                    )
+                    if rev_rows:
+                        rows = rev_rows
+                except Exception:  # noqa: BLE001 — degrade to parent events on error
+                    pass
+            run_obj = await _safe_run(scoped_store, effective_run_id)
+            return _derive_progress(rows, run_obj)
 
         @tool
         async def list_agents() -> list:
-            """List this run's agents with status and duration. No output text."""
+            """List this run's agents with status and duration. No output text.
+            When a revision is in progress, lists the revision run's agents.
+            """
+            active_rev_id = active_revision_run_id
+            if active_rev_id:
+                try:
+                    rev_rows = await scoped_store.read_events_of_types(
+                        active_rev_id,
+                        _AGENT_LIFECYCLE_TYPES,
+                        limit=_PROGRESS_SCAN_LIMIT,
+                    )
+                    if rev_rows:
+                        return _derive_agents(rev_rows)[:_AGENT_LIST_MAX]
+                except Exception:  # noqa: BLE001
+                    pass
             rows = await _events(_AGENT_LIFECYCLE_TYPES, _PROGRESS_SCAN_LIMIT)
             return _derive_agents(rows)[:_AGENT_LIST_MAX]
 
@@ -928,25 +966,72 @@ class ConciergeCapability:
                 "## PRIORITY OVERRIDE — File attached this turn\n\n"
                 "A file has been uploaded by the user. This overrides ALL other routing rules.\n"
                 "You MUST decide based on the user's message text:\n\n"
-                "CASE A — User message contains a revision request "
-                "(e.g. 'add X', 'fix Y', 'revise Z', 'update it', 'make it better'):\n"
-                "→ Call propose_revision. The USER'S CHAT MESSAGE IS THE PRIMARY INSTRUCTION — "
-                "always honour it exactly as stated. The attached file is SECONDARY reference "
-                "material only. If the file content conflicts with or is unrelated to the user's "
-                "request, IGNORE the file content and follow the user's request alone. "
-                "Set the instruction to the user's request, and if the file is relevant, add: "
-                "'Use the attached [filename] as supplementary reference if applicable.'\n"
-                "Reply: 'I'll revise based on your request. The attached [filename] will be used "
-                "as supplementary reference where relevant.'\n\n"
-                "CASE B — The user attached the file with NO request and NO question:\n"
-                "→ Call propose_steering_note with the full file content as the note text.\n"
-                "Reply: 'I've read [filename] and injected its content into the pipeline agents.'\n\n"
+                "CASE A — User message contains an instruction about what to do with the file "
+                "(e.g. 'use this as the spec', 'apply these requirements', 'reference this', "
+                "'make it better', 'use this file', 'add X', 'fix Y'):\n"
+                "IMPORTANT: Split into two sub-cases:\n"
+                "  A1 — The instruction is specifically a REVISION REQUEST "
+                "(wants to START A NEW REVISION: 'revise Z', 'update it', 'fix Y', 'add X'):\n"
+                "    → Check run_status first:\n"
+                "      - If 'revising': BLOCK. Tell user: 'A revision is already running — "
+                "please wait for it to finish before starting a new one.'\n"
+                "      - If 'running': BLOCK. Tell user: 'The pipeline is still building — "
+                "please wait for it to complete before starting a revision.'\n"
+                "      - If 'completed': call propose_revision with the user's message as "
+                "the primary instruction and append 'Use the attached [filename] as "
+                "supplementary reference.' to the instruction.\n"
+                "  A2 — The instruction is to USE THE FILE AS REFERENCE or CONTEXT "
+                "(not a revision — just wants agents to have the file: 'use this', "
+                "'apply these requirements', 'reference this', 'use as spec'):\n"
+                "    → File passing is ALWAYS ALLOWED regardless of run_status. "
+                "Call get_run_progress() to check which agent is currently running.\n"
+                "      - If current agent is an ANALYSIS or PLANNING agent "
+                "(Spec, Plan, Analyst, Research, Strategy, Domain, Architect, "
+                "Requirements, Design, User Stories) "
+                "→ call propose_steering_note with:\n"
+                "'USER INSTRUCTION: [user's exact message]\n\n[full file content]'\n"
+                "Reply: 'Got it — I'll pass [filename] to the current agent with your instruction.'\n"
+                "      - If current agent is a BUILDER, GENERATOR, or VALIDATOR "
+                "(Build, Generate, Implement, Validate, Deliver, Revision, HTML, Deck, Prototype) "
+                "→ it cannot analyze documents right now. Tell the user: "
+                "'The current agent ([current_agent_name]) is generating output and cannot "
+                "process documents. Your file will be queued as a steering note for the "
+                "NEXT agent that can use it. Is that okay, or would you prefer to restart "
+                "the pipeline with this file at the beginning?' "
+                "If user confirms queuing, call propose_steering_note with the file + instruction.\n"
+                "\n"
+                "CASE B — The user attached the file with NO message text (or only a greeting "
+                "with no actionable directive):\n"
+                "→ First call get_run_progress() to find out which agent is currently running.\n"
+                "Then apply this logic:\n"
+                "  • If the current agent is an ANALYSIS or PLANNING agent "
+                "(Spec, Plan, Analyst, Research, Strategy, Domain, "
+                "Requirements, Architect, Design, User Stories) "
+                "→ it CAN use the file. Call propose_steering_note with the file content. "
+                "Reply: 'I've injected [filename] as reference for the current agent.'\n"
+                "  • If the current agent is a BUILDER, GENERATOR, or VALIDATOR "
+                "(Build, Generate, Implement, Construct, Assemble, "
+                "Validate, Deliver, Revision, HTML, Deck, Slideshow, Prototype) "
+                "→ it CANNOT meaningfully use the document right now. DO NOT inject silently. "
+                "Ask: 'The current agent ([current_agent_name]) is generating output and "
+                "won\\'t be able to analyze [filename] right now. What would you like to do? "
+                "(1) Queue it for the next capable agent, "
+                "(2) start a new run with this file at launch, "
+                "or (3) use it as reference for a future revision?'\n"
+                "  • If no agent is currently running (pipeline complete or not started): "
+                "ask: 'I see you\\'ve attached [filename]. What would you like me to do with it?'\n"
+                "(1) wait for the run to complete and start a new run — attach the file at launch "
+                "so the analysis agents can process it first, or "
+                "(2) if you want it as a reference for a future revision, let me know and "
+                "I\\'ll queue it for that.'\n"
+                "  • If no agent is currently running (pipeline complete or not started): "
+                "ask: 'I see you\\'ve attached [filename]. What would you like me to do with it?'\n"
+                "\n"
                 "CASE C — The user asked a QUESTION (about this run, or about the file):\n"
                 "→ ANSWER it. Do NOT call propose_steering_note — a question is not a steering "
                 "note, and the rule below forbids it for status questions. Answer about the file "
                 "from the file block below; answer about the run using your read tools.\n\n"
                 "ALWAYS use the actual filename from the file block below.\n"
-                "NEVER ask clarifying questions.\n"
                 "The file block below is already complete — do NOT go looking for its contents "
                 "in the run's event log. Your read tools (get_run_progress, list_agents, "
                 "get_agent_output, list_artifacts, get_artifact, read_recent_events, "
@@ -989,9 +1074,16 @@ class ConciergeCapability:
 
             # Intent routing — decisive, no interrogation.
             "INTENT ROUTING (follow exactly):\n"
+            "• CRITICAL — NEVER propose a revision when the pipeline is still active. "
+            "If run_status is 'revising', tell the user: 'A revision is already in "
+            "progress — please wait for it to finish before starting a new one.' "
+            "If run_status is 'running', tell the user: 'The pipeline is still building "
+            "— please wait for it to complete before requesting a revision.' "
+            "Only call propose_revision when run_status is 'completed'.\n"
             "• User wants to CHANGE or IMPROVE this run's deliverable "
             "(e.g. 'add X', 'fix Y', 'revise Z', 'update it', 'make it better') "
-            "→ call propose_revision immediately. "
+            "→ FIRST check run_status. If 'revising' or 'running', block and tell user "
+            "to wait (see rule above). If 'completed', call propose_revision immediately. "
             "Reply with one short sentence like 'I'll revise it with that change.' "
             "Do NOT ask what to change — use what the user said as the instruction.\n"
             "• User wants to START A NEW FOLLOW-UP WORKFLOW "
@@ -1045,6 +1137,34 @@ class ConciergeCapability:
         # A run is "complete" when its status is "completed"; all other statuses
         # (running, revising, waiting_for_user, etc.) mean it is still active.
         run_is_complete = run_status == "completed"
+        run_is_revising = run_status == "revising"
+        run_is_building = run_status == "running"
+        # Block revision proposals whenever the pipeline is actively working —
+        # either the main build is running, or a revision is already in progress.
+        revision_blocked = run_is_revising or run_is_building
+
+        # Inject current run_status explicitly so the LLM knows it without a tool call.
+        # This is critical for blocking revision proposals when a revision is in flight
+        # or the main pipeline is still building.
+        if run_status:
+            if run_is_revising:
+                parts.append(
+                    "## Current run_status: revising\n\n"
+                    "A revision is currently running. "
+                    "DO NOT call propose_revision. "
+                    "Tell the user: 'A revision is already in progress — please wait for "
+                    "it to finish before starting a new one.'"
+                )
+            elif run_is_building:
+                parts.append(
+                    "## Current run_status: running\n\n"
+                    "The main pipeline is still building — agents are actively working. "
+                    "DO NOT call propose_revision. "
+                    "Tell the user: 'The pipeline is still running — please wait for it "
+                    "to complete before requesting a revision.'"
+                )
+            else:
+                parts.append(f"## Current run_status: {run_status}")
         if run_summary.strip():
             if run_is_complete:
                 parts.append(

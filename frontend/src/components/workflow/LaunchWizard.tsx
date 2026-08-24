@@ -7,8 +7,10 @@ import {
   Mic, MicOff, X, File, Settings2, Save, Image as ImageIcon, ArrowLeft,
 } from "lucide-react";
 import { getToken, extractFileText, createUserWorkflow, handleSessionExpiry } from "@/lib/api";
-import { ATTACH_MAX_CHARS } from "@/lib/constants";
+import { buildLoginRedirect } from "@/lib/authRedirect";
 import { routes } from "@/lib/routes";
+import { agentMatchesPipelineType } from "@/lib/workflowIcons";
+import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import {
   listDesignSystems,
   listPrototypeTemplates,
@@ -114,7 +116,7 @@ const CHAIN_SOURCE_LABEL: Record<string, string> = {
 };
 
 const defaultAgentsFor = (libraryAgents: AgentDef[], mode: LaunchMode): AgentDef[] =>
-  libraryAgents.filter((a) => a.pipeline_type === MODE_CONFIG[mode].agentPipeline).sort(
+  libraryAgents.filter((a) => agentMatchesPipelineType(a.pipeline_type, MODE_CONFIG[mode].agentPipeline)).sort(
     (a, b) => a.order - b.order,
   );
 
@@ -188,7 +190,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   // Auth + chain pickup (mirrors the retired pages).
   useEffect(() => {
     const token = getToken();
-    if (!token) { router.replace("/login"); return; }
+    if (!token) { router.replace(buildLoginRedirect()); return; }
     setAuthChecked(true);
     const from = sessionStorage.getItem("chain.from");
     if (from) {
@@ -278,10 +280,6 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       .then((t) => { if (!cancelled) setWebTemplates(t); })
       .catch((err: Error) => {
         if (cancelled) return;
-        // FR-015 — T33 sweep: prototype-api.ts's authFetch already calls the
-        // shared handleSessionExpiry() on 401; mirror that call here too
-        // instead of a bare router.replace that skipped the token clear and
-        // the ?expired=true message.
         if (err.message.startsWith("401")) { handleSessionExpiry(); return; }
         setLoadError(err.message);
       });

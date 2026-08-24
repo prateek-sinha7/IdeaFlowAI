@@ -13,15 +13,54 @@ Phase A confirmed (re-stated only to be explicit, not re-investigated here):
 
 The body of this report below is everything new.
 
+> **RESOLUTION STATUS (Cognito migration, 2026-08).** C1, C2 and the H6/theme-1
+> telemetry gap are **CLOSED on the Cognito path** by the migration described in
+> `.planning/COGNITO-MIGRATION-PLAN.md`. See the per-finding notes below.
+>
+> The one deliberate carve-out: `create_access_token`/`decode_access_token` (HS256,
+> local `SECRET_KEY`) are **permanently retained** for the single break-glass
+> local admin (Decision 12 / plan §5.6). C1 and C2 therefore still describe that
+> ONE account accurately. That is an accepted, documented trade of a small
+> retained attack surface for recoverability from a Cognito outage, and it is
+> compensated by: a hard single-row invariant enforced fail-closed at credential
+> resolution (`core/identity.py::_local_admin_credential_is_permitted`), a
+> `BREAK_GLASS_ENABLED` kill switch, and a CloudWatch/SNS alarm on **every** use
+> (`infra/terraform/modules/monitoring` → `*-auth-break-glass-login`).
+
 ## CRITICAL
 
 ### C1 — `decode_access_token` does not validate `iss` / `aud`, and `nbf` is never set
+
+> **CLOSED for all regular users (Cognito path).** Cognito access tokens are
+> verified in `backend/app/core/cognito.py::verify_cognito_access_token`, which
+> enforces RS256 signature against the pool JWKS, `kid` resolution, exact `iss`
+> match (`https://cognito-idp.{region}.amazonaws.com/{pool_id}`), `exp`,
+> `token_use == "access"`, `client_id` match, and the presence of `sub`+`jti`.
+> The `aud` claim is intentionally not checked because Cognito access tokens do
+> not carry one — `client_id` is the equivalent audience binding, and it IS
+> verified. The cross-environment token-replay scenario this finding describes is
+> closed: a dev-pool token fails the `iss` check against prod.
+> **Still open for the break-glass account only** — see the resolution note at
+> the top of this file.
 File: `backend/app/core/security.py:46-66`, `backend/app/core/security.py:82`
 - `create_access_token` only sets `sub`, `exp`, `iat`, `jti`. No `iss`, no `aud`, no `nbf`.
 - `decode_access_token` calls `jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])` with no `options=` or `audience=` argument. python-jose's defaults skip `aud`/`iss`/`at_hash`/`iat` checks (it only enforces `exp` when present). It will accept a signature-valid token from any audience.
 - Consequence: if `SECRET_KEY` is ever reused across two Flowin environments (dev↔prod or a sibling internal service that uses the same SSM parameter — note `infra/modules/secrets/main.tf:104-122` puts the key under one logical path per environment, but operators commonly copy the dev key into local `.env` files), tokens cross-validate. Without `aud` we have no defence.
 
 ### C2 — JWT signing algorithm is HS256 + symmetric secret read into the application process
+
+> **CLOSED for all regular users (Cognito path).** Regular tokens are now
+> asymmetric RS256, signed by Cognito with a private key the application never
+> holds. The backend only ever holds public JWKS material, so an RCE/log-leak/
+> SSM-exfil on the host no longer yields token-forging capability for user
+> accounts — which was the core of this finding.
+>
+> Note that `SECRET_KEY` itself is **not** retired by the migration and the boot
+> guard stays: `core/crypto.py` derives Fernet keys from it via HKDF to encrypt
+> GitHub PATs at rest and (new) Cognito refresh tokens, under distinct HKDF info
+> strings. Retiring JWT signing does not free that key.
+> **Still open for the break-glass account only** — see the resolution note at
+> the top of this file.
 File: `backend/app/core/security.py:16`, `backend/app/core/security.py:46-66`
 - `ALGORITHM = "HS256"`. Any compromise of `SECRET_KEY` (RCE on the EC2, leaked CloudWatch log, leaked SSM parameter, mis-scoped IAM session, container exfil) allows the attacker to forge arbitrary JWTs for every user. The only revocation mechanism is the per-jti `revoked_tokens` table — but the attacker can mint NEW JWTs with any `jti`, so revocation does not save you.
 - RS256 / ES256 with the private key only on a signing service (or KMS-managed asymmetric key + `kms:Sign`) would mean a host compromise still cannot forge tokens for future logins.
@@ -235,7 +274,16 @@ File: `infra/modules/secrets/outputs.tf:1-13`
 
 ## Summary of high-impact themes
 
-1. **Auth telemetry is missing across the board.** Zero log lines in `auth.py` and `dependencies.py`. Combined with no rate-limiting (Phase A) the platform is invisible to credential-spray attacks. (H6 + Phase A.)
+1. ~~**Auth telemetry is missing across the board.** Zero log lines in `auth.py` and `dependencies.py`. Combined with no rate-limiting (Phase A) the platform is invisible to credential-spray attacks. (H6 + Phase A.)~~
+   **CLOSED (Cognito migration Phase 6 item 6.)** `backend/app/core/auth_events.py`
+   emits every auth-significant occurrence as single-line JSON with a stable
+   `auth_event` discriminator (login success/failure, break-glass login, challenge,
+   refresh, logout, password change/reset, MFA enrolment, role/tier change, user
+   create/delete, break-glass invariant violation). `infra/terraform/modules/monitoring`
+   turns these into CloudWatch metric filters + SNS alarms: any break-glass login,
+   any invariant violation, and a sustained login-failure spike. Rate limiting is
+   also now in place at nginx for `/login`, `/register`, `/change-password` **and**
+   the new `/api/auth/refresh`.
 2. **Symmetric HS256 + 24 h JWTs + key reads into process env + no audience claim** make a single host compromise catastrophic. (C1, C2, C3, C4, TF5, TF6.)
 3. **Password policy is minimal (8 chars, no complexity, no breach check, no history, no lockout)** — a textbook OWASP-Top-10 cluster. (H1, H2, H3, H8.)
 4. **Password change has two exploitable quirks**: same-second-precision rule allows the calling token to survive (H9), and same-password "rotation" can be weaponised to log other sessions out (H8).

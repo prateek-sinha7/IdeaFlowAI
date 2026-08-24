@@ -16,8 +16,8 @@ modules_spanned:
 - MOD-backend-app-api
 - MOD-backend-app-models
 watched_files: 20
-code_signature: 3ed1ebdc8289
-symbols_signature: 8a996ac0feae
+code_signature: 6a921d326185
+symbols_signature: 654ad8b65449
 prose_signature: 3ed1ebdc8289
 prose_symbols_signature: 8a996ac0feae
 last_synced: '2026-08-24'
@@ -47,10 +47,11 @@ last_synced: '2026-08-24'
 **[MOD-backend-app-models](MOD-backend-app-models.md)**
 - [backend/app/models/gate_events.py](../../backend/app/models/gate_events.py)
 
-### Imported by, from outside this domain (9)
+### Imported by, from outside this domain (10)
 - [backend/agents/authz.py](../../backend/agents/authz.py)
 - [backend/agents/execution_engine/engine.py](../../backend/agents/execution_engine/engine.py)
 - [backend/agents/execution_engine/kernel_services.py](../../backend/agents/execution_engine/kernel_services.py)
+- [backend/app/agents/revision_analyzer.py](../../backend/app/agents/revision_analyzer.py)
 - [backend/app/api/chat_router.py](../../backend/app/api/chat_router.py)
 - [backend/app/api/run_shutdown.py](../../backend/app/api/run_shutdown.py)
 - [backend/app/api/run_stream.py](../../backend/app/api/run_stream.py)
@@ -58,12 +59,14 @@ last_synced: '2026-08-24'
 - [backend/app/main.py](../../backend/app/main.py)
 - [backend/app/models/__init__.py](../../backend/app/models/__init__.py)
 
-### Imports, from outside this domain (42)
+### Imports, from outside this domain (46)
 - [backend/agents/__init__.py](../../backend/agents/__init__.py)
 - [backend/agents/artifact_store/__init__.py](../../backend/agents/artifact_store/__init__.py)
 - [backend/agents/artifact_store/store.py](../../backend/agents/artifact_store/store.py)
 - [backend/agents/authz.py](../../backend/agents/authz.py)
 - [backend/agents/capabilities/__init__.py](../../backend/agents/capabilities/__init__.py)
+- [backend/agents/capabilities/context_providers/__init__.py](../../backend/agents/capabilities/context_providers/__init__.py)
+- [backend/agents/capabilities/context_providers/previous_run.py](../../backend/agents/capabilities/context_providers/previous_run.py)
 - [backend/agents/capabilities/model_pricing.py](../../backend/agents/capabilities/model_pricing.py)
 - [backend/agents/capabilities/registry.py](../../backend/agents/capabilities/registry.py)
 - [backend/agents/capabilities/validators/__init__.py](../../backend/agents/capabilities/validators/__init__.py)
@@ -82,12 +85,10 @@ last_synced: '2026-08-24'
 - [backend/app/agents/chat/__init__.py](../../backend/app/agents/chat/__init__.py)
 - [backend/app/agents/chat/concierge.py](../../backend/app/agents/chat/concierge.py)
 - [backend/app/agents/chat_narrator.py](../../backend/app/agents/chat_narrator.py)
-- [backend/app/agents/chat_runner.py](../../backend/app/agents/chat_runner.py)
-- [backend/app/agents/modes.py](../../backend/app/agents/modes.py)
-- …and 17 more
+- …and 21 more
 
 ### External
-fastapi, langgraph, pydantic
+fastapi, langchain_core, langgraph, pydantic
 <!-- /AUTO-GENERATED -->
 
 ## Purpose

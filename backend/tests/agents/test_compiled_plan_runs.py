@@ -79,10 +79,13 @@ _PARAMS = _DISPATCHABLE
 
 
 def test_dispatchable_count_is_13() -> None:
-    """Exactly 13 engine-dispatchable pipelines, minus chat + reverse_engineer.
+    """Exactly 15 engine-dispatchable pipelines, minus chat + reverse_engineer.
 
     Went 12 -> 13 when ``custom_revision`` was authored alongside the composed
-    workflow builder; this count was not updated with it.
+    workflow builder. Went 13 -> 15 when ``prototype_large_revision`` and
+    ``prototype_feature_revision`` had their duplicate agent directories replaced
+    with shared agents (revision-pipeline-agent-reuse spec), making all their
+    steps fully loadable via ``_every_step_agent_loads``.
 
     ``sample_subagents_parallel`` is included: a real, manifest-backed,
     fully-loadable workflow (its steps are ``custom-agent`` instances and
@@ -95,7 +98,7 @@ def test_dispatchable_count_is_13() -> None:
     excludes them because they reference agent ids with no ``AGENT.md``. Give
     them their agents and they join automatically.
     """
-    assert len(_DISPATCHABLE) == 13
+    assert len(_DISPATCHABLE) == 15
     assert "chat" not in _DISPATCHABLE
     assert "reverse_engineer" not in _DISPATCHABLE
     # The three agentless fixtures must stay out — they cannot be dispatched.
@@ -104,8 +107,8 @@ def test_dispatchable_count_is_13() -> None:
             f"{broken} references agents with no AGENT.md and cannot run; "
             "if it now has them, that is a real change — update this list"
         )
-    # Parametrized coverage = 12 dispatchable + od_prototype alias.
-    assert len(_PARAMS) == 13
+    # Parametrized coverage = 15 dispatchable.
+    assert len(_PARAMS) == 15
 
 
 @pytest.mark.asyncio

@@ -124,6 +124,12 @@ export const routes = {
 
   settingsConstitution: (): string => '/settings/constitution',
 
+  // The MFA/two-factor controls that used to live at a standalone
+  // /settings/security PAGE are now a tab on this surface. The page is gone
+  // (dev's change, kept); the URL stays so the tab is addressable exactly
+  // like the other four — /settings/{tab} maps to a tab, uniformly.
+  settingsSecurity: (): string => '/settings/security',
+
   analytics: (params?: { range?: string; pipeline?: string }): string => {
     return `/analytics${buildQueryString(params)}`;
   },
@@ -179,6 +185,7 @@ export type ParsedView =
   | { screen: 'settings-ai-model' }
   | { screen: 'settings-usage' }
   | { screen: 'settings-constitution' }
+  | { screen: 'settings-security' }
   | { screen: 'analytics'; range?: string; pipeline?: string }
   | { screen: 'admin' }
   | { screen: 'unknown' };
@@ -374,6 +381,7 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
     if (tab === 'ai-model') return { screen: 'settings-ai-model' };
     if (tab === 'usage') return { screen: 'settings-usage' };
     if (tab === 'constitution') return { screen: 'settings-constitution' };
+    if (tab === 'security') return { screen: 'settings-security' };
 
     return { screen: 'unknown' };
   }

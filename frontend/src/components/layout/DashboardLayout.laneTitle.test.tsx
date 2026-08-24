@@ -195,7 +195,7 @@ describe("DashboardLayout — lane-run-type chip tracks the viewed run (BUG-006)
 });
 
 describe("DashboardLayout — non-terminal reopen shows the viewed type (BUG-012 follow-up)", () => {
-  const PROTO_RUN = makeRun("run-proto", "Prototype for a fitness app", "od_prototype");
+  const PROTO_RUN = makeRun("run-proto", "Prototype for a fitness app", "prototype");
 
   // A reopened clarify/build run: the durable replay leaves the pipeline "running".
   function runningPipelineState(pipeline_type: WorkflowRun["type"]): PipelineRunState {
@@ -221,10 +221,10 @@ describe("DashboardLayout — non-terminal reopen shows the viewed type (BUG-012
     renderLayout({
       recentRuns: [RUN_A, PROTO_RUN, RUN_C],
       contentSourceRunId: PROTO_RUN.id,
-      contentSourceRunType: "od_prototype",
+      contentSourceRunType: "prototype",
       pipelineState: runningPipelineState("user_stories"),
     });
-    expect(screen.getByTestId("lane-run-type")).toHaveTextContent("od_prototype");
+    expect(screen.getByTestId("lane-run-type")).toHaveTextContent("prototype");
     expect(screen.getByTestId("lane-run-type")).not.toHaveTextContent("user_stories");
   });
 

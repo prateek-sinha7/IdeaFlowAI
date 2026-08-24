@@ -33,6 +33,9 @@ const mockGetPreferences = vi.fn();
 const mockGetCapabilities = vi.fn();
 const mockChangePassword = vi.fn();
 const mockUpdatePreferences = vi.fn();
+const mockGetMfaStatus = vi.fn();
+const mockEnableEmailMfa = vi.fn();
+const mockDisableEmailMfa = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   // FR-015: the constitution section now calls lib/api's `authedFetch` (global
@@ -47,6 +50,24 @@ vi.mock("@/lib/api", () => ({
   getCapabilities: (t: string) => mockGetCapabilities(t),
   changePassword: (t: string, c: string, n: string) => mockChangePassword(t, c, n),
   updatePreferences: (t: string, m: string | null) => mockUpdatePreferences(t, m),
+  // The Security tab absorbed the retired /settings/security page, so the MFA
+  // surface is now part of this component's dependency set.
+  getMfaStatus: (t: string) => mockGetMfaStatus(t),
+  enableEmailMfa: (t: string) => mockEnableEmailMfa(t),
+  disableEmailMfa: (t: string) => mockDisableEmailMfa(t),
+  ApiError: class ApiError extends Error {},
+}));
+
+// The Security tab redirects to /login on a missing/expired token.
+//
+// The router object is a module-level SINGLETON, matching next/navigation's real
+// stable identity. A fresh object per call would make the tab's `load` callback
+// (and therefore its fetch effect) re-fire on every render, re-reading MFA state
+// and clobbering the result of a toggle — a harness artifact, not product
+// behavior.
+const mockRouter = { push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() };
+vi.mock("next/navigation", () => ({
+  useRouter: () => mockRouter,
 }));
 
 import { AccountSettings } from "./AccountSettings";
@@ -80,6 +101,18 @@ beforeEach(() => {
     preferred_model: "model-one",
     available_models: [],
   });
+  mockGetMfaStatus.mockResolvedValue({
+    supported: true,
+    enabled: false,
+    required: false,
+    email_available: true,
+    factors: [],
+  });
+  mockEnableEmailMfa.mockResolvedValue({
+    message: "Email codes are on.",
+    factors: ["EMAIL_OTP"],
+  });
+  mockDisableEmailMfa.mockResolvedValue({ message: "Email codes are off.", factors: [] });
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({ ok: true, json: async () => ({ content: "" }) }),
@@ -141,6 +174,46 @@ describe("AccountSettings — behavior parity (wired sections preserved)", () =>
         `${ENV.API_URL}/api/settings/constitution`,
         expect.objectContaining({ headers: expect.anything() }),
       ),
+    );
+  });
+});
+
+/**
+ * The Security tab is the relocated /settings/security page, not a rebuild: the
+ * same MFA endpoints must still be the ones driving it, and the tab must not
+ * fetch until it is opened (the surface defaults to Profile).
+ */
+describe("AccountSettings — Security tab (relocated MFA surface)", () => {
+  it("does not read MFA state until the Security tab is opened", async () => {
+    render(<AccountSettings onBack={() => {}} />);
+    await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
+    expect(mockGetMfaStatus).not.toHaveBeenCalled();
+  });
+
+  it("opening the Security tab reads MFA state and toggling email calls enableEmailMfa", async () => {
+    const user = userEvent.setup();
+    render(<AccountSettings onBack={() => {}} />);
+    await waitFor(() => expect(mockGetMe).toHaveBeenCalled());
+
+    await clickNav(user, "Security");
+    await waitFor(() => expect(mockGetMfaStatus).toHaveBeenCalledWith("test-token"));
+
+    await user.click(await screen.findByRole("button", { name: /turn on/i }));
+    await waitFor(() => expect(mockEnableEmailMfa).toHaveBeenCalledWith("test-token"));
+    // The server's factor list wins over an optimistic guess. The message shows
+    // twice by design: once visibly, once in the aria-live region.
+    expect((await screen.findAllByText(/email codes are on\./i)).length).toBeGreaterThan(0);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /turn off/i })).toBeInTheDocument(),
+    );
+  });
+
+  it('initialSection="security" opens directly on the Security tab', async () => {
+    render(<AccountSettings onBack={() => {}} initialSection="security" />);
+    await waitFor(() => expect(mockGetMfaStatus).toHaveBeenCalledWith("test-token"));
+    expect(screen.getByRole("tab", { name: /Security/i })).toHaveAttribute(
+      "aria-selected",
+      "true",
     );
   });
 });

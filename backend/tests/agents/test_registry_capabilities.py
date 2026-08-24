@@ -64,6 +64,8 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("task_parser", "heading_tasks"),
     ("task_parser", "json_tasks"),         # 12-01 / WAVE-02 (structured task list)
     ("gate", "human"),
+    ("gate", "before-human"),  # spec 014 — PRE-step HITL half of the human-gate split
+    ("gate", "conditional"),   # spec 014 — route/divert on a step's own decision
     ("gate", "validation"),
     ("gate", "approval"),   # 08-02
     ("gate", "security"),   # 08-02

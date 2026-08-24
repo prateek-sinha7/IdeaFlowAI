@@ -12,9 +12,9 @@
         },
         {
           "icon": "✅",
-          "id": "prototype-revision-validate",
-          "name": "Revision Validation Agent",
-          "order": 2,
+          "id": "prototype-validate",
+          "name": "Validation Agent",
+          "order": 5,
           "role": "Structural Validation & Delivery"
         }
       ],
@@ -100,7 +100,7 @@
   },
   {
     "data": {
-      "agent_id": "prototype-revision-validate",
+      "agent_id": "prototype-validate",
       "attached_hooks": [],
       "attached_skills": [],
       "estimated_tokens": 0,
@@ -110,14 +110,14 @@
   },
   {
     "data": {
-      "agent_id": "prototype-revision-validate",
+      "agent_id": "prototype-validate",
       "chunk": "<normalized>"
     },
     "type": "agent_chunk"
   },
   {
     "data": {
-      "agent_id": "prototype-revision-validate",
+      "agent_id": "prototype-validate",
       "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Revision Specialist Agent (Targeted UI Refinement) ---\nRevising. Revision complete.",
       "tool_calls": []
     },
@@ -125,12 +125,12 @@
   },
   {
     "data": {
-      "agent_id": "prototype-revision-validate",
+      "agent_id": "prototype-validate",
       "duration": "<normalized>",
       "index": 1,
       "input_tokens": "<normalized>",
-      "name": "Revision Validation Agent",
-      "output_length": 44,
+      "name": "Validation Agent",
+      "output_length": 32,
       "output_tokens": "<normalized>",
       "total": 2,
       "total_tokens": "<normalized>"
@@ -139,10 +139,10 @@
   },
   {
     "data": {
-      "agent_id": "prototype-revision-validate",
+      "agent_id": "prototype-validate",
       "icon": "✅",
       "index": 1,
-      "name": "Revision Validation Agent",
+      "name": "Validation Agent",
       "role": "Structural Validation & Delivery",
       "total": 2
     },
@@ -166,12 +166,26 @@
         {
           "artifact_type": "prototype-revision-agent",
           "from": "prototype-revision-agent",
-          "to": "prototype-revision-validate"
+          "to": "prototype-validate"
         }
       ],
       "satisfiable": true,
       "unresolved_edges": []
     },
     "type": "workflow_validated"
+  },
+  {
+    "data": {
+      "gate": "validation",
+      "issues": [
+        {
+          "message": "uncaught exception: render harness error: Browser.new_page: Target page, context or browser has been closed",
+          "severity": "CRITICAL",
+          "validator": "html_render"
+        }
+      ],
+      "step": "prototype-revision-agent"
+    },
+    "type": "gate_blocked"
   }
 ]

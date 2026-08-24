@@ -92,11 +92,14 @@ class ApiError extends Error {
 // it never aborts a legitimately-slow brief ingest / large-deliverable fetch.
 const REQUEST_TIMEOUT_MS = 30_000;
 
+/** Path of the refresh endpoint — never itself retried (see `fetchWithAuth`). */
+const REFRESH_PATH = "/api/auth/refresh";
+
 // FR-015 — paths where a 401 means "your credentials were rejected", not
-// "your session expired": the caller already shows that inline (login/page.tsx
-// lines 26-28; AccountSettings.tsx for a wrong current password). Redirecting
-// on these would bounce straight back to /login, or silently log a user out
-// for mistyping their current password instead of showing the inline error.
+// "your session expired": the caller already shows that inline (login/page.tsx;
+// AccountSettings.tsx for a wrong current password). Redirecting on these would
+// bounce straight back to /login, or silently log a user out for mistyping their
+// current password instead of showing the inline error.
 // Exported so store/api/http.ts's axios interceptor (a second shared request
 // path — see its own 401 handling) can reuse the exact same exemption list
 // instead of drifting out of sync with a duplicate.
@@ -132,12 +135,77 @@ export function isSessionExpiryExempt(pathOrUrl: string): boolean {
  * agent/skill/hook fetches and the rest of store/api/), and
  * useHandoffSocket.ts's JWT-expired (4001) WebSocket close handler — so the
  * clear+redirect pair can't drift out of sync across the three copies.
+ *
+ * Post-Cognito-merge: this is now the SECOND half of the 401 ladder. A 401 on
+ * an authenticated request first attempts one silent token refresh
+ * (`refreshOnce` below); only when that fails does the session count as
+ * genuinely expired and this fire.
  */
 export function handleSessionExpiry(): void {
   clearToken();
   if (typeof window !== "undefined") {
     window.location.href = routes.login({ expired: true });
   }
+}
+
+/**
+ * Cognito migration (Phase 4): swap the stored access token for a fresh one.
+ *
+ * Sends the CURRENT access token; the backend holds the Cognito refresh token
+ * server-side (migration 0032) so the browser only ever carries one bearer
+ * value — the `getToken()`/`setToken()` seam stays intact (Decision 3).
+ *
+ * Never throws: a failed refresh is a normal outcome (local/break-glass users
+ * get a 501, an aged-out refresh token gets a 401). Callers treat `null` as
+ * "could not refresh" and surface the original error instead.
+ */
+export async function refreshAccessToken(): Promise<string | null> {
+  const current = getToken();
+  if (!current) return null;
+  try {
+    const res = await fetch(`${BASE_URL}${REFRESH_PATH}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${current}` },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { token?: string } | null;
+    if (!body?.token) return null;
+    setToken(body.token);
+    return body.token;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Single-flight guard for `refreshAccessToken()`.
+ *
+ * A screen typically fires several requests at once, so an expired token
+ * produces a burst of simultaneous 401s. Without this, each one would mint its
+ * own refresh call and the losers would install a token that a later refresh
+ * had already superseded. The first caller performs the refresh; the rest await
+ * the same promise and reuse its result.
+ */
+let inFlightRefresh: Promise<string | null> | null = null;
+
+function refreshOnce(): Promise<string | null> {
+  if (!inFlightRefresh) {
+    inFlightRefresh = refreshAccessToken().finally(() => {
+      inFlightRefresh = null;
+    });
+  }
+  return inFlightRefresh;
+}
+
+/** Replace the Authorization header on a copy of the outgoing init. */
+function withBearer(options: RequestInit, token: string): RequestInit {
+  const headers = new Headers(options.headers as HeadersInit | undefined);
+  headers.set("Authorization", `Bearer ${token}`);
+  return { ...options, headers };
+}
+
+function hasAuthorization(options: RequestInit): boolean {
+  return new Headers(options.headers as HeadersInit | undefined).has("Authorization");
 }
 
 /**
@@ -159,7 +227,9 @@ export function handleSessionExpiry(): void {
  * Deliberately NOT routed through here: `logout()` above (a 401 means the token
  * is already dead — redirecting mid-logout is noise) and useRunStream's
  * `/api/auth/refresh` probe (a failed refresh must fall back to its own
- * try-refresh-then-expire ladder, not log the user out mid-run).
+ * try-refresh-then-expire ladder, not log the user out mid-run). It also does
+ * NOT attempt the silent refresh that fetchWithAuth does: these callers stream
+ * or download, so replaying the request is not always safe.
  */
 export async function authedFetch(
   input: string,
@@ -172,27 +242,17 @@ export async function authedFetch(
   return response;
 }
 
-/**
- * Shared fetch path for every REST call: timeout/abort handling, and on a
- * 401 (outside the exempt paths above) clearing the token + redirecting to
- * routes.login({ expired: true }) — the ONE place FR-015's "session expired"
- * handling lives, so it fires from any screen instead of being duplicated
- * per call site. Returns the raw Response on success (2xx) so callers that
- * need response headers (e.g. getWorkflows' X-Total-Count) aren't forced
- * through request()'s JSON-only return.
- */
-async function fetchWithAuth(
-  path: string,
-  options: RequestInit = {},
+/** Raw fetch + abort-on-timeout. No auth semantics — see fetchWithAuth. */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
   timeoutMs: number = REQUEST_TIMEOUT_MS
 ): Promise<Response> {
-  const url = `${BASE_URL}${path}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let response: Response;
   try {
     // No current caller passes its own signal, so a direct assignment is safe.
-    response = await fetch(url, { ...options, signal: controller.signal });
+    return await fetch(url, { ...options, signal: controller.signal });
   } catch (err) {
     // On abort the fetch throws a DOMException AbortError — translate it to a
     // typed, catchable ApiError (status 0) so callers surface a clear timeout
@@ -204,8 +264,56 @@ async function fetchWithAuth(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Shared fetch path for every REST call. Returns the raw Response on success
+ * (2xx) so callers that need response headers (e.g. getWorkflows'
+ * X-Total-Count) aren't forced through request()'s JSON-only return.
+ *
+ * The 401 ladder is the merge of two independently-developed halves, and the
+ * ORDER matters:
+ *
+ *   401 ──► can we refresh?  (Cognito Phase 4)
+ *            │ yes → replay once with the fresh bearer, retryOn401 = false
+ *            │ no  → the session really is over (FR-015)
+ *            └────► handleSessionExpiry(), unless the path is exempt
+ *
+ * Refreshing FIRST is what makes the two compose: Cognito access tokens are
+ * short-lived (60 min), so a mid-session 401 is usually just an aged token, not
+ * an ended session. Firing handleSessionExpiry() on that first 401 — as the
+ * FR-015 half did alone — would log users out roughly hourly.
+ *
+ * Three deliberate bounds keep the retry from becoming a storm:
+ *
+ * 1. **At most one retry per request.** The replay is issued with `retryOn401`
+ *    off, so a second 401 propagates to the caller. There is no recursion.
+ * 2. **Only for requests that actually sent a bearer.** An unauthenticated 401
+ *    (e.g. wrong password on `/login`) is a real answer, not an expiry — the
+ *    login form depends on receiving it.
+ * 3. **Never for the refresh endpoint itself**, which would be circular.
+ */
+async function fetchWithAuth(
+  path: string,
+  options: RequestInit = {},
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
+  retryOn401 = true
+): Promise<Response> {
+  const url = `${BASE_URL}${path}`;
+  const response = await fetchWithTimeout(url, options, timeoutMs);
 
   if (!response.ok) {
+    if (
+      response.status === 401 &&
+      retryOn401 &&
+      path !== REFRESH_PATH &&
+      hasAuthorization(options)
+    ) {
+      const fresh = await refreshOnce();
+      if (fresh) {
+        return fetchWithAuth(path, withBearer(options, fresh), timeoutMs, false);
+      }
+    }
     const body = await response.json().catch(() => ({
       detail: response.statusText,
     }));
@@ -252,17 +360,151 @@ export async function register(
   return data;
 }
 
+// Cognito migration (Phase 3/4): returned instead of AuthResponse when Cognito
+// needs another auth step before a token can be issued. Detected by the presence
+// of a `challenge` field — every real AuthResponse carries a `token` instead.
+export interface AuthChallengeResponse {
+  challenge:
+    | "NEW_PASSWORD_REQUIRED"
+    | "SOFTWARE_TOKEN_MFA"
+    // Email one-time code. Cognito has already sent it by the time this
+    // response arrives.
+    | "EMAIL_OTP"
+    // Several factors active with no preference set. Should not occur — the
+    // backend always names a preferred factor — but handled rather than
+    // dead-ended.
+    | "SELECT_MFA_TYPE"
+    // Pool-wide required MFA with no factor enrolled. The backend answers 501
+    // for this; it cannot be completed from the login screen.
+    | "MFA_SETUP";
+  session: string;
+  /**
+   * Masked destination Cognito sent the code to (e.g. "j***@e***.com"), for
+   * delivered-code challenges like EMAIL_OTP. Already masked by AWS. Telling the
+   * user WHICH mailbox to check avoids the common "no code arrived" confusion
+   * when the address on file isn't the one they expected.
+   */
+  delivery?: string | null;
+  /** Selectable factors on a SELECT_MFA_TYPE challenge. */
+  available_factors?: string[] | null;
+}
+
+/** A Cognito MFA factor id as it appears in `MfaStatus.factors`. */
+export type MfaFactor = "SOFTWARE_TOKEN_MFA" | "EMAIL_OTP";
+
+export interface MfaStatus {
+  enabled: boolean;
+  factors: MfaFactor[];
+  /** Email OTP is configured on the pool. When false, the UI must not offer it. */
+  email_available: boolean;
+  totp_available: boolean;
+  /** This user's role requires a factor, so it cannot be removed. */
+  required: boolean;
+  /** False for non-Cognito (break-glass) accounts, where MFA does not apply. */
+  supported: boolean;
+}
+
+export function isAuthChallenge(
+  data: AuthResponse | AuthChallengeResponse
+): data is AuthChallengeResponse {
+  return "challenge" in data;
+}
+
 export async function login(
   email: string,
   password: string
-): Promise<AuthResponse> {
-  const data = await request<AuthResponse>("/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  setToken(data.token);
+): Promise<AuthResponse | AuthChallengeResponse> {
+  const data = await request<AuthResponse | AuthChallengeResponse>(
+    "/api/auth/login",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    }
+  );
+  if (!isAuthChallenge(data)) {
+    setToken(data.token);
+  }
   return data;
+}
+
+/**
+ * Complete a Cognito auth challenge started by login() (Phase 3/4). Pass
+ * `newPassword` for NEW_PASSWORD_REQUIRED, `mfaCode` for SOFTWARE_TOKEN_MFA /
+ * EMAIL_OTP, `selectedFactor` for SELECT_MFA_TYPE.
+ *
+ * Response is either a fresh challenge or a real AuthResponse. Chaining is
+ * ordinary, not exotic: a first login with a temporary password produces
+ * NEW_PASSWORD_REQUIRED and then an MFA prompt for a user who holds a factor.
+ */
+export async function respondToLoginChallenge(
+  email: string,
+  session: string,
+  challenge: AuthChallengeResponse["challenge"],
+  opts: { newPassword?: string; mfaCode?: string; selectedFactor?: string }
+): Promise<AuthResponse | AuthChallengeResponse> {
+  const data = await request<AuthResponse | AuthChallengeResponse>(
+    "/api/auth/login/challenge",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        session,
+        challenge,
+        new_password: opts.newPassword,
+        mfa_code: opts.mfaCode,
+        selected_factor: opts.selectedFactor,
+      }),
+    }
+  );
+  if (!isAuthChallenge(data)) {
+    setToken(data.token);
+  }
+  return data;
+}
+
+// --- MFA (account security) ---
+
+/** Read the caller's second-factor state and what this deployment offers. */
+export async function getMfaStatus(token: string): Promise<MfaStatus> {
+  return request<MfaStatus>("/api/auth/mfa", {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
+/**
+ * Turn email one-time codes on as a second factor.
+ *
+ * Unlike TOTP there is no enrolment ceremony: the mailbox is already the pool's
+ * sign-in identifier and is verified, so there is no secret to provision and
+ * nothing to scan. Returns the resulting factor list from the server rather than
+ * assuming the write landed.
+ */
+export async function enableEmailMfa(
+  token: string
+): Promise<{ message: string; factors: MfaFactor[] }> {
+  return request<{ message: string; factors: MfaFactor[] }>(
+    "/api/auth/mfa/email/enable",
+    { method: "POST", headers: authHeaders(token) }
+  );
+}
+
+/**
+ * Turn email one-time codes off.
+ *
+ * The backend refuses with 409 when this would leave an account whose role
+ * requires a factor without one — surface that message rather than treating it
+ * as an unexpected failure.
+ */
+export async function disableEmailMfa(
+  token: string
+): Promise<{ message: string; factors: MfaFactor[] }> {
+  return request<{ message: string; factors: MfaFactor[] }>(
+    "/api/auth/mfa/email/disable",
+    { method: "POST", headers: authHeaders(token) }
+  );
 }
 
 export async function getMe(token: string): Promise<User> {
@@ -982,6 +1224,9 @@ export interface AdminUser {
   is_admin: boolean;
   created_at: string;
   workflow_run_count: number;
+  // Cognito migration (Phase 3): "local" | "cognito". Optional so the type
+  // still matches a pre-migration backend response shape.
+  auth_provider?: "local" | "cognito";
 }
 
 export async function adminListUsers(token: string): Promise<AdminUser[]> {
@@ -1001,6 +1246,53 @@ export async function adminUpdateTier(
     headers: authHeaders(token),
     body: JSON.stringify({ tier }),
   });
+}
+
+/**
+ * Cognito migration Phase 3: PATCH /api/admin/users/{id}/role. First real
+ * settable-role endpoint — a role change now also revokes the target's
+ * outstanding Cognito access tokens server-side (AdminUserGlobalSignOut) so
+ * it takes effect on their very next request. The target user is signed out
+ * of their current session as a result — this is expected, not a bug.
+ */
+export async function adminUpdateRole(
+  token: string,
+  userId: string,
+  isAdmin: boolean
+): Promise<AdminUser> {
+  return request<AdminUser>(`/api/admin/users/${userId}/role`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify({ is_admin: isAdmin }),
+  });
+}
+
+/**
+ * Reset another user's password (admin only).
+ *
+ * This is the ONLY reset path when the pool uses email MFA: AWS disqualifies
+ * email as an account-recovery channel whenever it is a second factor, so
+ * /api/auth/forgot-password correctly refuses in that configuration.
+ *
+ * `permanent` defaults to false, which issues a TEMPORARY password — the user is
+ * forced to choose their own at next sign-in, so the admin never ends up knowing
+ * a live credential for someone else's account. The target's existing sessions
+ * are revoked either way.
+ */
+export async function adminResetUserPassword(
+  token: string,
+  userId: string,
+  newPassword: string,
+  permanent = false
+): Promise<{ message: string; requires_new_password_at_next_login: boolean }> {
+  return request<{ message: string; requires_new_password_at_next_login: boolean }>(
+    `/api/admin/users/${userId}/reset-password`,
+    {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ new_password: newPassword, permanent }),
+    }
+  );
 }
 
 export async function adminCreateUser(

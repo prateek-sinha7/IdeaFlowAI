@@ -68,6 +68,11 @@ _EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
     # clarify.mode: skip as well — the composed-workflow revision manifest takes
     # its instruction straight from the revision panel and asks nothing.
     "custom_revision": [],
+    # clarify.mode: skip — these revision pipelines share main-pipeline agents
+    # (revision-pipeline-agent-reuse spec); the revision panel supplies the
+    # instruction directly, no clarify round-trip needed.
+    "prototype_large_revision": [],
+    "prototype_feature_revision": [],
 }
 # The fallback for any id absent from the dict above (the *_revision manifests +
 # chat/reverse_engineer) — these were NOT touched by KAN-74 and still declare the
@@ -84,7 +89,7 @@ def test_retired_labels_are_not_resolvable() -> None:
     """A retired run-label resolves to ITSELF, not to a base pipeline.
 
     ``od_prototype`` used to be the sole id-alias. Collapsing it (registry
-    ``_OD_ALIAS_BASE`` is empty; persisted rows migrated in 0032) means the label
+    ``_OD_ALIAS_BASE`` is empty; persisted rows migrated in 0037) means the label
     is no longer special-cased anywhere — the resolver must not invent a mapping
     for it, exactly as it does not for any other unknown string.
     """
@@ -205,6 +210,13 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     # Deliberately tiny local shape tests where a deep-planner round-trip
     # would cost more than the work itself. Mirrors test_manifest_parity.py.
     "sample_subagents_parallel",
+    # revision-pipeline-agent-reuse spec: these revision pipelines declare
+    # planner: skip because the revision panel supplies the instruction directly.
+    # NOT run_revision-WS-dispatched, so kept out of _RUN_REVISION_DISPATCHED
+    # and unioned in here like sample_subagents_parallel. Sibling trap: keep in
+    # lockstep with tests/agents/test_manifest_parity.py::_PLANNER_SKIP_IDS.
+    "prototype_large_revision",
+    "prototype_feature_revision",
 }
 
 
