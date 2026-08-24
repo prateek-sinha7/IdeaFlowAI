@@ -1,7 +1,7 @@
 ---
-built_from_commit: c9ec0149cb02c6f7fed201d481abe74d6dcdc976
+built_from_commit: 7f269f37d6790385b14cc31a94218cfb59b198ed
 built_at: 2026-08-17
-cards_indexed: 537
+cards_indexed: 545
 modules_indexed: 36
 ---
 
@@ -63,13 +63,14 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 
 | type | total | open/active |
 |---|---|---|
-| adr | 20 | 20 |
-| fix | 304 | 17 |
-| issue | 171 | 58 |
+| adr | 24 | 24 |
+| fix | 307 | 17 |
+| issue | 172 | 59 |
 | bug | 42 | 18 |
 
-**adr (20):**
+**adr (24):**
 - [ADR-0001](cards/20260727-ADR-0001.md) — That terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher
+- [ADR-0021](cards/20260806-ADR-0021.md) — Authentication moved to Amazon Cognito with group-based authorization, keeping the single-bearer browser seam
 - [ADR-0002](cards/20260811-ADR-0002.md) — That `workflow` is the only vocabulary the system knows and `pipeline` is removed rather than deprecated
 - [ADR-0003](cards/20260811-ADR-0003.md) — The compiled plan is the single source of the roster and the assertion is deleted rather than relaxed
 - [ADR-0004](cards/20260811-ADR-0004.md) — Declared order wins whenever the compiled plan carries a depends_on edge
@@ -81,6 +82,8 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 - [ADR-0010](cards/20260811-ADR-0010.md) — To RETIRE run-level skill attachment entirely (UI, launch payload and save payload) and make `AgentSkillsPicke
 - [ADR-0011](cards/20260813-ADR-0011.md) — The delivery block's `artifact_name(instance_id, topic)` is AUTHORITATIVE and a filename written into a step p
 - [ADR-0012](cards/20260813-ADR-0012.md) — The grants are FIXED (`read_files` and `write_files` always on, `exec` and `spawn_subagents` always off) and n
+- [ADR-0022](cards/20260823-ADR-0022.md) — A revision request is pre-classified into a tier, and the tier selects which revision manifest runs
+- [ADR-0023](cards/20260823-ADR-0023.md) — An agent declares pipeline_type as a string OR a list, so one AGENT.md can serve several pipelines
 - [ADR-0013](cards/20260824-1630-ADR-0013.md) — A human gate declares WHEN it runs in its own name — `human` is post-step, `before-human` is pre-step
 - [ADR-0014](cards/20260824-1630-ADR-0014.md) — A built-in workflow opens on the canvas at its own URL and can only be saved as a copy
 - [ADR-0015](cards/20260824-1630-ADR-0015.md) — A conditional gate moves a mutable dispatch cursor, and a cross-workflow trigger STOPS the run rather than waiting for its child
@@ -89,6 +92,7 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 - [ADR-0018](cards/20260824-1631-ADR-0018.md) — Every URL in the app is built and parsed by routes.ts, and all 34 screens render behind one required catch-all segment
 - [ADR-0019](cards/20260824-1631-ADR-0019.md) — Session expiry is handled by one guarded fetch wrapper, not at each call site
 - [ADR-0020](cards/20260824-1831-ADR-0020.md) — Every run launch is exactly one of three LaunchSource shapes — file-based, file-based-with-DB-overrides, or DB-based
+- [ADR-0024](cards/20260824-2100-ADR-0024.md) — On a 401 the REST client refreshes once first, and only treats the session as expired when that refresh fails
 
 Start every card lookup at [INDEX.md](INDEX.md) — one line per card, each carrying a `compact_summary` that states the root cause or resolution. Match the query against those lines, then open only the handful of cards that matched. Never read or grep `cards/*.md` in bulk (see section 5).
 

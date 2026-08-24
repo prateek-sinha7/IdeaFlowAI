@@ -13,8 +13,8 @@ modules_spanned:
 watched_files: 22
 code_signature: 47d8c3ec5d1d
 symbols_signature: 266b783cc4c7
-prose_signature: 5bf2c687faea
-prose_symbols_signature: 5fe697dfa2e2
+prose_signature: 47d8c3ec5d1d
+prose_symbols_signature: 266b783cc4c7
 last_synced: '2026-08-24'
 ---
 
@@ -114,13 +114,13 @@ composed prompt, the injected blocks, [execution_engine/context.py](../../backen
 [execution_engine/od_context.py](../../backend/agents/execution_engine/od_context.py) as context carriers — is `DOMAIN-context-assembly`. Which
 model the invocation gets, and the throttle/fallback chain around it, is `DOMAIN-agent-runtime`.
 The gate *semantics* the kernel implements are split: `DOMAIN-hitl-gating` owns the
-pause/resume (Human_Gate, Validation_Gate blocking); *routing* dispatch-loop cursor jumps
-based on a `conditional` gate's match outcome (forward branching or backward looping, bounded
-by `loop_max_iterations`) are here. The tables it reads and writes, including the durable side
+pause/resume (Human_Gate, before-human, Validation_Gate blocking); *routing* dispatch-loop cursor jumps
+based on a `conditional` gate's match outcome (forward branching within a run, or backward looping bounded
+by `loop_max_iterations` and failing closed at R-07, or triggering a child workflow that ends this run with `pipeline_diverted`) are here. The tables it reads and writes, including the durable side
 of [execution_engine/state_machine.py](../../backend/agents/execution_engine/state_machine.py), are `DOMAIN-durable-state-resume`; the bytes the run finally
 emits are `DOMAIN-deliverables-and-artifacts`. If your question is "why did this agent run
 third", "why did the run report complete when the build was half-finished", "why did the run
-jump backward to an earlier step", or "why does the kernel not know what a prototype is", it
+jump backward to an earlier step", "why did a child workflow start", or "why does the kernel not know what a prototype is", it
 is here. If it is "why did this agent get that prompt" or "what does `task_loop` actually do",
 it is next door.
 
@@ -176,8 +176,9 @@ flowchart TD
 - **Per-run state.** `execution_engine/context.py::ExecutionContext` is a plain mutable
   dataclass carrying the artifact graph, the scoped store, the model resolver, the budget,
   the `KernelServices` handle, and a family of consume-once injection scratch fields
-  (`redo_directive`, `steering_notes`, `spec_revision_context`, `turn_images_once`). It
-  imports only stdlib plus [agents.artifacts.graph](../../backend/app/api/agents.py).
+  (`redo_directive`, `steering_notes`, `spec_revision_context`, `turn_images_once`, `analyzer_solution`). It also carries
+  optional `live_ectx_register` and `live_ectx_unregister` app-layer callbacks (dormant when `None`) for mid-run steering injection and cleanup.
+  It imports only stdlib plus [agents.artifacts.graph](../../backend/app/api/agents.py).
 - **The kernel handle.** `execution_engine/kernel_services.py::KernelServices` is the single
   object a capability touches to reach kernel and `app.*` primitives — `run_agent`,
   `run_fanout`, `run_worker`, `run_validation_fix_loop`, `record_gate_event`,
@@ -358,8 +359,7 @@ conditional gate route outcome changes the cursor; see step 18).
     `conditional` gate may emit a `route` outcome (see step 18) that changes `cursor` to jump
     forward or backward, rather than incrementing it by 1; loop bounds prevent infinite loops
     (see `loop_max_iterations` under "What breaks").
-13. `_evaluate_gates(step, ectx, registry, phase="pre")` runs the step's declared gates. A
-    `cancel` outcome cancels the run; `block`/`wait_human` halts just this step;
+13. `_evaluate_gates(step, ectx, registry, phase="pre")` runs the step's pre-step declared gates. The gate taxonomy splits into three sets: `_POST_STEP_GATES` (`validation`, `conditional`, `human`), `_HITL_GATES` (`human`, `before-human`, `approval`), and `_FAIL_CLOSED_GATES` (`security`, `approval`, `human`, `before-human`). Pre-step evaluation runs `before-human` gates; post-step evaluation (step 18) runs the others. A `cancel` outcome cancels the run; `block`/`wait_human` halts just this step;
     `_fire_hooks("before_step", …)` follows, and a blocking hook halts the step too.
 14. `CapabilityRegistry.resolve("strategy", step.strategy)` — with a defensive fallback to
     `single_shot` when a step is absent from the plan — and `_dispatch_step_with_retry` drives
@@ -382,11 +382,13 @@ conditional gate route outcome changes the cursor; see step 18).
     ([agents/capabilities/gates/conditional.py](../../backend/agents/capabilities/gates/conditional.py)) evaluate
     a declared `route` by reading the condition source's typed `route_decision` artifact,
     matching the decision against declared `route.outcomes`, and emitting either `GATE_PASS`
-    (proceed normally), `GATE_ROUTE` (jump the cursor to a declared target step, possibly
-    looping backward), or `GATE_BLOCK` (route has no matching outcome and no `default_next`).
-    A `GATE_ROUTE` outcome redirects `cursor` directly; the engine resolves the target step
-    id, checks the loop visit count against `loop_max_iterations`, and continues the
-    dispatch loop from the new position. `_fire_hooks("after_step", …)` fires (non-blocking),
+    (proceed normally), `GATE_ROUTE` (jump the cursor or trigger a child workflow), or `GATE_BLOCK` (route has no matching outcome and no `default_next`).
+    An outcome's `trigger` field specifies the route type: `trigger: step` jumps the cursor to a declared target step (possibly
+    looping backward, bounded by `loop_max_iterations` and failing closed at R-07); `trigger: workflow` launches a child run and ends this run with `pipeline_diverted`. 
+    An outcome's optional `feedback` string is passed to the child run as its `content`. Route targets are bare instance ids resolved by suffix fallback.
+    A `GATE_ROUTE` outcome redirects `cursor` (for step triggers) or calls `ectx.runner.run_trigger_workflow` (for workflow triggers); the engine resolves the target step
+    id, checks the loop visit count against `loop_max_iterations` for backward jumps, and continues the
+    dispatch loop from the new position (or ends the run if workflow-triggered). `_fire_hooks("after_step", …)` fires (non-blocking),
     and an `agent_error` anywhere in the stream is recorded in `_failed_agent_ids` and
     `ectx.failed_invocations`.
 
@@ -440,12 +442,13 @@ user gets a plausible, wrong deliverable.
   at compile time, but a typo'd or dynamically-constructed target name may pass validation
   and resolve to `None` at runtime. The engine raises `ValueError`, halting the run — this is
   loud, and you need not worry about it.
-- **Loop iteration cap bypass.** A backward (or self) conditional route increments the target
+- **Workflow-triggered route without feedback passed.** A conditional gate routing to a child workflow via `trigger: workflow` may optionally include a `feedback` string to be passed to the child as its `content`. If omitted, the child run receives empty content. This is not an error — it is by design (workflows can be triggered with no additional context) — but silence here may hide a missing specification.
+- **Loop iteration cap bypass (R-07).** A backward (or self) conditional route increments the target
   step's `step_visit_counts` and checks the bound against `loop_max_iterations` (default 5, or
   the declared `route.loop_max_iterations`). If you exceed the cap, `BudgetExceeded` is raised
-  (caught by the graceful-abort handler). The danger is silently hitting the limit and exiting
+  (caught by the graceful-abort handler, failing closed). The danger is silently hitting the limit and exiting
   the loop: the run reports complete while believing it finished a different step than it
-  actually did. Forward-only routes bypass the counter entirely (never loop).
+  actually did. Forward-only routes and workflow-triggered routes bypass the counter entirely (never loop).
 
 Two failures here are loud, and you do not have to worry about them. Adding
 `if pipeline_type ==` or `spec.id ==` anywhere under `backend/agents/execution_engine/` fails

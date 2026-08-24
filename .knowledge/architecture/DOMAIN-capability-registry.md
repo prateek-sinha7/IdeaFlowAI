@@ -15,8 +15,8 @@ modules_spanned:
 watched_files: 13
 code_signature: 655677861a06
 symbols_signature: 9b5a25cccb58
-prose_signature: df143607ced0
-prose_symbols_signature: 1e1e800a6600
+prose_signature: 655677861a06
+prose_symbols_signature: 9b5a25cccb58
 last_synced: '2026-08-24'
 ---
 
@@ -146,10 +146,13 @@ flowchart LR
   central `if/elif` over kinds anywhere, which is how `chat`, `mcp_server` and
   `integration_provider` were added without editing dispatch code.
 - **The binder** — `register(kind, name, *, user_allowed, description,
-  config_schema)` is a class decorator with four side effects (add to `_KNOWN`,
-  instantiate once into `_IMPLS`, record the trust flag in `_TRUST`, record
-  display metadata in `_META`) and it returns the class unchanged. Capability
-  modules across the whole tree carry it; none of them is named here.
+  config_schema)` is a class decorator with four side effects *per invocation*
+  (add to `_KNOWN`, bind an instance into `_IMPLS`, record the trust flag in
+  `_TRUST`, record display metadata in `_META`) and it returns the class
+  unchanged. A single class may carry multiple `@register` decorators, each
+  with a distinct (kind, name) pair — e.g., `HumanGate` is registered under
+  both `("gate", "human")` and `("gate", "before-human")`. Capability modules
+  across the whole tree carry such decorators; none of them is named here.
 - **The importer** — `discover()` in [registry.py](../../backend/agents/capabilities/registry.py) walks an explicit, hand-written
   tuple of module paths plus a tuple of forward packages. It sets `_DISCOVERED`
   *before* importing, so a capability module that imports the registry at import

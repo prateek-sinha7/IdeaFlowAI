@@ -130,20 +130,22 @@ flowchart TD
 
 ### [Auth and entitlements — who may run what](architecture/DOMAIN-auth-and-entitlements.md)
 
-This domain answers three questions that the rest of the system is not allowed to answer for itself: *who is calling* (a JWT or a long-lived API key resolved to a `User` row), *what plan are they on* (`users.tier`, checked against `TIER_PIPELINES` before a run is launched), and *which rows may they see* (`owner_id` + `workspace_id`, enforced on every durable read by `ScopedStore`).
+This domain answers three questions that the rest of the system is not allowed to answer for itself: *who is calling* (a Cognito access token, a legacy JWT, or a long-lived API key, all resolved to a `User` row), *what plan are they on* (Cognito `cognito:groups` for Cognito-authenticated users or `users.tier` for the break-glass local account, checked against `TIER_PIPELINES` before a run is launched), and *which rows may they see* (`owner_id` + `workspace_id`, enforced on every durable read by `ScopedStore`).
 
 ```mermaid
 flowchart LR
-  config["core/config.py"] -->|"SECRET_KEY"| security["core/security.py"]
+  config["core/config.py"] -->|"SECRET_KEY, Cognito settings"| security["core/security.py"]
+  cognito_m["core/cognito.py"] -->|"verify_cognito_access_token"| identity["core/identity.py"]
+  security -->|"decode_access_token (legacy)"| identity
+  identity -->|"Principal: provider + sub + groups"| deps["core/dependencies.py"]
+  deps -->|"resolve_principal"| user["models/user.py"]
+  deps -->|"is_token_revoked(jti)"| revoked["models/revoked_token.py"]
   auth["api/auth.py"] -->|"create_access_token"| security
-  security -->|"is_token_revoked(jti)"| revoked["models/revoked_token.py"]
-  deps["core/dependencies.py"] -->|"decode + revocation gate"| security
-  deps -->|"User row"| user["models/user.py"]
   apikey["api/api_key_auth.py"] -->|"X-Flowin-API-Key digest"| user
   admin["api/admin.py"] -->|"require_admin, writes tier"| user
   runcmd["api/run_commands.py"] -->|"Depends(get_current_user)"| deps
-  user -->|"user.tier"| ent["core/entitlements.py"]
-  runcmd -->|"can_run_pipeline(tier, type)"| ent
+  identity -->|"effective_tier, effective_is_admin"| ent["core/entitlements.py"]
+  runcmd -->|"can_run_pipeline"| ent
   fe["frontend/src/lib/entitlements.ts"] -.->|"advisory UI mirror"| ent
   runcmd -->|"ScopedStore(owner_id, workspace_id)"| authz["agents/authz.py"]
   engine["execution_engine/engine.py"] -->|"owner_id = user_id or anon:sid"| authz

@@ -6,7 +6,7 @@ title: frontend/src/app — module
 path: frontend/src/app
 language: typescript
 file_count: 28
-code_signature: 05ebf0a53dac
+code_signature: 4a3871a95d57
 last_synced: '2026-08-24'
 ---
 

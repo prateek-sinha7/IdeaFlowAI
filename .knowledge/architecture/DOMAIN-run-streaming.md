@@ -22,8 +22,8 @@ modules_spanned:
 watched_files: 15
 code_signature: 193180ce4d80
 symbols_signature: 69fc604a860b
-prose_signature: 5cd53d3b4485
-prose_symbols_signature: 55d3af06b9d2
+prose_signature: 193180ce4d80
+prose_symbols_signature: 69fc604a860b
 last_synced: '2026-08-24'
 ---
 
@@ -363,6 +363,13 @@ Silent, and therefore the ones to fear:
   not a terminal — closing the stream on it forces a reconnect and a full replay on every
   gate approval (BUG-016). The gate-re-arm set `_GATE_REARM_TYPES` deliberately *does*
   include it; conflating the two sets is the trap.
+- **Omitting `pipeline_diverted` from `_STREAM_TERMINAL_TYPES`.** A conditional gate with
+  `trigger: workflow` (R-13) ends the parent run with this frame and NO `pipeline_complete`
+  that follows, so the frame genuinely closes the stream — omitting it means the client
+  rendered "Reconnecting…" and dropped, never seeing the divert event until a stale replay
+  after the reconnect. It is added via union (not from `_GATE_RESOLUTION_TYPES`) because
+  a cross-workflow divert is not a gate resolution, and widening that set would change
+  gate re-arm semantics as a side effect (only the stream-terminal set should exclude it).
 - **Re-emitting the gate without the `dangling.seq <= after_seq` guard.** When the gate row
   is past the cursor the durable replay already delivered it, so the re-arm doubles it
   (CR-01).

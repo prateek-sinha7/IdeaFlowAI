@@ -21,11 +21,11 @@ modules_spanned:
 - MOD-backend-app-api
 - MOD-backend-app-models
 - MOD-backend-app-services
-watched_files: 28
-code_signature: be669ea05340
-symbols_signature: 525905e0cffb
-prose_signature: d0686948b4d1
-prose_symbols_signature: e49f05babb53
+watched_files: 29
+code_signature: 4923bc9e1df4
+symbols_signature: '266275456673'
+prose_signature: 4923bc9e1df4
+prose_symbols_signature: '266275456673'
 last_synced: '2026-08-24'
 ---
 
@@ -194,7 +194,11 @@ flowchart LR
   result is hard-capped (`_clip`, `_EVENT_ROW_CHARS`, `_ARTIFACT_CHARS_MAX`,
   `_CONCIERGE_EVENT_TYPES` as an allow-list). Proposals are captured on a
   per-request collector built by `_collecting_proposal_tools` and stashed on the
-  *ctx*, not on `self`, because the capability is a shared singleton.
+  *ctx*, not on `self`, because the capability is a shared singleton. When a
+  child revision run is active, `get_run_progress` and `list_agents` read the
+  revision run's events instead of the parent's (via `active_revision_run_id`,
+  passed from the app layer) so the Concierge reports accurate progress on the
+  child pipeline.
 - **The narrator ([chat_narrator.py](../../backend/app/agents/chat_narrator.py)).** `project_milestone_card` classifies a
   generic engine event into one of `CARD_CLARIFY` / `CARD_GATE` /
   `CARD_PIPELINE` / `CARD_DELIVERABLE` / `CARD_SPEC_REVISION`;
@@ -305,7 +309,9 @@ sequenceDiagram
    through [authz.py::ScopedStore.get_run](../../backend/agents/authz.py) — the default-deny check, so the
    ownership boundary lives in one place.
 5. Any attached images pass `_validate_images` **before** anything is written;
-   a cap violation is a 400 with nothing persisted.
+   a cap violation is a 400 with nothing persisted. Attached files are merged
+   into a steering note with the user's message as the instruction (if any),
+   so agents know both *that* a file was provided and *what to do with it*.
 6. [run_commands.py::_persist_chat_message](../../backend/app/api/run_commands.py) appends the turn as a
    `chat_message` row via [authz.py::ScopedStore.append_event_next_seq](../../backend/agents/authz.py), keyed
    `chat:{message_id}` — so a double-submitted turn is a no-op, and the command
@@ -329,7 +335,8 @@ sequenceDiagram
 9. [run_commands.py::_resolve_concierge](../../backend/app/api/run_commands.py) resolves `chat:concierge` through
    `capabilities/registry.py::CapabilityRegistry.resolve` after `discover()`.
 10. `post_message` builds [run_commands.py::_ConciergeCtx](../../backend/app/api/run_commands.py) (scoped store,
-    `compile_for_run(wr_type)` as data, run summary, `open_gate`, chain hints)
+    `compile_for_run(wr_type)` as data, run summary, `open_gate`, chain hints,
+    and `active_revision_run_id` if a child revision is running)
     and **returns an `EventSourceResponse` immediately**. The work runs in
     [run_commands.py::_drive](../../backend/app/api/run_commands.py), held in `_CONCIERGE_STREAM_TASKS` and never
     cancelled on client disconnect.
@@ -337,6 +344,8 @@ sequenceDiagram
     closed over the store and `run_id`, plus a per-request collector from
     [concierge.py::_collecting_proposal_tools](../../backend/app/agents/chat/concierge.py), and loads the bounded
     transcript through [concierge.py::_load_conversation_context](../../backend/app/agents/chat/concierge.py).
+    The `active_revision_run_id` is threaded into the read tools so
+    `get_run_progress` and `list_agents` can read the child revision run's events.
 12. It constructs [deep_agent_runner.py::DeepAgentRunner](../../backend/app/agents/deep_agent_runner.py) with
     `exclude_builtin_tools=True` and drains `astream_events`, summing every
     `usage` event and handing each text delta to [run_commands.py::_on_chunk](../../backend/app/api/run_commands.py),
@@ -398,6 +407,10 @@ sequenceDiagram
 - **Widen [concierge.py::_CONCIERGE_EVENT_TYPES](../../backend/app/agents/chat/concierge.py) to a deny-list.** Silent and
   expensive: it is an allow-list precisely so a new bulk event type is excluded
   by default rather than quietly re-inflating the prompt.
+- **Forget to pass `active_revision_run_id` to the Concierge's read tools when a
+  child revision run is active.** Silent: `get_run_progress` and `list_agents`
+  will report the parent run's stale status instead of the child revision's
+  actual progress, so the model answers from outdated data.
 - **Bypass [handoff_pipeline.py::_safe_workspace_join](../../backend/app/services/handoff_pipeline.py) when applying an edit
   plan.** Silent until exploited: the model's `path` is attacker-influencable
   data, and this is the only check between it and the clone.
@@ -429,6 +442,16 @@ command was refused. The same fence is re-checked inside
 `_dispose_concierge_proposal`, because a proposal can be confirmed long after
 the run it was made about has stopped.
 
+**The revision proposal path (from Concierge).** When a user proposes a revision
+via `propose_revision` in the Concierge (target=`prototype_output`, OR no target
+specified and base type = `prototype`), [run_commands.py](../../backend/app/api/run_commands.py) runs the
+revision analyzer via agents/revision_analyzer.py::run_analyzer
+before minting the child run. The analyzer emits a `revision_analyzer_complete`
+event carrying the detected `tier` (small / large / feature) and
+`solution_preview`, then `_dispose_concierge_proposal` seeds the new run with
+the correct tiered manifest (`prototype_revision` / `prototype_large_revision` /
+`prototype_feature_revision`) and the analyzer's solution in `ectx.analyzer_solution` so the build agents inherit the analysis.
+
 **The IDE handoff (a wholly separate journey).** `POST /api/handoff/receive`
 authenticates on `X-Flowin-API-Key`, size-checks the transcript and mints a
 `HandoffSession` token. The browser opens `/handoff/{token}`, and
@@ -441,7 +464,9 @@ clone → classify → `HandoffCoder.propose_edits` → `_apply_edits` →
 [handoff_github.py::create_pull_request](../../backend/app/services/handoff_github.py), forwarding every yielded event to
 [websocket_handoff.py::dispatch_event](../../backend/app/api/websocket_handoff.py) and persisting the final
 `pipeline_complete` payload on a fresh session in `finally`. The workspace is
-removed in the generator's own `finally` whether or not the PR opened.
+removed in the generator's own `finally` whether or not the PR opened. WebSocket
+re-authorization happens periodically (on event cadence and timeout) so a
+revoked token closes the connection with code 4003.
 
 **The legacy free-chat path.** [chat_runner.py::ChatRunner](../../backend/app/agents/chat_runner.py) is reached from a
 different entry point entirely, builds its seven `chat-*` runners through
@@ -511,6 +536,17 @@ the registry instead of rebuilding a transcript reader.
 reason: without it the adapter excludes only the sub-agent tool and hands the
 model `write_file`/`edit_file` on a REST path.
 
+**`active_revision_run_id` threads the child revision's existence into the
+Concierge's read tools.** When a parent run's Concierge answers questions about
+progress while a child revision is building, it must read the revision run's
+events, not the stale parent run. The app layer (`post_message`) optionally
+resolves `active_child_revision` from the current executor's registry and
+threads `active_revision_run_id` into the context; the Concierge's
+`get_run_progress` and `list_agents` check it and degrade to parent events on
+error. Without this, the model would see "pipeline completed" in the
+parent's events while the child is still running, and would refuse to answer
+questions about the revision's progress.
+
 **Idempotency in the narrator is keyed by what can legitimately repeat.**
 `_reply_event_id` namespaces on the source event id in general, but "Run
 started" is keyed on the run instead, because a resumed run emits a fresh
@@ -520,6 +556,19 @@ the same id the DB row has — otherwise the frontend's dedup misses the match a
 appends the card twice ([FIX-175](../cards/20260805-1853-FIX-175.md)). The deep-link nonce moved from a
 process-global in-memory set to a `deep_link_nonces` row for the ordinary
 reasons: the set was unbounded, unscoped and lost on restart.
+
+**Tier classification for prototype revision is lifted into the REST boundary
+(app-side, not kernel-side).** When the Concierge's `propose_revision` targets
+`prototype_output`, [run_commands.py::_dispose_concierge_proposal](../../backend/app/api/run_commands.py) calls
+agents/revision_analyzer.py::run_analyzer to detect whether the
+revision is small / large / feature-scoped before the child run is minted. The
+analyzer runs synchronously in the REST handler (INV-1 compliance: the kernel
+never reads the tier), seeds the child's `ectx.analyzer_solution` with its output
+(so build agents inherit the analysis), and the tier determines which manifest is
+used (`prototype_revision` / `prototype_large_revision` / `prototype_feature_revision`).
+This is why the Concierge's proposal path must route through the app layer
+instead of the kernel: SC-001 forbids workflow-type literals in the kernel, and
+the analyzer's tier classification produces one.
 
 **Handoff is deliberately the most conservative surface in the domain.** It
 executes no user code — the only subprocess is `git`, under rlimits and a

@@ -18,8 +18,8 @@ modules_spanned:
 watched_files: 20
 code_signature: 6a921d326185
 symbols_signature: 654ad8b65449
-prose_signature: 3ed1ebdc8289
-prose_symbols_signature: 8a996ac0feae
+prose_signature: 6a921d326185
+prose_symbols_signature: 654ad8b65449
 last_synced: '2026-08-24'
 ---
 
@@ -219,10 +219,10 @@ flowchart LR
   as the public `review_gate_*` events and must be filtered by the consumer.
 - **The kernel-side sequencer** — [engine.py::_evaluate_gates](../../backend/agents/execution_engine/engine.py) walks
   `step.gates` in declared order, splitting on `_POST_STEP_GATES`
-  (`{"validation", "conditional"}`), applying the WR-02 inline-dedupe for
-  `human`, mapping a raise to `block` for `_FAIL_CLOSED_GATES` (`{"security",
-  "approval","human"}`) and to `pass` for everything else, converting a `block`
-  from `_HITL_GATES` (`{"human","approval"}`) into a distinct `cancel` sentinel,
+  (`{"validation", "conditional", "human"}`), applying the WR-02 inline-dedupe for
+  `human` and `before-human`, mapping a raise to `block` for `_FAIL_CLOSED_GATES` (`{"security",
+  "approval", "human", "before-human"}`) and to `pass` for everything else, converting a `block`
+  from `_HITL_GATES` (`{"human", "before-human", "approval"}`) into a distinct `cancel` sentinel,
   and emitting a terminal `(None, outcome, detail)` tuple so a gate that halts
   without emitting an event still halts. The `conditional` gate (spec 014, R-05b)
   is post-step only (reads this step's `route_decision` artifact) and returns

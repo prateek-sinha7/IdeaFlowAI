@@ -24,12 +24,19 @@ behind it, and whether a fix touches the kernel or the engine.
 
 The letters below are local to this investigation. They were registered on 2026-08-13 as:
 
+> **Re-homed 2026-08-24 (dev merge).** FIX-258/259/260/261 below were originally
+> registered under those numbers. The `dev` branch had independently re-homed four
+> unrelated infra/auth fixes onto the same ids on 2026-08-17, so on merge this side
+> moved to the next free numbers, FIX-290/291/292/293. `.planning/FIX-REGISTER.md`
+> now carries dev's rows for 258-261; the cards under `.knowledge/cards/` are
+> authoritative for the fixes listed here.
+
 | Here | Canonical | Where |
 |---|---|---|
-| 0 | FIX-258 | `.planning/FIX-REGISTER.md` |
-| D, D2 | FIX-259 | " |
-| B1, B2 | FIX-260 | " |
-| J | FIX-261 | " |
+| 0 | FIX-290 | `.planning/FIX-REGISTER.md` |
+| D, D2 | FIX-291 | " |
+| B1, B2 | FIX-292 | " |
+| J | FIX-293 | " |
 | K | FIX-262 | " |
 | O | FIX-263 | " |
 | E, M | FIX-264 | " · decision in **ADR-0012** |

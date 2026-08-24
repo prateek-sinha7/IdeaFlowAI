@@ -23,8 +23,8 @@ modules_spanned:
 watched_files: 23
 code_signature: ff479c12a144
 symbols_signature: 39cf84cfd9be
-prose_signature: dd13bae4545d
-prose_symbols_signature: f1b083b4c6f7
+prose_signature: ff479c12a144
+prose_symbols_signature: 39cf84cfd9be
 last_synced: '2026-08-24'
 ---
 
@@ -114,16 +114,17 @@ bcrypt, boto3, botocore, cryptography, fastapi, httpx, pydantic, pydantic_settin
 ## Purpose
 
 This domain answers three questions that the rest of the system is not allowed to
-answer for itself: *who is calling* (a JWT or a long-lived API key resolved to a
-`User` row), *what plan are they on* (`users.tier`, checked against `TIER_PIPELINES`
-before a run is launched), and *which rows may they see* (`owner_id` +
-`workspace_id`, enforced on every durable read by `ScopedStore`). Without it the
-kernel would have no principal to stamp on the rows it writes — and `ScopedStore`'s
-default-deny filter would have nothing to filter on, which is the same thing as
-having no isolation at all. `ISS-055` is the recorded proof that the entitlement half
-can go missing without anything else noticing: for a period every user could launch
-every pipeline regardless of tier, because the launch endpoints simply never called
-`can_run_pipeline`.
+answer for itself: *who is calling* (a Cognito access token, a legacy JWT, or a
+long-lived API key, all resolved to a `User` row), *what plan are they on* (Cognito
+`cognito:groups` for Cognito-authenticated users or `users.tier` for the break-glass
+local account, checked against `TIER_PIPELINES` before a run is launched), and *which
+rows may they see* (`owner_id` + `workspace_id`, enforced on every durable read by
+`ScopedStore`). Without it the kernel would have no principal to stamp on the rows it
+writes — and `ScopedStore`'s default-deny filter would have nothing to filter on,
+which is the same thing as having no isolation at all. `ISS-055` is the recorded proof
+that the entitlement half can go missing without anything else noticing: for a period
+every user could launch every pipeline regardless of tier, because the launch endpoints
+simply never called `can_run_pipeline`.
 
 What is deliberately *not* here: the run's own lifecycle and the durable event log it
 writes (durable-state and run-streaming own those; this domain only supplies the
@@ -148,16 +149,18 @@ between the two is a string: the resolved `owner_id`.
 
 ```mermaid
 flowchart LR
-  config["core/config.py"] -->|"SECRET_KEY"| security["core/security.py"]
+  config["core/config.py"] -->|"SECRET_KEY, Cognito settings"| security["core/security.py"]
+  cognito_m["core/cognito.py"] -->|"verify_cognito_access_token"| identity["core/identity.py"]
+  security -->|"decode_access_token (legacy)"| identity
+  identity -->|"Principal: provider + sub + groups"| deps["core/dependencies.py"]
+  deps -->|"resolve_principal"| user["models/user.py"]
+  deps -->|"is_token_revoked(jti)"| revoked["models/revoked_token.py"]
   auth["api/auth.py"] -->|"create_access_token"| security
-  security -->|"is_token_revoked(jti)"| revoked["models/revoked_token.py"]
-  deps["core/dependencies.py"] -->|"decode + revocation gate"| security
-  deps -->|"User row"| user["models/user.py"]
   apikey["api/api_key_auth.py"] -->|"X-Flowin-API-Key digest"| user
   admin["api/admin.py"] -->|"require_admin, writes tier"| user
   runcmd["api/run_commands.py"] -->|"Depends(get_current_user)"| deps
-  user -->|"user.tier"| ent["core/entitlements.py"]
-  runcmd -->|"can_run_pipeline(tier, type)"| ent
+  identity -->|"effective_tier, effective_is_admin"| ent["core/entitlements.py"]
+  runcmd -->|"can_run_pipeline"| ent
   fe["frontend/src/lib/entitlements.ts"] -.->|"advisory UI mirror"| ent
   runcmd -->|"ScopedStore(owner_id, workspace_id)"| authz["agents/authz.py"]
   engine["execution_engine/engine.py"] -->|"owner_id = user_id or anon:sid"| authz
@@ -165,26 +168,33 @@ flowchart LR
   authz -->|"owner-scoped rows"| mcpcred["models/mcp_credential.py"]
 ```
 
-- **Credential minting and verification** — [security.py](../../backend/app/core/security.py) owns bcrypt hashing and the
-  HS256 JWT, giving every token a fresh `jti` so it can be revoked individually.
-  [crypto.py](../../backend/app/core/crypto.py) is the separate at-rest path: an HKDF-derived Fernet key, deliberately
-  *not* `SECRET_KEY` itself, so a leaked signing key does not also decrypt stored
-  PATs.
-- **The request-time gate** — [dependencies.py](../../backend/app/core/dependencies.py) is the chokepoint. `get_current_user`
-  decodes, loads the `User`, then layers *two* revocation checks: per-token (`jti` in
-  `revoked_tokens`) and blanket (`iat` older than `users.password_changed_at`, compared
-  at whole-second resolution). `get_user_for_logout` is the one deliberate hole — it
-  skips the per-`jti` check so `/logout` stays idempotent. Every failure returns the
-  same opaque 401.
+- **Credential verification** — [cognito.py](../../backend/app/core/cognito.py) owns offline RS256 verification of Cognito
+  access tokens (JWKS in-process cache). [security.py](../../backend/app/core/security.py) owns bcrypt hashing and legacy HS256
+  JWT minting, giving every local token a fresh `jti` so it can be revoked individually.
+  [identity.py](../../backend/app/core/identity.py) is the single shared resolver, dual-accepting Cognito RS256
+  (via [cognito.py](../../backend/app/core/cognito.py)) or legacy HS256 (via [security.py](../../backend/app/core/security.py)); it returns a provider-agnostic
+  `Principal` carrying `sub` (the Cognito `sub` or local `users.id`), `jti`, `iat`, and
+  `groups` (empty for legacy). [auth_events.py](../../backend/app/core/auth_events.py) emits structured auth logs
+  (login, MFA, token refresh, role changes) for observability and alarming. [crypto.py](../../backend/app/core/crypto.py) is
+  the separate at-rest path: an HKDF-derived Fernet key, deliberately *not* `SECRET_KEY`
+  itself, so a leaked signing key does not also decrypt stored PATs and refresh tokens.
+- **The request-time gate** — [dependencies.py](../../backend/app/core/dependencies.py) delegates to [identity.py](../../backend/app/core/identity.py)
+  via `_decode_and_load_user`, which calls `verify_credential` + `resolve_principal`. It
+  then layers *two* revocation checks: per-token (`jti` in `revoked_tokens`) and blanket
+  (`iat` older than `max(users.password_changed_at, users.tokens_valid_from)`, compared at
+  whole-second resolution). `get_user_for_logout` is the one deliberate hole — it skips the
+  per-`jti` check so `/logout` stays idempotent. Every failure returns the same opaque 401.
 - **The second front door** — [api_key_auth.py](../../backend/app/api/api_key_auth.py) resolves `X-Flowin-API-Key` by SHA-256
   digest for the IDE and MCP clients, which cannot live inside a 24-hour JWT. It
   returns the same `User`, so everything downstream is identical; note it does *not*
   consult `revoked_tokens` (an API key is revoked by its own `revoked_at` column).
-- **Tier** — [entitlements.py](../../backend/app/core/entitlements.py) is a pure table plus `can_run_pipeline`, returning
-  `(allowed, reason)` where the reason is already user-facing upgrade copy. It has no
-  DB access and no FastAPI coupling; the callers in [run_commands.py](../../backend/app/api/run_commands.py) and
-  [user_workflows.py](../../backend/app/api/user_workflows.py) are what make it load-bearing. [admin.py](../../backend/app/api/admin.py) is the only writer of
-  `users.tier`, behind its own `require_admin` 403 gate.
+- **Tier and role** — [entitlements.py](../../backend/app/core/entitlements.py) is a pure table plus `can_run_pipeline`, returning
+  `(allowed, reason)` where the reason is already user-facing upgrade copy. For Cognito users
+  `effective_tier` and `effective_is_admin` map Cognito `cognito:groups` to tiers and roles;
+  for local users they fall back to the DB columns. It has no DB access and no FastAPI
+  coupling; the callers in [run_commands.py](../../backend/app/api/run_commands.py) and [user_workflows.py](../../backend/app/api/user_workflows.py)
+  are what make it load-bearing. [admin.py](../../backend/app/api/admin.py) is the only writer of
+  `users.tier` for local accounts; Cognito role changes are reflected via `users.roles_synced_at`.
 - **The ownership gate** — `ScopedStore` in [agents/authz.py](../../backend/agents/authz.py) is the single enforced
   read/write surface for the typed-artifact substrate. Constructed from
   `(owner_id, workspace_id)`, it applies `owner_id = :owner AND workspace_id = :ws`
@@ -228,17 +238,23 @@ sequenceDiagram
     MOD-frontend-src-components-catalog->>MOD-frontend-src-providers: RunConnectionProvider.tsx::sendCommand
     MOD-frontend-src-providers->>MOD-backend-app-api: POST /api/runs → run_commands.py::launch_run
     activate MOD-backend-app-api
-    MOD-backend-app-api->>MOD-backend-app-core: dependencies.py::get_current_user
+    MOD-backend-app-api->>MOD-backend-app-core: dependencies.py::get_current_user_with_payload
     activate MOD-backend-app-core
-    MOD-backend-app-core->>MOD-backend-app-core: security.py::decode_access_token
-    MOD-backend-app-core->>MOD-backend-app-models: user.py::User by sub claim
+    MOD-backend-app-core->>MOD-backend-app-core: identity.py::verify_credential
+    alt Cognito RS256 path
+        MOD-backend-app-core->>MOD-backend-app-core: cognito.py::verify_cognito_access_token
+    else legacy HS256 path
+        MOD-backend-app-core->>MOD-backend-app-core: security.py::decode_access_token
+    end
+    MOD-backend-app-core->>MOD-backend-app-models: identity.py::resolve_principal → user.py::User
     MOD-backend-app-core->>MOD-backend-app-models: security.py::is_token_revoked → revoked_token.py::RevokedToken
-    alt jti revoked or iat older than users.password_changed_at
+    alt jti revoked or iat older than max(users.password_changed_at, users.tokens_valid_from)
         MOD-backend-app-core-->>MOD-backend-app-api: dependencies.py::_check_password_change_revocation → 401
     else accepted
-        MOD-backend-app-core-->>MOD-backend-app-api: User row carrying tier + is_admin
+        MOD-backend-app-core-->>MOD-backend-app-api: User row + Principal (groups if Cognito)
     end
     deactivate MOD-backend-app-core
+    MOD-backend-app-api->>MOD-backend-app-core: identity.py::effective_tier / effective_is_admin
     MOD-backend-app-api->>MOD-backend-app-core: entitlements.py::can_run_pipeline
     alt not entitled
         MOD-backend-app-core-->>MOD-backend-app-api: (False, upgrade copy) → run_commands.py::_reject 403
@@ -280,51 +296,55 @@ sequenceDiagram
 
 5. FastAPI resolves [run_commands.py::launch_run](../../backend/app/api/run_commands.py)'s `Depends(get_current_user)`
    before the handler body runs.
-6. [dependencies.py::get_current_user](../../backend/app/core/dependencies.py) delegates to `get_current_user_with_payload`,
-   which calls `_decode_and_load_user` → [security.py::decode_access_token](../../backend/app/core/security.py) (HS256
-   against [settings.SECRET_KEY](../../backend/app/api/settings.py)) and loads [user.py::User](../../backend/app/models/user.py) by the `sub` claim. Every
-   unrecoverable case raises the same opaque [dependencies.py::_invalid_token](../../backend/app/core/dependencies.py) 401.
-7. [security.py::is_token_revoked](../../backend/app/core/security.py) checks the payload's `jti` against
+6. [dependencies.py::get_current_user_with_payload](../../backend/app/core/dependencies.py) calls `_decode_and_load_user` →
+   [identity.py::verify_credential](../../backend/app/core/identity.py), which dual-accepts Cognito RS256 (offline
+   verification via [cognito.py::verify_cognito_access_token](../../backend/app/core/cognito.py)) or legacy HS256 (via
+   [security.py::decode_access_token](../../backend/app/core/security.py)). A `Principal` carrying `sub` (Cognito `sub` or
+   local `users.id`), `jti`, `iat`, and `groups` is returned. Every unrecoverable case raises
+   the same opaque [dependencies.py::_invalid_token](../../backend/app/core/dependencies.py) 401.
+7. [identity.py::resolve_principal](../../backend/app/core/identity.py) loads [user.py::User](../../backend/app/models/user.py):
+   for Cognito principals by `users.cognito_sub`, for local principals by `users.id`.
+8. [security.py::is_token_revoked](../../backend/app/core/security.py) checks the payload's `jti` against
    [revoked_token.py::RevokedToken](../../backend/app/models/revoked_token.py); a hit is a 401 "Token has been revoked".
-8. [dependencies.py::_check_password_change_revocation](../../backend/app/core/dependencies.py) compares the token's `iat`
-   against `users.password_changed_at` at whole-second resolution; strictly older is
-   a 401.
-9. [dependencies.py::_maybe_run_lazy_gc](../../backend/app/core/dependencies.py) fires roughly 1 request in 1000 and may run
-   [revoked_token.py::cleanup_expired_revocations](../../backend/app/models/revoked_token.py); any failure is swallowed and
-   rolled back.
+9. [identity.py::is_revoked_by_token_validity](../../backend/app/core/identity.py) compares the token's `iat` against
+   `max(users.password_changed_at, users.tokens_valid_from)` at whole-second resolution; strictly older is
+   a 401 (role/tier changes stamp `tokens_valid_from` to force re-auth).
+10. [dependencies.py::_maybe_run_lazy_gc](../../backend/app/core/dependencies.py) fires roughly 1 request in 1000 and may run
+    [revoked_token.py::cleanup_expired_revocations](../../backend/app/models/revoked_token.py); any failure is swallowed and
+    rolled back.
 
 **Tier, checked once and then discarded**
 
-10. `launch_run` rejects an empty brief (`run_commands.py::_reject("empty_brief", …)`)
+11. `launch_run` rejects an empty brief (`run_commands.py::_reject("empty_brief", …)`)
     and resolves the agent set via [run_commands.py::_resolve_launch_agents](../../backend/app/api/run_commands.py).
-11. `launch_run` calls `entitlements.py::can_run_pipeline(current_user.tier,
-    pipeline_type)` with the RAW `pipeline_type` — `od_prototype` and `prototype` are
-    distinct keys in `TIER_PIPELINES`, so the alias-collapsed base would mis-key the
-    lookup. Denial is `_reject("pipeline_not_entitled", reason, 403)`, before any row
-    exists.
-12. Remaining ingress validation runs (`allowed_custom_agent_ids`,
+12. `launch_run` calls [identity.py::effective_tier](../../backend/app/core/identity.py) to get the EFFECTIVE tier (Cognito
+    `cognito:groups` mapped to tier for Cognito users, or `users.tier` for local users), then calls
+    `entitlements.py::can_run_pipeline(effective_tier, pipeline_type)` with the RAW `pipeline_type`
+    — `od_prototype` and `prototype` are distinct keys in `TIER_PIPELINES`, so the alias-collapsed
+    base would mis-key the lookup. Denial is `_reject("pipeline_not_entitled", reason, 403)`, before any row exists.
+13. Remaining ingress validation runs (`allowed_custom_agent_ids`,
     `_revalidate_selections_trust_user`, `_validate_images`), then a
     [workflow.py::WorkflowRun](../../backend/app/models/workflow.py) row is inserted with `user_id = current_user.id`.
-13. `launch_run` spawns [run_commands.py::_drive_launch_to_queue](../../backend/app/api/run_commands.py) as a background task
+14. `launch_run` spawns [run_commands.py::_drive_launch_to_queue](../../backend/app/api/run_commands.py) as a background task
     and returns `{run_id}`. **The HTTP response completes before the run does**, and
     tier is never consulted again for the lifetime of that run.
 
 **Ownership, enforced for everything after**
 
-14. `_drive_launch_to_queue` calls [engine.py::ExecutionEngine.execute](../../backend/agents/execution_engine/engine.py) with
+15. `_drive_launch_to_queue` calls [engine.py::ExecutionEngine.execute](../../backend/agents/execution_engine/engine.py) with
     `user_id=user.id` and `session_id=user.id`.
-15. `execute` composes `owner_id = user_id or f"anon:{session_id or
+16. `execute` composes `owner_id = user_id or f"anon:{session_id or
     pipeline_run_id}"` — never `None` (AUTHZ-03) — and keeps it separate from
     `ectx.disk_principal`, which is what the sandbox path is keyed on.
-16. `execute` constructs [authz.py::ScopedStore(owner_id=owner_id)](../../backend/agents/authz.py).
-17. [authz.py::ScopedStore.create_workspace](../../backend/agents/authz.py) mints the run's `workspaces` row and its
+17. `execute` constructs [authz.py::ScopedStore(owner_id=owner_id)](../../backend/agents/authz.py).
+18. [authz.py::ScopedStore.create_workspace](../../backend/agents/authz.py) mints the run's `workspaces` row and its
     id is stamped onto the store as `_workspace_id`, so every later write carries it.
-18. [authz.py::ScopedStore.set_run_scope](../../backend/agents/authz.py) writes `(owner_id, workspace_id)` back onto
+19. [authz.py::ScopedStore.set_run_scope](../../backend/agents/authz.py) writes `(owner_id, workspace_id)` back onto
     the `workflow_runs` row the API minted, which had a NULL `workspace_id`.
-19. [authz.py::ScopedStore.record_capabilities](../../backend/agents/authz.py) writes the single `run_capabilities`
+20. [authz.py::ScopedStore.record_capabilities](../../backend/agents/authz.py) writes the single `run_capabilities`
     audit row — the first of many writes that exist only because the store stamps a
     principal on them.
-20. From here every durable read and write goes through `ScopedStore`, applying
+21. From here every durable read and write goes through `ScopedStore`, applying
     [authz.py::ScopedStore._scope_owner_ws](../../backend/agents/authz.py) (or `_scope_with_visibility` for
     `ArtifactRef`). A caller with a different `owner_id` gets `None` or `[]`, which the
     API renders as 404.
@@ -338,6 +358,11 @@ sequenceDiagram
   precedent, not a hypothetical. There is no CI gate, no import-linter contract and
   no test that asserts "every launch path checks entitlement", and the frontend
   mirror keeps greying the tile, so the UI still *looks* correct.
+- **Reading [user.tier](../../backend/app/models/user.py) or [user.is_admin](../../backend/app/models/user.py) directly on the Cognito path.** For
+  Cognito users `cognito:groups` is authoritative, not the DB columns (which are
+  advisory projections refreshed on login only). Callers must call [identity.py::effective_tier](../../backend/app/core/identity.py)
+  / [identity.py::effective_is_admin](../../backend/app/core/identity.py) with the `Principal` to branch on provider
+  and select the right source. Reading the column directly silently uses stale data.
 - **Editing one tier table and not the other.** `TIER_PIPELINES` in
   [entitlements.py](../../backend/app/core/entitlements.py) and [entitlements.ts](../../frontend/src/lib/entitlements.ts) are hand-kept copies with no generator and
   no comparison test. They are already out of sync today. The presentation is either
@@ -354,10 +379,11 @@ sequenceDiagram
 - **Adding a `visibility` column to a model without moving it onto
   `_scope_with_visibility`.** Rows marked `workspace` or `public` stay invisible;
   sharing appears to be written but never read back.
-- **Rotating `SECRET_KEY` with stored secrets in the DB.** [crypto.py::decrypt_pat](../../backend/app/core/crypto.py)
-  raises `InvalidToken` for every previously-encrypted MCP credential and PAT. Loud
-  per credential, but only at the moment one is used — possibly long after the
-  rotation.
+- **Rotating `SECRET_KEY` with stored secrets in the DB, or rotating Cognito
+  refresh tokens without re-encryption.** [crypto.py::decrypt_pat](../../backend/app/core/crypto.py) raises `InvalidToken`
+  for every previously-encrypted MCP credential, PAT, or Cognito refresh token.
+  Loud per credential, but only at the moment one is used — possibly long after
+  the rotation.
 
 **Loud, so not your problem:**
 
@@ -375,18 +401,20 @@ sequenceDiagram
 **The API-key front door.** [api_key_auth.py::get_user_via_api_key](../../backend/app/api/api_key_auth.py) reads
 `X-Flowin-API-Key`, requires the `flowin_` prefix, hashes it with
 [api_key_auth.py::hash_api_key](../../backend/app/api/api_key_auth.py) (SHA-256) and looks up the `UserApiKey` row by
-`token_hash`. It returns the same `User` object, so steps 10 onward are identical —
-but it consults neither `revoked_tokens` nor `password_changed_at`. An API key is
-revoked only by its own `revoked_at` column, so a password change does *not* kill it.
-Every successful hit stamps `last_used_at`.
+`token_hash`. It returns the same `User` object, so steps 11 onward are identical —
+but it consults neither `revoked_tokens` nor blanket-revocation columns. An API key is
+revoked only by its own `revoked_at` column, so a password change or role change does
+*not* kill it. Every successful hit stamps `last_used_at`.
 
 **Logout and blanket revocation.** [auth.py::logout](../../backend/app/api/auth.py) depends on
 [dependencies.py::get_user_for_logout](../../backend/app/core/dependencies.py) rather than `get_current_user`: it runs the
-decode and the password-change check but deliberately skips the per-`jti` lookup, so
-a second logout with the same token still returns 204 instead of 401. The handler
-then inserts the `RevokedToken` row. [auth.py::change_password](../../backend/app/api/auth.py) takes the other
-route — it bumps `users.password_changed_at`, invalidating every outstanding token
-for that user without enumerating a single one.
+credential verification and the blanket-revocation check but deliberately skips the
+per-`jti` lookup, so a second logout with the same token still returns 204 instead of 401.
+The handler then inserts the `RevokedToken` row. [auth.py::change_password](../../backend/app/api/auth.py) takes one
+route — it bumps `users.password_changed_at`, invalidating every outstanding bearer
+for that user without enumerating one. A role/tier change (Cognito group sync or
+admin edit) stamps `users.tokens_valid_from`, similarly invalidating all tokens issued
+before that instant without per-token bookkeeping.
 
 **Resume.** On resume the engine must *not* mint a fresh workspace.
 [engine.py::ExecutionEngine._recover_workspace_id](../../backend/agents/execution_engine/engine.py) reads a durable row scoped by

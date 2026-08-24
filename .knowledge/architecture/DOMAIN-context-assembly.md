@@ -17,8 +17,8 @@ modules_spanned:
 watched_files: 27
 code_signature: 908b616253d7
 symbols_signature: 89b6ff6b58ce
-prose_signature: 5a84f149edd3
-prose_symbols_signature: cf77c54756b2
+prose_signature: 908b616253d7
+prose_symbols_signature: 89b6ff6b58ce
 last_synced: '2026-08-24'
 ---
 
@@ -302,8 +302,11 @@ sequenceDiagram
     prefixed keys are appended verbatim.
 16. The consumed upstream outputs ([engine.py::_filter_consumed_outputs](../../backend/agents/execution_engine/engine.py)), then the
     consume-once blocks — prior artifact, redo directive, spec-revision report, user
-    guidance — then the `=== CURRENT TASK ===` / skeleton / template-compliance build
-    region are appended, and the joined string becomes `context_message`.
+    guidance — then, **only if `ectx.analyzer_solution` is non-empty**, a `=== REVISION
+    ANALYSIS ===` block (the pre-classified revision tier's implementation blueprint,
+    set by the revision-analyzer sub-pipeline before the first agent runs), then the
+    `=== CURRENT TASK ===` / skeleton / template-compliance build region are appended,
+    and the joined string becomes `context_message`.
 17. `factory.py::create_runner` builds the system prompt half:
     `factory.py::_compose_system_prompt` assembles a category→block mapping (injects,
     guardrails, skills, hooks, the pre-warmed constitution, body) and hands ordering
@@ -354,6 +357,16 @@ under `deliverable.name`, replaces that block in `runner.user_message` with a on
 `read_file` pointer, and stashes `revision_original_html` / `revision_instruction`.
 Every subsequent dispatch sees the slimmed message, and the document itself renders
 through the `PRIOR ARTIFACT UNDER REVISION` block — subject first, instructions second.
+
+**The revision-analyzer path.** A `revision_analyzer` sub-pipeline runs before the main
+revision workflow, classifies the revision into a tier (small/large/feature), and returns
+an implementation blueprint. This blueprint is stashed on `ectx.analyzer_solution` by
+`_drive_revision_to_queue`, which wraps the `register_live_ectx` callback so the field
+is set before the first agent step runs. In `_compose_context_message`, if
+`analyzer_solution` is non-empty, a `=== REVISION ANALYSIS ===` block is appended at
+Position 5 (after user guidance, before the build task block) carrying the pre-classified
+tier and solution plan. Default empty ⇒ DORMANT on every non-analyzer run ⇒ INV-3
+byte-parity holds ([ADR-0022](../cards/20260823-ADR-0022.md)).
 
 **The redo path.** `_run_agent` publishes `redo_directive` and
 `spec_revision_prior_artifact` onto the context immediately around the compose call and
@@ -417,6 +430,13 @@ provider that returns `{}` when un-gated changes no existing run's bytes.
 the provider had silently re-truncated real deck templates to 8000 chars; the fix was one
 authoritative cap at the read, with [opendesign.py](../../backend/agents/capabilities/context_providers/opendesign.py) injecting the runner-capped string
 directly. The comment marks this INV-12 single-truncation.
+
+**Why `analyzer_solution` is dormant when empty.** The revision-analyzer sub-pipeline
+publishes its blueprint into `ectx.analyzer_solution` before the first agent runs, but a
+non-analyzer run leaves it as the default empty string. The Position-5 context block is
+appended only on truthiness, so a dormant field changes no existing run's bytes ([ADR-0022](../cards/20260823-ADR-0022.md) /
+INV-3). This additive seam is keyed on the generic field (a dataclass boolean) rather than
+any `pipeline_type` or agent-id literal, so it is SC-001/INV-1 compliant.
 
 **Not recorded.** The `compaction` kind has no formal Protocol port — that omission *is*
 recorded ([chat_history.py](../../backend/agents/capabilities/compaction/chat_history.py) states the contract is satisfied structurally and no
