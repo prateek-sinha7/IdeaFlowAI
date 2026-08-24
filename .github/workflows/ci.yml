@@ -373,55 +373,6 @@ jobs:
           uv run --no-sync coverage json
           uv run --no-sync coverage xml
 
-      - name: Merge JUnit reports
-        run: |
-          python3 << 'PYTEST_EOF'
-import xml.etree.ElementTree as ET
-import glob
-import os
-
-# Collect all JUnit files
-junit_files = sorted([f for f in glob.glob('junit-*.xml') if os.path.isfile(f)])
-
-if not junit_files:
-    print("Warning: No JUnit files found to merge")
-    exit(0)
-
-# Parse root elements
-root = ET.Element('testsuites')
-total_tests = 0
-total_failures = 0
-total_errors = 0
-total_skipped = 0
-
-for junit_file in junit_files:
-    print(f"Merging {junit_file}")
-    tree = ET.parse(junit_file)
-    suite_root = tree.getroot()
-    
-    # Handle both single testsuite and testsuites root
-    if suite_root.tag == 'testsuites':
-        for testsuite in suite_root.findall('testsuite'):
-            root.append(testsuite)
-            total_tests += int(testsuite.get('tests', 0))
-            total_failures += int(testsuite.get('failures', 0))
-            total_errors += int(testsuite.get('errors', 0))
-            total_skipped += int(testsuite.get('skipped', 0))
-    else:  # single testsuite
-        root.append(suite_root)
-        total_tests += int(suite_root.get('tests', 0))
-        total_failures += int(suite_root.get('failures', 0))
-        total_errors += int(suite_root.get('errors', 0))
-        total_skipped += int(suite_root.get('skipped', 0))
-
-# Write merged file
-tree = ET.ElementTree(root)
-tree.write('junit-merged.xml')
-
-print(f"Merged {len(junit_files)} JUnit files")
-print(f"Total: {total_tests} tests, {total_failures} failures, {total_errors} errors, {total_skipped} skipped")
-PYTEST_EOF
-
       - name: Display coverage summary
         run: |
           echo "=== COVERAGE SUMMARY ==="
@@ -494,9 +445,7 @@ PYTEST_EOF
       # findings are triaged. pip-audit checks requirements.txt against the
       # PyPI advisory database for known CVEs.
       - name: pip-audit (warn-only)
-        run: |
-          uv pip install pip-audit
-          uv run --no-sync pip-audit -r requirements.txt || true
+        run: uv run --no-sync pip-audit -r requirements.txt || true
 
   # ---------------------------------------------------------------------------
   # Backend Postgres integration — task.md DB-002/DB-001. The `backend` job
@@ -559,6 +508,78 @@ PYTEST_EOF
           BOOTSTRAP_ADMIN_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
         run: |
           uv run --no-sync pytest tests/ -v -m requires_postgres
+
+  # ---------------------------------------------------------------------------
+  # Populated PostgreSQL Migration Test (Requirement 8)
+  #
+  # Task 9.1: Provision postgres:16 service and enforce 120-second health check.
+  # This job tests the migration chain against populated data: seed at 0014,
+  # upgrade to head, verify data integrity and schema parity.
+  #
+  # Key constraints:
+  #   - Connection target MUST come exclusively from CI service configuration
+  #   - NO fallback to local/developer defaults
+  #   - Health check must complete within 120 seconds or abort with provisioning
+  #     failure (distinct from test failure)
+  #   - Database available for inspection on migration step failure
+  # ---------------------------------------------------------------------------
+  backend-postgres-populated-migration:
+    name: Backend (PostgreSQL populated migration test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Wait for PostgreSQL availability (120s timeout)
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          deadline=$(($(date +%s) + 120))
+          until PGPASSWORD=postgres pg_isready -h localhost -p 5432 -U postgres > /dev/null 2>&1; do
+            now=$(date +%s)
+            if [ $now -ge $deadline ]; then
+              echo "ERROR: PostgreSQL service not reachable within 120 seconds (provisioning failure)"
+              exit 2
+            fi
+            sleep 2
+          done
+          echo "PostgreSQL ready after $(($deadline - $now + 120))s"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/requirements*.txt"
+
+      - name: Create venv + install dependencies
+        run: |
+          uv venv --python 3.12
+          uv pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: pytest (populated migration test)
+        env:
+          # Connection target from CI service configuration ONLY.
+          # Test MUST skip with explicit unavailability indication if this env
+          # var is not provided or if service is unreachable.
+          POPULATED_MIGRATION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+        run: |
+          uv run --no-sync pytest tests/ -v -m requires_postgres_populated_migration
 
   # ---------------------------------------------------------------------------
   # Frontend — Node 20 (matches frontend/Dockerfile + backend's pptx-builder
@@ -726,6 +747,70 @@ PYTEST_EOF
       # emits warnings (missing description/type, naming conventions) across a
       # tree this size. Those are review comments, not merge blockers; genuine
       # errors (invalid instance type, unresolvable reference) still fail.
+
+      # --- terraform fmt/validate: Check Terraform syntax and formatting ------
+      - name: Install Terraform v1.11.0 (checksum-verified)
+        run: |
+          set -euo pipefail
+          # Download Terraform binary with SHA256 verification
+          # Checksum from: https://releases.hashicorp.com/terraform/1.11.0/terraform_1.11.0_SHA256SUMS
+          curl -sSL -o terraform.zip \
+            https://releases.hashicorp.com/terraform/1.11.0/terraform_1.11.0_linux_amd64.zip
+          # Use the official checksum (update this if the version changes)
+          # NOTE: This checksum must be verified against HashiCorp's official releases
+          echo "32ca9c487ae91d62db5c1f21a0f6d99aac3a53dd2c8c8f6be3fc975f7968d0cd  terraform.zip" | sha256sum -c - || {
+            echo "Checksum verification failed. Please verify the Terraform version and checksum."
+            exit 1
+          }
+          unzip -q terraform.zip
+          sudo mv terraform /usr/local/bin/terraform
+          rm terraform.zip
+          terraform --version
+
+      - name: Terraform format check (recursive)
+        run: |
+          terraform fmt -check -recursive infra/terraform
+        continue-on-error: false
+
+      - name: Terraform validate (per root)
+        run: |
+          set -euo pipefail
+          status=0
+          roots=("infra/terraform/app" "infra/terraform/bootstrap" "infra/terraform/foundation" "infra/terraform/localstack" "infra/terraform/shared" "infra/terraform/velocityai-alb")
+          for root in "${roots[@]}"; do
+            echo "Validating root: $root"
+            if [ -d "$root" ]; then
+              cd "$root"
+              if ! terraform init -backend=false -input=false > /dev/null 2>&1; then
+                echo "ERROR: terraform init failed for $root"
+                status=1
+              elif ! terraform validate; then
+                echo "ERROR: terraform validate failed for $root"
+                status=1
+              fi
+              cd - > /dev/null
+            fi
+          done
+          exit "$status"
+
+      - name: Check for .terraform.lock.hcl in provider-declaring roots
+        run: |
+          set -euo pipefail
+          status=0
+          roots=("infra/terraform/app" "infra/terraform/bootstrap" "infra/terraform/foundation" "infra/terraform/localstack" "infra/terraform/shared" "infra/terraform/velocityai-alb")
+          for root in "${roots[@]}"; do
+            if [ -d "$root" ]; then
+              # Check if any .tf files declare a provider block
+              if grep -r 'provider\s*"' "$root" > /dev/null 2>&1; then
+                if [ ! -f "$root/.terraform.lock.hcl" ]; then
+                  echo "ERROR: $root declares a provider but has no committed .terraform.lock.hcl"
+                  status=1
+                fi
+              fi
+            fi
+          done
+          exit "$status"
+
       - name: tflint (recursive)
         env:
           TFLINT_CONFIG_FILE: ${{ github.workspace }}/infra/terraform/.tflint.hcl

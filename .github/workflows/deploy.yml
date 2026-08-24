@@ -153,6 +153,7 @@ jobs:
   gate:
     name: CI gate
     uses: ./.github/workflows/ci.yml
+    timeout-minutes: 60
 
   # ---------------------------------------------------------------------------
   # Resolve which environment and image tag to use based on the trigger event.

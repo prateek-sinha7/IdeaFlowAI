@@ -751,6 +751,20 @@ const TYPE_CONFIG: Record<WorkflowType, {
     placeholder: "e.g. Swap the side filter for a top tab bar and add a dark-mode toggle.",
     icon: Layout,
   },
+  prototype_large_revision: {
+    tag: "Major overhaul of an existing prototype",
+    heading: "What should change?",
+    subtitle: "Perform a substantial rework of an existing prototype — preserve the core logic but modernise the design.",
+    placeholder: "e.g. Redesign the entire UI to use a new design system and add mobile responsiveness.",
+    icon: Layout,
+  },
+  prototype_feature_revision: {
+    tag: "Add features to an existing prototype",
+    heading: "What features should be added?",
+    subtitle: "Extend an existing prototype with new functionality while preserving the existing implementation.",
+    placeholder: "e.g. Add real-time notifications and user preferences panel to the existing dashboard.",
+    icon: Layout,
+  },
   ppt: {
     tag: "Build an executive presentation",
     heading: "Specify the topic",

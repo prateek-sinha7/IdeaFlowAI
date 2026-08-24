@@ -2,6 +2,16 @@
 
 Only accessible to users with is_admin=True. All endpoints require
 a valid JWT from an admin account.
+
+## Admin Self-Action Policy
+
+Admins cannot modify their own role or tier. When an authenticated admin
+attempts a role or tier change targeting their own account, the endpoint
+returns 400 Bad Request with a detail message. This policy prevents
+accidental privilege escalation/demotion and requires administrative
+consensus for privilege changes.
+
+See: Requirement 5.9, approved 2026-09-15, Security Team
 """
 
 from datetime import datetime
@@ -94,7 +104,14 @@ def update_user_tier(
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Change a user's tier. Admin cannot downgrade themselves."""
+    """Change a user's tier. Admin cannot modify their own tier."""
+    # Self-action policy: Prevent admins from modifying their own role/tier
+    if user_id == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot modify your own tier. Contact another administrator.",
+        )
+    
     valid_tiers = set(TIER_PIPELINES.keys())
     if request.tier not in valid_tiers:
         raise HTTPException(

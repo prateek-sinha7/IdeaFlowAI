@@ -1,0 +1,12 @@
+# Test Baseline Count Registry
+#
+# Recorded baseline counts from the test audit (revision 9aec8ddc).
+# CI must match these counts exactly, or fail with expected vs actual.
+# An intentional change to these counts MUST be recorded with reason and owner
+# in a git commit message and cross-referenced in REMEDIATION-RECORD.md.
+
+baselines:
+  pytest: 3498
+  vitest: 1082
+  playwright_mocked: 194
+  playwright_live: 11
