@@ -8,11 +8,18 @@ in `.planning/test-baselines.yml`.
 Requirements: 32.3, 32.4, 32.5, 2.7
 """
 
+import json
 import re
 import subprocess
+import sys
 from pathlib import Path
-from typing import Dict, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 import yaml
+
+
+def _node_cmd(tool: str) -> str:
+    """Return the platform-correct executable name for a Node CLI shim."""
+    return f"{tool}.cmd" if sys.platform == "win32" else tool
 
 
 class TestCountValidator:
@@ -60,35 +67,38 @@ class TestCountValidator:
         Returns:
             Number of collected tests, or None if collection fails
         """
+        args = list(test_args) or ["tests/"]
         try:
-            # Use pytest --collect-only to get count without running
+            # Use the interpreter running this process so the collection happens
+            # inside the same resolved environment as the suite itself.
             result = subprocess.run(
-                ["python", "-m", "pytest", "--collect-only", "-q"] + list(test_args),
+                [sys.executable, "-m", "pytest", "--collect-only", "-q"] + args,
                 cwd=self.repo_root / "backend",
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=300,
             )
 
-            if result.returncode != 0:
-                # pytest --collect-only returns 0 on success even if it lists tests
-                # If it fails, return None to signal failure
-                if "error" in result.stderr.lower():
-                    return None
-
-            # Parse output for count
-            # pytest --collect-only -q outputs lines like "3498 tests collected in 5.23s"
             output = result.stdout + result.stderr
+
+            # A collection error must not be reported as a count.
+            if re.search(r"\d+\s+error", output) or result.returncode not in (0, 5):
+                self.errors.append(
+                    f"pytest collection exited {result.returncode}: "
+                    f"{output.strip().splitlines()[-1] if output.strip() else 'no output'}"
+                )
+                return None
+
+            # `pytest --collect-only -q` ends with "3498 tests collected in 5.23s".
             match = re.search(r"(\d+)\s+tests? collected", output)
             if match:
                 return int(match.group(1))
 
-            # Fallback: count test lines in output
-            lines = [l for l in result.stdout.split("\n") if l.strip() and not l.startswith(" ")]
-            # This is less reliable but provides a fallback
-            return len(lines) if lines else None
+            self.errors.append("pytest collection: could not parse collected count")
+            return None
 
         except subprocess.TimeoutExpired:
+            self.errors.append("pytest collection timed out (300s)")
             return None
         except Exception as e:
             self.errors.append(f"pytest collection failed: {e}")
@@ -102,66 +112,126 @@ class TestCountValidator:
             Number of collected tests, or None if collection fails
         """
         try:
-            # Use vitest list --reporter=json
+            # `vitest list --json` prints one JSON array entry per collected case.
             result = subprocess.run(
-                ["npm", "run", "--silent", "vitest", "--", "list", "--reporter=json"],
+                [_node_cmd("npx"), "vitest", "list", "--json", "--run"],
                 cwd=self.repo_root / "frontend",
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=600,
             )
 
             if result.returncode != 0:
-                self.errors.append(f"vitest collection failed with exit code {result.returncode}")
+                self.errors.append(
+                    f"vitest collection failed with exit code {result.returncode}: "
+                    f"{result.stderr.strip()[-300:]}"
+                )
                 return None
 
-            # Count test suites and tests in output
-            output = result.stdout
-            # This depends on the JSON output structure
-            # For now, use a simple regex that works with vitest --reporter=verbose output
-            match = re.search(r"(\d+)\s+test", output)
-            if match:
-                return int(match.group(1))
+            return self._count_vitest_json(result.stdout)
 
-            self.errors.append("vitest collection: could not parse test count from output")
+        except FileNotFoundError:
+            self.errors.append("vitest collection: npx not found on PATH")
             return None
-
         except subprocess.TimeoutExpired:
-            self.errors.append("vitest collection timed out (120s)")
+            self.errors.append("vitest collection timed out (600s)")
             return None
         except Exception as e:
             self.errors.append(f"vitest collection failed: {e}")
             return None
 
+    @staticmethod
+    def _count_vitest_json(stdout: str) -> Optional[int]:
+        """Count collected cases from `vitest list --json` output."""
+        # The JSON payload may be preceded by CLI banner lines.
+        start = stdout.find("[")
+        if start == -1:
+            return None
+        try:
+            data = json.loads(stdout[start:])
+        except json.JSONDecodeError:
+            return None
+        if isinstance(data, list):
+            return len(data)
+        return None
+
     def collect_playwright_mocked_count(self) -> Optional[int]:
         """
-        Collect mocked Playwright test count.
+        Collect the mocked Playwright case count from the runner itself.
 
-        Playwright mocked tests are defined in frontend/e2e/tests/mocked.
-        Returns the number of test() calls found.
+        Uses `playwright test --list --project=mocked`, which is the authoritative
+        collection for the project defined in `frontend/playwright.config.ts`
+        (all `*.spec.ts` under `e2e/tests` except `*.live.spec.ts`).
 
         Returns:
-            Number of mocked tests, or None if collection fails
+            Number of mocked cases, or None if collection fails
         """
-        try:
-            playwright_dir = self.repo_root / "frontend" / "e2e" / "tests" / "mocked"
-            if not playwright_dir.exists():
-                self.errors.append(f"Playwright mocked directory not found: {playwright_dir}")
-                return None
-
-            # Count test() calls in .spec.ts files
-            test_count = 0
-            for spec_file in playwright_dir.rglob("*.spec.ts"):
-                content = spec_file.read_text()
-                # Count test() and test.describe() calls
-                matches = re.findall(r"(?:test|test\.(?:describe|skip|only))\(", content)
-                test_count += len(matches)
-
-            return test_count if test_count > 0 else None
-
-        except Exception as e:
-            self.errors.append(f"Playwright collection failed: {e}")
+        frontend = self.repo_root / "frontend"
+        if not (frontend / "playwright.config.ts").exists():
+            self.errors.append(
+                f"Playwright config not found: {frontend / 'playwright.config.ts'}"
+            )
             return None
+
+        try:
+            result = subprocess.run(
+                [
+                    _node_cmd("npx"),
+                    "playwright",
+                    "test",
+                    "--list",
+                    "--project=mocked",
+                    "--reporter=json",
+                ],
+                cwd=frontend,
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+
+            count = self._count_playwright_json(result.stdout)
+            if count is not None:
+                return count
+
+            # `--reporter=list` style tail: "Total: 194 tests in 41 files"
+            match = re.search(r"Total:\s+(\d+)\s+tests?", result.stdout + result.stderr)
+            if match:
+                return int(match.group(1))
+
+            self.errors.append(
+                f"Playwright collection: could not parse case count "
+                f"(exit {result.returncode})"
+            )
+            return None
+
+        except FileNotFoundError:
+            self.errors.append("Playwright collection: npx not found on PATH")
+            return None
+        except subprocess.TimeoutExpired:
+            self.errors.append("Playwright collection timed out (600s)")
+            return None
+
+    @staticmethod
+    def _count_playwright_json(stdout: str) -> Optional[int]:
+        """Count leaf cases in `playwright test --list --reporter=json` output."""
+        start = stdout.find("{")
+        if start == -1:
+            return None
+        try:
+            data = json.loads(stdout[start:])
+        except json.JSONDecodeError:
+            return None
+
+        def count_specs(suites: List[dict]) -> int:
+            total = 0
+            for suite in suites or []:
+                total += len(suite.get("specs", []) or [])
+                total += count_specs(suite.get("suites", []) or [])
+            return total
+
+        if isinstance(data, dict) and "suites" in data:
+            return count_specs(data["suites"])
+        return None
 
     def validate_counts(self) -> Tuple[bool, Dict[str, object]]:
         """
@@ -247,7 +317,7 @@ class SkipEnforcementLinter:
         if not self.remediation_record_path.exists():
             return set()
 
-        content = self.remediation_record_path.read_text()
+        content = self.remediation_record_path.read_text(encoding="utf-8", errors="replace")
 
         # Extract case IDs from Disabled Tests section
         recorded = set()
@@ -287,7 +357,7 @@ class SkipEnforcementLinter:
             return findings
 
         for test_file in backend_tests_dir.rglob("test_*.py"):
-            content = test_file.read_text()
+            content = test_file.read_text(encoding="utf-8", errors="replace")
             lines = content.split("\n")
 
             for i, line in enumerate(lines, 1):
@@ -350,7 +420,7 @@ class SkipEnforcementLinter:
             return findings
 
         for test_file in frontend_tests_dir.rglob("*.test.ts*"):
-            content = test_file.read_text()
+            content = test_file.read_text(encoding="utf-8", errors="replace")
             lines = content.split("\n")
 
             for i, line in enumerate(lines, 1):

@@ -13,6 +13,26 @@ from typing import Optional
 import re
 
 
+#: Field values that mean "not filled in yet".
+_PLACEHOLDER_VALUES = {
+    "",
+    "tbd",
+    "(owner name or tbd)",
+    "(approver name or tbd)",
+    "(iss-xxx or other reference)",
+    "(reason)",
+    "pr #xxx or tbd",
+    "ci run #xxx or tbd",
+}
+
+
+def _is_unfilled(value: Optional[str]) -> bool:
+    """Return True when a cell value is absent or still a template placeholder."""
+    if value is None:
+        return True
+    return value.strip().lower() in _PLACEHOLDER_VALUES
+
+
 @dataclass
 class RemediationEntry:
     """A single entry in a remediation record section."""
@@ -23,6 +43,13 @@ class RemediationEntry:
     classification: Optional[str] = None
     directive: Optional[str] = None
     extra_fields: dict = None
+    #: Section this entry came from, for error messages.
+    section: Optional[str] = None
+    #: Fields this section's column set actually carries and therefore requires.
+    required_fields: tuple = ("owner", "reason", "expiry")
+    #: True when `expiry` is a waiver deadline (a past date invalidates the
+    #: entry). False when it is a historical date such as an approval date.
+    expiry_is_deadline: bool = True
 
     def __post_init__(self):
         if self.extra_fields is None:
@@ -32,24 +59,27 @@ class RemediationEntry:
         """
         Check if the entry is valid.
 
+        Only the fields the entry's section actually carries are required, so a
+        section without an expiry column is not reported as missing an expiry.
+
         Returns:
             (is_valid, error_messages)
         """
         errors = []
 
-        # Owner is required
-        if not self.owner or self.owner == "(owner name or TBD)" or self.owner.strip() == "TBD":
+        if "owner" in self.required_fields and _is_unfilled(self.owner):
             errors.append(f"{self.case_id}: missing or TBD owner")
 
-        # Reason is required (if applicable)
-        if self.reason is None or self.reason == "" or self.reason == "(ISS-xxx or other reference)":
+        if "reason" in self.required_fields and _is_unfilled(self.reason):
             errors.append(f"{self.case_id}: missing reason")
 
-        # Expiry date is required and must not be past
-        if self.expiry is None:
-            errors.append(f"{self.case_id}: missing expiry date")
-        elif self.expiry < datetime.now():
-            errors.append(f"{self.case_id}: expiry date {self.expiry.isoformat()} is in the past")
+        if "expiry" in self.required_fields:
+            if self.expiry is None:
+                errors.append(f"{self.case_id}: missing expiry date")
+            elif self.expiry_is_deadline and self.expiry < datetime.now():
+                errors.append(
+                    f"{self.case_id}: expiry date {self.expiry.isoformat()} is in the past"
+                )
 
         return len(errors) == 0, errors
 
@@ -73,7 +103,7 @@ class RemediationRecordParser:
         if not self.record_path.exists():
             raise FileNotFoundError(f"Remediation record not found: {self.record_path}")
 
-        content = self.record_path.read_text()
+        content = self.record_path.read_text(encoding="utf-8", errors="replace")
 
         # Extract each section and parse its table
         self._parse_section(content, "## Dispositions", self.dispositions, ["Case ID", "Classification", "Owner", "Date", "Resolving Change"])
@@ -126,6 +156,13 @@ class RemediationRecordParser:
             if "placeholder" in line.lower():
                 continue  # Skip placeholder rows
 
+            # Skip template example rows: their identifier is a parenthesised
+            # description of the column rather than a real case or module, e.g.
+            # "| (scenario name) | ... |". Real debt never uses that form.
+            first_cell = line.split("|")[1].strip() if line.count("|") >= 2 else ""
+            if first_cell.startswith("(") and first_cell.endswith(")"):
+                continue
+
             # Split the row by pipes and clean
             cells = [cell.strip() for cell in line.split("|")[1:-1]]  # Skip empty first/last
             if len(cells) == 0:
@@ -149,6 +186,8 @@ class RemediationRecordParser:
                     owner=cells[2],
                     reason=cells[4],  # Resolving Change as reason
                     expiry=None,  # Dispositions have no expiry in the design
+                    section="Dispositions",
+                    required_fields=("owner", "reason"),
                 )
             elif "Disabled Tests" in section_header and len(cells) >= 6:
                 expiry = self._parse_date(cells[5])
@@ -158,6 +197,7 @@ class RemediationRecordParser:
                     owner=cells[3],
                     reason=cells[4],
                     expiry=expiry,
+                    section="Disabled Tests",
                 )
             elif "Coverage Exclusions" in section_header and len(cells) >= 4:
                 expiry = self._parse_date(cells[3])
@@ -166,6 +206,7 @@ class RemediationRecordParser:
                     reason=cells[1],  # Justification
                     owner=cells[2],
                     expiry=expiry,
+                    section="Coverage Exclusions",
                 )
             elif "Accessibility Waivers" in section_header and len(cells) >= 5:
                 expiry = self._parse_date(cells[4])
@@ -174,30 +215,41 @@ class RemediationRecordParser:
                     reason=cells[2],  # Rationale
                     owner=cells[3],
                     expiry=expiry,
+                    section="Accessibility Waivers",
                 )
             elif "Coverage Thresholds" in section_header and len(cells) >= 6:
                 return RemediationEntry(
                     case_id=cells[0],  # Module as case_id
                     owner=cells[4],
                     expiry=self._parse_date(cells[5]),  # Target Date
+                    section="Coverage Thresholds",
+                    required_fields=("owner", "expiry"),
                 )
             elif "Performance Thresholds" in section_header and len(cells) >= 4:
                 return RemediationEntry(
                     case_id=cells[0],  # Scenario as case_id
                     owner=cells[3],
                     expiry=None,  # No expiry for performance thresholds
+                    section="Performance Thresholds",
+                    required_fields=("owner",),
                 )
             elif "Security Approvals" in section_header and len(cells) >= 3:
                 return RemediationEntry(
                     case_id=cells[0],  # Change as case_id
                     owner=cells[1],  # Approver
-                    expiry=self._parse_date(cells[2]),  # Date
+                    expiry=self._parse_date(cells[2]),  # Approval date (historical)
+                    section="Security Approvals",
+                    required_fields=("owner", "expiry"),
+                    expiry_is_deadline=False,
                 )
             elif "Completion Links" in section_header and len(cells) >= 3:
                 return RemediationEntry(
                     case_id=cells[0],  # Task ID
                     reason=cells[1],  # Verifying Test
                     expiry=None,  # No expiry for completion links
+                    section="Completion Links",
+                    required_fields=("reason",),
+                    extra_fields={"execution_evidence": cells[2]},
                 )
         except (IndexError, ValueError):
             return None
@@ -257,7 +309,7 @@ class RemediationRecordParser:
         )
 
         for entry in all_entries:
-            if entry.expiry and entry.expiry < now:
+            if entry.expiry_is_deadline and entry.expiry and entry.expiry < now:
                 expired.append(entry)
 
         return expired

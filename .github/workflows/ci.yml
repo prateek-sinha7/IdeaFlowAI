@@ -126,6 +126,74 @@ jobs:
             infra/scripts/*.sh || true
 
   # ---------------------------------------------------------------------------
+  # Test-debt enforcement (Requirements 32.3, 32.4, 32.5, 2.7)
+  #
+  # Three checks, all driven by backend/tests/ci/enforce_debt.py:
+  #   record  — every entry in .planning/REMEDIATION-RECORD.md must carry the
+  #             fields its section declares (owner, reason, unexpired date).
+  #             Blocking: an incomplete waiver is never allowed to merge.
+  #   counts  — collected pytest / Vitest / mocked-Playwright counts must equal
+  #             the recorded baselines in .planning/test-baselines.yml.
+  #   skips   — every skip/fixme must have a complete Disabled Tests entry.
+  # ---------------------------------------------------------------------------
+  test-debt:
+    name: Test debt (record completeness / baseline counts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "backend/requirements*.txt"
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Create venv + install backend dependencies
+        working-directory: backend
+        run: |
+          uv venv --python 3.12
+          uv pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Needed only so `playwright test --list` can resolve the mocked project.
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      # Blocking: an incomplete or expired record entry fails the PR check.
+      - name: Remediation Record completeness
+        working-directory: backend
+        run: uv run --no-sync python -m tests.ci.enforce_debt record
+
+      # Blocking: baselines were refreshed to the current counts on 2026-09-15
+      # as a recorded, owned change (see the Baseline Count Changes section of
+      # .planning/REMEDIATION-RECORD.md). Any further drift must be recorded the
+      # same way per Requirement 32.4.
+      - name: Baseline test counts
+        working-directory: backend
+        run: uv run --no-sync python -m tests.ci.enforce_debt counts
+
+      # TODO(flip-to-blocking): task 34.2 records an owner, reason, and expiry
+      # for each pre-existing skip. Until then this step reports the inventory
+      # rather than failing on debt it does not yet own.
+      - name: Unrecorded skips (reporting until task 34.2 assigns owners)
+        working-directory: backend
+        continue-on-error: true
+        run: uv run --no-sync python -m tests.ci.enforce_debt skips
+
+  # ---------------------------------------------------------------------------
   # Backend pytest — sharded for parallelism within 15m timeout
   # 
   # Task 3.2: Partition into 4 coherent shards (agents-a, agents-b, unit, 
