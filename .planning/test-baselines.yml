@@ -1,0 +1,15 @@
+# Test Baseline Count Registry
+#
+# Recorded baseline counts from the test audit (revision 9aec8ddc).
+# CI must match these counts exactly, or fail with expected vs actual.
+# An intentional change to these counts MUST be recorded with reason and owner
+# in a git commit message and cross-referenced in REMEDIATION-RECORD.md.
+
+# Refreshed 2026-09-15 by sharas_hexaware (checkpoint task 3): pytest 3498 -> 3610,
+# vitest 1082 -> 1085. Cases added by remediation tasks 1, 2, 4.1, 5.1, 6.1, 9.1, 10.1.
+# Audit snapshot (revision 9aec8ddc) was pytest 3498 / vitest 1082.
+baselines:
+  pytest: 3610
+  vitest: 1085
+  playwright_mocked: 194
+  playwright_live: 11

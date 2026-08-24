@@ -4,6 +4,11 @@ version = "0.1.0"
 description = "Enterprise-grade AI SaaS platform backend"
 requires-python = ">=3.12"
 
+[project.optional-dependencies]
+dev = [
+    "pytest-cov==5.0.0",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -15,6 +20,7 @@ markers = [
     "requires_api_key: test requires a live LLM provider (Bedrock/Anthropic) — skipped in CI without credentials",
     "eval: issue-scoped eval suite (evals/hybrid) — offline scripted-model tests; select with -m eval",
     "requires_postgres: test requires a live PostgreSQL service — skipped without a DB (SQLite-default suites exclude this marker)",
+    "requires_postgres_populated_migration: test requires a live PostgreSQL service with migration chain testing from 0014 to head",
     "live: test makes a live network/provider call — excluded from default offline runs",
 ]
 
