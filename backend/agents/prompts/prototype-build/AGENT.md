@@ -1,9 +1,8 @@
 ---
 consumes:
 - prototype-plan
+- prototype-revision-planner
 context_from:
-- $previous
-description: Builds the interactive prototype incrementally, one task at a time, wiring up every page, component, and interaction.
 estimated_duration: 60.0
 guardrails:
 - html-prototype
@@ -17,7 +16,10 @@ injects:
 max_tokens: 32768
 name: Build Agent
 order: 4
-pipeline_type: prototype
+pipeline_type:
+- prototype
+- prototype_large_revision
+- prototype_feature_revision
 produces:
 - prototype-build
 role: Incremental HTML Construction

@@ -24,7 +24,7 @@ steps:
   gates: []
 
 # Step 2: Execute each task in isolation (task_loop)
-- agent: prototype-large-builder
+- agent: prototype-build
   tools: {read_files: true, write_files: true}
   strategy: task_loop
   gates: []
@@ -41,7 +41,7 @@ steps:
   compaction: html_skeleton
 
 # Step 3: Final validation
-- agent: prototype-large-validate
+- agent: prototype-validate
   tools: {read_files: true, write_files: true}
   strategy: single_shot
   gates: []

@@ -635,7 +635,13 @@ class TestSchemaValidationAllAgents:
             )
 
     def test_all_agents_have_supported_pipeline_type(self):
-        """Every agent's pipeline_type must be one of SUPPORTED_PIPELINE_TYPES."""
+        """Every agent's pipeline_type must be one of SUPPORTED_PIPELINE_TYPES.
+
+        Handles both the legacy string form and the new list form (task 1 of the
+        revision-pipeline-agent-reuse spec): if pipeline_type is a list, each
+        element must be in SUPPORTED_PIPELINE_TYPES; if it is a string, the string
+        itself must be in SUPPORTED_PIPELINE_TYPES.
+        """
         from agents.loader import SUPPORTED_PIPELINE_TYPES
 
         agent_ids = self._discover_agent_ids()
@@ -643,10 +649,17 @@ class TestSchemaValidationAllAgents:
 
         for agent_id in agent_ids:
             spec = load_agent_spec(agent_id)
-            assert spec.pipeline_type in SUPPORTED_PIPELINE_TYPES, (
-                f"Agent {agent_id!r}: pipeline_type={spec.pipeline_type!r} "
-                f"is not in SUPPORTED_PIPELINE_TYPES"
-            )
+            if isinstance(spec.pipeline_type, list):
+                for pt in spec.pipeline_type:
+                    assert pt in SUPPORTED_PIPELINE_TYPES, (
+                        f"Agent {agent_id!r}: pipeline_type element {pt!r} "
+                        f"is not in SUPPORTED_PIPELINE_TYPES"
+                    )
+            else:
+                assert spec.pipeline_type in SUPPORTED_PIPELINE_TYPES, (
+                    f"Agent {agent_id!r}: pipeline_type={spec.pipeline_type!r} "
+                    f"is not in SUPPORTED_PIPELINE_TYPES"
+                )
 
 
 class TestArchivedPromptsAreInvisible:
@@ -761,4 +774,289 @@ class TestArchivedPromptsAreInvisible:
             f"explicit `icon:` and will silently fall back to the loader default '🤖', "
             f"changing what the UI shows and moving the characterization event goldens: "
             f"{sorted(missing)}. Add an `icon:` line to each — do NOT relax this test."
+        )
+
+
+# ---------------------------------------------------------------------------
+# pipeline_type: list[str] — load_agent_spec parsing (Requirements 6.1, 6.5)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAgentSpecPipelineTypeList:
+    """Verify that _build_spec / _parse_pipeline_type correctly handles the
+    new ``pipeline_type: list[str]`` shape.
+
+    Requirements: 6.1, 6.5
+    """
+
+    def _write_raw(self, prompts_dir: Path, agent_id: str, pipeline_type_yaml: str) -> None:
+        """Write an AGENT.md with an arbitrary pipeline_type YAML snippet."""
+        content = (
+            "---\n"
+            f"id: {agent_id}\n"
+            "name: Test Agent\n"
+            "role: Testing\n"
+            f"pipeline_type: {pipeline_type_yaml}\n"
+            "order: 1\n"
+            "max_tokens: 4000\n"
+            'icon: "🤖"\n'
+            "estimated_duration: 3.0\n"
+            "---\n"
+            "\n"
+            "You are a test agent.\n"
+        )
+        create_agent_file(prompts_dir, agent_id, content)
+
+    def _write_raw_multiline(self, prompts_dir: Path, agent_id: str, pipeline_type_block: str) -> None:
+        """Write an AGENT.md with a multiline pipeline_type YAML block."""
+        content = (
+            "---\n"
+            f"id: {agent_id}\n"
+            "name: Test Agent\n"
+            "role: Testing\n"
+            f"{pipeline_type_block}\n"
+            "order: 1\n"
+            "max_tokens: 4000\n"
+            'icon: "🤖"\n'
+            "estimated_duration: 3.0\n"
+            "---\n"
+            "\n"
+            "You are a test agent.\n"
+        )
+        create_agent_file(prompts_dir, agent_id, content)
+
+    def test_pipeline_type_list_parses(self, tmp_agent_dir):
+        """A YAML list ``[prototype, prototype_revision]`` parses to a Python list."""
+        self._write_raw(tmp_agent_dir, "list-agent", "[prototype, prototype_revision]")
+        spec = load_agent_spec("list-agent")
+        assert spec.pipeline_type == ["prototype", "prototype_revision"]
+
+    def test_pipeline_type_list_empty_raises(self, tmp_agent_dir):
+        """An empty list ``[]`` must raise AgentSpecError."""
+        self._write_raw(tmp_agent_dir, "empty-list-agent", "[]")
+        with pytest.raises(AgentSpecError) as exc_info:
+            load_agent_spec("empty-list-agent")
+        assert "pipeline_type" in str(exc_info.value)
+
+    def test_pipeline_type_list_element_empty_raises(self, tmp_agent_dir):
+        """A list with a blank element raises AgentSpecError naming the file."""
+        self._write_raw(tmp_agent_dir, "blank-elem-agent", '["prototype", ""]')
+        with pytest.raises(AgentSpecError) as exc_info:
+            load_agent_spec("blank-elem-agent")
+        error_msg = str(exc_info.value)
+        assert "pipeline_type" in error_msg
+        # Error should name the file (agent id appears in the path)
+        assert "blank-elem-agent" in error_msg
+
+    def test_pipeline_type_list_element_non_string_raises(self, tmp_agent_dir):
+        """A list containing a non-string element (e.g. 42) raises AgentSpecError."""
+        self._write_raw(tmp_agent_dir, "non-str-elem-agent", "[prototype, 42]")
+        with pytest.raises(AgentSpecError) as exc_info:
+            load_agent_spec("non-str-elem-agent")
+        assert "pipeline_type" in str(exc_info.value)
+
+    def test_pipeline_type_null_raises(self, tmp_agent_dir):
+        """``pipeline_type: null`` must raise AgentSpecError."""
+        self._write_raw(tmp_agent_dir, "null-pt-agent", "null")
+        with pytest.raises(AgentSpecError) as exc_info:
+            load_agent_spec("null-pt-agent")
+        assert "pipeline_type" in str(exc_info.value)
+
+    def test_pipeline_type_int_raises(self, tmp_agent_dir):
+        """``pipeline_type: 1`` (an integer) must raise AgentSpecError."""
+        self._write_raw(tmp_agent_dir, "int-pt-agent", "1")
+        with pytest.raises(AgentSpecError) as exc_info:
+            load_agent_spec("int-pt-agent")
+        assert "pipeline_type" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# list_agent_ids with list pipeline_type agents (Requirements 6.1, 6.4, 6.5)
+# ---------------------------------------------------------------------------
+
+
+class TestListAgentIdsWithListPipelineType:
+    """Verify that list_agent_ids handles agents whose pipeline_type is a list.
+
+    Requirements: 6.1, 6.4, 6.5
+    """
+
+    def _write_list_agent(
+        self,
+        prompts_dir: Path,
+        agent_id: str,
+        pipeline_types: list[str],
+        order: int = 1,
+    ) -> None:
+        """Write an AGENT.md whose pipeline_type is a YAML list."""
+        pt_items = "\n".join(f"  - {pt}" for pt in pipeline_types)
+        content = (
+            "---\n"
+            f"id: {agent_id}\n"
+            "name: Test Agent\n"
+            "role: Testing\n"
+            "pipeline_type:\n"
+            f"{pt_items}\n"
+            f"order: {order}\n"
+            "max_tokens: 4000\n"
+            'icon: "🤖"\n'
+            "estimated_duration: 3.0\n"
+            "---\n"
+            "\n"
+            "You are a test agent.\n"
+        )
+        create_agent_file(prompts_dir, agent_id, content)
+
+    def _write_str_agent(
+        self,
+        prompts_dir: Path,
+        agent_id: str,
+        pipeline_type: str,
+        order: int = 1,
+    ) -> None:
+        """Write an AGENT.md whose pipeline_type is a plain string."""
+        _write_agent(prompts_dir, agent_id, pipeline_type=pipeline_type, order=order)
+
+    def test_agent_with_list_appears_in_both_buckets(self, tmp_agent_dir):
+        """An agent with ``pipeline_type: [user_stories, ppt]`` appears in both buckets."""
+        self._write_list_agent(tmp_agent_dir, "multi-pt-agent", ["user_stories", "ppt"], order=1)
+
+        us_ids = list_agent_ids("user_stories")
+        ppt_ids = list_agent_ids("ppt")
+
+        assert "multi-pt-agent" in us_ids
+        assert "multi-pt-agent" in ppt_ids
+
+    def test_agent_with_list_absent_from_unrelated_bucket(self, tmp_agent_dir):
+        """The same agent must NOT appear in an unrelated bucket (``prototype``)."""
+        self._write_list_agent(tmp_agent_dir, "multi-pt-agent", ["user_stories", "ppt"], order=1)
+
+        prototype_ids = list_agent_ids("prototype")
+
+        assert "multi-pt-agent" not in prototype_ids
+
+    def test_duplicate_order_within_list_pipeline_bucket_raises(self, tmp_agent_dir):
+        """Two agents both listing ``prototype_revision`` and sharing order=2 must raise
+        AgentSpecError that names the offending pipeline bucket."""
+        self._write_list_agent(tmp_agent_dir, "rev-agent-a", ["prototype_revision"], order=2)
+        self._write_list_agent(tmp_agent_dir, "rev-agent-b", ["prototype_revision"], order=2)
+
+        with pytest.raises(AgentSpecError) as exc_info:
+            list_agent_ids("prototype_revision")
+
+        assert "prototype_revision" in str(exc_info.value)
+
+    def test_string_and_list_agents_coexist_in_bucket(self, tmp_agent_dir):
+        """A string-typed agent and a list-typed agent that share a bucket both appear."""
+        self._write_str_agent(tmp_agent_dir, "str-us-agent", "user_stories", order=1)
+        self._write_list_agent(tmp_agent_dir, "list-us-agent", ["user_stories", "ppt"], order=2)
+
+        us_ids = list_agent_ids("user_stories")
+
+        assert "str-us-agent" in us_ids
+        assert "list-us-agent" in us_ids
+
+
+# ---------------------------------------------------------------------------
+# Property tests — pipeline_type list parsing (task 1.5)
+# Validates: Requirements 6.4, 6.5
+# ---------------------------------------------------------------------------
+
+
+class TestOrderUniquenessProperty:
+    """Property 3: Order uniqueness.
+
+    For every pipeline_type in SUPPORTED_PIPELINE_TYPES, no two agents in
+    list_agent_ids(pt) share the same ``order`` value.
+
+    The parametric variant runs against the REAL filesystem so it catches any
+    future authoring mistake across all pipelines — it is the cheapest guard
+    against a duplicate-order regression slipping in.
+
+    The tmp-dir variant confirms the duplicate-order guard fires specifically
+    when two agents share a pipeline via the NEW list form of ``pipeline_type``.
+
+    **Validates: Requirements 6.4, 6.5**
+    """
+
+    @pytest.mark.parametrize("pipeline_type", sorted(loader_module.SUPPORTED_PIPELINE_TYPES))
+    def test_no_two_agents_share_order_in_any_pipeline(self, pipeline_type: str):
+        """Property 3 (real filesystem): list_agent_ids must not raise AgentSpecError
+        for any supported pipeline type — meaning no duplicate orders exist on disk.
+        """
+        # If this raises AgentSpecError, two agents share the same order value in
+        # the given pipeline; that is the bug this property guards against.
+        try:
+            ids = list_agent_ids(pipeline_type)
+        except AgentSpecError as exc:
+            pytest.fail(
+                f"Duplicate order detected in pipeline '{pipeline_type}': {exc}"
+            )
+
+        # Additionally assert the returned ids are strictly ordered (order values
+        # are globally unique per pipeline — the sort is deterministic).
+        # We cannot check the order values directly here (list_agent_ids only
+        # returns ids), but a successful call already proves uniqueness.
+        assert isinstance(ids, list), (
+            f"list_agent_ids('{pipeline_type}') returned {type(ids).__name__}, expected list"
+        )
+
+    def test_list_pipeline_type_duplicate_order_raises(self, tmp_agent_dir):
+        """Property 3 (tmp dir, list pipeline_type form): two agents that BOTH declare
+        the same pipeline type inside a list AND share the same order value must cause
+        list_agent_ids to raise AgentSpecError naming the conflicting pipeline type.
+
+        This exercises the NEW code path: pipeline_type as a list where the
+        membership check is ``pipeline_type in spec.pipeline_type``.
+        """
+        # Agent 1: pipeline_type is a list that includes "shared_pipeline"
+        content_a = (
+            "---\n"
+            "id: list-agent-alpha\n"
+            "name: List Agent Alpha\n"
+            "role: Alpha Role\n"
+            "pipeline_type:\n"
+            "  - shared_pipeline\n"
+            "  - other_pipeline\n"
+            "order: 2\n"
+            "max_tokens: 4000\n"
+            'icon: "🅰️"\n'
+            "estimated_duration: 3.0\n"
+            "---\n"
+            "\n"
+            "System prompt for alpha.\n"
+        )
+        # Agent 2: pipeline_type is also a list that includes "shared_pipeline"
+        # and shares order=2 with agent alpha → duplicate order in that bucket
+        content_b = (
+            "---\n"
+            "id: list-agent-beta\n"
+            "name: List Agent Beta\n"
+            "role: Beta Role\n"
+            "pipeline_type:\n"
+            "  - shared_pipeline\n"
+            "  - yet_another_pipeline\n"
+            "order: 2\n"
+            "max_tokens: 4000\n"
+            'icon: "🅱️"\n'
+            "estimated_duration: 3.0\n"
+            "---\n"
+            "\n"
+            "System prompt for beta.\n"
+        )
+        create_agent_file(tmp_agent_dir, "list-agent-alpha", content_a)
+        create_agent_file(tmp_agent_dir, "list-agent-beta", content_b)
+
+        with pytest.raises(AgentSpecError) as exc_info:
+            list_agent_ids("shared_pipeline")
+
+        error_msg = str(exc_info.value)
+        # The error must name the conflicting pipeline type so the author knows
+        # which bucket has the collision.
+        assert "shared_pipeline" in error_msg, (
+            f"AgentSpecError should mention 'shared_pipeline' but got: {error_msg!r}"
+        )
+        # The error must also mention the shared order value.
+        assert "2" in error_msg, (
+            f"AgentSpecError should mention order value '2' but got: {error_msg!r}"
         )

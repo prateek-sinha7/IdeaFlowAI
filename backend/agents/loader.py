@@ -58,7 +58,7 @@ class AgentSpec:
     id: str                    # kebab-case, matches directory name
     name: str                  # Human-readable display name
     role: str                  # Short role description for UI
-    pipeline_type: str         # One of SUPPORTED_PIPELINE_TYPES
+    pipeline_type: str | list[str]  # One of SUPPORTED_PIPELINE_TYPES, or a list of them
     order: int                 # Execution order within pipeline (ascending)
     max_tokens: int            # Output token limit (1–32768)
     prompt_body: str           # Raw markdown text after YAML closing ---
@@ -220,8 +220,12 @@ def list_agent_ids(pipeline_type: str) -> list[str]:
         if spec.template:
             continue
 
-        if spec.pipeline_type == pipeline_type:
-            matching.append(spec)
+        if isinstance(spec.pipeline_type, list):
+            if pipeline_type in spec.pipeline_type:
+                matching.append(spec)
+        else:
+            if spec.pipeline_type == pipeline_type:
+                matching.append(spec)
 
     # ── Duplicate order detection ─────────────────────────────────────────
     order_map: dict[int, str] = {}
@@ -293,18 +297,19 @@ def _build_spec(
     role = _require_nonempty_str(metadata, "role", file_path_str)
 
     # ── pipeline_type ─────────────────────────────────────────────────────
-    # Shape only (non-empty string). There is deliberately NO allow-list check
-    # here any more (ADR-0005): SUPPORTED_PIPELINE_TYPES is now DERIVED — partly
-    # FROM the values agents declare — so validating against it would be
-    # circular, and the frozenset it replaced was the thing that made adding a
-    # workflow a source-code edit (SC-001).
+    # Shape only (non-empty string OR non-empty list of non-empty strings).
+    # There is deliberately NO allow-list check here any more (ADR-0005):
+    # SUPPORTED_PIPELINE_TYPES is now DERIVED — partly FROM the values agents
+    # declare — so validating against it would be circular, and the frozenset it
+    # replaced was the thing that made adding a workflow a source-code edit
+    # (SC-001).
     #
     # TRADE-OFF (accepted, see the module footer): a typo'd `pipeline_type`
     # used to raise here. It now creates its own empty bucket instead. A
     # startup consistency check (every declared pipeline_type has a manifest,
     # every manifest has agents or is deliberately empty) is the intended
     # replacement and is NOT implemented yet.
-    pipeline_type = _require_nonempty_str(metadata, "pipeline_type", file_path_str)
+    pipeline_type = _parse_pipeline_type(metadata, file_path_str)
 
     # ── order ─────────────────────────────────────────────────────────────
     raw_order = metadata.get("order")
@@ -457,6 +462,69 @@ def _build_spec(
     )
 
 
+def _parse_pipeline_type(metadata: dict, file_path: str) -> str | list[str]:
+    """Extract and validate the ``pipeline_type`` frontmatter field.
+
+    Accepts:
+    - A non-empty ``str`` (the existing single-pipeline case).
+    - A non-empty ``list`` whose every element is a non-empty ``str``
+      (the new multi-pipeline case: ``pipeline_type: [prototype, prototype_revision]``).
+
+    Raises ``AgentSpecError`` for:
+    - ``None`` / absent key.
+    - A non-empty list that contains a non-string or blank-string element.
+    - An empty list.
+    - Any other type (``int``, ``bool``, ``float``, …).
+    """
+    value = metadata.get("pipeline_type")
+
+    if value is None:
+        raise AgentSpecError(
+            f"Missing required field 'pipeline_type' in {file_path}"
+        )
+
+    if isinstance(value, bool):
+        # bool is a subclass of int in Python — catch it explicitly so the
+        # error message says 'bool' rather than 'int'.
+        raise AgentSpecError(
+            f"Invalid field 'pipeline_type' in {file_path}: "
+            f"expected a non-empty string or list of strings, got 'bool' ({value!r})"
+        )
+
+    if isinstance(value, str):
+        if not value.strip():
+            raise AgentSpecError(
+                f"Invalid field 'pipeline_type' in {file_path}: "
+                f"value must be a non-empty string"
+            )
+        return value
+
+    if isinstance(value, list):
+        if not value:
+            raise AgentSpecError(
+                f"Invalid field 'pipeline_type' in {file_path}: "
+                f"list must contain at least one pipeline type string"
+            )
+        for i, item in enumerate(value):
+            if isinstance(item, bool) or not isinstance(item, str):
+                raise AgentSpecError(
+                    f"Invalid field 'pipeline_type[{i}]' in {file_path}: "
+                    f"expected a string, got {type(item).__name__!r} ({item!r})"
+                )
+            if not item.strip():
+                raise AgentSpecError(
+                    f"Invalid field 'pipeline_type[{i}]' in {file_path}: "
+                    f"each element must be a non-empty string"
+                )
+        return value
+
+    raise AgentSpecError(
+        f"Invalid field 'pipeline_type' in {file_path}: "
+        f"expected a non-empty string or list of strings, "
+        f"got {type(value).__name__!r} ({value!r})"
+    )
+
+
 def _require_nonempty_str(metadata: dict, field: str, file_path: str) -> str:
     """Extract a required non-empty string field from frontmatter metadata."""
     value = metadata.get(field)
@@ -544,7 +612,11 @@ def _discover_supported_pipeline_types() -> frozenset[str]:
 
     # (b) pipeline_type declared by any loadable AGENT.md
     for spec in iter_agent_specs():
-        types.add(spec.pipeline_type)
+        if isinstance(spec.pipeline_type, list):
+            for pt in spec.pipeline_type:
+                types.add(pt)
+        else:
+            types.add(spec.pipeline_type)
 
     return frozenset(types)
 

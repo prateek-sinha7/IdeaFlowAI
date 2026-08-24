@@ -621,7 +621,10 @@ export interface AgentDef {
   name: string;
   role: string;
   description: string;
-  pipeline_type: string;
+  /** Backend returns a single string for single-pipeline agents, or a list of
+   *  strings for shared agents that participate in multiple pipelines.
+   *  Use getPrimaryPipelineType() to obtain a single string for display/sort. */
+  pipeline_type: string | string[];
   order: number;
   icon: string;
   estimated_duration: number;

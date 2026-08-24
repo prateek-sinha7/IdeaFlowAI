@@ -183,6 +183,49 @@ Output ONLY this Markdown structure — no preamble, no closing remarks:
 """
 
 
+_ANALYZER_AGENT_ID = "prototype-revision-analyzer"
+
+
+def _resolve_analyzer_model(session_model_id: str | None) -> str | None:
+    """Resolve the effective model id for the analyzer agent (D-02 abridged).
+
+    The analyzer is an app-layer pre-pipeline agent — it bypasses the engine's
+    ``ModelResolver`` — so we replicate the relevant D-02 tiers here:
+
+      tier-3  AGENT.md ``model`` field   (wins over user session selection)
+      tier-5a session_model_id           (user's per-run model preference)
+      tier-5b None                       (let build_model use the provider default)
+
+    Tier-1 (user override map) and tier-2 (step.model) have no meaning for a
+    pre-pipeline agent, so they are omitted.
+    """
+    try:
+        from agents.loader import load_agent_spec  # noqa: PLC0415
+
+        spec = load_agent_spec(_ANALYZER_AGENT_ID)
+        if spec.model:
+            logger.info(
+                "run_analyzer: using AGENT.md model=%r (tier-3) for agent=%r",
+                spec.model,
+                _ANALYZER_AGENT_ID,
+            )
+            return spec.model
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "run_analyzer: could not load AGENT.md for %r (%s) — falling back to session model",
+            _ANALYZER_AGENT_ID,
+            exc,
+        )
+
+    if session_model_id:
+        logger.info(
+            "run_analyzer: using session model=%r (tier-5a) for agent=%r",
+            session_model_id,
+            _ANALYZER_AGENT_ID,
+        )
+    return session_model_id
+
+
 async def run_analyzer(
     instruction: str,
     existing_html: str,
@@ -204,7 +247,8 @@ async def run_analyzer(
         existing_html: The current prototype HTML.
         event_queue: Async queue to emit SSE-style events onto.
         parent_run_id: The parent workflow run ID (used by the fallback classifier).
-        model_id: Optional model override; passed to ``build_model``.
+        model_id: Optional session model id (user's per-run preference, tier-5a).
+            The AGENT.md ``model`` field (tier-3) takes precedence when set.
 
     Returns:
         ``(tier, solution)`` where *tier* is one of ``{"small", "large", "feature"}``
@@ -232,13 +276,27 @@ async def run_analyzer(
         from app.agents.model_factory import build_model  # noqa: PLC0415
         from langchain_core.messages import HumanMessage  # noqa: PLC0415
 
-        llm = build_model(model_id, max_tokens=4096)
+        # Resolve model honoring D-02 tier precedence: AGENT.md (tier-3) wins
+        # over the caller-supplied session model (tier-5a).
+        effective_model_id = _resolve_analyzer_model(model_id)
+        llm = build_model(effective_model_id, max_tokens=4096)
 
         t_start = time.monotonic()
         response = await llm.ainvoke([HumanMessage(content=prompt)])
         duration = time.monotonic() - t_start
 
-        tier, solution = parse_analyzer_output(response.content)
+        # Bedrock Converse returns content as a list of blocks
+        # (e.g. [{"type": "text", "text": "..."}]) while Anthropic direct
+        # returns a plain string. Normalise to str before parsing.
+        raw_content = response.content
+        if isinstance(raw_content, list):
+            raw_content = "\n".join(
+                block.get("text", "") if isinstance(block, dict) else str(block)
+                for block in raw_content
+                if not isinstance(block, dict) or block.get("type") == "text"
+            )
+
+        tier, solution = parse_analyzer_output(raw_content)
 
         await event_queue.put({
             "type": "agent_complete",

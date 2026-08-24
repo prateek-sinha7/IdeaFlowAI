@@ -25,6 +25,7 @@ import {
   BriefAttachBox,
 } from "../IdeaInputPage";
 import { saveUserWorkflow, getToken, getWorkflowDetail } from "@/lib/api";
+import { agentMatchesPipelineType } from "@/lib/workflowIcons";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import {
   addChildInTree,
@@ -203,7 +204,7 @@ export function ComposerPage({
         .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
         .filter(Boolean) as AgentDef[];
     }
-    return LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).sort(
+    return LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, workflowType)).sort(
       (a, b) => a.order - b.order,
     );
   });
@@ -265,7 +266,7 @@ export function ComposerPage({
   const strategy = "sequential";
 
   const defaultAgentIds = new Set(
-    LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).map((a) => a.id),
+    LIBRARY_AGENTS.filter((a) => agentMatchesPipelineType(a.pipeline_type, workflowType)).map((a) => a.id),
   );
   const optionalCount = pipelineAgents.filter((a) => !defaultAgentIds.has(a.id)).length;
   const canAddMore = optionalCount < MAX_OPTIONAL;

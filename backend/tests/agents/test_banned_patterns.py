@@ -496,3 +496,124 @@ def test_inv1_gate_is_non_vacuous(tmp_path: Path) -> None:
         "`if pipeline_type ==` / `spec.id ==` branch — the kernel hard-fail would "
         "not catch a real regression."
     )
+
+
+# ===========================================================================
+# SC-001 COMPLIANCE — Property 4 (task 7.2)
+# Validates: Requirements 8.1, 8.2, 8.3, 8.4
+#
+# Property 4: SC-001 compliance — the execution kernel must contain ZERO
+# occurrences of:
+#   (a) ``if pipeline_type ==`` dispatch branches (already covered by the
+#       INV-1 tests above; repeated here in a class for explicit labelling)
+#   (b) any literal revision pipeline-type name
+#       (``prototype_revision`` / ``prototype_large_revision`` /
+#       ``prototype_feature_revision``) — these names must NEVER appear in
+#       the kernel because the kernel is workflow-agnostic (SC-001).
+#
+# Scoped to ``agents/execution_engine/`` only (same as the INV-1 ratchet) so
+# legitimate references in websocket.py display routing, registry.py custom-
+# pipeline checks, and the test files themselves do not false-trip.
+# ===========================================================================
+
+# Pattern for the revision pipeline-type literal names.  We intentionally do
+# NOT use a word-boundary anchor on the right: ``prototype_revision_foo``
+# would still be a violation if it ever appeared, since no such pipeline type
+# should exist in the kernel.
+_SC001_REVISION_NAMES = re.compile(
+    r"prototype_large_revision|prototype_feature_revision|prototype_revision"
+)
+
+
+class TestSC001RevisionPipelineCompliance:
+    """Property 4: SC-001 compliance — zero kernel references to revision pipeline names.
+
+    **Validates: Requirements 8.1, 8.2, 8.3, 8.4**
+
+    The execution_engine kernel must be workflow-agnostic.  Specifically:
+
+    * No ``if pipeline_type ==`` dispatch branch may appear (the INV-1 ratchet
+      already enforces this; the test is repeated here as a named property so
+      CI failure messages map directly to the SC-001 requirement IDs).
+    * No literal revision pipeline-type name may appear:
+      ``prototype_revision``, ``prototype_large_revision``,
+      ``prototype_feature_revision``.  The presence of any such name would
+      indicate the kernel has a hard-coded workflow-specific code path — a
+      direct violation of SC-001.
+    """
+
+    # ------------------------------------------------------------------
+    # 4a — ``if pipeline_type ==`` check (SC-001 / Requirements 8.3)
+    # ------------------------------------------------------------------
+
+    def test_no_pipeline_type_branch_in_kernel(self) -> None:
+        """Zero ``if pipeline_type ==`` / ``spec.id ==`` branches in the kernel.
+
+        Requirements 8.3 — the engine must dispatch through the capability
+        registry, never by workflow identity."""
+        hits = _scan(_INV1_PATTERN, _KERNEL_ROOT)
+        assert not hits, (
+            "SC-001 / Req 8.3: a workflow-name dispatch branch (`if pipeline_type ==` "
+            "or `spec.id ==`) was found in agents/execution_engine/. The kernel must "
+            "remain workflow-agnostic — route via the capability registry. Offenders:\n"
+            + "\n".join(f"  {p}:{n}: {ln}" for p, n, ln in hits)
+        )
+
+    def test_no_pipeline_type_branch_gate_is_non_vacuous(
+        self, tmp_path: Path
+    ) -> None:
+        """Non-vacuity: scanner fires on an injected ``if pipeline_type ==`` line."""
+        bad = tmp_path / "rogue_kernel.py"
+        bad.write_text(
+            "def route(pipeline_type):\n"
+            '    if pipeline_type == "prototype_revision":\n'
+            "        return True\n",
+            encoding="utf-8",
+        )
+        hits = _scan(_INV1_PATTERN, tmp_path)
+        assert hits, (
+            "NON-VACUITY FAILURE: the SC-001 `if pipeline_type ==` scanner did not "
+            "flag the injected branch — the gate would not catch a regression."
+        )
+
+    # ------------------------------------------------------------------
+    # 4b — revision pipeline-type literal names (SC-001 / Requirements 8.1, 8.2, 8.4)
+    # ------------------------------------------------------------------
+
+    def test_no_revision_pipeline_names_in_kernel(self) -> None:
+        """Zero occurrences of revision pipeline-type names in the kernel.
+
+        Requirements 8.1, 8.2, 8.4 — ``prototype_revision``,
+        ``prototype_large_revision``, and ``prototype_feature_revision`` must
+        never appear as literals inside ``agents/execution_engine/``.  Their
+        presence would mean the kernel has a hard-coded reference to a specific
+        workflow variant, violating the SC-001 zero-engine-edit guarantee."""
+        hits = _scan(_SC001_REVISION_NAMES, _KERNEL_ROOT)
+        assert not hits, (
+            "SC-001 / Req 8.1–8.2–8.4: a revision pipeline-type name literal "
+            "(`prototype_revision`, `prototype_large_revision`, or "
+            "`prototype_feature_revision`) was found in agents/execution_engine/. "
+            "The kernel must be workflow-agnostic — remove the reference and route "
+            "via the capability registry instead. Offenders:\n"
+            + "\n".join(f"  {p}:{n}: {ln}" for p, n, ln in hits)
+        )
+
+    def test_no_revision_pipeline_names_gate_is_non_vacuous(
+        self, tmp_path: Path
+    ) -> None:
+        """Non-vacuity: scanner fires on each injected revision pipeline-type name."""
+        bad = tmp_path / "rogue_engine.py"
+        bad.write_text(
+            "PIPELINES = [\n"
+            '    "prototype_revision",\n'
+            '    "prototype_large_revision",\n'
+            '    "prototype_feature_revision",\n'
+            "]\n",
+            encoding="utf-8",
+        )
+        hits = _scan(_SC001_REVISION_NAMES, tmp_path)
+        # All three names must be caught.
+        assert len(hits) == 3, (
+            "NON-VACUITY FAILURE: the SC-001 revision-name scanner did not flag all "
+            f"three injected pipeline names — expected 3 hits, got {len(hits)}: {hits}"
+        )
