@@ -2401,7 +2401,11 @@ export function DashboardLayout({
         // firing finishes the pass and re-opens this same gate; it does NOT continue
         // to the build (live 5ecb990f: approve seq 24654 -> gate 24655, and only the
         // SECOND approval reached agent_start). Keyed on the generic in-flight flag.
-        approveLabel: reviewGateData.revisionInFlight
+        approveLabel: reviewGateData.artifactKind === "conditional_gate"
+          // A routed gate renders one button per declared outcome; there is no
+          // single Approve button for this label to name.
+          ? undefined
+          : reviewGateData.revisionInFlight
           ? "Approve & finish the revision"
           : reviewGateData.artifactKind === "summary"
           ? "Accept & continue to build"

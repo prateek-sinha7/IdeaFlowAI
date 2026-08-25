@@ -249,3 +249,66 @@ describe("InlineGateActions", () => {
     ).toBe(false);
   });
 });
+
+// ─── Routed human gate — the human IS the router ─────────────────────────────
+// The backend publishes a routed step's declared route.outcomes on the EXISTING
+// generic carriers: artifact_kind="conditional_gate" + a JSON envelope on output.
+// Free text was the defect — the answer must equal a declared outcome key exactly.
+describe("InlineGateActions — conditional_gate choices", () => {
+  const CHOICE_OUTPUT = JSON.stringify({
+    prompt: "(awaiting language choice)",
+    choices: ["english", "spanish", "dutch"],
+  });
+
+  it("renders one button per declared outcome, title-cased, and no Approve button", () => {
+    renderGate({ artifactKind: "conditional_gate", output: CHOICE_OUTPUT });
+    expect(screen.getByTestId("chat-gate-choice-english")).toHaveTextContent("English");
+    expect(screen.getByTestId("chat-gate-choice-spanish")).toHaveTextContent("Spanish");
+    expect(screen.getByTestId("chat-gate-choice-dutch")).toHaveTextContent("Dutch");
+    expect(screen.queryByTestId("chat-gate-approve")).toBeNull();
+  });
+
+  it("sends the route decision as JSON on the SAME approve channel", () => {
+    const { onApprove } = renderGate({
+      artifactKind: "conditional_gate", output: CHOICE_OUTPUT,
+    });
+    fireEvent.click(screen.getByTestId("chat-gate-choice-dutch"));
+    expect(onApprove).toHaveBeenCalledWith("gate-1", JSON.stringify({ decision: "dutch" }));
+  });
+
+  it("keeps Request changes (the reject channel) and drops the free-text Edit", () => {
+    renderGate({ artifactKind: "conditional_gate", output: CHOICE_OUTPUT });
+    expect(screen.getByTestId("chat-gate-request-changes")).toBeTruthy();
+    expect(screen.queryByText("Edit")).toBeNull();
+  });
+
+  it("shows the human-readable prompt, never the JSON envelope", () => {
+    renderGate({ artifactKind: "conditional_gate", output: CHOICE_OUTPUT });
+    expect(screen.getByTestId("chat-gate-choice-prompt")).toHaveTextContent(
+      "(awaiting language choice)",
+    );
+    expect(screen.queryByText(/"choices"/)).toBeNull();
+  });
+
+  it("latches after one click — a gate resolves once", () => {
+    const { onApprove } = renderGate({
+      artifactKind: "conditional_gate", output: CHOICE_OUTPUT,
+    });
+    fireEvent.click(screen.getByTestId("chat-gate-choice-dutch"));
+    fireEvent.click(screen.getByTestId("chat-gate-choice-english"));
+    expect(onApprove).toHaveBeenCalledTimes(1);
+  });
+
+  it("DEGRADES to the normal card on a malformed envelope, never breaks", () => {
+    renderGate({ artifactKind: "conditional_gate", output: "not json at all" });
+    expect(screen.getByTestId("chat-gate-approve")).toBeTruthy();
+    expect(screen.queryByTestId("chat-gate-choice-english")).toBeNull();
+  });
+
+  it("is DORMANT without the discriminator — an ordinary gate is untouched", () => {
+    renderGate({ output: CHOICE_OUTPUT });   // no artifactKind
+    expect(screen.getByTestId("chat-gate-approve")).toBeTruthy();
+    expect(screen.queryByTestId("chat-gate-choice-english")).toBeNull();
+  });
+});
+

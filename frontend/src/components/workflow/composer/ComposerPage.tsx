@@ -549,9 +549,12 @@ export function ComposerPage({
   })() : null;
 
   // ── Derived summary values (live, never fabricated — ND-AG) ───────────────────
-  const gateCount = pipelineAgents.filter(
-    (a) => (selections[a.id]?.gates?.length ?? 0) > 0 || !!a.gate,
-  ).length;
+  // Review gates (ADR-0013): only count human and before-human, not conditional.
+  // Conditional gates route execution; review gates pause for human decision.
+  const gateCount = pipelineAgents.filter((a) => {
+    const gateList = selections[a.id]?.gates ?? [];
+    return gateList.some((g) => g === "human" || g === "before-human");
+  }).length;
   const totalSec = pipelineAgents.reduce((s, a) => s + a.estimated_duration, 0);
   const estMinutes = Math.max(1, Math.round(totalSec / 60));
   const estDurationLabel = `~${estMinutes}m`;
@@ -714,10 +717,6 @@ export function ComposerPage({
     // the EXACT same block format/behavior as IdeaInputPage.handleRun (the
     // textarea itself stays clean; the extracted text only appears here).
     const brief = `${trimmed}${briefAttachments.fileBlocks}`;
-    const gateAgentIds = pipelineAgents
-      .filter((a) => (selections[a.id]?.gates?.length ?? 0) > 0 || !!a.gate)
-      .map((a) => a.id);
-
     // Resolve the dispatch type and deliverable override from the chosen agent set.
     // This is the exact same call IdeaInputPage.handleRun makes — single source
     // via the exported resolveDispatchType (INV-12, no duplication). Passed
@@ -777,7 +776,25 @@ export function ComposerPage({
     // saved-but-stale manifest or its own hardcoded default.
     const extraParams: Record<string, unknown> = {
       ...(Object.keys(mergedSelections).length > 0 ? { selections: mergedSelections } : {}),
-      ...(gateAgentIds.length > 0 ? { gate_agent_ids: gateAgentIds } : {}),
+      // `gate_agent_ids` is deliberately NOT sent. A composer workflow declares its
+      // gates in the manifest (`step.gates`), and the engine evaluates those on its
+      // own — the field is a SEPARATE, older mechanism for picking which agents get
+      // the AGENT.md-static `Human_Gate`, and sending it at all takes the step off
+      // the declared path:
+      //
+      //   list INCLUDING the step -> _should_gate true -> inline_gated true -> the
+      //     DECLARED gate is deduped away (WR-02) and the INLINE post-step gate runs
+      //     instead. That one reviews the step's OWN output and never goes through
+      //     kernel_services.run_human_gate, which is the only place the
+      //     artifact_kind="conditional_gate" choices payload is published — so the
+      //     outcome chips cannot render, by construction.
+      //   list OMITTING the step  -> declared gate skipped outright.
+      //   omitted / None          -> falls back to the agent's AGENT.md `gate:`
+      //     attribute; the custom-agent template declares none, so nothing dedupes
+      //     and the DECLARED before-human gate fires. This is the only correct case.
+      //
+      // It is also why a bare `pipeline_type` launch of the same shape always worked:
+      // it sends no gate_agent_ids and so stays None.
       ...(needsFullManifest(pipelineAgents)
         ? userWorkflowId
           // Saved: the row IS the source of truth; the backend compiles its
@@ -925,7 +942,7 @@ export function ComposerPage({
           <span className="h-3 w-px flex-none bg-line-faint-row" />
           <span className="whitespace-nowrap">
             <span className="tabular-nums">{gateCount}</span>{" "}
-            <span className="font-normal text-ink-300">review gate</span>
+            <span className="font-normal text-ink-300">review gate{gateCount !== 1 ? "s" : ""}</span>
           </span>
           <span className="h-3 w-px flex-none bg-line-faint-row" />
           <span className="whitespace-nowrap tabular-nums">{estDurationLabel}</span>

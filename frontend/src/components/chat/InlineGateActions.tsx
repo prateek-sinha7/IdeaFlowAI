@@ -192,6 +192,29 @@ export function InlineGateActions({
   // "summary") render correctly without requiring XML wrapper tags in their text.
   const resolvedArtifactKind = discriminateArtifact(output, artifactKind);
 
+  // ── Routed human gate: the human IS the router ─────────────────────────────
+  // The backend publishes a routed step's declared `route.outcomes` keys on the
+  // EXISTING generic carriers — `artifact_kind: "conditional_gate"` as the
+  // discriminator, the choices JSON-encoded on `output` (the same channel the
+  // approval gate's D-04 snapshot rides). Branch on the RAW prop, not on
+  // discriminateArtifact, which only resolves the three preview kinds.
+  //
+  // Free text here was the defect: the answer must equal a declared outcome key
+  // exactly, and nothing told the user what those keys were. A malformed parse
+  // falls back to the normal card, so a bad payload degrades rather than breaks.
+  const choicePayload = (() => {
+    if (artifactKind !== "conditional_gate") return null;
+    try {
+      const parsed = JSON.parse(output) as { prompt?: string; choices?: unknown };
+      const choices = Array.isArray(parsed.choices)
+        ? parsed.choices.filter((c): c is string => typeof c === "string" && !!c)
+        : [];
+      return choices.length ? { prompt: String(parsed.prompt ?? ""), choices } : null;
+    } catch {
+      return null;
+    }
+  })();
+
   return (
     <div
       data-testid="chat-gate-actions"
@@ -222,6 +245,9 @@ export function InlineGateActions({
               : `Revision cycle ${revisionCycle} · complete`}
           </span>
         )}
+        {/* A choice gate has no free-text surface — `output` is a JSON envelope,
+            and the answer must be a declared outcome key. */}
+        {!choicePayload && (
         <button
           type="button"
           onClick={() => setShowEdit((v) => !v)}
@@ -231,6 +257,7 @@ export function InlineGateActions({
           <Edit3 className="h-3 w-3" /> Edit
           {hasEdits && <span className="w-1.5 h-1.5 rounded-full bg-status-amber" />}
         </button>
+        )}
       </div>
 
       {showEdit && (
@@ -263,9 +290,43 @@ export function InlineGateActions({
         </p>
       )}
 
+      {/* The declared outcomes, as the primary action row. Each button resolves
+          the gate through the SAME approve channel — the value is the route
+          decision the conditional gate reads, the label is just presentation. */}
+      {choicePayload && (
+        <>
+          {choicePayload.prompt && (
+            <p data-testid="chat-gate-choice-prompt" className="text-[11px] text-ink-700 whitespace-pre-wrap">
+              {choicePayload.prompt}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {choicePayload.choices.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                data-testid={`chat-gate-choice-${choice}`}
+                onClick={() => {
+                  if (submitted) return;
+                  setSubmitted(true);
+                  onApprove(gateKey, JSON.stringify({ decision: choice }));
+                }}
+                disabled={submitted}
+                className="flex-1 min-w-[110px] flex items-center justify-center gap-2 rounded-xl bg-brand text-white px-4 py-2.5 text-[12px] font-semibold hover:bg-brand-pressed transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                {choice.charAt(0).toUpperCase() + choice.slice(1)}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       {/* The mock's TWO primary buttons — Approve & build / Request changes. */}
       <div className="flex gap-2">
-        {/* 1. Approve — the shared approve_review channel (approved:true). */}
+        {/* 1. Approve — the shared approve_review channel (approved:true).
+               Replaced by the choice row above on a routed gate. */}
+        {!choicePayload && (
         <button
           type="button"
           data-testid="chat-gate-approve"
@@ -277,6 +338,7 @@ export function InlineGateActions({
           {approveLabel ??
             (hasEdits ? "Approve with edits & build" : "Approve & build")}
         </button>
+        )}
 
         {/* 2. Request changes — reveals the redo/reject channels. */}
         <button

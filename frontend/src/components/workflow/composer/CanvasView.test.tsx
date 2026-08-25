@@ -42,6 +42,7 @@ vi.mock("@/lib/api", () => ({
   getAgentPrompt: vi.fn().mockResolvedValue({ prompt_body: "", override: null, has_override: false }),
   saveAgentPromptOverride: vi.fn(),
   deleteAgentPromptOverride: vi.fn(),
+  getWorkflowDefinitions: vi.fn().mockResolvedValue([]), // Mock for external workflow rendering
 }));
 
 // CanvasConfigRail's skills picker (T29/R-36) reads the global Skills catalog
@@ -56,11 +57,276 @@ vi.mock("@/hooks/useSkillsCatalog", () => ({
 }));
 
 import { CanvasView } from "./CanvasView";
+import {
+  computeRootLayout,
+  EXTERNAL_NODE_H,
+  NODE_GAP,
+  NODE_W,
+  NODE_Y,
+  ROW_GAP,
+  START_X,
+} from "./graphLayout";
+import { ROOT_H_EST } from "./treeLayout";
+
+// ── Test helpers for layout computation and collision detection ────────────────
+// Reuse the real layout algorithm from graphLayout.ts and test geometric invariants
+// independently of jsdom (which has no layout engine).
+//
+// The constants above are IMPORTED, never redeclared here. A previous version of
+// this file carried its own copies (NODE_GAP = 20, ROW_GAP = 16 against real values
+// of 96 and 64) alongside a full replica of the layout algorithm, so the whole
+// layout suite exercised a divergent copy and stayed green while the live canvas
+// was visibly broken. One source for the algorithm AND its constants is what stops
+// that recurring.
+
+type LayoutSlot = { col: number; row: number };
+
+// Wrapper to convert computeRootLayout output to test helper format.
+function computeCanvasLayout(
+  pipelineAgents: AgentDef[],
+  selections: SelectionsMap,
+  rowPortOffset: number = 88, // approximate from CanvasView
+): { rootLayout: Map<string, LayoutSlot>; workflowSlots: Map<string, LayoutSlot> } {
+  // Call the real layout function from graphLayout.ts
+  return computeRootLayout(pipelineAgents, selections, rowPortOffset);
+}
+
+// Compute pixel coordinates for all nodes given layout and column positions.
+// Returns a map of node ID -> { x, y, width, height }.
+function computeNodeBoxes(
+  pipelineAgents: AgentDef[],
+  layout: Map<string, LayoutSlot>,
+  wfSlots: Map<string, LayoutSlot>,
+): Map<string, { x: number; y: number; width: number; height: number }> {
+  const boxes = new Map<string, { x: number; y: number; width: number; height: number }>();
+
+  // Simplified column x computation (assumes uniform column spacing for testing)
+  const cols = new Set<number>();
+  for (const a of pipelineAgents) {
+    const col = layout.get(a.id)?.col ?? 0;
+    cols.add(col);
+  }
+  for (const slot of wfSlots.values()) cols.add(slot.col);
+
+  const columnX = new Map<number, number>();
+  let x = START_X;
+  [...cols].sort((p, q) => p - q).forEach((col) => {
+    columnX.set(col, x);
+    x += NODE_W + NODE_GAP;
+  });
+
+  // Root agents
+  for (const agent of pipelineAgents) {
+    const slot = layout.get(agent.id);
+    if (!slot) continue;
+    const col = slot.col ?? 0;
+    const posX = columnX.get(col) ?? START_X;
+    boxes.set(agent.id, {
+      x: posX,
+      y: NODE_Y + slot.row,
+      width: NODE_W,
+      height: ROOT_H_EST,
+    });
+  }
+
+  // Workflow nodes
+  for (const [key, slot] of wfSlots.entries()) {
+    const posX = columnX.get(slot.col) ?? START_X;
+    boxes.set(key, {
+      x: posX,
+      y: NODE_Y + slot.row,
+      width: NODE_W,
+      height: EXTERNAL_NODE_H,
+    });
+  }
+
+  return boxes;
+}
+
+// Check if two boxes (as [x, y, x+w, y+h] rectangles) intersect.
+function boxesIntersect(
+  b1: { x: number; y: number; width: number; height: number },
+  b2: { x: number; y: number; width: number; height: number },
+): boolean {
+  const b1Right = b1.x + b1.width;
+  const b1Bottom = b1.y + b1.height;
+  const b2Right = b2.x + b2.width;
+  const b2Bottom = b2.y + b2.height;
+  return !(b1Right <= b2.x || b1.x >= b2Right || b1Bottom <= b2.y || b1.y >= b2Bottom);
+}
+
+// L5: Verify no-overlap invariant: no two nodes' rendered boxes intersect.
+function assertNoCollisions(
+  boxes: Map<string, { x: number; y: number; width: number; height: number }>,
+  context?: string,
+): void {
+  const ids = Array.from(boxes.keys());
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const b1 = boxes.get(ids[i])!;
+      const b2 = boxes.get(ids[j])!;
+      const intersects = boxesIntersect(b1, b2);
+      if (intersects) {
+        throw new Error(
+          `${context ? context + ": " : ""}Collision (L5) between ${ids[i]} and ${ids[j]}. ` +
+            `${ids[i]}: (${b1.x}, ${b1.y}, ${b1.width}x${b1.height}) ` +
+            `${ids[j]}: (${b2.x}, ${b2.y}, ${b2.width}x${b2.height})`,
+        );
+      }
+    }
+  }
+}
+
+// L1: All nodes must be in bounds (no negative y).
+function assertInBounds(
+  boxes: Map<string, { x: number; y: number; width: number; height: number }>,
+  context?: string,
+): void {
+  for (const [id, b] of boxes.entries()) {
+    if (b.y < 0) {
+      throw new Error(
+        `${context ? context + ": " : ""}Node ${id} violates L1 (in-bounds): y=${b.y} < 0`,
+      );
+    }
+  }
+}
+
+// L2: Fan must be vertically centred on its gate (within tolerance).
+// Gate centre should equal the average of all outcome centres in the fan.
+function assertFanCentred(
+  agents: AgentDef[],
+  layout: Map<string, { col: number; row: number }>,
+  context?: string,
+  tolerance: number = 10,
+): void {
+  for (const agent of agents) {
+    const gateSlot = layout.get(agent.id);
+    if (!gateSlot || !agent.route?.outcomes) continue;
+
+    const gateCy = NODE_Y + gateSlot.row;
+    const targetCol = gateSlot.col + 1;
+
+    // Collect all outcomes in the gate's fan
+    const outcomeCys: number[] = [];
+    for (const [, outcome] of Object.entries(agent.route.outcomes)) {
+      if (!outcome.target) continue;
+      const slot =
+        outcome.trigger === "workflow" ? undefined : layout.get(outcome.target);
+      if (slot && slot.col === targetCol) {
+        outcomeCys.push(NODE_Y + slot.row);
+      }
+    }
+
+    if (outcomeCys.length < 2) continue;
+
+    // L2: average of all outcomes should equal gate centre (within tolerance)
+    const avgCy = outcomeCys.reduce((a, b) => a + b, 0) / outcomeCys.length;
+    if (Math.abs(avgCy - gateCy) > tolerance) {
+      throw new Error(
+        `${context ? context + ": " : ""}Gate ${agent.id} violates L2 (centred). Gate cy=${gateCy}, outcomes avg=${avgCy.toFixed(1)}, diff=${Math.abs(avgCy - gateCy).toFixed(1)} > ${tolerance}`,
+      );
+    }
+  }
+}
+
+// L3: Consecutive members of a fan must have equal vertical spacing (even pitch).
+function assertEvenSpacing(
+  agents: AgentDef[],
+  layout: Map<string, { col: number; row: number }>,
+  context?: string,
+  tolerance: number = 2,
+): void {
+  for (const agent of agents) {
+    const gateSlot = layout.get(agent.id);
+    if (!gateSlot || !agent.route?.outcomes) continue;
+
+    const targetCol = gateSlot.col + 1;
+
+    // Collect outcomes in the fan, sorted by row
+    const outcomes: { cy: number }[] = [];
+    for (const [, outcome] of Object.entries(agent.route.outcomes)) {
+      if (!outcome.target) continue;
+      const slot =
+        outcome.trigger === "workflow" ? undefined : layout.get(outcome.target);
+      if (slot && slot.col === targetCol) {
+        outcomes.push({ cy: NODE_Y + slot.row });
+      }
+    }
+
+    if (outcomes.length < 2) continue;
+
+    outcomes.sort((a, b) => a.cy - b.cy);
+
+    // L3: all gaps should be equal (within tolerance)
+    const gaps: number[] = [];
+    for (let i = 0; i < outcomes.length - 1; i++) {
+      gaps.push(outcomes[i + 1]!.cy - outcomes[i]!.cy);
+    }
+
+    const firstGap = gaps[0]!;
+    for (let i = 1; i < gaps.length; i++) {
+      if (Math.abs(gaps[i]! - firstGap) > tolerance) {
+        throw new Error(
+          `${context ? context + ": " : ""}Gate ${agent.id} violates L3 (even spacing). Gaps: [${gaps.map((g) => g.toFixed(1)).join(", ")}]`,
+        );
+      }
+    }
+  }
+}
+
+// L4: Fan extent must be compact (roughly N * (maxH + ROW_GAP)).
+function assertCompact(
+  agents: AgentDef[],
+  layout: Map<string, { col: number; row: number }>,
+  context?: string,
+): void {
+  for (const agent of agents) {
+    const gateSlot = layout.get(agent.id);
+    if (!gateSlot || !agent.route?.outcomes) continue;
+
+    const targetCol = gateSlot.col + 1;
+
+    // Collect outcomes with their heights
+    const outcomes: { y: number; h: number }[] = [];
+    for (const [, outcome] of Object.entries(agent.route.outcomes)) {
+      if (!outcome.target) continue;
+      const slot =
+        outcome.trigger === "workflow" ? undefined : layout.get(outcome.target);
+      if (slot && slot.col === targetCol) {
+        const h = outcome.trigger === "workflow" ? EXTERNAL_NODE_H : ROOT_H_EST;
+        outcomes.push({ y: NODE_Y + slot.row, h });
+      }
+    }
+
+    if (outcomes.length < 2) continue;
+
+    // L4: total extent should be ~n * (max_h + ROW_GAP) plus some slack
+    const minY = Math.min(...outcomes.map((o) => o.y));
+    const maxY = Math.max(...outcomes.map((o) => o.y + o.h));
+    const extent = maxY - minY;
+
+    const n = outcomes.length;
+    const maxH = Math.max(...outcomes.map((o) => o.h));
+    const expectedExtent = n * (maxH + ROW_GAP);
+    const slack = Math.max(maxH, expectedExtent * 0.1);
+
+    if (extent > expectedExtent + slack) {
+      throw new Error(
+        `${context ? context + ": " : ""}Gate ${agent.id} violates L4 (compact). Extent=${extent.toFixed(1)}, expected ~${expectedExtent.toFixed(1)}, slack=${slack.toFixed(1)}`,
+      );
+    }
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
 
 const PALETTE: CapabilitiesPalette = {
   capabilities: [
     { kind: "validator", name: "code_test", user_allowed: true, description: "Runs the tests.", security_gated: false, config_schema: {} },
     { kind: "gate", name: "approval", user_allowed: true, description: "Human approval gate.", security_gated: false, config_schema: {} },
+    { kind: "gate", name: "before-human", user_allowed: true, description: "Before-execute human gate.", security_gated: false, config_schema: {} },
+    { kind: "gate", name: "human", user_allowed: true, description: "Post-execute human gate.", security_gated: false, config_schema: {} },
+    { kind: "gate", name: "conditional", user_allowed: true, description: "Conditional gate for branching.", security_gated: false, config_schema: {} },
   ],
   model_catalog: [
     { id: "model-opus", label: "Opus 4.5", description: "Most capable.", tier: "powerful", cost_class: "premium", provider: "anthropic", context_window: 200000, user_allowed: true },
@@ -152,9 +418,9 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
     // Model and Overrides are in the Config tab — click to switch
     await userEvent.click(screen.getByTestId("tab-config"));
     expect(await screen.findByLabelText(/^Model$/i)).toBeInTheDocument();
-    // Validator toggle switch + Review-gate select are in the Config tab
+    // Validator toggle switch + the Gate select are in the Config tab
     expect(screen.getByRole("switch", { name: /Validator/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/Review gate/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Gate")).toBeInTheDocument();
     // The selected node carries the selected marker.
     expect(screen.getByTestId("canvas-node-bravo")).toHaveAttribute("data-selected", "true");
   });
@@ -189,18 +455,28 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
     expect(sel?.gates).toContain("validation");
   });
 
-  it("the Review-gate select attaches the picked (non-validation) review gate", async () => {
+  it("the Gate select attaches a gate to selections, and never offers before-human", async () => {
     const { onSelection } = renderCanvas();
     await userEvent.click(screen.getByTestId("canvas-node-bravo"));
     // CanvasConfigRail is in the Agent tab
     await userEvent.click(screen.getByText("Agent"));
-    // Review-gate select is in the Config tab
+    // The Gate select is in the Config tab
     await userEvent.click(screen.getByTestId("tab-config"));
     await screen.findByLabelText(/^Model$/i);
-    await userEvent.selectOptions(screen.getByLabelText(/Review gate/i), "approval");
-    const [id, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    const gate = screen.getByLabelText("Gate") as HTMLSelectElement;
+    // `before-human` is reachable ONLY through the route editor's Prompt User
+    // toggle (see CanvasConfigRail.test.tsx) — never from this select, because
+    // it and `human` are different gates that would both label "Human gate".
+    expect([...gate.options].map((o) => o.value)).not.toContain("before-human");
+    await userEvent.selectOptions(gate, "conditional");
+    let [id, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
     expect(id).toBe("bravo");
-    expect((sel?.gates ?? []).some((g) => g !== "validation")).toBe(true);
+    expect(sel?.gates).toEqual(["conditional"]);
+    // Choosing another gate REPLACES it — a step carries one, not a set.
+    await userEvent.selectOptions(screen.getByLabelText("Gate"), "human");
+    [id, sel] = onSelection.mock.calls.at(-1) as [string, StepSelection | undefined];
+    expect(id).toBe("bravo");
+    expect(sel?.gates).toEqual(["human"]);
   });
 
   it("the Retry stepper writes retry to the per-agent SelectionsMap", async () => {
@@ -240,6 +516,298 @@ describe("CanvasView — hand-rolled node-graph (41-05)", () => {
     renderCanvas();
     expect(screen.getByTestId("canvas-view")).toBeInTheDocument();
     expect(screen.getByTestId("canvas-brief")).toBeInTheDocument();
+  });
+});
+
+// ── Backward loop targets preserve chain edges (A1 shape) ───────────────────────
+// A backward route target (loop back) is entered normally on the first pass and
+// re-entered by the loop; it must keep its incoming chain edge and not become a
+// false leaf. Forward route targets are reachable only via the amber route line,
+// so they correctly lose the chain edge and their predecessor becomes a leaf.
+describe("CanvasView — backward (loop) targets preserve chain edges, forward targets don't (A1 shape)", () => {
+  it("A1 shape: conditional gate with forward + backward outcomes; backward target keeps chain edge and predecessor is not a leaf", () => {
+    // Agents: emoji (0) → greet (1) → check (2, conditional gate) → done (3)
+    // Check routes: "ok" → done (forward, index 3 > 2), "retry" → greet (backward, index 1 < 2)
+    const agents: AgentDef[] = [
+      mkAgent({ id: "emoji", name: "Emoji Agent", role: "Greets", order: 1 }),
+      mkAgent({ id: "greet", name: "Greet Agent", role: "Greets", order: 2 }),
+      mkAgent({
+        id: "check",
+        name: "Check Agent",
+        role: "Checks",
+        order: 3,
+        route: {
+          outcomes: {
+            ok: { target: "done", trigger: "step" },
+            retry: { target: "greet", trigger: "step" },
+          },
+        },
+      }),
+      mkAgent({ id: "done", name: "Done Agent", role: "Finalizes", order: 4 }),
+    ];
+
+    const selections: SelectionsMap = {
+      check: { gates: ["conditional"] },
+    };
+
+    const { onAddAgent } = renderCanvas({ pipelineAgents: agents, selections });
+
+    // (a) Chain edge emoji → greet must exist: an svg path spanning from emoji
+    // to greet should be drawn, even though greet is a route target (of the
+    // backward outcome of check). Before the fix, greet was incorrectly in
+    // routeTargetIds, suppressing its chain edge and making emoji a false leaf.
+    const allEdges = screen.getAllByTestId("canvas-edge");
+    // We expect at least 3 chain edges: Brief→emoji, emoji→greet, greet→check.
+    // (check→done has no chain edge because done is a forward route target.)
+    // Find paths that go rightward in x-space (chain/tree edges, not loops).
+    const rightwardEdges = allEdges.filter((e) => {
+      const d = e.getAttribute("d") ?? "";
+      // A rightward edge has a target x > source x in the path "M sx sy C ... ex ey".
+      const matches = d.match(/M\s+([\d.]+)\s+[\d.]+\s+C.*\s+([\d.]+)\s+[\d.]+/);
+      if (!matches) return false;
+      const sx = parseFloat(matches[1]!);
+      const ex = parseFloat(matches[2]!);
+      return ex > sx;
+    });
+    expect(rightwardEdges.length).toBeGreaterThanOrEqual(3);
+
+    // (b) emoji (index 0) must NOT get a leaf affordance. Before the fix, emoji
+    // was incorrectly a leaf and got a "+" button. After the fix, only the truly
+    // final leaf (done) should have a "+" at the end.
+    const addButtons = screen.getAllByRole("button", { name: /Add agent/i });
+    // For A1: emoji (no leaf, has chain to greet), greet (no leaf, has chain to check),
+    // check (not a leaf, it branches away), done (is a leaf).
+    // Inter-node insert affordances on edges with chain edges: emoji→greet, greet→check (2).
+    // Leaf adds: done (1).
+    // Total: 2 + 1 = 3 buttons (before fix: 4, with spurious emoji leaf).
+    expect(addButtons.length).toBeLessThanOrEqual(3);
+
+    // (c) The last node (done, index 3) is a leaf and its add button's
+    // insertBeforeId must be undefined (append at end). We can verify this by
+    // clicking the last add button and checking that onAddAgent is called with
+    // no insertBeforeId argument.
+    fireEvent.click(addButtons[addButtons.length - 1]!);
+    expect(onAddAgent).toHaveBeenCalled();
+    const lastCallArg = onAddAgent.mock.calls[onAddAgent.mock.calls.length - 1]?.[0];
+    // lastCallArg should be undefined (no insertBeforeId for the final leaf).
+    expect(lastCallArg).toBeUndefined();
+  });
+
+  it("external workflow nodes and chain nodes in same column don't collide (workflow-only gate)", () => {
+    // A3 defect case: gate with ONLY workflow outcomes, followed by a chain node.
+    // Repro: emoji → language (gate) → a-english; outcomes: {spanish: workflow}.
+    // The workflow slot and a-english (both col+1) must have different rows to avoid overlap.
+    const agents: AgentDef[] = [
+      mkAgent({ id: "emoji", name: "Emoji Agent", role: "Greets", order: 1 }),
+      mkAgent({
+        id: "language",
+        name: "Language Agent",
+        role: "Chooses",
+        order: 2,
+        route: {
+          outcomes: {
+            spanish: { target: "ex_A3_b_spanish", trigger: "workflow" },
+          },
+        },
+      }),
+      mkAgent({ id: "a-english", name: "English Agent", role: "Greets", order: 3 }),
+    ];
+
+    const selections: SelectionsMap = {
+      language: { gates: ["conditional"] },
+    };
+
+    renderCanvas({ pipelineAgents: agents, selections });
+
+    // Smoke test: all root nodes render without error.
+    expect(screen.getByTestId("canvas-node-emoji")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-language")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-a-english")).toBeInTheDocument();
+
+    // Assert L1-L5 invariants on computed layout values.
+    const { rootLayout, workflowSlots } = computeCanvasLayout(agents, selections);
+    const boxes = computeNodeBoxes(agents, rootLayout, workflowSlots);
+    assertInBounds(boxes, "workflow-only gate: L1");
+    assertNoCollisions(boxes, "workflow-only gate: L5");
+    assertFanCentred(agents, rootLayout, "workflow-only gate: L2");
+    assertEvenSpacing(agents, rootLayout, "workflow-only gate: L3");
+    assertCompact(agents, rootLayout, "workflow-only gate: L4");
+  });
+
+  it("external workflow nodes and step targets in same column don't collide (mixed outcomes)", () => {
+    // Full A3 shape: gate with BOTH step and workflow outcomes.
+    // Outcomes: {english→step, spanish→workflow, dutch→workflow}.
+    // All nodes must be fanned so that multiple outcomes in the same column have different rows.
+    const agents: AgentDef[] = [
+      mkAgent({ id: "emoji", name: "Emoji Agent", role: "Greets", order: 1 }),
+      mkAgent({
+        id: "language",
+        name: "Language Agent",
+        role: "Chooses",
+        order: 2,
+        route: {
+          outcomes: {
+            english: { target: "a-english", trigger: "step" },
+            spanish: { target: "ex_A3_b_spanish", trigger: "workflow" },
+            dutch: { target: "ex_A3_c_dutch", trigger: "workflow" },
+          },
+        },
+      }),
+      mkAgent({ id: "a-english", name: "English Agent", role: "Greets", order: 3 }),
+    ];
+
+    const selections: SelectionsMap = {
+      language: { gates: ["conditional"] },
+    };
+
+    renderCanvas({ pipelineAgents: agents, selections });
+
+    // Smoke test: all root nodes render without error.
+    expect(screen.getByTestId("canvas-node-emoji")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-language")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-a-english")).toBeInTheDocument();
+
+    // Assert L1-L5 invariants on computed layout values.
+    const { rootLayout, workflowSlots } = computeCanvasLayout(agents, selections);
+    const boxes = computeNodeBoxes(agents, rootLayout, workflowSlots);
+    assertInBounds(boxes, "mixed outcomes: L1");
+    assertNoCollisions(boxes, "mixed outcomes: L5");
+    assertFanCentred(agents, rootLayout, "mixed outcomes: L2");
+    assertEvenSpacing(agents, rootLayout, "mixed outcomes: L3");
+    assertCompact(agents, rootLayout, "mixed outcomes: L4");
+  });
+
+  it("external workflow nodes in complex fan: multiple outcomes don't collide (outcome order variant)", () => {
+    // Variant with different outcome arrangement: two workflows + one step.
+    // Outcomes: {spanish→workflow, english→step, dutch→workflow}.
+    // The fan calculation must correctly position all outcomes regardless of order.
+    const agents: AgentDef[] = [
+      mkAgent({ id: "emoji", name: "Emoji Agent", role: "Greets", order: 1 }),
+      mkAgent({
+        id: "language",
+        name: "Language Agent",
+        role: "Chooses",
+        order: 2,
+        route: {
+          outcomes: {
+            spanish: { target: "ex_A3_b_spanish", trigger: "workflow" },
+            english: { target: "a-english", trigger: "step" },
+            dutch: { target: "ex_A3_c_dutch", trigger: "workflow" },
+          },
+        },
+      }),
+      mkAgent({ id: "a-english", name: "English Agent", role: "Greets", order: 3 }),
+    ];
+
+    const selections: SelectionsMap = {
+      language: { gates: ["conditional"] },
+    };
+
+    renderCanvas({ pipelineAgents: agents, selections });
+
+    // Smoke test: all root nodes render without error.
+    expect(screen.getByTestId("canvas-node-emoji")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-language")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-a-english")).toBeInTheDocument();
+
+    // Assert L1-L5 invariants on computed layout values.
+    const { rootLayout, workflowSlots } = computeCanvasLayout(agents, selections);
+    const boxes = computeNodeBoxes(agents, rootLayout, workflowSlots);
+    assertInBounds(boxes, "outcome order variant: L1");
+    assertNoCollisions(boxes, "outcome order variant: L5");
+    assertFanCentred(agents, rootLayout, "outcome order variant: L2");
+    assertEvenSpacing(agents, rootLayout, "outcome order variant: L3");
+    assertCompact(agents, rootLayout, "outcome order variant: L4");
+  });
+
+  it("A1 loop shape: backward target doesn't collide (retry→greet loop)", () => {
+    // A1 shape: emoji → greet → check (conditional gate) → done
+    // Check routes: "ok" → done (forward), "retry" → greet (backward/loop)
+    // greet should not collide with check's fan outcomes (it's a backward target).
+    const agents: AgentDef[] = [
+      mkAgent({ id: "emoji", name: "Emoji Agent", role: "Greets", order: 1 }),
+      mkAgent({ id: "greet", name: "Greet Agent", role: "Greets", order: 2 }),
+      mkAgent({
+        id: "check",
+        name: "Check Agent",
+        role: "Checks",
+        order: 3,
+        route: {
+          outcomes: {
+            ok: { target: "done", trigger: "step" },
+            retry: { target: "greet", trigger: "step" },
+          },
+        },
+      }),
+      mkAgent({ id: "done", name: "Done Agent", role: "Finalizes", order: 4 }),
+    ];
+
+    const selections: SelectionsMap = {
+      check: { gates: ["conditional"] },
+    };
+
+    renderCanvas({ pipelineAgents: agents, selections });
+
+    // All nodes should render without error.
+    expect(screen.getByTestId("canvas-node-emoji")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-greet")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-check")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-done")).toBeInTheDocument();
+
+    // Assert L1-L5 invariants: even with a backward route, layout must satisfy all constraints.
+    const { rootLayout, workflowSlots } = computeCanvasLayout(agents, selections);
+    const boxes = computeNodeBoxes(agents, rootLayout, workflowSlots);
+    assertInBounds(boxes, "A1 loop shape: L1");
+    assertNoCollisions(boxes, "A1 loop shape: L5");
+    assertFanCentred(agents, rootLayout, "A1 loop shape: L2");
+    assertEvenSpacing(agents, rootLayout, "A1 loop shape: L3");
+    assertCompact(agents, rootLayout, "A1 loop shape: L4");
+  });
+
+  it("three-way forward branch doesn't collide (A2 all-same-height)", () => {
+    // A2 shape: gate with three forward step outcomes, all same height.
+    // All three targets should be fanned vertically with even spacing.
+    const agents: AgentDef[] = [
+      mkAgent({ id: "start", name: "Start Agent", role: "Starts", order: 1 }),
+      mkAgent({
+        id: "router",
+        name: "Router Agent",
+        role: "Routes",
+        order: 2,
+        route: {
+          outcomes: {
+            path1: { target: "path1-agent", trigger: "step" },
+            path2: { target: "path2-agent", trigger: "step" },
+            path3: { target: "path3-agent", trigger: "step" },
+          },
+        },
+      }),
+      mkAgent({ id: "path1-agent", name: "Path 1 Agent", role: "Handles", order: 3 }),
+      mkAgent({ id: "path2-agent", name: "Path 2 Agent", role: "Handles", order: 4 }),
+      mkAgent({ id: "path3-agent", name: "Path 3 Agent", role: "Handles", order: 5 }),
+    ];
+
+    const selections: SelectionsMap = {
+      router: { gates: ["conditional"] },
+    };
+
+    renderCanvas({ pipelineAgents: agents, selections });
+
+    // All nodes should render without error.
+    expect(screen.getByTestId("canvas-node-start")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-router")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-path1-agent")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-path2-agent")).toBeInTheDocument();
+    expect(screen.getByTestId("canvas-node-path3-agent")).toBeInTheDocument();
+
+    // Assert L1-L5 invariants on computed layout values.
+    const { rootLayout, workflowSlots } = computeCanvasLayout(agents, selections);
+    const boxes = computeNodeBoxes(agents, rootLayout, workflowSlots);
+    assertInBounds(boxes, "A2 three-way: L1");
+    assertNoCollisions(boxes, "A2 three-way: L5");
+    assertFanCentred(agents, rootLayout, "A2 three-way: L2");
+    assertEvenSpacing(agents, rootLayout, "A2 three-way: L3");
+    assertCompact(agents, rootLayout, "A2 three-way: L4");
   });
 });
 

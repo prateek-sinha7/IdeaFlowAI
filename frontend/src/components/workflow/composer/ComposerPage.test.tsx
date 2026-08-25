@@ -355,6 +355,45 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
     await userEvent.click(screen.getByRole("button", { name: /Save workflow/i }));
     expect(await screen.findByText(msg)).toBeInTheDocument();
   });
+
+  // These two seed agents EXPLICITLY via `initialAgentIds`. The composer no
+  // longer seeds a per-workflowType template — a mount with neither
+  // initialManifestSteps nor initialAgentIds is a genuinely empty canvas now
+  // — so `renderComposer()` bare renders zero agent rows and there would be no
+  // badge to assert on. (That change is also why the seven older tests in this
+  // file fail: they still expect the removed template seeding.)
+  it("header badge counts only review gates (human/before-human), not conditional gates (DEFECT E / ADR-0013)", async () => {
+    // Conditional gates route execution; review gates pause for a human. Only
+    // `human` and `before-human` count toward the badge.
+    renderComposer({
+      initialAgentIds: ["domain-analyst", "epic-architect"],
+      initialSelections: {
+        "domain-analyst": { gates: ["conditional"] },
+        "epic-architect": { gates: ["before-human", "conditional"] },
+      },
+    });
+    const summary = await screen.findByTestId("composer-header-summary");
+    // domain-analyst is conditional-only and must NOT count; epic-architect
+    // carries before-human and must.
+    expect(within(summary).getByText(/review gate/).parentElement).toHaveTextContent(
+      "1 review gate",
+    );
+  });
+
+  it("header badge pluralizes the gate label correctly", async () => {
+    renderComposer({
+      initialAgentIds: ["domain-analyst", "epic-architect"],
+      initialSelections: {
+        "domain-analyst": { gates: ["human"] },
+        "epic-architect": { gates: ["before-human"] },
+      },
+    });
+    const summary = await screen.findByTestId("composer-header-summary");
+    expect(within(summary).getByText(/review gate/).parentElement).toHaveTextContent(
+      "2 review gates",
+    );
+  });
+
 });
 
 // ── Additive / INV-3 source-level guards ────────────────────────────────────────

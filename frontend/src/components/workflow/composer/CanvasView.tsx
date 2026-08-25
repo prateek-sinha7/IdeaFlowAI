@@ -18,6 +18,7 @@ import {
   layoutChildren,
   type FlatPos,
 } from "./treeLayout";
+import { computeRootLayout } from "./graphLayout";
 import { useAgentCapabilities, type SelectionsMap, type StepSelection } from "../AgentsPopup";
 import { BriefAttachBox, type BriefAttachments } from "../IdeaInputPage";
 import type {
@@ -826,53 +827,10 @@ export function CanvasView({
   //  so nodes after a group resume just past it rather than leaving n-1 columns
   //  empty. Backward/loop targets are skipped — they are real earlier nodes with
   //  positions of their own.
-  const { rootLayout, workflowSlots } = useMemo(() => {
-    const layout = new Map<string, { col: number; row: number }>();
-    // Slots for `trigger:"workflow"` outcomes, keyed `${sourceId}::${outcomeKey}`.
-    // They are NOT agents — the target runs as its own WorkflowRun — so they
-    // cannot live in `layout` alongside real steps. They do occupy a row in
-    // their source's fan though, so R2 allocates for both kinds together;
-    // otherwise a step branch and a workflow branch would be handed the same
-    // row and render on top of each other.
-    const wfSlots = new Map<string, { col: number; row: number }>();
-    const order = new Map(pipelineAgents.map((a, i) => [a.id, i]));
-    const cardH = rowPortOffset * 2;
-    let nextFreeCol = 0;
-    for (const agent of pipelineAgents) {
-      if (!layout.has(agent.id)) layout.set(agent.id, { col: nextFreeCol, row: 0 });
-      const me = layout.get(agent.id)!;
-      nextFreeCol = Math.max(nextFreeCol, me.col + 1);
-      if (!(selections[agent.id]?.gates ?? []).includes("conditional")) continue;
-      const sourceOrder = order.get(agent.id) ?? 0;
-      const group: ({ kind: "step"; id: string } | { kind: "workflow"; key: string })[] = [];
-      for (const [outcomeKey, o] of Object.entries(agent.route?.outcomes ?? {})) {
-        if (!o.target) continue;
-        if (o.trigger === "workflow") {
-          group.push({ kind: "workflow", key: `${agent.id}::${outcomeKey}` });
-        } else if ((order.get(o.target) ?? -1) > sourceOrder && !layout.has(o.target)) {
-          // Forward step targets only — a backward/loop target is a real
-          // earlier node that already has a position. `!layout.has` keeps the
-          // first group if a node is somehow targeted twice.
-          group.push({ kind: "step", id: o.target });
-        }
-      }
-      if (group.length === 0) continue;
-      const n = group.length;
-      const step = cardH + ROW_GAP;
-      const stackH = n * cardH + (n - 1) * ROW_GAP;
-      const delta =
-        n % 2 === 1
-          ? me.row - ((n - 1) / 2) * step // odd: middle target level with S
-          : me.row + cardH / 2 - stackH / 2; // even: stack centred on S
-      group.forEach((member, i) => {
-        const slot = { col: me.col + 1, row: i * step + delta };
-        if (member.kind === "step") layout.set(member.id, slot);
-        else wfSlots.set(member.key, slot);
-      });
-      nextFreeCol = Math.max(nextFreeCol, me.col + 2);
-    }
-    return { rootLayout: layout, workflowSlots: wfSlots };
-  }, [pipelineAgents, selections, rowPortOffset]);
+  const { rootLayout, workflowSlots } = useMemo(
+    () => computeRootLayout(pipelineAgents, selections, rowPortOffset),
+    [pipelineAgents, selections, rowPortOffset],
+  );
 
   // R3 — the single y every sub-agent fan starts at: below the lowest root node
   // in the whole graph. `layoutChildren` drops its first child row by
@@ -925,8 +883,23 @@ export function CanvasView({
         const key = `${agent.id}::${outcomeKey}`;
         const slot = workflowSlots.get(key);
         if (!slot) continue;
+        // External-workflow nodes render in the fan to the right of their gate.
+        // Normally this column has step targets and columnX has an entry for it.
+        // For gates with ONLY workflow outcomes (no step targets), columnX lacks
+        // this column — compute x from the gate's position + offset instead of
+        // falling back to START_X (which would render left of the gate).
+        const x = columnX.get(slot.col) ?? (() => {
+          const gateCol = rootLayout.get(agent.id)?.col ?? 0;
+          const gateX = columnX.get(gateCol) ?? nodeLeft(gateCol);
+          return gateX + NODE_W + NODE_GAP;
+        })();
         m.set(key, {
-          x: columnX.get(slot.col) ?? START_X,
+          // CENTRE the external node in its column. `columnX` is a LEFT edge
+          // sized for a NODE_W (260) step card, but an external node is only
+          // EXTERNAL_NODE_W (190) wide, so sharing the left edge put its centre
+          // 35px left of the step targets sharing that column — a visible
+          // stagger within one gate's fan (ISS-176).
+          x: x + (NODE_W - EXTERNAL_NODE_W) / 2,
           y: NODE_Y + slot.row,
           sourceId: agent.id,
           outcomeKey,
@@ -935,7 +908,7 @@ export function CanvasView({
       }
     }
     return m;
-  }, [pipelineAgents, workflowSlots, columnX]);
+  }, [pipelineAgents, workflowSlots, columnX, rootLayout]);
 
   // ── Sub-agent tree layout — computed fresh from pipelineAgents every
   //    render (cheap, pure function; no DOM measurement needed for nested
@@ -1233,21 +1206,30 @@ export function CanvasView({
   const branchesAway = (id: string) =>
     (selections[id]?.gates ?? []).includes("conditional") &&
     Object.keys(findAgentInTree(pipelineAgents, id)?.route?.outcomes ?? {}).length > 0;
-  // Every node that some conditional step routes INTO. Such a node already has
-  // exactly one incoming line — the brown route edge — so it must not also
-  // receive the blue chain edge from whatever happens to precede it in the
-  // array. Without this, the second target of a 2-way branch got a brown line
-  // from the gate AND a blue line from its sibling: two parents for one node.
-  // Same rule `deriveDependsOn` applies to the persisted `depends_on`, so the
-  // drawing and the compiled graph agree.
+  // Every node that some conditional step routes INTO — FORWARD targets only.
+  // A forward target (target index > source index) is reachable ONLY via the
+  // amber route edge, so it must not also receive the blue chain edge from its
+  // predecessor (suppressing two parents). A BACKWARD (loop) target is entered
+  // normally on the first pass and re-entered by the loop; per backend contract
+  // (workflows/ex_A1_loop/workflow.yaml), it must keep the normal blue chain
+  // edge on its first arrival. Same rule `deriveDependsOn` applies to the
+  // persisted `depends_on`, so the drawing and the compiled graph agree.
+  const stepOrder = new Map(pipelineAgents.map((a, i) => [a.id, i]));
   const routeTargetIds = new Set(
     [...pipelineAgents, ...allDescendants]
       .filter((a) => (selections[a.id]?.gates ?? []).includes("conditional"))
-      .flatMap((a) =>
-        Object.values(a.route?.outcomes ?? {})
+      .flatMap((a) => {
+        const sourceIndex = stepOrder.get(a.id) ?? -1;
+        return Object.values(a.route?.outcomes ?? {})
           .filter((o) => o.trigger === "step" && o.target)
-          .map((o) => o.target as string),
-      ),
+          .filter((o) => {
+            // Forward only: include target if target index > source index.
+            // If source index is -1 (sub-agent, not in pipelineAgents), treat as forward.
+            const targetIndex = stepOrder.get(o.target) ?? -1;
+            return sourceIndex === -1 || targetIndex > sourceIndex;
+          })
+          .map((o) => o.target as string);
+      }),
   );
   const hasChainEdge = (i: number) => {
     if (i === 0) return true; // Brief → first node always draws

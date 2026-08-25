@@ -212,58 +212,67 @@ export function CanvasConfigRail({
 
   const sel = selection ?? {};
   const validatorOn = (sel.validators?.length ?? 0) > 0;
-  // Spec 014 (T35): ALL non-coupled gates are selectable, not just the first
-  // one gateOptions happens to return — a single boolean toggle could only
-  // ever bind to whichever gate sorted first (e.g. "human"), leaving
-  // "conditional" unreachable from Canvas once it became a second option.
-  // ── Gates are PHASED, not one-of-N ────────────────────────────────────────
-  // The engine splits a step's declared gates by when they run: pre-step gates
-  // (security/approval/human) evaluate BEFORE the agent generates; post-step
-  // gates (`_POST_STEP_GATES` = validation/conditional) evaluate AFTER. So one
-  // step legitimately carries one of each — ex_A4_human_divert's `pick-language`
-  // is exactly that: pause for a human, generate, then branch on the result.
+  // ── Gate is ONE choice, plus Prompt User ──────────────────────────────────
+  // A step's `gates:` is a LIST and the engine phases it — pre-step gates
+  // evaluate BEFORE the agent generates, post-step gates (`_POST_STEP_GATES` =
+  // validation/conditional/human) AFTER — but only three combinations are worth
+  // authoring, so one select plus one toggle covers all of them:
   //
-  // A single select could not express it. Worse, it silently DESTROYED it:
-  // `patch({ gates: [value] })` replaced the whole array, so touching the
-  // control on a two-gate step deleted the gate you weren't looking at (and the
-  // coupled `validation` with it). Two phase-scoped selects, each writing only
-  // its own phase and preserving everything else, is the fix.
-  // Mirrors the engine's own `_POST_STEP_GATES`. `human` is POST-step (reviews this
-  // step's own output, supports redo); `before-human` is the PRE-step variant
-  // (reviews the previous step's output, the edit becomes this step's input).
-  const POST_STEP_GATES = ["validation", "conditional", "human"];
-  const isPostGate = (g: string) => POST_STEP_GATES.includes(g);
-  // Human-family gates are MUTUALLY EXCLUSIVE per step: gate_key is
-  // f"{run}:{agent_id}:{visit_count}" with no gate name in it, so two HITL pauses on
-  // one step share a durable slot. The compiler rejects it; the UI shouldn't let you
-  // build it in the first place.
-  const HITL_GATES = ["before-human", "human", "approval"];
+  //   Human                         -> ["human"]
+  //   Conditional, Prompt User OFF  -> ["conditional"]
+  //   Conditional, Prompt User ON   -> ["before-human", "conditional"]
+  //
+  // `before-human` is deliberately NOT an option here. Post-ADR-0013 it is a
+  // DIFFERENT gate from `human`, not an alias: `human` reviews THIS step's own
+  // output after it runs, `before-human` reviews the PREVIOUS step's output
+  // before this one runs — which is what lands the human's answer in the
+  // artifact the route reads. Offering both as sibling "Human gate" rows was
+  // unreadable, and picking the wrong one silently loses the MCQ behaviour. So
+  // the Prompt User toggle owns `before-human` outright and is its only writer.
+  //
+  // Options still come from the server (SC-001): this FILTERS gateOptions, it
+  // never hardcodes a list.
+  const PROMPT_USER_GATE = "before-human";
   const GATE_LABELS: Record<string, string> = {
-    "before-human": "Human gate",
     human: "Human gate",
     approval: "Approval gate",
     security: "Security gate",
     conditional: "Conditional gate",
   };
   const GATE_HINTS: Record<string, string> = {
-    "before-human": "Pause and review the previous step's output; your edit becomes this step's input",
     human: "Pause and review this step's output; edit, reject, or re-run it",
     approval: "Explicit sign-off before this step runs",
     security: "Deny exec/network/secrets unless signed off",
     conditional: "Branch on this step's decision — to another step, or another workflow",
   };
   const declared = sel.gates ?? [];
-  // `validation` is not offered here: it is coupled to the Validator lever above.
-  const selectableGates = gateOptions.filter((g) => g !== COUPLED_GATE);
-  const preGateChoices = selectableGates.filter((g) => !isPostGate(g));
-  const postGateChoices = selectableGates.filter((g) => isPostGate(g));
-  const toggleGate = (name: string, on: boolean) => {
-    let next = declared.filter((g) => g !== name);
-    if (on) {
-      if (HITL_GATES.includes(name)) next = next.filter((g) => !HITL_GATES.includes(g));
-      next = [...next, name];
-    }
-    patch({ gates: next });
+  // `validation` is not offered: it is coupled to the Validator lever above.
+  const gateChoices = gateOptions.filter(
+    (g) => g !== COUPLED_GATE && g !== PROMPT_USER_GATE,
+  );
+  const chosenGate = gateChoices.find((g) => declared.includes(g)) ?? "";
+  const selectGate = (name: string) => {
+    // Preserve gates this control does not own — `validation`, written by the
+    // Validator lever. An earlier single select replaced the whole array and so
+    // deleted it (spec 014 / T35); filtering by ownership is what fixes that.
+    const keep = declared.filter((g) => !gateChoices.includes(g) && g !== PROMPT_USER_GATE);
+    // Prompt User exists only under a conditional gate, so `before-human`
+    // survives only that choice. Carrying it onto "Human" would declare two HITL
+    // gates on one step, which the compiler rejects: gate_key is
+    // f"{run}:{agent_id}:{visit_count}" with no gate name in it, so two pauses
+    // would collide in one durable slot.
+    const keepPromptUser = name === "conditional" && declared.includes(PROMPT_USER_GATE);
+    patch({
+      // `before-human` first, matching ex_A4_human_gate byte-for-byte. Order is
+      // not load-bearing across these two — one is PRE, one is POST, and
+      // `_evaluate_gates` filters by phase, so they can never contend — but
+      // there is no reason to diverge from the shape that was tested live.
+      gates: [
+        ...(keepPromptUser ? [PROMPT_USER_GATE] : []),
+        ...keep,
+        ...(name ? [name] : []),
+      ],
+    });
   };
   const conditionalOnFor = declared.includes("conditional");
   const retry = sel.retry ?? 0;
@@ -309,6 +318,15 @@ export function CanvasConfigRail({
   const orderOf = (id: string) => allSteps.findIndex((s) => s.id === id);
   const isLoopTarget = (target: string) =>
     !!target && orderOf(target) !== -1 && orderOf(target) <= orderOf(agent.id);
+
+  // Track the loop cap input separately so the user can freely edit without
+  // the field snapping back (R-07 / DEFECT D). Only persist valid integers >= 1;
+  // empty/invalid input does not update the route (so the engine's default 5 applies).
+  // Synced from route when route changes, to maintain the single source of truth.
+  const [loopCapInput, setLoopCapInput] = useState<string>("");
+  useEffect(() => {
+    setLoopCapInput((route?.loop_max_iterations ?? 5).toString());
+  }, [route?.loop_max_iterations]);
   const loopCount = Object.values(route?.outcomes ?? {}).filter(
     (o) => o.trigger === "step" && isLoopTarget(o.target),
   ).length;
@@ -647,62 +665,32 @@ export function CanvasConfigRail({
         />
       </div>
 
-      {/* GATES — a step's `gates:` is a LIST, so this is a checkbox group, not a
-          select. Grouped by WHEN the engine evaluates each one (`_POST_STEP_GATES`),
-          because that is what actually differs: `before-human` reviews the PREVIOUS
-          step's output before this one runs, `human` reviews THIS step's output after
-          it runs. Both were spelled `human` until the split, with the phase decided
-          invisibly by whether the agent had an AGENT.md gate flag. */}
+      {/* GATE — one select. See the gate model above for why `before-human` is
+          not an option here and why Prompt User owns it instead. */}
       <div className="border-b border-line-faint-row py-3">
         <div className="mb-2 flex items-center gap-1.5 font-sans text-[12.5px] font-semibold text-ink-900">
-          <InfoHint>Gates pause or redirect the run at this step. Only one human-review gate per step — they share one durable slot.</InfoHint>
-          Gates
+          <InfoHint>Gates pause or redirect the run at this step. One gate per step — human-review gates share one durable slot.</InfoHint>
+          Gate
         </div>
-
-        {[
-          { key: "pre", title: "Before execute", names: preGateChoices },
-          { key: "post", title: "After execute", names: postGateChoices },
-        ].map((group) =>
-          group.names.length === 0 ? null : (
-            <div key={group.key} className="mt-2 first:mt-0">
-              <p className="mb-1 font-sans text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-300">
-                {group.title}
-              </p>
-              {group.names.map((name) => {
-                const checked = declared.includes(name);
-                // Ticking a second HITL gate is blocked rather than silently
-                // swapping the first — the exclusivity should be visible.
-                const blocked =
-                  !checked &&
-                  HITL_GATES.includes(name) &&
-                  declared.some((g) => HITL_GATES.includes(g));
-                return (
-                  <label
-                    key={name}
-                    title={blocked ? "Only one human-review gate per step" : GATE_HINTS[name]}
-                    className={`flex items-start gap-2 py-1 ${blocked ? "opacity-40" : "cursor-pointer"}`}
-                  >
-                    <input
-                      type="checkbox"
-                      aria-label={`${group.title}: ${GATE_LABELS[name] ?? name}`}
-                      checked={checked}
-                      disabled={loading || blocked}
-                      onChange={(e) => toggleGate(name, e.target.checked)}
-                      className="mt-[3px] h-3.5 w-3.5 flex-shrink-0 accent-brand"
-                    />
-                    <span className="min-w-0">
-                      <span className="block font-sans text-[12px] font-medium text-ink-900">
-                        {GATE_LABELS[name] ?? name}
-                      </span>
-                      <span className="block font-serif text-[11px] leading-snug text-ink-300">
-                        {GATE_HINTS[name] ?? name}
-                      </span>
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          ),
+        <select
+          aria-label="Gate"
+          name="agent-gate"
+          disabled={loading}
+          value={chosenGate}
+          onChange={(e) => selectGate(e.target.value)}
+          className="w-full appearance-none rounded-[9px] border border-line-control bg-surface-white px-2.5 py-2 pr-8 font-sans text-[12px] font-medium text-ink-900 focus:border-brand focus:outline-none disabled:opacity-50"
+        >
+          <option value="">No gate</option>
+          {gateChoices.map((name) => (
+            <option key={name} value={name}>
+              {GATE_LABELS[name] ?? name}
+            </option>
+          ))}
+        </select>
+        {chosenGate && (
+          <p className="mt-1.5 font-serif text-[11px] leading-snug text-ink-300">
+            {GATE_HINTS[chosenGate] ?? chosenGate}
+          </p>
         )}
       </div>
 
@@ -722,16 +710,107 @@ export function CanvasConfigRail({
             Route
           </p>
 
-          <label className="mt-1.5 block font-sans text-[10px] text-ink-500">
-            Condition source
-            <input
-              aria-label="Condition source"
-              value={route?.condition_agent ?? ""}
-              onChange={(e) => updateRoute({ condition_agent: e.target.value || undefined })}
-              placeholder="this step's own output"
-              className="mt-0.5 w-full rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
-            />
-          </label>
+          {/* PROMPT USER — one toggle standing in for the two fields that make a
+              human's answer BE the routing decision.
+
+              `before-human` exists only to ask the user something. If the same
+              step also carries a `route`, the answer IS the decision, so
+              `condition_agent` is not a real choice — it is mechanically the
+              step whose artifact the gate edit rewrites. Without it the gate
+              reads this step's own model output and the model has to re-emit a
+              decision the human already made (observed failing live: the model
+              replied "Hola" instead of the decision JSON and the run failed
+              closed).
+
+              DERIVED, NEVER PERSISTED. `route:` is strict-key validated by the
+              compiler — {condition_agent, outcomes, default_next,
+              loop_max_iterations, trigger_max_depth} and nothing else (INV-5,
+              no-DSL) — so a `prompt_user` key would fail every save carrying it.
+              The toggle's state is recomputed from the manifest instead, which
+              also means a hand-authored condition_agent pointing somewhere else
+              reads as OFF and keeps its value in the field below.
+
+              `produces: ["route_decision"]` is NOT written here: the serialiser
+              already derives it for whichever step the route resolves to
+              (userWorkflows.ts `deriveRouteDecisionProduces`, R-27). Writing it
+              here too would be a second, drifting source. */}
+          {(() => {
+            const prev = priorAgents[priorAgents.length - 1];
+            // "Previous" is the entry before this one in the SAVED steps array,
+            // not the canvas geometry: the engine applies a declared-gate edit to
+            // results[-1], the step that completed immediately before in dispatch
+            // order. Canvas column ranking can legitimately disagree with array
+            // order (ISS-178), so geometry is the wrong source here.
+            const promptUser =
+              (sel.gates ?? []).includes(PROMPT_USER_GATE) &&
+              Object.keys(route?.outcomes ?? {}).length > 0 &&
+              !!prev &&
+              route?.condition_agent === prev.id;
+            return (
+              <div className="mt-1.5 flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 font-sans text-[12.5px] font-semibold text-ink-900">
+                    <InfoHint>
+                      Pause and ask the user which outcome to take. Their choice becomes the
+                      routing decision, so the model is out of the decision path entirely.
+                    </InfoHint>
+                    Prompt User
+                  </div>
+                  <div className="font-serif text-[11px] text-ink-300">
+                    {prev
+                      ? "Ask the user, and route on their answer"
+                      : "Needs a step before this one to carry the question"}
+                  </div>
+                </div>
+                <Toggle
+                  on={promptUser}
+                  amber
+                  label="Prompt User"
+                  // With no preceding step the engine drops the edit outright
+                  // ("declared-gate edit received before any step completed — no
+                  // upstream artifact to apply it to"), so refuse to save that
+                  // shape rather than let it fail at runtime.
+                  disabled={!prev}
+                  onToggle={() => {
+                    const gates = sel.gates ?? [];
+                    if (promptUser) {
+                      patch({ gates: gates.filter((g) => g !== PROMPT_USER_GATE) });
+                      updateRoute({ condition_agent: undefined });
+                    } else {
+                      patch({
+                        // `before-human` FIRST, matching ex_A4_human_gate
+                        // byte-for-byte — same ordering `selectGate` applies.
+                        gates: gates.includes(PROMPT_USER_GATE)
+                          ? gates
+                          : [PROMPT_USER_GATE, ...gates],
+                      });
+                      updateRoute({ condition_agent: prev!.id });
+                    }
+                  }}
+                />
+              </div>
+            );
+          })()}
+
+          {/* Hidden while Prompt User owns condition_agent — two controls writing
+              one field would let the author silently break the toggle's contract. */}
+          {!(
+            (sel.gates ?? []).includes(PROMPT_USER_GATE) &&
+            Object.keys(route?.outcomes ?? {}).length > 0 &&
+            priorAgents.length > 0 &&
+            route?.condition_agent === priorAgents[priorAgents.length - 1]!.id
+          ) && (
+            <label className="mt-1.5 block font-sans text-[10px] text-ink-500">
+              Condition source
+              <input
+                aria-label="Condition source"
+                value={route?.condition_agent ?? ""}
+                onChange={(e) => updateRoute({ condition_agent: e.target.value || undefined })}
+                placeholder="this step's own output"
+                className="mt-0.5 w-full rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
+              />
+            </label>
+          )}
 
           <div className="mt-2 space-y-2">
             {Object.entries(route?.outcomes ?? {}).map(([key, outcome]) => (
@@ -799,17 +878,25 @@ export function CanvasConfigRail({
                 {outcome.trigger === "step" && isLoopTarget(outcome.target) && (
                   <label className="mt-1.5 block font-sans text-[9px] text-ink-500">
                     Max loop count
-                    {/* Read-only for now: the value shown is the engine's
-                        enforced bound (`RouteSpec.loop_max_iterations`, default
-                        5). Surfaced so a loop never reads as unbounded, but not
-                        yet author-editable. */}
+                    {/* Author-editable loop cap (`RouteSpec.loop_max_iterations`). The
+                        engine defaults to 5 if absent (R-07). Guard against NaN/null
+                        persistence (DEFECT D): only persist valid integers >= 1. */}
                     <input
                       type="number"
-                      disabled
+                      min="1"
                       aria-label="Max loop count"
-                      value={route?.loop_max_iterations ?? 5}
-                      readOnly
-                      className="mt-0.5 w-full rounded-[6px] border border-line-control bg-surface-warm px-1.5 py-1 font-sans text-[11px] text-ink-500 disabled:cursor-not-allowed"
+                      value={loopCapInput}
+                      onChange={(e) => {
+                        const newValue = e.target.value;
+                        setLoopCapInput(newValue);
+                        // Only update route for valid integers >= 1. Empty/invalid
+                        // input stays local; route is only updated for confirmed values.
+                        const parsed = parseInt(newValue, 10);
+                        if (isFinite(parsed) && parsed >= 1) {
+                          updateRoute({ loop_max_iterations: parsed });
+                        }
+                      }}
+                      className="mt-0.5 w-full rounded-[6px] border border-line-control bg-surface-white px-1.5 py-1 font-sans text-[11px] text-ink-900 focus:border-brand focus:outline-none"
                     />
                     <p className="mt-0.5 font-serif text-[9px] leading-snug text-ink-300">
                       {loopCount > 1
