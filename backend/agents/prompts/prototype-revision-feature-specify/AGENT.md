@@ -15,6 +15,8 @@ produces:
 role: Feature Definition
 tools:
 - workspace
+injects:
+- uploaded_files
 ---
 
 > **When an `=== REVISION ANALYSIS ===` block is present in your context, ground

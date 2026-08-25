@@ -27,11 +27,18 @@ class ModelConfigurationError(RuntimeError):
 
 
 def build_model(model: str | None = None, *, max_tokens: int | None = None,
-                 provider: str | None = None,) -> "BaseChatModel":
+                 provider: str | None = None,
+                 disable_thinking: bool = False) -> "BaseChatModel":
     """Return a configured chat model for an agent graph.
 
     ``model`` overrides the provider default (the user's per-run selection).
     ``max_tokens`` defaults to settings.MAX_OUTPUT_TOKENS — no per-agent cap.
+    ``disable_thinking`` forces thinking OFF regardless of THINKING_BUDGET_TOKENS.
+    Use this for lightweight one-shot classifier calls where thinking is
+    unnecessary and the tiny max_tokens budget would be below the thinking floor.
+    On adaptive models (sonnet-5, opus-5) this passes {"type": "disabled"}
+    explicitly — omitting the field is not enough since those models enable
+    adaptive thinking by default.
     """
     if max_tokens is None:
         max_tokens = settings.MAX_OUTPUT_TOKENS
@@ -63,10 +70,19 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
     # Extended thinking, default OFF. At 0 neither provider branch adds a thinking
     # field or touches temperature. The budget is clamped below THIS call's
     # max_tokens, not the global ceiling. Claude requires temperature=1 when on.
-    thinking_enabled = settings.THINKING_BUDGET_TOKENS > 0
+    # disable_thinking=True forces thinking off regardless of THINKING_BUDGET_TOKENS.
+    thinking_enabled = settings.THINKING_BUDGET_TOKENS > 0 and not disable_thinking
     budget = 0
     if thinking_enabled:
         budget = max(1024, min(settings.THINKING_BUDGET_TOKENS, max_tokens - 1))
+
+    # Models that require thinking.type="adaptive" instead of "enabled".
+    # claude-sonnet-5 (and newer) reject "enabled" on Bedrock with a
+    # ValidationException; haiku-4-5 and earlier use "enabled" as before.
+    _ADAPTIVE_THINKING_MODEL_FRAGMENTS = ("sonnet-5", "opus-5", "fable-5", "mythos-5")
+
+    def _thinking_type(mid: str) -> str:
+        return "adaptive" if any(f in mid for f in _ADAPTIVE_THINKING_MODEL_FRAGMENTS) else "enabled"
 
     if settings.ANTHROPIC_API_KEY:
         from langchain_anthropic import ChatAnthropic
@@ -79,8 +95,10 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
             max_tokens=max_tokens,
         )
         if thinking_enabled:
-            anthropic_kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+            anthropic_kwargs["thinking"] = {"type": _thinking_type(model_id), "budget_tokens": budget}
             anthropic_kwargs["temperature"] = 1  # required when thinking is on
+        elif disable_thinking and any(f in model_id for f in _ADAPTIVE_THINKING_MODEL_FRAGMENTS):
+            anthropic_kwargs["thinking"] = {"type": "disabled"}
         return ChatAnthropic(**anthropic_kwargs)
 
     import os
@@ -126,9 +144,22 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
     )
     # Passed as additional_model_request_fields only when non-empty, so the
     # thinking-disabled path never carries the kwarg at all.
+    # Adaptive-mode models (sonnet-5, opus-5, etc.) reject budget_tokens —
+    # Bedrock returns ValidationException: thinking.adaptive.budget_tokens:
+    # Extra inputs are not permitted. Only the "enabled" type accepts it.
+    # When disable_thinking=True on an adaptive model, we must explicitly pass
+    # {"type": "disabled"} — omitting the field leaves adaptive thinking ON by
+    # default on sonnet-5/opus-5, which would still violate the max_tokens floor.
     extra_fields: dict = {}
     if thinking_enabled:
-        extra_fields["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        t_type = _thinking_type(model_id)
+        thinking_field: dict = {"type": t_type}
+        if t_type == "enabled":
+            thinking_field["budget_tokens"] = budget
+        extra_fields["thinking"] = thinking_field
+    elif disable_thinking and any(f in model_id for f in _ADAPTIVE_THINKING_MODEL_FRAGMENTS):
+        # Adaptive models enable thinking by default — explicitly disable it.
+        extra_fields["thinking"] = {"type": "disabled"}
     bedrock_kwargs: dict = dict(
         model=model_id,
         region_name=region,

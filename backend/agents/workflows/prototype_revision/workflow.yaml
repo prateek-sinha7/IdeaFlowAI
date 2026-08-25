@@ -28,8 +28,17 @@ deliverable:
   revises_existing: true
 context_providers:
 - previous_run
+- uploaded_files
 seed_files: {}
 steps:
+# Step 0: Analyze the revision and produce a solution plan
+- agent: prototype-revision-analyzer
+  strategy: single_shot
+  gates: []
+  produces_solution_plan: true
+  tools: {read_files: false}
+
+# Step 1: Apply the revision (was step 0)
 - agent: prototype-revision-agent
   tools: {read_files: true, write_files: true}
   strategy: single_shot

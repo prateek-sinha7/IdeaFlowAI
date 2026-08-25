@@ -16,8 +16,16 @@ deliverable:
 context_providers:
 - previous_run
 - opendesign
+- uploaded_files
 seed_files: {}
 steps:
+# Step 0: Analyze the revision and produce a solution plan
+- agent: prototype-revision-analyzer
+  strategy: single_shot
+  gates: []
+  produces_solution_plan: true
+  tools: {read_files: false}
+
 # Step 1: Define the new feature spec — human reviews before building
 - agent: prototype-revision-feature-specify
   tools: {read_files: true, write_files: true}
