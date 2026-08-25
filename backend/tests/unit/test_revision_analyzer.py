@@ -1,11 +1,13 @@
 """Unit tests for ``app.agents.revision_analyzer``.
 
 Covers:
-  - ``parse_analyzer_output`` — concrete examples for all error-table conditions
+  - ``parse_analyzer_output`` — concrete examples for the simplified str-return signature
+    (task 9.1 simplified the return type from tuple[str, str] to str — tier parsing was
+    removed; only the ## Solution Plan section is extracted and returned as a plain str)
   - AGENT.md smoke tests — frontmatter assertions for prototype-revision-analyzer
   - prototype-revision-agent order smoke test (order == 2 after task 1.3 shift)
 
-Requirements: 1.1–1.5, 2.1–2.6
+Requirements: 4.1, 4.5, 9.3, 9.4
 """
 
 from __future__ import annotations
@@ -56,33 +58,25 @@ def _load_frontmatter(path: pathlib.Path) -> dict:
 
 
 class TestParseAnalyzerOutputConcrete:
-    """Concrete examples covering every row of the error table in the design doc."""
+    """Concrete examples for the simplified ``parse_analyzer_output`` (returns ``str``).
 
-    # ── Well-formed: both sections present with a valid tier ──────────────
+    As of task 9.1 (revision-pipeline-refactor) ``parse_analyzer_output`` was
+    simplified: tier classification was removed and the function now returns only
+    the ``## Solution Plan`` section body as a plain ``str`` (empty string when
+    the section is absent).  These tests validate the new signature and behaviour.
 
-    def test_wellformed_small_tier_returns_exact_tier_and_solution(self) -> None:
-        """Well-formed output with tier 'small' returns ('small', solution)."""
+    **Validates: Requirements 4.1, 4.5, 9.3, 9.4**
+    """
+
+    # ── Well-formed: ## Solution Plan section present ─────────────────────
+
+    def test_wellformed_solution_body_extracted(self) -> None:
+        """Solution body is extracted verbatim from a well-formed doc."""
         solution = "Update the login button label — id=login-btn on #/login route."
-        raw = f"## Tier\nsmall\n\n## Solution Plan\n{solution}\n"
-        tier, sol = parse_analyzer_output(raw)
-        assert tier == "small"
-        assert solution in sol
-
-    def test_wellformed_large_tier_returns_exact_tier_and_solution(self) -> None:
-        """Well-formed output with tier 'large' returns ('large', solution)."""
-        solution = "Redesign the dashboard layout and add sidebar nav."
-        raw = f"## Tier\nlarge\n\n## Solution Plan\n{solution}\n"
-        tier, sol = parse_analyzer_output(raw)
-        assert tier == "large"
-        assert solution in sol
-
-    def test_wellformed_feature_tier_returns_exact_tier_and_solution(self) -> None:
-        """Well-formed output with tier 'feature' returns ('feature', solution)."""
-        solution = "Add an onboarding flow with 3 steps and progress indicator."
-        raw = f"## Tier\nfeature\n\n## Solution Plan\n{solution}\n"
-        tier, sol = parse_analyzer_output(raw)
-        assert tier == "feature"
-        assert solution in sol
+        raw = f"## Solution Plan\n{solution}\n"
+        result = parse_analyzer_output(raw)
+        assert isinstance(result, str)
+        assert solution in result
 
     def test_wellformed_solution_body_is_preserved_verbatim(self) -> None:
         """Solution body preserves interior whitespace and newlines."""
@@ -91,189 +85,106 @@ class TestParseAnalyzerOutputConcrete:
             Modify navigateTo() in routes.js.
             Set --sidebar-width: 240px in :root.
         """)
-        raw = f"## Tier\nlarge\n\n## Solution Plan\n{solution}"
-        tier, sol = parse_analyzer_output(raw)
-        assert tier == "large"
-        # Each sentence from the solution is present
-        assert "Update <div id='sidebar'>" in sol
-        assert "navigateTo()" in sol
-        assert "--sidebar-width: 240px" in sol
+        raw = f"## Solution Plan\n{solution}"
+        result = parse_analyzer_output(raw)
+        assert isinstance(result, str)
+        assert "Update <div id='sidebar'>" in result
+        assert "navigateTo()" in result
+        assert "--sidebar-width: 240px" in result
 
-    # ── Tier section absent → ("large", <solution or "">) + WARNING ──────
-
-    def test_tier_section_absent_returns_large_with_solution(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """If ## Tier is absent, tier defaults to 'large' and solution is extracted."""
+    def test_solution_extracted_when_legacy_tier_section_present(self) -> None:
+        """Solution is still extracted even when a legacy ## Tier section precedes it."""
         solution = "Fix the login button label."
-        raw = f"## Solution Plan\n{solution}\n"
-        with caplog.at_level(logging.WARNING, logger="app.agents.revision_analyzer"):
-            tier, sol = parse_analyzer_output(raw)
-        assert tier == "large"
-        assert solution in sol
-        assert any("Tier" in record.message for record in caplog.records), (
-            "Expected a WARNING mentioning 'Tier' section absence"
-        )
+        raw = f"## Tier\nlarge\n\n## Solution Plan\n{solution}\n"
+        result = parse_analyzer_output(raw)
+        assert isinstance(result, str)
+        assert solution in result
 
-    def test_tier_section_absent_no_solution_either_returns_large_empty(
+    def test_multiple_h2_sections_returns_only_solution_plan(self) -> None:
+        """Only the ## Solution Plan body is returned, not other H2 sections."""
+        raw = "## Context\nsome context\n\n## Solution Plan\nmy plan\n\n## Notes\nfoo"
+        result = parse_analyzer_output(raw)
+        assert "my plan" in result
+        assert "some context" not in result
+        assert "foo" not in result
+
+    # ── ## Solution Plan absent → "" + WARNING ───────────────────────────
+
+    def test_solution_plan_absent_returns_empty_string(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """If ## Tier is absent and no solution, returns ('large', '')."""
+        """If ## Solution Plan is absent, returns '' and logs a WARNING."""
         raw = "Some random text without any H2 sections."
         with caplog.at_level(logging.WARNING, logger="app.agents.revision_analyzer"):
-            tier, sol = parse_analyzer_output(raw)
-        assert tier == "large"
-        assert sol == ""
-
-    # ── Unknown tier value → ("large", …) + WARNING with raw[:500] ───────
-
-    def test_unknown_tier_value_defaults_to_large(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """An unrecognized tier value 'unknown_tier' defaults to 'large' + WARNING."""
-        raw = "## Tier\nunknown_tier\n\n## Solution Plan\nsome plan"
-        with caplog.at_level(logging.WARNING, logger="app.agents.revision_analyzer"):
-            tier, sol = parse_analyzer_output(raw)
-        assert tier == "large"
-        # WARNING must include the raw content (first 500 chars)
-        warning_messages = " ".join(r.message for r in caplog.records if r.levelname == "WARNING")
-        assert "unknown_tier" in warning_messages or "## Tier" in warning_messages
-
-    def test_unknown_tier_warning_includes_raw_prefix(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """The WARNING for an unrecognized tier includes the raw[:500] string."""
-        raw = "## Tier\nfoo_bar_baz\n\n## Solution Plan\nsome plan"
-        with caplog.at_level(logging.WARNING, logger="app.agents.revision_analyzer"):
-            tier, _ = parse_analyzer_output(raw)
-        assert tier == "large"
-        # At least one WARNING record should reference the unrecognized value
-        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
-        assert warnings, "Expected at least one WARNING for unrecognized tier"
-
-    def test_unknown_tier_solution_still_extracted(self) -> None:
-        """Even with an unrecognized tier, the solution plan is still extracted."""
-        solution = "Redesign the layout entirely."
-        raw = f"## Tier\nxyz\n\n## Solution Plan\n{solution}"
-        tier, sol = parse_analyzer_output(raw)
-        assert tier == "large"
-        assert solution in sol
-
-    # ── ## Solution Plan absent → (tier, "") + WARNING ───────────────────
-
-    def test_solution_plan_absent_returns_tier_empty_solution(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """If ## Solution Plan is absent, solution defaults to '' + WARNING."""
-        raw = "## Tier\nsmall\n"
-        with caplog.at_level(logging.WARNING, logger="app.agents.revision_analyzer"):
-            tier, sol = parse_analyzer_output(raw)
-        assert tier == "small"
-        assert sol == ""
+            result = parse_analyzer_output(raw)
+        assert result == ""
         assert any("Solution Plan" in r.message for r in caplog.records), (
             "Expected a WARNING mentioning 'Solution Plan' section absence"
         )
 
-    def test_solution_plan_absent_large_tier(
+    def test_solution_plan_absent_with_other_h2_sections(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Absent solution with 'large' tier returns ('large', '')."""
+        """Other H2 sections present but no Solution Plan → '' + WARNING."""
         raw = "## Tier\nlarge\n"
         with caplog.at_level(logging.WARNING, logger="app.agents.revision_analyzer"):
-            tier, sol = parse_analyzer_output(raw)
-        assert tier == "large"
-        assert sol == ""
+            result = parse_analyzer_output(raw)
+        assert result == ""
+        assert any("Solution Plan" in r.message for r in caplog.records)
 
-    # ── Both sections absent → ("large", "") + WARNING ───────────────────
+    # ── Empty / garbage input ─────────────────────────────────────────────
 
-    def test_both_sections_absent_returns_large_empty(
+    def test_empty_raw_string_returns_empty(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """When neither ## Tier nor ## Solution Plan is present, returns ('large', '')."""
-        raw = "This is plain text output with no H2 sections at all."
+        """An empty raw string returns '' without raising (task 9.4 edge case)."""
         with caplog.at_level(logging.WARNING, logger="app.agents.revision_analyzer"):
-            tier, sol = parse_analyzer_output(raw)
-        assert tier == "large"
-        assert sol == ""
-        assert any(r.levelname == "WARNING" for r in caplog.records), (
-            "Expected at least one WARNING for both-absent condition"
-        )
+            result = parse_analyzer_output("")
+        assert result == ""
 
-    def test_both_sections_absent_empty_sections(
+    def test_whitespace_only_raw_returns_empty(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Empty raw (only whitespace) returns ('large', '')."""
-        raw = "   \n\n   "
+        """Whitespace-only raw input returns '' without raising."""
         with caplog.at_level(logging.WARNING, logger="app.agents.revision_analyzer"):
-            tier, sol = parse_analyzer_output(raw)
-        assert tier == "large"
-        assert sol == ""
+            result = parse_analyzer_output("   \n\n   ")
+        assert result == ""
 
-    # ── Empty raw string → ("large", "") ─────────────────────────────────
+    def test_garbage_input_returns_empty_no_raise(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Garbage input returns '' without raising."""
+        with caplog.at_level(logging.WARNING, logger="app.agents.revision_analyzer"):
+            result = parse_analyzer_output("!!@#$%^&*()_+ garbage text")
+        assert result == ""
 
-    def test_empty_raw_string_returns_large_empty(self) -> None:
-        """An empty raw string returns ('large', '') without raising."""
-        tier, sol = parse_analyzer_output("")
-        assert tier == "large"
-        assert sol == ""
+    # ── ## Solution Plan heading with empty body ──────────────────────────
 
-    # ── Case normalization: "SMALL" → "small" ────────────────────────────
+    def test_solution_plan_heading_only_returns_empty_or_whitespace(self) -> None:
+        """## Solution Plan with no following body returns '' or only whitespace.
 
-    def test_tier_case_normalization_small_uppercase(self) -> None:
-        """'SMALL' under ## Tier is normalized to 'small'."""
-        raw = "## Tier\nSMALL\n\n## Solution Plan\nsome plan"
-        tier, _ = parse_analyzer_output(raw)
-        assert tier == "small"
+        The implementation returns the raw section body verbatim (including the
+        trailing newline following the heading), so the result may be a newline-only
+        string — which is truthy-false for the engine's injection gate (the gate
+        strips and checks truthiness). This test verifies no exception is raised
+        and the result is a str with no meaningful content.
+        """
+        result = parse_analyzer_output("## Solution Plan\n")
+        assert isinstance(result, str)
+        assert result.strip() == ""  # no meaningful content even if whitespace present
 
-    def test_tier_case_normalization_large_mixed(self) -> None:
-        """'Large' (mixed case) under ## Tier is normalized to 'large'."""
-        raw = "## Tier\nLarge\n\n## Solution Plan\nsome plan"
-        tier, _ = parse_analyzer_output(raw)
-        assert tier == "large"
+    # ── Return type is always str ─────────────────────────────────────────
 
-    def test_tier_case_normalization_feature_uppercase(self) -> None:
-        """'FEATURE' under ## Tier is normalized to 'feature'."""
-        raw = "## Tier\nFEATURE\n\n## Solution Plan\nsome plan"
-        tier, _ = parse_analyzer_output(raw)
-        assert tier == "feature"
+    def test_return_type_is_str(self) -> None:
+        """parse_analyzer_output always returns a str (not a tuple)."""
+        result = parse_analyzer_output("## Solution Plan\nplan text")
+        assert isinstance(result, str)
+        assert not isinstance(result, tuple)
 
-    def test_tier_case_normalization_small_titlecase(self) -> None:
-        """'Small' (title case) under ## Tier is normalized to 'small'."""
-        raw = "## Tier\nSmall\n\n## Solution Plan\nsome plan"
-        tier, _ = parse_analyzer_output(raw)
-        assert tier == "small"
-
-    # ── Additional edge cases ─────────────────────────────────────────────
-
-    def test_tier_with_leading_whitespace_in_body(self) -> None:
-        """Leading blank lines before the tier value are skipped correctly."""
-        raw = "## Tier\n\n\nsmall\n\n## Solution Plan\nsome plan"
-        tier, _ = parse_analyzer_output(raw)
-        assert tier == "small"
-
-    def test_tier_with_trailing_whitespace(self) -> None:
-        """Trailing whitespace on the tier line is stripped correctly."""
-        raw = "## Tier\nlarge   \n\n## Solution Plan\nsome plan"
-        tier, _ = parse_analyzer_output(raw)
-        assert tier == "large"
-
-    def test_return_type_is_tuple_of_two_strings(self) -> None:
-        """parse_analyzer_output always returns a (str, str) tuple."""
-        result = parse_analyzer_output("## Tier\nsmall\n\n## Solution Plan\nplan text")
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-        assert isinstance(result[0], str)
-        assert isinstance(result[1], str)
-
-    def test_tier_is_always_valid_for_empty_input(self) -> None:
-        """Even for empty input, tier is always in the valid set."""
-        tier, _ = parse_analyzer_output("")
-        assert tier in {"small", "large", "feature"}
-
-    def test_tier_is_always_valid_for_garbage_input(self) -> None:
-        """Even for garbage input, tier is always in the valid set."""
-        tier, _ = parse_analyzer_output("!!@#$%^&*()_+ garbage text")
-        assert tier in {"small", "large", "feature"}
+    def test_return_type_is_str_for_empty_input(self) -> None:
+        """parse_analyzer_output returns str even for empty input."""
+        result = parse_analyzer_output("")
+        assert isinstance(result, str)
 
 
 # ---------------------------------------------------------------------------

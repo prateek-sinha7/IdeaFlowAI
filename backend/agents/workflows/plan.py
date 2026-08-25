@@ -366,6 +366,11 @@ class Step:
     # ``settings.PROTOTYPE_REQUIRE_RENDER`` (False → skip-is-a-pass, INV-3 parity).
     # Pure data (INV-5) — the compiler only RECORDS it; the policy lives in the helper.
     require_render: bool | None = None
+    # When True, the engine extracts the ## Solution Plan section from this step's
+    # streamed output and stores it on ectx.analyzer_solution. Declaration-driven
+    # (INV-1/SC-001): branches on this boolean, never on agent id or pipeline name.
+    # Default False → DORMANT on all existing steps → INV-3 byte/event-identical.
+    produces_solution_plan: bool = False
 
     # ── Forward surface (declared, INERT in Phase 4) ──────────────────────
     tools: ToolPermissions = field(default_factory=ToolPermissions)  # INV-9 / §8

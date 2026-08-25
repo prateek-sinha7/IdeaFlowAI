@@ -1,12 +1,14 @@
 """app/agents/revision_analyzer.py — single source for ``parse_analyzer_output`` and ``run_analyzer``.
 
 ``parse_analyzer_output`` is a **pure function** (no I/O, no LLM calls) that
-extracts a tier label and a solution plan from the raw Markdown string emitted
-by the ``prototype-revision-analyzer`` agent.
+extracts the ``## Solution Plan`` body from the raw Markdown string emitted
+by the ``prototype-revision-analyzer`` agent.  Returns a plain ``str``.
 
 ``run_analyzer`` is the async orchestrator that invokes the LLM, calls
 ``parse_analyzer_output``, emits SSE events onto the caller's event queue, and
-returns ``(tier, solution)``.  It is added in task 2.3.
+returns ``(tier, solution)``.  It is **deprecated dead code** as of the
+revision-pipeline-refactor — the engine now drives the analyzer as a manifest
+step and calls ``parse_analyzer_output`` directly.
 """
 
 from __future__ import annotations
@@ -21,9 +23,6 @@ logger = logging.getLogger("app.agents.revision_analyzer")
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-_VALID_TIERS: frozenset[str] = frozenset({"small", "large", "feature"})
-_DEFAULT_TIER: str = "large"
 
 # Regex that matches an H2 heading line at the start of a line.
 _H2_PATTERN = re.compile(r"^## (.+)$", re.MULTILINE)
@@ -71,92 +70,22 @@ def _find_section(sections: dict[str, str], target: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def parse_analyzer_output(raw: str) -> tuple[str, str]:
-    """Pure parser — no I/O, no LLM calls.
+def parse_analyzer_output(raw: str) -> str:
+    """Extract the ## Solution Plan body from the analyzer's raw output.
 
-    Extracts:
-      - **tier**: first non-blank line under ``## Tier``, lowercased and
-        validated against ``{"small", "large", "feature"}``.
-        Defaults to ``"large"`` + WARNING if absent or unrecognised.
-      - **solution**: full text of the ``## Solution Plan`` section body,
-        preserving interior whitespace.
-        Defaults to ``""`` + WARNING if absent.
-
-    Error table:
-
-    =========================================================  ===========  ================  ===========
-    Condition                                                  tier result  solution result   Log level
-    =========================================================  ===========  ================  ===========
-    Both sections present, tier valid                          extracted    extracted         DEBUG
-    ``## Tier`` absent                                         ``"large"``  extracted or ""   WARNING
-    ``## Tier`` present but value unrecognised                 ``"large"``  extracted or ""   WARNING
-    ``## Solution Plan`` absent                                extracted    ``""``            WARNING
-    Both sections absent                                       ``"large"``  ``""``            WARNING
-    =========================================================  ===========  ================  ===========
+    Returns the solution body string, or "" if the section is absent (logs WARNING).
+    Tier parsing logic (_VALID_TIERS, _DEFAULT_TIER, ## Tier section extraction) is removed.
 
     Returns:
-        ``(tier, solution)`` — *tier* is always one of ``{"small", "large", "feature"}``;
-        *solution* may be an empty string.
+        The full ``## Solution Plan`` section body (preserving interior whitespace),
+        or ``""`` if the section is absent.
     """
     sections = _split_h2_sections(raw)
-
-    # ── Tier extraction ──────────────────────────────────────────────────────
-    tier_body = _find_section(sections, "Tier")
-
-    if tier_body is None:
-        logger.warning(
-            "parse_analyzer_output: '## Tier' section absent — defaulting to %r. "
-            "Raw output (first 500 chars): %r",
-            _DEFAULT_TIER,
-            raw[:500],
-        )
-        tier = _DEFAULT_TIER
-    else:
-        # Find the first non-blank line in the tier section body.
-        first_nonblank = next(
-            (line.strip() for line in tier_body.splitlines() if line.strip()),
-            None,
-        )
-        if first_nonblank is None:
-            # Section exists but is entirely blank.
-            logger.warning(
-                "parse_analyzer_output: '## Tier' section has no non-blank content — "
-                "defaulting to %r. Raw output (first 500 chars): %r",
-                _DEFAULT_TIER,
-                raw[:500],
-            )
-            tier = _DEFAULT_TIER
-        else:
-            normalised = first_nonblank.lower()
-            if normalised in _VALID_TIERS:
-                tier = normalised
-                logger.debug(
-                    "parse_analyzer_output: extracted tier=%r", tier
-                )
-            else:
-                logger.warning(
-                    "parse_analyzer_output: unrecognised tier value %r (normalised: %r) — "
-                    "defaulting to %r. Raw output (first 500 chars): %r",
-                    first_nonblank,
-                    normalised,
-                    _DEFAULT_TIER,
-                    raw[:500],
-                )
-                tier = _DEFAULT_TIER
-
-    # ── Solution Plan extraction ─────────────────────────────────────────────
-    solution_body = _find_section(sections, "Solution Plan")
-
-    if solution_body is None:
-        logger.warning(
-            "parse_analyzer_output: '## Solution Plan' section absent — "
-            "setting solution to empty string."
-        )
-        solution = ""
-    else:
-        solution = solution_body
-
-    return (tier, solution)
+    body = _find_section(sections, "Solution Plan")
+    if body is None:
+        logger.warning("parse_analyzer_output: ## Solution Plan section not found in output")
+        return ""
+    return body
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +155,10 @@ def _resolve_analyzer_model(session_model_id: str | None) -> str | None:
     return session_model_id
 
 
+# DEPRECATED (revision-pipeline-refactor): run_analyzer is dead code.
+# The engine now drives prototype-revision-analyzer as a manifest step and calls
+# parse_analyzer_output directly after the step completes. This function can be
+# removed in a follow-up cleanup once callers are confirmed gone.
 async def run_analyzer(
     instruction: str,
     existing_html: str,
@@ -296,7 +229,11 @@ async def run_analyzer(
                 if not isinstance(block, dict) or block.get("type") == "text"
             )
 
-        tier, solution = parse_analyzer_output(raw_content)
+        # NOTE: parse_analyzer_output now returns str (solution only) — tier classification
+        # is handled upstream by _classify_revision_tier. This function is deprecated dead
+        # code (revision-pipeline-refactor); tier is set to a placeholder here.
+        solution = parse_analyzer_output(raw_content)
+        tier = "large"  # tier no longer extracted here; run_analyzer is deprecated dead code
 
         await event_queue.put({
             "type": "agent_complete",

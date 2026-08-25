@@ -102,6 +102,7 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "prompt",       # per-instance purpose text; custom-agent steps only (R-02/R-06)
         "skills",       # per-step skill ids (R-01)
         "subagents",    # declarative child-step group (R-02/R-04)
+        "produces_solution_plan",  # post-step solution-plan extraction flag
     }
 )
 
@@ -906,6 +907,13 @@ class WorkflowCompiler:
             None if raw_require_render is None else bool(raw_require_render)
         )
 
+        # ── Declaration-driven post-step solution-plan extraction flag ────────
+        # (revision-pipeline-refactor / INV-1/SC-001): the engine branches on this
+        # boolean, never on agent id or pipeline name. bool() coerces any truthy
+        # YAML value (e.g. "true") to True without raising. Default False → DORMANT
+        # on all existing steps → INV-3 byte/event-identical on the 5 goldens.
+        produces_solution_plan = bool(raw.get("produces_solution_plan", False))
+
         # ── Per-instance identity + scoping (spec 012 R-01/R-02) ──────────────
         # instance_id/prompt/subagents were already validated (shape, uniqueness,
         # nesting depth, prompt/agent gating) by ``_validate_step_identity_tree``
@@ -957,6 +965,7 @@ class WorkflowCompiler:
             # conflict". Give built-ins real keys before enabling wave concurrency,
             # or two steps writing prototype.html could co-schedule.
             conflict_keys=[instance_id] if instance_id else [],
+            produces_solution_plan=produces_solution_plan,
         )
 
     def _compile_task_source(
