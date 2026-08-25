@@ -1286,12 +1286,44 @@ class KernelServices:
         # The structured approval payload (D-04) rides the generic output field; a
         # None payload preserves the byte-identical human-gate string path (parity).
         review_payload: Any = payload if payload is not None else output
+
+        # ── Routed human gate → publish the declared outcomes as CHOICES ────────
+        # A human-family gate on a step that also declares a ``route`` is the one
+        # case where the human IS the router (ex_A4_*). The valid answers are
+        # already compiled — ``route.outcomes`` keys — but nothing published them,
+        # so the UI could only offer a free-text box and the human had to guess the
+        # exact token. Observed live: 5 of 13 answered runs still failed to route.
+        #
+        # Rides the EXISTING generic carriers rather than adding an event field:
+        #   * ``artifact_kind`` — already a ``_run_review_gate`` param and already
+        #     the FE's renderer discriminator (``discriminateArtifact``);
+        #   * ``output`` — already carries a structured payload for the ``approval``
+        #     gate's D-04 snapshot ("rides the SAME generic output field, no
+        #     frontend rebuild"). JSON-encoded, because the published field is
+        #     declared ``string`` on the wire and on the FE type.
+        #
+        # DORMANT everywhere else — a gate on a step with no ``route`` keeps
+        # ``artifact_kind=""`` and the plain string ``output``, so its event is
+        # byte-identical (INV-3). ``payload is not None`` (the approval gate) skips
+        # this entirely; that path is untouched.
+        import json as _json
+
+        _route = getattr(step, "route", None)
+        _choices = list(getattr(_route, "outcomes", None) or {}) if _route else []
+        _artifact_kind = ""
+        if _choices and payload is None:
+            _artifact_kind = "conditional_gate"
+            review_payload = _json.dumps(
+                {"prompt": output, "choices": _choices}, ensure_ascii=False
+            )
+
         spec = self._spec_for(step)
         async for event in self._engine._run_review_gate(
             pipeline_run_id=self.run_id,
             agent_id=spec.id,
             agent_name=spec.name,
             output=review_payload,
+            artifact_kind=_artifact_kind,
             # BUG-2 Cond B (quick-260720-ec4): thread the SAME cooperative
             # cancel_event execute() holds into the delegate so a run parked at a
             # DECLARED human/approval gate honors Stop via the EXISTING cancel-aware

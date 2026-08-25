@@ -73,7 +73,11 @@ steps:
 - agent: custom-agent
   instance_id: ask
   name: Ask For Language
-  produces: ["human_choice"]
+  # The human's chip click is written HERE by the pre-step gate edit
+  # (_apply_declared_gate_edit rewrites the PREVIOUS step's artifact), so this
+  # step — not pick-language — is the real decision source. R-27 requires the
+  # source to declare the typed kind the conditional gate reads.
+  produces: ["route_decision"]
   prompt: 'Respond with exactly: "(awaiting language choice)"'
   gates: []
   tools:
@@ -85,7 +89,7 @@ steps:
   instance_id: pick-language
   name: Pick Language
   produces: ["route_decision"]
-  consumes: ["human_choice"]
+  consumes: ["route_decision"]   # ask now produces this kind (see its comment)
   depends_on: ["custom-agent:ask"]
   prompt: |
     The human's language choice is shown above. Map it to one of three languages and reply with the JSON as your text answer — this must be your reply, not a file. Respond with exactly one line, no markdown, no code fences, no explanation. Use exactly one of:
@@ -100,6 +104,11 @@ steps:
   - before-human
   - conditional
   route:
+    # Read the HUMAN's choice, not this step's model output. Without this the
+    # gate reads pick-language's reply, which means a model has to re-emit a
+    # decision the human already made — observed live: it answered "Hola"
+    # instead of {"decision":"spanish"} and the run failed closed.
+    condition_agent: ask
     outcomes:
       english: {trigger: step, target: say-hello}
       spanish: {trigger: step, target: say-hola}

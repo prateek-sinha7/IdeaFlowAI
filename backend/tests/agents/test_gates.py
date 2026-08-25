@@ -19,6 +19,8 @@ import pytest
 import agents.capabilities.registry as registry_mod
 from agents.capabilities.gates.base import GATE_BLOCK, GATE_PASS, GATE_WAIT_HUMAN
 from agents.capabilities.registry import CapabilityRegistry, register
+import json
+from types import SimpleNamespace
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1126,3 +1128,81 @@ def test_host_seam_resolves_local_runtime_and_binds_exec_workspace(tmp_path, mon
     # — the exact shape the security gate's profile check reads.
     assert ws.policy.exec is True
     assert list(ws.policy.exec_allow)  # non-empty allow-list (DEFAULT_EXEC_PROFILE)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Routed human gate — the declared outcomes are published as CHOICES
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class _CapturingReviewEngine:
+    """Captures every kwarg run_human_gate forwards to _run_review_gate."""
+
+    def __init__(self) -> None:
+        self.seen: dict = {}
+
+    async def _run_review_gate(self, **kwargs):
+        self.seen = kwargs
+        yield {"type": "review_gate_ready", "data": {}}
+
+
+async def _drive_human_gate(step, *, payload=None, output="(awaiting choice)"):
+    eng = _CapturingReviewEngine()
+    ks, _ = _kernel_services(eng)
+    ks._spec_for = lambda _s: _SpecStub("custom-agent:pick-language")  # type: ignore[assignment]
+    async for _ in ks.run_human_gate(step, output=output, payload=payload):
+        pass
+    return eng.seen
+
+
+def _routed_step(outcomes):
+    step = _GatedStep(gates=["before-human", "conditional"])
+    step.route = SimpleNamespace(outcomes=outcomes)
+    return step
+
+
+@pytest.mark.asyncio
+async def test_routed_human_gate_publishes_declared_outcomes_as_choices():
+    """A human-family gate on a step that ALSO declares a route is the one case
+    where the human is the router. The valid answers are already compiled; publish
+    them so the UI can offer them instead of a free-text box (the answer must equal
+    an outcome key exactly, and nothing told the user what those keys were)."""
+    seen = await _drive_human_gate(
+        _routed_step({"english": 1, "spanish": 2, "dutch": 3})
+    )
+    assert seen["artifact_kind"] == "conditional_gate"
+    envelope = json.loads(seen["output"])
+    assert envelope["choices"] == ["english", "spanish", "dutch"]
+    assert envelope["prompt"] == "(awaiting choice)"
+
+
+@pytest.mark.asyncio
+async def test_human_gate_without_a_route_is_byte_identical():
+    """DORMANCY — the invariant that keeps every production workflow unchanged.
+    prototype / prototype_feature_revision / sc001-test-fixture all declare human
+    gates on steps with NO route; they must keep the plain string output and an
+    empty artifact_kind."""
+    step = _GatedStep(gates=["human"])          # no .route attribute at all
+    seen = await _drive_human_gate(step)
+    assert seen["output"] == "(awaiting choice)"
+    assert seen["artifact_kind"] == ""
+
+
+@pytest.mark.asyncio
+async def test_route_with_no_outcomes_does_not_publish_choices():
+    seen = await _drive_human_gate(_routed_step({}))
+    assert seen["output"] == "(awaiting choice)"
+    assert seen["artifact_kind"] == ""
+
+
+@pytest.mark.asyncio
+async def test_approval_gate_payload_path_is_untouched():
+    """The approval gate's D-04 snapshot rides the SAME output field. A non-None
+    payload must skip the choice branch entirely, even on a routed step."""
+    snapshot = {"exec_policy": "deny"}
+    seen = await _drive_human_gate(
+        _routed_step({"english": 1}), payload=snapshot
+    )
+    assert seen["output"] == snapshot
+    assert seen["artifact_kind"] == ""
+
