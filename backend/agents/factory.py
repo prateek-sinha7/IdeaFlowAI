@@ -295,6 +295,16 @@ def create_runner(
     # sandbox, and the prompt/tool set below need to know whether anything was
     # actually staged (spec 011).
     _skills = _resolve_step_skills(ctx.step_skills) if ctx.step_skills else ctx.attached_skills
+    # The skills actually handed to stage_skills, kept on the ctx alongside
+    # ``skills_delivery`` (same D-03 per-run-state seam). The engine's
+    # ``agent_skills`` event used to advertise ``attached_skills`` — the RUN-attached
+    # set — which is empty for a manifest-declared per-step skill, so a skill that was
+    # genuinely staged and costed was never advertised to the UI and the
+    # "Advertised skills" card could not render. ``skills_delivery.staged`` carries
+    # only ids, and the event needs name + content, so the resolved dicts are what
+    # gets kept. Identical to ``attached_skills`` whenever no step skills are
+    # declared, so every existing run advertises exactly what it did before.
+    ctx.skills_resolved = list(_skills or [])
     delivery = stage_skills(
         sandbox,
         _skills,

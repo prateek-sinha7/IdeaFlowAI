@@ -4912,6 +4912,17 @@ class ExecutionEngine:
                 # DELIVERED (ctx.skills_delivery), so a silently-dropped/unparseable
                 # SKILL.md is surfaced instead of assumed.
                 _delivery = getattr(ctx, "skills_delivery", None)
+                # Advertise what create_runner actually STAGED, not just what the run
+                # attached. ``displayed_skills`` is the run-attached (UI) set and is
+                # EMPTY for a manifest-declared per-step skill, which travels the
+                # separate ``step_skills`` seam into the factory. The result was a skill
+                # that staged to disk and was billed in ``estimated_tokens`` while
+                # ``attached_skills`` shipped ``[]`` — so AgentDetailPanel's card, gated
+                # on a non-empty array, silently never rendered. ``skills_resolved``
+                # is the list the factory handed to ``stage_skills`` and falls back to
+                # ``displayed_skills`` when no step skills are declared, so a run with
+                # only UI-attached skills emits exactly the payload it did before.
+                _advertised = list(getattr(ctx, "skills_resolved", None) or displayed_skills)
                 yield {
                     "type": "agent_skills",
                     "data": {
@@ -4922,7 +4933,7 @@ class ExecutionEngine:
                                 "source": s.get("source", ""),
                                 "content": s.get("content", ""),
                             }
-                            for s in displayed_skills
+                            for s in _advertised
                         ],
                         "attached_hooks": [
                             {
