@@ -1,7 +1,7 @@
 ---
-built_from_commit: 0b6570b857404f9835c7ec076dcbca3a589202bd
+built_from_commit: de97d22f964b2ffa873a443d9f968d5f676601c4
 built_at: 2026-08-17
-cards_indexed: 553
+cards_indexed: 557
 modules_indexed: 36
 ---
 
@@ -63,12 +63,12 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 
 | type | total | open/active |
 |---|---|---|
-| adr | 25 | 25 |
-| fix | 308 | 17 |
-| issue | 178 | 59 |
+| adr | 26 | 26 |
+| fix | 310 | 17 |
+| issue | 179 | 60 |
 | bug | 42 | 18 |
 
-**adr (25):**
+**adr (26):**
 - [ADR-0001](cards/20260727-ADR-0001.md) — That terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher
 - [ADR-0021](cards/20260806-ADR-0021.md) — Authentication moved to Amazon Cognito with group-based authorization, keeping the single-bearer browser seam
 - [ADR-0002](cards/20260811-ADR-0002.md) — That `workflow` is the only vocabulary the system knows and `pipeline` is removed rather than deprecated
@@ -94,6 +94,7 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 - [ADR-0020](cards/20260824-1831-ADR-0020.md) — Every run launch is exactly one of three LaunchSource shapes — file-based, file-based-with-DB-overrides, or DB-based
 - [ADR-0024](cards/20260824-2100-ADR-0024.md) — On a 401 the REST client refreshes once first, and only treats the session as expired when that refresh fails
 - [ADR-0025](cards/20260825-1115-ADR-0025.md) — The composer canvas lays out a layered DAG by Sugiyama, hand-rolled, with measured card heights
+- [ADR-0026](cards/20260825-1600-ADR-0026.md) — A conditional gate publishes its declared outcomes as choices, and the human's chip click — not model prose — is what the route parses
 
 Start every card lookup at [INDEX.md](INDEX.md) — one line per card, each carrying a `compact_summary` that states the root cause or resolution. Match the query against those lines, then open only the handful of cards that matched. Never read or grep `cards/*.md` in bulk (see section 5).
 
