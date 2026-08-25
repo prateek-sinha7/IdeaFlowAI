@@ -54,12 +54,17 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
 from langchain.agents.middleware import AgentMiddleware
+from langchain_core.messages import ToolMessage
 
 from app.agents.model_factory import build_model, model_identifier
 from app.core.config import settings
 
 if TYPE_CHECKING:
-    from langchain.agents.middleware.types import ModelRequest, ModelResponse
+    from langchain.agents.middleware.types import (
+        ModelRequest,
+        ModelResponse,
+        ToolCallRequest,
+    )
     from langchain_core.language_models import BaseChatModel
 
     from app.agents.sandbox import RunSandbox
@@ -208,6 +213,49 @@ class _ToolFilterMiddleware(AgentMiddleware[Any, Any, Any]):
         handler: Callable[["ModelRequest"], Awaitable["ModelResponse"]],
     ) -> "ModelResponse":
         return await handler(self._filter(request))
+
+    # ── ISS-171: refuse the CALL, not just the offer ─────────────────────────
+    # ``_filter`` above only strips tools from the model REQUEST. That decides
+    # what the model is offered; it does not unregister anything from the graph,
+    # so a model that names an excluded tool anyway still reached a live
+    # implementation — and did: steps compiled with ``read_files: false`` were
+    # observed running ``ls`` and ``read_file`` against the run sandbox and
+    # getting real directory listings back (ISS-171).
+    #
+    # The model names them because deepagents' own built-in system prompt
+    # documents the filesystem tools; stripping the binding does not unsay that.
+    # ``request.tools`` filtering is therefore a UX narrowing, and a permission
+    # the manifest withheld needs an enforcement point at EXECUTION. This is it:
+    # the tool never runs, and the model is told plainly so it stops retrying.
+    def _refusal(self, request: "ToolCallRequest") -> ToolMessage | None:
+        """A denial ``ToolMessage`` when this call is excluded, else ``None``."""
+        call = getattr(request, "tool_call", None)
+        if not self._excluded or not isinstance(call, dict):
+            return None
+        name = call.get("name")
+        if name not in self._excluded:
+            return None
+        logger.warning(
+            "tool %r DENIED at execution — not granted by this step's permissions",
+            name,
+        )
+        return ToolMessage(
+            content=(
+                f"Tool '{name}' is not available to this step. Do not try to "
+                f"call it again; continue with what you already have."
+            ),
+            name=name,
+            tool_call_id=call.get("id") or "",
+            status="error",
+        )
+
+    def wrap_tool_call(self, request: "ToolCallRequest", handler: Callable):
+        refusal = self._refusal(request)
+        return refusal if refusal is not None else handler(request)
+
+    async def awrap_tool_call(self, request: "ToolCallRequest", handler: Callable):
+        refusal = self._refusal(request)
+        return refusal if refusal is not None else await handler(request)
 
 
 class _BedrockCachePointsMiddleware(AgentMiddleware[Any, Any, Any]):

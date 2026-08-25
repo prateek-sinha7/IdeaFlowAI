@@ -2935,14 +2935,80 @@ class ExecutionEngine:
                 # strategy above has run. Unlike ``validation``'s block, its
                 # ``route`` outcome IS consumed below — it redirects the cursor.
                 _routed = False
+                _cond_blocked = False
                 async for _ge, _outcome, _gdetail in self._evaluate_gates(
-                    step, ectx, _registry, phase="post"
+                    step, ectx, _registry, phase="post",
+                    # ISS-172a — WR-02 dedupe, which the pre-step loop has passed
+                    # since the 13-review fix and this loop never did. It did not
+                    # matter while ``human`` was a PRE-step gate; ADR-0013 moved it
+                    # here, and an inline-gated step then opened the SAME review on
+                    # the SAME gate_key twice — once from ``_should_gate`` ->
+                    # ``_run_review_gate`` inside ``_run_agent``, once from the
+                    # declared gate evaluated here. Symptom in the suite: a
+                    # duplicate ``review_gate_ready`` and ``['block','block']``
+                    # where one outcome was expected.
+                    inline_gated=self._should_gate(spec, ectx),
                 ):
                     # WR-04: skip the terminal (None, outcome) sentinel when
                     # forwarding (keeps the emitted stream identical) but still
                     # honor a ``route`` outcome below.
                     if _ge is not None:
                         yield _ge
+                    # ── ISS-170: a conditional gate with nowhere to route ─────
+                    # ``ConditionalGate`` returns GATE_BLOCK when the decision
+                    # matches no ``route.outcomes`` entry AND the manifest
+                    # declares no ``route.default_next`` — the documented
+                    # hard-stop (spec 014 R-13). Only the ``route`` outcome was
+                    # consumed here, so the block was forwarded to the client and
+                    # then IGNORED: ``_routed`` stayed False, the step is not a
+                    # leaf (it declares a route), and control fell through to the
+                    # plain ``cursor = cursor + 1`` below — landing on whichever
+                    # branch happens to be declared first in the manifest, purely
+                    # as an array-order artifact. The run then reported
+                    # ``pipeline_complete``, so a mis-routed run looked green.
+                    #
+                    # Read off the EVENT rather than ``_gdetail``: the gate's
+                    # detail carries ``decision``/``reason`` but no gate name,
+                    # while the ``gate_blocked`` event carries
+                    # ``data.gate == "conditional"`` (conditional.py's GateOutcome
+                    # events list). Narrow on purpose — ``validation``'s post-step
+                    # block is intentionally soft (event-only, no halt) and a
+                    # blanket ``elif _outcome == "block"`` would regress it.
+                    if (
+                        _outcome == "block"
+                        and isinstance(_ge, dict)
+                        and (_ge.get("data") or {}).get("gate") == "conditional"
+                    ):
+                        _cond_blocked = True
+                    if _outcome == "cancel":
+                        # ISS-172b — WR-03 parity for the POST-step loop. The
+                        # pre-step loop has cancelled the run on a declared-gate
+                        # rejection since the 13-review fix; this loop had no arm,
+                        # so once ADR-0013 moved ``human`` post-step a Reject
+                        # yielded its gate event and then fell through — downstream
+                        # steps kept executing and the run terminated as a
+                        # completion with the state machine stranded in
+                        # ``waiting_for_user``. Mirrors the pre-step arm exactly;
+                        # only the reason string differs, because a post-step gate
+                        # reviews the step's OWN output rather than the previous
+                        # step's.
+                        _cur = self._state_machine.get_state(pipeline_run_id)
+                        if _cur not in ("cancelled", "failed", "diverted"):
+                            self._state_machine.transition(
+                                pipeline_run_id, "cancelled"
+                            )
+                        await self._persist_budget_snapshot_if_active(ectx)
+                        yield {
+                            "type": "pipeline_cancelled",
+                            "data": {
+                                "pipeline_run_id": pipeline_run_id,
+                                "reason": (
+                                    f"User rejected at the review gate "
+                                    f"after {spec.name}"
+                                ),
+                            },
+                        }
+                        return
                     if _outcome == "route":
                         # ── [spec 014 / T14] ConditionalGate route outcome ────
                         # ``_gdetail`` is the ``GateOutcome.detail`` the
@@ -3218,6 +3284,35 @@ class ExecutionEngine:
                             # default_next, no cursor advance, no post_step
                             # capability, no pipeline_complete.
                             return
+                if _cond_blocked:
+                    # ── ISS-170: terminate the RUN, mirroring the pre-step loop's
+                    # ``_blocked`` arm (§8b). A block is a refusal, so it takes the
+                    # single-terminal shape the fan-out child-failure abort uses
+                    # (KRN-004): one ``pipeline_failed``, no further steps, no
+                    # ``pipeline_complete``. ``agents_completed`` is ``cursor + 1``
+                    # rather than the pre-step arm's ``cursor`` — this step's own
+                    # strategy has already run and produced output; it is the
+                    # ROUTING that had nowhere to go.
+                    _cur = self._state_machine.get_state(pipeline_run_id)
+                    if _cur not in ("cancelled", "failed", "diverted"):
+                        self._state_machine.transition(pipeline_run_id, "failed")
+                    await self._persist_budget_snapshot_if_active(ectx, force=True)
+                    yield {
+                        "type": "pipeline_failed",
+                        "data": {
+                            "pipeline_type": pipeline_type,
+                            "pipeline_run_id": pipeline_run_id,
+                            "total_duration": round(time.time() - total_start, 2),
+                            "agents_completed": cursor + 1,
+                            "agents_total": len(ordered_agents),
+                            "error": (
+                                f"{spec.name}'s conditional gate had nowhere to "
+                                f"route: no matching outcome and no default_next."
+                            ),
+                        },
+                    }
+                    return
+
                 if _routed:
                     # The conditional gate redirected the cursor to the route
                     # target — skip the post_step capability and the default

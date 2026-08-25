@@ -240,16 +240,38 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
 
     # Each ready precedes its approved in the RECEIVED event order.
     for gate_key in approved_gate_keys:
-        agent_id = gate_key.split(":", 1)[1]
+        # gate_key is ``f"{pipeline_run_id}:{agent_id}:{visit_count}"`` — THREE
+        # parts (the trailing count is ISS-052's per-FIRING discriminator, since
+        # gate_key names a gate SLOT and one slot can fire more than once). Strip
+        # the run prefix from the front and the visit count from the back;
+        # ``rsplit`` rather than a second ``split`` because a composed
+        # custom-agent id is itself ``custom-agent:<instance_id>`` and carries an
+        # interior colon of its own.
+        agent_id = gate_key.split(":", 1)[1].rsplit(":", 1)[0]
         ready_idx = next(
-            i for i, e in enumerate(events)
-            if e.get("type") == "review_gate_ready"
-            and (e.get("data") or {}).get("agent_id") == agent_id
+            (
+                i for i, e in enumerate(events)
+                if e.get("type") == "review_gate_ready"
+                and (e.get("data") or {}).get("agent_id") == agent_id
+            ),
+            None,
         )
         approved_idx = next(
-            i for i, e in enumerate(events)
-            if e.get("type") == "review_gate_approved"
-            and (e.get("data") or {}).get("agent_id") == agent_id
+            (
+                i for i, e in enumerate(events)
+                if e.get("type") == "review_gate_approved"
+                and (e.get("data") or {}).get("agent_id") == agent_id
+            ),
+            None,
+        )
+        # Defaulted on purpose: a bare ``next()`` raises StopIteration, which
+        # inside an ``async def`` Python re-raises as
+        # ``RuntimeError: coroutine raised StopIteration`` — a traceback with no
+        # trace of which agent_id went missing. Fail with the name instead.
+        assert ready_idx is not None and approved_idx is not None, (
+            f"no review_gate_ready/approved pair found for agent_id {agent_id!r} "
+            f"(from gate_key {gate_key!r}); "
+            f"seen={[(e.get('type'), (e.get('data') or {}).get('agent_id')) for e in events if str(e.get('type','')).startswith('review_gate')]}"
         )
         assert ready_idx < approved_idx, (
             f"review_gate_ready (idx {ready_idx}) did not precede "

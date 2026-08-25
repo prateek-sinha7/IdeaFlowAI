@@ -769,7 +769,21 @@ async def test_fail_closed_gate_exception_maps_to_block_not_pass():
 
 @pytest.mark.asyncio
 async def test_raising_hitl_gate_blocks_and_stops_gate_evaluation():
-    """A raised HUMAN gate fails closed too — and short-circuits what follows."""
+    """A raised HUMAN gate fails closed too — and short-circuits what follows.
+
+    Both gates must sit in the SAME phase or this proves nothing. ADR-0013 moved
+    ``human`` into ``_POST_STEP_GATES``, so the original pairing
+    (``["human", "security"]`` collected at ``phase="pre"``) no longer exercised
+    the short-circuit at all: ``human`` was filtered out by phase, ``security``
+    ran alone, and its ``gate_blocked`` event plus the WR-04 terminal sentinel
+    yielded ``["block", "block"]`` — two outcomes from ONE gate, which read like
+    a double evaluation but was just the trailing gate answering by itself.
+
+    Paired with ``validation`` instead: both are post-step, and the validator is
+    registered to BLOCK, so a broken short-circuit shows up as a second outcome
+    rather than as silence.
+    """
+    _register_fake_validator("v_short_circuit", [_Issue("P0")])
     engine = _engine()
 
     class _BoomHuman:
@@ -780,14 +794,18 @@ async def test_raising_hitl_gate_blocks_and_stops_gate_evaluation():
             yield  # pragma: no cover — makes this an async generator
 
     registry_mod._IMPLS[("gate", "human")] = _BoomHuman()
-    step = _GatedStep(gates=["human", "security"], tools=_ToolGrant(exec=True))
+    step = _GatedStep(
+        gates=["human", "validation"], validators=["v_short_circuit"]
+    )
 
     events, outcomes = await _collect_gates(
-        engine, step, _Ctx(_RecordingRunner()), phase="pre"
+        engine, step, _Ctx(_RecordingRunner()), phase="post"
     )
     # block (not pass, not cancel — an exception is not a user rejection), and
-    # the trailing security gate never evaluated (single sentinel).
+    # the trailing validation gate never evaluated (single sentinel, no event:
+    # a raised gate emits nothing, so the sentinel alone carries the halt).
     assert outcomes == [GATE_BLOCK]
+    assert events == []
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -846,14 +864,23 @@ async def test_approval_gate_explicitly_ignores_edited_content():
 @pytest.mark.asyncio
 async def test_engine_sentinel_carries_human_gate_edit_detail():
     """_evaluate_gates' terminal sentinel forwards the gate's detail so the
-    dispatch loop can apply the edit (the WR-04 3-tuple protocol)."""
+    dispatch loop can apply the edit (the WR-04 3-tuple protocol).
+
+    Collected in the POST phase: ADR-0013 moved ``human`` into
+    ``_POST_STEP_GATES`` (post-step reviews the output the step just produced;
+    the pre-step variant is spelled ``before-human`` now). The phase filter
+    therefore drops ``human`` entirely at ``phase="pre"``, which left this
+    asserting against an empty outcome list. What it pins — that the terminal
+    sentinel carries the gate's detail — is phase-agnostic; only the label was
+    stale.
+    """
     engine = _engine()
     runner = _RecordingRunner(review_events=list(_EDIT_REVIEW_SCRIPT))
     step = _GatedStep(gates=["human"])
 
     details: list = []
     events, outcomes = await _collect_gates(
-        engine, step, _Ctx(runner), phase="pre", details=details
+        engine, step, _Ctx(runner), phase="post", details=details
     )
     assert GATE_PASS in outcomes
     assert {"edited_content": "EDITED SPEC"} in details

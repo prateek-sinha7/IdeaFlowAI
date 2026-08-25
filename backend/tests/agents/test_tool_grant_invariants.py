@@ -14,9 +14,19 @@ step ``tools:``  ──intersect──▶  cap (permission_caps.PERMISSION_CAP_I
                                    ▼
                     factory.denied_tools  ──▶  DeepAgentRunner(denied_tools=…)
                                                         │
-                                                        ▼
-                                            tools the model is offered
+                                             ┌──────────┴──────────┐
+                                             ▼                     ▼
+                                 tools the model is       tools the model may
+                                      OFFERED                 EXECUTE
+                                 (wrap_model_call)        (wrap_tool_call)
 ```
+
+Both halves are load-bearing. Filtering the model request narrows what is
+offered; it unregisters nothing, so a model that names a stripped tool anyway
+(deepagents' built-in prompt documents the filesystem tools regardless of what
+is bound) still reached a live implementation — ISS-171, where steps compiled
+`read_files: false` ran `ls` and `read_file` against the run sandbox and got
+real listings back. §2b pins the execution half.
 
 Three properties, one per seam:
 
@@ -216,6 +226,75 @@ def test_no_compiled_step_narrows_nothing() -> None:
     tools from code that never opted in.
     """
     assert denied_tools(None) == frozenset()
+
+
+# ===========================================================================
+# §2b — The denial is enforced at EXECUTION, not only at the offer
+# ===========================================================================
+#
+# ISS-171: `denied_tools` was computed correctly, threaded correctly, and
+# applied correctly to the model request — and a denied step still executed
+# `ls`/`read_file` against its sandbox, because filtering `request.tools` only
+# decides what the model is SHOWN. These pin the second seam.
+
+
+class _Req:
+    """Minimal ToolCallRequest stand-in — the middleware reads `.tool_call`."""
+
+    def __init__(self, name: str) -> None:
+        self.tool_call = {"name": name, "id": "call_1", "args": {}}
+
+
+def _mw(*excluded: str):
+    from app.agents.deep_agent_runner import _ToolFilterMiddleware
+
+    return _ToolFilterMiddleware(excluded=frozenset(excluded))
+
+
+def _ran(_request):
+    return "EXECUTED"
+
+
+async def _aran(_request):
+    return "EXECUTED"
+
+
+@pytest.mark.parametrize("tool", sorted(PERMISSION_TOOLS["read_files"]))
+def test_denied_read_tool_never_executes(tool: str) -> None:
+    """The ISS-171 assertion: a denied read tool does not reach its handler.
+
+    Parametrised over the mapping table rather than a literal list, so a tool
+    added to the `read_files` row is covered the day it is added.
+    """
+    result = _mw(*PERMISSION_TOOLS["read_files"]).wrap_tool_call(_Req(tool), _ran)
+    assert result != "EXECUTED", f"{tool} executed despite being denied"
+    assert result.status == "error"
+    assert tool in result.content
+
+
+def test_granted_tool_still_executes() -> None:
+    """The denial is scoped: a tool outside the exclusion set runs untouched."""
+    assert _mw("ls", "read_file").wrap_tool_call(_Req("write_file"), _ran) == "EXECUTED"
+
+
+def test_no_exclusions_is_a_pure_passthrough() -> None:
+    """Back-compat twin of `test_no_compiled_step_narrows_nothing`.
+
+    `denied_tools(None)` is empty for every path that never opted into the
+    permission system, so the middleware must not intercept anything at all.
+    """
+    assert _mw().wrap_tool_call(_Req("ls"), _ran) == "EXECUTED"
+
+
+@pytest.mark.asyncio
+async def test_denial_holds_on_the_async_path() -> None:
+    """Runs stream, so `awrap_tool_call` is the path production actually takes —
+    a sync-only guard would leave the real one open."""
+    result = await _mw("ls").awrap_tool_call(_Req("ls"), _aran)
+    assert result != "EXECUTED"
+    assert result.status == "error"
+
+    assert await _mw("ls").awrap_tool_call(_Req("write_file"), _aran) == "EXECUTED"
 
 
 # ===========================================================================
