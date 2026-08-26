@@ -1,0 +1,25 @@
+{
+  "url": "http://localhost:3000/create",
+  "h": [
+    "H1:What would you like to build today?",
+    "H2:Build an end-to-end application",
+    "H2:Retry Until It Passes",
+    "H2:Branch by Language",
+    "H2:Spanish Greeter",
+    "H2:Dutch Greeter",
+    "H2:Hand Off to Another Workflow",
+    "H2:Ask a Human, Then Hand Off",
+    "H2:Ask a Human, Then Decide",
+    "H2:Pitch an idea",
+    "H2:Pitch an idea (v2)",
+    "H2:Build an interactive prototype",
+    "H2:Generate product requirements",
+    "H2:Compose a custom workflow",
+    "H3:Coming Soon",
+    "H2:.NET to Azure",
+    "H2:MuleSoft to Spring Boot",
+    "H2:Reverse engineer a codebase",
+    "H2:Sub-agents in parallel"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nVELOCITYAI\nWhat would you like to build today?\nBuild an end-to-end application\nFull-stack code, tests, and infrastructure from a single requirement.\n~1 agents · ~33m\nRetry Until It Passes\nSmallest possible example of a conditional gate looping back to an earlier step.\n~4 agents\nBranch by Language\nSmallest possible example of a conditional gate picking one of three forward branches.\n~5 agents\nSpanish Greeter\nThe plain workflow ex_A3_divert diverts into for the \"spanish\" outcome.\n~1 agents\nDutch Greeter\nThe plain workflow ex_A3_divert diverts into for the \"dutch\" outcome.\n~1 agents\nHand Off to Another Workflow\nSmallest possible example of a conditional gate that stays in-run for one outcome and diverts to a separate workflow for the others.\n~3 agents\nAsk a Human, Then Hand Off\nA human chooses at a review gate which separate workflow the run hands off to.\n~3 agents\nAsk a Human, Then Decide\nSmallest example of a human choosing the branch at a review gate.\n~5 agents · ~1m\nPitch an idea\nExecutive-grade deck with charts, data, and a clear narrative.\n~3 agents · ~8m\nPitch an idea (v2)\nExecutive-grade deck, delivered as a rendered HTML deck and a real editable PowerPoint file.\n~4 agents · ~8m\nBuild an interactive prototype\nNavigable, high-fidelity HTML prototype from a brief or story set.\n~2 agents · ~21m\nGenerate product requirements\nEpics, user stories, and Gherkin acceptance criteria — ready for Jira.\n~7 agents · ~5m\nCompo"
+}

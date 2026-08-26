@@ -23,12 +23,12 @@ inventory entirely.
 
 | # | Path | File | HTTP | Status |
 |---|---|---|---|---|
-| A1 | `/` | `app/page.tsx` | 200 | 🔎 redirects to `/login` unconditionally |
+| A1 | `/` | `app/page.tsx` | 200 | ✅ `p05` — branches on token presence: `/dashboard` or `/login` (**C-3**) |
 | A2 | `/login` | `app/login/page.tsx` | 200 | ✅ `01`, `02` |
-| A3 | `/register` | `app/register/page.tsx` | 200 | 🔎 redirect stub to `/login` |
+| A3 | `/register` | `app/register/page.tsx` | 200 | ✅ `p04` — redirect stub to `/login` |
 | A4 | `/admin` | `app/admin/page.tsx` | 200 | ✅ `36` |
 | A5 | `/workflow` | `app/workflow/page.tsx` | 200 | ✅ `55` — **not in routes.ts** |
-| A6 | `/workflow/create` | `app/workflow/create/page.tsx` | 200 | ✅ via `05`,`06` — legacy wizard |
+| A6 | `/workflow/create` | `app/workflow/create/page.tsx` | 200 | ✅ `p13`,`p14` — **redirects to `/create/{mode}` (C-1)** |
 | A7 | `/preview-fullscreen` | `app/preview-fullscreen/page.tsx` | 200 | ✅ `56` — **not in routes.ts** |
 | A8 | `/handoff/settings` | `app/handoff/settings/page.tsx` | 200 | ✅ `57` — **not in routes.ts** |
 | A9 | `/handoff/{token}` | `app/handoff/[token]/page.tsx` | 200 | ✅ `58` (invalid token) |
@@ -59,7 +59,7 @@ inventory entirely.
 | run-preview-full | `/runs/{id}/preview/full` | ✅ `22` |
 | run-stream | `/runs/{id}/stream` | ✅ `23`, `45` |
 | *(unrouted)* run-workspace | `/runs/{id}/workspace` | ✅ `40` (**D-02**) |
-| run-version | `/runs/{id}/versions/{v}` | ⬜ no multi-version run exists |
+| run-version | `/runs/{id}/versions/{v}` | ✅ `p34` — renders; only a version *switch* is unobservable (**C-4**) |
 | library | `/library` | ✅ `24`–`26` |
 | library-agent | `/library/agents/{slug}` | ✅ `27` |
 | library-skill | `/library/skills/{slug}` | ✅ `28` |
@@ -72,7 +72,7 @@ inventory entirely.
 | analytics | `/analytics` | ✅ `35` |
 | admin | *(dead code — A4 serves it)* | ✅ `36` |
 | login / register | *(A2 / A3 serve them)* | ✅ |
-| unknown | `/{anything}` | ✅ `39` |
+| unknown | `/{anything}` | ✅ `p51`; `/settings` does NOT reach it (**C-2**) |
 
 ## C. Overlays — 20 components render a `fixed inset-0` / `role="dialog"` layer
 
@@ -152,7 +152,7 @@ inventory entirely.
 | Empty: no audit records for a filter | ✅ `72` |
 | Empty: no suggested hooks for an agent | ✅ `73` |
 | Error: nonexistent run id | ✅ `63` (generic 404) |
-| Error: nonexistent workflow id | ⬜ |
+| Error: nonexistent workflow id | ✅ `p53` — identical to the generic 404 |
 | Error: invalid handoff token | ✅ `58` |
 | Error: preview quota exceeded | ✅ `56` |
 | Error: another user's run (403) | ⬜ needs two sessions |
@@ -163,24 +163,34 @@ inventory entirely.
 
 ## Score
 
-| Group | Sweep 1 | Sweep 2 | Total |
-|---|---|---|---|
-| A. Pages outside catch-all | 4 | **9** | 9 |
-| B. Catch-all screens | 35 | 35 | 36 |
-| C. Overlays | 6 | **11** | 21 |
-| D. Run states | 1 | **5** | 6 |
-| E. Tab families | 5 | **10** | 13 |
-| F. Tier variants | 1 | **4** | 4 |
-| G. Cross-cutting | 1 | **8** | 14 |
-| **Total** | **53** | **82** | **103** |
+| Group | Sweep 1 | Sweep 2 | Sweep 3 | Total |
+|---|---|---|---|---|
+| A. Pages outside catch-all | 4 | 9 | **9** | 9 |
+| B. Catch-all screens | 35 | 35 | **36** | 36 |
+| C. Overlays | 6 | 11 | 11 | 21 |
+| D. Run states | 1 | 5 | 5 | 6 |
+| E. Tab families | 5 | 10 | 10 | 13 |
+| F. Tier variants | 1 | 4 | 4 | 4 |
+| G. Cross-cutting | 1 | 8 | **9** | 14 |
+| **Total** | **53** | **82** | **84** | **103** |
 
-**80% captured.** Sweep 1 reported completeness at what was really 51%.
+**82% captured.** Sweep 1 reported completeness at what was really 51%.
+
+Sweep 3 was a full re-capture of all 55 page URLs with a 2.5s settle, into
+`screenshots/<area>/`. It added two surfaces (`run-version`, nonexistent
+workflow id), found one new defect (**D-12**), and corrected five claims the
+earlier sweeps had written from reading source instead of loading the URL
+(**C-1 … C-5**, listed at the end of `DEFECTS-OBSERVED.md`).
+
+**Every page URL is now backed by a fingerprint in `capture/` and a full-page
+screenshot.** `PAGES.md` is the per-page index: URL → shot → fingerprint → spec.
 
 ## What is still open, and why
 
 | Gap | Blocker |
 |---|---|
 | `waiting_for_user` run state | needs a live LLM run — real cost, and it creates a gate a human must answer |
+| a *switch* between artifact versions | no run in the dev DB has more than one version |
 | 10 remaining overlays | inside the prototype galleries and the composer node inspector |
 | Preview renderer modes | needs deliverables of several types (deck, app, markdown) |
 | Run-history filters / sort | mechanical; next increment |
@@ -188,4 +198,3 @@ inventory entirely.
 | Cross-account 403 | needs two concurrent sessions |
 | Loading / skeleton states | needs request throttling to observe |
 | Responsive breakpoints | not attempted |
-| `/runs/{id}/versions/{v}` | no multi-version run exists |

@@ -96,18 +96,20 @@ Feature: Pages outside routes.ts
 
   # ---------- /workflow/create ----------
 
-  Scenario Outline: The legacy wizard is what the named create routes render
+  Scenario Outline: The legacy wizard path redirects to the named create route
     When I cold-load "/workflow/create?mode=<mode>"
-    Then I see the wizard for that mode
-    And the screen matches "/create/<mode>"
+    Then I land on "/create/<mode>"
+    And I see the wizard for that mode
 
     Examples:
       | mode      |
       | ppt       |
       | prototype |
-    # routes.ts calls this `workflowCreateLegacy` and notes FR-007/T17 retired it
-    # in favour of /create/ppt and /create/prototype, "kept as a builder until
-    # that redirect lands". It has not landed.
+    # CORRECTED. The first sweep asserted the legacy path renders the wizard in
+    # place, quoting the routes.ts comment that FR-007/T17's redirect was "kept
+    # as a builder until that redirect lands". Re-capture with a settle shows the
+    # redirect HAS landed and both modes land on the named route. The routes.ts
+    # comment is stale; the code is not.
 
   # ---------- /preview-fullscreen ----------
 

@@ -1,0 +1,12 @@
+{
+  "url": "/preview-fullscreen?error=quota",
+  "headings": [],
+  "buttons": [],
+  "text": "Project too large for full screen\n\nThe generated project exceeds the browser session storage limit (~5MB). Use the Download ZIP button in the preview panel to get all files.",
+  "notes": [
+    "no heading element at all — the title is plain text, so a getByRole('heading') assertion fails; match on text",
+    "no actionable control: it names the Download ZIP button but does not link to it, and there is no way back",
+    "dead end — the user must use browser Back"
+  ],
+  "screenshot": "screenshots/11-errors/p54-preview-fullscreen-quota.png"
+}

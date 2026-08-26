@@ -1,0 +1,7 @@
+{
+  "url": "http://localhost:3000/settings/security",
+  "selected": [
+    "Security"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nAccount Settings\nProfile, model preference, usage limits, your agent constitution and sign-in security.\nProfile\nAI Model\nUsage & Limits\nConstitution\nSecurity\nAdd a second step to sign-in so a stolen password isn't enough on its own.\nNot available for this account\nThis account's credentials are managed outside the application, so two-factor authentication is configured separately."
+}

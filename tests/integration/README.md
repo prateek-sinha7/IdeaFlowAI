@@ -33,14 +33,23 @@ someone who does not read Playwright.
 ```
 tests/integration/
 ├── README.md              this file
+├── PAGES.md               the per-page index: every URL → shot → fingerprint → spec
+├── MANIFEST.md            the scored surface checklist, derived from source
 ├── INVENTORY.md           every route, its screen, and where its spec lives
-├── DEFECTS-OBSERVED.md    what the capture sweep found that looks wrong
-├── screens/               the specs — one file per surface, Gherkin scenarios
-├── capture/               raw DOM fingerprints per screen (evidence)
+├── DEFECTS-OBSERVED.md    what the sweeps found that looks wrong, plus corrections
+├── screens/               the specs — 17 files, one per surface, Gherkin scenarios
+├── capture/               raw DOM fingerprints (evidence)
 │   ├── FIXTURES.json      the live ids the sweep used, and why not to trust them
+│   ├── _enumerate.py      lists the surface from frontend/src — run this FIRST
 │   └── _dump.py           prints a fingerprint readably
-└── screenshots/           41 full-page PNGs, one per captured screen
+└── screenshots/           80 full-page PNGs
+    ├── 01-auth … 11-errors    one folder per area, pNN per page URL
+    ├── 12-overlays/           modals, menus and drawers — not pages
+    └── 13-states/             themes, tiers, run states, tab variants
 ```
+
+**Start at `PAGES.md`.** It is the per-page record: all 55 page URLs, what each
+one actually does, and where its screenshot, fingerprint and spec live.
 
 ## How the capture was made
 
@@ -53,6 +62,14 @@ tests/integration/
 - Every route was reached by a **cold navigation** (`page.goto`), never by
   client-side clicking into it. Cold-load fidelity is the point: three of the
   defects listed above only appear on a cold load or a remount.
+- **A 2.5s settle after every navigation**, before the fingerprint and the shot.
+  Several screens paint a transient state and resolve a moment later; without the
+  settle the capture records the wrong frame.
+- **The surface list came from source before any capture.** `_enumerate.py` reads
+  `frontend/src` for page files, `ParsedView` cases, overlay components and
+  empty/error branches; `MANIFEST.md` is that output turned into a scored
+  checklist. Sweep 1 walked the app by clicking and reported "41 screens" as if
+  complete — it was 51%. Enumerate first, then capture against the list.
 
 ## Conventions for the specs
 
@@ -70,6 +87,11 @@ tests/integration/
   rewritten to the correct behaviour and the tag dropped.
 - **`@destructive` tags** mark scenarios that write or delete. They need their own
   fixtures and must not run against a shared dev database.
+- **Every routing claim is backed by a capture, never by reading the router.**
+  Five earlier claims were wrong for exactly that reason — `parseViewPath`'s
+  return value is not the user's destination, and a stale comment in `routes.ts`
+  is not the code. They are recorded as C-1 … C-5 in `DEFECTS-OBSERVED.md` rather
+  than quietly deleted.
 
 ## Running (phase 2, not yet built)
 

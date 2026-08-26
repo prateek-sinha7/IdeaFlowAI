@@ -34,7 +34,7 @@ From reading `parseViewPath`, these all land on the 404 screen:
 
 | Route | Why |
 |---|---|
-| `/settings` | bare, no tab — deliberate, commented in `routes.ts` |
+| ~~`/settings`~~ | parses to `unknown`, but **redirects to `/settings/profile`** — the user never sees the 404 |
 | `/workflows/{id}/{anything-else}` | not `canvas`, `edit` or `run` |
 | `/runs/{id}/{anything-else}` | not a known subpath |
 | `/library/{type}` with < 3 segments | intercepted by `next.config.ts` redirects first |
@@ -87,19 +87,19 @@ Feature: Errors and fallbacks
 
     Examples:
       | route                                  |
-      | /settings                              |
       | /workflows/some-id/nonsense            |
       | /runs/some-id/nonsense                 |
       | /library/widgets/some-slug             |
       | /create/                               |
 
-  Scenario: A bare /settings does not silently redirect
+  Scenario: A bare /settings redirects to Profile
     Given I am signed in
     When I cold-load "/settings"
-    Then I do not land on "/settings/profile"
-    # Deliberate: parseViewPath returns `unknown` rather than picking a tab for
-    # the user. Asserted so nobody "helpfully" adds a redirect without deciding
-    # to.
+    Then I land on "/settings/profile"
+    # CORRECTED. The first sweep read parseViewPath, saw `unknown`, and wrote
+    # the opposite assertion — that /settings must NOT redirect. Captured
+    # directly, it does. The parser's return value and the user's destination
+    # are two different things.
 
   Scenario: Legacy library list URLs are redirected, not 404'd
     Given I am signed in
@@ -111,16 +111,52 @@ Feature: Errors and fallbacks
 
   # ---- Missing and forbidden resources ----
 
-  Scenario: A run id that does not exist is handled
+  Scenario: A run id that does not exist falls back to the generic 404
     Given I am signed in
     When I cold-load "/runs/00000000-0000-0000-0000-000000000000"
-    Then I am told the run cannot be found
+    Then I see the generic 404 screen
     And I am not shown a blank pane or a spinner that never resolves
+    # Captured: the backend answers 404 and the client renders the same
+    # "Page not found." screen as an unparseable URL. The user is never told
+    # the RUN is missing — only that the page is.
 
-  Scenario: A workflow id that does not exist is handled
+  Scenario: A workflow id that does not exist falls back to the generic 404
     Given I am signed in
     When I cold-load "/workflows/00000000-0000-0000-0000-000000000000"
-    Then I am told the workflow cannot be found
+    Then I see the generic 404 screen
+
+  @defect
+  # Three distinct failures — an unparseable URL, a missing run, a missing
+  # workflow — render one byte-identical screen. A test cannot tell them apart
+  # from the DOM, so every such scenario must assert on the URL it navigated
+  # from. Recorded as an observation, not a demand to change it.
+  Scenario: Missing-resource errors are indistinguishable from a bad URL
+    Given I am signed in
+    When I cold-load "/this-route-does-not-exist"
+    And I cold-load "/runs/{nonexistent-uuid}"
+    And I cold-load "/workflows/{nonexistent-uuid}"
+    Then all three render the same "Page not found." screen
+    And none of them names the resource that was missing
+
+  @defect
+  # D-12. Asking for a version that does not exist silently serves v1.
+  Scenario: A nonexistent artifact version falls back to v1 without saying so
+    Given a completed run whose artifact has only version 1
+    When I cold-load "/runs/{id}/versions/99"
+    Then the artifact is rendered
+    And the version control reads "Version v1"
+    And the URL still reads "/versions/99"
+    And nothing tells me the version I asked for does not exist
+    # Expected once fixed: either a not-found state, or a visible notice that
+    # the requested version was unavailable and v1 was served instead.
+
+  Scenario: An oversized full-screen preview explains itself
+    When I cold-load "/preview-fullscreen?error=quota"
+    Then I see "Project too large for full screen"
+    And I am told the project exceeds the ~5MB session storage limit
+    # The message names the Download ZIP button but does not link to it, and
+    # the page offers no navigation at all — browser Back is the only way out.
+    # There is also no heading element: match on text, not getByRole('heading').
 
   Scenario: Another user's run is not readable
     Given a run owned by "qa-pro@flowinqa.com"

@@ -11,11 +11,14 @@ behind the `/create/*` URLs, and they do not look alike.
 ## Two shells
 
 **Shell A — the wizard** (`/create/ppt`, `/create/prototype`). A stepped
-configuration surface with a tab strip, a template gallery, and Back/Next. It is
-the legacy page at `app/workflow/create/page.tsx`; `routes.ts` calls it
-`workflowCreateLegacy` and notes FR-007/T17 retired it in favour of the named
-routes, "kept as a builder until that redirect lands". It has not landed — these
-two URLs still render the wizard.
+configuration surface with a tab strip, a template gallery, and Back/Next.
+
+`routes.ts` still carries a `workflowCreateLegacy` builder for the older path
+`/workflow/create?mode=…`, with a comment saying FR-007/T17 retired it in favour
+of the named routes and it is "kept as a builder until that redirect lands".
+**That comment is stale — the redirect has landed.** Captured directly:
+`/workflow/create?mode=ppt` → `/create/ppt`, `/workflow/create?mode=prototype`
+→ `/create/prototype`. The named routes are the only ones that render.
 
 **Shell B — the simple panel** (`/create/app`, `/create/user-stories`,
 `/create/{type}`). `MainView` `"input"`. One brief textarea, an Advanced control,

@@ -1,0 +1,14 @@
+{
+  "url": "/login?expired=1",
+  "hasExpiredBanner": false,
+  "headings": ["Ship faster with your agent workforce.", "Welcome back"],
+  "inputs": [{"type": "email", "name": ""}, {"type": "password", "name": ""}],
+  "controls": ["Sign in"],
+  "footer": "Access is by invitation. Contact your administrator for an account.",
+  "notes": [
+    "D-03 confirmed: only the literal string 'true' shows the session-expired banner. ?expired=1 renders the plain sign-in form with no explanation.",
+    "the email and password inputs carry NO name attribute — select them by type or label, not by name",
+    "identical DOM to p01 (/login); the query string is the only difference"
+  ],
+  "screenshot": "screenshots/01-auth/p03-login-expired-1-no-banner.png"
+}

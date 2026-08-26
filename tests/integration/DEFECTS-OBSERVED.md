@@ -238,3 +238,44 @@ failed = 173 against 241 total. The percentage (58%) is right; the breakdown jus
 omits the other 68 runs.
 
 **Evidence:** `capture/35`.
+
+---
+
+## D-12 — A nonexistent artifact version silently serves v1
+
+**Severity:** low, but it makes a URL lie.
+
+`/runs/{id}/versions/99` on a run whose artifact has only version 1 renders the
+artifact, shows `Version v1` in the picker, and returns HTTP 200. The URL still
+reads `/versions/99`. Nothing anywhere on the page says the requested version does
+not exist.
+
+A shared link to a version that was later removed therefore shows the wrong content
+with no indication it is the wrong content.
+
+**Expected:** either a not-found state, or the artifact plus a visible notice that
+the requested version was unavailable and v1 was served instead.
+
+**Evidence:** `capture/p34-run-version.json`,
+`screenshots/11-errors/p56-run-version-nonexistent.png`.
+
+---
+
+# Corrections to earlier sweeps
+
+Not product defects — places where an earlier sweep wrote down something that
+turned out to be wrong. Recorded here so the wrong claim is not quietly deleted.
+
+| # | Claimed | Actually | Corrected in |
+|---|---|---|---|
+| C-1 | `/workflow/create?mode=ppt\|prototype` renders the legacy wizard in place; FR-007/T17's redirect "has not landed" | Both redirect to `/create/ppt` and `/create/prototype`. The redirect landed; the `routes.ts` comment is stale | `03-launch-panels`, `16-pages-outside-routes` |
+| C-2 | A bare `/settings` shows the 404, deliberately, and must not redirect | It redirects to `/settings/profile`. `parseViewPath` does return `unknown`, but the page does not stop there | `09-settings`, `13-errors` |
+| C-3 | `/` redirects to `/login` unconditionally | It branches on token presence: `/dashboard` if a token exists, `/login` if not | `MANIFEST` row A1 |
+| C-4 | `/runs/{id}/versions/{v}` uncapturable — "no multi-version run exists" | It renders fine with a single-version run; only a version *switch* is unobservable | `MANIFEST` group B |
+| C-5 (was D-09) | Locked catalog cards are hidden from lower tiers | They are always shown, with a "Requires &lt;Plan&gt; plan" badge. Sweep 1 was captured only as an enterprise admin, where nothing is locked | `02-home-catalog` |
+
+**The common cause of C-1 to C-4:** all four were written from reading source —
+`parseViewPath`, a `routes.ts` comment, a builder's absence — rather than from
+loading the URL. The parser's return value is not the user's destination, and a
+comment is not the code. Every routing claim in these specs is now backed by a
+fingerprint in `capture/`.

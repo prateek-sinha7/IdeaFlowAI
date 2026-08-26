@@ -24,9 +24,12 @@ agent constitution and sign-in security."
 The tab testids do **not** match their route segments (`tab-model` ↔ `ai-model`,
 `tab-limits` ↔ `usage`). Map them explicitly.
 
-**`/settings` with no tab parses to `unknown`** — `parseViewPath` returns
-`{screen:'unknown'}` rather than redirecting to profile. That is deliberate and
-commented in `routes.ts`.
+**`/settings` with no tab lands on `/settings/profile`.** `parseViewPath` does
+return `{screen:'unknown'}` for it — that much is true and commented in
+`routes.ts` — but the page does not stop there: it redirects to profile. The
+first sweep read the parser and wrote down that the user sees the 404. Captured
+directly, they do not (`capture/p46-settings-bare-redirect.json`). Read the
+parser for what it parses, never for what the user ends up seeing.
 
 Security was once a standalone page. The page is gone; the URL stays so the tab is
 addressable exactly like the other four.
@@ -106,11 +109,14 @@ Feature: Account settings
     # The testids do not match the route segments. tab-model ↔ ai-model and
     # tab-limits ↔ usage. Map them; do not derive one from the other.
 
-  Scenario: A bare /settings is not a screen
+  Scenario: A bare /settings lands on Profile
     When I cold-load "/settings"
-    Then I do not land on a settings tab
-    # parseViewPath returns `unknown` for a bare /settings by design, rather
-    # than redirecting to profile.
+    Then I land on "/settings/profile"
+    And the Profile tab is selected
+    # CORRECTED. parseViewPath does return `unknown` for a bare /settings, but
+    # the page redirects to profile rather than rendering the 404. The first
+    # sweep asserted the 404 from reading the parser alone. Assert the settled
+    # URL, not the first paint — the redirect is client-side.
 
   # ---- Profile ----
 
