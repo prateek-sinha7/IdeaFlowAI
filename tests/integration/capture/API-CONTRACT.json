@@ -1,0 +1,974 @@
+[
+  {
+    "method": "GET",
+    "path": "/api/admin/users",
+    "handler": "list_users",
+    "file": "backend/app/api/admin.py",
+    "auth": "admin",
+    "status_code": null,
+    "response_model": "list[AdminUserResponse]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/admin/users",
+    "handler": "create_user",
+    "file": "backend/app/api/admin.py",
+    "auth": "admin",
+    "status_code": "HTTP_201_CREATED",
+    "response_model": "AdminUserResponse"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/admin/users/{user_id}",
+    "handler": "delete_user",
+    "file": "backend/app/api/admin.py",
+    "auth": "admin",
+    "status_code": "HTTP_204_NO_CONTENT",
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/admin/users/{user_id}/reset-password",
+    "handler": "reset_user_password",
+    "file": "backend/app/api/admin.py",
+    "auth": "admin",
+    "status_code": "HTTP_200_OK",
+    "response_model": null
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/admin/users/{user_id}/role",
+    "handler": "update_user_role",
+    "file": "backend/app/api/admin.py",
+    "auth": "admin",
+    "status_code": null,
+    "response_model": "AdminUserResponse"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/admin/users/{user_id}/tier",
+    "handler": "update_user_tier",
+    "file": "backend/app/api/admin.py",
+    "auth": "admin",
+    "status_code": null,
+    "response_model": "AdminUserResponse"
+  },
+  {
+    "method": "GET",
+    "path": "/api/agents/library",
+    "handler": "get_agent_library",
+    "file": "backend/app/api/agents.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/agents/pipelines/{pipeline_type}",
+    "handler": "get_pipeline",
+    "file": "backend/app/api/agents.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "PipelineResponse"
+  },
+  {
+    "method": "GET",
+    "path": "/api/agents/skills",
+    "handler": "get_all_skills_endpoint",
+    "file": "backend/app/api/agents.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/agents/skills",
+    "handler": "create_skill",
+    "file": "backend/app/api/agents.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/agents/skills/{agent_id}",
+    "handler": "remove_skill",
+    "file": "backend/app/api/agents.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/agents/skills/{agent_id}",
+    "handler": "get_skill",
+    "file": "backend/app/api/agents.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "SkillResponse"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/agents/{agent_id}/prompt",
+    "handler": "remove_agent_prompt_override",
+    "file": "backend/app/api/agents.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/agents/{agent_id}/prompt",
+    "handler": "get_agent_prompt",
+    "file": "backend/app/api/agents.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "AgentPromptResponse"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/agents/{agent_id}/prompt",
+    "handler": "save_agent_prompt_override",
+    "file": "backend/app/api/agents.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/analytics/summary",
+    "handler": "get_analytics_summary",
+    "file": "backend/app/api/analytics.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "AnalyticsSummary"
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/change-password",
+    "handler": "change_password",
+    "file": "backend/app/api/auth.py",
+    "auth": "user",
+    "status_code": "HTTP_200_OK",
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/forgot-password",
+    "handler": "forgot_password",
+    "file": "backend/app/api/auth.py",
+    "auth": "public",
+    "status_code": "HTTP_202_ACCEPTED",
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/forgot-password/confirm",
+    "handler": "confirm_forgot_password",
+    "file": "backend/app/api/auth.py",
+    "auth": "public",
+    "status_code": "HTTP_200_OK",
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/login",
+    "handler": "login",
+    "file": "backend/app/api/auth.py",
+    "auth": "public",
+    "status_code": null,
+    "response_model": "AuthResponse | AuthChallengeResponse"
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/login/challenge",
+    "handler": "login_challenge",
+    "file": "backend/app/api/auth.py",
+    "auth": "public",
+    "status_code": null,
+    "response_model": "AuthResponse | AuthChallengeResponse"
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/logout",
+    "handler": "logout",
+    "file": "backend/app/api/auth.py",
+    "auth": "public",
+    "status_code": "HTTP_204_NO_CONTENT",
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/auth/me",
+    "handler": "get_me",
+    "file": "backend/app/api/auth.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "UserResponse"
+  },
+  {
+    "method": "GET",
+    "path": "/api/auth/mfa",
+    "handler": "get_mfa_status",
+    "file": "backend/app/api/auth.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "MfaStatusResponse"
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/mfa/email/disable",
+    "handler": "disable_email_mfa",
+    "file": "backend/app/api/auth.py",
+    "auth": "user",
+    "status_code": "HTTP_200_OK",
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/mfa/email/enable",
+    "handler": "enable_email_mfa",
+    "file": "backend/app/api/auth.py",
+    "auth": "user",
+    "status_code": "HTTP_200_OK",
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/mfa/totp/associate",
+    "handler": "associate_totp",
+    "file": "backend/app/api/auth.py",
+    "auth": "user",
+    "status_code": "HTTP_200_OK",
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/mfa/totp/verify",
+    "handler": "verify_totp",
+    "file": "backend/app/api/auth.py",
+    "auth": "user",
+    "status_code": "HTTP_200_OK",
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/refresh",
+    "handler": "refresh",
+    "file": "backend/app/api/auth.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "RefreshResponse"
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/register",
+    "handler": "register",
+    "file": "backend/app/api/auth.py",
+    "auth": "public",
+    "status_code": "HTTP_403_FORBIDDEN",
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/capabilities",
+    "handler": "list_capabilities",
+    "file": "backend/app/api/capabilities.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "CapabilitiesPalette"
+  },
+  {
+    "method": "GET",
+    "path": "/api/chats",
+    "handler": "list_chats",
+    "file": "backend/app/api/chats.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "list[ChatSessionResponse]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/chats",
+    "handler": "create_chat",
+    "file": "backend/app/api/chats.py",
+    "auth": "user",
+    "status_code": "HTTP_201_CREATED",
+    "response_model": "ChatSessionResponse"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/chats/{chat_id}",
+    "handler": "delete_chat",
+    "file": "backend/app/api/chats.py",
+    "auth": "user",
+    "status_code": "HTTP_204_NO_CONTENT",
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/chats/{chat_id}",
+    "handler": "get_chat",
+    "file": "backend/app/api/chats.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "ChatSessionDetailResponse"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/chats/{chat_id}/messages",
+    "handler": "add_message",
+    "file": "backend/app/api/chats.py",
+    "auth": "user",
+    "status_code": "HTTP_201_CREATED",
+    "response_model": "MessageResponse"
+  },
+  {
+    "method": "POST",
+    "path": "/api/files/extract-text",
+    "handler": "extract_text",
+    "file": "backend/app/api/file_extract.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "ExtractResponse"
+  },
+  {
+    "method": "POST",
+    "path": "/api/handoff/receive",
+    "handler": "receive_handoff",
+    "file": "backend/app/api/handoff.py",
+    "auth": "public",
+    "status_code": "HTTP_201_CREATED",
+    "response_model": "HandoffReceiveResponse"
+  },
+  {
+    "method": "GET",
+    "path": "/api/handoff/{token}",
+    "handler": "get_handoff",
+    "file": "backend/app/api/handoff.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "HandoffSessionView"
+  },
+  {
+    "method": "POST",
+    "path": "/api/handoff/{token}/start",
+    "handler": "start_handoff",
+    "file": "backend/app/api/handoff.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "HandoffStartResponse"
+  },
+  {
+    "method": "GET",
+    "path": "/api/hooks/library",
+    "handler": "get_hooks_library",
+    "file": "backend/app/api/hooks.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/ppt/templates",
+    "handler": "list_ppt_templates",
+    "file": "backend/app/api/ppt_templates.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "list[PPTTemplateListItem]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/ppt/templates/{template_id}",
+    "handler": "get_ppt_template",
+    "file": "backend/app/api/ppt_templates.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "PPTTemplateDetail"
+  },
+  {
+    "method": "GET",
+    "path": "/api/ppt/templates/{template_id}/preview",
+    "handler": "get_ppt_template_preview",
+    "file": "backend/app/api/ppt_templates.py",
+    "auth": "public",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/ppt/templates/{template_id}/thumbnail",
+    "handler": "get_ppt_template_thumbnail",
+    "file": "backend/app/api/ppt_templates.py",
+    "auth": "public",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/prototype/design-systems",
+    "handler": "list_design_systems",
+    "file": "backend/app/api/prototype_templates.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "list[DesignSystemListItem]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/prototype/design-systems/{ds_id}",
+    "handler": "get_design_system",
+    "file": "backend/app/api/prototype_templates.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "DesignSystemDetail"
+  },
+  {
+    "method": "GET",
+    "path": "/api/prototype/design-systems/{ds_id}/preview",
+    "handler": "get_design_system_preview",
+    "file": "backend/app/api/prototype_templates.py",
+    "auth": "public",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/prototype/fetch-url",
+    "handler": "fetch_url_for_template",
+    "file": "backend/app/api/prototype_templates.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/prototype/run",
+    "handler": "run_prototype",
+    "file": "backend/app/api/prototype_templates.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/prototype/templates",
+    "handler": "list_templates",
+    "file": "backend/app/api/prototype_templates.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "list[TemplateListItem]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/prototype/templates/{template_id}",
+    "handler": "get_template",
+    "file": "backend/app/api/prototype_templates.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "TemplateDetail"
+  },
+  {
+    "method": "GET",
+    "path": "/api/prototype/templates/{template_id}/assets/{asset_path:path}",
+    "handler": "get_template_asset",
+    "file": "backend/app/api/prototype_templates.py",
+    "auth": "public",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/prototype/templates/{template_id}/preview",
+    "handler": "get_template_preview",
+    "file": "backend/app/api/prototype_templates.py",
+    "auth": "public",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/prototype/templates/{template_id}/thumbnail",
+    "handler": "get_template_thumbnail",
+    "file": "backend/app/api/prototype_templates.py",
+    "auth": "public",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs",
+    "handler": "list_runs",
+    "file": "backend/app/api/runs.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "list[WorkflowRunListResponse]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/runs",
+    "handler": "launch_run",
+    "file": "backend/app/api/run_commands.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/runs/export-pptx",
+    "handler": "export_pptx",
+    "file": "backend/app/api/runs.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/runs/user_message",
+    "handler": "user_message_shim",
+    "file": "backend/app/api/run_commands.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/runs/{run_id}/answers",
+    "handler": "submit_answers",
+    "file": "backend/app/api/run_commands.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/runs/{run_id}/cancel",
+    "handler": "cancel_run",
+    "file": "backend/app/api/run_commands.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/runs/{run_id}/files",
+    "handler": "upload_files",
+    "file": "backend/app/api/run_files.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/runs/{run_id}/gate",
+    "handler": "resolve_gate",
+    "file": "backend/app/api/run_commands.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/runs/{run_id}/messages",
+    "handler": "post_message",
+    "file": "backend/app/api/run_commands.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/runs/{run_id}/resume",
+    "handler": "resume_run_endpoint",
+    "file": "backend/app/api/run_commands.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/api/runs/{run_id}/revisions",
+    "handler": "create_revision",
+    "file": "backend/app/api/run_commands.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/runs/{workflow_id}",
+    "handler": "delete_run",
+    "file": "backend/app/api/runs.py",
+    "auth": "user",
+    "status_code": "HTTP_204_NO_CONTENT",
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs/{workflow_id}",
+    "handler": "get_run",
+    "file": "backend/app/api/runs.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "WorkflowRunResponse"
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs/{workflow_id}/artifacts",
+    "handler": "get_run_artifacts",
+    "file": "backend/app/api/runs.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs/{workflow_id}/chain-context",
+    "handler": "get_chain_context",
+    "file": "backend/app/api/runs.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "ChainContextResponse"
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs/{workflow_id}/events",
+    "handler": "get_run_events",
+    "file": "backend/app/api/runs.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs/{workflow_id}/events/stream",
+    "handler": "stream_run_events",
+    "file": "backend/app/api/run_stream.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs/{workflow_id}/exec-runs",
+    "handler": "get_exec_runs",
+    "file": "backend/app/api/runs.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs/{workflow_id}/family",
+    "handler": "get_run_family",
+    "file": "backend/app/api/runs.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "RunFamilyResponse"
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs/{workflow_id}/gate-events",
+    "handler": "get_gate_events",
+    "file": "backend/app/api/runs.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs/{workflow_id}/hook-runs",
+    "handler": "get_hook_runs",
+    "file": "backend/app/api/runs.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs/{workflow_id}/summary",
+    "handler": "get_run_summary",
+    "file": "backend/app/api/runs.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "RunSummaryResponse"
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs/{workflow_id}/validation-results",
+    "handler": "get_validation_results",
+    "file": "backend/app/api/runs.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/api-keys",
+    "handler": "list_api_keys",
+    "file": "backend/app/api/settings.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "list[ApiKeySummary]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/settings/api-keys",
+    "handler": "create_api_key",
+    "file": "backend/app/api/settings.py",
+    "auth": "user",
+    "status_code": "HTTP_201_CREATED",
+    "response_model": "ApiKeyCreateResponse"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/settings/api-keys/{key_id}",
+    "handler": "revoke_api_key",
+    "file": "backend/app/api/settings.py",
+    "auth": "user",
+    "status_code": "HTTP_204_NO_CONTENT",
+    "response_model": null
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/settings/constitution",
+    "handler": "delete_constitution",
+    "file": "backend/app/api/settings.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/constitution",
+    "handler": "get_constitution",
+    "file": "backend/app/api/settings.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "ConstitutionResponse"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/settings/constitution",
+    "handler": "set_constitution",
+    "file": "backend/app/api/settings.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "ConstitutionResponse"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/settings/github-pat",
+    "handler": "delete_github_pat",
+    "file": "backend/app/api/settings.py",
+    "auth": "user",
+    "status_code": "HTTP_204_NO_CONTENT",
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/github-pat",
+    "handler": "get_github_pat_status",
+    "file": "backend/app/api/settings.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "GithubPATResponse | None"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/settings/github-pat",
+    "handler": "upsert_github_pat",
+    "file": "backend/app/api/settings.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "GithubPATResponse"
+  },
+  {
+    "method": "GET",
+    "path": "/api/settings/preferences",
+    "handler": "get_preferences",
+    "file": "backend/app/api/settings.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "UserPreferencesResponse"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/settings/preferences",
+    "handler": "update_preferences",
+    "file": "backend/app/api/settings.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "UserPreferencesResponse"
+  },
+  {
+    "method": "GET",
+    "path": "/api/skills/library",
+    "handler": "get_skills_library",
+    "file": "backend/app/api/skills.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/user-agents",
+    "handler": "list_user_agents",
+    "file": "backend/app/api/user_agents.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "list[UserAgentResponse]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/user-agents",
+    "handler": "create_user_agent",
+    "file": "backend/app/api/user_agents.py",
+    "auth": "user",
+    "status_code": "HTTP_201_CREATED",
+    "response_model": "UserAgentResponse"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/user-agents/{agent_id}",
+    "handler": "delete_user_agent",
+    "file": "backend/app/api/user_agents.py",
+    "auth": "user",
+    "status_code": "HTTP_204_NO_CONTENT",
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/user-agents/{agent_id}",
+    "handler": "get_user_agent",
+    "file": "backend/app/api/user_agents.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "UserAgentResponse"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/user-agents/{agent_id}",
+    "handler": "update_user_agent",
+    "file": "backend/app/api/user_agents.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "UserAgentResponse"
+  },
+  {
+    "method": "GET",
+    "path": "/api/user-workflows",
+    "handler": "list_user_workflows",
+    "file": "backend/app/api/user_workflows.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "list[UserWorkflowResponse]"
+  },
+  {
+    "method": "POST",
+    "path": "/api/user-workflows",
+    "handler": "create_user_workflow",
+    "file": "backend/app/api/user_workflows.py",
+    "auth": "user",
+    "status_code": "HTTP_201_CREATED",
+    "response_model": "UserWorkflowResponse"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/user-workflows/{workflow_id}",
+    "handler": "delete_user_workflow",
+    "file": "backend/app/api/user_workflows.py",
+    "auth": "user",
+    "status_code": "HTTP_204_NO_CONTENT",
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/user-workflows/{workflow_id}",
+    "handler": "get_user_workflow",
+    "file": "backend/app/api/user_workflows.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "UserWorkflowResponse"
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/user-workflows/{workflow_id}",
+    "handler": "update_user_workflow",
+    "file": "backend/app/api/user_workflows.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "UserWorkflowResponse"
+  },
+  {
+    "method": "GET",
+    "path": "/api/user-workflows/{workflow_id}/workflow.yaml",
+    "handler": "export_user_workflow_yaml",
+    "file": "backend/app/api/user_workflows.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/workflows",
+    "handler": "list_workflows",
+    "file": "backend/app/api/workflows.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "list[WorkflowSummary]"
+  },
+  {
+    "method": "GET",
+    "path": "/api/workflows/{workflow_id}",
+    "handler": "get_workflow",
+    "file": "backend/app/api/workflows.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": "WorkflowDetail"
+  },
+  {
+    "method": "GET",
+    "path": "/install/flowin-handoff",
+    "handler": "get_flowin_handoff_installer",
+    "file": "backend/app/api/install.py",
+    "auth": "public",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/install/flowin-handoff/command",
+    "handler": "get_slash_command_markdown",
+    "file": "backend/app/api/install.py",
+    "auth": "public",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/install/flowin-handoff/script",
+    "handler": "get_handoff_script",
+    "file": "backend/app/api/install.py",
+    "auth": "public",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/mcp/handoff",
+    "handler": "mcp_handoff_get",
+    "file": "backend/app/api/mcp.py",
+    "auth": "public",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "POST",
+    "path": "/mcp/handoff",
+    "handler": "mcp_handoff_endpoint",
+    "file": "backend/app/api/mcp.py",
+    "auth": "public",
+    "status_code": null,
+    "response_model": null
+  }
+]

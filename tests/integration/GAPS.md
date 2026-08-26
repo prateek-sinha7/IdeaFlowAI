@@ -50,9 +50,32 @@
 > per-endpoint authorization. `13-errors` covers a handful of auth status codes
 > deliberately, and that is the extent of it.
 >
-> **Two things remain genuinely uncovered:** responsive breakpoints (no scenarios
-> anywhere) and endpoint-level API contract tests (out of scope for this suite as
-> written — a decision, not an oversight, but state it rather than imply coverage).
+> **Sweep 9 added the API contract**, so that scope decision is reversed. All 108
+> backend endpoints are now enumerated in `24-api-contract` with their method, path,
+> auth requirement, status code and response model, and snapshotted to
+> `capture/API-CONTRACT.json`. **Diffing that file is the regression detector**: a
+> renamed route, a dropped `Depends(get_current_user)` or a 201 that became a 200 all
+> show up as a reviewable line rather than a production surprise.
+>
+> Building it found two things worth keeping:
+>
+> - `POST /api/handoff/receive` is listed public but is **not unauthenticated** — it
+>   takes a long-lived `X-Flowin-API-Key` header instead of a JWT. It mints a URL
+>   granting access to a run, is reachable from the public internet, and that header
+>   is its only guard.
+> - `GET /api/prototype/templates/{id}/assets/{asset_path:path}` is a **wildcard path
+>   parameter on an unauthenticated route** — the classic traversal shape. The source
+>   says traversal is rejected; that is a comment, and it now has a scenario instead.
+>
+> Two tooling bugs were caught before they reached the spec: the auth classifier
+> matched dependency names exactly and reported every MFA endpoint plus
+> `/api/auth/change-password` as PUBLIC, and the signature regex truncated at the
+> first `)` — `Depends(get_db)` — hiding 3 endpoints and mislabelling 30. A
+> mislabelled auth requirement in a contract spec is worse than no spec.
+>
+> **One thing remains genuinely uncovered: responsive breakpoints.** No scenarios
+> anywhere. Closing it needs target viewports agreed first — whether a layout works
+> at 375px is a judgement, not a grep.
 >
 > Run `python3 tests/integration/capture/_coverage.py` to re-check. It exits
 > non-zero while any control is unspecified, which is what stops this drifting back.

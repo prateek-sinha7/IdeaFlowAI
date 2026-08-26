@@ -38,7 +38,7 @@ tests/integration/
 ├── MANIFEST.md            the scored surface checklist, derived from source
 ├── INVENTORY.md           every route, its screen, and where its spec lives
 ├── DEFECTS-OBSERVED.md    what the sweeps found that looks wrong, plus corrections
-├── screens/               the specs — 23 files, one per surface, 458 Gherkin scenarios
+├── screens/               the specs — 24 files, one per surface, 480 Gherkin scenarios
 ├── capture/               raw DOM fingerprints (evidence)
 │   ├── FIXTURES.json      the live ids the sweep used, and why not to trust them
 │   ├── _enumerate.py      lists pages, screens and overlays from frontend/src
@@ -46,6 +46,8 @@ tests/integration/
 │   ├── _deadcode.py       component files nothing imports (don't spec these)
 │   ├── _uncovered.py      components named in no spec
 │   ├── _coverage.py       EVERY addressable control vs the specs — the real check
+│   ├── _api.py            the backend contract: 108 endpoints, method/path/auth
+│   └── API-CONTRACT.json  the committed snapshot — diff it to see a contract change
 │   ├── _verify.py         consistency gate — run this LAST, before committing
 │   └── _dump.py           prints a fingerprint readably
 └── screenshots/           98 PNGs
@@ -66,9 +68,16 @@ It checks every `data-testid`, `aria-label`, form `name` **and text-only button 
 the frontend against every spec, and exits non-zero while any is unspecified.
 Currently **307/307**.
 
-It does NOT check the API contract. The backend has 108 endpoints; these specs are
-UI-level and assert what a user sees, not status codes or payloads. That is a scope
-decision, recorded in `GAPS.md` rather than implied away.
+The API contract has its own gate:
+
+```
+python3 tests/integration/capture/_api.py
+```
+
+It extracts all 108 backend endpoints with their method, path, auth requirement,
+status code and response model into `capture/API-CONTRACT.json`. **Diff that file to
+see a contract change** — a renamed route, a dropped `Depends(get_current_user)`, a
+201 that became a 200. Specified in `screens/24-api-contract.feature.md`.
 
 After any capture work, also run the consistency gate before committing:
 
