@@ -16,6 +16,9 @@
 *.tf      text eol=lf
 *.tfvars  text eol=lf
 
+# GitHub Actions workflows -> LF (required; YAML parser fails on Windows CRLF)
+.github/workflows/*.yml  text eol=lf
+
 # Characterization / prompt-baseline golden files -> NEVER text-normalized.
 # These are byte-for-byte oracles (INV-3 / D-07): tests read them with
 # `Path.read_bytes()` and assert exact equality against composed output. Without
