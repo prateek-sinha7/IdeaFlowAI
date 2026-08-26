@@ -3106,75 +3106,24 @@ export default function DashboardPage({
     if (runConnection.liveRunIds.includes(runId)) {
       activelyBuildingRunIdRef.current = runId;
       trackedRunIdRef.current = runId;
-<<<<<<< HEAD
-      // FIX-298c (015-frontend-routing remount): T7's fast path had the same
-      // missing state setters as T11's (FIX-298/298b). When onOpenRun in
-      // DashboardLayout calls router.push(routes.runDetail(run.id)), the page
-      // remounts and wipes all useState. If the run is still in liveRunIds
-      // (not yet detached after completion), this fast path fires and returns
-      // early — skipping handleSelectWorkflowRun entirely, which means
-      // contentSourceRunId, runStore viewport, activePipelineRunId, and the
-      // chat transcript are never set. The result: "Output will appear here"
-      // blank page.
+      // FIX-298c + feat/conditional-gates merge: set the state holders
+      // (contentSourceRunId, store viewport, activePipelineRunId) so the
+      // execution shell is correctly wired after the remount. Then fall
+      // through to handleSelectWorkflowRun — do NOT return early here.
       //
-      // Fix: mirror T11's fast path — set the state holders and seed the
-      // transcript from durable events, exactly as handleSelectWorkflowRun
-      // would have done.
+      // Reason (from feat/conditional-gates): a run parked at
+      // waiting_for_user emits NO new frames, so an early return left
+      // questionnaire_ready unrestored and the clarify panel missing —
+      // the run became unreachable from the UI. handleSelectWorkflowRun
+      // does the full durable replay + state population safely because
+      // /steps|/files|/audit are never pushed at launch time (only T11
+      // targets /stream at launch), so the run is always committed here.
       setContentSourceRunId(runId);
       setActivePipelineRunId(runId);
       runStore.switchViewTo(runId);
-      const liveRunEntry = recentRuns.find((r) => r.id === runId);
-      if (liveRunEntry?.type) setContentSourceRunType(liveRunEntry.type);
-      const t7Token = getToken();
-      if (t7Token) {
-        const t7Tab = reopenTabFor(parsedView.screen);
-        void getRunEvents(t7Token, runId)
-          .then((durableFrames) => {
-            for (const frame of durableFrames) {
-              handleWebSocketMessage(
-                { type: frame.type, data: frame.data } as unknown as StreamMessage,
-                runId,
-              );
-            }
-            // Same revision guard as T11 — only seed if there are chat frames;
-            // a just-started revision has none yet and seeding would wipe parent messages.
-            const hasChatFramesT7 = durableFrames.some(
-              (f) => f.type === "chat_message" || f.type === "chat_reply"
-            );
-            if (hasChatFramesT7) {
-              seedRunChatTranscript(durableFrames, REOPEN_TERMINAL_STATUSES.has(liveRunEntry?.status ?? ""));
-            }
-            runStore.switchViewTo(runId);
-          })
-          .catch((err) => {
-            console.error("T7 fast-path durable replay failed:", runId, err);
-          })
-          .finally(() => {
-            if (t7Tab) runTabDeepLink.requestOpenTab(t7Tab);
-          });
-      }
-      return;
-=======
-      // NO early return. Re-seeding the refs restores which run this tab drives,
-      // but it restores no DATA — and this effect's remount wiped all of it
-      // (contentSourceRunType, questionnaireData, pipelineState are page-local
-      // useState). The original `return` here relied on "subsequent live frames
-      // rebuild pipelineState as they arrive", which is true only for a run that
-      // is still emitting. A run parked at waiting_for_user emits NOTHING: its
-      // questionnaire_ready already fired before the tab click, so clicking Steps
-      // on a clarifying run left the screen with no clarify panel, no type (so
-      // PreviewPanel's fallback chain bottomed out at "user_stories" and a PPT run
-      // rendered as "USER STORIES" / user-stories.md), and no way to answer the
-      // gate — the run became unreachable from the UI. Reproduced live on a ppt
-      // run at waiting_for_user.
-      //
-      // Falling through to handleSelectWorkflowRun is safe HERE specifically: the
-      // launch-race this shortcut was protecting against belongs to /runs/{id}/stream,
-      // which is T11's effect and is excluded from `reopenedRunIdFor` by design.
-      // Nothing pushes /steps|/files|/audit at launch time, so the run this branch
-      // sees has always been committed. T11 keeps its own return — it does the
-      // durable replay inline instead.
->>>>>>> bbf53b6a1b427743e0f49ff9448df0d202b8bfcc
+      const liveRunEntryT7 = recentRuns.find((r) => r.id === runId);
+      if (liveRunEntryT7?.type) setContentSourceRunType(liveRunEntryT7.type);
+      // Fall through to handleSelectWorkflowRun below for full data restore.
     }
 
     const tab = reopenTabFor(parsedView.screen);
