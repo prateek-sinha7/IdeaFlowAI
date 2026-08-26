@@ -51,13 +51,27 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
 
         ollama_model = _ollama_env.get("OLLAMA_MODEL") or "qwen3.5:4b"
         ollama_url = _ollama_env.get("OLLAMA_BASE_URL") or "http://localhost:11434"
+        # num_ctx/num_predict are NOT optional here. Ollama ignores the model's own
+        # advertised context (qwen3.5 reports 262144) and applies its RUNTIME default
+        # of 4096 unless told otherwise — so a deck agent's prompt (template + design
+        # system + the previous step's full deck) fills the window and generation is
+        # cut off mid-token. Observed on a baseline ppt run: ppt-composer emitted 3446
+        # chars ending mid-attribute (`style="height`) and ppt-validator 5286 chars
+        # likewise, producing "Invalid presentation output" in the preview. Neither
+        # agent was at fault — all three declare max_tokens: 32768.
+        ollama_ctx = int(_ollama_env.get("OLLAMA_NUM_CTX") or 32768)
+        ollama_predict = int(_ollama_env.get("OLLAMA_NUM_PREDICT") or 16384)
         logger.warning("=" * 78)
         logger.warning(
-            "!!! LOCAL OLLAMA OVERRIDE ACTIVE — using %s via %s, NOT the real configured provider !!!",
-            ollama_model, ollama_url,
+            "!!! LOCAL OLLAMA OVERRIDE ACTIVE — using %s via %s (num_ctx=%d, "
+            "num_predict=%d), NOT the real configured provider !!!",
+            ollama_model, ollama_url, ollama_ctx, ollama_predict,
         )
         logger.warning("=" * 78)
-        return ChatOllama(model=ollama_model, base_url=ollama_url, reasoning=True)
+        return ChatOllama(
+            model=ollama_model, base_url=ollama_url, reasoning=True,
+            num_ctx=ollama_ctx, num_predict=ollama_predict,
+        )
     # --- end override ---
 
     if max_tokens is None:

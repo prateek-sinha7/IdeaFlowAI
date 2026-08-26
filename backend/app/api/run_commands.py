@@ -2780,6 +2780,64 @@ async def launch_run(
                     _plan = None
                 if _plan is not None and _plan.steps:
                     agents = get_execution_engine()._specs_from_plan(_plan.steps)
+
+        # ── Spec 016: this caller's saved override of a BUILT-IN ───────────────
+        # Stays inside FILE_PIPELINE — no fourth LaunchSource (ADR-0020's locked
+        # constraint), and correctly so: the file manifest still supplies the
+        # plan. Only `steps` is overlaid, exactly as `_apply_selections` already
+        # overlays per-step levers within this same shape.
+        #
+        # `resolve_override` returns None unless the caller saved one AND left it
+        # enabled, so for everyone else this block is a single indexed query and
+        # a `None` check — the launch is byte-identical.
+        #
+        # Both `compiled` and `agents` are set together. Setting only `compiled`
+        # would leave the roster as the FILE's agents while the plan carried the
+        # override's steps, and the two would disagree about what is running.
+        # Own session + snapshot, mirroring the user_workflow_row block above:
+        # `close()` detaches the instance, so the id and the steps are read out
+        # while the session is open rather than off a detached ORM object.
+        from app.api._workflow_override import (
+            override_steps as _override_steps,
+            resolve_override as _resolve_override,
+        )
+
+        _ov_db = _get_db()
+        try:
+            _ov_row = _resolve_override(_ov_db, current_user, base_pipeline_type)
+            _ov_steps = _override_steps(_ov_row)
+            _ov_id = _ov_row.id if _ov_row is not None else None
+        finally:
+            _ov_db.close()
+
+        if _ov_steps:
+            from agents.execution_engine.engine import (
+                _CAPABILITY_REGISTRY,
+                compile_for_run,
+                get_execution_engine,
+            )
+            from agents.execution_engine.overrides import merge_override_steps
+
+            try:
+                _base_plan = compile_for_run(base_pipeline_type)
+            except Exception:
+                _base_plan = None
+            if _base_plan is not None:
+                _merged = merge_override_steps(
+                    _base_plan, _ov_steps, _CAPABILITY_REGISTRY
+                )
+                # merge_override_steps returns the SAME object when it refused the
+                # override (malformed row, a not-user-allowed capability). Only
+                # switch the run over when it actually applied.
+                if _merged is not _base_plan and _merged.steps:
+                    compiled = _merged
+                    agents = get_execution_engine()._specs_from_plan(_merged.steps)
+                    logger.info(
+                        "override: run launching %s from user %s's saved override %s",
+                        base_pipeline_type,
+                        current_user.id,
+                        _ov_id,
+                    )
     else:
         # `agents` stays None on purpose — Case 3 has no flat agent list.
         # `compiled` (set above) carries the roster instead; it reaches

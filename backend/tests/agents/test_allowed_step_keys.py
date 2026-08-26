@@ -114,6 +114,21 @@ _DISPOSITIONS: dict[str, tuple[object, object]] = {
     ),
     # WIRE-03: per-step injects: → Step.injects (list[str])
     "injects": (["template"], lambda s, c: s.injects == ["template"]),
+    # ── spec 014 / R-05b + R-29: the conditional-routing contract ────────────
+    # `route` is REJECT-ONLY as declared here: R-03 is a cross-field check, so a
+    # step carrying route: without gates: [conditional] raises CompilerError. The
+    # harness declares exactly one key at a time, so this lands on the raises
+    # branch — which consumed-OR-raises accepts. The predicate documents what
+    # consumption looks like on a step that declares both halves.
+    "route": (
+        {"outcomes": {"approve": {"trigger": "step", "target": "step-x"}}},
+        lambda s, c: s.route is not None and "approve" in s.route.outcomes,
+    ),
+    # Pure data pass-through onto the compiled Step (compiler.py:949/953) — the
+    # match is a plain set intersection of arbitrary strings, so the value need
+    # not be a registered artifact kind.
+    "produces": (["route_decision"], lambda s, c: s.produces == ["route_decision"]),
+    "consumes": (["route_decision"], lambda s, c: s.consumes == ["route_decision"]),
     # depends_on edges materialized onto the compiled Step (DAG-consumed). A dep on
     # a step absent from this one-step manifest is ignored by the DAG (no edge added)
     # but MUST still be reflected on Step.depends_on (else it is accepted-but-dropped).

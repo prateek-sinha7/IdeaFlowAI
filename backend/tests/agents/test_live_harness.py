@@ -236,7 +236,11 @@ class TestEngineGate:
             gate_approver=_approver,
         )
         assert result.completed is True
-        assert seen and seen[0].endswith(":domain-analyst")
+        # R-08 folds the step's loop-revisit count into the key
+        # (`{run}:{agent_id}:{visit_count}`, engine.py:6925) so a step re-entered
+        # via a route jump cannot collide with its own prior firing. `:0` is the
+        # first/only firing — what every workflow without a `route:` produces.
+        assert seen and seen[0].endswith(":domain-analyst:0")
 
 
 # ===========================================================================

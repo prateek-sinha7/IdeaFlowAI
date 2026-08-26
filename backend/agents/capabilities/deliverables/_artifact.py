@@ -38,6 +38,44 @@ def unwrap_artifact(text: str) -> str:
     return text
 
 
+def strip_code_fence(text: str) -> str:
+    """Strip a markdown code fence wrapping the WHOLE deliverable.
+
+    A deck agent that answers with ```html\n<!DOCTYPE html>…\n``` produces a
+    deliverable whose first bytes are a fence, so every downstream HTML check
+    fails: no ``<!DOCTYPE``, no ``<html``, and the preview renders "Invalid
+    presentation output". Observed on a baseline ppt run where ppt-validator's
+    5286-char output opened with ``\u0060\u0060\u0060html``.
+
+    Deliberately narrow, because a deck can legitimately CONTAIN a fence inside a
+    slide's body text:
+
+      * only a fence at position 0 (after leading whitespace) is removed, and
+      * only its closing partner at the very end, when one is present.
+
+    The unterminated case is handled on purpose — a truncated generation loses its
+    closing fence but still carries the opening one, and that output is worth
+    salvaging.
+
+    No-op when the text does not begin with a fence.
+    """
+    if not text:
+        return text
+    stripped = text.lstrip()
+    if not stripped.startswith("```"):
+        return text
+    # Drop the opening fence line (``` plus an optional language tag).
+    newline = stripped.find("\n")
+    if newline == -1:
+        return text  # a lone fence with no body — nothing to salvage
+    body = stripped[newline + 1:]
+    # Drop the closing fence when the model actually emitted one.
+    trailing = body.rstrip()
+    if trailing.endswith("```"):
+        body = trailing[: -len("```")]
+    return body.strip()
+
+
 def strip_pre_slide_body_text(html: str) -> str:
     """Strip any text or inline elements injected into ``<body>`` before the first slide.
 

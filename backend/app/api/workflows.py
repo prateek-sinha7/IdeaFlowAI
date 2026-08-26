@@ -15,8 +15,13 @@ Endpoints:
     context_providers) for a known workflow; 404 on an unknown id.
 
 Source of truth is the **compiled manifests** (``compile_for_run`` +
-``get_pipeline_agents``), never run-history DB rows — this router issues no
-DB query at all.
+``get_pipeline_agents``), never run-history DB rows.
+
+The one DB read (spec 016) is the caller's own workflow OVERRIDES: a user may
+save an edited copy of a built-in and have it served in place of the file
+version. That read is owner-scoped, returns nothing for anyone who has not
+saved one, and only ever replaces a plan's ``steps`` — every workflow-level
+field still comes from the compiled manifest.
 
 Security:
   * JWT-only (``Depends(get_current_user)``) — same posture as every other
@@ -31,14 +36,26 @@ Security:
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
-from agents.execution_engine.engine import _WORKFLOWS_DIR, compile_for_run
+from agents.execution_engine.engine import (
+    _CAPABILITY_REGISTRY,
+    _WORKFLOWS_DIR,
+    compile_for_run,
+)
+from agents.execution_engine.overrides import merge_override_steps
 from agents.loader import SUPPORTED_PIPELINE_TYPES
 from agents.registry import get_pipeline_agents
 from agents.workflows.manifest import load_manifest
+from app.api._workflow_override import (
+    find_override,
+    list_overrides,
+    override_steps,
+)
 from app.core.dependencies import get_current_user
+from app.models.database import get_db
 from app.models.user import User
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
@@ -159,6 +176,15 @@ class WorkflowSummary(BaseModel):
     # truth: a source workflow may only offer "chain into me" if MY manifest
     # lists it here. Empty list == nobody may chain into this workflow.
     chained_from: list[ChainSource] = Field(default_factory=list)
+    # Spec 016 — this caller's override of this built-in, if any. Additive:
+    # False/None for every user who has never saved one, so an older client and
+    # an un-overridden workflow both see the payload they see today.
+    # `is_overridden` reflects the ENABLED flag (what actually runs);
+    # `has_override` is true for a saved-but-switched-off row, so the UI can
+    # still render the checkbox unticked instead of losing the way back on.
+    is_overridden: bool = False
+    has_override: bool = False
+    override_id: Optional[str] = None
 
 
 class WorkflowStepDetail(BaseModel):
@@ -209,6 +235,14 @@ class WorkflowDetail(BaseModel):
     # already parsed and validated by load_manifest — no new derivation.
     # None when the manifest could not be read (the compiled view still returns).
     manifest_steps: list[dict] | None = None
+    # Spec 016 — see WorkflowSummary for the flag semantics. `showing_original`
+    # says WHICH plan this payload carries: true when the caller asked for
+    # ?original=true, so the UI knows the steps below are the system version
+    # even though `is_overridden` is true.
+    is_overridden: bool = False
+    has_override: bool = False
+    override_id: Optional[str] = None
+    showing_original: bool = False
 
 
 # --- Derivation helpers ---
@@ -249,9 +283,23 @@ def _spec_by_id(workflow_id: str) -> dict:
 # --- Endpoints ---
 
 
+def _overridden_plan(compiled, row):
+    """``compiled`` with the override's steps, or ``compiled`` unchanged.
+
+    The single place the two read endpoints and the launch path agree on what
+    "the override's plan" means. ``compiled`` is the lru_cached, process-shared
+    object — ``merge_override_steps`` returns a NEW one and never mutates it.
+    """
+    steps = override_steps(row)
+    if not steps:
+        return compiled
+    return merge_override_steps(compiled, steps, _CAPABILITY_REGISTRY)
+
+
 @router.get("", response_model=list[WorkflowSummary])
 def list_workflows(
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """List every authored workflow with manifest-derived metadata (API-01).
 
@@ -262,9 +310,18 @@ def list_workflows(
     ``_spec_by_id``, falling back to the agent id when no spec is available.
     Reads only the compiled manifests + registry — no DB query.
     """
+    # Spec 016: one query for the caller's overrides, not one per built-in.
+    # Empty for everyone who has never saved one, which makes every lookup below
+    # a dict miss and the whole listing byte-identical to before.
+    overrides = list_overrides(db, current_user)
+
     out: list[WorkflowSummary] = []
     for workflow_id in sorted(_KNOWN_WORKFLOW_IDS):
         compiled = compile_for_run(workflow_id)
+        _ov_row = overrides.get(workflow_id)
+        _ov_enabled = bool(_ov_row is not None and _ov_row.override_enabled)
+        if _ov_enabled:
+            compiled = _overridden_plan(compiled, _ov_row)
         spec_by_id = _spec_by_id(workflow_id)
         # Additive manifest read for the declared catalog metadata (Plan 20-01).
         # list_workflows iterates the real manifest ids (never aliases), so we
@@ -325,6 +382,9 @@ def list_workflows(
                     if manifest
                     else []
                 ),
+                is_overridden=_ov_enabled,
+                has_override=_ov_row is not None,
+                override_id=(_ov_row.id if _ov_row is not None else None),
             )
         )
     return out
@@ -333,7 +393,16 @@ def list_workflows(
 @router.get("/{workflow_id}", response_model=WorkflowDetail)
 def get_workflow(
     workflow_id: str,
+    original: bool = Query(
+        False,
+        description=(
+            "Force the SYSTEM version even when this caller has an enabled "
+            "override — the read-only 'compare with original' view. Never use "
+            "it to decide which plan RUNS; that is override_enabled on the row."
+        ),
+    ),
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Return the full compiled definition for a known workflow id (API-01).
 
@@ -353,6 +422,16 @@ def get_workflow(
         )
 
     compiled = compile_for_run(workflow_id)
+
+    # Spec 016 — this caller's override. `find_override` (not `resolve_override`)
+    # so a saved-but-switched-off row still reports has_override and the UI can
+    # render the checkbox unticked instead of losing the way back on.
+    _ov_row = find_override(db, current_user, workflow_id)
+    _ov_enabled = bool(_ov_row is not None and _ov_row.override_enabled)
+    _showing_original = bool(_ov_enabled and original)
+    if _ov_enabled and not original:
+        compiled = _overridden_plan(compiled, _ov_row)
+
     # Map agent_id -> AgentSpec for the AGENT.md-declared metadata (name/role/
     # order/gate) that complements the compiled Step (strategy/gates/etc.).
     spec_by_id = _spec_by_id(workflow_id)
@@ -417,5 +496,18 @@ def get_workflow(
             name=compiled.deliverable.name,
         ),
         steps=steps,
-        manifest_steps=(list(manifest.steps) if manifest else None),
+        # When the override is in force, the raw steps must be ITS steps: this is
+        # the authoring shape the composer reopens from and the wizard projects
+        # into its Advanced roster (spec 016 T8). Serving the file's steps here
+        # while `steps` above shows the override's would put the two halves of
+        # the same payload in disagreement.
+        manifest_steps=(
+            list(override_steps(_ov_row) or [])
+            if (_ov_enabled and not original)
+            else (list(manifest.steps) if manifest else None)
+        ),
+        is_overridden=_ov_enabled,
+        has_override=_ov_row is not None,
+        override_id=(_ov_row.id if _ov_row is not None else None),
+        showing_original=_showing_original,
     )

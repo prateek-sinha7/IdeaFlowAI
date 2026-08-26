@@ -110,8 +110,7 @@
           "role": "ADRs, Runbooks, SLOs & Operations Handover"
         }
       ],
-      "pipeline_type": "app_builder",
-      "resume_offset": 0
+      "pipeline_type": "app_builder"
     },
     "section": "app_builder",
     "type": "pipeline_start"

@@ -94,7 +94,13 @@
     "data": {
       "agent_id": "custom-agent:apple",
       "attached_hooks": [],
-      "attached_skills": [],
+      "attached_skills": [
+        {
+          "content": "How to write a one-line joke about the word — work in this order:\n\n1. One sentence only: setup and punchline share the same line, no line break.\n2. Build the joke on wordplay (a pun on the word, or a double meaning) or an\n   unexpected turn at the end that flips what the setup implied.\n3. Keep it clean — no crude or mean-spirited material.\n4. Start straight into the joke — no preamble like \"Here's a joke:\" or\n   \"Why did...\" unless that phrasing IS the joke itself.\n\n- The shape, with a placeholder — never copy this, only the shape:\n  `<one sentence: setup that leads straight into an unexpected punchline>`",
+          "name": "joke",
+          "source": ""
+        }
+      ],
       "estimated_tokens": 530,
       "skills_load_errors": []
     },
@@ -151,7 +157,13 @@
     "data": {
       "agent_id": "custom-agent:ball",
       "attached_hooks": [],
-      "attached_skills": [],
+      "attached_skills": [
+        {
+          "content": "How to write a one-line joke about the word — work in this order:\n\n1. One sentence only: setup and punchline share the same line, no line break.\n2. Build the joke on wordplay (a pun on the word, or a double meaning) or an\n   unexpected turn at the end that flips what the setup implied.\n3. Keep it clean — no crude or mean-spirited material.\n4. Start straight into the joke — no preamble like \"Here's a joke:\" or\n   \"Why did...\" unless that phrasing IS the joke itself.\n\n- The shape, with a placeholder — never copy this, only the shape:\n  `<one sentence: setup that leads straight into an unexpected punchline>`",
+          "name": "joke",
+          "source": ""
+        }
+      ],
       "estimated_tokens": 530,
       "skills_load_errors": []
     },
@@ -208,7 +220,13 @@
     "data": {
       "agent_id": "custom-agent:cat",
       "attached_hooks": [],
-      "attached_skills": [],
+      "attached_skills": [
+        {
+          "content": "How to write a one-line joke about the word — work in this order:\n\n1. One sentence only: setup and punchline share the same line, no line break.\n2. Build the joke on wordplay (a pun on the word, or a double meaning) or an\n   unexpected turn at the end that flips what the setup implied.\n3. Keep it clean — no crude or mean-spirited material.\n4. Start straight into the joke — no preamble like \"Here's a joke:\" or\n   \"Why did...\" unless that phrasing IS the joke itself.\n\n- The shape, with a placeholder — never copy this, only the shape:\n  `<one sentence: setup that leads straight into an unexpected punchline>`",
+          "name": "joke",
+          "source": ""
+        }
+      ],
       "estimated_tokens": 530,
       "skills_load_errors": []
     },

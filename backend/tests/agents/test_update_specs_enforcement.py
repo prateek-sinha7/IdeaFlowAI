@@ -4,7 +4,9 @@
 cycle, and ``_run_review_gate`` stamps that verdict onto ``review_gate_ready``. Until this
 suite, nothing ever read it back: the gate acted on the client-supplied ``action`` string
 alone, so a replayed or crafted POST ran the sub-pipeline at gates that advertised the
-affordance as unavailable. ``gate_key`` is ``f"{run_id}:{agent_id}"`` — a gate SLOT, not a
+affordance as unavailable. ``gate_key`` is ``f"{run_id}:{agent_id}:{visit_count}"`` (R-08
+folds the loop-revisit count in so a route jump cannot collide with the step's own prior
+firing; 0 is the first/only firing) — a gate SLOT, not a
 gate FIRING — so replaying a legitimate earlier click is enough; nothing need be crafted.
 
 What is proven here:
@@ -90,7 +92,11 @@ async def _post_update_specs_at_real_gate(engine, run_id: str, *, eligible: bool
     """
     store = engine._store
     agent_id = "gated-agent"
-    gate_key = f"{run_id}:{agent_id}"
+    # Must match engine.py:6925 exactly — `_run_review_gate` arms the event under
+    # this key and `visit_count` defaults to 0. Polling the un-suffixed key made
+    # `review_event_pending` never fire, so the client gave up and `_collect`
+    # waited on a gate nobody would answer, to the drive timeout.
+    gate_key = f"{run_id}:{agent_id}:0"
     posted: list[str] = []
 
     async def _client() -> None:

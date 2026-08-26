@@ -104,6 +104,12 @@ _COMPOSED_SELECTIONS: dict = {
             "source_step": _PRODUCER_ID,  # an EARLIER run agent — the happy path
         },
         "fanout": {"mode": "parallel", "max_parallel": 3},
+        # The worker exists ONLY in this selection (the C1 pin), so this map is the
+        # only place its capabilities can come from — an omitted `tools` leaves the
+        # synthesized step at the least-privilege default and the workers complete
+        # without ever writing their part file. The composer grants these on a real
+        # composed run; the fixture has to grant them too.
+        "tools": {"read_files": True, "write_files": True, "exec": False},
     }
 }
 

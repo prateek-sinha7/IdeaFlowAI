@@ -43,7 +43,7 @@ _MANIFEST_BACKED_IDS = sorted(
 
 
 def test_exactly_18_keys() -> None:
-    """The coverage set is every manifest-backed pipeline — currently 20.
+    """The coverage set is every manifest-backed pipeline — currently 28.
 
     Went 17 -> 18 when ``custom_revision`` was authored alongside the composed
     workflow builder; went 18 -> 20 when ``prototype_large_revision`` and
@@ -51,12 +51,17 @@ def test_exactly_18_keys() -> None:
     replaced with shared agents from the main prototype pipeline (revision
     pipeline agent reuse spec), making them fully loadable and discoverable.
 
+    Went 20 -> 28 with spec 014/015: the seven ``ex_A*`` conditional-gate example
+    workflows, ``sc001-test-fixture``, and the ``ex_A3`` language variants. Every
+    directory carrying a ``workflow.yaml`` is in scope by the rule below, so they
+    join on their own.
+
     Includes the ``sample_*`` fixture manifests: ``SUPPORTED_PIPELINE_TYPES``
     is derived from disk (ADR-0005), so every directory with a
     ``workflow.yaml`` is in scope — "zero exemptions among pipelines that
     actually have a workflow.yaml" is the rule.
     """
-    assert len(_MANIFEST_BACKED_IDS) == 20
+    assert len(_MANIFEST_BACKED_IDS) == 28
 
 
 def _agent_is_absent_from_prompts(agent_id: str) -> bool:

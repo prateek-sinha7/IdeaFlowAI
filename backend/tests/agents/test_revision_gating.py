@@ -183,9 +183,17 @@ async def test_declared_revision_with_parent_seeds_after_assert_owns() -> None:
     await PreviousRunProvider().load(ctx)
 
     assert store.called is True, "assert_owns must run on a declared revision"
-    assert runner.reads == ["spec.md", "design.md", "tasks.md"]
-    # Every readable file is seeded into the sandbox.
-    assert [w[0] for w in runner.writes] == ["spec.md", "design.md", "tasks.md"]
+    # `prototype.html` leads: the Concierge fallback in `_seed_existing_artifact`
+    # reads the parent's deliverable when the user message carries no
+    # `=== EXISTING … ===` markers (this harness's message has none). It is a
+    # PARENT read, so what matters is that it lands AFTER assert_owns — the
+    # ordering the sibling cross-owner test pins from the other side.
+    assert runner.reads == ["prototype.html", "spec.md", "design.md", "tasks.md"]
+    # The seeded deliverable lands first (in-place-editable artifact, CR-06), then
+    # every readable declared seed file.
+    assert [w[0] for w in runner.writes] == [
+        "prototype.html", "spec.md", "design.md", "tasks.md",
+    ]
 
 
 @pytest.mark.asyncio

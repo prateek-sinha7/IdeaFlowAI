@@ -931,7 +931,11 @@ class TestOfflineHITL:
             gate_approver=_approver,
         )
         assert result.completed is True
-        assert seen and seen[0].endswith(":domain-analyst")
+        # R-08 folds the step's loop-revisit count into the key
+        # (`{run}:{agent_id}:{visit_count}`, engine.py:6925) so a step re-entered
+        # via a route jump cannot collide with its own prior firing. `:0` is the
+        # first/only firing — what every workflow without a `route:` produces.
+        assert seen and seen[0].endswith(":domain-analyst:0")
         assert_capture(result, require_tokens=False)
 
     @pytest.mark.asyncio
@@ -947,7 +951,10 @@ class TestOfflineHITL:
         unblocks ``event.wait()``). Proves an EXPLICIT, non-auto pause/resume.
         """
         run_id = "phase8-manual-gate-001"
-        gate_key = f"{run_id}:domain-analyst"
+        # R-08 folds the loop-revisit count into the key (engine.py:6925);
+        # 0 is the first/only firing. Polling the un-suffixed key armed nothing,
+        # so the resume never landed and the drive ran to its timeout.
+        gate_key = f"{run_id}:domain-analyst:0"
         drive_task = asyncio.create_task(
             _run_user_stories(
                 model=_text_model(),

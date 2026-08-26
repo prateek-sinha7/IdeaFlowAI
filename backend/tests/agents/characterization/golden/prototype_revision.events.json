@@ -173,19 +173,5 @@
       "unresolved_edges": []
     },
     "type": "workflow_validated"
-  },
-  {
-    "data": {
-      "gate": "validation",
-      "issues": [
-        {
-          "message": "uncaught exception: render harness error: Browser.new_page: Target page, context or browser has been closed",
-          "severity": "CRITICAL",
-          "validator": "html_render"
-        }
-      ],
-      "step": "prototype-revision-agent"
-    },
-    "type": "gate_blocked"
   }
 ]

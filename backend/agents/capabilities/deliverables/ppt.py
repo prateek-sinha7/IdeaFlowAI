@@ -36,6 +36,7 @@ from typing import Any
 
 from agents.capabilities.deliverables._artifact import (
     sanitize_carousel_deck_html,
+    strip_code_fence,
     strip_pre_slide_body_text,
     unwrap_artifact,
 )
@@ -65,4 +66,13 @@ class PptResolver:
 
     def resolve(self, ctx: Any) -> Any:
         last_streamed = getattr(ctx, "last_streamed", "") or ""
-        return unwrap_artifact(strip_pre_slide_body_text(sanitize_carousel_deck_html(last_streamed)))
+        # strip_code_fence runs FIRST and it has to: every transform below keys off
+        # HTML structure (``<body>``, ``<section class="slide">``, ``<artifact>``),
+        # and a leading ```html fence leaves them all looking at a string that does
+        # not start where they expect. Stripping last would mean sanitizing a deck
+        # that had already failed every check.
+        return unwrap_artifact(
+            strip_pre_slide_body_text(
+                sanitize_carousel_deck_html(strip_code_fence(last_streamed))
+            )
+        )

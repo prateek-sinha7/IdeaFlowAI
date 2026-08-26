@@ -287,3 +287,52 @@ def test_ppt_sanitize_unwrap_order_is_equivalent_on_wrapped_carousel(sandbox):
     assert ".slide:not(.active)" not in out
     assert not out.startswith("Validation passed")  # the wrapper + narration is gone
     assert out == new_order
+
+
+# ── Markdown code fence (the "Invalid presentation output" repro) ─────────────
+# A deck agent that answers with ```html … ``` produces a deliverable whose first
+# bytes are a fence, so no <!DOCTYPE / <html survives and the preview rejects it.
+# Reproduced live on a baseline ppt run: ppt-validator's 5286-char output opened
+# with ```html and the run page rendered "Invalid presentation output".
+
+_FENCED_DECK = "```html\n" + _CAROUSEL_DECK + "\n```"
+
+
+def test_ppt_strips_a_whole_deliverable_markdown_fence(sandbox):
+    ctx = _Ctx(_FakeRunner(sandbox), last_streamed=_FENCED_DECK)
+    out = PptResolver().resolve(ctx)
+    assert not out.lstrip().startswith("```")
+    assert out.lstrip().startswith("<!doctype html")
+    # The fence strip must not cost the sanitize that runs after it.
+    assert ".slide:not(.active)" not in out
+
+
+def test_ppt_salvages_a_fence_the_model_never_closed(sandbox):
+    """A truncated generation loses its closing fence but keeps the opening one.
+
+    This is the shape the live failure actually had — the model was cut off
+    mid-attribute, so there was no trailing ``` to pair with.
+    """
+    ctx = _Ctx(_FakeRunner(sandbox), last_streamed="```html\n<!doctype html><p>cut off")
+    out = PptResolver().resolve(ctx)
+    assert out == "<!doctype html><p>cut off"
+
+
+def test_ppt_leaves_a_fence_inside_the_deck_alone(sandbox):
+    """Only a fence at position 0 is a wrapper; one inside a slide is content."""
+    deck = '<!doctype html><body><section class="slide"><pre>```html\nsample\n```</pre></section></body>'
+    ctx = _Ctx(_FakeRunner(sandbox), last_streamed=deck)
+    assert "```html" in PptResolver().resolve(ctx)
+
+
+def test_ppt_unfenced_deck_is_untouched_by_the_fence_strip(sandbox):
+    """The no-fence path stays byte-identical to before the fence strip existed."""
+    from agents.capabilities.deliverables._artifact import (
+        sanitize_carousel_deck_html,
+        strip_pre_slide_body_text,
+        unwrap_artifact,
+    )
+
+    ctx = _Ctx(_FakeRunner(sandbox), last_streamed=_CAROUSEL_DECK)
+    expected = unwrap_artifact(strip_pre_slide_body_text(sanitize_carousel_deck_html(_CAROUSEL_DECK)))
+    assert PptResolver().resolve(ctx) == expected
