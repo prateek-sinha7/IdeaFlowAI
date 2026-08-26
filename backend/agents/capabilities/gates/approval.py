@@ -35,8 +35,6 @@ from __future__ import annotations
 import logging
 from typing import Any, AsyncGenerator
 
-logger = logging.getLogger(__name__)
-
 from agents.capabilities.gates.base import (
     GATE_BLOCK,
     GATE_PASS,
@@ -45,6 +43,8 @@ from agents.capabilities.gates.base import (
 )
 from agents.capabilities.gates.write import write_gate_event
 from agents.capabilities.registry import register
+
+logger = logging.getLogger(__name__)
 
 # Engine-internal review-gate signal mapping to a block outcome (NOT surfaced as a
 # gate event — it drives the outcome only). Kept in sync with engine._run_review_gate.

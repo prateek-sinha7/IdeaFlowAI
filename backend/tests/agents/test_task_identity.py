@@ -123,7 +123,8 @@ def test_occurrence_ordinals_all_distinct():
 
 def test_occurrence_ordinals_left_to_right():
     # Three identical → 0,1,2 (left-to-right prior count).
-    t = lambda: Task(id="x", title="same", body="same")
+    def t():
+        return Task(id="x", title="same", body="same")
     assert task_identity.occurrence_ordinals([t(), t(), t()]) == [0, 1, 2]
 
 

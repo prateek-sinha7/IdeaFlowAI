@@ -282,7 +282,7 @@ async def test_validator_run_writes_validation_results_row(db_session, tmp_path)
     assert row.attempt == 1
 
     # Cross-owner read returns nothing (default-deny precedent, T-08-04-ID).
-    mallory = ScopedStore(owner_id="mallory", workspace_id="ws-9", session=db_session)
+    _mallory = ScopedStore(owner_id="mallory", workspace_id="ws-9", session=db_session)
     others = (
         db_session.query(ValidationResult)
         .filter(ValidationResult.run_id == "run-4")

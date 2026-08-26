@@ -26,10 +26,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from agents.capabilities.base import Validator  # port import — import-linter LEGAL
 from agents.capabilities.registry import register
 from agents.capabilities.validators.severity import (  # single source (08-01 / RENDER-SEAM)
-    map_severity,
     render_coverage_status,
 )
 from app.agents.validators.html_static import Issue, _record

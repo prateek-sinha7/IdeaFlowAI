@@ -396,9 +396,9 @@ def test_spent_returns_snapshot_with_counts():
 # Task 2 — BudgetSnapshot persistence + partial-results surfacing
 # ===========================================================================
 
-from agents.artifacts.graph import ArtifactGraph
-from agents.execution_engine.engine import ExecutionEngine
-from agents.execution_engine.kernel_services import KernelServices
+from agents.artifacts.graph import ArtifactGraph  # noqa: E402
+from agents.execution_engine.engine import ExecutionEngine  # noqa: E402
+from agents.execution_engine.kernel_services import KernelServices  # noqa: E402
 
 
 class _PersistEctx:

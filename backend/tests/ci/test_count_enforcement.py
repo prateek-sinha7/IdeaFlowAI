@@ -54,7 +54,7 @@ class TestCountValidator:
         with open(self.baseline_path) as f:
             data = yaml.safe_load(f)
             if "baselines" not in data:
-                raise ValueError(f"Invalid baseline file format: missing 'baselines' key")
+                raise ValueError("Invalid baseline file format: missing 'baselines' key")
             return data["baselines"]
 
     def collect_pytest_count(self, *test_args) -> Optional[int]:
@@ -371,10 +371,10 @@ class SkipEnforcementLinter:
                         if match:
                             test_name = match.group(1)
                             break
-                    
+
                     if not test_name:
                         test_name = f"skip_at_line_{i}"
-                    
+
                     if test_name not in self.recorded_skips:
                         findings.append({
                             "file": str(test_file.relative_to(self.repo_root)),
@@ -392,7 +392,7 @@ class SkipEnforcementLinter:
                         if match:
                             test_name = match.group(1)
                             break
-                    
+
                     if test_name and test_name not in self.recorded_skips:
                         findings.append({
                             "file": str(test_file.relative_to(self.repo_root)),

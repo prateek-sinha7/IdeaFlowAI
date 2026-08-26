@@ -323,7 +323,7 @@ async def test_merge_agent_no_designated_worker_falls_back_immediately():
     step = _make_step(on_conflict="merge_agent", merge_agent=None)  # none designated
     requests = [{"agent": "self", "input": "t0"}, {"agent": "self", "input": "t1"}]
 
-    events = await _collect(run_fanout(requests, ctx, step=step))
+    _events = await _collect(run_fanout(requests, ctx, step=step))
 
     assert runner.merge_agent_calls == []  # no worker → no attempts
     assert len(runner.hitl_calls) == 1  # immediate human_gate fallback

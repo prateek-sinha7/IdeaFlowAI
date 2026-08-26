@@ -421,7 +421,6 @@ class DeepAgentRunner:
 
         # Confirm hooks/override actually reached the model prompt
         has_hooks = "## Active Behavioral Hooks" in system_prompt
-        has_override = "PROMPT_OVERRIDE" not in system_prompt  # override replaces body; base has no marker
         prompt_chars = len(system_prompt)
         hook_section_start = system_prompt.find("## Active Behavioral Hooks")
         hook_preview = (

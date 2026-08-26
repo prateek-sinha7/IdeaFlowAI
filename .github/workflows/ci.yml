@@ -509,6 +509,33 @@ jobs:
       - name: vulture (dead-code detection)
         run: uv run --no-sync vulture app/ agents/
 
+      # Migration-chain integrity. Catches three things Alembic cannot see for
+      # itself, all of which are silent until they reach a deployed database:
+      #
+      #   1. A RETROACTIVE EDIT to an already-released revision. `alembic_version`
+      #      stores a revision ID, never a content hash, so editing a revision a
+      #      database has already applied means `upgrade head` sees the stamped ID
+      #      and does nothing — the edit reaches fresh databases only, and the two
+      #      diverge permanently with no error anywhere. Making the DDL idempotent
+      #      does NOT help: the code never runs. This is why the check is a source
+      #      fingerprint (alembic/versions.lock) rather than a schema comparison —
+      #      every schema-derived check (`alembic check`, upgrade-from-scratch)
+      #      runs the edited file and therefore agrees with it.
+      #   2. DUPLICATE revision IDs — Alembic keeps one file, silently drops the
+      #      other from the graph, and reports multiple heads. Hit twice already
+      #      (0031 re-homed to 0036, 0032 re-homed to 0037).
+      #   3. MULTIPLE HEADS — `alembic upgrade head` then fails outright, and
+      #      docker-entrypoint.sh runs it under `set -eu` before `exec uvicorn`,
+      #      so the container crash-loops instead of reporting a failed step.
+      #
+      # Needs no database and no app config. Runs in the lint job deliberately so
+      # it fails in seconds, before the Postgres jobs spend time provisioning.
+      # When it fires on an intentional new migration, the fix is:
+      #   cd backend && uv run python scripts/migration_guard.py --update
+      # committed alongside the migration.
+      - name: migration guard (retro-edit + duplicate-ID + single-head)
+        run: uv run --no-sync python scripts/migration_guard.py --verify
+
       # TODO(flip-to-failing: 2026-08-01): remove `|| true` once pre-existing
       # findings are triaged. pip-audit checks requirements.txt against the
       # PyPI advisory database for known CVEs.

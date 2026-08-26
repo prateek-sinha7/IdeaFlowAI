@@ -16,10 +16,10 @@ depends_on = None
 
 def upgrade() -> None:
     """Create compound index on (user_id, created_at) for fast history queries (KAN-131).
-    
+
     The list_runs endpoint filters by user_id and orders by created_at descending.
     Without this index, every history load triggers a full table scan + sort on the
-    potentially large workflow_runs table. IF NOT EXISTS makes this idempotent — 
+    potentially large workflow_runs table. IF NOT EXISTS makes this idempotent —
     environments that already ran the staging variant (0025) will not fail.
     """
     op.create_index(

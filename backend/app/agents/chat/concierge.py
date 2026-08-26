@@ -1141,7 +1141,6 @@ class ConciergeCapability:
         run_is_building = run_status == "running"
         # Block revision proposals whenever the pipeline is actively working —
         # either the main build is running, or a revision is already in progress.
-        revision_blocked = run_is_revising or run_is_building
 
         # Inject current run_status explicitly so the LLM knows it without a tool call.
         # This is critical for blocking revision proposals when a revision is in flight

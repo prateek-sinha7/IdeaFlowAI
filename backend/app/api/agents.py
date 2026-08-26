@@ -34,7 +34,6 @@ from app.agents.prompt_overrides import (
     read_user_prompt_override,
     save_user_prompt_override,
     delete_user_prompt_override,
-    has_user_prompt_override,
 )
 from app.core.dependencies import get_current_user
 from app.models.user import User

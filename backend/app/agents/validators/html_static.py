@@ -24,7 +24,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from agents.capabilities.base import Validator  # port import — import-linter LEGAL
 from agents.capabilities.registry import register
 # THE single canonical severity mapping (VALID-03 / 08-01) — IMPORTED, never
 # re-defined here. validators.severity is import-clean of any @register/discover()

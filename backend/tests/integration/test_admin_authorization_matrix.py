@@ -53,7 +53,7 @@ from tests.fixtures.user_factory import create_user
 @pytest.fixture()
 def admin_api_client(monkeypatch, tmp_path):
     """FastAPI TestClient backed by fresh in-memory SQLite DB.
-    
+
     Sets up production auth wiring with no mocks. Same pattern as
     test_handoff_api but tuned for admin endpoint testing.
     """
@@ -140,12 +140,12 @@ def regular_user(admin_api_client):
 
 def _snapshot_all_users(session):
     """Take a byte-identical snapshot of all stored User records.
-    
+
     Returns a dict keyed by user_id with values of (email, tier, is_admin)
     for byte-comparison after failed mutations.
     """
     from app.models.user import User
-    
+
     users = session.query(User).all()
     return {
         u.id: (u.email, u.tier, u.is_admin)
@@ -155,11 +155,11 @@ def _snapshot_all_users(session):
 
 def _assert_users_unchanged(session, before_snapshot):
     """Assert every user record is byte-identical to the before_snapshot.
-    
+
     Used to verify transactional rollback and ACID properties.
     """
     from app.models.user import User
-    
+
     after_snapshot = {
         u.id: (u.email, u.tier, u.is_admin)
         for u in session.query(User).all()
@@ -209,7 +209,7 @@ class TestListUsersAuthorization:
 
     def test_list_users_expired_token_rejected(self, admin_api_client, admin_user, monkeypatch):
         """Expired JWT → 401 with non-disclosing body.
-        
+
         Validates: Requirement 5.2 (missing credential covers expiry).
         """
         admin_id, token = admin_user
@@ -293,7 +293,7 @@ class TestCreateUserAuthorization:
 
     def test_create_user_duplicate_email_conflict(self, admin_api_client, admin_user, regular_user):
         """Duplicate email on unique field → 409 Conflict with byte-identical pre-state.
-        
+
         Validates: Requirement 5.6 (conflict on unique constraint).
         """
         admin_id, admin_token = admin_user
@@ -322,14 +322,14 @@ class TestCreateUserAuthorization:
         # Verify no new user was created (byte-identical state)
         session = admin_api_client.SessionLocal()
         try:
-            after = _snapshot_all_users(session)
+            _after = _snapshot_all_users(session)
             _assert_users_unchanged(session, before)
         finally:
             session.close()
 
     def test_create_user_invalid_tier_validation_error(self, admin_api_client, admin_user):
         """Invalid tier value → 400 Bad Request with byte-identical pre-state.
-        
+
         Validates: Requirement 5.7 (validation error with unchanged records).
         """
         admin_id, token = admin_user
@@ -446,7 +446,7 @@ class TestUpdateUserTierAuthorization:
         self, admin_api_client, admin_user
     ):
         """Admin attempting to change own tier → 400 with self-action policy explanation.
-        
+
         Validates: Requirement 5.9 (admin self-action policy on tier changes).
         """
         admin_id, token = admin_user
@@ -477,7 +477,7 @@ class TestUpdateUserTierAuthorization:
 
     def test_update_tier_target_not_found_no_disclosure(self, admin_api_client, admin_user):
         """Target user does not exist → 404 with byte-identical pre-state.
-        
+
         Validates: Requirement 5.5 (not-found with unchanged records).
         """
         admin_id, token = admin_user
@@ -575,7 +575,7 @@ class TestDeleteUserAuthorization:
         self, admin_api_client, admin_user
     ):
         """Admin attempting to delete own account → 400 with self-action policy.
-        
+
         Validates: Requirement 5.9 (self-action policy extends to deletion).
         """
         admin_id, token = admin_user
@@ -626,17 +626,17 @@ class TestDeleteUserAuthorization:
 
 class TestAdminCrossWorkspaceIsolation:
     """Test admin endpoints against cross-workspace isolation.
-    
+
     Currently the admin API does not enforce workspace scoping per the
     current implementation, but this test placeholder documents the
     expected behavior if workspace isolation is added to admin endpoints.
-    
+
     Validates: Requirement 5.8 (cross-workspace requests handled as not-found).
     """
 
     def test_admin_endpoints_currently_unscoped(self, admin_api_client, admin_user):
         """Admin endpoints currently operate at account level (unscoped).
-        
+
         This test documents the current design. If workspace scoping is
         added to admin endpoints, this test should be updated to verify
         that cross-workspace admin requests return 404 with non-disclosure.

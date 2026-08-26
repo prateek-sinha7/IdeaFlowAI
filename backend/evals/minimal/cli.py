@@ -177,7 +177,7 @@ def _cmd_chain(args: argparse.Namespace) -> int:
             _progress(f"==> STOPPED at {stage}: {reason}")
             _progress(f"==> {index - 1}/{len(stages)} stage(s) completed and stored. Resume with:")
             _progress(f"      evals/minimal/eval.sh {args.config} --stage {stage} --into {run_id}")
-            _progress(f"    then judge what you have:")
+            _progress("    then judge what you have:")
             _progress(f"      evals/minimal/judge.sh {run_id}")
             print(run_id)
             return 1

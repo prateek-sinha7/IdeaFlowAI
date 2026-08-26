@@ -130,7 +130,6 @@ def strip_pre_slide_body_text(html: str) -> str:
     preamble_text_only = re.sub(r"<[^>]+>", "", preamble_stripped).strip()
     preamble_summary = preamble_text_only or preamble_stripped
 
-    original = html
     # Remove the preamble by splicing it out.
     slide_start_in_html = body_end + first_slide_offset
     html = html[:body_end] + "\n" + html[slide_start_in_html:]

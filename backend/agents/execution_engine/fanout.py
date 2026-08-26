@@ -291,7 +291,7 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any,
     ``subagent_result``) and finally returning. The per-worker status is collected into
     the ``subagent_result`` events (the status-only structured summary this plan
     produces — typed artifact refs are 11-03 / FANOUT-06).
-    
+
     ``event_queue`` (optional, default None): when a caller supplies a queue, each
     worker's own per-agent events (agent_start/agent_chunk/tool_call/tool_result/
     agent_complete — normally discarded here) are ALSO pushed onto it as a side

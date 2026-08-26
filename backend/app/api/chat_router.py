@@ -68,7 +68,7 @@ GATE_ACTIONS = frozenset({"approve", "reject", "redo", "update_specs"})
 # ONE canonical definition (INV-12 — mirrors ``NON_TERMINAL_RUN_STATUSES``'s
 # own precedent). The values are unchanged, so ``phase`` resolution is
 # byte-identical for every existing run status.
-from agents.execution_engine.engine import TERMINAL_RUN_STATUSES as _TERMINAL_RUN_STATUSES
+from agents.execution_engine.engine import TERMINAL_RUN_STATUSES as _TERMINAL_RUN_STATUSES  # noqa: E402
 
 TERMINAL_STATUSES = frozenset(_TERMINAL_RUN_STATUSES)
 
@@ -78,10 +78,6 @@ TERMINAL_STATUSES = frozenset(_TERMINAL_RUN_STATUSES)
 # gate_pendency``. Imported here (app→capabilities is an allowed import direction) and
 # re-bound to the historical private names so every existing caller is byte-unchanged.
 from agents.capabilities.gate_pendency import (  # noqa: E402
-    QUESTIONNAIRE_READY as _QUESTIONNAIRE_READY,
-    REVIEW_GATE_READY as _REVIEW_GATE_READY,
-    QUESTIONNAIRE_RESOLUTIONS as _QUESTIONNAIRE_RESOLUTIONS,
-    REVIEW_RESOLUTIONS as _REVIEW_RESOLUTIONS,
     derive_open_gate,
 )
 

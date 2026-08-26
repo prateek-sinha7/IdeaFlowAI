@@ -300,9 +300,11 @@ class _ResumeHarness:
                     yield ev
 
             _KS.run_fanout = _wrapped_fanout
-            _restore_fanout = lambda: setattr(_KS, "run_fanout", _orig_fanout)
+            def _restore_fanout():
+                setattr(_KS, "run_fanout", _orig_fanout)  # noqa: B010
         else:
-            _restore_fanout = lambda: None
+            def _restore_fanout():
+                pass
 
         # Point the module-level SessionLocal (used by restore_non_terminal_runs +
         # resume_run for the workflow_runs query) at the SAME in-memory engine, so the
@@ -720,7 +722,7 @@ async def test_cross_step_does_not_skip_second_steps_waves():
     strat._registry = type("R", (), {"resolve": lambda self, k, n: _FakeParser()})()
     step.task_source = type("TS", (), {"source_step": "plan", "parser": "json_tasks"})()
 
-    events = [ev async for ev in strat.run(step, ctx)]
+    _ = [ev async for ev in strat.run(step, ctx)]
 
     # The strategy must have recorded a wave_run for step2's waves (NOT skipped them).
     step2_recorded = [r for r in runner.recorded if r[0] == "step2"]
@@ -1823,7 +1825,7 @@ async def test_midwave_merge_reentry_rematerializes_fragments(tmp_path):
                     location="part_b.txt", content="fragment-b", version=1,
                     producer_agent="wave-worker", task_id="1")
     # The wave_runs row is still `running` — the merge never ran (the discriminator).
-    row_id = await store.record_wave_run(
+    _row_id = await store.record_wave_run(
         run_id, step="build", wave_index=0, task_ids=["t1", "t2"], status="running"
     )
     session.commit()

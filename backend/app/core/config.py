@@ -5,7 +5,7 @@ LLM provider notes
 The backend uses AWS Bedrock via ``langchain_aws.ChatBedrockConverse``.
 Auth comes from the boto3 default credential chain (instance profile in
 prod, ``~/.aws/credentials`` / ``AWS_PROFILE`` locally). Requires
-``BEDROCK_MODEL_ID`` and ``AWS_REGION``. 
+``BEDROCK_MODEL_ID`` and ``AWS_REGION``.
 Mistral (``langchain_mistralai.ChatMistralAI``) is an optional, $0 free-tier provider
  — reachable as a fallback when neither Anthropic nor Bedrock is configured, or
 forced explicitly via ``build_model(..., provider="mistral")`` (used by the eval

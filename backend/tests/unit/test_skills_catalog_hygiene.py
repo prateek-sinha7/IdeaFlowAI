@@ -25,12 +25,12 @@ _SCRIPTS_DIR = _BACKEND / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from skills_audit import (
+from skills_audit import (  # noqa: E402
     PROVENANCE_PATTERNS,
     Violation,
     audit,
 )
-from app.agents.skills_catalog import list_global_skills
+from app.agents.skills_catalog import list_global_skills  # noqa: E402
 
 
 class TestSkillsCatalogHygiene:

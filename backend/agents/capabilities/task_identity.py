@@ -161,7 +161,7 @@ def common_prefix_length(
     per-key set-membership, NOT this rule.
     """
     p = 0
-    for cur, done in zip(current_keys, completed_ordered):
+    for cur, done in zip(current_keys, completed_ordered, strict=False):
         if cur != done:
             break
         p += 1

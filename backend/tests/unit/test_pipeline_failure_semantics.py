@@ -322,7 +322,7 @@ async def test_unrecovered_failure_alongside_recovered_timeout_lists_only_the_fa
     """Mixed run: agent 1 times out but recovers (error + complete), agent 2
     hard-fails (error, no complete) → degraded, agents_failed lists ONLY agent 2."""
     specs = get_pipeline_agents("user_stories")[:2]
-    recovered_id, failed_id = specs[0].id, specs[1].id
+    _recovered_id, failed_id = specs[0].id, specs[1].id
 
     def _mixed_stub():
         async def _stub(

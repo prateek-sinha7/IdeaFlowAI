@@ -61,10 +61,10 @@ def upgrade() -> None:
         # For each (run_id, owner_id, workspace_id, seq) group that has duplicates:
         # keep the EARLIEST-created event (first writer wins), delete all later ones.
         # This preserves the engine's event log (always first) and removes racing overwrites.
-        
+
         meta = sa.MetaData()
         run_events = sa.Table("run_events", meta, autoload_with=bind)
-        
+
         # Find all duplicate groups
         duplicate_groups_query = (
             sa.select(
@@ -81,16 +81,16 @@ def upgrade() -> None:
             )
             .having(sa.func.count() > 1)
         )
-        
+
         duplicate_groups = bind.execute(duplicate_groups_query).fetchall()
         deleted_count = 0
-        
+
         if duplicate_groups:
             print(
                 f"[0029] Found {len(duplicate_groups)} duplicate (run_id, owner_id, "
                 "workspace_id, seq) group(s). Deleting later duplicates, keeping earliest."
             )
-            
+
             # For each duplicate group, keep the earliest event_id and delete the rest
             for run_id, owner_id, workspace_id, seq in duplicate_groups:
                 # Find the earliest event in this group
@@ -106,7 +106,7 @@ def upgrade() -> None:
                     .limit(1)
                 )
                 earliest_event_id = bind.execute(earliest_query).scalar_one()
-                
+
                 # Delete all OTHER events in this group (keep the earliest)
                 delete_query = sa.delete(run_events).where(
                     (run_events.c.run_id == run_id)
@@ -117,14 +117,14 @@ def upgrade() -> None:
                 )
                 result = bind.execute(delete_query)
                 deleted_count += result.rowcount or 0
-            
+
             print(
                 f"[0029] Deleted {deleted_count} duplicate row(s). "
                 "Table is now clean for unique constraint."
             )
         else:
             print("[0029] No duplicate (run_id, owner_id, workspace_id, seq) groups found.")
-        
+
         # Now add the constraint safely
         with op.batch_alter_table("run_events") as b:
             b.create_unique_constraint(

@@ -1146,7 +1146,7 @@ class KernelServices:
             # slice of a task list — numbering it emits a CURRENT TASK block pointing
             # at a list that does not exist (parallel_group sends input="" by design).
             task_number=(worker_index + 1) if input else None,
-            total_tasks=total_workers or (worker_index + 1),            
+            total_tasks=total_workers or (worker_index + 1),
             task_block=input,
             invocation_gated=False,
         ):

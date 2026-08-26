@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import itertools
 import json
 import logging
 import time
@@ -76,15 +75,22 @@ ResumeOutputPersist = Callable[[str], Awaitable[None]]
 # boundary; ``None`` (the goldens + every non-app driver) keeps it DORMANT → the funnel
 # passes ``cancel_event=None``, byte/event-identical (INV-3). Keyed on run_id ONLY (SC-001).
 ResumeCancelEvent = Callable[[str], "asyncio.Event | None"]
-from agents.capabilities.context_providers.opendesign import (
+
+# ============================================================================
+# ARCHITECTURAL IMPORTS — Deliberately below type definitions per INV-8
+# (Ports & Adapters pattern: type hints first, then kernel-layer bindings).
+# Import-linter 4/0 ensures no ``app.*`` symbols cross the boundary.
+# See backend-engine.md for the full contract.
+# ============================================================================
+from agents.capabilities.context_providers.opendesign import (  # noqa: E402
     RAW_BLOCK_PREFIX as _RAW_BLOCK_PREFIX,
 )
-from agents.capabilities import task_identity
-from agents.capabilities.gate_pendency import derive_open_gate
-from agents.capabilities.registry import CapabilityRegistry
-from agents.capabilities.validators.severity import render_coverage_status
-from agents.execution_engine.budget import BudgetExceeded, BudgetManager, BudgetSnapshot
-from agents.execution_engine.fanout import FanoutWorkerFailed
+from agents.capabilities import task_identity  # noqa: E402
+from agents.capabilities.gate_pendency import derive_open_gate  # noqa: E402
+from agents.capabilities.registry import CapabilityRegistry  # noqa: E402
+from agents.capabilities.validators.severity import render_coverage_status  # noqa: E402
+from agents.execution_engine.budget import BudgetExceeded, BudgetManager  # noqa: E402
+from agents.execution_engine.fanout import FanoutWorkerFailed  # noqa: E402
 # _ClarifyEngineImpl is bound at IMPORT time on purpose, and does NOT supersede the
 # function-level ``from ... import ClarifyEngine`` inside the clarify drain loop. There
 # is still exactly one ClarifyEngine and one _merge_answers — only the RESOLUTION TIMING
@@ -93,20 +99,20 @@ from agents.execution_engine.fanout import FanoutWorkerFailed
 # _ParkingClarify); the rehydrator must stay EARLY-bound because those same fakes have no
 # _merge_answers and a late binding would silently pick them up, leaving a resumed run
 # with none of its clarification answers. Do not "tidy" either binding away.
-from agents.execution_engine.clarify_engine import ClarifyEngine as _ClarifyEngineImpl
-from agents.execution_engine.context import ExecutionContext
-from agents.execution_engine.resolver import WorkflowResolver
-from agents.execution_engine.run_log import RunLog
-from agents.execution_engine.state_machine import get_state_machine
-from agents.capabilities.model_catalog import ModelCatalog
-from agents.capabilities.model_pricing import estimate_cost_usd
-from agents.factory import AgentContext, create_runner
-from agents.model_policy import ModelResolver
-from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX, artifact_name, topic_slug
-from agents.workflows.compiler import WorkflowCompiler
-from agents.workflows.manifest import load_manifest
-from agents.workflows.plan import CompiledWorkflow
-from app.agents.sandbox import RunSandbox
+from agents.execution_engine.clarify_engine import ClarifyEngine as _ClarifyEngineImpl  # noqa: E402
+from agents.execution_engine.context import ExecutionContext  # noqa: E402
+from agents.execution_engine.resolver import WorkflowResolver  # noqa: E402
+from agents.execution_engine.run_log import RunLog  # noqa: E402
+from agents.execution_engine.state_machine import get_state_machine  # noqa: E402
+from agents.capabilities.model_catalog import ModelCatalog  # noqa: E402
+from agents.capabilities.model_pricing import estimate_cost_usd  # noqa: E402
+from agents.factory import AgentContext, create_runner  # noqa: E402
+from agents.model_policy import ModelResolver  # noqa: E402
+from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX, artifact_name, topic_slug  # noqa: E402
+from agents.workflows.compiler import WorkflowCompiler  # noqa: E402
+from agents.workflows.manifest import load_manifest  # noqa: E402
+from agents.workflows.plan import CompiledWorkflow  # noqa: E402
+from app.agents.sandbox import RunSandbox  # noqa: E402
 
 logger = logging.getLogger("agents.execution_engine.engine")
 
@@ -639,7 +645,7 @@ def resolve_alias(pipeline_type: str) -> str:
     return _CAPABILITY_REGISTRY.resolve_alias(pipeline_type)
 
 
-import functools as _functools
+import functools as _functools  # noqa: E402
 
 @_functools.lru_cache(maxsize=None)
 def compile_for_run(pipeline_type: str) -> CompiledWorkflow:

@@ -206,7 +206,7 @@ class WorkflowContract:
         Raises:
             AssertionError: If retries are misconfigured
         """
-        jobs = self.deploy_workflow.get("jobs", {})
+        _jobs = self.deploy_workflow.get("jobs", {})
         # This is mostly a check that CI job config is correct
         # Since CI is a reusable workflow, the retries check happens there
         pass

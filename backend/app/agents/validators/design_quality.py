@@ -22,7 +22,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from agents.capabilities.base import Validator  # port import — import-linter LEGAL
 from agents.capabilities.registry import register
 # Severity is mapped (via the shared _record helper) through the SINGLE canonical
 # map_severity (08-01, validators.severity) — design_quality never defines its own.

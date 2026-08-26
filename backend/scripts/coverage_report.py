@@ -34,7 +34,7 @@ def run_pytest_with_coverage(
 ) -> dict:
     """
     Run pytest with coverage instrumentation.
-    
+
     Returns:
         dict with keys:
             - 'returncode': pytest exit code
@@ -48,19 +48,19 @@ def run_pytest_with_coverage(
         "tests/",
         "-v",
         "--tb=short",
-        f"--cov=app",
-        f"--cov=agents",
-        f"--cov-report=term-missing:skip-covered",
+        "--cov=app",
+        "--cov=agents",
+        "--cov-report=term-missing:skip-covered",
         f"--cov-report=xml:{xml_output_path}",
         "--junitxml=junit-report.xml",
     ]
-    
+
     result = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
     )
-    
+
     return {
         "returncode": result.returncode,
         "stdout": result.stdout,
@@ -71,7 +71,7 @@ def run_pytest_with_coverage(
 def extract_coverage_summary(coverage_xml_path: Path) -> dict:
     """
     Extract coverage summary from coverage.xml.
-    
+
     Returns:
         dict with keys:
             - 'line_rate': float (0.0-1.0)
@@ -83,15 +83,15 @@ def extract_coverage_summary(coverage_xml_path: Path) -> dict:
     try:
         tree = ET.parse(coverage_xml_path)
         root = tree.getroot()
-        
+
         # Extract overall coverage statistics
         line_rate = float(root.get("line-rate", "0.0"))
         branch_rate = float(root.get("branch-rate", "0.0"))
-        
+
         # Count packages and lines
         packages = root.findall("packages/package")
         packages_count = len(packages)
-        
+
         # Sum lines from all packages
         lines_valid = 0
         lines_covered = 0
@@ -103,7 +103,7 @@ def extract_coverage_summary(coverage_xml_path: Path) -> dict:
                     lines_valid += 1
                     if line.get("hits") != "0":
                         lines_covered += 1
-        
+
         return {
             "line_rate": line_rate,
             "branch_rate": branch_rate,
@@ -120,7 +120,7 @@ def emit_coverage_summary(coverage_summary: dict) -> None:
     """Emit a human-readable coverage summary to stdout."""
     line_percent = coverage_summary["line_rate"] * 100
     branch_percent = coverage_summary["branch_rate"] * 100
-    
+
     print("\n" + "=" * 70)
     print("COVERAGE SUMMARY")
     print("=" * 70)
@@ -133,13 +133,13 @@ def emit_coverage_summary(coverage_summary: dict) -> None:
 def check_threshold_failure(pytest_stdout: str) -> bool:
     """
     Detect if pytest output indicates a coverage threshold failure.
-    
+
     This is distinguished from a test assertion failure by checking for
     the coverage plugin's specific error message.
-    
+
     Args:
         pytest_stdout: The captured stdout from pytest
-        
+
     Returns:
         True if threshold failure detected, False otherwise
     """
@@ -149,18 +149,18 @@ def check_threshold_failure(pytest_stdout: str) -> bool:
         r"FAILED.*coverage.*threshold",
         r"coverage: .* below threshold",
     ]
-    
+
     for pattern in threshold_patterns:
         if re.search(pattern, pytest_stdout, re.IGNORECASE):
             return True
-    
+
     return False
 
 
 def main() -> int:
     """
     Main entry point for coverage report generation.
-    
+
     Returns:
         0 — Success
         1 — Test assertion failure
@@ -168,14 +168,14 @@ def main() -> int:
         3 — Configuration/environment error
     """
     xml_output_path = Path("coverage-report.xml")
-    
+
     print("Running pytest with coverage instrumentation...")
     print(f"Coverage XML will be written to: {xml_output_path}")
     print()
-    
+
     # Run pytest with coverage
     result = run_pytest_with_coverage(xml_output_path)
-    
+
     # Try to extract and emit coverage summary regardless of pytest result
     coverage_summary = None
     if xml_output_path.exists():
@@ -186,7 +186,7 @@ def main() -> int:
             print(f"WARNING: Could not parse coverage summary: {e}", file=sys.stderr)
     else:
         print("WARNING: Coverage XML was not generated", file=sys.stderr)
-    
+
     # Determine exit code
     if result["returncode"] == 0:
         print("\n✓ All tests passed and coverage thresholds met")

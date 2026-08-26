@@ -618,7 +618,6 @@ async def resume_run_endpoint(
       7. Spawn ``_drive_user_resume`` + register the task (closes the mutex window).
       8. Return 200 ``{"run_id": run_id}``.
     """
-    from agents.execution_engine.engine import get_execution_engine
 
     db = _get_db()
     try:
@@ -2277,7 +2276,7 @@ def _resolve_launch_agents(body: "LaunchCommand"):
 #
 # SC-001 / INV-1: generic marker matching, never a hardcoded pipeline name.
 # ---------------------------------------------------------------------------
-import re as _re_title
+import re as _re_title  # noqa: E402
 
 _REVISION_REQUEST_RE = _re_title.compile(
     r"===\s*REVISION REQUEST\s*===\s*(.*?)\s*(?:===|$)", _re_title.DOTALL
@@ -3006,7 +3005,6 @@ async def _drive_launch_to_queue(
     # points (INV-12, no inline duplicate). The status seen-flags below stay inline (the
     # status decision is caller-owned, not part of the output-column mapping).
     raw_events: list[tuple[str, dict]] = []
-    any_agent_errored = False
     first_agent_error_msg: str | None = None
     pipeline_complete_seen = False
     degraded_failed_agents: list | None = None
@@ -3063,7 +3061,6 @@ async def _drive_launch_to_queue(
             # seen-flags below stay inline (status is caller-owned, not a mapped column).
             raw_events.append((utype, update.get("data", {})))
             if utype == "agent_error":
-                any_agent_errored = True
                 if first_agent_error_msg is None:
                     first_agent_error_msg = update["data"].get("error") or "Agent execution error"
             elif utype == "pipeline_complete":

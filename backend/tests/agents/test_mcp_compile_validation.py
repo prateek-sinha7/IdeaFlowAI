@@ -71,9 +71,12 @@ def user_allowed_strategy():
     try:
         yield "user_ok_strategy"
     finally:
-        registry_mod._KNOWN.clear(); registry_mod._KNOWN.update(known)
-        registry_mod._IMPLS.clear(); registry_mod._IMPLS.update(impls)
-        registry_mod._TRUST.clear(); registry_mod._TRUST.update(trust)
+        registry_mod._KNOWN.clear()
+        registry_mod._KNOWN.update(known)
+        registry_mod._IMPLS.clear()
+        registry_mod._IMPLS.update(impls)
+        registry_mod._TRUST.clear()
+        registry_mod._TRUST.update(trust)
         registry_mod._DISCOVERED = discovered
 
 

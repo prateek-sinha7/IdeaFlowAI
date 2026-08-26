@@ -346,12 +346,12 @@ def list_runs(
         db.query(*_LIST_COLS)
         .filter(WorkflowRun.user_id == current_user.id)
     )
-    
+
     if type:
         query = query.filter(WorkflowRun.type == type)
     if status_filter:
         query = query.filter(WorkflowRun.status == status_filter)
-    
+
     # Count before applying limit/offset so the total reflects filters.
     # Uses the same WHERE clause as the page query — no extra round trip on a
     # cold query; SQLite/Postgres both plan it as a single index scan.

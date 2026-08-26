@@ -75,6 +75,102 @@ state does NOT qualify; that one needs a real merge revision.
 5. Every migration must be reversible: `upgrade → downgrade → upgrade` must leave the schema identical.
 6. Test reversibility offline against SQLite before shipping.
 7. Always verify single-head: `alembic heads` should return exactly one head after your migration.
+8. **New migrations must be idempotent** — guard every DDL statement so re-running
+   against a database that already has the object is a no-op, not an error. Use
+   `backend/migration_helpers.py`; enforced by
+   `tests/unit/test_migration_idempotency.py`. See "Idempotency" below.
+9. **Never edit a released migration.** Add a forward revision instead. Enforced by
+   `scripts/migration_guard.py`. See "Why editing a released migration is silent" below.
+
+---
+
+## Idempotency (rule 8)
+
+`docker-entrypoint.sh` runs `alembic upgrade head` under `set -eu` **before**
+`exec uvicorn`. A raising migration therefore does not produce a failed deploy
+step — it prevents the container from ever binding its port, i.e. a crash-loop.
+The commonest cause is creating an object that already exists, which happens on
+any database whose objects are present but whose revision is not stamped:
+
+- the DDL applied but the `alembic_version` bump was lost (the 0024/0025 incident
+  that 0028 exists to repair),
+- an operator applied DDL by hand before the migration shipped,
+- a revision was re-homed (0031→0036, 0032→0037) and databases recorded
+  different IDs for the same DDL,
+- a partial/failed downgrade left objects behind.
+
+Write new migrations with the shared guards:
+
+```python
+import sqlalchemy as sa
+from migration_helpers import add_column_if_missing, create_table_if_missing
+
+def upgrade() -> None:
+    add_column_if_missing("users", sa.Column("x", sa.Text(), nullable=True))
+```
+
+Available: `table_exists`, `column_exists`, `index_exists`,
+`unique_constraint_exists`, `foreign_key_exists`, `create_table_if_missing`,
+`add_column_if_missing`, `create_index_if_missing`,
+`create_unique_constraint_if_missing`, and the `*_if_present` drop variants.
+
+Note `if_not_exists=True` works on this Alembic version for
+`create_index`/`create_table` only (0030 uses it) — **not** for `add_column` or
+constraints, which is why those need reflection.
+
+Adding a UNIQUE constraint additionally needs a duplicate-row precondition check
+or it raises on real data; 0028's `_duplicate_group_count` + loud SKIP is the
+reference pattern.
+
+**Status: 27 of 35 existing revisions are NOT re-appliable** (verified
+2026-08-26). They are frozen in `_LEGACY_NON_IDEMPOTENT` and exempt, because
+retrofitting guards into a released migration cannot reach any database already
+stamped past it. Re-appliable today: 0009, 0010, 0024, 0028, 0029, 0030, 0035,
+0037. The ratchet only exercises revisions outside both frozen sets, so it costs
+nothing until a migration is added.
+
+---
+
+## Why editing a released migration is silent (rule 9)
+
+`alembic_version` stores a **revision ID, never a content hash**. So if the
+database is at head `0037` and you edit revision `0032`:
+
+- `alembic upgrade head` reads `0037`, concludes there is nothing to do, exits 0.
+  **`0032` never executes.** The edit does not reach that database, and nothing
+  reports an error.
+- A database created *after* the edit (fresh dev box, new environment, CI) runs
+  the new `0032` and gets the new schema.
+
+The environments now disagree permanently. Making the DDL idempotent does **not**
+help — idempotency protects code that runs, and this code never runs.
+
+Critically, no schema-derived check can catch this: `alembic check`,
+`upgrade`-from-scratch, and the populated-migration job all derive the schema by
+*running the edited file*, so they agree with each other and disagree only with
+production. Detection has to happen at the source level.
+
+`alembic/versions.lock` pins a fingerprint per released revision — a sha256 over
+the AST with docstrings stripped, so reformatting, comment and docstring edits do
+**not** trip it; only a change to what the migration does.
+
+```bash
+cd backend
+uv run python scripts/migration_guard.py --verify   # CI: retro-edit + dup-ID + single-head
+uv run python scripts/migration_guard.py --update   # after ADDING a migration
+```
+
+Commit `alembic/versions.lock` **in the same change as the migration**, or the
+guard fails with "new revisions are not pinned yet".
+
+A revision counts as released once it lands on `dev`, because pushing to `dev`
+triggers `deploy.yml` and migrations apply on container start.
+
+**When the guard fires, the fix is a forward revision** — a new revision at the
+tip that brings existing databases into line, guarded so it no-ops where they are
+already correct. Revision 0028 is the worked example. Re-pinning via
+`--allow-modified --reason "..."` is only for a revision that never left a local
+branch.
 
 ---
 

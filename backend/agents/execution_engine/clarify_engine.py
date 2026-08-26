@@ -727,10 +727,6 @@ prose before or after. Your response MUST start with `[` and end with `]`."""
                 "What technology stack should be used?",
                 ["React / Next.js (web)", "React Native / Flutter (mobile)", "Node.js / Python (backend)", "Cloud-native (AWS / Azure / GCP)", "No preference"],
             ),
-            "target_audience": (
-                "Who is the primary audience for this?",
-                ["Executive / C-Suite", "Technical team / Engineers", "Business stakeholders / Managers", "General public / Consumers", "Sales & Marketing team"],
-            ),
             "tone_and_style": (
                 "What tone and style should be used?",
                 ["Professional & formal", "Casual & conversational", "Data-driven & analytical", "Creative & visual", "Concise & minimal"],

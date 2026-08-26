@@ -1,0 +1,151 @@
+{
+  "lock_format_version": 1,
+  "_comment": "Fingerprints of released Alembic revisions. A mismatch means an already-applied migration was edited, which can never reach a database that is already stamped past it. Regenerate ONLY when adding a new revision: python scripts/migration_guard.py --update",
+  "generated_at": "2026-08-26T08:18:00Z",
+  "revisions": {
+    "0001": {
+      "file": "0001_initial_schema.py",
+      "logic_sha256": "d1821c63b1577713eafde76f3781d32a88ba56508c990fe7c2b7096e5169b8e6"
+    },
+    "0002": {
+      "file": "0002_handoff_tables.py",
+      "logic_sha256": "6f925dbb4e142f085f377f2fd96046e0b526462c3330a73cab27bde3daf0d7a1"
+    },
+    "0004": {
+      "file": "0004_add_token_usage.py",
+      "logic_sha256": "bf8f92a68669eb87b4840a4379915d685b8e29b6af03e056fb703e8c3dc7e95e"
+    },
+    "0005": {
+      "file": "0005_add_user_tier.py",
+      "logic_sha256": "16cdc75e5de56ffdccd51ae9430ecc4d541867a15c2324976b38da067616688f"
+    },
+    "0006": {
+      "file": "0006_add_is_admin.py",
+      "logic_sha256": "c6f4449e9749b133fe84bed33708dec9b68e6289e98e21d9f1942108d4611bd8"
+    },
+    "0007": {
+      "file": "0007_add_preferred_model.py",
+      "logic_sha256": "bd39b69e91223457dc307253e364aee3b45ef48c7fd953cedb061b507e3f6eac"
+    },
+    "0008": {
+      "file": "0008_add_workflow_run_model_id.py",
+      "logic_sha256": "85d82711642987f4c3ccfe4898d5888b01520d59e9dc6139ba59f522906d99ae"
+    },
+    "0009": {
+      "file": "0009_schema_debt.py",
+      "logic_sha256": "59a834e3f5f4812aa50d5f020e793186842b26571153d1eed7fb6f7becf4becf"
+    },
+    "0010": {
+      "file": "0010_artifact_store.py",
+      "logic_sha256": "b7272352919f26418ffa27dd83770b21419be3bdd8e1d6eeda03155605e8b058"
+    },
+    "0011": {
+      "file": "0011_workflow_tables.py",
+      "logic_sha256": "2204a1b7853769a5347439455bf6c7a5153cfe087a95115c7c181c6a1299538d"
+    },
+    "0012": {
+      "file": "0012_workflow_run_extended.py",
+      "logic_sha256": "92f3b7fbd4c212e7e5e5d7bfc6c23731cb5ff63587239647912061ea3c51a4c3"
+    },
+    "0013": {
+      "file": "0013_collapse_pipeline_run_id.py",
+      "logic_sha256": "acc1574f0bc833738dad7e8c56063176bb6733e18ffb2c2377c943fc4abbe7f8"
+    },
+    "0014": {
+      "file": "0014_typed_artifacts_persistence.py",
+      "logic_sha256": "eebf73da795444f4dcb3ef48b22ee2eb5efa7655580058287f4c415e3408b4f0"
+    },
+    "0015": {
+      "file": "0015_drop_thin_artifact_store.py",
+      "logic_sha256": "893a3dcfec019d0875e475b9ff23defac8d41b92ed18c4e09ae7d46bbea0f6fb"
+    },
+    "0016": {
+      "file": "0016_capability_hardening_tables.py",
+      "logic_sha256": "8cff4c5ba73d7e39b991f612d865878b120a865485f9710b614c5431a7594db1"
+    },
+    "0017": {
+      "file": "0017_repositories_repo_workspace.py",
+      "logic_sha256": "f50464769ef8b74d585f63a91ec00b02cabf6fc7df7672d2f739c5563df28d6f"
+    },
+    "0018": {
+      "file": "0018_exec_runs.py",
+      "logic_sha256": "82356b34ce93b11f9623481aa88ba753e1cd636f1cac166a78ef9620f610db99"
+    },
+    "0019": {
+      "file": "0019_subagent_runs.py",
+      "logic_sha256": "6f8332cc7762fde069a6a5312360d684e1a29b063aec10f02bdd82cb6cf8a48a"
+    },
+    "0020": {
+      "file": "0020_wave_runs.py",
+      "logic_sha256": "0d895f73d032e734d5e1f685bf2fb3d1c4c9aba667ea45cbbbe4d69bfac9355d"
+    },
+    "0021": {
+      "file": "0021_saved_user_workflows.py",
+      "logic_sha256": "7c700849d15f0365c4ff72008a5112c61a642a57b1c366db3c7b26300542383d"
+    },
+    "0022": {
+      "file": "0022_workflow_run_deliverable_mimetype.py",
+      "logic_sha256": "f40ead86250519cc28f8ce58b8c4e2e22592206bc151e35d8da5a1847e958df8"
+    },
+    "0023": {
+      "file": "0023_workflow_run_selections.py",
+      "logic_sha256": "2f56fd5e6f9d31d73136c174c52b6ab57e6b6dbc3acfe3b7114d2b9aff0f1735"
+    },
+    "0024": {
+      "file": "0024_run_events_uniqueness.py",
+      "logic_sha256": "298d656cf68a20471cf28cd2ea446e7a99a2dd2ba2231fea6ffe7cc9ec5677de"
+    },
+    "0025": {
+      "file": "0025_deep_link_nonces.py",
+      "logic_sha256": "f46c76e1f8ab6569dab28738fb576151b8c5b278d04cfb8210467620b51a8a24"
+    },
+    "0026": {
+      "file": "0026_subagent_task_identity.py",
+      "logic_sha256": "35e218bfad43548ea71ed87af0beefdcbaaee881281d19825115537b1df94416"
+    },
+    "0027": {
+      "file": "0027_workflow_run_od_context.py",
+      "logic_sha256": "b2549bfa4a9719df6c70ecb9c09ca3797bc7da45e984a37d81dd8e327fd13115"
+    },
+    "0028": {
+      "file": "0028_repair_0024_0025_drift.py",
+      "logic_sha256": "0964b3126ebda4c65321a435a4f347f9242109d8cc9f1242e104b6b76d71e964"
+    },
+    "0029": {
+      "file": "0029_enforce_seq_uniqueness_after_repair.py",
+      "logic_sha256": "b5d56b526f1fbcd6fb349e4458451b88bb2add300cb5de72e287e37daed01cbd"
+    },
+    "0030": {
+      "file": "0030_workflow_runs_user_created_index.py",
+      "logic_sha256": "cc93555c24fb8fa32109608a511e2c68fc8024b1463d0c883ea3290877a2b03c"
+    },
+    "0031": {
+      "file": "0031_cognito_identity_and_token_validity.py",
+      "logic_sha256": "84e97e22e3a31aa2e91eebf5f4290f3ae852cfe44aaba738f9729ac155fe6d5c"
+    },
+    "0032": {
+      "file": "0032_cognito_refresh_token_storage.py",
+      "logic_sha256": "8b3fded32a816096093795ac6fa7ad6f4e9574566b1cd7dfa59e37aa4c63e048"
+    },
+    "0033": {
+      "file": "0033_user_api_key_expiry.py",
+      "logic_sha256": "efc9e56bde6e57640a48d0a0de20f10ea2064cff5a98560865fe88e46f9152e5"
+    },
+    "0034": {
+      "file": "0034_mfa_verified_at.py",
+      "logic_sha256": "36523b7a593925a00b4c92eb5a538df43f3f8401545f842f29b769cac3070161"
+    },
+    "0035": {
+      "file": "0035_timezone_aware_auth_timestamps.py",
+      "logic_sha256": "941cdfffcd65bd14003b37744bf8d21bbd8985b71970660bb5218c7da888d49f"
+    },
+    "0036": {
+      "file": "0036_composed_workflow_execution.py",
+      "logic_sha256": "5b3e82d5b0aab9481f0ae15c12ce0e239dd7e3b2572b3b1c8597a9cc1a4aa463"
+    },
+    "0037": {
+      "file": "0037_collapse_od_prototype_label.py",
+      "logic_sha256": "c95dfc791fd51da76c1a0af87e81e2c4470c8d6b0f486b9ca2500b9df87e9b4d"
+    }
+  }
+}

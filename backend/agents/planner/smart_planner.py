@@ -318,11 +318,11 @@ Return ONLY valid JSON:
 ## Your Analysis Tasks
 
 ### 1. Topic Detection
-Does the brief contain a SPECIFIC topic/subject? 
+Does the brief contain a SPECIFIC topic/subject?
 
 A brief HAS a topic when it names something specific:
 - ✅ "Apple vs Samsung comparison" → has topic
-- ✅ "Q3 sales results for the board" → has topic  
+- ✅ "Q3 sales results for the board" → has topic
 - ✅ "hospital booking system" → has topic
 - ✅ "climate change impact" → has topic
 

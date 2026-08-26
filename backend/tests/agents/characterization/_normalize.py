@@ -316,7 +316,7 @@ def assert_seq_contiguous(events: list[dict]) -> None:
         seqs = [e["seq"] for e in events if "seq" in e]
     if len(seqs) < 2:
         return  # 0 or 1 seq value → trivially contiguous (nothing to gap).
-    deltas = [b - a for a, b in zip(seqs, seqs[1:])]
+    deltas = [b - a for a, b in zip(seqs, seqs[1:], strict=False)]
     bad = [(i, d) for i, d in enumerate(deltas) if d != 1]
     assert not bad, (
         "per-run seq is NOT contiguous (delta != 1) — an event was dropped or "

@@ -78,7 +78,7 @@ def _signature_of(fn: ast.AST, *, drop_self: bool) -> inspect.Signature:
         params.append(P(arg.arg, kind, default=default))
     if args.vararg:
         params.append(P(args.vararg.arg, P.VAR_POSITIONAL))
-    for arg, node in zip(args.kwonlyargs, args.kw_defaults):
+    for arg, node in zip(args.kwonlyargs, args.kw_defaults, strict=False):
         params.append(P(arg.arg, P.KEYWORD_ONLY, default=(P.empty if node is None else ...)))
     if args.kwarg:
         params.append(P(args.kwarg.arg, P.VAR_KEYWORD))

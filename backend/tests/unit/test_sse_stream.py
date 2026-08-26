@@ -40,7 +40,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from agents.authz import ScopedStore
-from app.api.run_stream import _iter_sse_frames, router
+from app.api.run_stream import _STREAM_TERMINAL_TYPES, _iter_sse_frames, router
 from app.core.dependencies import get_current_user_with_payload
 from app.models.database import Base, get_db
 from app.models.run_event import RunEvent
@@ -1333,8 +1333,6 @@ class TestSSETerminalTypesSyncWithFrontend:
         """SSE-002: verify _STREAM_TERMINAL_TYPES (backend) matches the frontend's
         STREAM_TERMINAL_TYPES constant. Both must enumerate the exact same terminal
         event types that close the SSE stream."""
-        from app.api.run_stream import _STREAM_TERMINAL_TYPES
-
         backend_terminals = _STREAM_TERMINAL_TYPES
         expected = {
             "pipeline_complete",
@@ -1405,11 +1403,11 @@ class TestSSETerminalTypesSyncWithFrontend:
 # ════════════════════════════════════════════════════════════════════════════
 class TestStreamAttachedHandshakeConvergence:
     """SSE-004: verify stream_attached handshake and terminal event convergence.
-    
+
     The handshake must correctly indicate:
       1. live=true/false (whether a live queue is attached)
       2. replayed_through_seq reflects the actual replay boundary
-    
+
     Reconnect must never emit duplicate events (C-06a: event_id dedup).
     Terminal events must deterministically close the stream.
     """
@@ -1491,7 +1489,7 @@ class TestStreamAttachedHandshakeConvergence:
     @pytest.mark.asyncio
     async def test_reconnect_after_partial_drain_replays_only_newer_events(self, db_session):
         """SSE-004: a reconnect with Last-Event-ID set correctly bounds the replay.
-        
+
         If client last saw seq=2, a fresh connect (after_seq=2) should replay only seq > 2.
         The stream_attached handshake reflects the actual replay boundary.
         """

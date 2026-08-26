@@ -401,7 +401,7 @@ class TestCreateRevisionEventOrdering:
             patch.object(ra, "run_analyzer", run_analyzer_mock),
             patch("app.api.run_commands._drive_revision_to_queue", new=AsyncMock()),
         ):
-            resp = app_client.post(
+            _resp = app_client.post(
                 f"/api/runs/{us_run_id}/revisions",
                 json={"target_artifact_type": "user_stories_output", "instruction": "Add more stories"},
                 headers=auth_headers,

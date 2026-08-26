@@ -33,7 +33,7 @@ direction); the hook impls reach the ``hook_runs`` writer through ``ctx.runner``
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 # The three hook outcomes (HOOK-01). Single source — hooks + the engine seam

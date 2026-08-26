@@ -60,7 +60,7 @@ def test_resolved_impl_name_matches_key(
     reg: CapabilityRegistry, kind: str, name: str
 ) -> None:
     impl = reg.resolve(kind, name)
-    assert getattr(impl, "name") == name
+    assert impl.name == name
 
 
 def test_resolve_unknown_name_raises(reg: CapabilityRegistry) -> None:
