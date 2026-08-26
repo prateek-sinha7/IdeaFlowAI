@@ -11,7 +11,26 @@
 > other. This file now records **why each is not yet captured**, not that it is
 > unknown.
 >
+> **Sweep 7 then asked a harder question** and got a worse answer. `_coverage.py`
+> checks every *addressable control* — every `data-testid`, `aria-label` and form
+> `name` — against the specs. Feature-level coverage was complete; **control-level
+> coverage was 49%**. 150 of 298 controls were named in no spec.
+>
+> A page can be fully specified and still leave most of its buttons untargetable.
+> That gap is now closed: **298 of 298, 100%**, in `23-controls-inventory` plus
+> additions to `01-auth`, `15-overlays` and `22-handoff-and-gates`.
+>
+> What it turned up, none of which any earlier sweep knew existed: an entire
+> **Cognito MFA challenge flow** on the login page; **revision inputs on all five
+> preview types**; agent **proposals and refinements** in the chat lane; canvas
+> **conditional routing, sub-agents, retry and parallelism limits**; **audit log
+> exports** (CSV/JSON/report); an analytics **model filter**; and
+> `chat-terminal-degraded`, a run state no other table in this suite mentions.
+>
 > The one true remaining gap is **responsive breakpoints** — no scenarios anywhere.
+>
+> Run `python3 tests/integration/capture/_coverage.py` to re-check. It exits
+> non-zero while any control is unspecified, which is what stops this drifting back.
 
 ---
 

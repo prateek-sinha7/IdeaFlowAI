@@ -207,7 +207,16 @@ Feature: Review gates
     Given a run waiting at a review gate
     When I choose to redo
     Then a field labelled "Additional instructions for redo" is offered
+    And that field is named "redo-instructions"
     And "chat-gate-redo" submits it
+
+  @sourced
+  Scenario: The gated content itself is editable before approval
+    Given a run waiting at a review gate
+    Then the gated content is held in a field named "gate-content"
+    And "Edit gate content" makes it editable
+    # Approving edits the artifact as well as unblocking the run — the human is
+    # not just a rubber stamp. Assert the edited content is what continues.
 
   @sourced
   Scenario: A choice gate presents its options

@@ -299,9 +299,11 @@ Feature: Overlays
 
   Scenario: The divert picker groups and searches the catalogue
     Given the divert picker is open
-    Then I see the group chips "All", "System", "Revision" and "Yours" with counts
+    Then "workflow-picker-modal" is shown
+    And I see "workflow-picker-chip" group chips "All", "System", "Revision", "Yours" with counts
     And I see a search input labelled "Search workflows"
-    And each row shows a name, a type slug, a description and a step count
+    And each "workflow-picker-row" shows a name, a type slug, a description and a step count
+    And "workflow-picker-confirm" commits the choice
     # Revision variants are listed deliberately — see WorkflowTargetPicker's own
     # comment. Do not "fix" the count by filtering them out.
 

@@ -38,13 +38,14 @@ tests/integration/
 ├── MANIFEST.md            the scored surface checklist, derived from source
 ├── INVENTORY.md           every route, its screen, and where its spec lives
 ├── DEFECTS-OBSERVED.md    what the sweeps found that looks wrong, plus corrections
-├── screens/               the specs — 22 files, one per surface, ~400 Gherkin scenarios
+├── screens/               the specs — 23 files, one per surface, 446 Gherkin scenarios
 ├── capture/               raw DOM fingerprints (evidence)
 │   ├── FIXTURES.json      the live ids the sweep used, and why not to trust them
 │   ├── _enumerate.py      lists pages, screens and overlays from frontend/src
 │   ├── _gaps.py           every interaction surface: menus, toasts, keys, nav edges
 │   ├── _deadcode.py       component files nothing imports (don't spec these)
 │   ├── _uncovered.py      components named in no spec
+│   ├── _coverage.py       EVERY addressable control vs the specs — the real check
 │   ├── _verify.py         consistency gate — run this LAST, before committing
 │   └── _dump.py           prints a fingerprint readably
 └── screenshots/           98 PNGs
@@ -54,7 +55,17 @@ tests/integration/
     └── 14-chat-lane/          the concierge lane across every run state
 ```
 
-After any capture work, run the consistency gate before committing:
+**The completeness gate.** Feature-level coverage is not control-level coverage —
+sweep 7 found the specs at 100% of features but **49% of addressable controls**. Run:
+
+```
+python3 tests/integration/capture/_coverage.py
+```
+
+It checks every `data-testid`, `aria-label` and form `name` in the frontend against
+every spec, and exits non-zero while any is unspecified. Currently **298/298**.
+
+After any capture work, also run the consistency gate before committing:
 
 ```
 python3 tests/integration/capture/_verify.py

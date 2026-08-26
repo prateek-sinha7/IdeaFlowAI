@@ -34,6 +34,42 @@ the entire account-recovery story.
 
 ---
 
+## Cognito auth challenges — an entire flow with no spec until sweep 7
+
+Sign-in is not one form. `login/page.tsx` renders a `ChallengeForm` for five distinct
+Cognito challenges, each with its own copy, reusing the same shell "so a challenge
+never looks like a different app".
+
+| Challenge | Title | Subtitle |
+|---|---|---|
+| `NEW_PASSWORD_REQUIRED` | *(first sign-in)* | "This is your first sign-in. Choose a permanent password to continue." |
+| `SOFTWARE_TOKEN_MFA` | "Enter your authentication code" | "Enter the 6-digit code from your authenticator app." |
+| `EMAIL_OTP` | "Check your email" | "We sent you a 6-digit code. Enter it below to finish signing in." |
+| `SELECT_MFA_TYPE` | "Choose a verification method" | "How would you like to receive your code?" |
+| `MFA_SETUP` | "Two-factor setup required" | "This account needs two-factor authentication set up before it can sign in. Contact your administrator to finish setup." |
+
+Unknown kinds fall back to **"Additional verification required"**.
+
+**Two traps:**
+
+1. **`EMAIL_MFA` vs `EMAIL_OTP`.** The factor is `EMAIL_OTP` everywhere except the
+   `SELECT_MFA_TYPE` answer, where Cognito expects `EMAIL_MFA`. The source calls this
+   "Cognito's own asymmetry". One constant reused for both fails on exactly one step
+   and looks like a backend bug.
+2. **`MFA_SETUP` is a dead end by design.** It needs a three-call Cognito session
+   chain the single-shot `/login/challenge` endpoint cannot express, and **the backend
+   answers 501**. The UI renders the explanation rather than a code field that would
+   collect a code and then fail.
+
+`EMAIL_OTP` names the mailbox when Cognito reports one — "We sent a 6-digit code to
+`<masked address>`" — because "Check your email" is unhelpful when the address on file
+is not the one the user expected. AWS does the masking.
+
+Controls: `input[name="mfa-factor"]` (one radio per choice), the code field, and a
+submit reading **"Continue"** / **"Verifying…"**. There is a cancel path back.
+
+---
+
 ```gherkin
 Feature: Signing in
 
@@ -110,19 +146,103 @@ Feature: Signing in
     # register/page.tsx keeps the route alive rather than 404ing so cached
     # external links land somewhere sensible. It is a stub, not a screen.
 
-  Scenario: The bare root is not a way in
-    # Quirk `rootRedirect`: "/" redirects to /login unconditionally, regardless
-    # of auth state. It is a routing bug, not a logout. Never treat "/" as home.
-    Given I am signed in
+  Scenario Outline: The bare root branches on whether a token exists
+    Given I am "<state>"
     When I cold-load "/"
-    Then the URL becomes "/login"
-    And my auth token is still present in localStorage
+    Then the URL becomes "<lands>"
+
+    Examples:
+      | state       | lands      |
+      | signed in   | /dashboard |
+      | signed out  | /login     |
+    # CORRECTED (C-3). An earlier sweep recorded this as an unconditional
+    # redirect to /login and called it a routing bug. app/page.tsx is
+    # `getToken() ? routes.home() : routes.login()`. The branch is on token
+    # PRESENCE only — an expired or forged token still routes to /dashboard, and
+    # the API 401 is what actually stops you.
+    # It renders null while deciding, so wait for the settled URL, not the first
+    # paint.
 
   Scenario: An unauthenticated cold load of a protected screen is bounced
     Given I have no auth token
     When I cold-load "/dashboard"
     Then I am not shown the dashboard content
     And I end up on the sign-in screen
+
+  # ---------- Cognito challenges ----------
+
+  @sourced
+  Scenario: First sign-in demands a permanent password
+    Given an account whose password must be changed
+    When I sign in
+    Then I am told this is my first sign-in
+    And I am asked to choose and confirm a permanent password
+
+  @sourced
+  Scenario Outline: A code challenge asks for six digits
+    Given an account challenged with "<challenge>"
+    When I sign in
+    Then I see the heading "<title>"
+    And I am asked for a 6-digit code
+    And the submit reads "Continue", and "Verifying…" while in flight
+
+    Examples:
+      | challenge          | title                          |
+      | SOFTWARE_TOKEN_MFA | Enter your authentication code |
+      | EMAIL_OTP          | Check your email               |
+
+  @sourced
+  Scenario: An email code names the mailbox it went to
+    Given an EMAIL_OTP challenge whose delivery address Cognito reported
+    Then the subtitle reads "We sent a 6-digit code to <masked address>"
+    And the address stays masked
+    # AWS masks it. Do not unmask it, and do not replace this with the generic
+    # "Check your email" — the whole point is telling the user WHICH mailbox.
+
+  @sourced
+  Scenario: Choosing a verification method offers both factors
+    Given a SELECT_MFA_TYPE challenge
+    Then I see "Choose a verification method"
+    And I can pick "Email me a code" or "Use my authenticator app"
+    And each is a radio named "mfa-factor"
+
+  @sourced
+  Scenario: The email factor submits a different value than its challenge name
+    Given a SELECT_MFA_TYPE challenge
+    When I choose "Email me a code"
+    Then the value submitted is "EMAIL_MFA"
+    And the challenge it leads to is "EMAIL_OTP"
+    # Cognito's asymmetry, flagged in the source. Reusing one constant for both
+    # fails on exactly one step.
+
+  @sourced
+  Scenario: MFA setup is a dead end that explains itself
+    Given an account challenged with MFA_SETUP
+    When I sign in
+    Then I see "Two-factor setup required"
+    And I am told to contact my administrator
+    And I am NOT offered a code field
+    # The backend answers 501 for this path. A code field here would collect a
+    # code and then fail — the explanation is the correct behaviour.
+
+  @sourced
+  Scenario: An unrecognised challenge still renders something usable
+    Given a challenge kind the UI does not know
+    Then I see "Additional verification required"
+    And I am told to follow the prompt below
+
+  @sourced
+  Scenario: A challenge can be abandoned
+    Given I am part-way through a challenge
+    When I cancel
+    Then I return to the plain sign-in form
+
+  @sourced
+  Scenario: A challenge looks like the sign-in screen, not a different app
+    Given any challenge
+    Then it renders inside the same shell as the sign-in form
+    # Stated as intent in the source. A verification step that looks like a
+    # different app reads as a phishing page — worth pinning.
 
   Scenario: Signing out clears the session
     Given I am signed in
