@@ -6,6 +6,8 @@ User management. Its own shell — no app nav, no account menu.
 **Screenshot:** `36-admin.png`
 **Source:** `frontend/src/app/admin/page.tsx` (a static page, **not** the catch-all)
 
+**Screenshots:** `09-admin/p48`
+
 ---
 
 ## Routing note

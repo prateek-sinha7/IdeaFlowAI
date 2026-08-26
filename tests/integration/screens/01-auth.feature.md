@@ -4,7 +4,7 @@ Sign-in is the only way into the product. Self-registration is disabled by desig
 — accounts are created by an administrator.
 
 **Routes:** `/login`, `/login?expired=true`, `/register`
-**Screenshots:** `01-login.png`, `02-login-expired.png`
+**Screenshots:** `01-auth/` — p01 login, p02 expired banner, p03 expired=1 (no banner), p04 register stub, p05 root redirect
 **Source:** `frontend/src/app/login/page.tsx`, `frontend/src/app/register/page.tsx`
 
 ---

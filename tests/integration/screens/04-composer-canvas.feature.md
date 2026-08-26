@@ -4,7 +4,7 @@ Where workflows are authored. One component (`ComposerPage`) serves three routes
 that differ in **what Save does**.
 
 **Routes:** `/workflows/new`, `/workflows/{id}/edit`, `/workflows/{type}/canvas`
-**Screenshots:** `11-workflow-new-composer.png`, `13-workflow-edit-canvas.png`, `14-workflow-canvas-builtin.png`
+**Screenshots:** `04-workflows/` — p16 new, p18 edit, p19 built-in canvas · `13-states/` — 54 simple view, 61 dark canvas
 
 ---
 
@@ -51,7 +51,16 @@ Testid `composer-header-summary`.
 - Hints: "Click a node to configure", "Drag to move · drag a top port to reparent",
   "Hold Space + drag to pan"
 
-**Config rail** — tabs `Workflow` | `Agent`, plus `Reset to default`:
+**Config rail** — tabs `Workflow` | `Agent`, plus `Reset to default`.
+
+The **Agent** tab is not one panel but five sub-tabs of its own — `Overview`,
+`Skills`, `Hooks`, `Tools`, `Config` — headed by
+`Agent · step <n> of <total> · <agent title>` and carrying
+`input[name="agent-name"]`. Its `Skills` sub-tab renders the full skill catalogue
+**inline in the rail**, not as a modal; the surface manifest had it listed as an
+overlay, which is why four sweeps never found it by opening dialogs.
+
+The **Workflow** tab's controls:
 
 | Control | Selector | Notes |
 |---|---|---|
@@ -163,6 +172,23 @@ Feature: Composing a workflow
     And no control "Rename Deck QA Agent" remains
     # The per-node aria-labels are derived from the display name. Any phase-2
     # helper that caches them must re-read after a rename.
+
+  Scenario: The config rail's Agent tab has five sub-tabs of its own
+    When I cold-load "/workflows/ppt/canvas"
+    And I click the rail tab "Agent"
+    Then the rail heading reads "Agent · step 1 of 3 · <the first agent's title>"
+    And I see the sub-tabs "Overview", "Skills", "Hooks", "Tools", "Config"
+    And an input named "agent-name" is present
+
+  Scenario: The agent Skills picker is part of the rail, not a modal
+    When I cold-load "/workflows/ppt/canvas"
+    And I click the rail tab "Agent"
+    And I click the sub-tab "Skills"
+    Then the skill catalogue is listed inside the rail
+    And no overlay or dialog has opened
+    # Recorded because the surface manifest classified this as an overlay from a
+    # `fixed inset-0` match in its source. At runtime it is inline. A phase-2
+    # helper that waits for a dialog here waits forever.
 
   Scenario Outline: Each capability toggle flips independently
     When I cold-load "/workflows/new"

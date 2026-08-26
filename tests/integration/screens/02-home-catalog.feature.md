@@ -5,7 +5,7 @@ user's tier entitles them to launch, plus a locked "Coming Soon" section and a
 "Jump back in" strip of recent runs.
 
 **Routes:** `/dashboard`, `/create`
-**Screenshots:** `03-home-dashboard.png`, `04-create.png`
+**Screenshots:** `02-home/` — p06 dashboard, p07 /create · `13-states/` — 64, 67, 68 (tier lock matrix)
 **Source:** `HomeLaunchGrid`, fed by `GET /api/workflows`
 
 ---
@@ -13,7 +13,7 @@ user's tier entitles them to launch, plus a locked "Coming Soon" section and a
 ## `/create` and `/dashboard` are the same screen
 
 `initialMainViewFor` maps **both** `home` and `create` to the `MainView` `"home"`.
-The file explains why: the UXFIX-03/D-20 redesign folded the create catalog into
+The file explains why: the UXFIX-03 / design-doc D-20 redesign (an external reference, not a defect id from `DEFECTS-OBSERVED.md`) folded the create catalog into
 the home screen, and the `"catalog"` MainView member it would otherwise point at
 has no render branch anywhere in the app. Mapping `/create` to `"catalog"` would
 render a blank pane.

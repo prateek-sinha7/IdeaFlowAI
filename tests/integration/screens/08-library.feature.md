@@ -4,7 +4,7 @@ A read-only catalogue of the platform's capabilities: agents, skills and hooks.
 
 **Routes:** `/library`, `/library?tab=skills`, `/library?tab=hooks`,
 `/library/agents/{slug}`, `/library/skills/{slug}`, `/library/hooks/{slug}`
-**Screenshots:** `24`–`29`
+**Screenshots:** `06-library/` — p35 agents, p36 skills, p37 hooks, p38–p40 drawers · `13-states/62` dark
 **Source:** `frontend/src/components/library/LibraryPage.tsx`
 
 ---

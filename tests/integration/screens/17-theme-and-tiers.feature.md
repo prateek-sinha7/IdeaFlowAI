@@ -3,7 +3,7 @@
 Two cross-cutting dimensions that change what a user sees on screens already
 specified elsewhere.
 
-**Screenshots:** `59`–`62` (dark), `64`–`68` (tiers)
+**Screenshots:** `13-states/` — 59 dark dashboard, 60 dark run steps, 61 dark canvas, 62 dark library; 64, 65 basic, 67 pro, 68 enterprise non-admin
 
 ---
 
@@ -24,9 +24,30 @@ Captured in dark: dashboard, run steps, composer canvas, library.
 
 ## Tiers
 
-Four seeded accounts. The **role** gate (`is_admin`) is independent of the **tier**
-gate — `qa-enterprise` has the same entitlements as `qa-admin` but no admin access,
-which is what makes it the useful control.
+**There are four tiers, not three, and they are not a chain.** The admin
+Create-User dialog offers Basic, Pro, Enterprise and **Hexaware**, and `hexaware`
+is a first-class tier in both `entitlements.py` and `entitlements.ts`.
+
+| Pipeline family | basic | hexaware | pro | enterprise |
+|---|---|---|---|---|
+| user_stories | ✓ | ✓ | ✓ | ✓ |
+| ppt | ✓ | **✗** | ✓ | ✓ |
+| prototype | ✗ | **✓** | ✓ | ✓ |
+| app_builder | ✗ | ✗ | ✓ | ✓ |
+
+`hexaware` sits *sideways*: it gains prototype over basic but **loses ppt**.
+`UPGRADE_PATH` sends it straight to `enterprise`, skipping pro. Moving a user from
+basic to hexaware therefore takes away their ability to make presentations.
+
+`entitlements.py` says this is deliberate (KAN-161 / ISS-055 — a scoped tier for
+deployments needing prototype + user_stories only). The gap is in these specs, not
+in the code: everything below was written assuming a totally-ordered basic → pro →
+enterprise ladder, and there is **no seeded hexaware account** to test against.
+See D-16.
+
+The **role** gate (`is_admin`) is independent of the **tier** gate —
+`qa-enterprise` has the same entitlements as `qa-admin` but no admin access, which
+is what makes it the useful control.
 
 | Account | Tier | Admin | Account menu | Admin route |
 |---|---|---|---|---|
@@ -54,6 +75,11 @@ which is what makes it the useful control.
 | Ask a Human, Then Decide | Enterprise | Enterprise | — |
 
 (— = unlocked. Coming Soon cards carry no lock badge; they are gated separately.)
+
+**The matrix has no `hexaware` column** because no hexaware account is seeded. From
+`TIER_PIPELINES` it would sit between basic and pro on prototype and *below* basic
+on ppt — the one column that would disprove "higher tier ⇒ more cards". Fill it in
+once a fixture exists (D-16).
 
 **Deliverable access** on `/settings/usage` per tier: basic lists Product
 Requirements and Presentation; enterprise lists those plus Interactive Prototype,
@@ -155,6 +181,29 @@ Feature: Tier and role gating
     Then "Branch by Language" is launchable
     When I cold-load "/settings/usage"
     Then Deliverable Access does NOT mention it
+
+  @defect
+  # D-16. The tier lattice is not a chain, and nothing here tests that.
+  Scenario: A hexaware user gains prototype and loses presentations
+    Given a user on the "hexaware" tier
+    When I cold-load "/dashboard"
+    Then "Build an interactive prototype" is launchable
+    And "Pitch an idea" is locked
+    # This is the case that breaks every other scenario in this file. Basic can
+    # make presentations; hexaware cannot. A test that assumes higher tier ⇒
+    # superset of entitlements passes vacuously against basic/pro/enterprise
+    # and is wrong about the one tier that matters.
+    # BLOCKED: no hexaware account is seeded. Phase 2 needs one before this can
+    # run — create it through the admin Create-User dialog, which offers the
+    # tier, or extend the seed script.
+
+  Scenario: The admin dialog offers every tier the backend knows
+    Given I am signed in as an admin
+    When I open "Add user" on "/admin"
+    Then the plan select offers "basic", "pro", "enterprise" and "hexaware"
+    # Guards the two TIER_PIPELINES maps and this select against drifting
+    # apart. test_entitlement_parity already keeps the backend and frontend
+    # maps in sync; nothing currently keeps the admin UI in sync with either.
 
   Scenario: Entitlement is enforced by the backend, not only the badge
     Given I hold a valid token for "qa-basic@flowinqa.com"

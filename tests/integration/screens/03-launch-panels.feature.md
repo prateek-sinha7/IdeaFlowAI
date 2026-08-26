@@ -4,7 +4,7 @@ Where a brief is written and a run is started. There are **two different shells*
 behind the `/create/*` URLs, and they do not look alike.
 
 **Routes:** `/create/ppt`, `/create/prototype`, `/create/app`, `/create/user-stories`, `/create/{type}`
-**Screenshots:** `05-create-ppt.png`, `06-create-prototype.png`, `07-create-app.png`, `08-create-user-stories.png`, `09-create-workflow-catalog.png`
+**Screenshots:** `03-create/` — p08 ppt, p09 prototype, p10 app (D-01), p11 user-stories, p12 catalog workflow, p13/p14 legacy redirects · `04-workflows/p20` saved-workflow launch · `13-states/` — 74, 75 (prototype tabs)
 
 ---
 

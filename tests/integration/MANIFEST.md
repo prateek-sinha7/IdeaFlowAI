@@ -88,19 +88,19 @@ inventory entirely.
 | C8 | `savedworkflows/SavedWorkflowsPage` (3) | Workflow actions menu | ✅ `69` |
 | C9 | `results/ArtifactVersionPicker` | `Version v1` | ✅ `71` |
 | C10 | `preview/RunHeader` | Share / Download | ✅ `71` (Share = copy-link, no dialog) |
-| C11 | `preview/PrototypePreview` | View source / Tweaks | ⬜ |
-| C12 | `composer/AgentSkillsPicker` | node → Skills | ⬜ |
-| C13 | `composer/WorkflowPickerModal` | divert target picker | ⬜ |
-| C14 | `ppt/PPTTemplateGallery` upload | `Upload custom` (ppt) | ⬜ |
-| C15 | `prototype/TemplateDetailModal` (3) | template tile (prototype) | ⬜ |
-| C16 | `prototype/CustomTemplateModal` | `Upload custom` (prototype) | ⬜ |
-| C17 | `prototype/DesignSystemDetailModal` (3) | design-system tile | ⬜ |
-| C18 | `prototype/CustomDesignSystemModal` (2) | custom design system | ⬜ |
-| C19 | `workflow/SkillManager` | skill management | ⬜ |
-| C20 | `workflow/WorkflowDialog` (2) | workflow dialog | ⬜ |
-| C21 | `app/admin` create + toast | `Add user` | ⬜ |
+| C11 | `preview/PrototypePreview` | View source / Tweaks | ⬜ needs a completed prototype run |
+| C12 | `composer/AgentSkillsPicker` | Agent rail → Skills | ➖ **not an overlay** — inline in the rail (`83`) |
+| C13 | `composer/WorkflowPickerModal` | divert target picker | ⬜ needs a workflow with a divert step |
+| C14 | `ppt/PPTTemplateGallery` upload | `Upload custom` (ppt) | ✅ `80` |
+| C15 | `prototype/TemplateDetailModal` (3) | template tile (prototype) | ✅ `76` |
+| C16 | `prototype/CustomTemplateModal` | `Upload custom` (prototype) | ✅ `77` — same component as C14 |
+| C17 | `prototype/DesignSystemDetailModal` (3) | design-system tile | ✅ `78` |
+| C18 | `prototype/CustomDesignSystemModal` (2) | custom design system | ✅ `79` |
+| C19 | `workflow/SkillManager` | skill management | ⬜ unreachable in 4 sweeps — possibly dead |
+| C20 | `workflow/WorkflowDialog` (2) | workflow dialog | ⬜ unreachable in 4 sweeps — possibly dead |
+| C21 | `app/admin` create + toast | `Add user` | ✅ `81` |
 
-**6 of 21 captured.**
+**17 of 20 captured** (C12 reclassified out of this group).
 
 ## D. Run lifecycle states
 
@@ -123,12 +123,12 @@ inventory entirely.
 | Library agent drawer | Overview, Skills, Hooks, Config | ✅ all 4 (`73`) |
 | Prototype wizard | Template, Design System, Discovery | ✅ all 3 (`06`,`74`,`75`) |
 | Composer view | Simple, Canvas | ✅ both (`11`,`54`) |
-| Composer config rail | Workflow, Agent | ⬜ 1 of 2 |
+| Composer config rail | Workflow, Agent | ✅ both (`82`) — Agent has 5 sub-tabs of its own |
 | Advanced modal | Agents, Workflow | ✅ both (`50`,`51`) |
 | Audit filters | All, Governance, Security, Activity, blocked-only | ✅ 4 of 5 (`72`) |
-| Preview renderer | Auto, HTML, Markdown, Bundle, Slides | ⬜ 1 of 5 |
-| Run history filters | All, User Stories, Presentation, Prototype, App Builder, Custom | ⬜ 1 of 6 |
-| Run history sort | Newest, Longest, Tokens | ⬜ 1 of 3 |
+| Preview renderer | Auto, HTML, Markdown, Bundle, Slides | ✅ 4 of 5 (`84`) — Slides needs a deck |
+| Run history filters | All, User Stories, Presentation, Prototype, App Builder, Custom | ✅ all 6 (`85`) — `?type=` |
+| Run history sort | Newest, Longest, Tokens | ✅ all 3 — `?sort=` |
 | Library categories | 14 agent / 10 skill / 5 hook | ⬜ 1 each |
 
 ## F. Tier variants
@@ -163,26 +163,29 @@ inventory entirely.
 
 ## Score
 
-| Group | Sweep 1 | Sweep 2 | Sweep 3 | Total |
-|---|---|---|---|---|
-| A. Pages outside catch-all | 4 | 9 | **9** | 9 |
-| B. Catch-all screens | 35 | 35 | **36** | 36 |
-| C. Overlays | 6 | 11 | 11 | 21 |
-| D. Run states | 1 | 5 | 5 | 6 |
-| E. Tab families | 5 | 10 | 10 | 13 |
-| F. Tier variants | 1 | 4 | 4 | 4 |
-| G. Cross-cutting | 1 | 8 | **9** | 14 |
-| **Total** | **53** | **82** | **84** | **103** |
+| Group | Sweep 1 | Sweep 2 | Sweep 3 | Sweep 4 | Total |
+|---|---|---|---|---|---|
+| A. Pages outside catch-all | 4 | 9 | 9 | 9 | 9 |
+| B. Catch-all screens | 35 | 35 | 36 | 36 | 36 |
+| C. Overlays | 6 | 11 | 11 | **17** | 20 |
+| D. Run states | 1 | 5 | 5 | 5 | 6 |
+| E. Tab families | 5 | 10 | 10 | **13** | 13 |
+| F. Tier variants | 1 | 4 | 4 | 4 | **5** |
+| G. Cross-cutting | 1 | 8 | 9 | 9 | 14 |
+| **Total** | **53** | **82** | **84** | **93** | **103** |
 
-**82% captured.** Sweep 1 reported completeness at what was really 51%.
+**90% captured.** Sweep 1 reported completeness at what was really 51%.
 
-Sweep 3 was a full re-capture of all 55 page URLs with a 2.5s settle, into
-`screenshots/<area>/`. It added two surfaces (`run-version`, nonexistent
-workflow id), found one new defect (**D-12**), and corrected five claims the
-earlier sweeps had written from reading source instead of loading the URL
-(**C-1 … C-5**, listed at the end of `DEFECTS-OBSERVED.md`).
+- **Sweep 3** re-captured all 55 page URLs with a 2.5s settle into
+  `screenshots/<area>/`, and corrected five claims the earlier sweeps had written
+  from reading source instead of loading the URL (**C-1 … C-5**).
+- **Sweep 4** was a post-commit audit of what this manifest still listed as open.
+  It captured six of the ten remaining overlays and every remaining tab family,
+  reclassified one "overlay" that is really an inline panel, and found four
+  defects (**D-13 … D-16**) — including a **fourth tier**, `hexaware`, that no
+  spec knew about. The tier total rose from 4 to 5 because of it.
 
-**Every page URL is now backed by a fingerprint in `capture/` and a full-page
+**Every page URL is backed by a fingerprint in `capture/` and a full-page
 screenshot.** `PAGES.md` is the per-page index: URL → shot → fingerprint → spec.
 
 ## What is still open, and why
@@ -190,11 +193,13 @@ screenshot.** `PAGES.md` is the per-page index: URL → shot → fingerprint →
 | Gap | Blocker |
 |---|---|
 | `waiting_for_user` run state | needs a live LLM run — real cost, and it creates a gate a human must answer |
+| a hexaware account (D-16) | no seeded fixture; the tier exists in code and in the admin dialog only |
+| empty-account states (no runs, no workflows) | qa-pro / qa-basic / qa-enterprise all have 0 runs, so this is reachable — it needs the seeded password, which this session could not read |
+| cross-account 403 | same blocker: needs a second account's session |
+| C11 prototype preview source / tweaks | needs a completed prototype run |
+| C13 workflow picker | needs a workflow containing a divert step |
+| C19 SkillManager, C20 WorkflowDialog | never reached from any surface in four sweeps — confirm they are not dead code before specifying them |
+| Slides renderer mode | needs a deck deliverable |
 | a *switch* between artifact versions | no run in the dev DB has more than one version |
-| 10 remaining overlays | inside the prototype galleries and the composer node inspector |
-| Preview renderer modes | needs deliverables of several types (deck, app, markdown) |
-| Run-history filters / sort | mechanical; next increment |
-| Empty account states | needs a user with zero runs and zero workflows |
-| Cross-account 403 | needs two concurrent sessions |
-| Loading / skeleton states | needs request throttling to observe |
-| Responsive breakpoints | not attempted |
+| loading / skeleton states | needs request throttling to observe |
+| responsive breakpoints | not attempted |

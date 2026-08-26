@@ -261,6 +261,107 @@ the requested version was unavailable and v1 was served instead.
 
 ---
 
+## D-13 — Forcing an incompatible preview renderer yields a blank pane
+
+**Severity:** low.
+
+The run preview offers `RENDERS AS: Auto | HTML | Markdown | Bundle`. On a Markdown
+deliverable (`greeting.md`), choosing **HTML** renders **nothing at all** — no
+content, no message, no "this file is not HTML" fallback. The pane is simply empty.
+
+`Bundle` on the same file at least says "No files generated yet". `Auto` and
+`Markdown` both render correctly. Only HTML fails silently.
+
+**Expected:** the same courtesy Bundle already extends — say why the pane is empty.
+
+**Evidence:** `capture/AUDIT-overlays-and-tabs.json`,
+`screenshots/13-states/84-preview-renderer-html-blank.png`.
+
+---
+
+## D-14 — Run cards are not links, and the run history has no test hooks
+
+**Severity:** medium — accessibility and testability, not correctness.
+
+On `/runs`, every run card is a `div[role="button"]` with a click handler. There are
+**zero anchors** to `/runs/{id}` on the page. Consequences for a real user:
+
+- middle-click and ⌘-click do not open a run in a new tab
+- right-click offers no "Open link in new tab"
+- the URL is not visible on hover
+- nothing is copyable as a link
+
+Separately, `document.querySelectorAll('[data-testid]').length` is **0** for the
+whole page. Every phase-2 assertion on run history must go through text or DOM
+structure, both of which move with copy edits and restyling.
+
+**Expected:** cards wrap an `<a href>` to the run, and the list carries testids.
+
+**Evidence:** `capture/AUDIT-overlays-and-tabs.json`.
+
+---
+
+## D-15 — An unrecognised run-history filter shows an empty list, not an error
+
+**Severity:** low.
+
+The Presentation chip reads "Presentation 7" and sets `/runs?type=ppt`, which
+correctly renders 7 cards. But `/runs?type=presentation` — the obvious guess, and
+what a human would type or a stale link would carry — renders **"No runs match this
+filter"** while the chip beside it still claims 7.
+
+An unrecognised `type` value is treated as a filter that matches nothing, rather
+than being rejected or falling back to All. A shared link with a wrong or renamed
+type silently shows an empty history that looks like data loss.
+
+**Expected:** an unknown `type` falls back to All, or says the filter is not
+recognised. Not silence.
+
+**Evidence:** `capture/AUDIT-overlays-and-tabs.json`.
+
+---
+
+## D-16 — A fourth tier, `hexaware`, exists in code and admin but in no spec
+
+**Severity:** medium — it breaks the assumption every tier scenario rests on.
+
+The admin Create-User dialog offers four plans: Basic, Pro, Enterprise and
+**Hexaware**. `hexaware` is a real tier in both `backend/app/core/entitlements.py`
+and `frontend/src/lib/entitlements.ts`, with `TIER_LABELS` and an `UPGRADE_PATH`
+entry (`hexaware` → `enterprise`, skipping pro).
+
+**It is not a rung on the basic → pro → enterprise ladder. It is sideways:**
+
+| Pipeline family | basic | hexaware | pro |
+|---|---|---|---|
+| user_stories | ✓ | ✓ | ✓ |
+| ppt | ✓ | **✗** | ✓ |
+| prototype | ✗ | **✓** | ✓ |
+| app_builder | ✗ | ✗ | ✓ |
+
+So a hexaware user has prototype access that basic lacks, while **losing** the ppt
+access basic has. "Upgrading" a user from basic to hexaware removes their ability to
+make presentations.
+
+The comment in `entitlements.py` says this is deliberate (KAN-161 / ISS-055 — a
+scoped tier for deployments needing prototype + user_stories only). The defect is not
+the tier; it is that **every tier spec, the lock matrix in `17-theme-and-tiers`, and
+the whole capture sweep modelled tiers as a totally-ordered chain of three**. There
+is no seeded hexaware account, no scenario, and no lock-matrix column for it.
+
+`test_entitlement_parity` keeps the two `TIER_PIPELINES` maps in sync, so the tier is
+consistently implemented — it is the specs, not the code, that are incomplete.
+
+**Expected:** a seeded hexaware fixture, a fourth lock-matrix column, and at least
+one scenario asserting the non-monotonic case — that a hexaware user is offered
+prototype and is refused ppt.
+
+**Evidence:** `capture/AUDIT-overlays-and-tabs.json`,
+`screenshots/12-overlays/81-modal-admin-create-user.png`,
+`backend/app/core/entitlements.py:5-27`, `frontend/src/lib/entitlements.ts:1-25`.
+
+---
+
 # Corrections to earlier sweeps
 
 Not product defects — places where an earlier sweep wrote down something that

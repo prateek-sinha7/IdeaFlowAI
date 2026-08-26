@@ -6,7 +6,7 @@
 grep -rlE 'fixed inset-0|role="dialog"' frontend/src --include=*.tsx
 ```
 
-**Screenshots:** `37`, `38`, `49`–`53`, `69`–`71`
+**Screenshots:** `12-overlays/` — 37, 38, 49–53, 69–71 (all ten captured overlays)
 
 ---
 
@@ -24,20 +24,24 @@ grep -rlE 'fixed inset-0|role="dialog"' frontend/src --include=*.tsx
 | Workflow actions | per-card `Workflow actions` | ✅ `69` |
 | Run actions | per-row `Run actions` | ✅ `70` |
 | Version picker | `Version v<n>` | ✅ `71` |
-| PPT template upload | `Upload custom` (ppt) | ⬜ |
-| Prototype template detail | template tile | ⬜ |
-| Prototype custom template | `Upload custom` (prototype) | ⬜ |
-| Design-system detail | design-system tile | ⬜ |
-| Custom design system | custom design system | ⬜ |
-| Agent skills picker | node → Skills | ⬜ |
-| Workflow picker (divert) | divert target | ⬜ |
+| PPT template upload | `Upload custom` (ppt) | ✅ `80` |
+| Prototype template detail | template tile | ✅ `76` |
+| Prototype custom template | `Upload custom` (prototype) | ✅ `77` |
+| Design-system detail | design-system tile | ✅ `78` |
+| Custom design system | `Upload custom` (design system) | ✅ `79` |
+| Admin add-user | `Add user` on `/admin` | ✅ `81` |
+| Agent skills picker | node → Skills | ➖ **not an overlay** — renders inline in the config rail (`83`) |
+| Workflow picker (divert) | divert target | ⬜ needs a workflow with a divert step |
 | Skill manager | skill management | ⬜ |
 | Workflow dialog | — | ⬜ |
-| Admin add-user + toast | `Add user` | ⬜ |
-| Prototype preview source/tweaks | preview controls | ⬜ |
+| Prototype preview source/tweaks | preview controls | ⬜ needs a prototype run with a deliverable |
 
-**11 of 21.** The uncaptured ones are mostly deeper inside the prototype wizard and
-the composer node inspector.
+**17 of 20**, after reclassifying the skills picker. The manifest counted it as an
+overlay from a `fixed inset-0` match in its source; at runtime it is an inline
+panel, so it was never going to be found by opening a modal.
+
+The three still open all need a fixture this dev database does not have: a workflow
+containing a divert step, and a completed prototype run.
 
 ---
 
@@ -200,6 +204,78 @@ Feature: Overlays
     Then a link to the run is placed on the clipboard
     And no dialog opens
 
+  # ---------- The wizard galleries ----------
+
+  Scenario: A template tile opens a detail modal with a live preview
+    When I cold-load "/create/prototype"
+    And I click the template tile "AI Coach Hub"
+    Then a modal opens showing that template's name, device tag and description
+    And it offers "Use this template"
+    And its icon controls are addressable by title: "Open in new tab",
+        "Fullscreen", "Close"
+    # Those three have no text and no aria-label. They DO have a title, unlike
+    # the add-agent modal's close control (D-07). Use title here; there is
+    # nothing else.
+
+  Scenario: The gallery mounts one live iframe per tile
+    When I cold-load "/create/prototype"
+    Then each of the 46 template tiles renders its own iframe preview
+    # 46 iframes on one page. Budget for it: this screen is slow to settle, and
+    # a naive "wait for network idle" may never resolve.
+
+  Scenario Outline: Custom upload is offered on both wizards, HTML only
+    When I cold-load "<route>"
+    And I click "Upload custom"
+    Then a modal titled "Upload custom template" opens
+    And it offers the tabs "Upload HTML file" and "From URL"
+    And its file input accepts ".html,.htm" with a 2 MB limit
+    And it requires a template name
+
+    Examples:
+      | route              |
+      | /create/prototype  |
+      | /create/ppt        |
+    # The PRESENTATION wizard's custom upload accepts .html, not .pptx — it is
+    # the prototype modal reused verbatim. Recorded as observed; whether a deck
+    # wizard should accept an HTML file is a product question.
+
+  Scenario: A design-system tile shows its full DESIGN.md
+    When I cold-load "/create/prototype"
+    And I open the "Design System" tab
+    And I click a design-system tile
+    Then a modal opens rendering that system's DESIGN.md inline
+    And it offers "Use this system"
+
+  Scenario: A custom design system is pasted, not uploaded
+    When I cold-load "/create/prototype"
+    And I open the "Design System" tab
+    And I click "Upload custom"
+    Then a modal titled "Add custom design system" opens
+    And it takes a name and a DESIGN.md textarea capped at 80,000 characters
+    And it offers "Load example"
+    # Note the asymmetry: templates are uploaded as a file, design systems are
+    # pasted as text. Two different modals, two different input models.
+
+  # ---------- Admin ----------
+
+  Scenario: Add user collects credentials, plan and the admin flag
+    Given I am signed in as an admin
+    When I click "Add user" on "/admin"
+    Then a modal titled "Create New User" opens
+    And it has an email field, a password field requiring 8+ characters,
+        a plan select named "new-user-tier" and a checkbox named "new-user-is-admin"
+    And the plan select offers "basic", "pro", "enterprise" and "hexaware"
+
+  @defect
+  # The dialog has no Cancel. Its only dismissal is an unnamed icon button.
+  Scenario: The create-user dialog can be abandoned
+    Given the "Create New User" dialog is open
+    Then I can dismiss it without creating a user
+    And that control has an accessible name
+    # Today there is no Cancel button and the close control has no text, no
+    # aria-label and no title — the same shape as D-07. A user who opens this
+    # dialog by mistake has no labelled way out.
+
   Scenario Outline: Menus and drawers close without navigating
     Given "<overlay>" is open on "<route>"
     When I dismiss it
@@ -221,8 +297,15 @@ Feature: Overlays
   are all plain fixed-position layers. Target them by their content or testid.
 - Overlays nest: Save-as-new-workflow opens **inside** the Advanced layer. A
   teardown that dismisses "the modal" once may leave the outer one open.
-- Escape closes the account menu, the notifications panel and the inspect dialog,
-  but **not** the add-agent modal (D-07). Do not assume a uniform dismiss.
-- The 10 uncaptured overlays in the table above are the next capture increment;
-  most sit inside the prototype wizard's Template / Design System galleries and
-  the composer's node inspector.
+- **Escape is not a uniform dismiss.** It closes the account menu, the
+  notifications panel, the inspect dialog and every prototype/ppt gallery modal —
+  but **not** the add-agent modal (D-07). Verified individually, not assumed.
+- **Icon-only controls fall into two camps.** The gallery modals label theirs with
+  `title` ("Open in new tab", "Fullscreen", "Close"); the add-agent modal (D-07)
+  and the admin create-user dialog label theirs with nothing at all. Check before
+  writing a selector — there is no house style to rely on.
+- The three overlays still uncaptured need fixtures this dev database lacks: a
+  workflow containing a divert step (workflow picker), and a completed prototype
+  run (preview source / tweaks). The skill manager and workflow dialog were not
+  reachable from any surface walked in four sweeps — they may be dead code, which
+  is worth confirming before writing a test for them.

@@ -4,7 +4,7 @@ The user's saved workflows — custom compositions built from scratch, and overr
 bound to a built-in.
 
 **Routes:** `/workflows`, `/workflows/{id}`, `/workflows/{id}/run`
-**Screenshots:** `10-workflows-list.png`, `12-workflow-detail.png`, `15-workflow-run-launch.png`
+**Screenshots:** `04-workflows/` — p15 list, p17 detail · `12-overlays/69` actions menu
 
 ---
 

@@ -4,7 +4,7 @@ The run detail surface changes shape with the run's status. Sweep 1 captured onl
 `completed` and wrote the other states from the route contract; sweep 2 captured
 them and found the shape differs more than expected.
 
-**Screenshots:** `42`–`48`, `17`–`23`
+**Screenshots:** `05-runs/` — p31 failed, p32 cancelled, p33 diverted · `13-states/` — 23 live stream gate, 43 failed steps, 45 live streaming
 **Statuses observed:** `completed`, `failed`, `cancelled`, `diverted`, `generating`
 
 ---

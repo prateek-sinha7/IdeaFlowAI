@@ -4,7 +4,7 @@ Five tabs behind `/settings/{tab}`, uniformly addressable.
 
 **Routes:** `/settings/profile`, `/settings/ai-model`, `/settings/usage`,
 `/settings/constitution`, `/settings/security`
-**Screenshots:** `30`–`34`
+**Screenshots:** `07-settings/` — p41 profile, p42 ai-model, p43 usage, p44 constitution, p45 security, p46 bare redirect
 
 ---
 

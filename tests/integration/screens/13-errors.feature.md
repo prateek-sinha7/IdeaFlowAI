@@ -5,6 +5,8 @@ gone.
 
 **Screenshot:** `39-unknown-route.png`
 
+**Screenshots:** `11-errors/` — p51 unknown route, p52 missing run, p53 missing workflow, p54 quota, p55 bare preview redirect, p56 version fallback (D-12) · `01-auth/p03` expired=1
+
 ---
 
 ## The 404 screen

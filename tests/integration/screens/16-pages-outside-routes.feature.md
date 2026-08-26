@@ -4,7 +4,7 @@ Five Next.js pages exist that `routes.ts` does not describe. Four were missing f
 the first inventory entirely — they were found by enumerating `app/**/page.tsx`
 rather than by reading `routes.ts`.
 
-**Screenshots:** `55`–`58`
+**Screenshots:** `04-workflows/p21` legacy builder · `03-create/` — p13, p14 (legacy wizard redirects) · `10-handoff/` — p49 settings, p50 invalid token · `11-errors/` — p54 quota, p55 bare redirect
 
 ```
 frontend/src/app/workflow/page.tsx            → /workflow

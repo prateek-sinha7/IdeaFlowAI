@@ -5,6 +5,8 @@ Token usage, cost and pipeline performance for the signed-in user.
 **Route:** `/analytics` (accepts `?range=` and `?pipeline=`)
 **Screenshot:** `35-analytics.png`
 
+**Screenshots:** `08-analytics/p47`
+
 ---
 
 ## What is on the screen

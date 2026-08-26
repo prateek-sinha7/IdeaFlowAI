@@ -6,7 +6,7 @@ five-tab result pane on the right, and a header that must survive remounts.
 **Routes:** `/runs/{id}`, `/runs/{id}/steps`, `/runs/{id}/steps/{agentId}`,
 `/runs/{id}/files`, `/runs/{id}/audit`, `/runs/{id}/stream`,
 `/runs/{id}/preview/full`, `/runs/{id}/versions/{v}`, **`/runs/{id}/workspace`**
-**Screenshots:** `17`–`23`, `40`, `41`
+**Screenshots:** `05-runs/` — p23 preview, p24 steps, p25 agent step, p26 files, p27 workspace (D-02), p28 audit, p29 full preview, p30 stream, p34 pinned version · `12-overlays/71` version picker
 
 ---
 
@@ -243,16 +243,32 @@ Feature: Run detail
     And a run with no denials shows an empty state, not a blank pane
 
   Scenario Outline: The preview renderer can be switched
+    Given a completed run whose deliverable is "greeting.md"
     When I cold-load "/runs/{id}"
     And I select the renderer "<renderer>"
-    Then the deliverable is re-rendered in that mode
+    Then the pane shows "<result>"
 
     Examples:
-      | renderer |
-      | Auto     |
-      | HTML     |
-      | Markdown |
-      | Bundle   |
+      | renderer | result                                    |
+      | Auto     | the rendered markdown                     |
+      | Markdown | the rendered markdown                     |
+      | Bundle   | the message "No files generated yet"      |
+      | HTML     | nothing at all — see the defect below     |
+    # Auto resolves to Markdown for a .md. Only four modes appear on this
+    # deliverable; Slides needs a deck.
+
+  @defect
+  # D-13. Forcing an incompatible renderer produces a blank pane.
+  Scenario: Choosing HTML for a markdown deliverable renders nothing
+    Given a completed run whose deliverable is "greeting.md"
+    When I cold-load "/runs/{id}"
+    And I select the renderer "HTML"
+    Then the preview pane is empty
+    And no message explains why
+    # Bundle, on the same file, at least says "No files generated yet". HTML
+    # says nothing — the user sees a blank pane and cannot tell whether the
+    # deliverable is missing or the renderer is wrong.
+    # Expected once fixed: the same courtesy Bundle already extends.
 
   Scenario: A deck run offers Slides and Full Screen
     Given a completed "ppt_v2" run whose deliverable is "presentation.html"

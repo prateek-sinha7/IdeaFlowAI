@@ -6,6 +6,8 @@ sortable, and grouped by time.
 **Route:** `/runs` (accepts `?type=` and `?sort=`)
 **Screenshot:** `16-run-history.png`
 
+**Screenshots:** `05-runs/p22` history · `12-overlays/70` run actions menu
+
 ---
 
 ## What is on the screen
@@ -90,8 +92,35 @@ Feature: Run history
   Scenario: The type filter is addressable by URL
     When I cold-load "/runs?type=ppt"
     Then the history is filtered to that type on a cold load
+    And exactly 7 rows are shown, matching the Presentation chip's count
     # routes.runHistory({type, sort}) builds these params. A cold load must
     # honour them — this is the class of gap spec 015 closed elsewhere.
+    # VERIFIED: ?type=custom → 39 rows, ?type=ppt → 7 rows, both matching
+    # their chips. The filters do narrow correctly.
+
+  Scenario: The chip label and its URL value are different words
+    When I click the filter "Presentation"
+    Then the URL becomes "/runs?type=ppt"
+    # The chip says Presentation; the param says ppt. Do not derive one from
+    # the other — the same mismatch that makes the next scenario a trap.
+
+  @defect
+  # D-15. An unrecognised type is treated as a filter matching nothing.
+  Scenario: An unrecognised type shows an empty list rather than an error
+    When I cold-load "/runs?type=presentation"
+    Then I see "No runs match this filter"
+    And the "Presentation" chip beside it still reads a count of 7
+    # `presentation` is the obvious guess and what a stale link would carry.
+    # The page shows an empty history that reads as data loss, while the chip
+    # one line above contradicts it.
+    # Expected once fixed: fall back to All, or say the filter is not
+    # recognised. Not silence.
+
+  Scenario: Sort is addressable by URL and composes with type
+    When I cold-load "/runs?type=custom&sort=duration"
+    Then the history is filtered to Custom and ordered by duration
+    # Newest omits the param entirely — it is the default. A test asserting
+    # "?sort=recent" after clicking Newest will fail; assert its absence.
 
   Scenario Outline: Sorting reorders the list
     When I cold-load "/runs"
@@ -161,6 +190,27 @@ Feature: Run history
     When I cold-load "/runs"
     Then the run count reads zero
     And I am told there is nothing here yet, rather than shown a blank pane
+
+  @defect
+  # D-14. Run cards are div[role="button"], not links.
+  Scenario: A run card can be opened in a new tab
+    When I cold-load "/runs"
+    Then each run row is an anchor whose href is that run's URL
+    And ⌘-clicking a row opens it in a new tab
+    And the run's URL is visible on hover
+    # Written as the product SHOULD behave, not as it does — this one is a
+    # capability the user does not have today, so there is no baseline to
+    # record. Today every row is a div[role="button"] with a click handler:
+    # no middle-click, no "Open in new tab", no copyable link.
+
+  @defect
+  # D-14, second half. The whole page has zero data-testid attributes.
+  Scenario: Run history rows are addressable by a stable hook
+    When I cold-load "/runs"
+    Then each row carries a data-testid identifying its run
+    # document.querySelectorAll('[data-testid]').length is 0 for this page.
+    # Until that changes, every assertion here goes through text or DOM
+    # structure and will break on a copy edit or a restyle.
 ```
 
 ## Notes for phase 2

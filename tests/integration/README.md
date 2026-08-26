@@ -37,16 +37,28 @@ tests/integration/
 ├── MANIFEST.md            the scored surface checklist, derived from source
 ├── INVENTORY.md           every route, its screen, and where its spec lives
 ├── DEFECTS-OBSERVED.md    what the sweeps found that looks wrong, plus corrections
-├── screens/               the specs — 17 files, one per surface, Gherkin scenarios
+├── screens/               the specs — 17 files, one per surface, ~290 Gherkin scenarios
 ├── capture/               raw DOM fingerprints (evidence)
 │   ├── FIXTURES.json      the live ids the sweep used, and why not to trust them
 │   ├── _enumerate.py      lists the surface from frontend/src — run this FIRST
+│   ├── _verify.py         consistency gate — run this LAST, before committing
 │   └── _dump.py           prints a fingerprint readably
-└── screenshots/           80 full-page PNGs
+└── screenshots/           90 PNGs
     ├── 01-auth … 11-errors    one folder per area, pNN per page URL
-    ├── 12-overlays/           modals, menus and drawers — not pages
-    └── 13-states/             themes, tiers, run states, tab variants
+    ├── 12-overlays/           17 modals, menus and drawers — not pages
+    └── 13-states/             themes, tiers, run states, tab and filter variants
 ```
+
+After any capture work, run the consistency gate before committing:
+
+```
+python3 tests/integration/capture/_verify.py
+```
+
+It fails on a spec pointing at a screenshot folder that no longer exists, a defect
+id referenced but never defined, a page listed with no evidence, and a screenshot
+no document mentions. The first of those fired for real when sweep 3 renamed every
+shot and left all 13 cross-references dangling.
 
 **Start at `PAGES.md`.** It is the per-page record: all 55 page URLs, what each
 one actually does, and where its screenshot, fingerprint and spec live.

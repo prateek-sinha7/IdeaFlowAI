@@ -149,14 +149,31 @@ carried them have been corrected.
 One new defect was found by re-capturing what an earlier sweep had skipped:
 **D-12**, the silent version fallback.
 
+## Sweep 4 — the post-commit audit
+
+Everything above was committed, then audited against what `MANIFEST.md` still
+listed as open. That pass captured six more overlays and every remaining tab
+family, and found four more defects:
+
+| # | What |
+|---|---|
+| **D-13** | Choosing the HTML renderer on a markdown deliverable renders a blank pane with no explanation |
+| **D-14** | Run cards are `div[role="button"]`, not links — no new-tab, no copyable URL — and `/runs` has zero `data-testid` attributes |
+| **D-15** | `/runs?type=presentation` shows "No runs match this filter" while the chip beside it reads 7; the chip's own value is `ppt` |
+| **D-16** | A **fourth tier**, `hexaware`, exists in code and in the admin dialog. It is not a rung on the ladder — it gains prototype over basic but **loses ppt** |
+
+D-16 is the one that matters: every tier scenario in `17-theme-and-tiers` was
+written assuming basic → pro → enterprise is totally ordered. It is not.
+
 ## Still not captured, and why
 
 | Gap | Blocker |
 |---|---|
 | `waiting_for_user` run state | needs a live LLM run — real cost, and it creates a gate only a human should answer |
+| a hexaware account (D-16) | the tier exists in code and in the admin dialog, but no fixture is seeded |
+| empty-account states, cross-account 403 | qa-pro/basic/enterprise all have 0 runs so both are reachable — they need the seeded password, which this session could not read |
 | a *switch* between artifact versions | no run in the dev DB has more than one version |
-| empty-account states (no runs, no workflows) | needs a user with neither |
-| cross-account 403 | needs two concurrent sessions |
-| 10 of 21 overlays | inside the prototype galleries and the composer node inspector |
+| 3 of 20 overlays | one needs a prototype run, one needs a divert step, two were never reachable at all |
+| Slides renderer mode | needs a deck deliverable |
 | loading / skeleton frames | needs request throttling to observe |
 | responsive breakpoints | not attempted |

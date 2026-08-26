@@ -3,7 +3,7 @@
 The persistent chrome around every authenticated screen, and the two overlays it
 owns.
 
-**Screenshots:** `37-account-menu.png`, `38-notifications.png`
+**Screenshots:** `12-overlays/` — 37 account menu, 38 notifications · `13-states/` — 59 dark dashboard, 60 dark run steps, 61 dark canvas, 62 dark library
 **Source:** `AppHeader` in `frontend/src/components/layout/`
 
 ---
