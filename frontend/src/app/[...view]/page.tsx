@@ -3079,6 +3079,45 @@ export default function DashboardPage({
     if (runConnection.liveRunIds.includes(runId)) {
       activelyBuildingRunIdRef.current = runId;
       trackedRunIdRef.current = runId;
+      // FIX-298c (015-frontend-routing remount): T7's fast path had the same
+      // missing state setters as T11's (FIX-298/298b). When onOpenRun in
+      // DashboardLayout calls router.push(routes.runDetail(run.id)), the page
+      // remounts and wipes all useState. If the run is still in liveRunIds
+      // (not yet detached after completion), this fast path fires and returns
+      // early — skipping handleSelectWorkflowRun entirely, which means
+      // contentSourceRunId, runStore viewport, activePipelineRunId, and the
+      // chat transcript are never set. The result: "Output will appear here"
+      // blank page.
+      //
+      // Fix: mirror T11's fast path — set the state holders and seed the
+      // transcript from durable events, exactly as handleSelectWorkflowRun
+      // would have done.
+      setContentSourceRunId(runId);
+      setActivePipelineRunId(runId);
+      runStore.switchViewTo(runId);
+      const liveRunEntry = recentRuns.find((r) => r.id === runId);
+      if (liveRunEntry?.type) setContentSourceRunType(liveRunEntry.type);
+      const t7Token = getToken();
+      if (t7Token) {
+        const t7Tab = reopenTabFor(parsedView.screen);
+        void getRunEvents(t7Token, runId)
+          .then((durableFrames) => {
+            for (const frame of durableFrames) {
+              handleWebSocketMessage(
+                { type: frame.type, data: frame.data } as unknown as StreamMessage,
+                runId,
+              );
+            }
+            seedRunChatTranscript(durableFrames, REOPEN_TERMINAL_STATUSES.has(liveRunEntry?.status ?? ""));
+            runStore.switchViewTo(runId);
+          })
+          .catch((err) => {
+            console.error("T7 fast-path durable replay failed:", runId, err);
+          })
+          .finally(() => {
+            if (t7Tab) runTabDeepLink.requestOpenTab(t7Tab);
+          });
+      }
       return;
     }
 
@@ -3147,6 +3186,28 @@ export default function DashboardPage({
     if (runConnection.liveRunIds.includes(runId)) {
       activelyBuildingRunIdRef.current = runId;
       trackedRunIdRef.current = runId;
+      // FIX-298 (015-frontend-routing remount): the three React state holders
+      // that handleSwitchToLiveRun / handleSelectWorkflowRun always set were
+      // missing here — router.push(routes.runStream()) remounts this page,
+      // wiping all useState values, so the liveRunIds fast path must restore
+      // them explicitly (same as the badge/notification switch path).
+      //
+      // Without these:
+      //   - contentSourceRunId stays null  → RunChatLane blank, tab-sync a
+      //     no-op (handlePreviewPanelTabSelect bails on null), effectiveReviseType
+      //     wrong, "Analysing your brief" never appears.
+      //   - runStore viewport stays on wrong run  → displayedPipelineState
+      //     stays empty even after durable replay restores agents in useWorkflow
+      //     (the sync bridge skips writes when runId !== runStore.viewedRunId).
+      //   - activePipelineRunId stays null  → useRunChat targets the wrong run.
+      setContentSourceRunId(runId);
+      setActivePipelineRunId(runId);
+      runStore.switchViewTo(runId);
+      // Also restore contentSourceRunType so effectiveReviseType (and thus
+      // PreviewPanel's renderer dispatch) is correct. recentRuns is stable
+      // across the remount (it lives in RunConnectionProvider above the router).
+      const liveRunEntry = recentRuns.find((r) => r.id === runId);
+      if (liveRunEntry?.type) setContentSourceRunType(liveRunEntry.type);
       // T11 (retry — ts-j.streaming.spec.ts regression, FR-003/SC-002):
       // re-seeding the refs alone leaves pipelineState empty. useWorkflow's
       // state is a plain useState owned by THIS page component, so the same
@@ -3178,6 +3239,17 @@ export default function DashboardPage({
                 runId,
               );
             }
+            // FIX-298b: seed the run chat transcript from the same durable frames
+            // so messages and concierge responses appear in the left panel after
+            // the remount. handleWebSocketMessage above feeds useWorkflow/pipeline
+            // state (agents, progress); seedRunChatTranscript feeds useRunChat
+            // (chat_message/chat_reply frames). Without this call the transcript
+            // useState is empty — exactly what handleSwitchToLiveRun does at
+            // its own durable replay step (page.tsx handleSwitchToLiveRun).
+            seedRunChatTranscript(durableFrames, false);
+            // Re-project the store viewport after replay to ensure a clean final
+            // state snapshot reaches the UI (mirrors handleSwitchToLiveRun).
+            runStore.switchViewTo(runId);
           })
           .catch((err) => {
             console.error("durable replay after remount failed:", runId, err);

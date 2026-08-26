@@ -2499,9 +2499,14 @@ export function DashboardLayout({
         activePipelineRunId={pipelineState?.pipelineRunId ?? null}
         runAgentsCompletedMap={runAgentsCompletedMap}
         onGoToPipeline={() => {
-          setMainView("execution");
-          if (pipelineState?.pipelineRunId) {
-            router.push(routes.runStream(pipelineState.pipelineRunId));
+          // T9 fix (015-frontend-routing): call onSwitchToLiveRun BEFORE push
+          // to pre-set contentSourceRunId/runStore viewport synchronously,
+          // matching onViewRunningPipeline's fix above.
+          const runId = pipelineState?.pipelineRunId;
+          if (runId) {
+            onSwitchToLiveRun?.(runId);
+            setMainView("execution");
+            router.push(routes.runStream(runId));
           }
         }}
         recentRuns={recentRuns}
@@ -2700,9 +2705,18 @@ export function DashboardLayout({
             recentRuns={recentRuns}
             activeRunId={pipelineState?.pipelineRunId ?? null}
             onViewRunningPipeline={() => {
-              setMainView("execution");
-              if (pipelineState?.pipelineRunId) {
-                router.push(routes.runStream(pipelineState.pipelineRunId));
+              // T9 fix (015-frontend-routing): call onSwitchToLiveRun BEFORE
+              // router.push so page.tsx's state holders are set synchronously
+              // (contentSourceRunId, runStore viewport, activePipelineRunId)
+              // before the remount wipes them. Without this, the T11 fast path
+              // in page.tsx is the only restore path — which works, but only
+              // after the async durable-replay .then() resolves, leaving the
+              // chat lane blank on first render.
+              const runId = pipelineState?.pipelineRunId;
+              if (runId) {
+                onSwitchToLiveRun?.(runId);
+                setMainView("execution");
+                router.push(routes.runStream(runId));
               }
             }}
             onOpenRun={(run) => { onSelectWorkflowRun?.(run); setMainView("execution"); router.push(routes.runDetail(run.id)); }}
