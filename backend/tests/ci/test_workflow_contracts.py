@@ -165,14 +165,22 @@ class WorkflowContract:
         self, workflow: Optional[Dict] = None, min_timeout: int = 1
     ) -> None:
         """
-        Assert that every job has timeout-minutes set.
+        Assert that every job that CAN declare timeout-minutes does.
+
+        Reusable-workflow-call jobs (`uses:`) are exempt, and deliberately so:
+        GitHub's parser accepts only name/uses/with/secrets/needs/if/permissions/
+        strategy/concurrency on such a job. Adding `timeout-minutes` there is not
+        a stricter timeout, it is an INVALID WORKFLOW FILE — the run fails at
+        startup before any job exists. The called workflow owns that budget: each
+        of its own jobs declares its own timeout (asserted separately against
+        ci_workflow).
 
         Args:
             workflow: Workflow dict; defaults to deploy_workflow
             min_timeout: Minimum acceptable timeout in minutes (must be >= 1)
 
         Raises:
-            AssertionError: If any job lacks timeout-minutes
+            AssertionError: If any eligible job lacks timeout-minutes
         """
         if workflow is None:
             workflow = self.deploy_workflow
@@ -182,6 +190,15 @@ class WorkflowContract:
 
         for job_name, job_config in jobs.items():
             if not isinstance(job_config, dict):
+                continue
+
+            if "uses" in job_config:
+                # See the docstring: the key is rejected by the parser here.
+                if "timeout-minutes" in job_config:
+                    missing_timeout.append(
+                        f"{job_name} (reusable-workflow call must NOT declare "
+                        "timeout-minutes — it is an invalid workflow key)"
+                    )
                 continue
 
             timeout = job_config.get("timeout-minutes")
@@ -195,6 +212,55 @@ class WorkflowContract:
         if missing_timeout:
             raise AssertionError(
                 f"jobs without timeout-minutes: {', '.join(missing_timeout)}"
+            )
+
+    def assert_reusable_call_keys_valid(
+        self, workflow: Optional[Dict] = None
+    ) -> None:
+        """
+        Assert that every reusable-workflow-call job uses only keys GitHub allows.
+
+        A job with `uses:` accepts ONLY name, uses, with, secrets, needs, if,
+        permissions, strategy and concurrency. Anything else (`runs-on`,
+        `timeout-minutes`, `steps`, `env`, `environment`, ...) makes the file
+        invalid, and an invalid workflow file is a STARTUP failure: no job is
+        created, the run graph cannot be rendered, and the run is titled by file
+        path instead of its `name:`. This already happened once on deploy.yml's
+        `gate` job (`timeout-minutes: 60`), taking every dev deploy down.
+
+        Args:
+            workflow: Workflow dict; defaults to deploy_workflow
+
+        Raises:
+            AssertionError: If a reusable-call job declares a disallowed key
+        """
+        if workflow is None:
+            workflow = self.deploy_workflow
+
+        allowed = {
+            "name",
+            "uses",
+            "with",
+            "secrets",
+            "needs",
+            "if",
+            "permissions",
+            "strategy",
+            "concurrency",
+        }
+
+        errors = []
+        for job_name, job_config in workflow.get("jobs", {}).items():
+            if not isinstance(job_config, dict) or "uses" not in job_config:
+                continue
+            disallowed = sorted(set(job_config) - allowed)
+            if disallowed:
+                errors.append(f"{job_name}: {', '.join(disallowed)}")
+
+        if errors:
+            raise AssertionError(
+                "reusable-workflow-call jobs with keys GitHub rejects "
+                f"(startup failure): {'; '.join(errors)}"
             )
 
     def assert_retries_configured(self) -> None:
@@ -425,11 +491,30 @@ def test_no_bypass_constructs_on_gate(contract):
 
 
 def test_timeout_minutes_present(contract):
-    """Test that all deploy jobs have timeout-minutes."""
+    """Test that all deploy jobs that may declare timeout-minutes do."""
     try:
         contract.assert_timeout_present(contract.deploy_workflow)
     except AssertionError as e:
         pytest.fail(f"Timeout check failed: {e}")
+
+
+def test_timeout_minutes_present_in_gate_workflow(contract):
+    """
+    The gate's time budget lives in ci.yml, since the calling job cannot declare
+    one. Assert it is actually there, on every job.
+    """
+    try:
+        contract.assert_timeout_present(contract.ci_workflow)
+    except AssertionError as e:
+        pytest.fail(f"Timeout check failed on ci.yml: {e}")
+
+
+def test_reusable_call_jobs_use_only_valid_keys(contract):
+    """Test that reusable-workflow-call jobs cannot trip a startup failure."""
+    try:
+        contract.assert_reusable_call_keys_valid(contract.deploy_workflow)
+    except AssertionError as e:
+        pytest.fail(f"Reusable-call key check failed: {e}")
 
 
 def test_no_secrets_passed_to_gate(contract):

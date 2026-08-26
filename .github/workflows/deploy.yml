@@ -149,11 +149,18 @@ jobs:
   # No secrets are passed (CI is AWS-blind) and no environment is declared, so
   # this job holds no OIDC token and the prod reviewer gate stays on
   # build/deploy.
+  #
+  # NO `timeout-minutes:` HERE. A job that calls a reusable workflow accepts
+  # only name/uses/with/secrets/needs/if/permissions/strategy/concurrency —
+  # `timeout-minutes` (like `runs-on`) is rejected by the workflow parser, which
+  # is a STARTUP failure: the whole run dies before any job is created, the graph
+  # cannot be rendered, and the run is titled by file path instead of `name:`.
+  # The gate's time budget belongs to the called workflow: every job in ci.yml
+  # declares its own `timeout-minutes` (10-30), so nothing here is unbounded.
   # ---------------------------------------------------------------------------
   gate:
     name: CI gate
     uses: ./.github/workflows/ci.yml
-    timeout-minutes: 60
 
   # ---------------------------------------------------------------------------
   # Resolve which environment and image tag to use based on the trigger event.
