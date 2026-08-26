@@ -34,13 +34,17 @@ someone who does not read Playwright.
 tests/integration/
 ├── README.md              this file
 ├── PAGES.md               the per-page index: every URL → shot → fingerprint → spec
+├── GAPS.md                every surface NOT yet specified, each with its blocker
 ├── MANIFEST.md            the scored surface checklist, derived from source
 ├── INVENTORY.md           every route, its screen, and where its spec lives
 ├── DEFECTS-OBSERVED.md    what the sweeps found that looks wrong, plus corrections
 ├── screens/               the specs — 18 files, one per surface, ~320 Gherkin scenarios
 ├── capture/               raw DOM fingerprints (evidence)
 │   ├── FIXTURES.json      the live ids the sweep used, and why not to trust them
-│   ├── _enumerate.py      lists the surface from frontend/src — run this FIRST
+│   ├── _enumerate.py      lists pages, screens and overlays from frontend/src
+│   ├── _gaps.py           every interaction surface: menus, toasts, keys, nav edges
+│   ├── _deadcode.py       component files nothing imports (don't spec these)
+│   ├── _uncovered.py      components named in no spec
 │   ├── _verify.py         consistency gate — run this LAST, before committing
 │   └── _dump.py           prints a fingerprint readably
 └── screenshots/           98 PNGs
