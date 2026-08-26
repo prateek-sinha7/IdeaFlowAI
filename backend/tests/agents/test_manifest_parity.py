@@ -161,6 +161,8 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     "custom":        ["target_audience", "key_objectives", "scope", "priority", "output_format", "constraints", "domain", "assumptions"],
     # clarify.mode: skip — a composed spec-012 shape test takes its topic
     # straight from the run input and asks nothing (ADR-0005 made it visible).
+    # spec 017 — ppt_v2 reuses ppt's clarify contract verbatim.
+    "ppt_v2": ["target_audience", "tone_and_style", "key_objectives", "slide_count", "content_depth", "data_availability", "visual_style", "key_sections"],
     "sample_subagents_parallel": [],
     # clarify.mode: skip for the same reason — the revision panel supplies the
     # instruction directly.

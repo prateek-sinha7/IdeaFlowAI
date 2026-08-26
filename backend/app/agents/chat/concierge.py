@@ -593,8 +593,17 @@ class ConciergeCapability:
             "cache_read_tokens": 0,
             "cache_write_tokens": 0,
         }
+        # The runner SWALLOWS a non-throttle failure into ``{"type":"error"}``
+        # (deep_agent_runner.astream_events) rather than raising. Ignoring that event
+        # here — as this loop used to — left ``full_output`` empty, so an auth /
+        # validation failure reached the user as a BLANK assistant reply with the
+        # cause visible only in the server log. Capture it and answer honestly below.
+        stream_error = ""
         async for event in runner.astream_events(user_message):
             etype = event["type"]
+            if etype == "error":
+                stream_error = str(event.get("error") or "").strip()
+                continue
             if etype == "usage":
                 for key in ("input_tokens", "output_tokens",
                             "cache_read_tokens", "cache_write_tokens"):
@@ -609,6 +618,11 @@ class ConciergeCapability:
                 if inspect.isawaitable(res):
                     await res
         answer = full_output
+        if not answer and stream_error:
+            # No text AND a captured failure: say what went wrong instead of
+            # returning "" (which renders as an empty message / apparent crash).
+            answer = ("I could not answer that — the model call failed:\n\n"
+                      f"{stream_error[:500]}")
         # The effective model rides with the counters so the cost site prices the turn
         # against the model that actually ran, not a default inference profile.
         usage_total["model_id"] = getattr(runner, "model_id", "") or ""

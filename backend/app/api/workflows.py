@@ -46,7 +46,7 @@ from agents.execution_engine.engine import (
     compile_for_run,
 )
 from agents.execution_engine.overrides import merge_override_steps
-from agents.loader import SUPPORTED_PIPELINE_TYPES
+from agents.loader import SUPPORTED_PIPELINE_TYPES, load_agent_spec
 from agents.registry import get_pipeline_agents
 from agents.workflows.manifest import load_manifest
 from app.api._workflow_override import (
@@ -269,15 +269,32 @@ def _describe(workflow_id: str, step_specs: list) -> str:
     return f"{len(step_specs)}-step workflow: {names}"
 
 
-def _spec_by_id(workflow_id: str) -> dict:
+def _spec_by_id(workflow_id: str, step_ids: list[str] | None = None) -> dict:
     """Map agent_id -> AgentSpec for a workflow's declared AGENT.md metadata.
 
     Sourced from ``get_pipeline_agents`` (discovery by ``pipeline_type``
-    frontmatter) — every pipeline's agents declare that pipeline's own id
-    directly (WR-01 is closed at the root; there is no more alias/membership
-    fallback to reconcile here).
+    frontmatter), then completed from ``step_ids`` when the caller has the
+    compiled plan.
+
+    Discovery alone is INCOMPLETE for a workflow that REUSES an agent from
+    another pipeline: an ``AGENT.md`` declares exactly one ``pipeline_type``, so
+    ``ppt_v2``'s two reused ``ppt`` steps are absent from
+    ``get_pipeline_agents("ppt_v2")`` and the screen reported "2 agents" for a
+    four-step workflow (spec 017). Loading the missing ids directly is safe —
+    they are the plan's own steps, already compiled and about to run.
+
+    A step whose spec cannot be loaded is skipped, exactly as before: the caller
+    degrades to the bare agent id rather than failing the whole listing.
     """
-    return {s.id: s for s in get_pipeline_agents(workflow_id)}
+    by_id = {s.id: s for s in get_pipeline_agents(workflow_id)}
+    for agent_id in step_ids or []:
+        if agent_id in by_id:
+            continue
+        try:
+            by_id[agent_id] = load_agent_spec(agent_id)
+        except Exception:  # noqa: BLE001 — mirrors the caller's degrade-to-id posture
+            _logger.debug("workflow %s: no AGENT.md for step %s", workflow_id, agent_id)
+    return by_id
 
 
 # --- Endpoints ---
@@ -322,7 +339,7 @@ def list_workflows(
         _ov_enabled = bool(_ov_row is not None and _ov_row.override_enabled)
         if _ov_enabled:
             compiled = _overridden_plan(compiled, _ov_row)
-        spec_by_id = _spec_by_id(workflow_id)
+        spec_by_id = _spec_by_id(workflow_id, [st.agent_id for st in compiled.steps])
         # Additive manifest read for the declared catalog metadata (Plan 20-01).
         # list_workflows iterates the real manifest ids (never aliases), so we
         # load by the real id directly. A single bad manifest must NOT break the
@@ -434,8 +451,11 @@ def get_workflow(
 
     # Map agent_id -> AgentSpec for the AGENT.md-declared metadata (name/role/
     # order/gate) that complements the compiled Step (strategy/gates/etc.).
-    spec_by_id = _spec_by_id(workflow_id)
-    step_specs = list(spec_by_id.values())
+    spec_by_id = _spec_by_id(workflow_id, [st.agent_id for st in compiled.steps])
+    # Ordered by the PLAN, not by dict insertion: the reused-agent completion
+    # above appends after the discovered ones, so ppt_v2's four steps would
+    # otherwise read qa, code-gen, analyst, composer — the run order inverted.
+    step_specs = [spec_by_id[st.agent_id] for st in compiled.steps if st.agent_id in spec_by_id]
 
     # Load manifest for authored metadata (name, display_name, description)
     try:

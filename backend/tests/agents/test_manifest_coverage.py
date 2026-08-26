@@ -43,7 +43,7 @@ _MANIFEST_BACKED_IDS = sorted(
 
 
 def test_exactly_18_keys() -> None:
-    """The coverage set is every manifest-backed pipeline — currently 28.
+    """The coverage set is every manifest-backed pipeline — currently 29.
 
     Went 17 -> 18 when ``custom_revision`` was authored alongside the composed
     workflow builder; went 18 -> 20 when ``prototype_large_revision`` and
@@ -56,12 +56,14 @@ def test_exactly_18_keys() -> None:
     directory carrying a ``workflow.yaml`` is in scope by the rule below, so they
     join on their own.
 
+    Went 28 -> 29 with spec 017's `ppt_v2`.
+
     Includes the ``sample_*`` fixture manifests: ``SUPPORTED_PIPELINE_TYPES``
     is derived from disk (ADR-0005), so every directory with a
     ``workflow.yaml`` is in scope — "zero exemptions among pipelines that
     actually have a workflow.yaml" is the rule.
     """
-    assert len(_MANIFEST_BACKED_IDS) == 28
+    assert len(_MANIFEST_BACKED_IDS) == 29
 
 
 def _agent_is_absent_from_prompts(agent_id: str) -> bool:
@@ -94,7 +96,20 @@ def test_all_load_compile(workflow_id: str) -> None:
     compiled_order = [s.agent_id for s in plan.steps]
     registry_order = [a.id for a in get_pipeline_agents(workflow_id)]
 
-    if registry_order:
+    if registry_order and set(registry_order) < set(compiled_order):
+        # A workflow that REUSES an agent from another pipeline has a PARTIAL
+        # registry side: PIPELINE_AGENTS is derived from each AGENT.md's
+        # `pipeline_type`, so ppt_v2's entry holds only the two agents authored
+        # for it, not ppt's brief-analyst and composer it reuses verbatim
+        # (spec 017). Equality would forbid reuse; the anti-reorder guard below
+        # survives as relative order.
+        positions = [compiled_order.index(a) for a in registry_order]
+        assert positions == sorted(positions), (
+            f"{workflow_id}: registry agents {registry_order} appear out of order "
+            f"in the compiled plan {compiled_order} — the manifest reordered them"
+        )
+        return
+    elif registry_order:
         # Step order must equal the registry membership order (Pitfall 3).
         # This is the ONLY surviving check of manifest/registry parity — the
         # run-entry assertion that used to enforce it was removed (ADR-0003),

@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -319,7 +319,10 @@ def create_runner(
     # Tools are resolved BEFORE prompt composition (13-02 / F4): the composed
     # prompt needs to know whether the agent has literally zero callable tools
     # so the anti-fabrication ``tool_availability`` preamble can be injected.
-    custom_tools, exclude_builtin_tools = _resolve_runner_tools(spec, ctx)
+    # The sandbox is built + ensure()d above; pass it so a sandbox-bound tool set
+    # (spec 017's pptx tools) binds to THIS run's dir — including a fan-out
+    # worker's isolated override.
+    custom_tools, exclude_builtin_tools = _resolve_runner_tools(spec, ctx, sandbox)
     if delivery.staged:
         # A run with staged skills needs the full filesystem tool set (read AND
         # write) on every agent so it can actually carry out a skill's
@@ -991,7 +994,16 @@ def _compose_injection(spec, ctx: AgentContext, injects: list[str]) -> str:
     return "\n\n---\n\n".join(sections)
 
 
-def _resolve_custom_tool_keys(keys: list[str]) -> list:
+_PPTX_TOOL_KEYS = frozenset({
+    "render_pptx", "verify_pptx_layout", "extract_pptx_shapes", "screenshot_pptx",
+})
+
+
+def _resolve_custom_tool_keys(
+    keys: list[str],
+    ctx: AgentContext | None = None,
+    sandbox: Any = None,
+) -> list:
     """Map provider-emitted custom-tool KEYS → concrete tool objects (08-03 / F2).
 
     The kernel-side ``tool_provider`` capabilities (``agents/capabilities/tools/``)
@@ -1002,6 +1014,22 @@ def _resolve_custom_tool_keys(keys: list[str]) -> list:
 
       * ``"report_task_complete"`` → the store-free runner tool (one tool).
       * ``"planning"``             → the whole ``PLANNING_TOOLS`` set (a list).
+      * the three ``pptx`` keys     → the pptx tools, bound to THIS run's sandbox.
+
+    ``ctx`` and ``sandbox`` are optional and default to None so every existing
+    caller and test is unchanged; only the pptx keys read them, and only to hand
+    the tools a place to write (spec 017).
+
+    ``sandbox`` is the RUN sandbox ``create_runner`` has already built and
+    ``ensure()``d — passed explicitly BECAUSE there is nothing to read it off
+    otherwise. The first cut looked for ``ctx.runner.sandbox``, and ``AgentContext``
+    has no ``runner`` field at all: the runner does not exist yet when tools are
+    resolved (tools are an INPUT to building it). Every pptx key therefore hit the
+    no-sandbox branch and was skipped, and ``ppt-code-generator`` ran with no tools —
+    it emitted PptxGenJS as prose and no .pptx was ever built.
+
+    A key that needs the sandbox and has none still resolves to nothing rather than
+    raising: an unbound tool would write outside the run.
 
     De-dups ``report_task_complete`` (in case both prototype set names co-occur),
     preserving the byte-identical custom-tool list the deleted switch produced.
@@ -1035,6 +1063,23 @@ def _resolve_custom_tool_keys(keys: list[str]) -> list:
             # =False at the registry, so a user/db manifest can never grant it — CAP-03).
             if spawn_subagents not in resolved:
                 resolved.append(spawn_subagents)
+        elif key in _PPTX_TOOL_KEYS:
+            # spec 017 — bound only when the step declares tools: [pptx]
+            # (user_allowed=False at the registry, so no user/db manifest can
+            # name it). The sandbox is ambient per-run state, never a model
+            # argument, so it is bound onto the module rather than passed.
+            if sandbox is None:
+                logger.warning(
+                    "pptx tool key %r requested with no run sandbox — skipping "
+                    "(the tools would have nowhere safe to write)", key,
+                )
+                continue
+            from app.agents.tools import pptx_tools
+
+            pptx_tools.bind_sandbox(sandbox)
+            concrete = getattr(pptx_tools, key)
+            if concrete not in resolved:
+                resolved.append(concrete)
         else:
             raise ValueError(
                 f"unknown custom-tool key '{key}' emitted by a tool_provider; "
@@ -1043,7 +1088,7 @@ def _resolve_custom_tool_keys(keys: list[str]) -> list:
     return resolved
 
 
-def _resolve_runner_tools(spec, ctx: AgentContext) -> tuple[list, bool]:
+def _resolve_runner_tools(spec, ctx: AgentContext, sandbox: Any = None) -> tuple[list, bool]:
     """Resolve spec.tools to the (custom_tools, exclude_builtin_tools) pair via the
     ``tool_provider`` registry (08-03 / F2 — replaces the closed switch, INV-12).
 
@@ -1128,7 +1173,7 @@ def _resolve_runner_tools(spec, ctx: AgentContext) -> tuple[list, bool]:
             return (mcp_tools, False)
         return ([], False)
 
-    resolved = _resolve_custom_tool_keys(custom_keys)
+    resolved = _resolve_custom_tool_keys(custom_keys, ctx, sandbox)
     # Union the pre-warmed MCP tools after the registered keys (a pre-bound MCP tool
     # needs the native fs surface, so it flips exclude off too — INV-13 augment).
     if mcp_tools:

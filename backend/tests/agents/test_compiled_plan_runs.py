@@ -93,6 +93,8 @@ def test_dispatchable_count_is_13() -> None:
     ``_every_step_agent_loads`` and join automatically — the same way
     ``sample_subagents_parallel`` did.
 
+    Went 23 -> 24 with spec 017's ``ppt_v2``.
+
     ``sample_subagents_parallel`` is included: a real, manifest-backed,
     fully-loadable workflow (its steps are ``custom-agent`` instances and
     ``custom-agent/AGENT.md`` exists) that only became visible here once
@@ -104,7 +106,7 @@ def test_dispatchable_count_is_13() -> None:
     excludes them because they reference agent ids with no ``AGENT.md``. Give
     them their agents and they join automatically.
     """
-    assert len(_DISPATCHABLE) == 23
+    assert len(_DISPATCHABLE) == 24
     assert "chat" not in _DISPATCHABLE
     assert "reverse_engineer" not in _DISPATCHABLE
     # The three agentless fixtures must stay out — they cannot be dispatched.
@@ -113,8 +115,8 @@ def test_dispatchable_count_is_13() -> None:
             f"{broken} references agents with no AGENT.md and cannot run; "
             "if it now has them, that is a real change — update this list"
         )
-    # Parametrized coverage = 23 dispatchable.
-    assert len(_PARAMS) == 23
+    # Parametrized coverage = 24 dispatchable.
+    assert len(_PARAMS) == 24
 
 
 @pytest.mark.asyncio

@@ -118,6 +118,8 @@ _KNOWN: set[tuple[str, str]] = {
     ("tool", "prototype_emit_only"),   # 08-03 / F2
     ("tool", "planning"),              # 08-03 / F2
     ("tool", "spawn_subagents"),       # 11-01 / FANOUT-01 (user_allowed=False)
+    ("tool", "pptx"),                  # spec 017 (user_allowed=False — writes a
+                                       # binary into the sandbox via a node subprocess)
     ("compaction", "html_skeleton"),
     ("post_step", "revision_validation"),
     ("post_step", "api_prefix_audit"),     # 19-02 / ISS-005 — event-free infra audit

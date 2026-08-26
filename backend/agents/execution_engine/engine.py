@@ -96,7 +96,7 @@ from agents.execution_engine.fanout import FanoutWorkerFailed
 from agents.execution_engine.clarify_engine import ClarifyEngine as _ClarifyEngineImpl
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
-from agents.execution_engine.run_log import RunLog
+from agents.execution_engine.run_log import RunLog, RunTrace
 from agents.execution_engine.state_machine import get_state_machine
 from agents.capabilities.model_catalog import ModelCatalog
 from agents.capabilities.model_pricing import estimate_cost_usd
@@ -106,7 +106,7 @@ from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX, artifact_name, topic
 from agents.workflows.compiler import WorkflowCompiler
 from agents.workflows.manifest import load_manifest
 from agents.workflows.plan import CompiledWorkflow
-from app.agents.sandbox import RunSandbox
+from app.agents.sandbox import RunSandbox, write_agent_output
 
 logger = logging.getLogger("agents.execution_engine.engine")
 
@@ -1152,6 +1152,15 @@ class ExecutionEngine:
         already stamped on the new ``WorkflowRun`` row is not overwritten.
         """
         sink = _RunEventSink(milestone_sink=milestone_sink)
+        # R-23 amendment — the on-disk run trace. The engine ALREADY emits every
+        # fact worth tracing (each tool call and its arguments, each result, the
+        # model's reasoning and output, gates, clarify rounds, failures) as a typed
+        # event, and every one of them passes through the stamping boundary a few
+        # lines below. Tracing there means the engine keeps no per-event logging
+        # calls of its own and cannot grow a gap: a new event type is traced the
+        # day it is added. `.logs/run-logs.jsonl` previously held step boundaries
+        # only, so reading a broken run meant reading the console or the database.
+        _trace = RunTrace(RunSandbox(user_id or "anon", pipeline_run_id).root)
         # Manual monotonic allocator (NOT itertools.count): a milestone card projected below
         # is drawn from this SAME per-run seq space, so the loop must be able to advance the
         # counter PAST the card's persisted seq — otherwise the engine's next event would reuse
@@ -1213,6 +1222,7 @@ class ExecutionEngine:
                     data["seq"] = actual_seq
                     if actual_seq >= next_seq:
                         next_seq = actual_seq + 1
+                _trace.observe(event)
                 yield event
                 # A.4 (Phase 43, DEF-43-03-1): project + persist a chat_reply milestone card for
                 # this event via the INJECTED narrator callback (self-filtering; DORMANT when
@@ -1244,6 +1254,9 @@ class ExecutionEngine:
                             },
                         }
         finally:
+            # Flush any deltas buffered when the stream ended (or was abandoned
+            # mid-run), so a cancelled/failed run's last output is still on disk.
+            _trace.flush()
             # A.3: ALWAYS deregister the run's live ectx (normal completion, exception, or an
             # early GeneratorExit if the consumer stops draining) so the process-local registry
             # never leaks a terminated run's context. DORMANT when live_ectx_unregister is None
@@ -1689,7 +1702,23 @@ class ExecutionEngine:
         # plan was non-empty discarded the composer's agent picks. Reached only by
         # custom workflows, whose template steps have no AGENT.md for the caller
         # to resolve.
-        if compiled.steps and not agents:
+        # ...and a caller whose roster is a STRICT SUBSET of the plan does not have
+        # one either, in the sense that matters. PIPELINE_AGENTS is derived from each
+        # AGENT.md's `pipeline_type`, so a workflow REUSING an agent from another
+        # pipeline gets a partial roster: ppt_v2 reuses ppt's brief-analyst and
+        # composer, and `get_pipeline_agents("ppt_v2")` returns only the two authored
+        # for it. The DAG resolver then validates against that partial set and
+        # rejects the run outright — "ppt-deck-qa-v2 consumes 'ppt-composer' but no
+        # upstream agent produces it" — when ppt-composer is in fact step 2. The
+        # declaration is right; the roster was missing what the plan already knew.
+        #
+        # A composed run cannot take this branch: its plan is DERIVED from the picks,
+        # so its roster is equal to or larger than the plan, never a strict subset
+        # (the Path-B fan-out case is roster 2 / plan 1). So the composer's picks are
+        # still never discarded, which is what `not agents` was protecting.
+        _plan_ids = {s.agent_id for s in compiled.steps}
+        _roster_is_partial = bool(agents) and {a.id for a in agents} < _plan_ids
+        if compiled.steps and (not agents or _roster_is_partial):
             agents = self._specs_from_plan(compiled.steps)
         # ── EMP-01 (22-04): apply user-composed per-step selections onto the plan ──
         # A saved/custom workflow may carry a compact per-step selections map
@@ -5612,6 +5641,23 @@ class ExecutionEngine:
                 RunLog(getattr(sandbox, "root", None)).write(
                     "step_end", agent_id=spec.id, model=_resolved_model_id,
                     tokens_in=agent_input_tokens, tokens_out=agent_output_tokens,
+                )
+                # Persist what this step STREAMED into the sandbox, so the run
+                # workspace holds every output an agent produced and not only the
+                # files one explicitly authored through ``write_file``. Lands under
+                # the reserved ``.agents/`` prefix, which ``list_files`` shows and
+                # the deliverable walk skips — see sandbox._AGENT_OUTPUTS_PREFIX for
+                # why that asymmetry is required. Best-effort and never raises, so a
+                # write failure cannot fail an agent that already succeeded; the
+                # streamed UI transport below is untouched either way.
+                write_agent_output(
+                    sandbox,
+                    index=index,
+                    agent_id=spec.id,
+                    name=spec.name,
+                    output=output,
+                    task_number=getattr(ectx, "build_task_number", "") or "",
+                    visit_count=ectx.step_visit_counts.get(spec.id, 0),
                 )
                 yield {
                     "type": "agent_complete",

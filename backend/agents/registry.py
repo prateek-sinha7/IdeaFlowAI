@@ -173,8 +173,43 @@ def get_pipeline_agents(pipeline_type: str) -> list[AgentSpec]:
         AgentSpecError: propagated from loader if an AGENT.md file is
             malformed or has invalid fields.
     """
-    ids = list_agent_ids(pipeline_type)
-    specs = [load_agent_spec(aid) for aid in ids]
+    ids = list(list_agent_ids(pipeline_type))
+    # Complete the roster from the pipeline's OWN file manifest. `list_agent_ids`
+    # discovers by each AGENT.md's `pipeline_type`, which holds exactly one value,
+    # so a workflow that REUSES an agent from another pipeline gets a PARTIAL
+    # roster: `ppt_v2` reuses ppt's brief-analyst and composer verbatim, and this
+    # returned 2 of its 4 steps.
+    #
+    # That partial list is not merely incomplete, it is wrong in ways that bite
+    # elsewhere: the DAG resolver validates `consumes` against it and rejects the
+    # whole pipeline as unsatisfiable ("ppt-deck-qa-v2 consumes 'ppt-composer'"
+    # when ppt-composer IS step 2), and the API reports a step count of 2.
+    #
+    # Same construction as `_own_manifest_step_agents` and the same safety
+    # argument: these are the steps the pipeline runs on EVERY launch of it, so
+    # naming them grants nothing it had not already granted. A pipeline whose
+    # manifest steps are all authored for it (every other one) is unchanged, and
+    # any load/parse problem leaves the roster exactly as it was.
+    for aid in sorted(_own_manifest_step_agents(pipeline_type)):
+        if aid not in ids:
+            ids.append(aid)
+    specs = []
+    for aid in ids:
+        try:
+            spec = load_agent_spec(aid)
+        except (FileNotFoundError, AgentSpecError):
+            # A manifest step with no AGENT.md is not a roster member — it never
+            # was, and the compiled plan owns it.
+            continue
+        # `template: true` marks a folder that exists to be INSTANTIATED (the blank
+        # `custom-agent` a composed workflow clones N times), never to be a pipeline
+        # member — which is exactly why `list_agent_ids` excludes it. A composed
+        # manifest's steps ARE those instances, so completing the roster from the
+        # manifest must honour the same rule or every composed workflow grows a
+        # phantom `custom-agent` member.
+        if getattr(spec, "template", False):
+            continue
+        specs.append(spec)
     return sorted(specs, key=lambda s: s.order)
 
 
@@ -272,6 +307,48 @@ def get_all_agents_flat() -> list[AgentSpec]:
     return specs
 
 
+def _own_manifest_step_agents(pipeline_type: str) -> set[str]:
+    """The agent ids THIS pipeline's own file manifest declares as steps.
+
+    ``PIPELINE_AGENTS`` is derived from each ``AGENT.md``'s ``pipeline_type``
+    field, so it only ever contains agents authored FOR this pipeline. A manifest
+    that REUSES an agent from another pipeline therefore has steps that are absent
+    from its own ``PIPELINE_AGENTS`` entry — ``ppt_v2`` reuses ``ppt``'s
+    brief-analyst and composer verbatim, and without this its wizard launch is
+    rejected ``invalid_agent_ids`` for the two steps it is guaranteed to run
+    (spec 017 / FR-010).
+
+    NOT the KAN-75 bypass, and the distinction is the whole point. That was
+    unioning ANOTHER pipeline's agents into this allow-list, which let a
+    basic-tier user reach an enterprise-only agent by naming a basic-tier
+    pipeline — the entitlement gate checks ``can_run_pipeline`` against the
+    pipeline type only, never against an agent's origin. This unions the steps
+    the pipeline's OWN file manifest runs on EVERY launch of it, whatever the
+    client sends. Naming one grants no capability the pipeline had not already
+    granted, and the entitlement gate is unchanged.
+
+    Fails CLOSED: any load/parse problem returns the empty set, leaving the
+    caller with exactly the allow-list it had before this existed.
+    """
+    try:
+        from pathlib import Path as _Path
+
+        from agents.workflows.manifest import load_manifest
+
+        manifest = load_manifest(
+            pipeline_type, _Path(__file__).resolve().parent / "workflows"
+        )
+    except Exception:  # noqa: BLE001 — an unreadable manifest must not widen the fence
+        return set()
+
+    out: set[str] = set()
+    for step in getattr(manifest, "steps", []) or []:
+        agent = step.get("agent") if isinstance(step, dict) else getattr(step, "agent", None)
+        if isinstance(agent, str) and agent:
+            out.add(agent)
+    return out
+
+
 def allowed_custom_agent_ids(pipeline_type: str) -> set[str]:
     """Return the agent IDs a client may legitimately supply in
     ``run_pipeline.agent_ids`` for ``pipeline_type``.
@@ -356,7 +433,11 @@ def allowed_custom_agent_ids(pipeline_type: str) -> set[str]:
     # matching the legacy security fallback). od_ppt naturally lands here.
     base_agents = PIPELINE_AGENTS.get(pipeline_type)
     if base_agents:  # present and non-empty
-        return set(base_agents) | set(PIPELINE_AGENTS.get("custom", []))
+        return (
+            set(base_agents)
+            | set(PIPELINE_AGENTS.get("custom", []))
+            | _own_manifest_step_agents(pipeline_type)
+        )
 
     # Unknown / unsupported / empty → security fallback.
     return set()

@@ -331,6 +331,44 @@ def test_converse_runs_scripted_model_through_runner_offline() -> None:
     assert out == "Here is what I found in the run. "
 
 
+def test_converse_surfaces_a_swallowed_stream_error_instead_of_empty_text() -> None:
+    """A non-transient model failure comes back as a MESSAGE, never as "".
+
+    ``DeepAgentRunner.astream_events`` swallows anything that is not a transient
+    throttle into ``{"type": "error", ...}`` rather than raising. The converse loop
+    only accumulates ``chunk`` events, so before this arm existed such a failure
+    produced an EMPTY answer — the user saw a blank assistant reply and the cause
+    (e.g. an expired Bedrock API key: "Authentication failed") lived only in the
+    server log. Offline: the scripted model raises, no Bedrock.
+    """
+    scripted = ScriptedFakeChatModel(
+        [_ScriptedTurn(texts=["unused"], usage=(0, 0))],
+        raise_exc=RuntimeError(
+            "AccessDeniedException: Authentication failed: "
+            "Please make sure your API Key is valid."
+        ),
+    )
+
+    class _NoopStore:
+        async def read_events(self, run_id: str, after_seq: int) -> list:
+            return []
+
+    ctx = SimpleNamespace(
+        model=scripted,
+        scoped_store=_NoopStore(),
+        run_id="run-authfail",
+        owner_id="owner-A",
+        workspace_id="ws-A",
+        conversation_context=None,
+        compiled=None,
+    )
+
+    impl = ConciergeCapability()
+    out = asyncio.new_event_loop().run_until_complete(impl.converse(ctx, "what happened?"))
+    assert out, "a swallowed stream error must not return an empty answer"
+    assert "Authentication failed" in out
+
+
 def test_converse_streams_deltas_to_on_chunk_in_order() -> None:
     """With an ``on_chunk`` sink, converse emits ordered text deltas whose join == return.
 
