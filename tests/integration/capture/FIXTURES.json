@@ -1,0 +1,18 @@
+{
+  "capturedAt": "2026-08-26",
+  "servedFrom": "/Users/bilala/Developer/Projects/VELOCITY-AI (main checkout, branch feat/conditional-gates, uncommitted changes present)",
+  "frontend": "http://localhost:3000",
+  "backend": "http://localhost:8000",
+  "browser": "real Google Chrome 151 via Playwright MCP (--browser chrome)",
+  "user": "qa-admin@flowinqa.com (tier=enterprise, is_admin=true)",
+  "note": "These ids are LIVE DEV DATA and will not survive a DB reset. Specs must never assert on them; they exist only so the capture sweep could reach id-bearing routes. E2E tests should create their own fixtures.",
+  "runs": {
+    "completed": "115f3e39-9d79-4b4e-b0cf-367b7762b6be",
+    "generatingWaitingForUser": "4a3b4728-7140-4c6d-afe9-7efc5f7f7c5b",
+    "cancelled": "8ff30d2e-c268-482a-bae8-26e5583686c4"
+  },
+  "userWorkflows": {
+    "pptOverride": "da92b4a4-7eff-41b5-9b9a-205cfa1616d9",
+    "customFromScratch": "7356721c-15dc-4bf7-998c-ba7b5dc69ada"
+  }
+}

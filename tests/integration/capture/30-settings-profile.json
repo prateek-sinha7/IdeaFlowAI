@@ -1,0 +1,39 @@
+{
+  "url": "http://localhost:3000/settings/profile",
+  "h": [
+    "H1:Account Settings"
+  ],
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "@Notifications",
+    "@Account menu",
+    "@",
+    "Profile",
+    "AI Model",
+    "Usage & Limits",
+    "Constitution",
+    "Security",
+    "Change Password"
+  ],
+  "tab": [
+    "Profile",
+    "AI Model",
+    "Usage & Limits",
+    "Constitution",
+    "Security"
+  ],
+  "sw": [],
+  "inp": [
+    "input[password]"
+  ],
+  "tid": [
+    "tab-profile",
+    "tab-model",
+    "tab-limits",
+    "tab-constitution",
+    "tab-security"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nAccount Settings\nProfile, model preference, usage limits, your agent constitution and sign-in security.\nProfile\nAI Model\nUsage & Limits\nConstitution\nSecurity\nQA\nEnterprise plan\nSigned in to VelocityAI\nPROFILE\nEmail · read only\nqa-admin@flowinqa.com\nPlan\nEnterprise\nPASSWORD\nCurrent password\nNew password\nConfirm new password\nChange Password"
+}
