@@ -39,12 +39,25 @@ PATTERNS = {
     "name": re.compile(r'\bname="([a-z][a-z0-9-]{2,})"'),
 }
 
+# A control whose only handle is its visible text is still addressable — by text.
+# Missing this dimension is how "Reconnect" and "Back to sign in" stayed unspecified
+# through seven sweeps.
+TEXT_CONTROL = re.compile(
+    r"<(?:button|a)\b((?:[^>]|\n)*?)>\s*\n?\s*([A-Z][A-Za-z0-9 ,'&/\u2014\u2013-]{2,40}?)\s*\n?\s*</(?:button|a)>"
+)
+
 found = {k: {} for k in PATTERNS}
+found["text-label"] = {}
 for f in sorted(SRC.rglob("*.tsx")):
     if IS_TEST.search(str(f)):
         continue
     text = f.read_text()
     rel = str(f.relative_to(SRC))
+    for m in TEXT_CONTROL.finditer(text):
+        attrs, label = m.group(1), m.group(2).strip()
+        if "data-testid" in attrs or "aria-label" in attrs or not label:
+            continue
+        found.setdefault("text-label", {}).setdefault(label, set()).add(rel)
     for kind, pat in PATTERNS.items():
         for m in pat.finditer(text):
             raw = m.group(1) or m.group(2) or ""

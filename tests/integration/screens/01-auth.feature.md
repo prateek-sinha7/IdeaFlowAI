@@ -234,8 +234,9 @@ Feature: Signing in
   @sourced
   Scenario: A challenge can be abandoned
     Given I am part-way through a challenge
-    When I cancel
+    When I activate "Back to sign in"
     Then I return to the plain sign-in form
+    And no partially-entered code or password is retained
 
   @sourced
   Scenario: A challenge looks like the sign-in screen, not a different app

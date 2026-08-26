@@ -61,6 +61,30 @@ four seeded accounts are not admins and must be refused.
 
 ---
 
+## Resetting another user's password
+
+`adminResetUserPassword` → `POST /api/admin/users/{id}/reset-password`.
+
+**This is the ONLY reset path when the pool uses email MFA.** AWS disqualifies email
+as an account-recovery channel whenever it is also a second factor, so
+`/api/auth/forgot-password` correctly refuses in that configuration and the sign-in
+screen has no "forgot password" link (see `09-settings` § Security).
+
+| | |
+|---|---|
+| `permanent` | defaults to **false** |
+| false → | a **temporary** password; the user must choose their own at next sign-in |
+| true → | a permanent password the admin now knows |
+| either way | the target's **existing sessions are revoked** |
+| response | `requires_new_password_at_next_login` |
+
+The default matters: with `permanent=false` **the admin never ends up knowing a live
+credential for someone else's account**. That is a security property, not a
+convenience, and it is what makes the `NEW_PASSWORD_REQUIRED` challenge in `01-auth`
+reachable in normal operation.
+
+---
+
 ```gherkin
 Feature: Admin dashboard
 
@@ -190,6 +214,39 @@ Feature: Admin dashboard
     # "Delete <email>", which is unique. Do not click by row index.
 
   @destructive
+  @sourced
+  @destructive
+  Scenario: An admin resets another user's password to a temporary one
+    Given I am an admin on "/admin"
+    When I reset another user's password without marking it permanent
+    Then the response reports requires_new_password_at_next_login
+    And that user's existing sessions are revoked
+    When that user next signs in
+    Then they are challenged with NEW_PASSWORD_REQUIRED
+    # The default is `permanent=false` SO THAT the admin never ends up knowing a
+    # live credential for someone else's account. That is a security property.
+    # It is also how the first-sign-in challenge in 01-auth is reached in normal
+    # operation.
+
+  @sourced
+  @destructive
+  Scenario: A permanent reset skips the challenge but is knowable
+    Given I am an admin on "/admin"
+    When I reset another user's password with permanent=true
+    Then that user signs in with it directly, with no challenge
+    And their existing sessions are still revoked
+    # Recorded so the trade-off is explicit: convenience for the admin, at the
+    # cost of the admin knowing a live credential. Prefer the default.
+
+  @sourced
+  Scenario: Admin reset is the only recovery path under email MFA
+    Given the pool uses email as a second factor
+    When a user requests a password reset via /api/auth/forgot-password
+    Then it is refused
+    # AWS disqualifies email as a recovery channel whenever it is also a second
+    # factor. This is correct behaviour, not a bug — and it is why the sign-in
+    # screen offers no "forgot password" link at all.
+
   Scenario: Changing another user's tier takes effect
     Given a disposable user at tier "basic"
     When I change their plan to "pro"

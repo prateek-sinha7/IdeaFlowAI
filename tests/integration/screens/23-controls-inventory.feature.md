@@ -568,6 +568,42 @@ Feature: Remaining controls
     Then "not-found-brand-panel" is present
 
 
+Feature: Controls addressable only by their text
+
+  Four controls carry no testid and no aria-label. They are still addressable — by
+  text — and were invisible to the first version of the coverage gate for exactly
+  that reason.
+
+  @sourced
+  Scenario: A dropped realtime connection offers a reconnect
+    Given the app's realtime connection drops
+    Then a "Reconnect" control is offered in the shell
+    When I activate it
+    Then the connection is re-established without a page reload
+    # DashboardLayout. Nothing else in this suite covers connection loss — the
+    # run page streams over a live connection, so this is the affordance a user
+    # meets when a run appears to stall.
+
+  @sourced
+  Scenario: An empty run history invites a first run
+    Given a user with no runs
+    When I cold-load "/runs"
+    Then a "Start a run" control is offered
+    When I activate it
+    Then I land on a launch surface
+    # The empty-state CTA. Reachable today with qa-pro/basic/enterprise, all of
+    # which have zero runs.
+
+  @sourced
+  Scenario: An edited message is saved and resent in one action
+    Given I am editing a message in the chat lane
+    Then the commit control reads "Save & Send"
+    When I activate it
+    Then the edited text is saved AND resent
+    # One control, two effects. A test that asserts only the save will pass
+    # while the resend is broken.
+
+
 Feature: Controls inside unreachable code
 
   These exist and are addressable in source, but no user can reach them. They are

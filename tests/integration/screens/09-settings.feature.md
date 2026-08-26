@@ -32,7 +32,43 @@ directly, they do not (`capture/p46-settings-bare-redirect.json`). Read the
 parser for what it parses, never for what the user ends up seeing.
 
 Security was once a standalone page. The page is gone; the URL stays so the tab is
-addressable exactly like the other four.
+addressable exactly like the other four. The source explains why: the standalone
+page duplicated the chrome the settings surface already provides and split account
+concerns across two navigation models.
+
+### Security is second-factor management, and it had no spec until sweep 8
+
+`SecuritySection` exists because the backend's MFA endpoints previously had **no
+enrolment surface at all** — which made `ADMIN_MFA_REQUIRED` "a lockout switch rather
+than a control, because the 403 it raises points at an endpoint no screen calls".
+
+Two methods, deliberately asymmetric:
+
+| Method | Row title | Control |
+|---|---|---|
+| Email codes (`EMAIL_OTP`) | **"Email codes"** | a **toggle** |
+| Authenticator app (`SOFTWARE_TOKEN_MFA`) | **"Authenticator app"** | **none — status only** |
+
+**The asymmetry is real, not a shortcut.** Cognito provisions no secret for email
+codes (the mailbox is already the pool's verified sign-in identifier), so there is
+nothing to display, scan or confirm — enabling it is a single preference write. TOTP
+would need a wizard, and while `/api/auth/mfa/totp/associate` and `/verify` exist,
+**this screen deliberately exposes no control for them**.
+
+State comes from `status.factors` and `status.enabled`, modelled as a discriminated
+union so "loaded but also erroring" is unrepresentable.
+
+Two conditional messages:
+
+- Neither method available and TOTP off → *"No two-factor methods are enabled for
+  this environment yet. Contact your administrator if you need one."*
+- Email available → *"Because sign-in codes go to your email address, password resets
+  are handled by an administrator rather than by email."*
+
+That second line is the **account-recovery story**, and it corrects what
+`01-auth` used to imply. `/api/auth/forgot-password` exists but **correctly refuses**
+when the pool uses email MFA: AWS disqualifies email as a recovery channel whenever
+it is also a second factor. Admin reset is then the only path — see `11-admin`.
 
 ---
 
@@ -214,6 +250,59 @@ Feature: Account settings
     And no MFA enrolment control is offered
     # True for Cognito-backed accounts, which is every seeded QA user. If the
     # app ever supports local credentials, this scenario needs a second variant.
+
+  @sourced
+  Scenario: Security lists both second-factor methods
+    When I cold-load "/settings/security"
+    Then I see a method row titled "Email codes"
+    And I see a method row titled "Authenticator app"
+    And each row states whether it is active
+
+  @sourced
+  Scenario: Email codes are a toggle, not a wizard
+    Given email MFA is available for my pool
+    When I cold-load "/settings/security"
+    Then "Email codes" offers a toggle
+    And enabling it needs no secret, no QR code and no confirmation step
+    # Deliberate, and explained in the source: Cognito provisions no secret for
+    # email codes because the mailbox is already the pool's verified sign-in
+    # identifier. There is nothing to display, scan or confirm.
+
+  @sourced
+  Scenario: The authenticator row offers no control at all
+    When I cold-load "/settings/security"
+    Then "Authenticator app" shows its status
+    And it offers NO enrolment control
+    # /api/auth/mfa/totp/associate and /verify both EXIST. This screen
+    # deliberately does not call them — TOTP needs a wizard nobody has built.
+    # Asserted so the absence stays a decision rather than becoming a bug report.
+
+  @sourced
+  Scenario: An environment with no methods says so
+    Given neither email MFA nor TOTP is available
+    When I cold-load "/settings/security"
+    Then I see "No two-factor methods are enabled for this environment yet."
+    And I am told to contact my administrator
+
+  @sourced
+  Scenario: Email MFA changes the account-recovery story
+    Given email MFA is available
+    When I cold-load "/settings/security"
+    Then I am told password resets are handled by an administrator rather than by email
+    # This is the whole recovery story, and it is why the sign-in screen has no
+    # "forgot password" link. /api/auth/forgot-password exists but correctly
+    # REFUSES in this configuration: AWS disqualifies email as a recovery
+    # channel whenever it is also a second factor. See 11-admin for the path
+    # that does work.
+
+  @sourced
+  Scenario: Security is a tab, not a page
+    When I cold-load "/settings/security"
+    Then the settings header, back affordance and tab strip are the parent's
+    And this section renders body content only
+    # The standalone page was removed because it duplicated that chrome and
+    # split account concerns across two navigation models. The URL survives so
+    # the tab stays addressable.
 ```
 
 ## Notes for phase 2

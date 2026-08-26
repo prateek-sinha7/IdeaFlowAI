@@ -38,7 +38,7 @@ tests/integration/
 ├── MANIFEST.md            the scored surface checklist, derived from source
 ├── INVENTORY.md           every route, its screen, and where its spec lives
 ├── DEFECTS-OBSERVED.md    what the sweeps found that looks wrong, plus corrections
-├── screens/               the specs — 23 files, one per surface, 446 Gherkin scenarios
+├── screens/               the specs — 23 files, one per surface, 458 Gherkin scenarios
 ├── capture/               raw DOM fingerprints (evidence)
 │   ├── FIXTURES.json      the live ids the sweep used, and why not to trust them
 │   ├── _enumerate.py      lists pages, screens and overlays from frontend/src
@@ -62,8 +62,13 @@ sweep 7 found the specs at 100% of features but **49% of addressable controls**.
 python3 tests/integration/capture/_coverage.py
 ```
 
-It checks every `data-testid`, `aria-label` and form `name` in the frontend against
-every spec, and exits non-zero while any is unspecified. Currently **298/298**.
+It checks every `data-testid`, `aria-label`, form `name` **and text-only button label** in
+the frontend against every spec, and exits non-zero while any is unspecified.
+Currently **307/307**.
+
+It does NOT check the API contract. The backend has 108 endpoints; these specs are
+UI-level and assert what a user sees, not status codes or payloads. That is a scope
+decision, recorded in `GAPS.md` rather than implied away.
 
 After any capture work, also run the consistency gate before committing:
 

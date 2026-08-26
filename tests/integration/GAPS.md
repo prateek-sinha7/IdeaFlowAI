@@ -27,7 +27,32 @@
 > exports** (CSV/JSON/report); an analytics **model filter**; and
 > `chat-terminal-degraded`, a run state no other table in this suite mentions.
 >
-> The one true remaining gap is **responsive breakpoints** — no scenarios anywhere.
+> **Sweep 8 checked two dimensions sweep 7 had not**, because "every control" was
+> still measured on attributes only:
+>
+> - **Controls addressable only by their visible text** — no testid, no aria-label.
+>   Four were unspecified: `Reconnect` (realtime connection loss, an affordance
+>   nothing else in this suite covers), `Start a run` (the empty-history CTA),
+>   `Save & Send` (edits AND resends in one action), `Back to sign in`. The gate now
+>   measures this dimension: **307/307**.
+> - **MFA self-service and password recovery.** `/settings/security` is second-factor
+>   management, and the spec described it as "not available". Email codes are a
+>   toggle; the authenticator row deliberately offers **no** control even though
+>   `/mfa/totp/associate` and `/verify` exist. And `01-auth` implied there is simply
+>   no password recovery — the truth is `/api/auth/forgot-password` **correctly
+>   refuses** when email is a second factor, because AWS disqualifies email as a
+>   recovery channel in that configuration, leaving admin reset as the only path.
+>
+> **What is still NOT asserted: the API contract itself.** The backend exposes 108
+> endpoints. Every one has a path segment that appears somewhere in these specs, but
+> that is a weak signal — a shared word like `users` satisfies it. These specs are
+> UI-level throughout; they assert what a user sees, not status codes, payloads or
+> per-endpoint authorization. `13-errors` covers a handful of auth status codes
+> deliberately, and that is the extent of it.
+>
+> **Two things remain genuinely uncovered:** responsive breakpoints (no scenarios
+> anywhere) and endpoint-level API contract tests (out of scope for this suite as
+> written — a decision, not an oversight, but state it rather than imply coverage).
 >
 > Run `python3 tests/integration/capture/_coverage.py` to re-check. It exits
 > non-zero while any control is unspecified, which is what stops this drifting back.
