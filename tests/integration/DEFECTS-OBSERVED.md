@@ -362,6 +362,117 @@ prototype and is refused ppt.
 
 ---
 
+## D-17 — SkillManager is unreachable: its only host page cannot create a node
+
+**Severity:** low as a bug, high as a signal about `/workflow`.
+
+`SkillManager` opens from `button[aria-label="Manage skill"]` on an `AgentNode`,
+rendered only while `agent.status === "idle"`. Its mount chain has exactly one root:
+
+```
+app/workflow/page.tsx:58            → WorkflowView
+components/workflow/WorkflowView.tsx:493  → PipelineGraph
+components/workflow/PipelineGraph.tsx:90  → AgentNode
+components/workflow/AgentNode.tsx:197     → SkillManager
+```
+
+That root is `/workflow` — the orphaned legacy builder (p21) that nothing in the app
+links to. And that page **cannot produce a node**: it starts with 0 agents, and its
+`Add Agent` picker returns **"No agents found" for every category** — All, User
+Stories, Presentation, Prototype, App Builder, Custom.
+
+So `SkillManager` cannot be opened by any user, by any route. It is live code behind
+a broken door on an unlinked page.
+
+This is the concrete answer to the open question in `16-pages-outside-routes`
+("either it works or it should be removed"): **its agent picker does not work**.
+
+**Evidence:** `capture/AUDIT-remaining-popups.json`,
+`screenshots/12-overlays/86-modal-legacy-builder-add-agent-empty.png`.
+
+---
+
+## D-18 — A prototype run previews the spec text instead of its validated HTML
+
+**Severity:** medium — the deliverable is correct and the user cannot see it.
+
+Run `d9693cbe` (Prototype, Done, 2 agents). Its **Files** tab reports:
+
+> 4 files available · 1 deliverable — FINAL OUTPUT **`prototype.html`**,
+> HTML (.html) · 11.8 KB · **validated**
+
+Its **Preview** tab renders `Output (text format):` followed by the raw `<spec>`
+markdown — the spec agent's intermediate output — as plain text. Zero iframes.
+Clicking `Preview` on the `prototype.html` file row does not change it.
+
+Because `PrototypePreview` never mounts, none of its controls exist in the DOM:
+zoom in/out/reset, `Open tweaks panel`, `View source`, `Open in new tab`,
+`Revision instructions` (`PrototypePreview.tsx:514-552`). An entire feature is
+unreachable for this run — which is why the sweep could not capture C11.
+
+**Expected:** the Preview tab renders the validated deliverable named by the Files
+tab.
+
+**Evidence:** `capture/AUDIT-remaining-popups.json`,
+`screenshots/13-states/88-prototype-preview-renders-spec-text.png`.
+
+---
+
+## D-19 — Terminal runs disagree on whether the user may reply
+
+**Severity:** low.
+
+The concierge chat lane's composer is present or absent by run state with no visible
+rule:
+
+| Status | `chat-composer` in DOM | textarea | send |
+|---|---|---|---|
+| Done | ✓ | ✓ enabled | ✓ |
+| **Failed** | ✓ | **✓ enabled** | ✓ |
+| **Cancelled** | ✓ | **✗ absent** | ✗ |
+| **Diverted** | ✓ | **✗ absent** | ✗ |
+
+Three terminal states, two contracts. A user who cancels a run loses the ability to
+ask a follow-up; a user whose run failed keeps it. Note `chat-composer` is in the DOM
+for all of them — the container is not the signal, so a test asserting on it will
+pass while the user has no input at all.
+
+**Expected:** one rule, applied consistently, whatever it is.
+
+**Evidence:** `capture/AUDIT-chat-lane.json`,
+`screenshots/14-chat-lane/c02-lane-cancelled-readonly.png` vs `c03-lane-failed.png`.
+
+---
+
+## D-21 — The prototype run's clarification exchange appears twice
+
+**Severity:** low.
+
+*(D-20 is deliberately unused: `UXFIX-03`/`D-20` are upstream design-doc ticket ids
+referenced in `02-home-catalog`, and reusing the number here would be ambiguous.)*
+
+The completed prototype run's transcript contains:
+
+```
+Before I build, I need to lock a few things down.   → Answer in Steps
+Clarifications answered                             → Answer in Steps
+Before I build, I need to lock a few things down.   → Answer in Steps
+Clarifications answered                             → Answer in Steps
+Run started                                         → Open in Steps
+```
+
+Each pair has a **different `data-message-id`**, so these are genuinely two records,
+not one rendered twice. Two clarification rounds would be a legitimate explanation —
+but the two rounds are identical in text and offer the same action, so the lane reads
+as a stutter regardless of which it is.
+
+**Expected:** either one exchange, or two that are distinguishable from each other.
+
+**Evidence:** `capture/AUDIT-chat-lane.json`,
+`screenshots/14-chat-lane/c01-lane-completed-prototype.png`.
+
+---
+
 # Corrections to earlier sweeps
 
 Not product defects — places where an earlier sweep wrote down something that

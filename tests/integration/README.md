@@ -37,16 +37,17 @@ tests/integration/
 ├── MANIFEST.md            the scored surface checklist, derived from source
 ├── INVENTORY.md           every route, its screen, and where its spec lives
 ├── DEFECTS-OBSERVED.md    what the sweeps found that looks wrong, plus corrections
-├── screens/               the specs — 17 files, one per surface, ~290 Gherkin scenarios
+├── screens/               the specs — 18 files, one per surface, ~320 Gherkin scenarios
 ├── capture/               raw DOM fingerprints (evidence)
 │   ├── FIXTURES.json      the live ids the sweep used, and why not to trust them
 │   ├── _enumerate.py      lists the surface from frontend/src — run this FIRST
 │   ├── _verify.py         consistency gate — run this LAST, before committing
 │   └── _dump.py           prints a fingerprint readably
-└── screenshots/           90 PNGs
+└── screenshots/           98 PNGs
     ├── 01-auth … 11-errors    one folder per area, pNN per page URL
-    ├── 12-overlays/           17 modals, menus and drawers — not pages
-    └── 13-states/             themes, tiers, run states, tab and filter variants
+    ├── 12-overlays/           19 modals, menus and drawers — not pages
+    ├── 13-states/             themes, tiers, run states, tab and filter variants
+    └── 14-chat-lane/          the concierge lane across every run state
 ```
 
 After any capture work, run the consistency gate before committing:

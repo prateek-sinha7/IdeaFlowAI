@@ -29,6 +29,12 @@ This is a **parallel implementation** of the composer with different chrome and
 different controls. Nothing in the app links to it. It is reachable by URL by
 anyone, and it is not covered by any test.
 
+**Sweep 5 closed the open question about it: the page is broken.** Its `Add Agent`
+picker returns "No agents found" for all six categories, so the builder can never
+hold a node and `Run Workflow` can never run anything (D-17). It also strands
+`SkillManager`, whose only mount root is this page's `AgentNode` — that overlay
+cannot be opened by any user, by any route.
+
 ## `/preview-fullscreen` — two callers, one path
 
 Documented in its own source comment. It serves:
@@ -88,11 +94,23 @@ Feature: Pages outside routes.ts
     And I do NOT see the Simple / Canvas view toggle
     And I do NOT see a "Save workflow" control
 
-  @unverified
-  Scenario: The legacy builder either works or should be removed
-    # A deliberate open question for the product owner, not an assertion.
-    # If it works, it needs coverage like any other launch surface.
-    # If it does not, it is a reachable dead end that any user can hit.
+  @defect
+  # D-17. ANSWERED: it does not work. The open question from sweep 2 is closed.
+  Scenario: The legacy builder cannot add an agent
+    When I cold-load "/workflow"
+    And I click "Add Agent"
+    Then the picker lists at least one agent
+    # Today it returns "No agents found" for EVERY category — All, User Stories,
+    # Presentation, Prototype, App Builder, Custom. The builder starts at 0
+    # agents and there is no way to add one, so "Run Workflow" can never run
+    # anything.
+    #
+    # This also strands SkillManager, whose only mount root is this page's
+    # AgentNode: no node, no "Manage skill" button, so that overlay is
+    # unreachable by any route (see 15-overlays).
+    #
+    # Written as it SHOULD be, so the scenario turns green if the page is fixed
+    # and can simply be deleted if the page is removed.
 
   # ---------- /workflow/create ----------
 

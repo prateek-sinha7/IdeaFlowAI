@@ -165,6 +165,34 @@ family, and found four more defects:
 D-16 is the one that matters: every tier scenario in `17-theme-and-tiers` was
 written assuming basic → pro → enterprise is totally ordered. It is not.
 
+## Sweep 5 — the last popups, and the chat lane
+
+Traced each remaining overlay to its mount point in source instead of hunting for
+it in the UI. Two were never missing, one was mislocated, one is unopenable:
+
+| Overlay | Outcome |
+|---|---|
+| `WorkflowDialog` | **is** the catalog inspect dialog — double-counted since sweep 2 |
+| `AgentSkillsPicker` | not an overlay — renders inline in the composer config rail |
+| `WorkflowPickerModal` | captured (`87`) — it lives in the config rail, not on the canvas node |
+| `SkillManager` | **unopenable by any user — D-17** |
+| `PrototypePreview` controls | **never mount — D-18** |
+
+Also captured the **concierge chat lane** (`screenshots/14-chat-lane/`), the left
+column of every run page, which no earlier sweep had listed at all. Specified in
+`screens/18-chat-lane.feature.md`.
+
+Five more defects:
+
+| # | What |
+|---|---|
+| **D-17** | `/workflow`'s Add Agent picker is empty for all 6 categories, so the legacy builder can never run anything — and `SkillManager`, whose only mount root is its node, is unreachable |
+| **D-18** | A prototype run previews the spec agent's markdown while its Files tab reports `prototype.html · validated` |
+| **D-19** | Failed runs keep an enabled chat composer; cancelled and diverted runs have none |
+| **D-21** | The prototype run's clarification exchange appears twice, with different message ids |
+
+*(D-20 is deliberately unused — `UXFIX-03`/`D-20` are upstream design-doc ids.)*
+
 ## Still not captured, and why
 
 | Gap | Blocker |
@@ -173,7 +201,8 @@ written assuming basic → pro → enterprise is totally ordered. It is not.
 | a hexaware account (D-16) | the tier exists in code and in the admin dialog, but no fixture is seeded |
 | empty-account states, cross-account 403 | qa-pro/basic/enterprise all have 0 runs so both are reachable — they need the seeded password, which this session could not read |
 | a *switch* between artifact versions | no run in the dev DB has more than one version |
-| 3 of 20 overlays | one needs a prototype run, one needs a divert step, two were never reachable at all |
+| 2 of 19 overlays | **not coverage gaps** — `SkillManager` cannot be opened (D-17) and the prototype preview never mounts (D-18) |
+| chat `user` / `assistant` roles | sending a message is a live LLM turn, and can create a gate a human must answer |
 | Slides renderer mode | needs a deck deliverable |
 | loading / skeleton frames | needs request throttling to observe |
 | responsive breakpoints | not attempted |

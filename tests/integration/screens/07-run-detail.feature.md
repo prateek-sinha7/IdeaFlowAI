@@ -270,6 +270,26 @@ Feature: Run detail
     # deliverable is missing or the renderer is wrong.
     # Expected once fixed: the same courtesy Bundle already extends.
 
+  Scenario: A prototype run offers its own renderer mode
+    Given a completed prototype run
+    When I cold-load "/runs/{id}"
+    Then the renderer options are exactly "Auto" and "Prototype"
+    # A FIFTH mode not in the original manifest list. The mode set is per
+    # deliverable type, not global: a .md offers Auto/HTML/Markdown/Bundle, a
+    # prototype offers Auto/Prototype. Never assert a fixed list.
+
+  @defect
+  # D-18. The Preview tab renders the wrong file.
+  Scenario: A prototype run previews its validated deliverable
+    Given a completed prototype run whose Files tab reports
+          "prototype.html · HTML (.html) · validated"
+    When I cold-load "/runs/{id}" and select the "Prototype" renderer
+    Then the prototype HTML is rendered in an iframe
+    # Today it renders the SPEC AGENT'S markdown as plain text under
+    # "Output (text format):", with zero iframes. Clicking Preview on the
+    # prototype.html file row does not change it. The deliverable is correct and
+    # validated; the Preview tab is showing a different file.
+
   Scenario: A deck run offers Slides and Full Screen
     Given a completed "ppt_v2" run whose deliverable is "presentation.html"
     When I cold-load "/runs/{id}"

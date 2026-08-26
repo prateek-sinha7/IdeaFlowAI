@@ -6,7 +6,7 @@
 grep -rlE 'fixed inset-0|role="dialog"' frontend/src --include=*.tsx
 ```
 
-**Screenshots:** `12-overlays/` — 37, 38, 49–53, 69–71 (all ten captured overlays)
+**Screenshots:** `12-overlays/` — 37 account menu, 38 notifications, 49 inspect dialog, 50–51 advanced, 52 save-as, 53 add-agent, 69 workflow actions, 70 run actions, 71 version picker, 76–80 wizard galleries, 81 admin add-user, 86 legacy add-agent (empty), 87 divert picker
 
 ---
 
@@ -30,18 +30,25 @@ grep -rlE 'fixed inset-0|role="dialog"' frontend/src --include=*.tsx
 | Design-system detail | design-system tile | ✅ `78` |
 | Custom design system | `Upload custom` (design system) | ✅ `79` |
 | Admin add-user | `Add user` on `/admin` | ✅ `81` |
-| Agent skills picker | node → Skills | ➖ **not an overlay** — renders inline in the config rail (`83`) |
-| Workflow picker (divert) | divert target | ⬜ needs a workflow with a divert step |
-| Skill manager | skill management | ⬜ |
-| Workflow dialog | — | ⬜ |
-| Prototype preview source/tweaks | preview controls | ⬜ needs a prototype run with a deliverable |
+| Legacy builder add-agent | `Add Agent` on `/workflow` | ✅ `86` — **empty for every category (D-17)** |
+| Workflow picker (divert) | ROUTE node → rail `Agent` → `Config` → outcome Target | ✅ `87` |
+| Workflow dialog | `Inspect <title> details` | ✅ `49` — **same component as the catalog inspect dialog** |
+| Agent skills picker | Agent rail → Skills | ➖ **not an overlay** — inline in the config rail (`83`) |
+| Skill manager | `Manage skill` on an AgentNode | ⛔ **unreachable — D-17** |
+| Prototype preview source/tweaks | preview controls | ⛔ **never mounts — D-18** |
 
-**17 of 20**, after reclassifying the skills picker. The manifest counted it as an
-overlay from a `fixed inset-0` match in its source; at runtime it is an inline
-panel, so it was never going to be found by opening a modal.
+**19 of 19 reachable overlays captured.** The original count of 21 was wrong twice:
 
-The three still open all need a fixture this dev database does not have: a workflow
-containing a divert step, and a completed prototype run.
+- **Workflow dialog and the catalog inspect dialog are one component.**
+  `HomeLaunchGrid.tsx:362` mounts `WorkflowDialog` on `inspectId`. Two rows, one
+  overlay, double-counted since sweep 2.
+- **The agent skills picker is not an overlay.** The manifest classified it from a
+  `fixed inset-0` match in its source; at runtime it renders inline in the config
+  rail, so opening dialogs was never going to find it.
+
+That leaves 19 real overlays. Two of them **cannot be opened by any user**, and both
+are defects rather than coverage gaps — see D-17 and D-18. Every overlay a user can
+actually reach is captured.
 
 ---
 
@@ -275,6 +282,62 @@ Feature: Overlays
     # Today there is no Cancel button and the close control has no text, no
     # aria-label and no title — the same shape as D-07. A user who opens this
     # dialog by mistake has no labelled way out.
+
+  # ---------- The divert target picker ----------
+
+  Scenario: The divert picker opens from the config rail, not the canvas
+    When I cold-load "/workflows/ex_A3_divert/canvas"
+    And I click the ROUTE node "Pick Language"
+    And I open the rail tab "Agent" then the sub-tab "Config"
+    Then each outcome whose Type is "Workflow" has a Target button
+    When I activate one
+    Then a modal opens reading "Pick a workflow"
+    And it explains "This outcome stops the current run and hands off to the workflow you choose."
+    # The button is data-testid="workflow-target-button", below the rail's fold —
+    # scroll it into view first. It is a MODAL ON TOP OF A MODAL: two overlay
+    # layers are present while it is open.
+
+  Scenario: The divert picker groups and searches the catalogue
+    Given the divert picker is open
+    Then I see the group chips "All", "System", "Revision" and "Yours" with counts
+    And I see a search input labelled "Search workflows"
+    And each row shows a name, a type slug, a description and a step count
+    # Revision variants are listed deliberately — see WorkflowTargetPicker's own
+    # comment. Do not "fix" the count by filtering them out.
+
+  @unverified
+  Scenario: A failed workflow fetch degrades to free text
+    Given the workflow list cannot be fetched
+    When I open a divert outcome's Target
+    Then I get a plain text input placeholder "workflow id / self"
+    And I am told "Couldn't load workflows — enter the target id directly."
+    # A second state of the same control, from PrototypePreview's sibling
+    # WorkflowTargetPicker. Needs request interception to reach.
+
+  # ---------- Two overlays no user can open ----------
+
+  @defect
+  # D-17. SkillManager's only host page cannot create the node that opens it.
+  Scenario: The skill manager is reachable
+    Given a workflow with at least one idle agent node
+    When I activate "Manage skill" on that node
+    Then the skill manager opens
+    # Today: its only mount root is /workflow, the orphaned legacy builder, whose
+    # "Add Agent" picker returns "No agents found" for ALL SIX categories. With
+    # no node there is no button, so this overlay cannot be opened by anyone.
+    # Written as it SHOULD be.
+
+  @defect
+  # D-18. PrototypePreview never mounts, so none of its controls exist.
+  Scenario: A prototype deliverable offers source and tweaks
+    Given a completed prototype run whose deliverable is validated HTML
+    When I cold-load "/runs/{id}" and select the "Prototype" renderer
+    Then the prototype renders in an iframe
+    And I see controls titled "View source", "Open tweaks panel" and "Open in new tab"
+    # Today the Preview tab renders the SPEC AGENT'S MARKDOWN as plain text while
+    # the Files tab reports prototype.html · validated. Zero iframes, none of the
+    # controls in the DOM. The overlay is uncapturable because the feature under
+    # it is broken, not because the sweep missed it.
 
   Scenario Outline: Menus and drawers close without navigating
     Given "<overlay>" is open on "<route>"

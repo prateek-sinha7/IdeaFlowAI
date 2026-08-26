@@ -88,19 +88,23 @@ inventory entirely.
 | C8 | `savedworkflows/SavedWorkflowsPage` (3) | Workflow actions menu | ✅ `69` |
 | C9 | `results/ArtifactVersionPicker` | `Version v1` | ✅ `71` |
 | C10 | `preview/RunHeader` | Share / Download | ✅ `71` (Share = copy-link, no dialog) |
-| C11 | `preview/PrototypePreview` | View source / Tweaks | ⬜ needs a completed prototype run |
+| C11 | `preview/PrototypePreview` | View source / Tweaks | ⛔ **never mounts — D-18** |
 | C12 | `composer/AgentSkillsPicker` | Agent rail → Skills | ➖ **not an overlay** — inline in the rail (`83`) |
-| C13 | `composer/WorkflowPickerModal` | divert target picker | ⬜ needs a workflow with a divert step |
+| C13 | `composer/WorkflowPickerModal` | ROUTE node → rail Config → Target | ✅ `87` |
 | C14 | `ppt/PPTTemplateGallery` upload | `Upload custom` (ppt) | ✅ `80` |
 | C15 | `prototype/TemplateDetailModal` (3) | template tile (prototype) | ✅ `76` |
 | C16 | `prototype/CustomTemplateModal` | `Upload custom` (prototype) | ✅ `77` — same component as C14 |
 | C17 | `prototype/DesignSystemDetailModal` (3) | design-system tile | ✅ `78` |
 | C18 | `prototype/CustomDesignSystemModal` (2) | custom design system | ✅ `79` |
-| C19 | `workflow/SkillManager` | skill management | ⬜ unreachable in 4 sweeps — possibly dead |
-| C20 | `workflow/WorkflowDialog` (2) | workflow dialog | ⬜ unreachable in 4 sweeps — possibly dead |
+| C19 | `workflow/SkillManager` | `Manage skill` on an AgentNode | ⛔ **unreachable — D-17** |
+| C20 | `workflow/WorkflowDialog` (2) | *(same component as C6)* | ✅ `49` — **double-counted since sweep 2** |
 | C21 | `app/admin` create + toast | `Add user` | ✅ `81` |
+| C22 | legacy builder add-agent | `Add Agent` on `/workflow` | ✅ `86` — empty for all 6 categories (**D-17**) |
 
-**17 of 20 captured** (C12 reclassified out of this group).
+**19 of 19 reachable overlays captured.** The original 21 was wrong twice: C20 is the
+same component as C6 (double-counted), and C12 is an inline rail panel, not an overlay.
+Of the 19 real ones, C11 and C19 **cannot be opened by any user** — both are defects
+(D-18, D-17), not coverage gaps.
 
 ## D. Run lifecycle states
 
@@ -126,7 +130,7 @@ inventory entirely.
 | Composer config rail | Workflow, Agent | ✅ both (`82`) — Agent has 5 sub-tabs of its own |
 | Advanced modal | Agents, Workflow | ✅ both (`50`,`51`) |
 | Audit filters | All, Governance, Security, Activity, blocked-only | ✅ 4 of 5 (`72`) |
-| Preview renderer | Auto, HTML, Markdown, Bundle, Slides | ✅ 4 of 5 (`84`) — Slides needs a deck |
+| Preview renderer | per deliverable type — a `.md` offers Auto/HTML/Markdown/Bundle, a prototype offers Auto/**Prototype** | ✅ 5 of 6 (`84`) — Slides needs a deck |
 | Run history filters | All, User Stories, Presentation, Prototype, App Builder, Custom | ✅ all 6 (`85`) — `?type=` |
 | Run history sort | Newest, Longest, Tokens | ✅ all 3 — `?sort=` |
 | Library categories | 14 agent / 10 skill / 5 hook | ⬜ 1 each |
@@ -161,44 +165,67 @@ inventory entirely.
 
 ---
 
+## H. The concierge chat lane
+
+Not a page, not a tab, not an overlay — the **left column of every run-detail
+surface**, present on all five tabs and all nine run URLs. It was absent from this
+manifest entirely until sweep 5b.
+
+| Aspect | Status |
+|---|---|
+| Lane on every tab | ✅ verified on `/runs/{id}`, `/files`, `/audit` |
+| Header (type, status, title, meta, back) | ✅ `c01`–`c05` |
+| Transcript + `data-role` / `data-message-id` | ✅ — only `narrator` exists in seeded data |
+| Narrator vocabulary (7 message kinds) | ✅ |
+| Adornments collapse / expand | ✅ |
+| Composer enable-on-input | ✅ |
+| Composer per run state | ✅ all 6 runs (**D-19**) |
+| Chain suggestions + beta chip | ✅ `c01` |
+| `user` / `assistant` message roles | ⬜ needs a live LLM turn — real cost, and it can create a gate |
+| `waiting_for_user` blocking gate | ⬜ the seeded run has since completed |
+
+**8 of 10.** Specified in `screens/18-chat-lane.feature.md`.
+
 ## Score
 
-| Group | Sweep 1 | Sweep 2 | Sweep 3 | Sweep 4 | Total |
-|---|---|---|---|---|---|
-| A. Pages outside catch-all | 4 | 9 | 9 | 9 | 9 |
-| B. Catch-all screens | 35 | 35 | 36 | 36 | 36 |
-| C. Overlays | 6 | 11 | 11 | **17** | 20 |
-| D. Run states | 1 | 5 | 5 | 5 | 6 |
-| E. Tab families | 5 | 10 | 10 | **13** | 13 |
-| F. Tier variants | 1 | 4 | 4 | 4 | **5** |
-| G. Cross-cutting | 1 | 8 | 9 | 9 | 14 |
-| **Total** | **53** | **82** | **84** | **93** | **103** |
+| Group | S1 | S2 | S3 | S4 | S5 | Total |
+|---|---|---|---|---|---|---|
+| A. Pages outside catch-all | 4 | 9 | 9 | 9 | 9 | 9 |
+| B. Catch-all screens | 35 | 35 | 36 | 36 | 36 | 36 |
+| C. Overlays | 6 | 11 | 11 | 17 | **19** | 19 |
+| D. Run states | 1 | 5 | 5 | 5 | 5 | 6 |
+| E. Tab families | 5 | 10 | 10 | 13 | 13 | 13 |
+| F. Tier variants | 1 | 4 | 4 | 4 | 4 | 5 |
+| G. Cross-cutting | 1 | 8 | 9 | 9 | 9 | 14 |
+| H. Chat lane | 0 | 0 | 0 | 0 | **8** | 10 |
+| **Total** | **53** | **82** | **84** | **93** | **103** | **112** |
 
-**90% captured.** Sweep 1 reported completeness at what was really 51%.
+**92% captured.** Sweep 1 reported completeness at what was really 47% of the real
+total.
 
-- **Sweep 3** re-captured all 55 page URLs with a 2.5s settle into
-  `screenshots/<area>/`, and corrected five claims the earlier sweeps had written
-  from reading source instead of loading the URL (**C-1 … C-5**).
-- **Sweep 4** was a post-commit audit of what this manifest still listed as open.
-  It captured six of the ten remaining overlays and every remaining tab family,
-  reclassified one "overlay" that is really an inline panel, and found four
-  defects (**D-13 … D-16**) — including a **fourth tier**, `hexaware`, that no
-  spec knew about. The tier total rose from 4 to 5 because of it.
+- **Sweep 3** re-captured all 55 page URLs with a settle and corrected five claims
+  written from reading source instead of loading the URL (**C-1 … C-5**).
+- **Sweep 4** closed the overlay and tab-family gaps and found **D-13 … D-16**,
+  including a fourth tier, `hexaware`, that no spec knew about.
+- **Sweep 5** traced the last four overlays to their mount points in source rather
+  than hunting for them. Two were never missing (C20 is C6 double-counted; C12 is
+  an inline panel), one was mislocated (C13 lives in the config rail), and one is
+  genuinely unopenable (C19 — **D-17**). It also captured the **concierge chat
+  lane**, a whole group this manifest had never listed, and found **D-17 … D-21**.
 
-**Every page URL is backed by a fingerprint in `capture/` and a full-page
-screenshot.** `PAGES.md` is the per-page index: URL → shot → fingerprint → spec.
+**Every page URL, and every overlay a user can actually open, is captured.**
+`PAGES.md` is the per-page index: URL → shot → fingerprint → spec.
 
 ## What is still open, and why
 
 | Gap | Blocker |
 |---|---|
 | `waiting_for_user` run state | needs a live LLM run — real cost, and it creates a gate a human must answer |
-| a hexaware account (D-16) | no seeded fixture; the tier exists in code and in the admin dialog only |
-| empty-account states (no runs, no workflows) | qa-pro / qa-basic / qa-enterprise all have 0 runs, so this is reachable — it needs the seeded password, which this session could not read |
-| cross-account 403 | same blocker: needs a second account's session |
-| C11 prototype preview source / tweaks | needs a completed prototype run |
-| C13 workflow picker | needs a workflow containing a divert step |
-| C19 SkillManager, C20 WorkflowDialog | never reached from any surface in four sweeps — confirm they are not dead code before specifying them |
+| chat `user` / `assistant` message roles | same — sending a message is a live LLM turn |
+| a hexaware account (D-16) | the tier exists in code and in the admin dialog; no fixture is seeded |
+| empty-account states, cross-account 403 | qa-pro/basic/enterprise all have 0 runs so both are reachable — they need the seeded password, which this session could not read |
+| C11 prototype source / tweaks | **not a coverage gap — the preview never mounts (D-18)** |
+| C19 skill manager | **not a coverage gap — no user can open it (D-17)** |
 | Slides renderer mode | needs a deck deliverable |
 | a *switch* between artifact versions | no run in the dev DB has more than one version |
 | loading / skeleton states | needs request throttling to observe |

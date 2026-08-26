@@ -13,7 +13,8 @@ user's tier entitles them to launch, plus a locked "Coming Soon" section and a
 ## `/create` and `/dashboard` are the same screen
 
 `initialMainViewFor` maps **both** `home` and `create` to the `MainView` `"home"`.
-The file explains why: the UXFIX-03 / design-doc D-20 redesign (an external reference, not a defect id from `DEFECTS-OBSERVED.md`) folded the create catalog into
+The file explains why: the `UXFIX-03`/`D-20` redesign — those are upstream design-doc
+ticket ids, unrelated to this suite's `D-NN` defect numbering — folded the create catalog into
 the home screen, and the `"catalog"` MainView member it would otherwise point at
 has no render branch anywhere in the app. Mapping `/create` to `"catalog"` would
 render a blank pane.
