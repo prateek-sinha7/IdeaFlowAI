@@ -398,6 +398,19 @@ export default function DashboardPage({
   // `mounted` flips to true after the first client render so we never show
   // the black loading screen; instead we show nothing until hydration is done.
   const [mounted, setMounted] = useState(false);
+
+  // Wizard-launch flash fix: detect a pending prototype/ppt run ONCE at mount.
+  // If the wizard staged a run in sessionStorage and navigated to /dashboard,
+  // initialMainViewFor returns "home" — but we need "execution" so DashboardLayout
+  // skips the home screen entirely. We read sessionStorage ONCE here (useRef's
+  // IIFE only runs on the first render) so the value stays stable even after
+  // the pending run's sessionStorage keys are consumed and cleared mid-render.
+  // Without this stability, the T9 re-sync effect in DashboardLayout would stomp
+  // mainView back to "home" on any subsequent page.tsx re-render.
+  const hasPendingWizardRunRef = useRef(
+    typeof window !== "undefined" &&
+    !!(sessionStorage.getItem("prototype.pending") || sessionStorage.getItem("ppt.pending"))
+  );
   const [token, setToken] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
@@ -3746,10 +3759,27 @@ export default function DashboardPage({
       // from a previously-visited workflow-run id never bleeds into an
       // unrelated route (e.g. the ppt/prototype branch's own wizard redirect,
       // which must keep setting no MainView at all).
-      initialMainView={
-        initialMainViewFor(parsedView) ??
-        (parsedView.screen === "workflow-run" ? workflowRunMainView ?? undefined : undefined)
-      }
+      //
+      // Wizard-launch flash fix: when the LaunchWizard stages a prototype or ppt
+      // run in sessionStorage and navigates to /dashboard (routes.home()), the
+      // parsed screen is "home" and initialMainViewFor returns "home". That "home"
+      // value is passed as initialMainView to DashboardLayout, which checks
+      // initialMainView BEFORE its own sessionStorage guard — so the guard is
+      // never reached and the user sees the home screen flash for the few seconds
+      // until the SSE connects and the pending-run effect fires setMainView("execution").
+      // Fix: detect the staged run here and pass "execution" instead, so
+      // DashboardLayout mounts directly in execution view (same as the guard would
+      // do if initialMainView were absent). Scoped to the "home" screen only so
+      // every other route's initialMainView is unaffected.
+      initialMainView={(() => {
+        const base =
+          initialMainViewFor(parsedView) ??
+          (parsedView.screen === "workflow-run" ? workflowRunMainView ?? undefined : undefined);
+        if (base === "home" && hasPendingWizardRunRef.current) {
+          return "execution" as MainView;
+        }
+        return base;
+      })()}
       initialWorkflowType={initialWorkflowTypeFor(parsedView) ?? builtinCanvasType}
       // Copy-only: the canvas is showing a file-backed manifest, not a row the user owns.
       builtinCanvasType={builtinCanvasType}
