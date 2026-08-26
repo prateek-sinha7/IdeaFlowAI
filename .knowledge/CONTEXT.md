@@ -1,7 +1,7 @@
 ---
-built_from_commit: f44aeed0abd0a4beaafce68b1ee3a1e71ab6035e
+built_from_commit: bbf53b6a1b427743e0f49ff9448df0d202b8bfcc
 built_at: 2026-08-17
-cards_indexed: 582
+cards_indexed: 583
 modules_indexed: 36
 ---
 
@@ -65,7 +65,7 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 |---|---|---|
 | adr | 28 | 28 |
 | fix | 326 | 33 |
-| issue | 186 | 66 |
+| issue | 187 | 67 |
 | bug | 42 | 18 |
 
 **adr (28):**
@@ -102,7 +102,7 @@ Start every card lookup at [INDEX.md](INDEX.md) — one line per card, each carr
 
 ## 4. Module map
 
-- [MOD-backend](architecture/MOD-backend.md) — backend — 10 files — backend/init_db.py is a **one-shot dev-bootstrap script**: it runs every Alembic…
+- [MOD-backend](architecture/MOD-backend.md) — backend — 1 file — backend/init_db.py is a **one-shot dev-bootstrap script**: it runs every Alembic…
 - [MOD-backend-agents](architecture/MOD-backend-agents.md) — backend/agents — 122 files — `backend/agents` is the execution kernel. It compiles declarative `workflow.yaml`…
 - [MOD-backend-alembic](architecture/MOD-backend-alembic.md) — backend/alembic — 1 file — backend/alembic/env.py is the Alembic migration environment: it resolves the database…
 - [MOD-backend-alembic-versions](architecture/MOD-backend-alembic-versions.md) — backend/alembic/versions — 38 files — The Alembic revision chain for the backend's SQLAlchemy schema — a single linear history…
