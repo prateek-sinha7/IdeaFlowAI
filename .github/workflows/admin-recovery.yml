@@ -1,0 +1,296 @@
+# =============================================================================
+# VelocityAI Admin Recovery — break-glass account access via SSM RunCommand.
+# =============================================================================
+# Exists because nobody holds EC2/SSH access to any environment: the only
+# principal that can reach a box is this repo's per-environment GitHub OIDC
+# deploy role, and the only channel it has is SSM RunCommand (same one
+# deploy.yml and provision.yml already use). When the users table already has
+# rows, deploy.yml's bootstrap step (remote-deploy.sh §12) deliberately does
+# NOTHING — its whole contract is "any row -> skip" — so changing
+# BOOTSTRAP_ADMIN_PASSWORD on the GitHub Environment has no effect on an
+# existing account. This workflow is the audited path around that: it runs
+# backend/app/scripts/recover_admin.py INSIDE the running backend container on
+# the target box.
+#
+# TWO MODES:
+#   report — read-only. Prints AUTH_PROVIDER, every user row (email, provider,
+#            whether a local password_hash is set, tier, admin), and whether
+#            the single-local-admin break-glass invariant currently holds.
+#            Changes nothing. This is the default and what you should run
+#            FIRST, every time.
+#   reset  — creates admin_email if absent, or resets its password if present;
+#            promotes it to admin + enterprise tier; on Cognito, provisions/
+#            adopts the pool user with a PERMANENT password and both the
+#            tier + flowin-admins groups. The password is the CURRENT value of
+#            BOOTSTRAP_ADMIN_PASSWORD on this GitHub Environment — fetched by
+#            the box itself from SSM, never by this workflow, and never
+#            printed anywhere (see remote-admin-recovery.sh's header).
+#
+# NEVER DELETES A USER. ~9 tables carry a non-nullable FK to users.id with no
+# cascade, so a delete-based "start clean" approach would either fail on those
+# constraints or take workflow-run/artifact history with it. Resetting a
+# password reaches the same outcome (a usable admin login) with none of that
+# risk — see recover_admin.py's own docstring for the full reasoning.
+#
+# demote_other_local_admins clears is_admin on every OTHER auth_provider=local
+# admin (a privilege REDUCTION, never an escalation — those accounts keep
+# working, just without admin rights) so that
+# core/identity.py::_local_admin_credential_is_permitted's "exactly one local
+# admin" invariant holds again. Without it, more than one local admin means a
+# login can SUCCEED and then 401 on the very next request
+# (break_glass_invariant_violated in the audit log) — report mode tells you
+# up front whether this environment is in that state.
+# =============================================================================
+
+name: Admin Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - stage
+          - prod
+      mode:
+        description: "report = read-only auth-state dump. reset = create/reset admin_email using the CURRENT BOOTSTRAP_ADMIN_PASSWORD secret on this GitHub Environment."
+        required: true
+        type: choice
+        options:
+          - report
+          - reset
+        default: report
+      admin_email:
+        description: "Administrator email to create/reset. Required when mode=reset. Leave blank to reuse this environment's BOOTSTRAP_ADMIN_EMAIL variable."
+        required: false
+        type: string
+      demote_other_local_admins:
+        description: "reset only: demote every OTHER local admin to non-admin, restoring the 'exactly one local admin' break-glass invariant. Never escalates anyone."
+        required: false
+        type: boolean
+        default: false
+
+# Same concurrency group name deploy.yml and provision.yml use for this
+# environment, so a recovery run can never race a deploy's `docker compose`
+# invocation on the same box.
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION_DEFAULT: eu-central-1
+
+jobs:
+  recover:
+    name: Admin Recovery (${{ inputs.environment }}, ${{ inputs.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      # Only the on-host script the SSM payload needs.
+      - name: Checkout (recovery payload only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            .github/scripts/remote-admin-recovery.sh
+          sparse-checkout-cone-mode: false
+
+      # The SAME per-environment deploy role deploy.yml/provision.yml use.
+      # Its ssm:SendCommand grant is conditioned on
+      # ssm:resourceTag/Environment matching this GitHub Environment's own
+      # name (infra/terraform/bootstrap/github_oidc.tf), so a `dev` run
+      # physically cannot command a `stage`/`prod`-tagged instance, whatever
+      # value is pasted into EC2_INSTANCE_ID.
+      - name: Configure AWS credentials (OIDC — per-env deploy role)
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+
+      # ── Preflight: assert every required variable, validate shapes ──────
+      - name: Preflight — validate configuration
+        id: preflight
+        env:
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          PARAM_PREFIX: ${{ vars.VELOCITYAI_PARAM_PREFIX }}
+          DEPLOY_ENV: ${{ inputs.environment }}
+          MODE: ${{ inputs.mode }}
+          ADMIN_EMAIL_INPUT: ${{ inputs.admin_email }}
+          BOOTSTRAP_ADMIN_EMAIL: ${{ vars.BOOTSTRAP_ADMIN_EMAIL }}
+        run: |
+          set -euo pipefail
+
+          : "${INSTANCE_ID:?EC2_INSTANCE_ID is not set for the '${DEPLOY_ENV}' environment}"
+
+          if [[ ! "$INSTANCE_ID" =~ ^i-[0-9a-f]{8,17}$ ]]; then
+            echo "::error::EC2_INSTANCE_ID '${INSTANCE_ID}' does not look like an EC2 instance ID."
+            exit 1
+          fi
+
+          RESOLVED_PREFIX="${PARAM_PREFIX:-/velocityai/${DEPLOY_ENV}}"
+          echo "prefix=${RESOLVED_PREFIX}" >> "$GITHUB_OUTPUT"
+
+          if [[ "$MODE" == "reset" ]]; then
+            RESOLVED_EMAIL="${ADMIN_EMAIL_INPUT:-$BOOTSTRAP_ADMIN_EMAIL}"
+            if [[ -z "$RESOLVED_EMAIL" ]]; then
+              echo "::error::mode=reset requires either the admin_email input or a BOOTSTRAP_ADMIN_EMAIL variable on the '${DEPLOY_ENV}' environment."
+              exit 1
+            fi
+            if [[ ! "$RESOLVED_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+              echo "::error::admin_email '${RESOLVED_EMAIL}' does not look like an email address."
+              exit 1
+            fi
+            echo "admin_email=${RESOLVED_EMAIL}" >> "$GITHUB_OUTPUT"
+            echo "Resolved admin_email: ${RESOLVED_EMAIL}"
+          fi
+
+      # ── Build the SSM payload + send it ─────────────────────────────────
+      - name: Recover via SSM RunCommand
+        id: ssm-recover
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          PARAM_PREFIX: ${{ steps.preflight.outputs.prefix }}
+          MODE: ${{ inputs.mode }}
+          ADMIN_EMAIL: ${{ steps.preflight.outputs.admin_email }}
+          # workflow_dispatch booleans render as the literal strings
+          # "true"/"false"; the on-host script's gate uses "1"/"0" — same
+          # normalisation provision.yml already does for its own boolean
+          # inputs, kept here rather than pushed into the script so the
+          # script's contract stays a plain boolean flag regardless of caller.
+          DEMOTE_OTHERS_INPUT: ${{ inputs.demote_other_local_admins }}
+        run: |
+          set -euo pipefail
+
+          to01() { [ "$1" = "true" ] && echo 1 || echo 0; }
+          DEMOTE_OTHERS="$(to01 "$DEMOTE_OTHERS_INPUT")"
+
+          {
+            echo '#!/bin/bash'
+            echo "# Generated by .github/workflows/admin-recovery.yml — do not edit on the box."
+            echo "REGION='${AWS_REGION}'"
+            echo "PARAM_PREFIX='${PARAM_PREFIX}'"
+            echo "MODE='${MODE}'"
+            echo "ADMIN_EMAIL='${ADMIN_EMAIL}'"
+            echo "DEMOTE_OTHERS='${DEMOTE_OTHERS}'"
+            cat .github/scripts/remote-admin-recovery.sh
+          } > remote.sh
+
+          echo "SSM payload size: $(wc -c < remote.sh) bytes"
+
+          # Same guard as deploy.yml/provision.yml (FIX-SSM-02) — this payload
+          # is a plain shell script with no embedded blobs, so it sits far
+          # under the limit in practice, but the guard stays so a future
+          # change fails loudly here rather than as an opaque send-command
+          # rejection.
+          PAYLOAD_BYTES="$(wc -c < remote.sh)"
+          PAYLOAD_LIMIT_BYTES=57344  # 56 KiB — SSM's own document+parameters ceiling is 64 KiB.
+          if (( PAYLOAD_BYTES > PAYLOAD_LIMIT_BYTES )); then
+            echo "::error::SSM payload is ${PAYLOAD_BYTES} bytes, over the ${PAYLOAD_LIMIT_BYTES}-byte guard."
+            exit 1
+          fi
+
+          jq -Rs '{commands: [.], executionTimeout: ["600"]}' remote.sh > ssm-params.json
+
+          COMMAND_ID="$(aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --instance-ids "$INSTANCE_ID" \
+            --comment "velocityai admin-recovery ${MODE} (${GITHUB_REPOSITORY} run ${GITHUB_RUN_ID})" \
+            --timeout-seconds 600 \
+            --parameters file://ssm-params.json \
+            --region "$AWS_REGION" \
+            --query 'Command.CommandId' --output text)"
+
+          echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM command sent: $COMMAND_ID (instance $INSTANCE_ID)"
+
+      # Ported from provision.yml's identical step — same window, same
+      # InvocationDoesNotExist handling, same both-streams output on every
+      # terminal branch. recover_admin.py runs in well under a minute; the
+      # window is generous headroom for a cold `docker compose exec`.
+      - name: Poll SSM command status
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          COMMAND_ID: ${{ steps.ssm-recover.outputs.command_id }}
+        run: |
+          set -euo pipefail
+          echo "Polling command $COMMAND_ID on instance $INSTANCE_ID..."
+
+          print_box_output() {
+            echo "--- box stdout ---"
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$AWS_REGION" \
+              --query 'StandardOutputContent' --output text || true
+            echo "--- box stderr ---"
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$AWS_REGION" \
+              --query 'StandardErrorContent' --output text || true
+          }
+
+          declare -i API_ERROR_STREAK=0
+          MAX_ATTEMPTS=40  # 40 * 15s = 600s = 10 minutes.
+
+          for i in $(seq 1 "$MAX_ATTEMPTS"); do
+            sleep 15
+            INVOCATION_JSON="$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$AWS_REGION" 2>&1)"
+            RC=$?
+
+            if [[ "$RC" -ne 0 ]]; then
+              if [[ "$INVOCATION_JSON" == *InvocationDoesNotExist* ]]; then
+                STATUS="Pending"
+                API_ERROR_STREAK=0
+              else
+                API_ERROR_STREAK+=1
+                echo "  [$i/${MAX_ATTEMPTS}] get-command-invocation API error (streak=${API_ERROR_STREAK}): ${INVOCATION_JSON}" >&2
+                if (( API_ERROR_STREAK >= 5 )); then
+                  echo "::error::5 consecutive get-command-invocation API errors — aborting rather than silently waiting out the full poll window."
+                  exit 1
+                fi
+                continue
+              fi
+            else
+              API_ERROR_STREAK=0
+              STATUS="$(echo "$INVOCATION_JSON" | jq -r '.Status // "Pending"')"
+            fi
+
+            case "$STATUS" in
+              Success)
+                print_box_output
+                echo "Admin recovery succeeded."
+                exit 0
+                ;;
+              Failed|TimedOut|Cancelled)
+                echo "::error::Admin recovery FAILED with status: $STATUS"
+                print_box_output
+                exit 1
+                ;;
+              *)
+                echo "  [$i/${MAX_ATTEMPTS}] status=$STATUS"
+                ;;
+            esac
+          done
+
+          echo "::error::Timed out after 10 minutes waiting for SSM command $COMMAND_ID — cancelling the orphaned command."
+          aws ssm cancel-command \
+            --command-id "$COMMAND_ID" \
+            --instance-ids "$INSTANCE_ID" \
+            --region "$AWS_REGION" || echo "::warning::cancel-command itself failed — check the box manually." >&2
+          print_box_output
+          exit 1

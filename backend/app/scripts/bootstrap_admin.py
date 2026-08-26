@@ -293,6 +293,10 @@ def _bootstrap_cognito_admin(email: str, password: str) -> str:
     (from ``AdminCreateUser``'s response attributes) to store as
     ``users.cognito_sub``.
 
+    Adds the tier group AND ``flowin-admins``: on the Cognito path the group
+    claim is the sole authority for tier, so omitting the tier group downgrades
+    the initial administrator to ``basic`` silently.
+
     OWNS ITS OWN CLEANUP (KAN-167). ``AdminCreateUser`` is the first call, but
     three fallible steps follow it before the ``sub`` is returned. Until that
     return lands in ``create_admin``'s ``cognito_sub``, the caller has no way
@@ -306,7 +310,7 @@ def _bootstrap_cognito_admin(email: str, password: str) -> str:
     ``create_admin`` still rolls back and reports the same exit code.
     """
     from app.core import cognito
-    from app.core.entitlements import ADMIN_GROUP
+    from app.core.entitlements import ADMIN_GROUP, group_for_tier
 
     # Outside the guard on purpose: if THIS call fails, nothing was created and
     # there is nothing to delete.
@@ -314,6 +318,14 @@ def _bootstrap_cognito_admin(email: str, password: str) -> str:
 
     try:
         cognito.admin_set_user_password(email, password, permanent=True)
+        # BOTH groups, not just the admin one. On the Cognito path
+        # `effective_tier` reads `cognito:groups` and IGNORES the users.tier
+        # column, so adding only flowin-admins produced an admin who resolved to
+        # the DEFAULT_TIER ("basic") while the local row said
+        # INITIAL_ADMIN_TIER ("enterprise") — the initial operator silently lost
+        # every pipeline above basic, with nothing logged. api/admin.py's
+        # create-user path always added both; this one did not.
+        cognito.admin_add_user_to_group(email, group_for_tier(INITIAL_ADMIN_TIER))
         cognito.admin_add_user_to_group(email, ADMIN_GROUP)
         # The sub extraction is inside the guard too: a response shape that
         # yields no `sub` raises StopIteration/KeyError with the pool user

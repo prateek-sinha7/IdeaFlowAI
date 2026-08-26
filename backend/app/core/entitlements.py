@@ -92,6 +92,27 @@ _TIER_GROUP_PRECEDENCE: dict[str, tuple[Tier, int]] = {
 
 DEFAULT_TIER: Tier = "basic"
 
+# Write-path inverse of the table above, derived from it rather than re-typed so
+# the group names keep exactly one home (see the warning on ADMIN_GROUP).
+_TIER_TO_GROUP: dict[str, str] = {
+    tier: group for group, (tier, _precedence) in _TIER_GROUP_PRECEDENCE.items()
+}
+
+
+def group_for_tier(tier: str) -> str:
+    """The Cognito group that grants `tier` — inverse of resolve_tier_from_groups.
+
+    Every provisioning path MUST add this group. On the Cognito path
+    ``effective_tier`` resolves the tier from ``cognito:groups`` and ignores the
+    ``users.tier`` column entirely, so a pool user created without their tier
+    group silently resolves to ``DEFAULT_TIER`` however the local column reads —
+    an entitlement downgrade with no error anywhere.
+
+    An unknown tier maps to the DEFAULT_TIER group, matching the fail-closed
+    behaviour of ``resolve_tier_from_groups``: never grant more than was asked.
+    """
+    return _TIER_TO_GROUP.get(tier, _TIER_TO_GROUP[DEFAULT_TIER])
+
 
 def resolve_tier_from_groups(groups: list[str]) -> Tier:
     """Resolve the effective tier from a Cognito `cognito:groups` claim.
