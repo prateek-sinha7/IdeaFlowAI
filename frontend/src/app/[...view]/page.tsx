@@ -2013,6 +2013,12 @@ export default function DashboardPage({
   // Workstream C1 (POR §1 gap-2): retain the launched brief on the LIVE path
   // (previously dropped). Reopen/history use fullRun.input / selectedRun.input.
   const [submittedBrief, setSubmittedBrief] = useState<string>("");
+  // Stable ref so handleRevisionLaunched (a useCallback) can read the current
+  // brief without closing over stale state — same pattern as trackedRunIdRef.
+  const submittedBriefRef = useRef<string>("");
+  useEffect(() => {
+    submittedBriefRef.current = submittedBrief;
+  }, [submittedBrief]);
 
   // ─── Per-run state store (FIX-201 / KAN-168 — concurrent run isolation) ──────
   // The store holds a PerRunState entry per run id. SSE handlers write to
@@ -2562,10 +2568,31 @@ export default function DashboardPage({
       // stream is never connected; without switchViewTo the UI stays on the old run.
       runStoreSwitchViewToRef.current(runId);
       runConnection.attachRun(runId);
+      // FIX-298f: persist the current brief to sessionStorage keyed by the
+      // revision run id so T11's fast path can restore it as the "Starting point"
+      // after the page remount. submittedBriefRef holds the current value without
+      // closing over stale state (same pattern as trackedRunIdRef above).
+      try {
+        const currentBrief = submittedBriefRef.current;
+        if (currentBrief) {
+          sessionStorage.setItem(`run_brief:${runId}`, currentBrief);
+        }
+      } catch { /* non-fatal */ }
+      // FIX-298e (015-frontend-routing, FR-010): navigate to the revision run's stream
+      // URL immediately — we already know the run id from the confirm-proposal response,
+      // so there is no reason to wait for pipeline_start to fire the pipelineRunId
+      // reactive effect in DashboardLayout. On the current URL (/runs/{parentId}) the
+      // DashboardLayout effect path is unreliable (store viewport switches to empty
+      // state first, dep fires with pipelineRunId=undefined, push is skipped). Push
+      // directly here instead — same as the onStartPipeline .then() path already does
+      // for fresh launches (see router.push(routes.runStream(launchedRunId)) in
+      // onStartPipeline's .then() block). T11's remount recovery handles the page
+      // remount that follows.
+      router.push(routes.runStream(runId));
     },
-    // runConnection is stable (memo'd in RunConnectionProvider). All others are refs.
+    // runConnection and router are stable. All others are refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [runConnection],
+    [runConnection, router],
   );
 
   // Handle selecting a workflow run from sidebar/hub
@@ -3108,7 +3135,14 @@ export default function DashboardPage({
                 runId,
               );
             }
-            seedRunChatTranscript(durableFrames, REOPEN_TERMINAL_STATUSES.has(liveRunEntry?.status ?? ""));
+            // Same revision guard as T11 — only seed if there are chat frames;
+            // a just-started revision has none yet and seeding would wipe parent messages.
+            const hasChatFramesT7 = durableFrames.some(
+              (f) => f.type === "chat_message" || f.type === "chat_reply"
+            );
+            if (hasChatFramesT7) {
+              seedRunChatTranscript(durableFrames, REOPEN_TERMINAL_STATUSES.has(liveRunEntry?.status ?? ""));
+            }
             runStore.switchViewTo(runId);
           })
           .catch((err) => {
@@ -3209,7 +3243,6 @@ export default function DashboardPage({
       const liveRunEntry = recentRuns.find((r) => r.id === runId);
       if (liveRunEntry?.type) setContentSourceRunType(liveRunEntry.type);
       // T11 (retry — ts-j.streaming.spec.ts regression, FR-003/SC-002):
-      // re-seeding the refs alone leaves pipelineState empty. useWorkflow's
       // state is a plain useState owned by THIS page component, so the same
       // remount that wiped trackedRunIdRef also wiped it — the pipeline_start
       // frame that originally seeded its agents[] fired BEFORE the remount and
@@ -3246,7 +3279,57 @@ export default function DashboardPage({
             // (chat_message/chat_reply frames). Without this call the transcript
             // useState is empty — exactly what handleSwitchToLiveRun does at
             // its own durable replay step (page.tsx handleSwitchToLiveRun).
-            seedRunChatTranscript(durableFrames, false);
+            // REVISION GUARD: seedRunChatTranscript calls setMessages([]) which
+            // wipes the existing transcript. For a just-launched revision run,
+            // durable frames contain no chat frames yet — calling seed would
+            // erase the parent run's messages with an empty replacement. Only
+            // seed when there are actual chat frames to fold in; otherwise
+            // preserve the existing transcript so the parent messages remain.
+            const hasChatFrames = durableFrames.some(
+              (f) => f.type === "chat_message" || f.type === "chat_reply"
+            );
+            if (hasChatFrames) {
+              seedRunChatTranscript(durableFrames, false);
+            } else {
+              // No chat frames yet (just-started revision or fresh launch with no
+              // Concierge turns). Fetch the run's FAMILY transcript so the parent
+              // run's messages appear — same as handleSwitchToLiveRun's family seed.
+              // Best-effort: a failure just leaves the transcript at its prior state.
+              const familyToken = getToken();
+              if (familyToken) {
+                void getRunFamily(familyToken, runId)
+                  .then(async (family) => {
+                    if (!family?.members?.length) return;
+                    // Collect chat frames from all family members (parent + siblings)
+                    // in chronological order — same strategy as handleSelectWorkflowRun.
+                    const memberIds = family.members.map((m: { id: string }) => m.id);
+                    const allFrames: typeof durableFrames = [];
+                    for (const mid of memberIds) {
+                      try {
+                        const tok = getToken();
+                        if (!tok) break;
+                        const mFrames = await getRunEvents(tok, mid);
+                        const chatOnly = mFrames.filter(
+                          (f) => f.type === "chat_message" || f.type === "chat_reply"
+                        );
+                        allFrames.push(...chatOnly);
+                      } catch { /* best-effort per member */ }
+                    }
+                    if (allFrames.length > 0) {
+                      seedRunChatTranscript(allFrames, false);
+                    }
+                    // Also seed the submittedBrief from the most recent member's
+                    // run detail (revision instruction) if not already set.
+                    const liveEntry = recentRuns.find((r) => r.id === runId);
+                    if (liveEntry?.input) {
+                      const parsed = (await import("@/lib/runInput")).parseRunInput(liveEntry.input);
+                      const brief = (parsed.revisionInstruction ?? parsed.brief ?? "").split("\n")[0].trim();
+                      if (brief) setSubmittedBrief(brief);
+                    }
+                  })
+                  .catch(() => { /* non-fatal */ });
+              }
+            }
             // Re-project the store viewport after replay to ensure a clean final
             // state snapshot reaches the UI (mirrors handleSwitchToLiveRun).
             runStore.switchViewTo(runId);
@@ -3273,21 +3356,21 @@ export default function DashboardPage({
       return;
     }
 
-    void handleSelectWorkflowRun({ id: runId } as WorkflowRun).catch((err) => {
-      // T24 (FR-009): same backstop shape as T7's catch above — the real
-      // ownership-failure handling lives inside handleSelectWorkflowRun's own
-      // try/catch (sets runAccessDenied, rendered as notFound() below); this
-      // outer catch is a defensive backstop for anything it doesn't reach.
-      console.error("cold-mount stream re-attach failed:", runId, err);
-    });
+    // FIX-298d note: we deliberately do NOT gate on runReplayInFlight here —
+    // doing so would unmount DashboardLayout during the async fetch, preventing
+    // the pipelineState.isRunning effect from firing router.push for revisions.
+    void handleSelectWorkflowRun({ id: runId } as WorkflowRun)
+      .catch((err) => {
+        // T24 (FR-009): handleSelectWorkflowRun's own try/catch already sets
+        // runAccessDenied on a 403/404 (rendered as notFound() below) and never
+        // rethrows, so this outer catch never actually sees a 403/404 — it's a
+        // defensive backstop for anything that throws outside that internal try.
+        console.error("cold-mount stream re-attach failed:", runId, err);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewPathKey, isAuthenticated, handleSelectWorkflowRun]);
 
   // T8 (015-frontend-routing, FR-011): same shape as T7, for the Composer.
-  // Unlike a reopened run, there is no existing page.tsx state for "the saved
-  // workflow being edited" to reuse — the click-driven analog (handleLaunchSaved)
-  // sets savedComposition INSIDE DashboardLayout directly. Fetch the saved row
-  // here and hand it down as initialSavedComposition instead.
   useEffect(() => {
     if (!isAuthenticated) return;
     const workflowId = workflowEditIdFor(parsedView);
@@ -3608,6 +3691,11 @@ export default function DashboardPage({
   ) {
     return null;
   }
+
+  // FIX-298d: the runReplayInFlight null gate was removed because it unmounted
+  // DashboardLayout during async fetches, blocking the pipelineState.isRunning
+  // effect that fires router.push for revision launches. DashboardLayout must
+  // always be mounted on run screens so its effects can respond to live SSE frames.
 
   // FIX-201 (KAN-168): use runStore.viewed.pipelineState as the single source of truth.
   // The store's handleFrame always populates map[runId].pipelineState correctly for

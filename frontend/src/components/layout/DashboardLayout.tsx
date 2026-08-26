@@ -469,19 +469,23 @@ export function DashboardLayout({
   const handlePreviewPanelTabSelect = useCallback((tab: string) => {
     if (!contentSourceRunId) return;
 
-    // Map PreviewPanel tab ids to routes
-    const routeMap: Record<string, string> = {
-      "preview": routes.runDetail(contentSourceRunId),
-      "thinking": routes.runSteps(contentSourceRunId),
-      "files": routes.runFiles(contentSourceRunId),
-      "audit": routes.runAudit(contentSourceRunId),
-    };
-
-    const targetRoute = routeMap[tab];
-    if (targetRoute) {
-      router.push(targetRoute);
-    }
-  }, [contentSourceRunId, router]);
+    // T9 (015-frontend-routing): tab clicks on an already-open run screen must
+    // NOT navigate to a sub-URL. Navigating causes a page remount which:
+    //   - For live/building runs: resets PreviewPanel's autoTabbedForState ref,
+    //     causing the state-keyed default to snap back to Steps immediately.
+    //   - For completed runs: resets autoTabbedForState, causing a snap back
+    //     to Preview regardless of which tab the user clicked.
+    //
+    // Sub-URL navigation (/runs/{id}/steps, /runs/{id}/files, etc.) is for
+    // COLD OPEN deep links — a user pasting a URL or sharing it. In-session
+    // tab clicks must be handled purely by PreviewPanel's own activeTab state.
+    //
+    // PreviewPanel's onTabSelect is wired here only so future analytics/
+    // observability can track tab changes. No routing side-effect needed.
+    // The deepLinkTarget seam (requestOpenTab) is the correct in-session path
+    // for programmatic tab switches (e.g. chat result-card clicks).
+    void tab; // acknowledged — no routing for in-session tab clicks
+  }, [contentSourceRunId]);
 
   // The app-level SSE connection — the sole run transport (44-06). Commands ride
   // its REST up-channel; useRunStream owns Last-Event-ID replay.
