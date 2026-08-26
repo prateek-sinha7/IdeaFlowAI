@@ -116,7 +116,7 @@ export function DesignSystemDetailModal({
               <span className="truncate text-[14px] font-semibold text-white">
                 {system.name}
               </span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-white/60 flex-shrink-0">
+              <span className="rounded-full border border-white/10 bg-surface-white/5 px-2 py-0.5 text-[10px] font-medium text-white/60 flex-shrink-0">
                 {system.category}
               </span>
               {system.has_preview && (
@@ -153,7 +153,7 @@ export function DesignSystemDetailModal({
                 type="button"
                 onClick={openInNewTab}
                 title="Open preview in new tab"
-                className="flex items-center justify-center rounded-[var(--radius-button)] border border-white/10 bg-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
+                className="flex items-center justify-center rounded-[var(--radius-button)] border border-white/10 bg-surface-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
               </button>
@@ -164,7 +164,7 @@ export function DesignSystemDetailModal({
               type="button"
               onClick={() => setFullscreen((v) => !v)}
               title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-              className="flex items-center justify-center rounded-[var(--radius-button)] border border-white/10 bg-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
+              className="flex items-center justify-center rounded-[var(--radius-button)] border border-white/10 bg-surface-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
             >
               {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
             </button>
@@ -173,7 +173,7 @@ export function DesignSystemDetailModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex items-center justify-center rounded-[var(--radius-button)] border border-white/10 bg-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
+              className="flex items-center justify-center rounded-[var(--radius-button)] border border-white/10 bg-surface-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
             >
               <X className="h-3.5 w-3.5" />
             </button>

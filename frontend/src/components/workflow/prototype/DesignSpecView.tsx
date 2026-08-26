@@ -16,7 +16,7 @@ export function DesignSpecView({ source }: DesignSpecViewProps) {
 
   if (source === undefined || source === null) {
     return (
-      <div className="flex h-full items-center justify-center text-[12px] text-gray-400">
+      <div className="flex h-full items-center justify-center text-[12px] text-ink-400">
         Loading spec…
       </div>
     );
@@ -42,10 +42,10 @@ function lineClass(line: string): string {
     const sizes = ["text-[15px] font-bold text-white", "text-[13px] font-bold text-white", "text-[12px] font-semibold text-gray-100", "text-[11.5px] font-semibold text-gray-200"];
     return sizes[Math.min(hashes - 1, 3)];
   }
-  if (/^>\s/.test(line)) return "text-gray-400 italic border-l-2 border-gray-600 pl-3";
+  if (/^>\s/.test(line)) return "text-ink-400 italic border-l-2 border-gray-600 pl-3";
   if (/^[-*+]\s/.test(line.trimStart())) return "text-gray-300";
-  if (/^\|.*\|\s*$/.test(line)) return "text-gray-400";
-  if (/^\s*```/.test(line)) return "text-gray-500";
+  if (/^\|.*\|\s*$/.test(line)) return "text-ink-400";
+  if (/^\s*```/.test(line)) return "text-ink-500";
   if (/^\s*$/.test(line)) return "h-3";
   return "text-gray-300";
 }

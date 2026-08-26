@@ -113,7 +113,7 @@ export function TemplateDetailModal({
                 type="button"
                 onClick={() => window.open(previewUrl, "_blank")}
                 title="Open in new tab"
-                className="flex items-center justify-center rounded-lg border border-white/10 bg-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
+                className="flex items-center justify-center rounded-lg border border-white/10 bg-surface-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
               </button>
@@ -124,7 +124,7 @@ export function TemplateDetailModal({
               type="button"
               onClick={fullscreen ? exitFullscreen : enterFullscreen}
               title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-              className="flex items-center justify-center rounded-lg border border-white/10 bg-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
+              className="flex items-center justify-center rounded-lg border border-white/10 bg-surface-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
             >
               {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
             </button>
@@ -134,7 +134,7 @@ export function TemplateDetailModal({
               type="button"
               onClick={onClose}
               title="Close"
-              className="flex items-center justify-center rounded-lg border border-white/10 bg-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
+              className="flex items-center justify-center rounded-lg border border-white/10 bg-surface-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -196,7 +196,7 @@ export function TemplateDetailModal({
                 {template.craft_required.map((rule) => (
                   <span
                     key={rule}
-                    className="rounded-full bg-white/5 border border-white/10 px-2 py-0.5 text-[9px] font-medium text-white/60"
+                    className="rounded-full bg-surface-white/5 border border-white/10 px-2 py-0.5 text-[9px] font-medium text-white/60"
                   >
                     {rule}
                   </span>
