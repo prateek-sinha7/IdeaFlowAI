@@ -19,8 +19,8 @@ modules_spanned:
 watched_files: 17
 code_signature: 15cc4228d074
 symbols_signature: 7bbab5fcd355
-prose_signature: f5de9563cf48
-prose_symbols_signature: e1936b1caf11
+prose_signature: 15cc4228d074
+prose_symbols_signature: 7bbab5fcd355
 last_synced: '2026-08-26'
 ---
 
@@ -165,10 +165,16 @@ flowchart TD
   `False`, meaning the caller re-raises without switching models.
 - **Client construction.** `build_model` resolves the provider chain (Anthropic key →
   Bedrock profile + region → Mistral), bridges `AWS_BEARER_TOKEN_BEDROCK` from pydantic
-  settings into the process env because botocore only reads it there, clamps the extended-
-  thinking budget below *this call's* `max_tokens`, and embeds the botocore read-timeout
-  and adaptive retries. `model_identifier` reads the id back off whichever client type
-  was built.
+  settings into the process env because botocore only reads it there, and embeds the
+  botocore read-timeout and adaptive retries. Extended thinking is type-specific:
+  `_thinking_type` returns `"adaptive"` for the `sonnet-5` / `opus-5` / `fable-5` /
+  `mythos-5` id fragments and `"enabled"` for everything else. The two client paths
+  differ in what they attach to it — Bedrock adds `budget_tokens`, clamped below *this
+  call's* `max_tokens`, ONLY for `"enabled"`, because an adaptive model rejects a budget
+  field; the Anthropic path sends `budget_tokens` unconditionally. When thinking is off
+  but the model is adaptive, both paths send `{"type": "disabled"}` explicitly, since
+  those models think by default. `model_identifier` reads the id back off whichever
+  client type was built.
 - **The agent path.** `DeepAgentRunner` builds the `create_deep_agent` graph and maps
   LangGraph's `astream_events` v2 stream onto the engine's vocabulary
   (`chunk` / `usage` / `tool_call` / `tool_result` / `done` / `gate` / `error`). Two local

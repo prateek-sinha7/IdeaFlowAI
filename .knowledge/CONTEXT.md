@@ -1,7 +1,7 @@
 ---
-built_from_commit: 087107d4c7f49ac4f58a2a5f875b2e9c1503f637
+built_from_commit: 247ee52190ddf8617e1e6454879689bbaab6eaa6
 built_at: 2026-08-17
-cards_indexed: 584
+cards_indexed: 596
 modules_indexed: 36
 ---
 
@@ -63,12 +63,12 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 
 | type | total | open/active |
 |---|---|---|
-| adr | 28 | 28 |
-| fix | 327 | 33 |
+| adr | 34 | 34 |
+| fix | 332 | 33 |
 | issue | 186 | 66 |
-| bug | 43 | 18 |
+| bug | 44 | 19 |
 
-**adr (28):**
+**adr (34):**
 - [ADR-0001](cards/20260727-ADR-0001.md) — That terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher
 - [ADR-0021](cards/20260806-ADR-0021.md) — Authentication moved to Amazon Cognito with group-based authorization, keeping the single-bearer browser seam
 - [ADR-0002](cards/20260811-ADR-0002.md) — That `workflow` is the only vocabulary the system knows and `pipeline` is removed rather than deprecated
@@ -95,8 +95,14 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 - [ADR-0024](cards/20260824-2100-ADR-0024.md) — On a 401 the REST client refreshes once first, and only treats the session as expired when that refresh fails
 - [ADR-0025](cards/20260825-1115-ADR-0025.md) — The composer canvas lays out a layered DAG by Sugiyama, hand-rolled, with measured card heights
 - [ADR-0026](cards/20260825-1600-ADR-0026.md) — A conditional gate publishes its declared outcomes as choices, and the human's chip click — not model prose — is what the route parses
+- [ADR-0030](cards/20260825-1943-ADR-0030.md) — Revision pipelines run the analyzer as step 0, declared by produces_solution_plan
 - [ADR-0027](cards/20260825-2115-ADR-0027.md) — A user override of a built-in overlays STEPS only, never the workflow-level fields
+- [ADR-0033](cards/20260825-2115-ADR-0033.md) — A user override binds a step list to a built-in workflow; the built-in manifest is never edited
 - [ADR-0028](cards/20260826-0124-ADR-0028.md) — Never regenerate a golden while the environment that produces it is degraded
+- [ADR-0029](cards/20260827-0054-ADR-0029.md) — ppt_v2 delivers the HTML deck, and render_pptx gates on its own verification
+- [ADR-0034](cards/20260827-0054-ADR-0034.md) — The pptx layout verifier bundles metric-compatible fonts so a measurement means the same on every machine
+- [ADR-0031](cards/20260827-0055-ADR-0031.md) — The run Workspace is grouped by a workflow-agnostic spine, not by workflow shape
+- [ADR-0032](cards/20260827-0055-ADR-0032.md) — A run that pauses asks first — the question and its actions open the card, the evidence sits beneath
 
 Start every card lookup at [INDEX.md](INDEX.md) — one line per card, each carrying a `compact_summary` that states the root cause or resolution. Match the query against those lines, then open only the handful of cards that matched. Never read or grep `cards/*.md` in bulk (see section 5).
 

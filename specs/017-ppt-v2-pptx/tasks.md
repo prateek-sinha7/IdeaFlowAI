@@ -16,10 +16,32 @@ flowchart LR
 
     %% STATUS — move a task id between these lines on completion. Never change
     %% a node's shape, never edit the classDefs.
-    class T1,V1,T2,T3,T4,V2,T5,T6,T7,T8,T9,V3 todo;
+    class T1,V1,T2,T3,T4,V2,T5,T6,T7,T8,T9,V3 done;
 ```
 
-**9 tasks · 3 checkpoints · NOT STARTED**
+**9 tasks · 3 checkpoints · DONE** — shipped in `bab17c0b9` (2026-08-27) and
+audited against the code the same day. 48 tests green across
+`test_pptx_tools.py`, `test_ppt_v2_manifest.py` and `test_verify_layout.py`;
+`PIPELINE_AGENTS['ppt_v2']` resolves to `['ppt-deck-qa-v2', 'ppt-code-generator']`
+at import and `ppt` is unchanged at `['ppt-brief-analyst', 'ppt-composer',
+'ppt-validator']`.
+
+**Two deviations from this task list, both deliberate — recorded rather than
+quietly absorbed:**
+
+1. **T3 said wrap `verify_layout.py` "unmodified". It was modified** (~+670
+   lines): the script now bundles metric-compatible fonts and indexes host fonts,
+   because measuring text on a machine without Calibri silently skipped half the
+   Office-safe set — see ADR-0034. The wrapping is still deterministic and the
+   exit-code contract is unchanged.
+2. **T4 said "the three keys". Four ship** — `screenshot_pptx` was added
+   alongside `render_pptx`, `verify_pptx_layout` and `extract_pptx_shapes`, to
+   answer "does this file open at all", which geometry alone cannot.
+
+**T9's premise was already stale when written:** `PIPELINE_AGENTS` is derived at
+import by `_discover_pipeline_agents()` reading workflow manifests off disk, so
+no hand edit to `registry.py` was needed. The task's outcome holds — a wizard
+launch reaches the engine — by a different route than described.
 
 ---
 
