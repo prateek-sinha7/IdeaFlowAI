@@ -219,6 +219,44 @@ class PreviousRunProvider:
             "previous_run: seeded parent reference files from run %s: %s",
             parent_run_id, ", ".join(seeded) or "(none found)",
         )
+
+        # ── Seed the parent run's uploads into this run's sandbox ────────────────
+        # When the user attached files on the parent run (or on a Concierge turn for
+        # the parent), .uploads/manifest.json + the .txt sidecars live in the parent
+        # sandbox. Copy them to the child sandbox so the uploaded_files context
+        # provider (which reads from ctx.runner.sandbox, the CURRENT run's sandbox)
+        # can surface them to agents that declare injects:[uploaded_files].
+        # Best-effort: a missing uploads manifest is normal (most runs have no uploads)
+        # and must never break a revision.
+        _UPLOADS_MANIFEST = ".uploads/manifest.json"
+        _UPLOADS_PREFIX = ".uploads/"
+        if sandbox is not None:
+            try:
+                manifest_raw = runner.read_parent_file(parent_run_id, _UPLOADS_MANIFEST)
+                if manifest_raw:
+                    import json as _json
+                    sandbox.write(_UPLOADS_MANIFEST, manifest_raw)
+                    entries = _json.loads(manifest_raw) if isinstance(manifest_raw, str) else []
+                    for entry in (entries if isinstance(entries, list) else []):
+                        if not isinstance(entry, dict) or not entry.get("has_text"):
+                            continue
+                        name = entry.get("name")
+                        if not isinstance(name, str) or not name:
+                            continue
+                        sidecar = f"{_UPLOADS_PREFIX}{name}.txt"
+                        try:
+                            text = runner.read_parent_file(parent_run_id, sidecar)
+                            if text:
+                                sandbox.write(sidecar, text)
+                        except Exception:  # noqa: BLE001
+                            pass
+                    logger.info(
+                        "previous_run: seeded .uploads/ from parent run %s",
+                        parent_run_id,
+                    )
+            except Exception:  # noqa: BLE001 — missing uploads is normal, never break revision
+                pass
+
         return {}
 
     # ── Existing-artifact seed (relocated from the kernel, CR-06) ───────────────

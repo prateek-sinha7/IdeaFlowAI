@@ -1431,41 +1431,15 @@ async def _dispose_concierge_proposal(
             )
             target = f"{base_type}_output"
         instruction = params.get("instruction", "")
-        # ── Tiered prototype classification via run_analyzer (Pieces 1/2/3) ──
-        # Apply the same analyzer as create_revision() so the Concierge revision
-        # path also routes to the correct manifest and seeds ectx.analyzer_solution.
-        _analyzer_solution = ""
+        # ── Tiered prototype classification via _classify_revision_tier ────────
+        # Lightweight one-word LLM classify selects the correct revision pipeline.
+        # The full analysis (## Solution Plan) is now produced by the engine as
+        # step 0 of the manifest (produces_solution_plan: true) — no app-layer
+        # run_analyzer call needed here (revision-pipeline-refactor).
         if target == "prototype_output":
-            from app.agents.revision_analyzer import run_analyzer  # noqa: PLC0415
-
-            # In the Concierge path, instruction is plain user text with no HTML
-            # markers. Source existing_html from the parent run's output column —
-            # identical to how _classify_revision_tier sourced it (Path 2 fallback).
-            _existing_html = ""
-            _db_html = _get_db()
-            try:
-                _parent_wr = (
-                    _db_html.query(WorkflowRun)
-                    .filter(WorkflowRun.id == run_id)
-                    .first()
-                )
-                if _parent_wr and _parent_wr.output:
-                    _existing_html = _parent_wr.output
-            finally:
-                _db_html.close()
-
-            # Pre-generate child_run_id so run_analyzer events land on the correct
-            # queue before the DB row is minted.
-            _child_run_id_pre = str(_uuid.uuid4())
-            _cancel_event_pre = asyncio.Event()
-            _CANCEL_EVENTS[_child_run_id_pre] = _cancel_event_pre
-            _event_queue_pre = _get_or_create_queue(_child_run_id_pre)
-
-            _tier, _analyzer_solution = await run_analyzer(
-                instruction=instruction,
-                existing_html=_existing_html,
-                event_queue=_event_queue_pre,
-                parent_run_id=run_id,
+            _tier = await _classify_revision_tier(
+                instruction,
+                run_id,
                 model_id=getattr(current_user, "preferred_model", None),
             )
             target = _REVISION_TIER_TARGET_MAP.get(_tier, "prototype_output")
@@ -1475,10 +1449,7 @@ async def _dispose_concierge_proposal(
                 f"{target.removesuffix('_output')}_revision",
                 run_id,
             )
-        else:
-            _child_run_id_pre = None
-            _cancel_event_pre = None
-            _event_queue_pre = None
+
         # ────────────────────────────────────────────────────────────────────
         # FIX-218: when files were attached on this Concierge turn, frame them as
         # supplementary reference material. The user's chat instruction always takes
@@ -1499,17 +1470,10 @@ async def _dispose_concierge_proposal(
             )
             instruction = file_section
 
-        # If the analyzer path ran, reuse the pre-generated child_run_id, cancel_event,
-        # and event_queue. Otherwise generate fresh ones now (non-prototype paths).
-        if _child_run_id_pre is not None:
-            child_run_id = _child_run_id_pre
-            cancel_event = _cancel_event_pre
-            event_queue = _event_queue_pre
-        else:
-            child_run_id = str(_uuid.uuid4())
-            cancel_event = asyncio.Event()
-            _CANCEL_EVENTS[child_run_id] = cancel_event
-            event_queue = _get_or_create_queue(child_run_id)
+        child_run_id = str(_uuid.uuid4())
+        cancel_event = asyncio.Event()
+        _CANCEL_EVENTS[child_run_id] = cancel_event
+        event_queue = _get_or_create_queue(child_run_id)
 
         rdb = _get_db()
         try:
@@ -1517,7 +1481,7 @@ async def _dispose_concierge_proposal(
                 rdb, user=current_user, parent_run_id=run_id,
                 target_artifact_type=target, instruction=instruction,
                 pipeline_run_id=child_run_id,
-                extra_agent_count=1 if _child_run_id_pre is not None else 0,
+                extra_agent_count=0,  # analyzer now runs as manifest step 0 (task 6.2)
             )
         finally:
             rdb.close()
@@ -1530,7 +1494,6 @@ async def _dispose_concierge_proposal(
                 user=current_user,
                 cancel_event=cancel_event,
                 event_queue=event_queue,
-                analyzer_solution=_analyzer_solution,
             )
         )
         _PIPELINE_TASKS[child_run_id] = task
@@ -3573,7 +3536,11 @@ async def _classify_revision_tier(
     try:
         from langchain_core.messages import HumanMessage
 
-        llm = build_model(model_id, max_tokens=10)  # one-word output — tiny budget
+        # One-word output — modest token ceiling. Thinking must be explicitly
+        # disabled: claude-sonnet-5 enables adaptive thinking by default and
+        # Bedrock rejects max_tokens=10 < thinking floor. disable_thinking=True
+        # passes {"type":"disabled"} so the classifier is a plain fast call.
+        llm = build_model(model_id, max_tokens=256, disable_thinking=True)
         logger.info(
             "_classify_revision_tier: classifying revision for parent=%s "
             "(html=%d chars, instruction=%r)",
@@ -3628,48 +3595,17 @@ async def create_revision(
     finally:
         db.close()
 
-    # Pre-generate the child run ID and queue so run_analyzer events land on the
-    # correct run ID before the DB row is minted (avoids the ordering constraint
-    # that event_queue requires child_run_id which requires _mint_revision_row).
-    child_run_id = str(_uuid.uuid4())
-    cancel_event = asyncio.Event()
-    _CANCEL_EVENTS[child_run_id] = cancel_event
-    event_queue = _get_or_create_queue(child_run_id)
-
-    # ── NEW: run the analyzer before tier classification ──────────────────────
-    # Only applies when the target is a prototype output — other revision types
-    # (user_stories, ppt) use their own existing pipelines unchanged.
+    # ── Tier classification (prototype_output only) ───────────────────────────
+    # For prototype revisions, run a lightweight one-word LLM call to select the
+    # correct pipeline tier (small / large / feature) before minting the child row.
+    # Other revision types (user_stories, ppt) use their own pipelines unchanged.
+    # The full analysis is produced by prototype-revision-analyzer as step 0 of
+    # the selected manifest (revision-pipeline-refactor).
     effective_target = body.target_artifact_type
-    analyzer_solution = ""
     if body.target_artifact_type == "prototype_output":
-        from agents.capabilities.context_providers.previous_run import (  # noqa: PLC0415
-            _extract_existing_artifact,
-        )
-        from app.agents.revision_analyzer import run_analyzer  # noqa: PLC0415
-
-        # Extract existing HTML from the instruction (REST path wraps it inside
-        # the instruction message with === EXISTING PROTOTYPE HTML === markers).
-        existing_html = _extract_existing_artifact(body.instruction) or ""
-
-        # If no HTML markers in instruction, fall back to parent run output.
-        if not existing_html:
-            db2 = _get_db()
-            try:
-                parent_wr = (
-                    db2.query(WorkflowRun)
-                    .filter(WorkflowRun.id == run_id)
-                    .first()
-                )
-                if parent_wr and parent_wr.output:
-                    existing_html = parent_wr.output
-            finally:
-                db2.close()
-
-        tier, analyzer_solution = await run_analyzer(
-            instruction=body.instruction,
-            existing_html=existing_html,
-            event_queue=event_queue,
-            parent_run_id=run_id,
+        tier = await _classify_revision_tier(
+            body.instruction,
+            run_id,
             model_id=getattr(current_user, "preferred_model", None),
         )
         effective_target = _REVISION_TIER_TARGET_MAP.get(tier, "prototype_output")
@@ -3681,9 +3617,13 @@ async def create_revision(
         )
     # ─────────────────────────────────────────────────────────────────────────
 
-    # Mint the revision row using the pre-generated child_run_id. Pass
-    # extra_agent_count=1 when the analyzer path ran (prototype_output) so the
-    # frontend progress bar accounts for the pre-mint Analyzer step.
+    # Allocate the child run ID and queue now that the tier is known.
+    child_run_id = str(_uuid.uuid4())
+    cancel_event = asyncio.Event()
+    _CANCEL_EVENTS[child_run_id] = cancel_event
+    event_queue = _get_or_create_queue(child_run_id)
+
+    # Mint the revision row using the pre-generated child_run_id.
     db = _get_db()
     try:
         _mint_revision_row(
@@ -3693,7 +3633,7 @@ async def create_revision(
             target_artifact_type=effective_target,
             instruction=body.instruction,
             pipeline_run_id=child_run_id,
-            extra_agent_count=1 if body.target_artifact_type == "prototype_output" else 0,
+            extra_agent_count=0,  # analyzer now runs as manifest step 0 (revision-pipeline-refactor)
         )
     finally:
         db.close()
@@ -3707,7 +3647,8 @@ async def create_revision(
             user=current_user,
             cancel_event=cancel_event,
             event_queue=event_queue,
-            analyzer_solution=analyzer_solution,
+            # analyzer_solution kwarg removed — engine populates ectx.analyzer_solution
+            # via the produces_solution_plan post-step hook (revision-pipeline-refactor)
         )
     )
     _PIPELINE_TASKS[child_run_id] = task
@@ -3724,7 +3665,6 @@ async def _drive_revision_to_queue(
     user: User,
     cancel_event: asyncio.Event,
     event_queue: asyncio.Queue,
-    analyzer_solution: str = "",
 ) -> None:
     """Run the revision engine and push every event into the per-run queue, owning
     the terminal-status persistence on ``workflow_run_id`` (never left "revising").
@@ -3744,24 +3684,9 @@ async def _drive_revision_to_queue(
         workflow_run_id, parent_run_id, _revision_pipeline_type, target_artifact_type,
     )
 
-    # ── Build the live_ectx_register wrapper ──────────────────────────────────
-    # When analyzer_solution is non-empty, wrap the standard register_live_ectx
-    # callback to atomically set ectx.analyzer_solution BEFORE the first agent step.
-    # This is the one place where the solution is wired into the ectx — no HTTP
-    # abort needed; the engine already wraps register failures in try/except.
-    if analyzer_solution:
-        def _ectx_register_with_solution(run_id: str, ectx: "Any") -> None:  # noqa: ANN001
-            try:
-                ectx.analyzer_solution = analyzer_solution
-            except Exception as _exc:  # noqa: BLE001
-                logger.warning(
-                    "Failed to set analyzer_solution on ectx for run=%s: %s",
-                    run_id, _exc,
-                )
-            register_live_ectx(run_id, ectx)
-        _live_reg = _ectx_register_with_solution
-    else:
-        _live_reg = register_live_ectx
+    # live_ectx_register is always the plain function — the analyzer_solution
+    # wrapper is removed because the engine now populates ectx.analyzer_solution
+    # via the produces_solution_plan post-step hook after the analyzer step runs.
 
     pipeline_complete_seen = False
     pipeline_failed_seen = False
@@ -3825,10 +3750,10 @@ async def _drive_revision_to_queue(
             # and pipeline_complete ("Delivered") cards are persisted for revision
             # runs — the same milestone_sink pattern _run_workflow_to_queue uses.
             milestone_sink=persist_milestone_card,
-            # Thread the live_ectx callbacks so the analyzer_solution wrapper
-            # (or the plain register function) fires at ectx construction time,
-            # before the first agent step. None → dormant (backward-compat).
-            live_ectx_register=_live_reg,
+            # live_ectx_register is the plain function — no wrapper needed now that
+            # the engine populates ectx.analyzer_solution via the
+            # produces_solution_plan post-step hook (revision-pipeline-refactor).
+            live_ectx_register=register_live_ectx,
             live_ectx_unregister=unregister_live_ectx,
         )
         _persist_terminal_status(

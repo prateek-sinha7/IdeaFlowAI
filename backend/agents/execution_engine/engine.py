@@ -2907,6 +2907,27 @@ class ExecutionEngine:
                 if results:
                     ectx.last_streamed = results[-1].get("output", "") or ""
 
+                # -- Post-step: extract solution plan if declared (revision-pipeline-refactor) --
+                # Declaration-driven hook (INV-1/SC-001): branches on the Step's boolean flag,
+                # never on agent id or pipeline name. Default False → DORMANT on all existing
+                # steps → INV-3 byte/event-identical on the 5 characterization goldens.
+                # Use the local ``step`` variable (the just-completed compiled Step) rather than
+                # ``ectx.current_step`` — the KernelServices.run_agent finally block restores
+                # ``ectx.current_step`` to ``prev_step`` (None for the first step) before this
+                # post-step check runs, so ``ectx.current_step`` is always None here.
+                if getattr(step, "produces_solution_plan", False):
+                    try:
+                        from app.agents.revision_analyzer import parse_analyzer_output  # noqa: PLC0415
+                        _raw = ectx.last_streamed or ""
+                        ectx.analyzer_solution = parse_analyzer_output(_raw)
+                        logger.debug("produces_solution_plan hook: solution_len=%d (run=%s)", len(ectx.analyzer_solution), ectx.run_id)
+                    except Exception as _psp_exc:  # noqa: BLE001
+                        logger.warning(
+                            "produces_solution_plan hook failed (%s) — ectx.analyzer_solution stays ''",
+                            _psp_exc,
+                        )
+                        ectx.analyzer_solution = ""
+
                 # ── [KAN-73] after_step hook firing ───────────────────────────────
                 # Fires AFTER the strategy loop and after ectx.last_streamed is
                 # refreshed, so hooks see the completed step's output. Non-blocking
@@ -7712,19 +7733,23 @@ class ExecutionEngine:
         # EXACTLY, never filtered (a plan↔registry mismatch raises RuntimeError
         # mid-dispatch). SC-001: the alias is data-derived above; no
         # workflow-name literal enters the kernel.
-        from agents.registry import get_pipeline_agents
-
-        agents = get_pipeline_agents(revision_pipeline_type)
-        if not agents:
-            # Pre-dispatch fail-fast for an unmapped target (RESEARCH Pitfall 7):
-            # without this, compile_for_run would FileNotFoundError mid-execute().
-            # The WS layer maps ValueError → revision_validation_error, so the FE
-            # gets an actionable message. SC-001: interpolates data only.
+        # revision-pipeline-refactor: pass agents=[] so execute() builds the agent
+        # roster from the compiled manifest steps via _specs_from_plan(compiled.steps).
+        # This is required because prototype-revision-analyzer declares
+        # pipeline_type: prototype_revision_analyzer (its own private type) and is
+        # therefore NOT in PIPELINE_AGENTS["prototype_revision"] — passing the
+        # registry list silently skips step 0 of the manifest.
+        # Validate the pipeline is registered (compile_for_run succeeds) as the
+        # fail-fast check instead of relying on an empty get_pipeline_agents() result.
+        try:
+            compile_for_run(revision_pipeline_type)
+        except Exception:
             raise ValueError(
                 f"No revision pipeline is registered for target_artifact_type "
                 f"{target_artifact_type!r} (derived pipeline "
                 f"{revision_pipeline_type!r})."
             )
+        agents: list = []
 
         # ── CR-02 (14 review fix): planner-flow pipelines are NOT revision-
         # dispatchable. The derived alias resolves ANY registered ``*_revision``
@@ -7978,6 +8003,22 @@ class ExecutionEngine:
                 except Exception:  # noqa: BLE001 — observability, never abort agent dispatch
                     pass
 
+            # ── Prototype HTML source chip for no-tools first agents (Concierge path) ─
+            # When ectx.revision_original_html is set and the first agent has no tools,
+            # Position 6 in _compose_context_message injects the HTML inline. Surface it
+            # as a source chip so "Context Received" reflects what was actually fed.
+            # INV-1/SC-001: keyed on generic ectx fields and spec.tools, never on
+            # agent id or pipeline name. context_sources is in _VOLATILE_STRIP_KEYS
+            # so INV-3 golden parity holds.
+            _rev_html = getattr(ectx, "revision_original_html", "") or ""
+            _s_tools = list(getattr(spec, "tools", []) or [])
+            if _rev_html and not _s_tools:
+                sources.append({
+                    "type": "context_block",
+                    "label": "prototype.html",
+                    "size_chars": len(_rev_html),
+                })
+
         # ── Prior-agent outputs (inter-agent handoff sources) ─────────────────────
         consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)
         for aid, output in consumed.items():
@@ -7989,6 +8030,23 @@ class ExecutionEngine:
                 "summary_length": len(output),
                 "full_output_length": len(output),
             })
+
+        # ── Revision analysis (additive, INV-1 / SC-001 compliant) ───────────────
+        # When ectx.analyzer_solution is non-empty (set by the produces_solution_plan
+        # post-step hook after the analyzer step), downstream agents receive a
+        # === REVISION ANALYSIS === block in their context. Surface it as a source
+        # chip so "Context Received" is never empty on a revision run.
+        # Keyed on ectx.analyzer_solution truthiness only — no agent_id / pipeline
+        # name branch (SC-001). context_sources is in _VOLATILE_STRIP_KEYS so INV-3
+        # golden parity holds.
+        _analyzer_solution = getattr(ectx, "analyzer_solution", "") or ""
+        if _analyzer_solution and not is_first_agent:
+            sources.append({
+                "type": "context_block",
+                "label": "Revision Analysis",
+                "size_chars": len(_analyzer_solution),
+            })
+
         return sources
 
     def _load_disk_skills(self, agents: list, user_id: str | None) -> dict[str, str]:
@@ -10565,6 +10623,33 @@ class ExecutionEngine:
                 f"\n=== REVISION ANALYSIS ===\n{_analyzer_solution}\n"
                 "=== END REVISION ANALYSIS ==="
             )
+
+        # ── Position 6 — Prototype HTML injection for no-tools first agents ─────
+        # On the Concierge revision path the previous_run provider slims the
+        # user_message to a file pointer ("Call read_file to read it before editing")
+        # because file-capable agents use their tools. A no-tools agent (tools=[])
+        # cannot call read_file, so it never sees the HTML content.
+        # This seam injects the seeded prototype directly when ALL three conditions hold:
+        #   a) ectx.revision_original_html is non-empty (previous_run seeded it)
+        #   b) spec.tools is empty (the agent has no file-reading tools)
+        #   c) ectx.analyzer_solution is empty (this IS the analyzer step — not a
+        #      downstream agent that should use the analysis instead)
+        # Declaration-driven (INV-1/SC-001): keyed on generic ectx fields and
+        # spec.tools, never on agent id or pipeline name. Default "" → DORMANT on
+        # every tool-using agent and every non-revision run → INV-3 byte-parity holds.
+        _revision_html = getattr(ectx, "revision_original_html", "") or ""
+        _spec_tools = list(getattr(spec, "tools", []) or [])
+        _revision_instruction = getattr(ectx, "revision_instruction", None) or ""
+        if _revision_html and not _spec_tools and not _analyzer_solution:
+            parts.append(
+                f"\n=== CURRENT PROTOTYPE HTML ===\n{_revision_html}\n"
+                "=== END CURRENT PROTOTYPE HTML ==="
+            )
+            if _revision_instruction:
+                parts.append(
+                    f"\n=== REVISION INSTRUCTION ===\n{_revision_instruction}\n"
+                    "=== END REVISION INSTRUCTION ==="
+                )
 
         # ── Build agent: the CURRENT TASK block + current HTML (agnostic scratch) ─
         if ectx.build_task_number:
