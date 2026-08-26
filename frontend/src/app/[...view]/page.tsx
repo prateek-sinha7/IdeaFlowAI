@@ -3079,7 +3079,25 @@ export default function DashboardPage({
     if (runConnection.liveRunIds.includes(runId)) {
       activelyBuildingRunIdRef.current = runId;
       trackedRunIdRef.current = runId;
-      return;
+      // NO early return. Re-seeding the refs restores which run this tab drives,
+      // but it restores no DATA — and this effect's remount wiped all of it
+      // (contentSourceRunType, questionnaireData, pipelineState are page-local
+      // useState). The original `return` here relied on "subsequent live frames
+      // rebuild pipelineState as they arrive", which is true only for a run that
+      // is still emitting. A run parked at waiting_for_user emits NOTHING: its
+      // questionnaire_ready already fired before the tab click, so clicking Steps
+      // on a clarifying run left the screen with no clarify panel, no type (so
+      // PreviewPanel's fallback chain bottomed out at "user_stories" and a PPT run
+      // rendered as "USER STORIES" / user-stories.md), and no way to answer the
+      // gate — the run became unreachable from the UI. Reproduced live on a ppt
+      // run at waiting_for_user.
+      //
+      // Falling through to handleSelectWorkflowRun is safe HERE specifically: the
+      // launch-race this shortcut was protecting against belongs to /runs/{id}/stream,
+      // which is T11's effect and is excluded from `reopenedRunIdFor` by design.
+      // Nothing pushes /steps|/files|/audit at launch time, so the run this branch
+      // sees has always been committed. T11 keeps its own return — it does the
+      // durable replay inline instead.
     }
 
     const tab = reopenTabFor(parsedView.screen);
@@ -3197,7 +3215,12 @@ export default function DashboardPage({
       try {
         const persistedBrief = sessionStorage.getItem(`run_brief:${runId}`);
         if (persistedBrief) setSubmittedBrief(persistedBrief);
-      } catch { /* non-fatal — brief just stays blank */ }
+        // The type the launch stashed (see the launch .then() below). Without it
+        // this remount leaves contentSourceRunType null and PreviewPanel's
+        // fallback chain renders every freshly launched run as "USER STORIES".
+        const persistedType = sessionStorage.getItem(`run_type:${runId}`);
+        if (persistedType) setContentSourceRunType(persistedType as WorkflowType);
+      } catch { /* non-fatal — brief/type just stay blank */ }
       return;
     }
 
@@ -3720,7 +3743,17 @@ export default function DashboardPage({
             // sessionStorage survives the remount and needs no network call.
             try {
               sessionStorage.setItem(`run_brief:${launchedRunId}`, _cleanBrief || "");
-            } catch { /* non-fatal — brief just stays blank after the remount */ }
+              // Same channel, same reason, for the run's TYPE. The launch above
+              // deliberately clears contentSourceRunType (a new run must not show
+              // the previous one's renderer) and nothing on the launch path ever
+              // sets it again — only handleSelectWorkflowRun does, and a launch
+              // never goes through it. PreviewPanel's detectedType fallback chain
+              // therefore bottomed out at "user_stories", so a freshly launched PPT
+              // run rendered its header as "USER STORIES" with a user-stories.md
+              // summary until something else happened to set the type. Reproduced
+              // live on a ppt launch.
+              sessionStorage.setItem(`run_type:${launchedRunId}`, type || "");
+            } catch { /* non-fatal — brief/type just stay blank after the remount */ }
             // KAN-125 LAUNCH-ORDER FIX — only update the critical routing refs if
             // this is STILL the most recently clicked launch (launchCounterRef
             // advances on each new click, so an out-of-order .then() that fires

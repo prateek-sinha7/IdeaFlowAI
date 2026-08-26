@@ -6,7 +6,15 @@ import {
   ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip,
   Mic, MicOff, X, File, Settings2, Save, Image as ImageIcon, ArrowLeft,
 } from "lucide-react";
-import { getToken, extractFileText, createUserWorkflow, handleSessionExpiry } from "@/lib/api";
+import {
+  getToken,
+  extractFileText,
+  createUserWorkflow,
+  handleSessionExpiry,
+  getWorkflowDetail,
+  setWorkflowOverrideEnabled,
+} from "@/lib/api";
+import { agentsFromManifest } from "@/lib/manifestAgents";
 import { buildLoginRedirect } from "@/lib/authRedirect";
 import { routes } from "@/lib/routes";
 import { agentMatchesPipelineType } from "@/lib/workflowIcons";
@@ -39,7 +47,7 @@ import {
 import type { CustomDesignSystem } from "@/components/workflow/prototype/CustomDesignSystemModal";
 import type { CustomTemplate } from "@/components/workflow/prototype/CustomTemplateModal";
 import type { AgentDef } from "@/types/index";
-import { collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflows";
+import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflows";
 
 /**
  * LaunchWizard (plan 37-07) — the ONE unified deliverable-launch page. It
@@ -171,6 +179,32 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
 
   const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => defaultAgentsFor(libraryAgents, initialMode));
 
+  // ── Spec 016: this user's saved override of the built-in ────────────────────
+  // OVERLAY, never replace. `pipelineAgents`'s initial value above stays the
+  // library roster: swapping its source wholesale would change this screen for
+  // every user, override or not, and the two sources are not guaranteed to agree
+  // (the library sorts by AGENT.md `order`; a manifest is the compiled sequence).
+  // The effect below returns early unless an ENABLED override exists, so a user
+  // without one sees a byte-identical screen having issued one extra GET.
+  const [overrideInfo, setOverrideInfo] = useState<{
+    id: string;
+    enabled: boolean;
+  } | null>(null);
+  // The override's rows + declared gates, fetched once and held so toggling the
+  // checkbox is instant and does not re-hit the API.
+  const [overrideAgents, setOverrideAgents] = useState<AgentDef[] | null>(null);
+  const [overrideSelections, setOverrideSelections] = useState<
+    Record<string, Record<string, unknown>> | undefined
+  >(undefined);
+  const [showOverride, setShowOverride] = useState(false);
+  // The built-in's DECLARED run config, so the Advanced rail shows what this
+  // workflow actually does instead of CanvasView's blank-canvas defaults.
+  // Read-only — no onRunConfigChange is forwarded, so nothing here is editable
+  // or sent; it exists purely so the panel stops misreporting.
+  const [declaredRunConfig, setDeclaredRunConfig] = useState<
+    import("@/types/index").WorkflowRunConfig | undefined
+  >(undefined);
+
   const selectionsRef = useRef<Record<string, Record<string, unknown>>>({});
   const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: false });
 
@@ -269,6 +303,114 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     setPipelineAgents(defaultAgentsFor(libraryAgents, mode));
   }, [libraryAgents, mode]);
 
+  // ── Spec 016: fetch this user's override of the built-in, if any ────────────
+  // Additive. `is_overridden` is false for every user who has never saved one,
+  // so this returns before touching any state and the screen is unchanged.
+  useEffect(() => {
+    if (!authChecked) return;
+    const token = getToken();
+    if (!token) return;
+    const pipeline = MODE_CONFIG[mode].agentPipeline;
+    let cancelled = false;
+    // Reset first: switching Web <-> Deck changes which built-in we are asking
+    // about, and a stale override from the other family must not survive.
+    setOverrideInfo(null);
+    setOverrideAgents(null);
+    setOverrideSelections(undefined);
+    setShowOverride(false);
+
+    setDeclaredRunConfig(undefined);
+
+    getWorkflowDetail(token, pipeline)
+      .then((detail) => {
+        if (cancelled) return;
+        // Declared config first — it is true whether or not an override exists,
+        // and the override branch below returns early when there is none.
+        setDeclaredRunConfig({
+          deliverable: {
+            strategy: detail.deliverable?.strategy ?? "streamed_text",
+            name: detail.deliverable?.name ?? "output.md",
+          },
+          // The API types these as plain strings; the composer's config model
+          // narrows them. Both are closed sets server-side, so a mismatch means
+          // a new manifest value the composer does not model yet — fall back to
+          // the safe reading rather than rendering something invented.
+          planner: detail.planner === "run" ? "run" : "skip",
+          clarify: {
+            mode: detail.clarify_mode === "auto" ? "auto" : "skip",
+            defaults: detail.clarify_defaults ?? [],
+          },
+        });
+        if (!detail.has_override || !detail.override_id) return;
+        setOverrideInfo({ id: detail.override_id, enabled: !!detail.is_overridden });
+        // `detail` already carries the override's steps whenever it is enabled,
+        // so no second request. When it is saved-but-off the payload is the
+        // system version; the rows are fetched on demand when the box is ticked.
+        if (detail.is_overridden) {
+          const proj = agentsFromManifest(detail, pipeline);
+          setOverrideAgents(proj.agents);
+          setOverrideSelections(proj.selections);
+          setShowOverride(true);
+          if (proj.agents.length > 0) setPipelineAgents(proj.agents);
+          if (proj.selections) selectionsRef.current = proj.selections;
+        }
+      })
+      .catch(() => {
+        // A workflow with no manifest, or a transient failure. The library
+        // roster is already rendered — degrade to "no override", never blank
+        // the screen over an optional enhancement.
+      });
+    return () => { cancelled = true; };
+  }, [authChecked, mode]);
+
+  /** Flip between the override's steps and the system ones (spec 016 T8). */
+  const handleToggleOverride = useCallback(
+    async (next: boolean) => {
+      if (!overrideInfo) return;
+      const token = getToken();
+      if (!token) return;
+      setShowOverride(next);
+
+      if (!next) {
+        // Back to the system version — the library roster, exactly as a user
+        // with no override sees it.
+        setPipelineAgents(defaultAgentsFor(libraryAgents, mode));
+        selectionsRef.current = {};
+      } else if (overrideAgents) {
+        setPipelineAgents(overrideAgents);
+        selectionsRef.current = overrideSelections ?? {};
+      } else {
+        // Saved-but-off at mount, so the rows were never fetched. Enable the row
+        // first, then read back the payload the server now serves as overridden.
+        try {
+          await setWorkflowOverrideEnabled(token, overrideInfo.id, true);
+          const detail = await getWorkflowDetail(token, MODE_CONFIG[mode].agentPipeline);
+          const proj = agentsFromManifest(detail, MODE_CONFIG[mode].agentPipeline);
+          setOverrideAgents(proj.agents);
+          setOverrideSelections(proj.selections);
+          if (proj.agents.length > 0) setPipelineAgents(proj.agents);
+          selectionsRef.current = proj.selections ?? {};
+          setOverrideInfo({ ...overrideInfo, enabled: true });
+          return;
+        } catch {
+          setShowOverride(false);
+          return;
+        }
+      }
+
+      // Persist the choice so the detail page and the RUN agree with what is on
+      // screen — a view-only toggle would let the page show one plan while the
+      // launch executed the other.
+      try {
+        await setWorkflowOverrideEnabled(token, overrideInfo.id, next);
+        setOverrideInfo({ ...overrideInfo, enabled: next });
+      } catch {
+        /* the roster already reflects the choice; the flag retries on next toggle */
+      }
+    },
+    [overrideInfo, overrideAgents, overrideSelections, libraryAgents, mode],
+  );
+
   // Load both template families + the design-system registry once authed.
   useEffect(() => {
     if (!authChecked) return;
@@ -351,16 +493,25 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     gateSelectionRef.current = { ids: [], touched: false };
   }, [libraryAgents]);
 
-  const handleAddAgent = useCallback((agent: AgentDef) => {
+  const handleAddAgent = useCallback((agent: AgentDef, insertBeforeId?: string) => {
     setPipelineAgents((prev) => {
       // Reusable blank template — mint a fresh instance id per add (R-03).
       const node = instantiateIfTemplate(agent, collectAgentIds(prev));
       if (prev.find((a) => a.id === node.id)) return prev;
       if (prev.filter((a) => !defaultAgentIds.has(a.id)).length >= 5) return prev;
-      const insertIdx = prev.length > 0 ? prev.length - 1 : 0;
+      // Land the new node where the user clicked. `insertBeforeId` names the
+      // agent it should go IN FRONT OF, so index 0 prepends — which is the whole
+      // point of the canvas's head "+".
+      //
+      // This used to be `prev.length - 1` unconditionally: every add landed
+      // second-to-last regardless of which "+" was clicked, so prepending was
+      // impossible even once the affordance existed.
+      const at = insertBeforeId ? prev.findIndex((a) => a.id === insertBeforeId) : -1;
+      const insertIdx = at >= 0 ? at : prev.length;
       const updated = [...prev];
       updated.splice(insertIdx, 0, { ...node, order: insertIdx + 1 });
-      return updated;
+      // Keep `order` contiguous after a splice — it drives the display sequence.
+      return updated.map((a, i) => ({ ...a, order: i + 1 }));
     });
   }, [defaultAgentIds]);
 
@@ -504,6 +655,49 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       setSaveError((e as Error)?.message ?? "Failed to save workflow.");
     }
   }, [mode, selectedTemplateId, selectedDsId, dsRequired, brief, customDsBody, customTemplateBody, pipelineAgents]);
+
+  /**
+   * Save the current lineup as THIS USER'S version of the built-in (spec 016).
+   *
+   * Distinct from "Save workflow" above, which creates a separate saved
+   * workflow and leaves the built-in alone. This one binds to the built-in via
+   * `overrides_pipeline_type`, and the server UPSERTS on it — so saving twice
+   * updates the same row rather than 409ing on the name.
+   *
+   * Sends `manifest`, never `selections`: the override resolve reads
+   * `manifest_json["steps"]`, and a selections map has no steps in it, so a
+   * selections-shaped save would store a row that silently never applies. The
+   * two fields are mutually exclusive server-side (422), which is why this is a
+   * separate call rather than an extra field on the one above.
+   */
+  const handleSaveAsOverride = useCallback(async () => {
+    setSaveError(null);
+    const jwt = getToken();
+    if (!jwt) { setSaveError("Not authenticated."); return; }
+    const pipeline = MODE_CONFIG[mode].savePipeline;
+    try {
+      const saved = await createUserWorkflow(jwt, {
+        name: `My ${cfg.eyebrow.replace(/^New /, "")}`,
+        description: "Your saved version of this workflow.",
+        base_pipeline_type: pipeline,
+        agent_ids: pipelineAgents.map((a) => a.id),
+        manifest: buildWorkflowManifest(
+          pipelineAgents,
+          undefined,
+          selectionsRef.current,
+        ) as unknown as Record<string, unknown>,
+        overrides_pipeline_type: pipeline,
+      });
+      setOverrideInfo({ id: saved.id, enabled: true });
+      setOverrideAgents(pipelineAgents);
+      setOverrideSelections(selectionsRef.current);
+      setShowOverride(true);
+      setSavedConfirm(true);
+      setTimeout(() => setSavedConfirm(false), 2500);
+    } catch (e) {
+      setSaveError((e as Error)?.message ?? "Failed to save your version.");
+    }
+  }, [mode, cfg.eyebrow, pipelineAgents]);
 
   const handleLaunch = useCallback(() => {
     if (!canContinue) return;
@@ -834,6 +1028,20 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
               <Save className="h-4 w-4" />
               Save workflow
             </button>
+            {/* Spec 016 — bind this lineup to the built-in so it is what THIS
+                user gets whenever they open it. Separate from "Save workflow",
+                which creates an unrelated saved copy; the two produce different
+                rows and a silent mode is how someone overwrites what they meant
+                to fork. */}
+            <button
+              type="button"
+              onClick={handleSaveAsOverride}
+              title="Make this lineup your default for this workflow"
+              className="flex flex-shrink-0 items-center gap-2 rounded-[var(--radius-card)] border border-line-border bg-surface-white px-5 py-4 text-[14px] font-semibold text-ink-700 shadow-[var(--elevation-raised)] transition-all hover:border-line-control hover:bg-surface-warm"
+            >
+              <Save className="h-4 w-4" />
+              Save as my version
+            </button>
             <button
               type="button"
               onClick={handleLaunch}
@@ -848,6 +1056,12 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       </main>
 
       <AgentsPopup
+        // A built-in's lineup — whether run directly or saved as this user's
+        // override — may only contain agents that exist as files on disk. The
+        // blank template mints a `custom-agent:<instance_id>` step the launch
+        // ingress rejects as an invalid agent id for this pipeline, so it is
+        // offered only on the composer canvas, never here.
+        allowCustomAgentTemplate={false}
         // ISS-167: AgentsPopup seeds its live selections from `initialSelections`
         // ONCE at mount (a useState initializer, not reactive to prop changes) —
         // so on a reopened saved workflow, remount it the moment the draft
@@ -876,6 +1090,13 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         }}
         agents={pipelineAgents}
         pipelineType={MODE_CONFIG[mode].agentPipeline}
+        // Spec 016 — both undefined unless this user saved an override of this
+        // built-in, in which case the modal renders a checkbox that swaps the
+        // roster between their version and the system one.
+        runConfig={declaredRunConfig}
+        overrideAvailable={overrideInfo !== null}
+        overrideActive={showOverride}
+        onToggleOverride={overrideInfo ? handleToggleOverride : undefined}
         onAddAgent={handleAddAgent}
         onRemoveAgent={handleRemoveAgent}
         onReorder={handleReorderAgents}

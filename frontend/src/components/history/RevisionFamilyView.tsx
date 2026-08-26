@@ -469,9 +469,14 @@ function DivertBadge({ link, onSelectRun }: { link: DivertLink; onSelectRun: (ru
   const shortNameFor = useWorkflowShortNames();
   const otherLabel = resolveWorkflowTypeLabel(link.other.type, shortNameFor);
   const Icon = link.direction === "source" ? GitBranch : CornerUpLeft;
+  // The step clause (T41/T42) is threaded all the way here — `buildDivertLinks`
+  // sets `stepId` from the source run's persisted `divertedAtStepId` — but the
+  // render dropped it, so a target card could not say WHERE the parent branched.
+  // Omitted when genuinely absent (a pre-migration historical row).
+  const stepClause = link.stepId ? `, step ${link.stepId}` : "";
   const text = link.direction === "source"
     ? `Diverted to ${otherLabel} →`
-    : `← Continued from ${otherLabel}`;
+    : `← Continued from ${otherLabel}${stepClause}`;
   return (
     <button
       type="button"

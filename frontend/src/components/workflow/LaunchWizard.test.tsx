@@ -33,6 +33,19 @@ vi.mock("@/lib/api", () => ({
   extractFileText: vi.fn(),
   createUserWorkflow: (...args: unknown[]) => createUserWorkflowMock(...args),
   saveUserWorkflow: (...args: unknown[]) => saveUserWorkflowMock(...args),
+  // Spec 016 — the wizard asks whether THIS user has saved an override of the
+  // built-in. Answering "no override" keeps every assertion in this file on the
+  // un-overridden path, which is the point: they pin the existing behaviour as
+  // unchanged for a user who has not opted in.
+  getWorkflowDetail: vi.fn().mockResolvedValue({
+    id: "ppt",
+    steps: [],
+    manifest_steps: null,
+    has_override: false,
+    is_overridden: false,
+    override_id: null,
+  }),
+  setWorkflowOverrideEnabled: vi.fn().mockResolvedValue({}),
 }));
 vi.mock("@/lib/prototype-api", () => ({
   listPrototypeTemplates: vi.fn().mockResolvedValue([

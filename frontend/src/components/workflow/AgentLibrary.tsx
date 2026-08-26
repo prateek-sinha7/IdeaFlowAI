@@ -33,6 +33,20 @@ interface AgentLibraryProps {
   currentPipelineType?: string;
   canAddMore?: boolean;
   existingAgentIds?: string[];
+  /**
+   * Offer the blank `custom-agent` template? Default true (the composer canvas,
+   * where a user-defined step is the whole point).
+   *
+   * The LaunchWizard passes false. A step added there ends up in a run of a
+   * BUILT-IN — either directly or through a saved override — and a blank
+   * template compiles to a dynamic `custom-agent:<instance_id>` id that has no
+   * AGENT.md on disk and is absent from the static roster the launch's
+   * `agent_ids` allow-list is built from. Such a run is rejected at ingress with
+   * `invalid_agent_ids` (reproduced live on a ppt override carrying one), so
+   * offering the template there advertises a step that can be saved and drawn
+   * but never run. An override may only reuse agents that exist as files.
+   */
+  allowCustomAgentTemplate?: boolean;
 }
 
 const CATEGORIES_FALLBACK = [
@@ -63,6 +77,7 @@ function getInitials(name: string): string {
 export function AgentLibrary({
   isOpen, onClose, onAddAgent, onAddAsSubAgent, subAgentParentName,
   onSkillsChange, currentPipelineType, canAddMore = true, existingAgentIds = [],
+  allowCustomAgentTemplate = true,
 }: AgentLibraryProps) {
   // Fetch agents from Redux (populated by GET /api/agents/library via listenerMiddleware)
   const { allAgents: ALL_AGENTS } = useAgentLibrary();
@@ -98,7 +113,8 @@ export function AgentLibrary({
     const notAlreadyAdded =
       isCustomAgentTemplate(agent) || !existingAgentIds.includes(agent.id);
     const notHidden = currentPipelineType !== "custom" || !HIDDEN_FROM_CUSTOM.has(agent.id);
-    return matchesCategory && matchesSearch && notAlreadyAdded && notHidden;
+    const templateAllowed = allowCustomAgentTemplate || !isCustomAgentTemplate(agent);
+    return matchesCategory && matchesSearch && notAlreadyAdded && notHidden && templateAllowed;
   }).sort((a, b) => {
     // Sort beta workflows to the end
     const aPt = getPrimaryPipelineType(a.pipeline_type);
@@ -111,6 +127,9 @@ export function AgentLibrary({
 
   const categoryCounts: Record<string, number> = { all: 0 };
   ALL_AGENTS.forEach((a) => {
+    // Mirror the list's own template gate, or the Custom badge counts a card
+    // the user cannot see.
+    if (!allowCustomAgentTemplate && isCustomAgentTemplate(a)) return;
     if (isCustomAgentTemplate(a) || !existingAgentIds.includes(a.id)) {
       categoryCounts.all = (categoryCounts.all || 0) + 1;
       const pt = getPrimaryPipelineType(a.pipeline_type);

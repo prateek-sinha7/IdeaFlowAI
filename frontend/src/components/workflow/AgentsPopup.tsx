@@ -29,7 +29,7 @@ import {
   type AgentPromptData,
 } from "@/lib/api";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
-import type { AgentDef, WorkflowType, AttachedHook, AgentToolGrants } from "@/types/index";
+import type { AgentDef, WorkflowType, AttachedHook, AgentToolGrants, WorkflowRunConfig } from "@/types/index";
 import { useHooksCatalog } from "@/hooks/useHooksCatalog";
 import { useSkillsCatalog } from "@/hooks/useSkillsCatalog";
 import { AgentSkillsPicker } from "@/components/workflow/composer/AgentSkillsPicker";
@@ -61,9 +61,43 @@ interface AgentsPopupProps {
   userWorkflowId?: string;
   savedName?: string;
   savedDescription?: string;
+  /**
+   * Spec 016 — this user has saved their OWN version of this built-in workflow.
+   * When true the header renders a checkbox that swaps `agents` between their
+   * version and the system one. Absent (the default) for every user who has
+   * never saved an override, and for every caller that has not wired this up —
+   * the header then renders exactly as before.
+   */
+  /**
+   * The workflow's DECLARED run config (deliverable / planner / clarify), from
+   * `GET /api/workflows/{id}`. Read-only here — no `onRunConfigChange` is
+   * forwarded, so the rail's controls stay disabled exactly as before.
+   *
+   * Without it the rail fell back to CanvasView's blank-canvas defaults and
+   * told every user that ppt outputs `streamed_text`/`output.md` with planning
+   * and clarify off, when its manifest declares `ppt`/`presentation.pptx`,
+   * `planner: run` and `clarify: auto`. Four wrong values on a read-only panel.
+   */
+  runConfig?: WorkflowRunConfig;
+  overrideAvailable?: boolean;
+  /** Whether the override is currently the one being shown AND the one that
+   *  will run. Persisted server-side, not view-local: a display-only toggle
+   *  would let this modal show one plan while the launch executed another. */
+  overrideActive?: boolean;
+  onToggleOverride?: (next: boolean) => void;
   agents: AgentDef[];
   pipelineType: WorkflowType;
-  onAddAgent?: (agent: AgentDef) => void;
+  /** `insertBeforeId` is the root agent the new one should land IN FRONT OF —
+   *  reported by the canvas's "+" affordances (including the head one, between
+   *  the Brief pill and step 1). Omitted ⇒ append. A caller that ignores the
+   *  second argument keeps its previous append-only behaviour. */
+  /**
+   * Offer the blank `custom-agent` template in the agent library? Default true.
+   * The LaunchWizard passes false — see AgentLibrary.allowCustomAgentTemplate
+   * for why a file-less step cannot be launched inside a built-in.
+   */
+  allowCustomAgentTemplate?: boolean;
+  onAddAgent?: (agent: AgentDef, insertBeforeId?: string) => void;
   onRemoveAgent?: (agentId: string) => void;
   onReorder?: (agents: AgentDef[]) => void;
   canAddMore?: boolean;
@@ -2154,9 +2188,11 @@ export function AdvancedExpander({
 export function AgentsPopup({
   isOpen, onClose, onOpenInCanvas, debugLabel, agents, pipelineType,
   onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
+  allowCustomAgentTemplate = true,
   onSelectionsChange, initialSelections,
   declaredCapabilities,
   userWorkflowId, savedName, savedDescription,
+  overrideAvailable, overrideActive, onToggleOverride, runConfig,
 }: AgentsPopupProps) {
   const { attachedHooks } = useSkillsHooks();
   const workflows = useAppSelector((state) => state.global.workflows);
@@ -2178,6 +2214,11 @@ export function AgentsPopup({
   // set by onRequestAddSubAgent, consumed by addSubAgent, cleared whenever
   // the library closes without a pick.
   const [subAgentParentId, setSubAgentParentId] = useState<string | null>(null);
+  // Where the canvas "+" that opened the library wants the new node to land.
+  // CanvasView reports it; without holding it here the argument was dropped on
+  // the floor and every add appended, so a mid-chain "+" (and the head one) put
+  // the agent somewhere the user did not click.
+  const [insertBeforeId, setInsertBeforeId] = useState<string | undefined>(undefined);
 
   // ── Save-to-catalogue (Phase 21 / ND-12) ──────────────────────────────────
   // The footer "Save workflow" persists the composed workflow to the OWNER-scoped
@@ -2317,6 +2358,26 @@ export function AgentsPopup({
                   ) : null}
                 </h2>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {/* Spec 016 — swap between this user's saved override and the
+                      system workflow. Only rendered when an override exists. */}
+                  {overrideAvailable && onToggleOverride && (
+                    <label
+                      title={
+                        overrideActive
+                          ? "Showing your saved version. Untick to use the original."
+                          : "Showing the original. Tick to use your saved version."
+                      }
+                      className="h-7 px-2.5 flex items-center gap-1.5 rounded-lg border border-line-border text-[11px] font-medium text-ink-600 hover:bg-surface-warm hover:text-ink-900 transition-all cursor-pointer select-none"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!!overrideActive}
+                        onChange={(e) => onToggleOverride(e.target.checked)}
+                        className="h-3 w-3 accent-brand cursor-pointer"
+                      />
+                      Use my version
+                    </label>
+                  )}
                   {onOpenInCanvas && (
                     <button
                       type="button"
@@ -2391,7 +2452,11 @@ export function AgentsPopup({
                     pipelineType={pipelineType}
                     onSelection={handleCanvasSelection}
                     onRemoveAgent={handleRemove}
-                    onAddAgent={() => { setSubAgentParentId(null); setLibraryOpen(true); }}
+                    onAddAgent={(beforeId) => {
+                      setSubAgentParentId(null);
+                      setInsertBeforeId(beforeId);
+                      setLibraryOpen(true);
+                    }}
                     canAddMore={canAddMore}
                     declaredCapabilities={flatDeclaredCapabilities}
                     onTreeChange={onReorder}
@@ -2400,6 +2465,7 @@ export function AgentsPopup({
                     onBriefTextChange={setCanvasBriefText}
                     resetLayoutSignal={canvasResetLayoutSignal}
                     briefAttachments={canvasBriefAttachments}
+                    runConfig={runConfig}
                   />
                 </div>
               </>
@@ -2458,9 +2524,21 @@ export function AgentsPopup({
           </AnimatePresence>
 
           <AgentLibrary
+            allowCustomAgentTemplate={allowCustomAgentTemplate}
             isOpen={libraryOpen}
-            onClose={() => { setLibraryOpen(false); setSubAgentParentId(null); }}
-            onAddAgent={onAddAgent}
+            onClose={() => {
+              setLibraryOpen(false);
+              setSubAgentParentId(null);
+              setInsertBeforeId(undefined);
+            }}
+            onAddAgent={
+              onAddAgent
+                ? (agent: AgentDef) => {
+                    onAddAgent(agent, insertBeforeId);
+                    setInsertBeforeId(undefined);
+                  }
+                : undefined
+            }
             onAddAsSubAgent={subAgentParentId ? addSubAgent : undefined}
             subAgentParentName={
               subAgentParentId ? findAgentInTree(agents, subAgentParentId)?.name : undefined

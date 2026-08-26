@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Lock, X, Plus, Pencil, Check, ExternalLink, AlertTriangle } from "lucide-react";
+import { Lock, X, Plus, Pencil, Check, ExternalLink, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
 import { getRole, getAgentInitials, type StepSelection } from "../AgentsPopup";
 import type { AgentDef, WorkflowType } from "@/types/index";
 import type { CapabilityModelEntry } from "@/lib/api";
@@ -421,6 +421,8 @@ export function CanvasNode({
   onPortMouseDown,
   modelOptions,
   addChildDisabledReason,
+  onMoveEarlier,
+  onMoveLater,
 }: {
   agent: AgentDef;
   pipelineType: WorkflowType;
@@ -440,6 +442,13 @@ export function CanvasNode({
   onRemove: () => void;
   onAddChild?: (parentId: string) => void;
   onRename?: (id: string, name: string) => void;
+  /** Swap this ROOT step with its neighbour. The WHOLE step moves — its
+   *  sub-agents travel with it, because a step's children are nested inside it
+   *  in `pipelineAgents`, so moving the node moves the subtree by construction.
+   *  Undefined at the ends of the chain (and for child nodes), which is what
+   *  disables the arrow. */
+  onMoveEarlier?: () => void;
+  onMoveLater?: () => void;
   onSkillsChange?: (agentId: string, skills: string[]) => void;
   /** Free-drag: mousedown anywhere on the card body (not the top port, that's
    *  reserved for edge-drag-to-reparent). */
@@ -596,6 +605,42 @@ export function CanvasNode({
                 : undefined,
             )}
         {hasChildren && port("b")}
+
+        {/* Reorder — move this whole step one place earlier / later in the
+            chain. Placed on the LEFT and RIGHT edges, vertically centred beside
+            the connection ports, so the control points the same way the move
+            does: "<" sends the step left, ">" sends it right. In the top-right
+            cluster they read as generic icons with no direction; here the
+            position IS the affordance.
+
+            Offset inside the card edge (not on it) so they never sit under the
+            11px port circles, which straddle the border at -6px. */}
+        {(onMoveEarlier || onMoveLater) && !renaming && (
+          <>
+            <button
+              type="button"
+              aria-label={`Move ${agent.name} earlier`}
+              title={onMoveEarlier ? "Move one step earlier" : "Already first"}
+              disabled={!onMoveEarlier}
+              onClick={(e) => { e.stopPropagation(); onMoveEarlier?.(); }}
+              data-testid={`canvas-move-earlier-${agent.id}`}
+              className="absolute left-1 top-1/2 z-[1] grid h-6 w-5 -translate-y-1/2 place-items-center rounded-[6px] text-ink-300 enabled:hover:bg-line-faint-row enabled:hover:text-ink-700 disabled:cursor-not-allowed disabled:opacity-0"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              aria-label={`Move ${agent.name} later`}
+              title={onMoveLater ? "Move one step later" : "Already last"}
+              disabled={!onMoveLater}
+              onClick={(e) => { e.stopPropagation(); onMoveLater?.(); }}
+              data-testid={`canvas-move-later-${agent.id}`}
+              className="absolute right-1 top-1/2 z-[1] grid h-6 w-5 -translate-y-1/2 place-items-center rounded-[6px] text-ink-300 enabled:hover:bg-line-faint-row enabled:hover:text-ink-700 disabled:cursor-not-allowed disabled:opacity-0"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </>
+        )}
 
         {/* rename + remove — grouped top-right so the title below gets the
             card's FULL width instead of sharing its row with the pencil. */}
