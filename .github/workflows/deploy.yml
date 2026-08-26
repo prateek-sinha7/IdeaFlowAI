@@ -549,9 +549,12 @@ jobs:
     # Only one deploy per environment at a time — prevents two runs racing
     # `docker compose up` on the same box. Single source of truth for the
     # environment name is the `resolve` job (see the note in the header).
+    # cancel-in-progress: true auto-cancels older queued runs when a new one is
+    # triggered, preventing the deadlock where multiple runs stack up in the
+    # concurrency queue unable to execute.
     concurrency:
       group: deploy-${{ needs.resolve.outputs.environment }}
-      cancel-in-progress: false
+      cancel-in-progress: true
     steps:
       # Only the four files the SSM payload carries. Cone mode is off because
       # the set mixes root-level files with a nested path; cone mode selects
