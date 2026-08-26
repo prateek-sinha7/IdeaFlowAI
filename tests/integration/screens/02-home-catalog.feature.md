@@ -98,21 +98,50 @@ Feature: The home catalog
     Then I see details for that workflow
     And no run has been started
 
-  Scenario Outline: Tier gating decides which cards a user is offered
+  # CORRECTED after the tier sweep (see DEFECTS-OBSERVED D-09). Cards are NEVER
+  # hidden by tier — every card renders for every user, and entitlement shows as
+  # a "Requires <Plan> plan" badge. The first draft of this file asserted absence,
+  # which would have passed vacuously and tested nothing.
+  Scenario: Every catalog card renders regardless of tier
+    Given I am signed in as "qa-basic@flowinqa.com"
+    When I cold-load "/dashboard"
+    Then I see all 13 launchable card titles
+    And the ones my tier does not cover carry a "Requires ... plan" badge
+
+  Scenario Outline: The lock badge names the tier a card needs
     Given I am signed in as "<email>"
     When I cold-load "/dashboard"
-    Then I see the card "<visible>"
-    And I do NOT see the card "<hidden>" as launchable
+    Then the card "<card>" shows lock "<lock>"
 
     Examples:
-      | email                      | visible                       | hidden                       |
-      | qa-basic@flowinqa.com      | Generate product requirements | Compose a custom workflow    |
-      | qa-pro@flowinqa.com        | Pitch an idea                 | Compose a custom workflow    |
-      | qa-enterprise@flowinqa.com | Compose a custom workflow     | Reverse engineer a codebase  |
+      | email                      | card                          | lock       |
+      | qa-basic@flowinqa.com      | Generate product requirements | (unlocked) |
+      | qa-basic@flowinqa.com      | Pitch an idea                 | Pro        |
+      | qa-basic@flowinqa.com      | Compose a custom workflow     | Enterprise |
+      | qa-pro@flowinqa.com        | Pitch an idea                 | (unlocked) |
+      | qa-pro@flowinqa.com        | Build an end-to-end application | (unlocked) |
+      | qa-pro@flowinqa.com        | Compose a custom workflow     | Enterprise |
+      | qa-pro@flowinqa.com        | Branch by Language            | Enterprise |
+      | qa-enterprise@flowinqa.com | Compose a custom workflow     | (unlocked) |
+      | qa-enterprise@flowinqa.com | Branch by Language            | (unlocked) |
     # Source of truth is TIER_PIPELINES in BOTH frontend/src/lib/entitlements.ts
     # and backend/app/core/entitlements.py. test_entitlement_parity keeps them
-    # equal; FIX-315 exists because they had drifted. This scenario is the
-    # end-to-end half of that guard.
+    # equal; FIX-315 exists because they had drifted. This is the end-to-end half
+    # of that guard. Full observed matrix: capture/64, 67, 68.
+
+  Scenario: A locked card cannot be launched
+    Given I am signed in as "qa-basic@flowinqa.com"
+    When I cold-load "/dashboard"
+    And I click a card badged "Requires Enterprise plan"
+    Then no run is started
+    And I am not taken to that workflow's launch panel
+
+  Scenario: The backend refuses a launch the badge says is locked
+    Given I hold a valid token for "qa-basic@flowinqa.com"
+    When I POST a run for a pipeline my tier does not cover
+    Then the response is refused
+    # The badge is presentation. Assert the server enforces it too — ISS-055
+    # recorded a period where launch never checked entitlement at all.
 
   @defect
   # D-04 / ISS-187. Recorded as current behaviour, NOT as correct behaviour.
@@ -144,6 +173,20 @@ Feature: The home catalog
     When I cold-load "/dashboard"
     Then that run's entry shows the status "WAITING_FOR_USER"
     And a completed run's entry shows "DONE"
+
+  @defect @unverified
+  # D-10. The same card advertises a different agent count depending on whether
+  # the signed-in user has a saved override of that built-in. qa-basic (no
+  # override) sees "~15 agents"; qa-admin (override "My app_builder", 1 agent)
+  # sees "~1 agents · ~33m" — and the duration did not scale with the count.
+  # Possibly intended (the card predicts YOUR run), possibly a leak of per-user
+  # state into a catalog estimate. Recorded, not judged.
+  Scenario: A saved override changes the catalog card's agent estimate
+    Given "qa-basic@flowinqa.com" has no override of "app_builder"
+    And "qa-admin@flowinqa.com" has a 1-step override of "app_builder"
+    When each signs in and cold-loads "/dashboard"
+    Then qa-basic sees "Build an end-to-end application" reporting "~15 agents"
+    And qa-admin sees the same card reporting "~1 agents"
 ```
 
 ## Notes for phase 2

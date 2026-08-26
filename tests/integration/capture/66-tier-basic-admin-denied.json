@@ -1,0 +1,5 @@
+{
+  "url": "http://localhost:3000/dashboard",
+  "leaked": false,
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nVELOCITYAI\nWhat would you like to build today?\nBuild an end-to-end application\nFull-stack code, tests, and infrastructure from a single requirement.\n~15 agents\nRequires Pro plan\nRetry Until It Passes\nSmallest possible example of a conditional gate looping back to an earlier step.\n~4 agents\nRequires Enterprise plan\nBranch by Language\nSmallest possible example of a conditional gate picking one of three forward branches.\n~5 agents\nRequires Enterprise plan\nSpanish Greeter\nThe plain workflow ex_A3_divert diverts into for the \"spanish\" outcome.\n~1 agents\nRequires Enterprise plan\nDutch Greeter\nThe plain workflow ex_A3_divert diverts into for the \"dutch\" outcome.\n~1 agents\nRequires Enterprise plan\nHand Off to Another Workflow\nSmallest possible example of a conditional gate that stays in-run for one outcome and diverts to a separate workflow for the others.\n~3"
+}

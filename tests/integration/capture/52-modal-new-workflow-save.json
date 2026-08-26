@@ -1,0 +1,36 @@
+{
+  "url": "http://localhost:3000/create/user-stories",
+  "inputs": [
+    "input#[?]",
+    "textarea#[Describe what you want this workflow to produce…]",
+    "input#[?]",
+    "select#[deliverable-strategy]",
+    "input#[output]",
+    "select#[output-format]",
+    "input#nwm-name[e.g. Competitive research]",
+    "textarea#nwm-description[What does this workflow produce?]"
+  ],
+  "buttons": [
+    "Open in full canvas",
+    "@",
+    "Agents (7)",
+    "Workflow",
+    "BROWSE AGENT LIBRARY →",
+    "@Move Documentation Agent earlier",
+    "@Move Documentation Agent later",
+    "@Rename Documentation Agent",
+    "@Remove Documentation Agent",
+    "Gate",
+    "Sub-agent",
+    "@Move Domain Discovery Agent earlier",
+    "@Move Domain Discovery Agent later",
+    "@Rename Domain Discovery Agent",
+    "@Remove Domain Discovery Agent",
+    "@Move Backlog Architecture Agent earlier",
+    "@Move Backlog Architecture Agent later",
+    "@Rename Backlog Architecture Agent",
+    "@Remove Backlog Architecture Agent",
+    "@Move Estimation Agent earlier"
+  ],
+  "text": "Advanced Workflow Configuration — User Stories\nUse my version\nOpen in full canvas\nAgents\n(7)\nWorkflow\n7 AGENTS · USER STORIES\nCORE = LOCKED\nBROWSE AGENT LIBRARY →\nClick a node to configure\nDrag to move · drag a top port to reparent\nHold Space + drag to pan\nBRIEF\nWhat to build\nthe run input\nDO\nDocumentation\nAPI & Technical Writing\nDefault\nValidator\nGate\nRetry\nSub-agent\nDD\nDomain Discovery\nMarket & Persona Research\nCORE\nDefault\nValidator\nGate\nRetry\nSub-agent\nBA\nBacklog Architecture\nEpic & Story Composition\nDefault\nValidator\nGate\nRetry\nSub-agent\nES\nEstimation\nEffort & Dependency Mapping\nDefault\nValidator\nGate\nRetry\nSub-agent\nQR\nQuality Requirements\nPerformance, Security & Compliance\nDefault\nValidator\nGate\nRetry\nSub-agent\nQR\nQuality Review\nBacklog Validation & Gap Analysis\nDefault\nValidator\nGate\nRetry\nSub-agent\nDC\nDelivery Compilation\nFinal Backlog Synthesis\nCORE\nDefault\nValidator\nGate\nRetry\nSub-agent\n27%\nFit\nAuto-arrange\nWorkflow\nAgent\nReset to default\nThe instruction sent to the workflow's first agent when this run starts — describe what you want built.\nBrief instruction\nWhat should this run build? Sent as the run's input.\n+ Attach file\n3 more characters to enable Run\nON — Runs a planning agent that breaks the brief into a task plan before the workflow's agents start.\nOFF — Agents start directly from the brief, with no planning pass.\nSmart planning\nON — Pauses the run to ask clarifying questions about the brief, then uses your answers to fill in missing details.\nOFF — Runs imme"
+}
