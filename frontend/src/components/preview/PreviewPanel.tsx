@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Eye, FolderDown, Brain, Shield, Download, ExternalLink, Loader2, AlertTriangle } from "lucide-react";
+import { Eye, FolderDown, FolderTree, Brain, Shield, Download, ExternalLink, Loader2, AlertTriangle } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
 import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { FilesTab, downloadBlob, deriveDeliverableFilename } from "@/components/results/FilesTab";
+import { SandboxTab } from "@/components/results/SandboxTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AuditTab } from "@/components/results/AuditTab";
 import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
@@ -26,7 +27,7 @@ import type { RunLaneState } from "@/components/chat/RunChatLane";
 import { Tabs } from "@/components/ui/Tabs";
 import type { WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
 import type { TabDeepLinkTarget } from "@/hooks/useTabDeepLink";
-import { authedFetch, getToken, getWorkflow } from "@/lib/api";
+import { authedFetch, getToken, getWorkflow, getRunSandbox, getRunSandboxFileBlob } from "@/lib/api";
 import { ENV } from "@/lib/env";
 // ISS-024 — shared id→name resolution for the failed-agents list (no dual-impl).
 import { buildAgentNameById, resolveAgentNames } from "@/lib/parseFailedAgents";
@@ -277,7 +278,7 @@ function GenericDeliverablePreview({
   );
 }
 
-type PanelTab = "preview" | "files" | "thinking" | "audit";
+type PanelTab = "preview" | "files" | "thinking" | "audit" | "workspace";
 
 interface PreviewPanelProps {
   userStoryContent?: string;
@@ -391,12 +392,16 @@ const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "preview", label: "Preview", icon: Eye },
   { id: "thinking", label: "Steps", icon: Brain },
   { id: "files", label: "Files", icon: FolderDown },
+  // Spec 017 phase 2 — the run sandbox itself. `ppt_v2` writes TWO artifacts
+  // (presentation.html AND presentation.pptx) and only one can be the
+  // deliverable, so Files alone no longer describes what a run produced.
+  { id: "workspace", label: "Workspace", icon: FolderTree },
   { id: "audit", label: "Audit", icon: Shield },
 ];
 
 // The generic tab ids PreviewPanel owns. A deep-link to any of these switches the
 // tab; other generic targets (e.g. "steps") belong to the left lane column.
-const PANEL_TAB_IDS: readonly PanelTab[] = ["preview", "files", "thinking", "audit"];
+const PANEL_TAB_IDS: readonly PanelTab[] = ["preview", "files", "thinking", "workspace", "audit"];
 
 // ─── ISS-017 (16-04) — terminal-empty degraded/failed affordance ──────────────
 // Rendered (instead of the neutral "Output will appear here") when a run is
@@ -567,6 +572,10 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // Normalize revision types to their base type for rendering
   const renderType = detectedType === "user_stories_revision" ? "user_stories"
     : detectedType === "ppt_revision" ? "ppt"
+    // spec 017 — ppt_v2 renders the same HTML deck as ppt; it differs only in
+    // ALSO producing a .pptx. Without this it falls through to the default and
+    // the deck renders as raw text.
+    : detectedType === "ppt_v2" ? "ppt"
     : detectedType === "prototype_revision" ? "prototype"
     : detectedType === "prototype_large_revision" ? "prototype"
     : detectedType === "prototype_feature_revision" ? "prototype"
@@ -658,9 +667,24 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   const showCancelledAffordance = showFailureAffordance && isCancelledTerminal;
   // Drop the Preview tab for a terminal-failed run; every other state keeps the
   // full four-tab set (Preview · Steps · Files · Audit).
+  // The run whose DISK the Workspace tab browses — deliberately NOT activeRunId.
+  //
+  // `liveRunId` is misnamed for this purpose: DashboardLayout passes
+  // `contentSourceRunId`, which page.tsx only sets once a run COMPLETES or is
+  // reopened from history. During a live run it is null, so `activeRunId` falls
+  // through to the family's latest member — which resolves and re-resolves as
+  // the family fetch lands, making the tab appear and vanish mid-run.
+  // `pipelineState.pipelineRunId` is the id the engine actually minted, and it
+  // is available from the first frame.
+  //
+  // Order: an explicitly-selected version wins (browse THAT version's files),
+  // then the live run, then whatever activeRunId resolved to for a settled run.
+  const workspaceRunId = viewingVersion?.id ?? pipelineState?.pipelineRunId ?? activeRunId ?? null;
+  // Dropped rather than rendered as a dead tab before a run has an id at all.
+  const tabsForRun = workspaceRunId ? TAB_CONFIG : TAB_CONFIG.filter((t) => t.id !== "workspace");
   const visibleTabs = terminalFailureNoDeliverable
-    ? TAB_CONFIG.filter((t) => t.id !== "preview")
-    : TAB_CONFIG;
+    ? tabsForRun.filter((t) => t.id !== "preview")
+    : tabsForRun;
   // NOTE: these are agent IDs (failedAgents/degradedFailedAgents on live;
   // reopenedFailedAgents on history). They are resolved to human names inside
   // DegradedRunAffordance via the agentNameById map built below.
@@ -675,7 +699,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // reopened run detail's persisted agentOutputs, since the live pipelineState
   // reflects the new/idle run and can't name a reopened run's agents).
   // Unknown ids fall back to the raw id inside DegradedRunAffordance.
-  const failedAgentNameById = {
+  const agentNameById = {
     ...(reopenedAgentNameById || {}),
     ...buildAgentNameById(pipelineState?.agents),
   };
@@ -781,7 +805,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // failed agent's human name (raw-id fallback), NEVER the mock's fixed "security
   // gate" text. Empty → the badge stays the bare "Run failed".
   const headerFailureReason = headerFailed
-    ? resolveAgentNames(failedAgentNames, failedAgentNameById)[0]
+    ? resolveAgentNames(failedAgentNames, agentNameById)[0]
     : undefined;
 
   // Client-only Share (ND-H) — copy the owner-auth-gated run deep link. Composed
@@ -795,29 +819,112 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     void navigator.clipboard?.writeText(link);
   }, [onShare, liveRunId, activeRunId]);
 
-  // Primary deliverable download — reuses FilesTab.downloadBlob (INV-12). Default
-  // downloads the on-screen deliverable content under its live filename.
-  // KAN-128 (FIX-140): use deriveDeliverableFilename so the downloaded name
-  // always matches what the Files tab shows (content-derived, word-boundary-safe).
-  const canHeaderDownload = headerRunState === "complete" && !!activeContent;
+  // ─── Primary deliverable download — the WORKSPACE FILE, not a reconstruction ─
+  //
+  // Every workflow DECLARES what it delivers, in its own workflow.yaml:
+  //
+  //     prototype  → prototype.html      ppt_v2   → presentation.html
+  //     ppt        → presentation.pptx   user_stories → user_stories.md
+  //
+  // The engine emits that literal name on `pipeline_complete` and persists it to
+  // `WorkflowRun.deliverable_filename`, so it is available on the live path and
+  // on reopen. This button now serves THAT FILE, read from the run's workspace.
+  //
+  // It used to rebuild a file from `activeContent` and name it from the content
+  // itself — a prototype's `<title>` became `bespoke-facebook-sprint-8-board.html`
+  // — with the declared name demoted to a fallback that only applied when there
+  // was no content at all. So the workflow's own declaration lost to a guess, and
+  // the bytes came from what the panel happened to be holding rather than from
+  // what the run actually wrote.
+  //
+  // Presence is now the gate. Disabled until the declared file EXISTS in the
+  // workspace listing, enabled once it does. That is strictly stronger than the
+  // old `!!activeContent`, which could offer a download of something never
+  // written to disk. It also settles the ppt `.pptx` question on its own: a run
+  // that declares a file it does not write simply leaves the button disabled,
+  // rather than handing over a mislabelled one.
+  const [deliverableFile, setDeliverableFile] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDeliverableFile(null);
+    // ONE fetch, when the run settles — no polling. A build writes its
+    // deliverable at an unpredictable point and a timer would spend a request
+    // every few seconds on every open run to notice a few seconds earlier.
+    if (!activeRunId || headerRunState !== "complete") return;
+    let cancelled = false;
+    void (async () => {
+      const token = getToken();
+      if (!token) return;
+      try {
+        // The declared name: from live pipeline state when we have it, else off
+        // the persisted run row (the reopen path, where no event was seen).
+        let declared = pipelineState?.deliverableFilename ?? null;
+        if (!declared) {
+          declared = (await getWorkflow(token, activeRunId)).deliverableFilename ?? null;
+        }
+        if (!declared || cancelled) return;
+        const listing = await getRunSandbox(token, activeRunId);
+        if (cancelled) return;
+
+        // ── Prefer the editable original over the rendered one ────────────────
+        // `ppt_v2` delivers "a rendered HTML deck AND a real editable PowerPoint
+        // file", but declares `presentation.html` as its deliverable ON PURPOSE:
+        // the declaration also drives Preview's mimetype, and it is what keeps a
+        // run whose render step failed still delivering a deck. So the
+        // DECLARATION is left alone and the choice is made here, over what the
+        // run actually wrote.
+        //
+        // SCOPED TO DECKS, structurally — the declared EXTENSION is the signal,
+        // never the workflow name (SC-001, the invariant this file keeps
+        // everywhere). Only a workflow that declares a .pptx or a .html is
+        // asking a deck question, so only those consider a sibling:
+        //
+        //   declared .html  → prefer <stem>.pptx, else the declared file
+        //                     (ppt_v2: gives you the PowerPoint, falls back to
+        //                     the deck when the render step did not run)
+        //   declared .pptx  → the declared file, else <stem>.html
+        //                     (plain ppt declares presentation.pptx while
+        //                     nothing in it emits PptxGenJS, so that file is
+        //                     never on disk and the button was dead — it now
+        //                     serves the deck the run actually wrote)
+        //   anything else   → the declared file alone, exactly as before
+        //                     (user_stories.md considers no siblings at all)
+        const dot = declared.lastIndexOf(".");
+        const stem = dot > 0 ? declared.slice(0, dot) : declared;
+        const ext = dot > 0 ? declared.slice(dot + 1).toLowerCase() : "";
+        const candidates = [...new Set(
+          ext === "html" ? [`${stem}.pptx`, declared]
+          : ext === "pptx" ? [declared, `${stem}.html`]
+          : [declared],
+        )];
+        const hit = candidates
+          .map((c) => listing.files.find((f) => f.path === c))
+          .find(Boolean);
+        if (hit) setDeliverableFile(hit.path);
+      } catch {
+        // A workspace that cannot be listed leaves the button disabled, which is
+        // the honest state — we cannot promise a file we have not seen.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeRunId, headerRunState, pipelineState?.deliverableFilename]);
+
+  const canHeaderDownload = !!deliverableFile;
   const handleHeaderDownload = useCallback(() => {
     if (onDownload) return onDownload();
-    if (!activeContent) return;
-    const name = deriveDeliverableFilename(
-      rawPipelineType || workflowType || "user_stories",
-      activeContent,
-      pipelineState?.deliverableFilename || `deliverable-${headerVersionLabel}.md`,
-    );
-    // Derive the correct mimetype from the extension.
-    const ext = name.split(".").pop()?.toLowerCase() || "md";
-    const mimeMap: Record<string, string> = {
-      html: "text/html",
-      pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      md: "text/markdown",
-      zip: "application/zip",
-    };
-    downloadBlob(activeContent, name, mimeMap[ext] || "text/markdown");
-  }, [onDownload, activeContent, rawPipelineType, workflowType, pipelineState?.deliverableFilename, headerVersionLabel]);
+    if (!deliverableFile || !activeRunId) return;
+    void (async () => {
+      const token = getToken();
+      if (!token) return;
+      // The server's own Content-Type rides on the blob, so no extension→mime
+      // table is needed here (and cannot drift from the one the API applies).
+      const blob = await getRunSandboxFileBlob(token, activeRunId, deliverableFile);
+      const url = URL.createObjectURL(blob);
+      // downloadBlob passes a `blob:` string straight through to the anchor.
+      downloadBlob(url, deliverableFile.split("/").pop() || deliverableFile, blob.type);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    })();
+  }, [onDownload, deliverableFile, activeRunId]);
 
   // ─── Phase 39 (RUNUI-06/07) — PreviewChrome URL bar + open affordance ────────
   // The REAL deliverable filename for the browser-chrome URL bar (ND-D live — the
@@ -883,7 +990,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         : null,
     ppt: () =>
       (effPptContent || pptxCode)
-        ? <PPTPreview content={effPptContent} isStreaming={isStreaming} pptxCode={pptxCode} onRevise={overrideActive ? undefined : onRevisePpt} pipelineType={rawPipelineType || workflowType} />
+        ? <PPTPreview content={effPptContent} isStreaming={isStreaming} pptxCode={pptxCode} runId={activeRunId} onRevise={overrideActive ? undefined : onRevisePpt} pipelineType={rawPipelineType || workflowType} />
         : null,
     prototype: () =>
       effPrototypeContent
@@ -926,6 +1033,10 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
       opts.push({ value: renderType, label: FIRST_PARTY_LABELS[renderType] });
     }
     // A generic deliverable can be viewed through any of the mimetype renderers.
+    // Deliberately gated on the GENERIC slot alone (ND-D: the switch offers only
+    // the deliverable's live typed renderers). A first-party deliverable already
+    // has its own typed pill — a ppt_v2 deck showing HTML/Markdown/Bundle was the
+    // SYMPTOM of it being mis-routed into the generic channel, not a feature.
     if (genericDeliverable?.content) {
       for (const key of Object.keys(MIMETYPE_OVERRIDES)) {
         opts.push({ value: key, label: MIMETYPE_LABELS[key] });
@@ -1052,6 +1163,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
             <PPTTabActions
               content={pptContent}
               pptxCode={pptxCode}
+              runId={activeRunId}
               // Every ppt run is now the HTML-deck pipeline (the legacy
               // PptxGenJS pipeline is retired) — always the HTML-download path.
               isOdPpt={true}
@@ -1083,7 +1195,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                 // DegradedRunAffordance stays exported for RunDetailPage.tsx:296.
                 <DegradedRunAffordance
                   failedAgents={failedAgentNames}
-                  agentNameById={failedAgentNameById}
+                  agentNameById={agentNameById}
                   onRetry={onRevisePrototype || onRevisePpt || onReviseUserStory || onReviseAppBuilder}
                   cancelled={isCancelledTerminal}
                 />
@@ -1165,7 +1277,19 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} onOpenPreview={() => handleTabChange("preview")} runStatus={terminalFailure && !isCancelledTerminal ? "failed" : undefined} isRunning={isStillRunning} buildingTaskIndex={buildStepIndex} buildingTaskTotal={buildStepTotal} buildingFilename={pipelineState?.deliverableFilename} />
+              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} runId={activeRunId} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} onOpenPreview={() => handleTabChange("preview")} runStatus={terminalFailure && !isCancelledTerminal ? "failed" : undefined} isRunning={isStillRunning} buildingTaskIndex={buildStepIndex} buildingTaskTotal={buildStepTotal} buildingFilename={pipelineState?.deliverableFilename} />
+            </motion.div>
+          )}
+          {activeTab === "workspace" && (
+            <motion.div
+              key="workspace"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="absolute inset-0"
+            >
+              <SandboxTab runId={workspaceRunId} agentNameById={agentNameById} />
             </motion.div>
           )}
           {activeTab === "thinking" && (
@@ -1232,10 +1356,16 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
 function PPTTabActions({
   content,
   pptxCode,
+  runId,
   isOdPpt,
 }: {
   content?: string;
   pptxCode?: string;
+  /** The run actually on screen. Spec 017: the fallback below asks for the most
+   *  recent `type=ppt` run, which is the WRONG run whenever the user reopened an
+   *  older one — and no run at all for a `ppt_v2` deck, which that filter never
+   *  returns. Passing the id the panel already resolved removes the guess. */
+  runId?: string | null;
   isOdPpt: boolean;
 }) {
   const [isDownloading, setIsDownloading] = useState(false);
@@ -1266,16 +1396,18 @@ function PPTTabActions({
         const titleMatch = content.match(/<title>([^<]+)<\/title>/i);
         if (titleMatch && titleMatch[1] !== "Presentation") pptTitle = titleMatch[1].trim();
       }
-      let workflowId = "";
-      try {
-        const res = await authedFetch(`${ENV.API_URL}/api/runs?type=ppt&limit=5`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const runs = await res.json();
-          if (runs.length > 0) workflowId = runs[0].id;
-        }
-      } catch { /* ignore */ }
+      let workflowId = runId ?? "";
+      if (!workflowId) {
+        try {
+          const res = await authedFetch(`${ENV.API_URL}/api/runs?type=ppt&limit=5`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const runs = await res.json();
+            if (runs.length > 0) workflowId = runs[0].id;
+          }
+        } catch { /* ignore */ }
+      }
       // FR-015: authedFetch, not bare fetch — this reads a Blob so it can't go
       // through request(); a 401 previously surfaced as a generic
       // "Download failed" alert with no session-expiry redirect.
@@ -1300,7 +1432,7 @@ function PPTTabActions({
     } finally {
       setIsDownloading(false);
     }
-  }, [content, pptxCode]);
+  }, [content, pptxCode, runId]);
 
   const handleFullScreen = useCallback(() => {
     if (!content) return;

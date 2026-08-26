@@ -178,6 +178,33 @@
      var(--brand) + alpha) because the sweep needs a TRANSPARENT stop at each
      end, which a hex token cannot express. Paired with the dark value below. */
   --shimmer-tint: rgba(60, 44, 218, 0.08);
+
+  /* ── Editor syntax palette ─────────────────────────────────────────────────
+     The code viewer's highlight style used to carry these as literal hexes
+     while taking its BACKGROUND from --surface-white. That reads correctly in
+     one theme only: in dark, the surface flipped to #222 and the text stayed
+     near-black, so a markdown file opened to a code block with visible line
+     numbers and nothing beside them. Tokenising them is what lets one
+     highlight style serve both themes.
+
+     These are the original light values, unchanged — this is a move, not a
+     re-colour. */
+  --code-fg: #20222B;
+  --code-keyword: #7C3AED;
+  --code-string: #0F766E;
+  --code-number: #B45309;
+  --code-comment: #8A8B82;
+  --code-property: #1D4ED8;
+  --code-function: #3C2CDA;
+  --code-type: #9333EA;
+  --code-punctuation: #5B5C63;
+  --code-invalid: #DC2626;
+  --code-gutter: #9A9B92;
+  --code-gutter-active: #5B5C63;
+  --code-active-line: rgba(60, 44, 218, 0.035);
+  --code-selection: #ECEAFC;
+  --code-search-match: #FDE68A;
+  --code-search-selected: #FBBF24;
 }
 
 /* ============================================
@@ -252,6 +279,26 @@
   /* The dark brand (#9089EA) at a higher alpha than light — the same reason
      --theme-hover doubles here: a tint reads weaker against a dark surface. */
   --shimmer-tint: rgba(144, 137, 234, 0.14);
+
+  /* Editor syntax palette — dark. Same roles, lifted off a #222 surface:
+     the light ramp's saturated mid-tones (a #1D4ED8 property name, a #20222B
+     body) sit at or below the background's own luminance and disappear. */
+  --code-fg: #DCDCDC;
+  --code-keyword: #C4B5FD;
+  --code-string: #5EEAD4;
+  --code-number: #FCD34D;
+  --code-comment: #8F8F8F;
+  --code-property: #93C5FD;
+  --code-function: #9089EA;
+  --code-type: #D8B4FE;
+  --code-punctuation: #A8A8A8;
+  --code-invalid: #F87171;
+  --code-gutter: #767676;
+  --code-gutter-active: #A8A8A8;
+  --code-active-line: rgba(144, 137, 234, 0.07);
+  --code-selection: #34305A;
+  --code-search-match: #5C4A12;
+  --code-search-selected: #8A6D14;
 }
 
 html {
@@ -528,3 +575,37 @@ body {
 }
 
 .markdown-content td { color: #374151; }
+
+/* ── Gate well top shade + the decision's cast shadow ────────────────────────
+   Borrowed from the mock's S4 "anchored" variant and FLIPPED, because the order
+   is flipped. S4 put the decision BELOW the evidence, so its chrome cast a
+   shadow upward and the well was shaded at its bottom edge. Ask-first puts the
+   decision ABOVE, so both invert: the ask block casts DOWN onto the well it
+   covers (.gate-decision), and the well is shaded at its TOP edge, where it
+   passes under that block.
+
+   `color-mix(… 0%, transparent)` rather than a bare `transparent` keyword so
+   the ramp starts from surface-warm at zero alpha — a bare `transparent` is
+   premultiplied black in some engines and greys the middle of the gradient.
+   Both stops resolve through the token, so the dark theme's redefinition of
+   --surface-warm carries with no second rule. */
+.gate-decision {
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 10px 22px -14px rgba(60, 44, 218, 0.35);
+}
+
+.gate-well-fade { position: relative; }
+.gate-well-fade::after {
+  content: "";
+  position: absolute;
+  left: 1px; right: 1px; top: 1px;
+  height: 26px;
+  border-radius: 9px 9px 0 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    180deg,
+    var(--surface-warm),
+    color-mix(in srgb, var(--surface-warm) 0%, transparent)
+  );
+}

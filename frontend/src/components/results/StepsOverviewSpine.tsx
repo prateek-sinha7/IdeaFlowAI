@@ -232,12 +232,12 @@ export interface StepsOverviewSpineProps {
 }
 
 // The "Awaiting you" card chrome from the mock (brand-tinted, focus-ring shadow).
+// Positioning only. The gate and clarify components each render their OWN card
+// now (border, radius, brand-filled ask block, shadow) so the ask reads as the
+// card's opening rather than as a row inside someone else's chrome — wrapping
+// them in a second bordered card gave every prompt two frames and two headers.
 function AwaitingCard({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mb-3 ml-2 rounded-[12px] border border-line-border bg-surface-card overflow-hidden shadow-[0_0_0_3px_rgba(60,44,218,0.06)]">
-      {children}
-    </div>
-  );
+  return <div className="mb-3 ml-2">{children}</div>;
 }
 
 // The inline "Awaiting you" review-gate card — the REUSED generic InlineGateActions
@@ -257,14 +257,10 @@ function GateAwaitingCard({
 }) {
   return (
     <AwaitingCard>
-      <div className="flex items-center gap-2.5 px-3.5 py-3 border-b border-line-faint-row">
-        <div className="w-[26px] h-[26px] flex-none rounded-[7px] bg-brand grid place-items-center">
-          <ListChecks className="h-3.5 w-3.5 text-white" />
-        </div>
-        <p className="flex-1 m-0 text-[12.5px] font-semibold text-ink-900 font-[Manrope]">Review gate — {laneGate.agentName}</p>
-        <span className="text-[8.5px] font-semibold uppercase tracking-wider text-brand bg-brand-fill border border-brand-border px-1.5 py-1 rounded">Awaiting you</span>
-      </div>
-      <div className="px-3.5 py-3">
+        {/* The "Review gate — {agent} / Awaiting you" header row is gone: the
+            card's own ask block opens with "Waiting on you" over the actual
+            question, and names the agent on the evidence label below it. Two
+            headers saying the same thing pushed the question below the fold. */}
         <InlineGateActions
           agentId={laneGate.agentId}
           agentName={laneGate.agentName}
@@ -282,7 +278,6 @@ function GateAwaitingCard({
           onRedo={onRedo}
           onUpdateSpecs={onUpdateSpecs}
         />
-      </div>
     </AwaitingCard>
   );
 }
@@ -452,13 +447,9 @@ export function StepsOverviewSpine({
       {/* Clarify — AWAITING you (inline answer UI, reused InlineClarifyActions) */}
       {clarifyQuestions && clarifyQuestions.length > 0 && onSubmitClarify && (
         <AwaitingCard>
-          <div className="flex items-center gap-2 px-3.5 py-3 border-b border-line-faint-row">
-            <p className="flex-1 m-0 text-[13px] font-semibold text-ink-900 font-[Manrope]">Clarifications</p>
-            <span className="text-[8.5px] font-semibold uppercase tracking-wider text-brand bg-brand-fill border border-brand-border px-1.5 py-1 rounded">Awaiting you</span>
-          </div>
-          <div className="p-3.5">
-            <InlineClarifyActions questions={clarifyQuestions} onSubmitAnswers={onSubmitClarify} onCancelWorkflow={onCancelWorkflow} />
-          </div>
+          {/* Header row dropped for the same reason as the gate's — the card
+              opens with "Before I build" over the real ask. */}
+          <InlineClarifyActions questions={clarifyQuestions} onSubmitAnswers={onSubmitClarify} onCancelWorkflow={onCancelWorkflow} />
         </AwaitingCard>
       )}
 

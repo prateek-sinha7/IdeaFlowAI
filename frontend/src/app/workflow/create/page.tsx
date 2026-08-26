@@ -17,8 +17,10 @@ function CreateRoute() {
   // Auth is owned by LaunchWizard (it also picks up the chain hand-off), so the
   // wrapper only resolves the deliverable family from the route param. IN-07: the
   // duplicate getToken/redirect + loading gate here was a redundant second gate.
-  // Default to prototype; only the two deliverable families are valid modes.
-  const mode: LaunchMode = searchParams.get("mode") === "ppt" ? "ppt" : "prototype";
+  // Default to prototype; anything outside the known modes falls back to it.
+  const raw = searchParams.get("mode");
+  const mode: LaunchMode =
+    raw === "ppt" || raw === "ppt_v2" ? raw : "prototype";
   return <LaunchWizard initialMode={mode} />;
 }
 

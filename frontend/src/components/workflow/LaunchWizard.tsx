@@ -66,19 +66,24 @@ import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate } from "@
  * All colours route through the @theme token layer; NO retired palette.
  */
 
-/** The Web/Deck stepper toggle value ↔ the deliverable mode. */
-const STEPPER_MODE: Record<LaunchMode, "web" | "deck"> = { prototype: "web", ppt: "deck" };
-function modeFromStepper(m: "web" | "deck"): LaunchMode {
-  return m === "web" ? "prototype" : "ppt";
+/** The Web/Deck stepper toggle value ↔ the deliverable mode. `ppt_v2` is a deck
+ *  deliverable, so it sits under "deck" alongside `ppt`. */
+const STEPPER_MODE: Record<LaunchMode, "web" | "deck"> = { prototype: "web", ppt: "deck", ppt_v2: "deck" };
+/** Two deck modes share one stepper slot, so the toggle cannot recover which one
+ *  from "deck" alone. `deckMode` is the family this wizard was opened for, which
+ *  is what toggling web → deck must restore; without it a ppt_v2 launch would
+ *  silently downgrade to ppt on a round-trip through the toggle. */
+function modeFromStepper(m: "web" | "deck", deckMode: LaunchMode): LaunchMode {
+  return m === "web" ? "prototype" : deckMode;
 }
 
 interface ModeConfig {
   /** AgentLibraryData `pipeline_type` for the default lineup. */
-  agentPipeline: "prototype" | "ppt";
+  agentPipeline: LaunchMode;
   /** `base_pipeline_type` sent to POST /api/user-workflows on Save — must be
    *  a live catalog id. `od_prototype`/`od_ppt` are retired aliases the
    *  backend no longer accepts (422 "Unsupported base_pipeline_type"). */
-  savePipeline: "prototype" | "ppt";
+  savePipeline: LaunchMode;
   title: string;
   chainingTitle: string;
   eyebrow: string;
@@ -113,6 +118,22 @@ const MODE_CONFIG: Record<LaunchMode, ModeConfig> = {
     briefLabel: "Describe your presentation",
     saveTitle: "Save presentation workflow",
   },
+  // Spec 017. Same deck wizard as `ppt` — same template step, same design
+  // systems — because it reuses ppt's first two agents verbatim and needs the
+  // same opendesign template context they inject. Only the pipeline it launches
+  // and the copy differ.
+  ppt_v2: {
+    agentPipeline: "ppt_v2",
+    savePipeline: "ppt_v2",
+    title: "Configure your presentation",
+    chainingTitle: "Pick a template",
+    eyebrow: "New presentation + PowerPoint",
+    chainingEyebrow: "Chained presentation",
+    placeholder:
+      "e.g. A pitch deck for our Series A fundraise — $5M ask, B2B SaaS, 10 slides for investors.",
+    briefLabel: "Describe your presentation",
+    saveTitle: "Save presentation workflow",
+  },
 };
 
 /** Copy for the chain context/banner, keyed on the source pipeline (data map). */
@@ -139,6 +160,10 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
 
   const [authChecked, setAuthChecked] = useState(false);
   const [mode, setMode] = useState<LaunchMode>(initialMode);
+  // Which deck deliverable the Deck half of the toggle means for THIS wizard —
+  // see modeFromStepper. Fixed at open; the toggle switches families, not
+  // deliverables within a family.
+  const deckMode: LaunchMode = initialMode === "ppt_v2" ? "ppt_v2" : "ppt";
   // Chrome (title/eyebrow/brief label/placeholder/save-modal title) MUST track the
   // LIVE mode, not the immutable initialMode — the Web/Deck toggle switches families
   // in-page, and freezing chrome to initialMode mislabels a deck as a prototype.
@@ -178,6 +203,15 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const [showAgents, setShowAgents] = useState(false);
 
   const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => defaultAgentsFor(libraryAgents, initialMode));
+
+  // ── The compiled plan's steps, for roster completion (spec 017) ─────────────
+  // `defaultAgentsFor` filters the agent library by each AGENT.md's single
+  // `pipeline_type` field. That is a complete roster only while every step of a
+  // workflow declares that workflow. `ppt_v2` REUSES ppt's first two steps, so
+  // the library yields 2 of its 4 — a partial lineup, in the one place the user
+  // reads to learn what will run. The manifest is the authority; when it lists
+  // more steps than the library found, it wins.
+  const [planAgents, setPlanAgents] = useState<AgentDef[] | null>(null);
 
   // ── Spec 016: this user's saved override of the built-in ────────────────────
   // OVERLAY, never replace. `pipelineAgents`'s initial value above stays the
@@ -303,6 +337,20 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     setPipelineAgents(defaultAgentsFor(libraryAgents, mode));
   }, [libraryAgents, mode]);
 
+  // Complete a partial library roster from the compiled plan (see `planAgents`).
+  // Guarded on "the plan lists MORE steps than we are showing" so a workflow the
+  // library covers fully, and any lineup the user has edited or added to, is
+  // left exactly as it is. Plan rows are hydrated from the library where it has
+  // the agent, so the shared steps keep their real icon and duration.
+  useEffect(() => {
+    if (!planAgents) return;
+    setPipelineAgents((prev) => {
+      if (planAgents.length <= prev.length) return prev;
+      const byId = new Map(libraryAgents.map((a) => [a.id, a]));
+      return planAgents.map((step) => byId.get(step.id) ?? step);
+    });
+  }, [planAgents, libraryAgents]);
+
   // ── Spec 016: fetch this user's override of the built-in, if any ────────────
   // Additive. `is_overridden` is false for every user who has never saved one,
   // so this returns before touching any state and the screen is unchanged.
@@ -315,6 +363,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     // Reset first: switching Web <-> Deck changes which built-in we are asking
     // about, and a stale override from the other family must not survive.
     setOverrideInfo(null);
+    setPlanAgents(null);
     setOverrideAgents(null);
     setOverrideSelections(undefined);
     setShowOverride(false);
@@ -341,6 +390,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             defaults: detail.clarify_defaults ?? [],
           },
         });
+        setPlanAgents(agentsFromManifest(detail, pipeline).agents);
         if (!detail.has_override || !detail.override_id) return;
         setOverrideInfo({ id: detail.override_id, enabled: !!detail.is_overridden });
         // `detail` already carries the override's steps whenever it is enabled,
@@ -467,7 +517,11 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     [webTemplates, selectedTemplateId],
   );
   // ppt design system is only required for templates that declare it.
-  const dsRequired = mode === "ppt" && selectedDeckTemplate?.design_system?.requires === true;
+  // Spec 017: every branch below asks "is this a DECK deliverable", which is now
+  // two modes, not one. Branching on `mode === "ppt"` here is what would have
+  // hidden the template step — and with it the design choice — from ppt_v2.
+  const isDeck = STEPPER_MODE[mode] === "deck";
+  const dsRequired = isDeck && selectedDeckTemplate?.design_system?.requires === true;
   const dsVisible = mode === "prototype" || dsRequired;
 
   const examplePrompt =
@@ -482,7 +536,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const canAddMore = optionalAgentCount < 5;
 
   const handleModeChange = useCallback((next: "web" | "deck") => {
-    const nextMode = modeFromStepper(next);
+    const nextMode = modeFromStepper(next, deckMode);
     setMode(nextMode);
     // Switching deliverable family is a fresh choice: reset the family-specific
     // selection + lineup + levers; shared inputs (brief/DS/files/images) persist.
@@ -491,7 +545,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     setPipelineAgents(defaultAgentsFor(libraryAgents, nextMode));
     selectionsRef.current = {};
     gateSelectionRef.current = { ids: [], touched: false };
-  }, [libraryAgents]);
+  }, [libraryAgents, deckMode]);
 
   const handleAddAgent = useCallback((agent: AgentDef, insertBeforeId?: string) => {
     setPipelineAgents((prev) => {
@@ -631,7 +685,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     const { ids: gateAgentIds, touched: gatesTouched } = gateSelectionRef.current;
     const wizardConfig: Record<string, unknown> = {
       templateId: selectedTemplateId,
-      designSystemId: mode === "ppt" ? (dsRequired ? selectedDsId : null) : selectedDsId,
+      designSystemId: isDeck ? (dsRequired ? selectedDsId : null) : selectedDsId,
       brief,
       ...(gatesTouched ? { gateAgentIds } : {}),
       ...(customDsBody ? { customDsBody } : {}),
@@ -654,7 +708,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     } catch (e) {
       setSaveError((e as Error)?.message ?? "Failed to save workflow.");
     }
-  }, [mode, selectedTemplateId, selectedDsId, dsRequired, brief, customDsBody, customTemplateBody, pipelineAgents]);
+  }, [mode, isDeck, selectedTemplateId, selectedDsId, dsRequired, brief, customDsBody, customTemplateBody, pipelineAgents]);
 
   /**
    * Save the current lineup as THIS USER'S version of the built-in (spec 016).
@@ -717,7 +771,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     if (fileBlocks) finalBrief = `${finalBrief}${fileBlocks}`;
 
     const { ids: gateAgentIds, touched: gatesTouched } = gateSelectionRef.current;
-    const designSystemId = mode === "ppt" ? (dsRequired ? selectedDsId : null) : selectedDsId;
+    const designSystemId = isDeck ? (dsRequired ? selectedDsId : null) : selectedDsId;
 
     const draft = buildLaunchDraft(mode, {
       templateId: selectedTemplateId,
@@ -745,7 +799,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     router.push(routes.home());
   }, [
     canContinue, mode, isChaining, brief, attachedFileContents, attachedImages,
-    dsRequired, selectedDsId, selectedTemplateId, customDsBody, customTemplateBody,
+    dsRequired, isDeck, selectedDsId, selectedTemplateId, customDsBody, customTemplateBody,
     discoveryAnswers, pipelineAgents, router,
   ]);
 
@@ -945,17 +999,17 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           <WizardStepper
             mode={STEPPER_MODE[mode]}
             onModeChange={handleModeChange}
-            steps={mode === "ppt" ? ["template"] : ["template", "design-system", "discovery"]}
+            steps={isDeck ? ["template"] : ["template", "design-system", "discovery"]}
             webTemplates={webTemplates}
             webSelectedId={mode === "prototype" && !customTemplateBody ? selectedTemplateId : null}
             onWebSelect={handleSelectTemplate}
             onWebSelectCustomTemplate={handleSelectCustomTemplate}
             webSelectedCustomTemplateId={mode === "prototype" && customTemplateBody ? selectedTemplateId : null}
             deckTemplates={deckTemplates}
-            deckSelectedId={mode === "ppt" && !customTemplateBody ? selectedTemplateId : null}
+            deckSelectedId={isDeck && !customTemplateBody ? selectedTemplateId : null}
             onDeckSelect={handleSelectTemplate}
             onDeckSelectCustomTemplate={handleSelectCustomTemplate}
-            deckSelectedCustomTemplateId={mode === "ppt" && customTemplateBody ? selectedTemplateId : null}
+            deckSelectedCustomTemplateId={isDeck && customTemplateBody ? selectedTemplateId : null}
             dsSlot={
               dsVisible ? (
                 systems.length === 0 ? (
@@ -1002,7 +1056,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
                   the old condition hid this pill for every chained launch — leaving
                   a disabled button with no stated reason. */}
               {!hasBuildInput && <Pill label="Add a brief" />}
-              {mode === "ppt" && !selectedTemplateId && <Pill label="Pick a template" />}
+              {isDeck && !selectedTemplateId && <Pill label="Pick a template" />}
               {(mode === "prototype" || dsRequired) && !selectedDsId && <Pill label="Pick a design system" />}
             </div>
           )}

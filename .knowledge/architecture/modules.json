@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-26",
+  "generated_at": "2026-08-27",
   "modules": [
     {
       "id": "MOD-backend",
@@ -26,7 +26,7 @@
       "id": "MOD-backend-agents",
       "path": "backend/agents",
       "language": "python",
-      "file_count": 122,
+      "file_count": 123,
       "files": [
         "backend/agents/__init__.py",
         "backend/agents/artifact_store/__init__.py",
@@ -109,6 +109,7 @@
         "backend/agents/capabilities/task_parsers/json_tasks.py",
         "backend/agents/capabilities/tools/__init__.py",
         "backend/agents/capabilities/tools/internet.py",
+        "backend/agents/capabilities/tools/pptx.py",
         "backend/agents/capabilities/tools/providers.py",
         "backend/agents/capabilities/validators/__init__.py",
         "backend/agents/capabilities/validators/_exec_support.py",
@@ -266,7 +267,7 @@
       "id": "MOD-backend-app-agents",
       "path": "backend/app/agents",
       "language": "python",
-      "file_count": 39,
+      "file_count": 40,
       "files": [
         "backend/app/agents/__init__.py",
         "backend/app/agents/cached_invoke.py",
@@ -301,6 +302,7 @@
         "backend/app/agents/skills_catalog.py",
         "backend/app/agents/static_check.py",
         "backend/app/agents/tools/__init__.py",
+        "backend/app/agents/tools/pptx_tools.py",
         "backend/app/agents/tools/runner_tools.py",
         "backend/app/agents/types.py",
         "backend/app/agents/validators/__init__.py",
@@ -313,7 +315,8 @@
         "MOD-backend-app",
         "MOD-backend-app-api",
         "MOD-backend-app-core",
-        "MOD-backend-app-models"
+        "MOD-backend-app-models",
+        "MOD-backend-app-services"
       ],
       "imported_by": [
         "MOD-backend-agents",
@@ -330,7 +333,8 @@
         "langchain_anthropic",
         "langchain_core",
         "langchain_ollama",
-        "langgraph"
+        "langgraph",
+        "pptx"
       ]
     },
     {
@@ -515,6 +519,7 @@
       ],
       "imported_by": [
         "MOD-backend-agents",
+        "MOD-backend-app-agents",
         "MOD-backend-app-api"
       ],
       "external_deps": [
@@ -628,7 +633,7 @@
       "id": "MOD-frontend-src-app",
       "path": "frontend/src/app",
       "language": "typescript",
-      "file_count": 28,
+      "file_count": 29,
       "files": [
         "frontend/src/app/[...view]/attachRunOnOpen.source.test.ts",
         "frontend/src/app/[...view]/bridgeTerminality.source.test.ts",
@@ -641,6 +646,7 @@
         "frontend/src/app/[...view]/page.tsx",
         "frontend/src/app/[...view]/reviseGuard.source.test.ts",
         "frontend/src/app/[...view]/revisionFamilyLinkage.source.test.ts",
+        "frontend/src/app/[...view]/runTabShallowNav.test.ts",
         "frontend/src/app/[...view]/terminalReopenReconcile.source.test.ts",
         "frontend/src/app/[...view]/workflowDetailCatch.source.test.ts",
         "frontend/src/app/admin/admin.reskin.test.tsx",
@@ -1039,7 +1045,7 @@
       "id": "MOD-frontend-src-components-results",
       "path": "frontend/src/components/results",
       "language": "typescript",
-      "file_count": 27,
+      "file_count": 30,
       "files": [
         "frontend/src/components/results/AgentDetailPanel.artifactCards.test.tsx",
         "frontend/src/components/results/AgentDetailPanel.artifactVersions.test.tsx",
@@ -1058,6 +1064,9 @@
         "frontend/src/components/results/FilesTab.runInput.test.tsx",
         "frontend/src/components/results/FilesTab.test.tsx",
         "frontend/src/components/results/FilesTab.tsx",
+        "frontend/src/components/results/SandboxTab.runs.test.tsx",
+        "frontend/src/components/results/SandboxTab.test.tsx",
+        "frontend/src/components/results/SandboxTab.tsx",
         "frontend/src/components/results/StartingPointCard.test.tsx",
         "frontend/src/components/results/StartingPointCard.tsx",
         "frontend/src/components/results/StepsOverviewSpine.activityLine.test.ts",
@@ -1083,11 +1092,26 @@
         "MOD-frontend-src-components-preview"
       ],
       "external_deps": [
+        "@codemirror/commands",
+        "@codemirror/lang-css",
+        "@codemirror/lang-html",
+        "@codemirror/lang-javascript",
+        "@codemirror/lang-markdown",
+        "@codemirror/language",
+        "@codemirror/search",
+        "@codemirror/state",
+        "@codemirror/view",
+        "@lezer/highlight",
         "@testing-library/react",
+        "@testing-library/user-event",
+        "fs",
         "lucide-react",
         "motion",
         "next",
+        "path",
         "react",
+        "react-markdown",
+        "remark-gfm",
         "vitest"
       ]
     },
@@ -1397,7 +1421,7 @@
       "id": "MOD-frontend-src-lib",
       "path": "frontend/src/lib",
       "language": "typescript",
-      "file_count": 46,
+      "file_count": 48,
       "files": [
         "frontend/src/lib/__tests__/wsRunScope.test.ts",
         "frontend/src/lib/api-handoff.test.ts",
@@ -1413,6 +1437,8 @@
         "frontend/src/lib/clarifications.test.ts",
         "frontend/src/lib/clarifications.ts",
         "frontend/src/lib/constants.ts",
+        "frontend/src/lib/deckHtml.test.ts",
+        "frontend/src/lib/deckHtml.ts",
         "frontend/src/lib/design-system-colors.ts",
         "frontend/src/lib/design-system-preview.ts",
         "frontend/src/lib/entitlements.ts",

@@ -20,7 +20,8 @@ export type WorkflowType = string;
 export const TIER_PIPELINES: Record<Tier, Set<string>> = {
   basic: new Set([
     "user_stories", "user_stories_revision",
-    "ppt", "ppt_revision",
+    // spec 017 — same deck as ppt, plus a real .pptx. Entitled wherever ppt is.
+    "ppt", "ppt_v2", "ppt_revision",
   ]),
   hexaware: new Set([
     "user_stories", "user_stories_revision",
@@ -32,7 +33,8 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
   ]),
   pro: new Set([
     "user_stories", "user_stories_revision",
-    "ppt", "ppt_revision",
+    // spec 017 — same deck as ppt, plus a real .pptx. Entitled wherever ppt is.
+    "ppt", "ppt_v2", "ppt_revision",
     "prototype", "prototype_revision",
     // revision-pipeline-agent-reuse spec: these share the main prototype
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
@@ -42,7 +44,8 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
   ]),
   enterprise: new Set([
     "user_stories", "user_stories_revision",
-    "ppt", "ppt_revision",
+    // spec 017 — same deck as ppt, plus a real .pptx. Entitled wherever ppt is.
+    "ppt", "ppt_v2", "ppt_revision",
     "prototype", "prototype_revision",
     // revision-pipeline-agent-reuse spec: these share the main prototype
     // pipeline's agents. Entitled on the backend wherever `prototype` is —
