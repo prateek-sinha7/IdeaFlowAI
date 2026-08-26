@@ -1,4 +1,21 @@
-# Gap register — everything not yet specified, and why
+# Gap register — every surface, and its state
+
+> **Status after sweep 6: every gap listed below is now SPECIFIED.**
+> Four new feature files (`19`–`22`) cover toasts, native dialogs, the delete-user
+> confirm, keyboard, navigation edges, error boundaries, run families and versions,
+> the valid-token handoff, and the gate/clarify controls.
+>
+> Those scenarios are tagged **`@sourced`**: selectors and copy read from the
+> components, behaviour not yet confirmed in a browser. That is a weaker standard
+> than the capture-verified specs, and it is marked so nobody mistakes one for the
+> other. This file now records **why each is not yet captured**, not that it is
+> unknown.
+>
+> The one true remaining gap is **responsive breakpoints** — no scenarios anywhere.
+
+---
+
+# Original register — everything not yet specified, and why
 
 Sweeps 1–5 kept discovering surfaces the previous sweep had not known existed. This
 register exists so that stops: it enumerates **every interaction surface in the
@@ -30,12 +47,12 @@ keyboard shortcut and no navigation edge at all**.
 
 | Category | Hits | Files | Specified? |
 |---|---:|---:|---|
-| navigation (`router.push/replace/back`, `<Link>`, `window.open`, `location=`) | 100 | 33 | partial — see below |
+| navigation (`router.push/replace/back`, `<Link>`, `window.open`, `location=`) | 100 | 33 | ✅ `20-keyboard-and-navigation` (`@sourced`) |
 | overlays (portal, `role=dialog`, `aria-modal`, fixed-inset) | 51 | 21 | ✅ all 19 reachable |
 | dropdowns (`role=menu`, `role=listbox`, `aria-haspopup`, `aria-expanded`) | 54 | 19 | partial |
-| toasts | 54 | 5 | ❌ **none** |
-| keyboard shortcuts | 104 | 30 | partial — Escape only |
-| native dialogs (`window.alert`) | 6 | 4 | ❌ **none** |
+| toasts | 54 | 5 | ✅ `19-toasts-and-dialogs` (`@sourced`) |
+| keyboard shortcuts | 104 | 30 | ✅ `20-keyboard-and-navigation` (`@sourced`) |
+| native dialogs (`window.alert`) | 6 | 4 | ✅ `19-toasts-and-dialogs` (`@sourced`) |
 | uploads / drop zones / clipboard | 44 | 19 | partial |
 | empty / error / loading branches | 733 | 104 | partial |
 
@@ -57,9 +74,12 @@ Toasts are the single most common source of flaky E2E tests: they appear late,
 disappear on a timer, and overlay the controls a test is about to click. Specifying
 them is worth more than another static page.
 
-**Blocked on:** nothing for the admin toast (creating a user is cheap and reversible
-— it just needs an explicit decision to write to the dev DB). `CompletionToast`
-needs a run to finish, so it needs a live LLM run.
+**Now specified** in `19-toasts-and-dialogs` — both timeouts (3500ms admin vs 7000ms
+completion), every verbatim message, and the pointer-events contract that stops a
+toast eating clicks. Sweep 6 also found a **delete-user confirm dialog** on `/admin`
+nobody had noticed: the most destructive control in the product, previously unspecced.
+
+**Still not captured:** dev server 500; the delete path needs a disposable fixture user.
 
 ## 2. `window.alert` — 6 calls, 4 files, zero handling
 
@@ -67,7 +87,10 @@ needs a run to finish, so it needs a live LLM run.
 
 **A native dialog stalls Playwright until it is handled.** Any phase-2 test that
 touches a preview or the Files tab must register a dialog handler or it will hang on
-whatever condition triggers these. Nothing in the specs warns about it today.
+whatever condition triggers these.
+
+**Now specified** in `19-toasts-and-dialogs`, with all six verbatim messages and a
+harness scenario requiring a global dialog handler.
 
 ## 3. Keyboard — Escape verified, the rest not
 
@@ -88,7 +111,13 @@ but not the add-agent modal — D-07). Six files also read `metaKey`/`ctrlKey`/`
 so modifier shortcuts exist and **none have been exercised**. `CanvasView` in
 particular advertises "Hold Space + drag to pan" in its own UI.
 
-**Blocked on:** nothing. This is mechanical and should be the next increment.
+**Now specified** in `20-keyboard-and-navigation`, including the Escape matrix (9 of
+10 overlays, the tenth being D-07) and `CanvasView`'s space-to-pan typing guard —
+the highest-value keyboard assertion in the suite, since losing it silently stops
+every canvas text field accepting spaces.
+
+**Still not captured:** dev server 500. The modifier bindings in six files remain
+`@unverified` — enumerate them before asserting.
 
 ## 4. Navigation edges — 100, spot-checked
 
@@ -106,7 +135,10 @@ that each of the 100 in-app navigation edges lands where it claims:
 - **1** `router.back()` in `DashboardLayout`
 
 The `location.href` assignments in the error boundaries matter most: they are the
-app's escape hatch from a crash and nothing tests them.
+app's escape hatch from a crash.
+
+**Now specified** in `20-keyboard-and-navigation` — an outline for in-app edges, the
+new-tab affordances, and the full-reload paths asserted *as* reloads.
 
 ## 5. Error boundaries — never rendered
 
@@ -130,7 +162,12 @@ the divert badge/links are unspecified.** Given D-12 (a nonexistent version sile
 serves v1) and the diverted-run lane giving no link to its target, this is the area
 where the specs are thinnest relative to how much logic exists.
 
-**Blocked on:** a run family with more than one version — the dev DB has none.
+**Now specified** in `21-run-families-and-versions` — family collapsing, the version
+timeline, the `v3` / `"3 versions"` aria split, and both directions of the divert
+link.
+
+**Still not captured:** no multi-version run family exists. One revised run unlocks
+this entire file.
 
 ## 7. The handoff feature — one page of five
 
@@ -142,7 +179,11 @@ That is roughly 1,400 lines of unexercised UI behind a credential-bearing featur
 whose settings page is already flagged as the most security-sensitive surface in the
 product.
 
-**Blocked on:** a fixture that mints a valid handoff token.
+**Now specified** in `22-handoff-and-gates` — all three states verbatim, the
+`canStart = pending || failed` rule, and the deliberate vagueness of the
+"Handoff not found" screen as a security property.
+
+**Still not captured:** needs a fixture that mints a valid token.
 
 ## 8. Human-in-the-loop gate UI
 
@@ -153,9 +194,15 @@ The lane capture saw only their *aftermath* — "Clarifications answered", "Revi
 approved — build continues". The **actual decision controls a human uses to answer a
 gate have never been seen**.
 
-**Blocked on:** a `waiting_for_user` run. This needs a live LLM run, and it creates a
-gate that only a human should answer — flagged rather than spent, consistently with
-every earlier sweep.
+**Now specified** in `22-handoff-and-gates` — every gate testid (`chat-gate-approve`,
+`-request-changes`, `-redo`, `-reject`, the templated `chat-gate-choice-<value>`) and
+every clarify testid, including `chat-clarify-cancel-workflow`, which **cancels the
+whole run** from what reads as a question prompt and sits beside "skip all".
+
+**Still not captured:** needs a `waiting_for_user` run — a live LLM call, and it
+creates a gate only a human should answer. The spec includes a scenario stating that
+no phase-2 fixture may auto-approve gates, because an auto-approver would make every
+scenario in that file pass without testing anything real.
 
 ## 9. Unmountable components — code, not coverage
 
@@ -207,13 +254,30 @@ was derived from source, which is why it could still be written.
 
 ## Priority for the next increment
 
-1. **Keyboard shortcuts** — unblocked, mechanical, 9 global listeners plus modifiers.
-2. **Toasts** — unblocked for the admin path; the highest-value flake source in E2E.
-3. **`window.alert` handling** — a one-line note in the phase-2 harness prevents a
-   class of hangs.
-4. **Navigation edge assertions** — 100 edges, currently only spot-checked.
-5. **Error boundaries** — needs fault injection, but the app is *currently* in the
-   state they exist for.
+Everything above is now specified. What remains is **capture** — turning `@sourced`
+scenarios into verified ones — in this order:
 
-Everything else waits on a fixture: a valid handoff token, a multi-version run
-family, a `waiting_for_user` gate, a second account's session, or a hexaware user.
+1. **Restart the dev server.** Everything browser-driven is blocked until the
+   `[...view]` catch-all stops returning 500.
+2. **Keyboard and toasts** — no fixture needed beyond a running app. The space-to-pan
+   typing guard and the two toast timeouts are the highest-value items.
+3. **The `window.alert` dialog handler** — one line in the phase-2 fixture; prevents
+   a class of hangs that look like infrastructure failure.
+4. **One revised run.** A single revision unlocks the whole of
+   `21-run-families-and-versions` — family grouping, the version timeline, D-12's
+   real test — and a completed `ex_A3_divert` run unlocks both divert-link directions.
+5. **Error boundaries** — fault injection, cheapest via intercepting one required
+   request and returning malformed data.
+
+Still fixture-blocked after that: a valid handoff token, a `waiting_for_user` gate, a
+second account's session, a hexaware user, a deck deliverable for `Slides`.
+
+## The one surface with no spec at all
+
+**Responsive breakpoints.** Every capture ran at one desktop viewport. No scenario
+anywhere asserts what happens at tablet or phone width, and no source enumeration can
+substitute for looking — breakpoints live in Tailwind class strings across 100+
+components, and whether a layout *works* at 375px is a judgement, not a grep.
+
+This is recorded as a known, deliberate omission rather than dressed up as covered.
+Closing it means picking target breakpoints with the product owner first.

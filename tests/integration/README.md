@@ -38,7 +38,7 @@ tests/integration/
 ├── MANIFEST.md            the scored surface checklist, derived from source
 ├── INVENTORY.md           every route, its screen, and where its spec lives
 ├── DEFECTS-OBSERVED.md    what the sweeps found that looks wrong, plus corrections
-├── screens/               the specs — 18 files, one per surface, ~320 Gherkin scenarios
+├── screens/               the specs — 22 files, one per surface, ~400 Gherkin scenarios
 ├── capture/               raw DOM fingerprints (evidence)
 │   ├── FIXTURES.json      the live ids the sweep used, and why not to trust them
 │   ├── _enumerate.py      lists pages, screens and overlays from frontend/src
@@ -102,6 +102,11 @@ one actually does, and where its screenshot, fingerprint and spec live.
   They are written as the product behaves **today** so phase 2 has a baseline, and
   cross-referenced in `DEFECTS-OBSERVED.md`. When one is fixed, its scenario is
   rewritten to the correct behaviour and the tag dropped.
+- **`@sourced` tags** mark scenarios whose selectors and copy were read from the
+  component but whose behaviour has NOT been confirmed in a browser. They are a
+  weaker standard than the rest of this suite, deliberately marked so nobody
+  mistakes one for a capture-verified assertion. Verify on first run, then drop
+  the tag.
 - **`@destructive` tags** mark scenarios that write or delete. They need their own
   fixtures and must not run against a shared dev database.
 - **Every routing claim is backed by a capture, never by reading the router.**

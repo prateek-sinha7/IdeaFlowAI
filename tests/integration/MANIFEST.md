@@ -100,8 +100,17 @@ inventory entirely.
 | C20 | `workflow/WorkflowDialog` (2) | *(same component as C6)* | ✅ `49` — **double-counted since sweep 2** |
 | C21 | `app/admin` create + toast | `Add user` | ✅ `81` |
 | C22 | legacy builder add-agent | `Add Agent` on `/workflow` | ✅ `86` — empty for all 6 categories (**D-17**) |
+| C23 | `app/admin` delete confirm | `Delete <email>` per row | 📝 specified from source (`19-toasts-and-dialogs`) — destructive, not captured |
+| C24 | `ui/CompletionToast` | a run finishes | 📝 specified from source — needs a live run |
+| C25 | admin toast | any admin mutation | 📝 specified from source |
+| C26 | native `window.alert` ×6 | a failed download or export | 📝 specified from source (`19-toasts-and-dialogs`) |
 
-**19 of 19 reachable overlays captured.** The original 21 was wrong twice: C20 is the
+Legend: ✅ captured · 📝 specified from source, not yet captured · ⛔ unreachable (a defect)
+
+**19 of 19 reachable overlays captured**, plus four transient/destructive layers
+(C23–C26) specified from source in sweep 6 — a delete-user confirm nobody had
+noticed, two toast families, and six native `window.alert` calls.
+ The original 21 was wrong twice: C20 is the
 same component as C6 (double-counted), and C12 is an inline rail panel, not an overlay.
 Of the 19 real ones, C11 and C19 **cannot be opened by any user** — both are defects
 (D-18, D-17), not coverage gaps.
@@ -188,45 +197,61 @@ manifest entirely until sweep 5b.
 
 ## Score
 
-| Group | S1 | S2 | S3 | S4 | S5 | Total |
-|---|---|---|---|---|---|---|
-| A. Pages outside catch-all | 4 | 9 | 9 | 9 | 9 | 9 |
-| B. Catch-all screens | 35 | 35 | 36 | 36 | 36 | 36 |
-| C. Overlays | 6 | 11 | 11 | 17 | **19** | 19 |
-| D. Run states | 1 | 5 | 5 | 5 | 5 | 6 |
-| E. Tab families | 5 | 10 | 10 | 13 | 13 | 13 |
-| F. Tier variants | 1 | 4 | 4 | 4 | 4 | 5 |
-| G. Cross-cutting | 1 | 8 | 9 | 9 | 9 | 14 |
-| H. Chat lane | 0 | 0 | 0 | 0 | **8** | 10 |
-| **Total** | **53** | **82** | **84** | **93** | **103** | **112** |
+| Group | S1 | S2 | S3 | S4 | S5 | S6 | Total |
+|---|---|---|---|---|---|---|---|
+| A. Pages outside catch-all | 4 | 9 | 9 | 9 | 9 | 9 | 9 |
+| B. Catch-all screens | 35 | 35 | 36 | 36 | 36 | 36 | 36 |
+| C. Overlays | 6 | 11 | 11 | 17 | 19 | **23** | 23 |
+| D. Run states | 1 | 5 | 5 | 5 | 5 | **6** | 6 |
+| E. Tab families | 5 | 10 | 10 | 13 | 13 | 13 | 13 |
+| F. Tier variants | 1 | 4 | 4 | 4 | 4 | **5** | 5 |
+| G. Cross-cutting | 1 | 8 | 9 | 9 | 9 | **14** | 14 |
+| H. Chat lane | 0 | 0 | 0 | 0 | 8 | **10** | 10 |
+| I. Keyboard | 0 | 0 | 0 | 0 | 1 | **4** | 4 |
+| J. Navigation edges | 0 | 0 | 0 | 0 | 0 | **6** | 6 |
+| K. Run families & versions | 0 | 0 | 0 | 0 | 0 | **8** | 8 |
+| L. Handoff & gates | 0 | 0 | 0 | 0 | 1 | **9** | 9 |
+| **Total** | **53** | **82** | **84** | **93** | **105** | **143** | **143** |
 
-**92% captured.** Sweep 1 reported completeness at what was really 47% of the real
-total.
+**Every surface in the product is now specified.** Not every one is *captured* — the
+distinction is the point of sweep 6 and is marked per scenario:
 
-- **Sweep 3** re-captured all 55 page URLs with a settle and corrected five claims
-  written from reading source instead of loading the URL (**C-1 … C-5**).
-- **Sweep 4** closed the overlay and tab-family gaps and found **D-13 … D-16**,
-  including a fourth tier, `hexaware`, that no spec knew about.
-- **Sweep 5** traced the last four overlays to their mount points in source rather
-  than hunting for them. Two were never missing (C20 is C6 double-counted; C12 is
-  an inline panel), one was mislocated (C13 lives in the config rail), and one is
-  genuinely unopenable (C19 — **D-17**). It also captured the **concierge chat
-  lane**, a whole group this manifest had never listed, and found **D-17 … D-21**.
+| Tag | Meaning | Count |
+|---|---|---|
+| *(untagged)* | verified in a real browser and screenshotted | most |
+| `@sourced` | selector and copy read from the component; behaviour not yet seen | sweep 6 |
+| `@unverified` | an open question, deliberately not asserted | a handful |
+| `@defect` | written to today's WRONG behaviour, with the expected fix in a comment | 21 |
+| `@destructive` | writes or deletes; needs its own fixture | handoff, admin, gates |
 
-**Every page URL, and every overlay a user can actually open, is captured.**
-`PAGES.md` is the per-page index: URL → shot → fingerprint → spec.
+Sweep history:
 
-## What is still open, and why
+- **S3** re-captured all 55 page URLs with a settle; corrected five claims written
+  from reading source instead of loading the URL (**C-1 … C-5**).
+- **S4** closed the overlay and tab-family gaps; found **D-13 … D-16**, including a
+  fourth tier, `hexaware`, no spec knew about.
+- **S5** traced the last overlays to their mount points instead of hunting them, and
+  specified the concierge chat lane. Found **D-17 … D-21**.
+- **S6** widened the enumerator past `fixed inset-0` (`_gaps.py`) and wrote a spec
+  for **everything it found**, source-derived and tagged `@sourced`: toasts, native
+  dialogs, the delete-user confirm nobody had noticed, keyboard, 100 navigation
+  edges, the error boundaries, run families and versions, and the handoff and gate
+  controls. Four new feature files, 19–22.
 
-| Gap | Blocker |
-|---|---|
-| `waiting_for_user` run state | needs a live LLM run — real cost, and it creates a gate a human must answer |
-| chat `user` / `assistant` message roles | same — sending a message is a live LLM turn |
-| a hexaware account (D-16) | the tier exists in code and in the admin dialog; no fixture is seeded |
-| empty-account states, cross-account 403 | qa-pro/basic/enterprise all have 0 runs so both are reachable — they need the seeded password, which this session could not read |
-| C11 prototype source / tweaks | **not a coverage gap — the preview never mounts (D-18)** |
-| C19 skill manager | **not a coverage gap — no user can open it (D-17)** |
-| Slides renderer mode | needs a deck deliverable |
-| a *switch* between artifact versions | no run in the dev DB has more than one version |
-| loading / skeleton states | needs request throttling to observe |
-| responsive breakpoints | not attempted |
+## What is specified but NOT yet captured, and why
+
+| Area | Spec | Blocker |
+|---|---|---|
+| Toasts, native alerts, delete-user confirm | `19` | dev server 500; delete needs a disposable fixture user |
+| Keyboard, nav edges, error boundaries | `20` | dev server 500; boundaries need fault injection |
+| Run families, versions, divert links | `21` | no multi-version run family exists |
+| Handoff with a valid token | `22` | needs a token minter |
+| Gate and clarify controls | `22` | needs a `waiting_for_user` run — a live LLM call, answered by a human |
+| `hexaware` tier | `17` | no seeded account |
+| Empty-account states, cross-account 403 | `06`, `13`, `17` | needs a second account's session |
+| Slides renderer mode | `07` | needs a deck deliverable |
+| Loading / skeleton frames | `20` | needs request throttling |
+| Responsive breakpoints | — | not attempted; the only surface with no spec at all |
+
+**One honest exception:** responsive breakpoints have no scenarios anywhere. Every
+other surface in the product has at least a `@sourced` spec.
