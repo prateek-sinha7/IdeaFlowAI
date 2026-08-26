@@ -13,8 +13,15 @@ compiled manifests and returns the full compiled step config for a known id,
   touching the filesystem (T-04-13 path-traversal mitigation).
 
 Drives a FastAPI ``TestClient`` with ``get_current_user`` overridden (the same
-pattern as ``test_agents_api_real_registry.py``). The router issues NO DB query,
-so no ``get_db`` override is needed.
+pattern as ``test_agents_api_real_registry.py``), plus a ``get_db`` override on
+an in-memory SQLite session.
+
+The DB override exists ONLY for spec 016's workflow-override read: the router
+looks up whether THIS caller has saved an override of a built-in. It still
+issues no run-history query — see ``test_list_does_not_query_workflow_run``,
+which is what that test has always actually been about. Every test here runs
+with an EMPTY overrides table, so every assertion below is the un-overridden
+payload: that is the point, it pins the no-override path as unchanged.
 """
 
 from __future__ import annotations
@@ -22,11 +29,15 @@ from __future__ import annotations
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from agents.execution_engine.engine import compile_for_run
 from agents.registry import PIPELINE_AGENTS, get_pipeline_agents
 from app.api.workflows import _KNOWN_WORKFLOW_IDS, router
 from app.core.dependencies import get_current_user
+from app.models.database import Base, get_db
 
 
 class _FakeUser:
@@ -35,10 +46,31 @@ class _FakeUser:
 
 
 @pytest.fixture
-def client():
+def db_session():
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
+def client(db_session):
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_current_user] = lambda: _FakeUser(id="user-1")
+
+    def override_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_db
     return TestClient(app)
 
 
@@ -203,8 +235,11 @@ class TestList:
             )
 
     def test_list_does_not_query_workflow_run(self, client):
-        # The router imports no DB session; a clean list call must succeed with
-        # no get_db override present (proves no WorkflowRun dependency).
+        # The router never touches run-history: WorkflowRun is not imported and
+        # not queried. Spec 016 added ONE owner-scoped WorkflowDefinition read
+        # (the caller's own overrides), which is why a get_db override now
+        # exists — but the overrides table is empty here, so this is still the
+        # un-overridden path.
         resp = client.get("/api/workflows")
         assert resp.status_code == 200, resp.text
 

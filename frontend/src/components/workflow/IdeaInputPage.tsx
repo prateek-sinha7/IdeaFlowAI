@@ -13,8 +13,9 @@ import { useAgentLibrary } from "@/hooks/useAgentLibrary";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
-import { collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflows";
-import { createUserWorkflow, getToken, getWorkflowDetail, extractFileText } from "@/lib/api";
+import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflows";
+import { createUserWorkflow, getToken, getWorkflowDetail, setWorkflowOverrideEnabled, extractFileText } from "@/lib/api";
+import { agentsFromManifest } from "@/lib/manifestAgents";
 import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import { resizeImage } from "@/lib/resizeImage";
 import { agentMatchesPipelineType } from "@/lib/workflowIcons";
@@ -977,6 +978,20 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const [manifestSelections, setManifestSelections] = useState<
     Record<string, Record<string, unknown>> | undefined
   >(undefined);
+
+  // ── Spec 016 — this user's saved override of the built-in ──────────────────
+  // The LaunchWizard has carried this since T8, but only `ppt` and `prototype`
+  // ever reach that component (its MODE_CONFIG is typed `"prototype" | "ppt"`).
+  // Every other built-in — user_stories, app_builder, mulesoft_to_springboot,
+  // dotnet_to_azure — renders HERE, so until now those four had no way to author
+  // an override at all: the affordance simply did not exist on their screen.
+  const [overrideInfo, setOverrideInfo] = useState<{ id: string; enabled: boolean } | null>(null);
+  const [overrideAgents, setOverrideAgents] = useState<AgentDef[] | null>(null);
+  const [overrideSelections, setOverrideSelections] = useState<
+    Record<string, Record<string, unknown>> | undefined
+  >(undefined);
+  const [showOverride, setShowOverride] = useState(false);
+
   useEffect(() => {
     if (!workflowId) {
       setDeclaredCapabilities(undefined);
@@ -1021,6 +1036,23 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         // conditional-gate branches the canvas already knows how to draw just need
         // passing through. Falls back to the compiled projection for anything the
         // manifest could not be read for.
+        // Same payload, no extra request. `has_override` is false for everyone
+        // without one, so this is inert for every other user.
+        if (detail.has_override && detail.override_id) {
+          setOverrideInfo({ id: detail.override_id, enabled: !!detail.is_overridden });
+          if (detail.is_overridden) {
+            const proj = agentsFromManifest(detail, workflowId);
+            setOverrideAgents(proj.agents);
+            setOverrideSelections(proj.selections);
+            setShowOverride(true);
+            if (proj.selections) selectionsRef.current = proj.selections;
+          }
+        } else {
+          setOverrideInfo(null);
+          setOverrideAgents(null);
+          setShowOverride(false);
+        }
+
         const raw = detail.manifest_steps;
         setManifestRawSteps(raw ?? undefined);
         console.log("[wf] 1. fetched", workflowId, {
@@ -1208,11 +1240,18 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         fromManifest: manifestAgents?.length ?? 0,
         using: fromLibrary.length > 0 ? "library" : "manifest",
       });
+      // The override wins when it is on. Decided HERE rather than by a later
+      // setPipelineAgents call: this effect re-runs whenever `manifestAgents`
+      // lands (same fetch that produced the override), so a separate apply would
+      // race it and the library roster would sometimes win.
+      const systemRoster = fromLibrary.length > 0 ? fromLibrary : (manifestAgents ?? []);
       setPipelineAgents(
-        fromLibrary.length > 0 ? fromLibrary : (manifestAgents ?? []),
+        showOverride && overrideAgents && overrideAgents.length > 0
+          ? overrideAgents
+          : systemRoster,
       );
     }
-  }, [LIBRARY_AGENTS, effectiveType, initialAgentIds, ALL_LIBRARY_AGENTS, manifestAgents]);
+  }, [LIBRARY_AGENTS, effectiveType, initialAgentIds, ALL_LIBRARY_AGENTS, manifestAgents, showOverride, overrideAgents]);
 
   // Reset the sub-choice when the parent switches us off the migration meta-type.
   useEffect(() => {
@@ -1366,6 +1405,76 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     }
   };
 
+  /** Flip between the override's steps and the system ones (spec 016). */
+  const handleToggleOverride = useCallback(
+    async (next: boolean) => {
+      if (!overrideInfo || !workflowId) return;
+      const token = getToken();
+      if (!token) return;
+      setShowOverride(next);
+      if (!next) {
+        selectionsRef.current = {};
+      } else if (overrideAgents) {
+        selectionsRef.current = overrideSelections ?? {};
+      } else {
+        // Saved-but-off at mount, so the rows were never fetched. Enable first,
+        // then read back what the server now serves as overridden.
+        try {
+          await setWorkflowOverrideEnabled(token, overrideInfo.id, true);
+          const detail = await getWorkflowDetail(token, workflowId);
+          const proj = agentsFromManifest(detail, workflowId);
+          setOverrideAgents(proj.agents);
+          setOverrideSelections(proj.selections);
+          selectionsRef.current = proj.selections ?? {};
+          setOverrideInfo({ ...overrideInfo, enabled: true });
+          return;
+        } catch {
+          setShowOverride(false);
+          return;
+        }
+      }
+      // Persist, so what the screen shows and what a run executes agree.
+      try {
+        await setWorkflowOverrideEnabled(token, overrideInfo.id, next);
+        setOverrideInfo({ ...overrideInfo, enabled: next });
+      } catch {
+        /* the roster already reflects the choice; retried on the next toggle */
+      }
+    },
+    [overrideInfo, overrideAgents, overrideSelections, workflowId],
+  );
+
+  /** Save the current lineup as THIS user's version of the built-in (spec 016). */
+  const handleSaveAsOverride = useCallback(async () => {
+    setSaveError(null);
+    const jwt = getToken();
+    if (!jwt || !workflowId) { setSaveError("Not authenticated."); return; }
+    try {
+      const saved = await createUserWorkflow(jwt, {
+        name: `My ${workflowId}`,
+        description: "Your saved version of this workflow.",
+        base_pipeline_type: workflowId,
+        agent_ids: pipelineAgents.map((a) => a.id),
+        // `manifest`, never `selections`: the override resolve reads
+        // manifest_json["steps"], and a selections map has no steps in it.
+        manifest: buildWorkflowManifest(
+          pipelineAgents,
+          undefined,
+          selectionsRef.current,
+        ) as unknown as Record<string, unknown>,
+        overrides_pipeline_type: workflowId,
+      });
+      setOverrideInfo({ id: saved.id, enabled: true });
+      setOverrideAgents(pipelineAgents);
+      setOverrideSelections(selectionsRef.current);
+      setShowOverride(true);
+      setSavedConfirm(true);
+      setTimeout(() => setSavedConfirm(false), 2500);
+    } catch (e) {
+      setSaveError((e as Error)?.message ?? "Failed to save your version.");
+    }
+  }, [workflowId, pipelineAgents]);
+
   // KAN-112: for custom, there are no "default" agents — every agent is optional.
   // The optional-agent count and add/remove limits are all relative to an empty baseline.
   const defaultAgentIds = new Set(
@@ -1377,7 +1486,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const maxOptional = effectiveType === "custom" ? 16 : 5; // generous cap for custom
   const canAddMore = optionalAgentCount < maxOptional;
 
-  const handleAddAgent = useCallback((agent: AgentDef) => {
+  const handleAddAgent = useCallback((agent: AgentDef, insertBeforeId?: string) => {
     setPipelineAgents((prev) => {
       // Reusable blank template — mint a fresh instance id per add (R-03).
       const node = instantiateIfTemplate(agent, collectAgentIds(prev));
@@ -1391,10 +1500,24 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       const currentOptional = prev.filter((a) => !currentDefaults.has(a.id)).length;
       const limit = effectiveType === "custom" ? 16 : 5;
       if (currentOptional >= limit) return prev;
-      const insertIdx = effectiveType === "custom" ? prev.length : (prev.length > 0 ? prev.length - 1 : 0);
+      // An explicit slot wins. The canvas's "+" affordances each name the node the
+      // new step goes BEFORE (the head slot names step 1), and without honouring it
+      // every add landed on the heuristic below instead — clicking the leftmost slot
+      // on a 6-agent pipeline put the agent at position 6 of 7. Reproduced live on
+      // user_stories.
+      const explicitIdx = insertBeforeId
+        ? prev.findIndex((a) => a.id === insertBeforeId)
+        : -1;
+      // Fallback, unchanged: a composed `custom` workflow appends; a built-in keeps
+      // its final compiler/delivery step last, so an unpositioned add goes before it.
+      const insertIdx = explicitIdx >= 0
+        ? explicitIdx
+        : (effectiveType === "custom" ? prev.length : (prev.length > 0 ? prev.length - 1 : 0));
       const updated = [...prev];
       updated.splice(insertIdx, 0, { ...node, order: insertIdx + 1 });
-      return updated;
+      // Re-number every step: splicing into the middle otherwise leaves duplicate
+      // `order` values behind the insert point, which the manifest projection reads.
+      return updated.map((a, i) => ({ ...a, order: i + 1 }));
     });
   }, [LIBRARY_AGENTS, effectiveType]);
 
@@ -1516,6 +1639,21 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                       title="Save this composition as a reusable workflow"
                     >
                       <Save className="h-3.5 w-3.5" /> Save workflow
+                    </button>
+                  )}
+
+                  {/* Spec 016 — bind this lineup to the built-in so it is what THIS
+                      user gets whenever they open it. Distinct from "Save workflow",
+                      which forks an unrelated saved copy. Hidden for `custom`, which
+                      IS the fork surface and has no built-in to override. */}
+                  {effectiveType !== "custom" && workflowId && !savedConfirm && (
+                    <button
+                      onClick={handleSaveAsOverride}
+                      disabled={pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+                      className="flex items-center gap-1.5 rounded-xl border border-line-control px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Make this lineup your default for this workflow"
+                    >
+                      <Save className="h-3.5 w-3.5" /> Save as my version
                     </button>
                   )}
 
@@ -1754,6 +1892,9 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         } : undefined}
         agents={pipelineAgents}
         pipelineType={effectiveType}
+        overrideAvailable={overrideInfo !== null}
+        overrideActive={showOverride}
+        onToggleOverride={overrideInfo ? handleToggleOverride : undefined}
         onAddAgent={handleAddAgent}
         onRemoveAgent={handleRemoveAgent}
         onReorder={handleReorderAgents}

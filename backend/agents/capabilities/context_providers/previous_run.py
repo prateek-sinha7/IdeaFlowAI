@@ -143,27 +143,27 @@ class PreviousRunProvider:
             # assert_owns (no parent context belongs in a forward build).
             return {}
 
-        # ── Seed the EXISTING artifact as an in-place-editable file (CR-06) ──────
-        # Relocated from the kernel's "DELIBERATE EXCEPTION" block. Parameterized by
-        # ``deliverable.name`` (NOT a hardcoded const). Works off the user message
-        # (independent of a parent_run_id), so it runs BEFORE the parent-seed gate.
-        # Byte-identical to the legacy inline block: same extraction, same slimmed
-        # message, same stashed ``revision_original_html`` / ``revision_instruction``.
-        self._seed_existing_artifact(ctx)
-
         parent_run_id = getattr(ctx, "parent_run_id", None)
-        if not parent_run_id:
-            # No parent (a declared revision with no recorded parent) — nothing to
-            # seed (same-owner graceful-degrade path).
-            return {}
 
-        # ── L16 ownership gate (AUTHZ-02 / INV-8) — BEFORE any seed ──────────────
+        # ── L16 ownership gate (AUTHZ-02 / INV-8) — BEFORE any parent access ─────
         # The cross-owner PermissionError PROPAGATES; it is NEVER swallowed. A
         # cross-owner parent must never be silently seeded (Highest-Risk Behavior 4).
+        #
+        # This gate used to sit BELOW ``_seed_existing_artifact`` on the reasoning
+        # that that helper "works off the user message (independent of a
+        # parent_run_id)". That stopped being true when the Concierge fallback was
+        # added to it: with no ``=== EXISTING … ===`` markers in the message it now
+        # calls ``runner.read_parent_file(parent_run_id, …)``, i.e. it reads the
+        # PARENT run's sandbox — before ownership had been established. Ordering the
+        # gate first is what makes L16's "no parent read on an unconfirmed owner"
+        # actually hold; ``allow_parent_read`` carries the verdict into the helper so
+        # its message-only path still runs when there is no parent to check.
+        parent_ok = False
         scoped_store = getattr(ctx, "scoped_store", None)
-        if scoped_store is not None:
+        if parent_run_id and scoped_store is not None:
             try:
                 await scoped_store.assert_owns(parent_run_id)
+                parent_ok = True
             except PermissionError:
                 raise  # cross-owner denial — propagate (L16, never swallow)
             except Exception as authz_exc:  # noqa: BLE001 — WR-04: fail CLOSED
@@ -182,7 +182,26 @@ class PreviousRunProvider:
                     "FAILING CLOSED: skipping parent-run seed (ownership unconfirmed)",
                     parent_run_id, authz_exc,
                 )
+                # Fail CLOSED on the parent, but the user's OWN message-borne
+                # artifact is not the parent's data — still seed that.
+                self._seed_existing_artifact(ctx, allow_parent_read=False)
                 return {}
+        elif parent_run_id and scoped_store is None:
+            # No store to check against — unchanged from the pre-gate behaviour
+            # (the gate has always been a no-op when ctx carries no scoped_store).
+            parent_ok = True
+
+        # ── Seed the EXISTING artifact as an in-place-editable file (CR-06) ──────
+        # Relocated from the kernel's "DELIBERATE EXCEPTION" block. Parameterized by
+        # ``deliverable.name`` (NOT a hardcoded const). Byte-identical to the legacy
+        # inline block: same extraction, same slimmed message, same stashed
+        # ``revision_original_html`` / ``revision_instruction``.
+        self._seed_existing_artifact(ctx, allow_parent_read=parent_ok)
+
+        if not parent_run_id:
+            # No parent (a declared revision with no recorded parent) — nothing more
+            # to seed (same-owner graceful-degrade path).
+            return {}
 
         # ── Seed the parent run's reference files into this run's sandbox ────────
         # Reach the parent files + the current sandbox through the handle (no app.*
@@ -261,7 +280,7 @@ class PreviousRunProvider:
 
     # ── Existing-artifact seed (relocated from the kernel, CR-06) ───────────────
     @staticmethod
-    def _seed_existing_artifact(ctx: Any) -> None:
+    def _seed_existing_artifact(ctx: Any, *, allow_parent_read: bool = False) -> None:
         """Seed the prior artifact as an in-place-editable sandbox file.
 
         Byte-identical to the deleted inline kernel block: extract the artifact
@@ -280,6 +299,11 @@ class PreviousRunProvider:
         artifact is read directly from the parent run's sandbox via the runner handle.
         This prevents the task_loop builder from writing the full prototype from
         scratch on every Task 1 invocation.
+
+        That fallback is a PARENT read, so it is gated on ``allow_parent_read`` — the
+        L16 ownership verdict ``load`` computes before calling this. Defaulting it to
+        False keeps any future caller fail-closed: the message-only path always runs,
+        the parent read only ever runs for a confirmed owner.
         """
         runner = getattr(ctx, "runner", None)
         if runner is None:
@@ -298,7 +322,10 @@ class PreviousRunProvider:
             parent_run_id = getattr(ctx, "parent_run_id", None)
             deliverable_inner = getattr(ctx, "deliverable", None)
             artifact_name_inner = getattr(deliverable_inner, "name", None) or _DEFAULT_ARTIFACT_NAME
-            if parent_run_id and hasattr(runner, "read_parent_file"):
+            # ``allow_parent_read`` is the L16 gate's verdict, threaded in from
+            # ``load``: this branch touches the PARENT run's sandbox, so it may only
+            # run once ownership has been established.
+            if allow_parent_read and parent_run_id and hasattr(runner, "read_parent_file"):
                 try:
                     existing = runner.read_parent_file(parent_run_id, artifact_name_inner) or ""
                     if existing:

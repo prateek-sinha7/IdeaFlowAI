@@ -222,6 +222,18 @@ def update_user_tier(
     §5.3). Local/break-glass path: unchanged -- just the DB column, which IS
     authoritative for that account.
     """
+    # Self-action policy (Requirement 5.9) — mirrors the self-demote guard on
+    # `update_user_role` and the self-delete guard on `delete_user`. An admin
+    # changing their OWN tier is a privilege mutation with no second pair of
+    # eyes: the same account authorises the change and receives it, and a
+    # downgrade also strips the entitlements the admin may need to undo it.
+    # Ask another admin, as the two sibling endpoints already require.
+    if user_id == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot change your own tier.",
+        )
+
     valid_tiers = set(TIER_PIPELINES.keys())
     if request.tier not in valid_tiers:
         raise HTTPException(

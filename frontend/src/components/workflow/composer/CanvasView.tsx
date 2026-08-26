@@ -665,6 +665,26 @@ export function CanvasView({
   const handleSkillsChange = (id: string, skills: string[]) => {
     onTreeChange?.(mapAgentInTree(pipelineAgents, id, (a) => ({ ...a, skills })));
   };
+
+  /** Swap a ROOT step with its neighbour — `dir` -1 = earlier, +1 = later.
+   *
+   *  The WHOLE step moves. A step's sub-agents live nested inside it in
+   *  `pipelineAgents` (`agent.children`), so swapping the array entries carries
+   *  the entire subtree with it — there is no separate child bookkeeping to do.
+   *
+   *  Routes are left alone on purpose: a route target names a node id, not an
+   *  index, so reordering cannot invalidate one. What CAN change is which pairs
+   *  are chain-adjacent, and that is exactly the edit the user is asking for.
+   */
+  const moveRootStep = (id: string, dir: -1 | 1) => {
+    const from = pipelineAgents.findIndex((a) => a.id === id);
+    const to = from + dir;
+    if (from < 0 || to < 0 || to >= pipelineAgents.length) return;
+    const next = [...pipelineAgents];
+    [next[from], next[to]] = [next[to], next[from]];
+    // Keep `order` contiguous — it drives the displayed sequence downstream.
+    onTreeChange?.(next.map((a, i) => ({ ...a, order: i + 1 })));
+  };
   // T35 (spec 014 / R-02) — the route-editor write-through CanvasNode's
   // `onRouteChange` docstring flagged as missing. Same shape as every other
   // tree-edit handler above: round-trips through `onTreeChange` into the SAME
@@ -1417,6 +1437,25 @@ export function CanvasView({
   // Inter-node insert affordances (between consecutive ROOT nodes only,
   // matching the old canvas exactly — no insert between Brief and node0) +
   // a chain-end add.
+  // HEAD insert — between the Brief pill and the FIRST agent. Without this there
+  // is nowhere to add a step before step 1: `inserts` below starts at index 1
+  // (it pairs consecutive nodes, so it can only ever produce slots BETWEEN two
+  // agents), and `emptyAdd` only renders on an empty canvas. So on any workflow
+  // with at least one agent, prepending was simply unreachable from the canvas.
+  //
+  // Guarded on the first agent actually being in the leftmost column: if it has
+  // been dragged or ranked elsewhere (a detached node, or a branch target that
+  // ranked deeper), the midpoint would land somewhere meaningless.
+  const headAdd =
+    pipelineAgents.length > 0 && rootLayout.get(pipelineAgents[0].id)?.col === 0
+      ? {
+          key: "head-add",
+          x: (BRIEF_X + BRIEF_W + positionOf(pipelineAgents[0].id).x) / 2,
+          y: (briefCenterY + actualCenterY(pipelineAgents[0].id)) / 2,
+          insertBeforeId: pipelineAgents[0].id,
+        }
+      : null;
+
   const inserts = pipelineAgents.slice(1).flatMap((_, k) => {
     const i = k; // between node i and node i+1
     // An insert affordance sits ON a chain edge, so it only exists where one
@@ -1547,11 +1586,19 @@ export function CanvasView({
     ],
     serialized_sandbox: [{ value: ".zip", label: "Zip archive (.zip)" }],
   };
+  // The strategies the composer can OFFER — the user-allowed resolvers. A
+  // workflow may declare one outside this set (see the <option> note below).
+  const KNOWN_STRATEGIES = new Set(["streamed_text", "single_file", "serialized_sandbox"]);
   const formatOptions = FORMAT_OPTIONS[deliverableStrategy] ?? FORMAT_OPTIONS.streamed_text;
   const currentExt = deliverableName.slice(deliverableName.lastIndexOf("."));
+  // Keep a DECLARED extension the composer cannot offer (ppt's
+  // `presentation.pptx`) instead of snapping to `.md` — same reason as the
+  // unofferable-strategy <option> below.
   const currentFormat = formatOptions.some((f) => f.value === currentExt)
     ? currentExt
-    : formatOptions[0].value;
+    : !KNOWN_STRATEGIES.has(deliverableStrategy) && currentExt
+      ? currentExt
+      : formatOptions[0].value;
   const withExtension = (name: string, ext: string) => {
     const base = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name;
     return `${base || "output"}${ext}`;
@@ -1631,6 +1678,20 @@ export function CanvasView({
           <option value="streamed_text">Streamed text — agent&apos;s raw output</option>
           <option value="single_file">Single file — one file from the workspace</option>
           <option value="serialized_sandbox">Serialized sandbox — zip the workspace</option>
+          {/* A DECLARED strategy the composer cannot offer. The three options
+              above are exactly the `user_allowed=True` deliverable resolvers; a
+              file-backed workflow may declare one that is not user-grantable
+              (`ppt` is the live example — `deliverable: {strategy: ppt}`).
+              Without this option the <select> has no matching value and renders
+              BLANK or snaps to the first entry, which is how the ppt rail came
+              to claim its output was streamed markdown. Read-only by nature: the
+              control is disabled whenever there is no onRunConfigChange, and a
+              user could not have picked this value in the first place. */}
+          {!KNOWN_STRATEGIES.has(deliverableStrategy) && (
+            <option value={deliverableStrategy}>
+              {deliverableStrategy} — declared by this workflow
+            </option>
+          )}
         </select>
 
         <div className="mt-2 flex items-center gap-2">
@@ -1671,7 +1732,10 @@ export function CanvasView({
                 {f.label}
               </option>
             ))}
-          </select>
+                      {!formatOptions.some((f) => f.value === currentFormat) && (
+              <option value={currentFormat}>{currentFormat} — declared</option>
+            )}
+</select>
         </div>
       </div>
 
@@ -1964,6 +2028,16 @@ export function CanvasView({
                 minCardHeight={rowCardHeight}
                 modelOptions={modelOptions}
                 addChildDisabledReason={addChildDisabledReason(agent)}
+                // Reorder arrows — root steps only, and only where there IS a
+                // neighbour to swap with (undefined ⇒ the arrow renders disabled).
+                onMoveEarlier={
+                  onTreeChange && i > 0 ? () => moveRootStep(agent.id, -1) : undefined
+                }
+                onMoveLater={
+                  onTreeChange && i < pipelineAgents.length - 1
+                    ? () => moveRootStep(agent.id, 1)
+                    : undefined
+                }
               />
             );
           })}
@@ -2024,7 +2098,7 @@ export function CanvasView({
               through and wash it out; the disabled state stays legible
               (opacity-70, not 40) and explains WHY instead of just fading
               into the background looking broken. */}
-          {inserts.map((ins) => (
+          {[...(headAdd ? [headAdd] : []), ...inserts].map((ins) => (
             <span
               key={ins.key}
               className="absolute z-[5] -translate-x-1/2 -translate-y-1/2"
@@ -2049,17 +2123,40 @@ export function CanvasView({
           {[
             ...leafAdds,
             ...(emptyAdd ? [{ key: "leaf-add-empty", ...emptyAdd, insertBeforeId: undefined }] : []),
-          ].map((add) => (
+          ].map((add) => {
+            // A slot with no `insertBeforeId` APPENDS to the end of the chain, and
+            // for a last-streamed deliverable the last step's output IS the
+            // deliverable (engine: `ectx.last_streamed = results[-1].output`). So
+            // appending here silently replaces the deck / the backlog with whatever
+            // the new agent happens to say — no error, no warning, the run just
+            // delivers the wrong artifact. `single_file` and `serialized_sandbox`
+            // read named files back off the sandbox instead and are immune, which is
+            // why this is keyed on the DECLARED strategy rather than blanket-blocked.
+            // Keyed on the DECLARED strategy, never the composer default. A custom
+            // composition has no declared deliverable — `runConfig` is absent — and
+            // there appending IS the point: the chain the user is building ends in
+            // the step that produces the result. Using the `?? "streamed_text"`
+            // fallback here would have disabled the composer's own append slot.
+            const declaredStrategy = runConfig?.deliverable?.strategy;
+            const appendsAtEnd = add.insertBeforeId === undefined && pipelineAgents.length > 0;
+            const eatsDeliverable =
+              appendsAtEnd && (declaredStrategy === "ppt" || declaredStrategy === "streamed_text");
+            const blockedReason = !canAddMore
+              ? "Maximum 8 root agents are allowed"
+              : eatsDeliverable
+                ? `The last step's output is this workflow's deliverable (${deliverableName}). Adding a step after it would replace ${deliverableName} with the new step's output — insert it before another step instead.`
+                : undefined;
+            return (
             <span
               key={add.key}
               className="absolute z-[5] -translate-x-1/2 -translate-y-1/2"
               style={{ left: add.x, top: add.y }}
             >
-              <CapTip reason={canAddMore ? undefined : "Maximum 8 root agents are allowed"}>
+              <CapTip reason={blockedReason}>
                 <button
                   type="button"
                   aria-label="Add agent"
-                  disabled={!canAddMore}
+                  disabled={!canAddMore || eatsDeliverable}
                   onClick={() => onAddAgent(add.insertBeforeId)}
                   className="grid h-[30px] w-[30px] place-items-center rounded-[8px] border border-line-control bg-surface-card text-ink-700 shadow-[0_1px_4px_rgba(17,17,20,0.14)] enabled:hover:border-brand enabled:hover:text-brand disabled:cursor-not-allowed disabled:opacity-70"
                 >
@@ -2067,7 +2164,8 @@ export function CanvasView({
                 </button>
               </CapTip>
             </span>
-          ))}
+            );
+          })}
 
         </div>
 

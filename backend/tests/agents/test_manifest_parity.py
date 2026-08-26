@@ -126,6 +126,20 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     # reasons).
     "prototype_large_revision",
     "prototype_feature_revision",
+    # ── spec 014/015 conditional-gate example workflows ──────────────────────
+    # planner: skip — deliberately tiny deterministic fixtures for the loop /
+    # branch / divert / human-gate shapes. A deep-planner round-trip in front of
+    # one would cost more than the workflow itself and add variance to the exact
+    # branch sequence each fixture exists to pin. Same rationale as
+    # sample_subagents_parallel above. NOT run_revision-dispatched, so unioned in
+    # here rather than added to _RUN_REVISION_DISPATCHED.
+    "ex_A1_loop",
+    "ex_A2_branch",
+    "ex_A3_b_spanish",
+    "ex_A3_c_dutch",
+    "ex_A3_divert",
+    "ex_A4_human_divert",
+    "ex_A4_human_gate",
 }
 
 # Hard-copied VERBATIM from each pipeline's `agents/workflows/<id>/workflow.yaml`
@@ -156,6 +170,20 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     # instruction directly, no clarify round-trip needed.
     "prototype_large_revision": [],
     "prototype_feature_revision": [],
+    # ── spec 014/015 conditional-gate example workflows ──────────────────────
+    # clarify.mode: skip — deterministic branch/loop/divert fixtures that take
+    # their topic straight from the run input and ask nothing. Swept in by
+    # ADR-0005 (SUPPORTED_PIPELINE_TYPES derived from disk), same as the
+    # sample_* workflows above. Kept in lockstep with the sibling file.
+    "ex_A1_loop": [],
+    "ex_A2_branch": [],
+    "ex_A3_b_spanish": [],
+    "ex_A3_c_dutch": [],
+    "ex_A3_divert": [],
+    "ex_A4_human_divert": [],
+    "ex_A4_human_gate": [],
+    # clarify.mode: disabled — a compile-shape fixture, not a runnable pipeline.
+    "sc001-test-fixture": [],
 }
 # The fallback for any id absent from the dict above — the *_revision manifests
 # (ppt_revision, prototype_revision, user_stories_revision, app_builder_revision),

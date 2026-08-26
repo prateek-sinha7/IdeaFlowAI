@@ -13,14 +13,13 @@
         },
         {
           "icon": "✅",
-          "id": "prototype-revision-validate",
-          "name": "Revision Validation Agent",
-          "order": 2,
+          "id": "prototype-validate",
+          "name": "Validation Agent",
+          "order": 5,
           "role": "Structural Validation & Delivery"
         }
       ],
-      "pipeline_type": "prototype_revision",
-      "resume_offset": 0
+      "pipeline_type": "prototype_revision"
     },
     "section": "prototype_revision",
     "type": "pipeline_start"
@@ -120,7 +119,7 @@
   {
     "chunk": null,
     "data": {
-      "agent_id": "prototype-revision-validate",
+      "agent_id": "prototype-validate",
       "attached_hooks": [],
       "attached_skills": [],
       "estimated_tokens": 0,
@@ -132,7 +131,7 @@
   {
     "chunk": null,
     "data": {
-      "agent_id": "prototype-revision-validate",
+      "agent_id": "prototype-validate",
       "chunk": "<normalized>"
     },
     "section": "prototype_revision",
@@ -141,7 +140,7 @@
   {
     "chunk": null,
     "data": {
-      "agent_id": "prototype-revision-validate",
+      "agent_id": "prototype-validate",
       "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Revision Specialist Agent (Targeted UI Refinement) ---\nRevising. Revision complete.",
       "tool_calls": []
     },
@@ -151,12 +150,12 @@
   {
     "chunk": null,
     "data": {
-      "agent_id": "prototype-revision-validate",
+      "agent_id": "prototype-validate",
       "duration": "<normalized>",
       "index": 1,
       "input_tokens": "<normalized>",
-      "name": "Revision Validation Agent",
-      "output_length": 44,
+      "name": "Validation Agent",
+      "output_length": 32,
       "output_tokens": "<normalized>",
       "total": 2,
       "total_tokens": "<normalized>"
@@ -167,10 +166,10 @@
   {
     "chunk": null,
     "data": {
-      "agent_id": "prototype-revision-validate",
+      "agent_id": "prototype-validate",
       "icon": "✅",
       "index": 1,
-      "name": "Revision Validation Agent",
+      "name": "Validation Agent",
       "role": "Structural Validation & Delivery",
       "total": 2
     },
@@ -198,7 +197,7 @@
         {
           "artifact_type": "prototype-revision-agent",
           "from": "prototype-revision-agent",
-          "to": "prototype-revision-validate"
+          "to": "prototype-validate"
         }
       ],
       "satisfiable": true,

@@ -197,60 +197,65 @@ async def render_check(
     coverage_errors: list[str] = []
 
     try:
+    # Everything that touches `browser` MUST stay INSIDE this `async with`:
+    # leaving it tears the browser down, and the next `browser.new_page()`
+    # raises "Target page, context or browser has been closed" — which this
+    # function swallows into `page_errors` as a harness error, so the whole
+    # render validator silently returned zero findings on every call.
         async with async_playwright() as pw:
             try:
                 browser = await pw.chromium.launch(args=["--no-sandbox"])
             except Exception as exc:  # noqa: BLE001 — browser binary absent → skip, not fail
                 logger.warning("render_check: Chromium launch failed (%s) — skipping", exc)
                 return RenderResult(ok=True, available=False, note=f"Chromium unavailable: {exc}")
-        try:
-            page = await browser.new_page()
-            page.on(
-                "console",
-                lambda m: console_errors.append(m.text) if m.type == "error" else None,
-            )
-            page.on("pageerror", lambda e: page_errors.append(str(e)))
-            await page.goto(path.as_uri(), wait_until="networkidle", timeout=timeout_ms)
-            if check_nav:
-                # Parse the app's route table ONCE (from the file source) so each
-                # exercised route's expected section can be resolved through it. A
-                # table-less / href-valued-object prototype parses to None → the
-                # per-route expected falls back to _first_path_segment (INV-3).
-                try:
-                    table = parse_routes_table(path.read_text(encoding="utf-8"))
-                except OSError:
-                    table = None
-                nav_results, discovered = await _check_nav(
-                    page, table=table, nav_settle_ms=nav_settle_ms
+            try:
+                page = await browser.new_page()
+                page.on(
+                    "console",
+                    lambda m: console_errors.append(m.text) if m.type == "error" else None,
                 )
-                # Nav COVERAGE: a multi-section SPA that exercised ZERO nav targets
-                # is the fail-open blind spot (the old ``nav_results=0`` silent OK).
-                # Base the "exercised" argument on the count of DISCOVERED candidates
-                # (real + concrete-malformed + skipped-``${…}``) so that skipping a
-                # template-literal route from browser exercise can never manufacture a
-                # false coverage-0 (a page whose only nav is ``#/x/${id}`` is covered).
-                try:
-                    # EXCLUDE nav/anchor controls from the coverage denominator so a
-                    # nav ``<a data-page>`` is never counted as a page SECTION (a broken
-                    # unscoped router can carry ``data-page`` on the nav anchors). Inert
-                    # in practice — coverage only fires when ``discovered == 0`` and any
-                    # nav-carrying-data-page page has ``discovered > 0`` — but keeps the
-                    # section count honest. (Measure-gated: reverts to broad ``[data-page]``
-                    # if any golden/fixture/pin drifts.)
-                    section_count = await page.eval_on_selector_all(
-                        "[data-page]:not(a):not(.nav-link):not(.nav-item)"
-                        ":not(.nav-submenu-link)",
-                        "els => els.length",
+                page.on("pageerror", lambda e: page_errors.append(str(e)))
+                await page.goto(path.as_uri(), wait_until="networkidle", timeout=timeout_ms)
+                if check_nav:
+                    # Parse the app's route table ONCE (from the file source) so each
+                    # exercised route's expected section can be resolved through it. A
+                    # table-less / href-valued-object prototype parses to None → the
+                    # per-route expected falls back to _first_path_segment (INV-3).
+                    try:
+                        table = parse_routes_table(path.read_text(encoding="utf-8"))
+                    except OSError:
+                        table = None
+                    nav_results, discovered = await _check_nav(
+                        page, table=table, nav_settle_ms=nav_settle_ms
                     )
-                except Exception:  # noqa: BLE001 — a query failure ⇒ no coverage finding
-                    section_count = 0
-                finding = _coverage_finding(int(section_count or 0), discovered)
-                if finding:
-                    coverage_errors.append(finding)
-        except Exception as exc:  # noqa: BLE001
-            page_errors.append(f"render harness error: {exc}")
-        finally:
-            await browser.close()
+                    # Nav COVERAGE: a multi-section SPA that exercised ZERO nav targets
+                    # is the fail-open blind spot (the old ``nav_results=0`` silent OK).
+                    # Base the "exercised" argument on the count of DISCOVERED candidates
+                    # (real + concrete-malformed + skipped-``${…}``) so that skipping a
+                    # template-literal route from browser exercise can never manufacture a
+                    # false coverage-0 (a page whose only nav is ``#/x/${id}`` is covered).
+                    try:
+                        # EXCLUDE nav/anchor controls from the coverage denominator so a
+                        # nav ``<a data-page>`` is never counted as a page SECTION (a broken
+                        # unscoped router can carry ``data-page`` on the nav anchors). Inert
+                        # in practice — coverage only fires when ``discovered == 0`` and any
+                        # nav-carrying-data-page page has ``discovered > 0`` — but keeps the
+                        # section count honest. (Measure-gated: reverts to broad ``[data-page]``
+                        # if any golden/fixture/pin drifts.)
+                        section_count = await page.eval_on_selector_all(
+                            "[data-page]:not(a):not(.nav-link):not(.nav-item)"
+                            ":not(.nav-submenu-link)",
+                            "els => els.length",
+                        )
+                    except Exception:  # noqa: BLE001 — a query failure ⇒ no coverage finding
+                        section_count = 0
+                    finding = _coverage_finding(int(section_count or 0), discovered)
+                    if finding:
+                        coverage_errors.append(finding)
+            except Exception as exc:  # noqa: BLE001
+                page_errors.append(f"render harness error: {exc}")
+            finally:
+                await browser.close()
     except Exception as exc:  # noqa: BLE001 — any other async_playwright() failure
         logger.warning("render_check: async_playwright context failed (%s) — skipping", exc)
         return RenderResult(ok=True, available=False, note=f"render_check error: {exc}")

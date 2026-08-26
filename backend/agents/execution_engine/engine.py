@@ -3368,9 +3368,26 @@ class ExecutionEngine:
                 # array slot is stolen by another branch — this makes both cases end the
                 # loop). Every non-leaf step still gets the plain ``cursor + 1`` it
                 # always had (parity for every pre-014 / non-branching workflow).
-                cursor = (
-                    len(ordered_agents) if getattr(step, "is_leaf", False) else cursor + 1
+                #
+                # ...but `is_leaf` is computed by the COMPILER over `compiled.steps`,
+                # while this loop walks `ordered_agents` (the ROSTER). Those are 1:1 for
+                # every file-manifest run, and were assumed to be so here. They are NOT
+                # for a COMPOSED run (Path B): an agent that exists only in the user's
+                # selections has no step in the base plan, so a 1-step plan + 2-agent
+                # roster made the single compiled step `is_leaf` (i+1 >= len(steps)) and
+                # this line jumped the cursor clean past the composed agent — it never
+                # ran, and the run "completed" with agents_completed < agents_total.
+                # `is_leaf` only ever claims that nothing in the COMPILED GRAPH follows;
+                # when the next roster entry has no compiled step at all, the graph has
+                # no opinion about it and plain array-adjacency (the pre-014 behaviour)
+                # is what must win.
+                _next_spec = (
+                    ordered_agents[cursor + 1] if cursor + 1 < len(ordered_agents) else None
                 )
+                _leaf_ends_the_walk = getattr(step, "is_leaf", False) and (
+                    _next_spec is None or _next_spec.id in _steps_by_agent
+                )
+                cursor = len(ordered_agents) if _leaf_ends_the_walk else cursor + 1
 
         except asyncio.CancelledError:
             self._state_machine.transition(pipeline_run_id, "cancelled")
@@ -5468,8 +5485,17 @@ class ExecutionEngine:
                     from agents.capabilities.deliverables._artifact import (
                         sanitize_carousel_deck_html as _sanitize_deck,
                     )
+                    from agents.capabilities.deliverables._artifact import (
+                        strip_code_fence as _strip_fence,
+                    )
 
-                    output = _sanitize_deck(output)
+                    # Fence-strip BEFORE the sanitize, mirroring the ppt resolver's
+                    # own order. Doing it here (not only at deliverable time) is what
+                    # keeps the DOWNSTREAM agent honest: ppt-validator consumes
+                    # ppt-composer's stored artifact, so a composer that wrapped its
+                    # deck in ```html would otherwise hand the validator a fenced
+                    # blob to "validate" and re-emit.
+                    output = _sanitize_deck(_strip_fence(output))
 
                 # ── [08-08 / CR-01] before_write hook firing (additive, declaration-driven) ──
                 # The DELIVERABLE-WRITE seam: the agent's produced deliverable content

@@ -172,6 +172,9 @@ describe("groupRunsByFamily — divert boundary (R-20) — pure", () => {
   });
 });
 
+// The badge names the other run's WORKFLOW ("Prototype"), not its title: a run's
+// own title identifies IT on its own row, so this breadcrumb's job is to say what
+// the link goes TO (RevisionFamilyView.tsx:465-468).
 describe("WorkflowHistory — R-20 linked-cards rendering (historical case)", () => {
   it("renders 'Diverted to X ->' on the source card and '<- Continued from X, step S' on the target card, each opening the other", async () => {
     const source = makeRun({ id: "run-a", title: "Run A", status: "diverted", rootRunId: "run-a", divertedAtStepId: "step-3" });
@@ -180,11 +183,11 @@ describe("WorkflowHistory — R-20 linked-cards rendering (historical case)", ()
     const onOpenRun = vi.fn();
     renderWithProviders(<WorkflowHistory onBack={vi.fn()} onOpenRun={onOpenRun} />);
 
-    const divertedBadge = await screen.findByText("Diverted to Run B →");
-    const continuedBadge = await screen.findByText(/Continued from Run A/);
+    const divertedBadge = await screen.findByText("Diverted to Prototype →");
+    const continuedBadge = await screen.findByText(/Continued from Prototype/);
     // T41/T42: diverted_at_step_id is now persisted + threaded through — the
     // clause must be included when present, not omitted.
-    expect(continuedBadge.textContent).toBe("← Continued from Run A, step step-3");
+    expect(continuedBadge.textContent).toBe("← Continued from Prototype, step step-3");
 
     await userEvent.click(divertedBadge);
     await waitFor(() => expect(onOpenRun).toHaveBeenCalledWith(expect.objectContaining({ id: "run-b" })));
@@ -200,8 +203,8 @@ describe("WorkflowHistory — R-20 linked-cards rendering (historical case)", ()
     mockGetWorkflows.mockResolvedValue({ runs: [source, target], total: 2 });
     renderWithProviders(<WorkflowHistory onBack={vi.fn()} onOpenRun={vi.fn()} />);
 
-    const continuedBadge = await screen.findByText(/Continued from Run A/);
-    expect(continuedBadge.textContent).toBe("← Continued from Run A");
+    const continuedBadge = await screen.findByText(/Continued from Prototype/);
+    expect(continuedBadge.textContent).toBe("← Continued from Prototype");
   });
 
   it("clicking the divert badge does not ALSO open the badge's own row (stopPropagation)", async () => {
@@ -211,7 +214,7 @@ describe("WorkflowHistory — R-20 linked-cards rendering (historical case)", ()
     const onOpenRun = vi.fn();
     renderWithProviders(<WorkflowHistory onBack={vi.fn()} onOpenRun={onOpenRun} />);
 
-    const divertedBadge = await screen.findByText("Diverted to Run B →");
+    const divertedBadge = await screen.findByText("Diverted to Prototype →");
     await userEvent.click(divertedBadge);
     await waitFor(() => expect(onOpenRun).toHaveBeenCalledTimes(1));
     expect(onOpenRun).toHaveBeenCalledWith(expect.objectContaining({ id: "run-b" }));

@@ -1,15 +1,8 @@
 [
   {
     "data": {
-      "agent_count": 3,
+      "agent_count": 2,
       "agents": [
-        {
-          "icon": "🔍",
-          "id": "prototype-revision-analyzer",
-          "name": "Prototype Revision Analyzer",
-          "order": 1,
-          "role": "analyzer"
-        },
         {
           "icon": "✏️",
           "id": "prototype-revision-agent",
@@ -67,7 +60,7 @@
   {
     "data": {
       "agent_id": "prototype-revision-agent",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n=== REVISION ANALYSIS ===\n\nUpdate the `<header id='page-header'>` element to display the revised title. No route, function, or style changes are required.\n=== END REVISION ANALYSIS ===",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context",
       "tool_calls": []
     },
     "type": "agent_input"
@@ -76,12 +69,12 @@
     "data": {
       "agent_id": "prototype-revision-agent",
       "duration": "<normalized>",
-      "index": 1,
+      "index": 0,
       "input_tokens": "<normalized>",
       "name": "Revision Specialist Agent",
       "output_length": 28,
       "output_tokens": "<normalized>",
-      "total": 3,
+      "total": 2,
       "total_tokens": "<normalized>"
     },
     "type": "agent_complete"
@@ -90,10 +83,10 @@
     "data": {
       "agent_id": "prototype-revision-agent",
       "icon": "✏️",
-      "index": 1,
+      "index": 0,
       "name": "Revision Specialist Agent",
       "role": "Targeted UI Refinement",
-      "total": 3
+      "total": 2
     },
     "type": "agent_start"
   },
@@ -107,56 +100,6 @@
   },
   {
     "data": {
-      "agent_id": "prototype-revision-analyzer",
-      "attached_hooks": [],
-      "attached_skills": [],
-      "estimated_tokens": 0,
-      "skills_load_errors": []
-    },
-    "type": "agent_skills"
-  },
-  {
-    "data": {
-      "agent_id": "prototype-revision-analyzer",
-      "chunk": "<normalized>"
-    },
-    "type": "agent_chunk"
-  },
-  {
-    "data": {
-      "agent_id": "prototype-revision-analyzer",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context",
-      "tool_calls": []
-    },
-    "type": "agent_input"
-  },
-  {
-    "data": {
-      "agent_id": "prototype-revision-analyzer",
-      "duration": "<normalized>",
-      "index": 0,
-      "input_tokens": "<normalized>",
-      "name": "Prototype Revision Analyzer",
-      "output_length": 144,
-      "output_tokens": "<normalized>",
-      "total": 3,
-      "total_tokens": "<normalized>"
-    },
-    "type": "agent_complete"
-  },
-  {
-    "data": {
-      "agent_id": "prototype-revision-analyzer",
-      "icon": "🔍",
-      "index": 0,
-      "name": "Prototype Revision Analyzer",
-      "role": "analyzer",
-      "total": 3
-    },
-    "type": "agent_start"
-  },
-  {
-    "data": {
       "agent_id": "prototype-validate",
       "attached_hooks": [],
       "attached_skills": [],
@@ -175,7 +118,7 @@
   {
     "data": {
       "agent_id": "prototype-validate",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Revision Specialist Agent (Targeted UI Refinement) ---\nRevising. Revision complete.\n\n=== REVISION ANALYSIS ===\n\nUpdate the `<header id='page-header'>` element to display the revised title. No route, function, or style changes are required.\n=== END REVISION ANALYSIS ===",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Revision Specialist Agent (Targeted UI Refinement) ---\nRevising. Revision complete.",
       "tool_calls": []
     },
     "type": "agent_input"
@@ -184,12 +127,12 @@
     "data": {
       "agent_id": "prototype-validate",
       "duration": "<normalized>",
-      "index": 2,
+      "index": 1,
       "input_tokens": "<normalized>",
       "name": "Validation Agent",
       "output_length": 32,
       "output_tokens": "<normalized>",
-      "total": 3,
+      "total": 2,
       "total_tokens": "<normalized>"
     },
     "type": "agent_complete"
@@ -198,17 +141,17 @@
     "data": {
       "agent_id": "prototype-validate",
       "icon": "✅",
-      "index": 2,
+      "index": 1,
       "name": "Validation Agent",
       "role": "Structural Validation & Delivery",
-      "total": 3
+      "total": 2
     },
     "type": "agent_start"
   },
   {
     "data": {
-      "agents_completed": 3,
-      "agents_total": 3,
+      "agents_completed": 2,
+      "agents_total": 2,
       "final_output": "<!doctype html><html><body>revised</body></html>",
       "pipeline_type": "prototype_revision",
       "total_input_tokens": "<normalized>",
@@ -230,19 +173,5 @@
       "unresolved_edges": []
     },
     "type": "workflow_validated"
-  },
-  {
-    "data": {
-      "gate": "validation",
-      "issues": [
-        {
-          "message": "uncaught exception: render harness error: Browser.new_page: Target page, context or browser has been closed",
-          "severity": "CRITICAL",
-          "validator": "html_render"
-        }
-      ],
-      "step": "prototype-revision-agent"
-    },
-    "type": "gate_blocked"
   }
 ]

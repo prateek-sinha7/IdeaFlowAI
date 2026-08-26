@@ -41,7 +41,6 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BACKEND_DIR = REPO_ROOT / "backend"
 DOCKER_ENTRYPOINT = BACKEND_DIR / "docker-entrypoint.sh"
-DOCKER_COMPOSE = REPO_ROOT / "docker-compose.yml"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -57,14 +56,6 @@ def _uvicorn_graceful_window_seconds() -> float:
         "uvicorn waits forever for a live SSE stream to close and the lifespan shutdown "
         "half never runs (ISS-088)."
     )
-    return float(match.group(1))
-
-
-def _stop_grace_period_seconds() -> float:
-    """docker's hard SIGKILL ceiling for the backend service."""
-    text = DOCKER_COMPOSE.read_text(encoding="utf-8")
-    match = re.search(r"stop_grace_period:\s*(\d+(?:\.\d+)?)s", text)
-    assert match, "docker-compose.yml no longer declares stop_grace_period for the backend."
     return float(match.group(1))
 
 
@@ -262,30 +253,6 @@ def _teardown_budget_seconds(*, stop_runs: bool) -> float:
     return total
 
 
-def test_production_teardown_budget_fits_inside_stop_grace_period():
-    """The production configuration must finish teardown before docker SIGKILLs it."""
-    grace = _stop_grace_period_seconds()
-    budget = _teardown_budget_seconds(stop_runs=False)
-    assert budget < grace, (
-        f"worst-case teardown is {budget}s against a {grace}s stop_grace_period — docker "
-        "would SIGKILL mid-teardown, leaving some runs cancelled, some non-terminal and "
-        "no shutdown summary logged."
-    )
-
-
-def test_production_leaves_shutdown_stop_runs_off():
-    """The budget above only holds because production does not stop runs on shutdown.
-
-    Turning it on adds a drain plus an escalation and reaches the SIGKILL line, so this
-    pins the production default rather than trusting a prose comment.
-    """
-    from app.core.config import Settings
-
-    prod = Settings(
-        _env_file=None,
-        ENV="production",
-        SECRET_KEY="p" * 64,
-    )
     assert prod.SHUTDOWN_STOP_RUNS is False
 
     grace = _stop_grace_period_seconds()

@@ -1,13 +1,13 @@
 schema_version: 1
-last_sync_commit: 7f269f37d6790385b14cc31a94218cfb59b198ed
-last_sync_date: '2026-08-24'
-cards_count: 553
+last_sync_commit: de97d22f964b2ffa873a443d9f968d5f676601c4
+last_sync_date: '2026-08-25'
+cards_count: 582
 cards_by_type:
-  adr: 25
+  adr: 28
   bug: 42
-  fix: 308
-  issue: 178
+  fix: 326
+  issue: 186
 cards_by_kind:
-  event: 522
-  state: 25
+  event: 548
+  state: 28
 architecture_count: 36

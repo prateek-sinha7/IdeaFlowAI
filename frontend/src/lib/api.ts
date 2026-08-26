@@ -1468,6 +1468,18 @@ export interface WorkflowDetail {
    *  to) and reconstruct an editable composition. Null when the manifest could
    *  not be read. */
   manifest_steps?: import("@/types/index").ManifestStep[] | null;
+  /** Spec 016 — this caller's override of this built-in.
+   *  `is_overridden`: an override exists AND is switched on, so `steps` /
+   *    `manifest_steps` above are ITS steps and a run will execute them.
+   *  `has_override`: a row exists at all, on or off — the UI needs this to render
+   *    the checkbox unticked rather than losing the way back on.
+   *  `showing_original`: this payload is the SYSTEM version even though an
+   *    override is enabled, because `?original=true` was passed.
+   *  All false/absent for every user who has never saved one. */
+  is_overridden?: boolean;
+  has_override?: boolean;
+  override_id?: string | null;
+  showing_original?: boolean;
 }
 
 /**
@@ -1479,12 +1491,39 @@ export interface WorkflowDetail {
  */
 export async function getWorkflowDetail(
   token: string,
-  workflowId: string
+  workflowId: string,
+  opts?: { original?: boolean }
 ): Promise<WorkflowDetail> {
-  return request<WorkflowDetail>(`/api/workflows/${encodeURIComponent(workflowId)}`, {
-    method: "GET",
-    headers: authHeaders(token),
-  });
+  // `original` forces the SYSTEM version even when this caller has an enabled
+  // override — the read-only "compare with original" view (spec 016). It must
+  // never decide which plan RUNS; that is `override_enabled` on the row.
+  const qs = opts?.original ? "?original=true" : "";
+  return request<WorkflowDetail>(
+    `/api/workflows/${encodeURIComponent(workflowId)}${qs}`,
+    { method: "GET", headers: authHeaders(token) }
+  );
+}
+
+/**
+ * Switch this user's workflow override on or off (spec 016).
+ *
+ * ONE persisted flag drives both what the screens show and what a run executes,
+ * so they cannot disagree — a view-only toggle would let the page display the
+ * system version while the launch used the override.
+ */
+export async function setWorkflowOverrideEnabled(
+  token: string,
+  overrideId: string,
+  enabled: boolean
+): Promise<UserWorkflowSummary> {
+  return request<UserWorkflowSummary>(
+    `/api/user-workflows/${encodeURIComponent(overrideId)}`,
+    {
+      method: "PATCH",
+      headers: { ...authHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ override_enabled: enabled }),
+    }
+  );
 }
 
 // --- Saved (user-authored) workflows API (Phase 21) ---
@@ -1571,6 +1610,27 @@ export async function createUserWorkflow(
     // for saves with no skills/hooks attached — INV-3).
     attached_skills?: Array<Record<string, unknown>>;
     attached_hooks?: Array<Record<string, unknown>>;
+    /**
+     * Spec 012 (T36) — the full step-based manifest `{steps: [...]}` the canvas
+     * produces. A SIBLING of `selections`, not a widening of it: both write the
+     * same `manifest_json` column but are different shapes with different
+     * validators, so sending BOTH is a 422.
+     */
+    manifest?: Record<string, unknown>;
+    /**
+     * Spec 016 — the BUILT-IN id this save overrides for its owner ("ppt").
+     * Absent for an ordinary save. When present the POST UPSERTS on
+     * (user_id, overrides_pipeline_type), so a second save updates the same row
+     * instead of 409ing on the name — "save once, or overwrite always".
+     *
+     * Pair it with `manifest`, never `selections`: the override resolve reads
+     * `manifest_json["steps"]`, so a selections-shaped row stores fine and then
+     * silently never applies.
+     */
+    overrides_pipeline_type?: string;
+    /** The base manifest's `version` at save time, for a later
+     *  "the original has changed since you customised it" notice. */
+    base_version?: number;
   }
 ): Promise<UserWorkflowSummary> {
   return request<UserWorkflowSummary>("/api/user-workflows", {

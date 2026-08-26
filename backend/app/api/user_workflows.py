@@ -231,6 +231,17 @@ class SaveUserWorkflowRequest(BaseModel):
     # None/absent == none attached.
     attached_skills: list[dict] | None = None
     attached_hooks: list[dict] | None = None
+    # Spec 016 — the BUILT-IN id this save overrides for its owner ("ppt").
+    # Absent for an ordinary "save as a new workflow", which is what keeps the
+    # mechanism inert for everyone who has not opted in. When present, the POST
+    # UPSERTS: a second save of the same built-in updates the same row rather
+    # than 409ing, which is the "once, or overwritten always" the feature needs.
+    # A partial unique index on (user_id, overrides_pipeline_type) makes that a
+    # database guarantee rather than a racy pre-check.
+    overrides_pipeline_type: str | None = None
+    # The base manifest's `version` at save time, so a later "the original has
+    # changed since you customised it" notice has something to compare against.
+    base_version: int | None = None
 
     @model_validator(mode="after")
     def _reject_manifest_and_selections(self) -> SaveUserWorkflowRequest:
@@ -254,6 +265,13 @@ class UpdateUserWorkflowRequest(BaseModel):
     manifest: dict | None = None
     attached_skills: list[dict] | None = None
     attached_hooks: list[dict] | None = None
+    # Spec 016 — the override checkbox. The ONE flag both the read endpoints and
+    # the launch resolve consult, so the screen and the run can never disagree
+    # about which plan is in force. Only meaningful on a row that actually
+    # overrides a built-in; setting it on an ordinary saved workflow is a no-op
+    # by construction (nothing looks the row up without
+    # `overrides_pipeline_type`), so it needs no extra guard.
+    override_enabled: bool | None = None
 
     @model_validator(mode="after")
     def _reject_manifest_and_selections(self) -> UpdateUserWorkflowRequest:
@@ -279,6 +297,10 @@ class UserWorkflowResponse(BaseModel):
     manifest: dict | None = None
     attached_skills: list[dict] | None = None
     attached_hooks: list[dict] | None = None
+    # Spec 016 — None/False on every ordinary saved workflow.
+    overrides_pipeline_type: str | None = None
+    override_enabled: bool = False
+    base_version: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -405,6 +427,9 @@ def _project(row: WorkflowDefinition) -> UserWorkflowResponse:
         manifest=manifest,
         attached_skills=row.attached_skills,
         attached_hooks=row.attached_hooks,
+        overrides_pipeline_type=row.overrides_pipeline_type,
+        override_enabled=bool(row.override_enabled),
+        base_version=row.base_version,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -592,7 +617,58 @@ def create_user_workflow(
         )
         .first()
     )
-    if existing:
+    # ── Spec 016: an OVERRIDE save UPSERTS rather than 409ing ─────────────────
+    # "Save once, or overwrite always": a second save of the same built-in must
+    # update the same row. The partial unique index on
+    # (user_id, overrides_pipeline_type) makes at-most-one a database guarantee;
+    # this is the path that keeps the user from having to delete-then-resave.
+    #
+    # Deliberately BEFORE the duplicate-name check: an override is identified by
+    # the built-in it overrides, never by its name, so re-saving under the same
+    # name is the NORMAL case here and must not 409.
+    _ov_target = body.overrides_pipeline_type
+    if _ov_target:
+        if _ov_target not in SUPPORTED_PIPELINE_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unknown workflow to override: {_ov_target!r}",
+            )
+        prior = (
+            db.query(WorkflowDefinition)
+            .filter(
+                WorkflowDefinition.user_id == current_user.id,
+                WorkflowDefinition.source == "user",
+                WorkflowDefinition.overrides_pipeline_type == _ov_target,
+            )
+            .first()
+        )
+        if prior is not None:
+            prior.name = body.name
+            prior.description = body.description
+            prior.agents = json.dumps(sorted_ids)
+            prior.base_pipeline_type = body.base_pipeline_type
+            prior.model_overrides = body.model_overrides
+            prior.manifest_json = (
+                _validated_manifest(body.manifest, f"workflow:{body.name}")
+                or body.selections
+                or None
+            )
+            prior.attached_skills = body.attached_skills or None
+            prior.attached_hooks = body.attached_hooks or None
+            prior.base_version = body.base_version
+            # Re-saving an override turns it back ON: the user just chose to
+            # keep these steps, so leaving it switched off would silently
+            # discard the save they were looking at.
+            prior.override_enabled = True
+            db.commit()
+            db.refresh(prior)
+            logger.info(
+                "override: user %s updated their %s override (row %s)",
+                current_user.id, _ov_target, prior.id,
+            )
+            return _project(prior)
+
+    if existing and not _ov_target:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"A saved workflow named {body.name!r} already exists",
@@ -624,6 +700,10 @@ def create_user_workflow(
         ),
         attached_skills=(body.attached_skills or None),
         attached_hooks=(body.attached_hooks or None),
+        # Spec 016 — NULL/False for every ordinary saved workflow.
+        overrides_pipeline_type=_ov_target,
+        override_enabled=bool(_ov_target),
+        base_version=body.base_version,
     )
     db.add(row)
     db.commit()
@@ -715,6 +795,9 @@ def update_user_workflow(
 
     if body.description is not None:
         row.description = body.description
+
+    if body.override_enabled is not None:
+        row.override_enabled = body.override_enabled
 
     if body.model_overrides is not None:
         try:

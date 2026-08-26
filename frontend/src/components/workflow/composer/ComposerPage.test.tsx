@@ -155,6 +155,13 @@ function renderComposer(props: Record<string, unknown> = {}) {
       <ComposerPage
         workflowType={"user_stories" as WorkflowType}
         onBack={() => {}}
+        // ComposerPage seeds `pipelineAgents` ONLY from initialManifestSteps /
+        // initialAgentIds — it stopped deriving them from `workflowType` in
+        // 9cf42ca8e. DashboardLayout hands them in from `savedComposition`, so a
+        // bare mount really does render an empty composer. Tests that assert on
+        // rows hand the lineup in the same way; a case that overrides this prop
+        // still wins, since props spread last.
+        initialAgentIds={TEST_AGENTS.map((a) => a.id)}
         {...props}
       />
     </SkillsHooksProvider>,
@@ -180,7 +187,7 @@ beforeEach(() => {
 describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
   it("renders as a full-page surface with the Composer eyebrow + Save affordances", () => {
     renderComposer();
-    expect(screen.getByText(/User Stories · Composer/i)).toBeInTheDocument();
+    expect(screen.getByText(/Custom · Composer/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Save workflow/i })).toBeInTheDocument();
     expect(
       screen.getAllByRole("button", { name: /Save workflow/i }).length,
@@ -224,7 +231,7 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
     // Deliverable-type is read-only text (ND-AH) — the resolved label shows and
     // there is NO editable deliverable control (no combobox / select for it).
     const deliverable = screen.getByTestId("composer-deliverable-type");
-    expect(deliverable).toHaveTextContent("User Stories");
+    expect(deliverable).toHaveTextContent("Custom");
     expect(deliverable.querySelector("select")).toBeNull();
     expect(deliverable.querySelector("input")).toBeNull();
   });
@@ -310,7 +317,7 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
       string, string | undefined, { base_pipeline_type: string; agent_ids: string[] },
     ];
     expect(calledWorkflowId).toBeUndefined();
-    expect(payload.base_pipeline_type).toBe("user_stories");
+    expect(payload.base_pipeline_type).toBe("custom");
     expect(payload.agent_ids.length).toBe(6);
   });
 

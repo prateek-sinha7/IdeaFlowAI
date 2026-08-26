@@ -133,12 +133,20 @@ class TestStructuralRegression:
         produced_so_far: set[str] = set()
         exempt = {"planning_context", "constitution"}
         for agent in agents:
-            for c in getattr(agent, "consumes", []):
-                if c in exempt:
-                    continue
-                assert c in produced_so_far, (
-                    f"{pipeline_type}: agent {agent.id} consumes {c!r} "
-                    f"but no upstream agent produced it (produced={produced_so_far})"
+            wanted = [c for c in getattr(agent, "consumes", []) if c not in exempt]
+            # AT LEAST ONE, not every entry. An agent shared between the main and the
+            # revision pipelines declares BOTH producers — `prototype-plan` consumes
+            # `prototype-specify` AND `prototype-revision-feature-specify` — so in any
+            # single pipeline the other entry has no upstream producer by design.
+            # Runtime agrees: an upstream output reaches a step iff its `produces`
+            # INTERSECTS this `consumes` (plan.py:439), and the resolver drops the
+            # unmatched entries once any one resolved (resolver.py:179). Demanding
+            # every entry would forbid the shared-agent design outright; demanding one
+            # still catches the real fault — an agent fed by nothing upstream.
+            if wanted:
+                assert any(c in produced_so_far for c in wanted), (
+                    f"{pipeline_type}: agent {agent.id} consumes {wanted!r} "
+                    f"and NONE is produced upstream (produced={produced_so_far})"
                 )
             produced_so_far.update(getattr(agent, "produces", []))
 

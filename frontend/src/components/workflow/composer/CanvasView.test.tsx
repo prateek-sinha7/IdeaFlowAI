@@ -579,8 +579,20 @@ describe("CanvasView — backward (loop) targets preserve chain edges, forward t
     // check (not a leaf, it branches away), done (is a leaf).
     // Inter-node insert affordances on edges with chain edges: emoji→greet, greet→check (2).
     // Leaf adds: done (1).
-    // Total: 2 + 1 = 3 buttons (before fix: 4, with spurious emoji leaf).
-    expect(addButtons.length).toBeLessThanOrEqual(3);
+    // HEAD add: Brief→emoji (1) — the affordance for inserting a step BEFORE the
+    // first one. Added deliberately; without it prepending is unreachable from
+    // the canvas, since `inserts` only pairs consecutive agents.
+    // Total: 2 + 1 + 1 = 4.
+    //
+    // The cap is what this assertion is really for: it catches the spurious
+    // LEAF "+" that emoji used to get (the original bug — emoji is not a leaf,
+    // it chains to greet). 4 still fails if that regresses, because that would
+    // make 5.
+    expect(addButtons.length).toBeLessThanOrEqual(4);
+    // ...and the head add must be exactly one, not one per node.
+    expect(
+      screen.getAllByRole("button", { name: /Add agent/i }).length,
+    ).toBe(4);
 
     // (c) The last node (done, index 3) is a leaf and its add button's
     // insertBeforeId must be undefined (append at end). We can verify this by

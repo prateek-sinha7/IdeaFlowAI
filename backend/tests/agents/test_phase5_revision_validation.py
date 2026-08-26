@@ -574,9 +574,13 @@ class TestFixPolicyEndToEnd:
         )
 
         def turns_for(agent_id, thread_id, is_fix):
-            # KAN-108: prototype-revision-validate is the new second declared step —
+            # KAN-108: prototype-validate is the second declared step. It was
+            # `prototype-revision-validate` until the revision-pipeline-agent-reuse
+            # spec replaced the duplicated revision agent dirs with the MAIN
+            # pipeline's shared agents; only the main-pipeline id exists on disk now
+            # (prototype_revision/workflow.yaml:43) —
             # it is NOT a fix invocation, just a clean validation pass (text-only).
-            if agent_id == "prototype-revision-validate":
+            if agent_id == "prototype-validate":
                 return _clean_revision_turns()
             # Visible revision: introduce the regression. Internal fix: remove it.
             return (
@@ -671,8 +675,8 @@ class TestFixPolicyEndToEnd:
         )
 
         def turns_for(agent_id, thread_id, is_fix):
-            # KAN-108: prototype-revision-validate returns a clean text-only turn.
-            if agent_id == "prototype-revision-validate":
+            # KAN-108: prototype-validate returns a clean text-only turn.
+            if agent_id == "prototype-validate":
                 return _clean_revision_turns()
             return (
                 _fix_remove_regression_turns()
@@ -793,8 +797,8 @@ class TestEventVocabularyUnchanged:
         # Run WITH a regression so the fix-loop actually fires (the strongest test
         # of "the fix-loop introduced no new event types").
         def turns_for(agent_id, thread_id, is_fix):
-            # KAN-108: prototype-revision-validate returns a clean text-only turn.
-            if agent_id == "prototype-revision-validate":
+            # KAN-108: prototype-validate returns a clean text-only turn.
+            if agent_id == "prototype-validate":
                 return _clean_revision_turns()
             return (
                 _fix_remove_regression_turns()
@@ -836,9 +840,9 @@ class TestEventVocabularyUnchanged:
         engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
 
         def turns_for(agent_id, thread_id, is_fix):
-            # KAN-108: prototype-revision-validate is the new second declared step —
+            # KAN-108: prototype-validate is the new second declared step —
             # it is NOT a fix invocation, returns a clean text-only turn.
-            if agent_id == "prototype-revision-validate":
+            if agent_id == "prototype-validate":
                 return _clean_revision_turns()
             return (
                 _fix_remove_regression_turns()
@@ -872,7 +876,7 @@ class TestEventVocabularyUnchanged:
         # ── The fix's edit_file tool call is INTERNAL — not in the visible stream. ──
         # The visible revision made ONE edit_file (introduce the ghost route); the
         # fix's edit_file (remove it) must NOT reach the caller. The validation agent
-        # (prototype-revision-validate, KAN-108) is a DECLARED step and its tool_call
+        # (prototype-validate, KAN-108) is a DECLARED step and its tool_call
         # events ARE in the visible stream — so we now expect 2 visible edit_file calls
         # (one per declared agent), NOT the fix's third internal edit_file.
         visible_tool_calls = [e["data"]["tool"] for e in events if e["type"] == "tool_call"]
@@ -882,7 +886,7 @@ class TestEventVocabularyUnchanged:
         )
         # The declared agent_starts are the two pipeline steps (revision + validate).
         starts = [e["data"]["agent_id"] for e in events if e["type"] == "agent_start"]
-        assert starts == ["prototype-revision-agent", "prototype-revision-validate"], (
+        assert starts == ["prototype-revision-agent", "prototype-validate"], (
             f"the UI must see the revision agent then the validation agent (KAN-108); "
             f"got {starts}"
         )

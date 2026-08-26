@@ -36,6 +36,14 @@ steps:
   - agent: sc001-build
     strategy: task_loop
     gates: []
+    # The build agent WRITES the deliverable. Without this the runner denies
+    # write_file at execution ("not granted by this step's permissions"), every
+    # task logs "wrote no app.py", and single_file correctly falls back to the
+    # streamed text — the deliverable resolver was never the problem.
+    tools:
+      read_files: true
+      write_files: true
+      exec: false
     task_source:
       kind: parsed
       parser: heading_tasks

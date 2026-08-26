@@ -41,8 +41,15 @@ class _FakeUser:
 
 
 def _scripts_for_divert(agent_id: str):
-    if agent_id == "custom-agent:decide":
-        return [_ScriptedTurn(texts=['{"decision": "divert"}'], usage=(5, 3))]
+    # `language` is the conditional step in ex_A3_divert/workflow.yaml, and its
+    # outcomes are english (trigger: step) | spanish | dutch (trigger: workflow).
+    # Only a WORKFLOW-trigger outcome mints a child run and emits
+    # `pipeline_diverted`, so this scenario has to answer spanish or dutch — the
+    # earlier `decide`/`divert` pair belonged to a draft of the fixture that no
+    # longer exists, and left the gate with no matching outcome (fail-closed, no
+    # default_next) so the run ended at gate_blocked instead of diverting.
+    if agent_id == "custom-agent:language":
+        return [_ScriptedTurn(texts=['{"decision": "spanish"}'], usage=(5, 3))]
     return [_ScriptedTurn(texts=[f"{agent_id} default output."], usage=(5, 3))]
 
 
@@ -167,7 +174,7 @@ async def test_divert_end_to_end_AC05_AC11(env, scripted_engine):
         "pipeline_run_id", "diverted_to_run_id", "diverted_to_workflow",
     }, f"AC-11 payload shape wrong: {payload}"
     assert payload["pipeline_run_id"] == first_run_id
-    assert payload["diverted_to_workflow"] == "ex_A3_target", (
+    assert payload["diverted_to_workflow"] == "ex_A3_b_spanish", (
         f"AC-11/R-28: diverted_to_workflow must be the ACTUAL resolved workflow "
         f"id, never the literal 'self' — got {payload['diverted_to_workflow']!r}"
     )
@@ -191,18 +198,18 @@ async def test_divert_end_to_end_AC05_AC11(env, scripted_engine):
         f"{first_row.status!r} (error={first_row.error!r})"
     )
 
-    # ── R-20 (T41): diverted_at_step_id is the instance_id of "decide" (the
+    # ── R-20 (T41): diverted_at_step_id is the instance_id of "language" (the
     # conditional-gate step in ex_A3_divert/workflow.yaml
     # whose `route.outcomes.divert` fired this trigger), and it flows through
     # the SAME _run_response the real GET /api/runs/{id} endpoint uses. ────
     from app.api.runs import _run_response
 
-    assert first_row.diverted_at_step_id == "decide", (
+    assert first_row.diverted_at_step_id == "language", (
         f"R-20: expected diverted_at_step_id == 'decide' on the diverting run's "
         f"own row, got {first_row.diverted_at_step_id!r}"
     )
     get_response = _run_response(first_row, first_run_id)
-    assert get_response.diverted_at_step_id == "decide", (
+    assert get_response.diverted_at_step_id == "language", (
         f"R-20: GET response diverted_at_step_id should be 'decide', got "
         f"{get_response.diverted_at_step_id!r}"
     )
@@ -219,7 +226,7 @@ async def test_divert_end_to_end_AC05_AC11(env, scripted_engine):
     second_row = verify2.query(WorkflowRun).filter(WorkflowRun.id == second_run_id).first()
     assert second_row is not None, "AC-05: no second WorkflowRun was minted at all"
     assert second_row.parent_run_id == first_run_id
-    assert second_row.type == "ex_A3_target"
+    assert second_row.type == "ex_A3_b_spanish"
     assert second_row.owner_id == first_owner_id
     assert second_row.workspace_id == first_workspace_id
     verify2.close()

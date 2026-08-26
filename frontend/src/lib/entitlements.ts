@@ -25,17 +25,29 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
   hexaware: new Set([
     "user_stories", "user_stories_revision",
     "prototype", "prototype_revision",
+    // revision-pipeline-agent-reuse spec: these share the main prototype
+    // pipeline's agents. Entitled on the backend wherever `prototype` is —
+    // the UI hid them, so the backend allowed a launch the catalog never offered.
+    "prototype_large_revision", "prototype_feature_revision",
   ]),
   pro: new Set([
     "user_stories", "user_stories_revision",
     "ppt", "ppt_revision",
     "prototype", "prototype_revision",
+    // revision-pipeline-agent-reuse spec: these share the main prototype
+    // pipeline's agents. Entitled on the backend wherever `prototype` is —
+    // the UI hid them, so the backend allowed a launch the catalog never offered.
+    "prototype_large_revision", "prototype_feature_revision",
     "app_builder", "app_builder_revision",
   ]),
   enterprise: new Set([
     "user_stories", "user_stories_revision",
     "ppt", "ppt_revision",
     "prototype", "prototype_revision",
+    // revision-pipeline-agent-reuse spec: these share the main prototype
+    // pipeline's agents. Entitled on the backend wherever `prototype` is —
+    // the UI hid them, so the backend allowed a launch the catalog never offered.
+    "prototype_large_revision", "prototype_feature_revision",
     "app_builder", "app_builder_revision",
     "custom", "custom_revision",
     // `migration` is a UI meta-grouping, not a launchable pipeline: the card

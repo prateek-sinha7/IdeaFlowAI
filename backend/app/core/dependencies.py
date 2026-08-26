@@ -12,7 +12,7 @@ need no edits.
 import random
 from datetime import datetime, timezone
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -28,8 +28,38 @@ from app.models.database import get_db
 from app.models.revoked_token import cleanup_expired_revocations
 from app.models.user import User
 
+class _BearerScheme(HTTPBearer):
+    """``HTTPBearer`` that answers a MISSING/non-bearer Authorization header with 401.
+
+    FastAPI's stock ``HTTPBearer`` raises **403** when the header is absent or is
+    not a ``Bearer`` credential, which conflates "you sent no credentials" with
+    "your credentials were rejected". RFC 7235 separates them: absent or
+    unparseable credentials are **401** plus a ``WWW-Authenticate`` challenge;
+    403 is authenticated-but-not-permitted.
+
+    Every other auth failure in this module already answers 401 via
+    ``_credentials_exception`` (bad signature, EXPIRED token, missing subject, no
+    matching user) — the stock 403 was the one inconsistent case, so a client could
+    not tell "log in again" from "you are not allowed here". Overriding the scheme
+    once keeps all five ``Depends(bearer_scheme)`` call sites below byte-identical;
+    ``auto_error=False`` would have pushed a None-check into each of them.
+    """
+
+    async def __call__(self, request: Request) -> HTTPAuthorizationCredentials | None:
+        try:
+            return await super().__call__(request)
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_403_FORBIDDEN:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=exc.detail,
+                    headers={"WWW-Authenticate": "Bearer"},
+                ) from exc
+            raise
+
+
 # Bearer token security scheme
-bearer_scheme = HTTPBearer()
+bearer_scheme = _BearerScheme()
 
 
 def _coerce_to_aware_utc(value: datetime | None) -> datetime | None:

@@ -202,9 +202,18 @@ class TestSignatureIntegrity:
     def test_tampered_signature_is_rejected(self, jwks, signing_key):
         token = make_token(signing_key)
         header, payload, signature = token.split(".")
-        # Flip the last character of the signature — the payload still parses,
+        # Flip a MIDDLE character of the signature — the payload still parses,
         # which is exactly why the signature check has to be the gate.
-        forged = f"{header}.{payload}.{signature[:-1]}{'A' if signature[-1] != 'A' else 'B'}"
+        #
+        # Not the LAST character: base64url packs 6 bits per char, and a 256-byte
+        # RSA signature needs 343 chars = 2058 bits, so the final char is all
+        # padding. Flipping it can leave the decoded signature bytes IDENTICAL, the
+        # token verifies, and this test fails — intermittently, since `make_token`
+        # mints a fresh signature each run. Observed 1-in-5 before this change. A
+        # middle character always lands on real signature bytes.
+        mid = len(signature) // 2
+        flipped = "A" if signature[mid] != "A" else "B"
+        forged = f"{header}.{payload}.{signature[:mid]}{flipped}{signature[mid + 1:]}"
 
         with pytest.raises(CognitoVerificationError):
             cognito.verify_cognito_access_token(forged)
