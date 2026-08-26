@@ -13,8 +13,8 @@ modules_spanned:
 watched_files: 23
 code_signature: eddc467afb66
 symbols_signature: c8d3d618e30c
-prose_signature: cbe8f1c9570a
-prose_symbols_signature: 3b79bf8ee8e4
+prose_signature: eddc467afb66
+prose_symbols_signature: c8d3d618e30c
 last_synced: '2026-08-26'
 ---
 
@@ -359,11 +359,21 @@ conditional gate route outcome changes the cursor; see step 18).
     up the compiled `step` by the current `spec.agent_id`. After a step completes, a
     `conditional` gate may emit a `route` outcome (see step 18) that changes `cursor` to jump
     forward or backward, rather than incrementing it by 1; loop bounds prevent infinite loops
-    (see `loop_max_iterations` under "What breaks").
+    (see `loop_max_iterations` under "What breaks"). Absent a route, the cursor advances by 1
+    *unless* the step is a leaf, in which case it advances past the end of `ordered_agents` and
+    the walk stops. `is_leaf` is compiler-computed (R-26) over `compiled.steps`, but this loop
+    walks `ordered_agents` — the two are 1:1 for a file manifest and NOT for a composed run,
+    where an agent can sit in the roster with no compiled step of its own (step 14). A leaf
+    therefore ends the walk only when the next roster entry also has a compiled step; when it
+    does not, the compiled graph has no opinion about that agent and plain array-adjacency
+    wins. Without that qualifier a one-step plan against a longer roster ended the run at step
+    one and still reported `pipeline_complete`.
 13. `_evaluate_gates(step, ectx, registry, phase="pre")` runs the step's pre-step declared gates. The gate taxonomy splits into three sets: `_POST_STEP_GATES` (`validation`, `conditional`, `human`), `_HITL_GATES` (`human`, `before-human`, `approval`), and `_FAIL_CLOSED_GATES` (`security`, `approval`, `human`, `before-human`). Pre-step evaluation runs `before-human` gates; post-step evaluation (step 18) runs the others. A `cancel` outcome cancels the run; `block`/`wait_human` halts just this step;
     `_fire_hooks("before_step", …)` follows, and a blocking hook halts the step too.
-14. `CapabilityRegistry.resolve("strategy", step.strategy)` — with a defensive fallback to
-    `single_shot` when a step is absent from the plan — and `_dispatch_step_with_retry` drives
+14. `CapabilityRegistry.resolve("strategy", step.strategy)` — resolving the step first from
+    `_steps_by_agent` (the compiled plan), then from `_user_steps_by_agent` (a composed agent
+    the base manifest never declared — the ordinary `custom` case, not an edge), and only then
+    falling back to a synthesized `single_shot` — and `_dispatch_step_with_retry` drives
     `strategy.run(step, ectx)`, re-yielding every event and adding the retry/content-hash-reuse
     wrapper when the step declares `retry.max_attempts`.
 15. The strategy calls back through `KernelServices.run_agent`, which delegates to

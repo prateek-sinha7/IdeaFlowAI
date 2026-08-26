@@ -23,8 +23,8 @@ modules_spanned:
 watched_files: 23
 code_signature: 1474ea752d86
 symbols_signature: d6e9fc24e31f
-prose_signature: ff479c12a144
-prose_symbols_signature: 39cf84cfd9be
+prose_signature: 1474ea752d86
+prose_symbols_signature: d6e9fc24e31f
 last_synced: '2026-08-26'
 ---
 
@@ -183,7 +183,12 @@ flowchart LR
   then layers *two* revocation checks: per-token (`jti` in `revoked_tokens`) and blanket
   (`iat` older than `max(users.password_changed_at, users.tokens_valid_from)`, compared at
   whole-second resolution). `get_user_for_logout` is the one deliberate hole — it skips the
-  per-`jti` check so `/logout` stays idempotent. Every failure returns the same opaque 401.
+  per-`jti` check so `/logout` stays idempotent. Every failure returns the same opaque 401 —
+  including the case with no credential at all, which is a different layer: the missing or
+  non-Bearer header is refused by the `bearer_scheme` dependency before any decode runs.
+  FastAPI's stock `HTTPBearer` answers that with 403, conflating "you sent nothing" with
+  "you are not allowed here", so it is subclassed to raise 401 plus a `WWW-Authenticate`
+  challenge and keep the whole surface consistent.
 - **The second front door** — [api_key_auth.py](../../backend/app/api/api_key_auth.py) resolves `X-Flowin-API-Key` by SHA-256
   digest for the IDE and MCP clients, which cannot live inside a 24-hour JWT. It
   returns the same `User`, so everything downstream is identical; note it does *not*
@@ -204,10 +209,11 @@ flowchart LR
   unscoped and raise `PermissionError` on mismatch.
 - **The advisory mirror** — [frontend/src/lib/entitlements.ts](../../frontend/src/lib/entitlements.ts) re-declares the same
   tier table in TypeScript so `HomeLaunchGrid` and `CreationHub` can grey out a tile
-  and name the upgrade tier. It is a copy, not a source, and it has already drifted:
-  the backend's `pro` includes `od_prototype_revision` which does not appear in the
-  TypeScript table; the frontend's basic/pro/enterprise all include `hello_html` which
-  the backend tables lack. The backend additionally defines a `hexaware` tier scoped for
+  and name the upgrade tier. It is a copy, not a source; historically it has drifted,
+  but a parity test now fails if the two diverge (`backend/tests/unit/test_entitlement_parity.py`).
+  The TypeScript table now includes `prototype_large_revision` and `prototype_feature_revision`
+  on hexaware/pro/enterprise tiers, which the backend had already entitled but the UI was
+  previously hiding. The backend additionally defines a `hexaware` tier scoped for
   deployments requiring only prototype + user_stories (KAN-161 / [ISS-055](../cards/20260812-0036-ISS-055.md)).
 
 **Module crossings, in the direction that matters.** `app/api` → `app/core` is
