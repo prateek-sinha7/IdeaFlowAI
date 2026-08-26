@@ -49,6 +49,10 @@
 #   3. §11 The health gate covers backend, frontend AND the nginx ingress, and
 #          a failure ROLLS BACK to the previously pinned digests instead of
 #          leaving a broken stack serving traffic.
+#   4. §13 (new, not in the buildspec) A successful deploy prunes every local
+#          Docker image not referenced by any container. Every deploy pulls a
+#          new backend/frontend image and never removed the one it replaced,
+#          so pulled images accumulated on the box's disk indefinitely.
 #
 # WHY `docker compose` DIRECTLY AND NOT `systemctl restart velocityai-app`
 # -----------------------------------------------------------------------
@@ -591,6 +595,51 @@ if [ "$HEALTHY" -eq 1 ]; then
             exit 1
             ;;
     esac
+
+    # ── 13. Prune unused Docker images ───────────────────────────────────────
+    # Every deploy pulls a NEW backend/frontend image by digest (§7-§10) but
+    # never removed the one it replaced, so pulled images accumulate on the
+    # box's local disk (the root/data EBS volume) without bound across enough
+    # deploys.
+    #
+    # `docker image prune -af` deletes every LOCAL image not referenced by any
+    # container, running OR stopped. That "referenced by any container" check
+    # is Docker's own prune logic, not this script's — it is structurally
+    # impossible for this command to remove an image backing a container that
+    # still exists, so the backend/frontend images the health gate just
+    # confirmed healthy above can never be touched by it. `-a` additionally
+    # removes untagged/dangling images (leftover intermediate layers from
+    # earlier `docker compose pull`s); `-f` skips prune's interactive
+    # confirmation, which SSM RunCommand has no terminal to answer.
+    #
+    # Placement matters: run ONLY here, in the HEALTHY branch, AFTER the
+    # health gate and the compose `up -d` that started this deploy's
+    # containers — never before them, or the prune could race the very
+    # containers being created.
+    #
+    # Does not weaken this script's own rollback: the FAILURE branch further
+    # below (restoring PREV_BACKEND_IMAGE/PREV_FRONTEND_IMAGE from local Docker
+    # cache with no registry round-trip) is mutually exclusive with this
+    # HEALTHY branch — a deploy that reaches this line has already passed the
+    # gate and will never take that path in the same run. A LATER, separate
+    # deploy that then fails still rolls back correctly onto the image it is
+    # itself replacing (this deploy's, which is still running and therefore
+    # still protected by prune's own container-reference check). Rolling back
+    # further than that one previous release already required a fresh —
+    # digest-exact, so still byte-identical — ECR pull before this step
+    # existed too, since app.env's BACKEND_IMAGE/FRONTEND_IMAGE (§7) only ever
+    # remembers ONE previous pin. Non-fatal: a prune failure (e.g. the Docker
+    # daemon busy with another operation) must not turn an already-verified-
+    # healthy deploy into a reported failure.
+    echo "[deploy] pruning local Docker images not referenced by any container..."
+    set +e
+    docker image prune -af
+    PRUNE_RC=$?
+    set -e
+    if [ "$PRUNE_RC" -ne 0 ]; then
+        echo "[deploy] WARNING: docker image prune exited ${PRUNE_RC} (non-fatal — deploy already succeeded)" >&2
+    fi
+    docker system df >&2 || true
 
     echo "[deploy] complete $(date -u --iso-8601=seconds) tag=${IMAGE_TAG}"
     echo "[deploy]   backend  ${BACKEND_IMAGE_REF}"

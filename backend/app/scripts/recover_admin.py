@@ -270,7 +270,19 @@ def recover(
 
     db = SessionLocal()
     try:
-        user = db.query(User).filter(func.lower(User.email) == email).first()
+        # ``.first()``, not ``.one()``: a case-duplicate address (e.g.
+        # "Admin@x.com" and "admin@x.com" as two distinct rows — seen on dev,
+        # both auth_provider='local' admins) means more than one row can match
+        # this filter. Deliberately picks one deterministically and proceeds;
+        # see the demote step below for why the OTHER one is not silently
+        # skipped.
+        matches = (
+            db.query(User)
+            .filter(func.lower(User.email) == email)
+            .order_by(User.id)
+            .all()
+        )
+        user = matches[0] if matches else None
         now = datetime.now(timezone.utc)
 
         print(f"\nRecovering administrator: {email}")
@@ -314,12 +326,20 @@ def recover(
 
         demoted: list[str] = []
         if demote_other_local_admins:
+            # Excluded by row IDENTITY (user.id), not by re-matching the email.
+            # A case-duplicate address (two distinct rows whose emails are
+            # equal only under lower()) would otherwise be excluded from BOTH
+            # the "target" and the "others" set — neither reset nor demoted —
+            # leaving the invariant silently unrestored. Confirmed on dev:
+            # GajeraSharadN@hexaware.com survived a --demote-other-local-admins
+            # run as a second local admin because the old filter compared
+            # lower(email) instead of id.
             others = (
                 db.query(User)
                 .filter(
                     User.auth_provider == "local",
                     User.is_admin.is_(True),
-                    func.lower(User.email) != email,
+                    User.id != user.id,
                 )
                 .all()
             )
@@ -337,6 +357,16 @@ def recover(
             print(
                 f"  demoted {len(demoted)} other local admin(s) to non-admin: "
                 f"{', '.join(demoted)}"
+            )
+
+        if len(matches) > 1:
+            duplicate_ids = ", ".join(m.id for m in matches[1:])
+            print(
+                f"  NOTE: {len(matches)} rows share the address {email!r} case-"
+                f"insensitively (ids: {user.id} [reset], {duplicate_ids} [untouched "
+                f"other than any demotion above]). This script never merges or "
+                f"deletes rows — decide by hand which one is canonical.",
+                file=sys.stderr,
             )
 
         # Re-read the invariant AFTER committing, so what we report is the state
