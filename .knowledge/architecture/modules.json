@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-25",
+  "generated_at": "2026-08-26",
   "modules": [
     {
       "id": "MOD-backend",
@@ -26,7 +26,7 @@
       "id": "MOD-backend-agents",
       "path": "backend/agents",
       "language": "python",
-      "file_count": 121,
+      "file_count": 122,
       "files": [
         "backend/agents/__init__.py",
         "backend/agents/artifact_store/__init__.py",
@@ -128,6 +128,7 @@
         "backend/agents/execution_engine/kernel_services.py",
         "backend/agents/execution_engine/ndjson_adapter.py",
         "backend/agents/execution_engine/od_context.py",
+        "backend/agents/execution_engine/overrides.py",
         "backend/agents/execution_engine/resolver.py",
         "backend/agents/execution_engine/run_log.py",
         "backend/agents/execution_engine/state_machine.py",
@@ -187,7 +188,7 @@
       "id": "MOD-backend-alembic-versions",
       "path": "backend/alembic/versions",
       "language": "python",
-      "file_count": 37,
+      "file_count": 38,
       "files": [
         "backend/alembic/versions/0001_initial_schema.py",
         "backend/alembic/versions/0002_handoff_tables.py",
@@ -225,7 +226,8 @@
         "backend/alembic/versions/0035_timezone_aware_auth_timestamps.py",
         "backend/alembic/versions/0036_composed_workflow_execution.py",
         "backend/alembic/versions/0037_collapse_od_prototype_label.py",
-        "backend/alembic/versions/0038_add_diverted_at_step_id.py"
+        "backend/alembic/versions/0038_add_diverted_at_step_id.py",
+        "backend/alembic/versions/0039_workflow_override_binding.py"
       ],
       "imports": [],
       "imported_by": [],
@@ -335,9 +337,10 @@
       "id": "MOD-backend-app-api",
       "path": "backend/app/api",
       "language": "python",
-      "file_count": 30,
+      "file_count": 31,
       "files": [
         "backend/app/api/__init__.py",
+        "backend/app/api/_workflow_override.py",
         "backend/app/api/admin.py",
         "backend/app/api/agents.py",
         "backend/app/api/analytics.py",
@@ -1211,7 +1214,7 @@
       "id": "MOD-frontend-src-components-workflow",
       "path": "frontend/src/components/workflow",
       "language": "typescript",
-      "file_count": 58,
+      "file_count": 59,
       "files": [
         "frontend/src/components/workflow/AdvancedExpander.test.tsx",
         "frontend/src/components/workflow/AgentDrawer.test.tsx",
@@ -1259,6 +1262,7 @@
         "frontend/src/components/workflow/composer/WorkflowPickerModal.tsx",
         "frontend/src/components/workflow/composer/graphLayout.ts",
         "frontend/src/components/workflow/composer/treeLayout.ts",
+        "frontend/src/components/workflow/overrideAgentPool.source.test.ts",
         "frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx",
         "frontend/src/components/workflow/prototype/CustomDesignSystemModal.tsx",
         "frontend/src/components/workflow/prototype/CustomTemplateModal.tsx",
@@ -1393,7 +1397,7 @@
       "id": "MOD-frontend-src-lib",
       "path": "frontend/src/lib",
       "language": "typescript",
-      "file_count": 45,
+      "file_count": 46,
       "files": [
         "frontend/src/lib/__tests__/wsRunScope.test.ts",
         "frontend/src/lib/api-handoff.test.ts",
@@ -1419,6 +1423,7 @@
         "frontend/src/lib/exporters/storyExporter.ts",
         "frontend/src/lib/launchDraft.parity.test.ts",
         "frontend/src/lib/launchDraft.ts",
+        "frontend/src/lib/manifestAgents.ts",
         "frontend/src/lib/parseFailedAgents.ts",
         "frontend/src/lib/parsers/pptParser.ts",
         "frontend/src/lib/parsers/streamParser.ts",
