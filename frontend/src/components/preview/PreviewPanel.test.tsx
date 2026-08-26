@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import type { GateContext } from "@/components/chat/RunChatLane";
 import type { PipelineRunState, RunFamily, WorkflowRun } from "@/types/index";
@@ -14,11 +14,17 @@ import type { PipelineRunState, RunFamily, WorkflowRun } from "@/types/index";
 const mockGetToken = vi.fn(() => "test-token");
 const mockGetWorkflow = vi.fn<(token: string, id: string) => Promise<WorkflowRun>>();
 const mockGetRunFamily = vi.fn<(token: string, id: string) => Promise<RunFamily>>();
+const mockGetRunSandbox = vi.fn();
+const mockGetRunSandboxFileBlob = vi.fn();
+const mockDownloadBlob = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getWorkflow: (token: string, id: string) => mockGetWorkflow(token, id),
   getRunFamily: (token: string, id: string) => mockGetRunFamily(token, id),
+  getRunSandbox: (token: string, id: string) => mockGetRunSandbox(token, id),
+  getRunSandboxFileBlob: (token: string, id: string, path: string) =>
+    mockGetRunSandboxFileBlob(token, id, path),
 }));
 
 const STRIPPED_MOTION_PROPS = new Set([
@@ -49,7 +55,7 @@ vi.mock("./MarkdownPreview", () => ({ MarkdownPreview: () => <div data-testid="m
 vi.mock("./AppBuilderPreview", () => ({ AppBuilderPreview: () => <div data-testid="appbuilder-preview" /> }));
 vi.mock("@/components/results/FilesTab", () => ({
   FilesTab: () => <div data-testid="files-tab" />,
-  downloadBlob: vi.fn(),
+  downloadBlob: (...a: unknown[]) => mockDownloadBlob(...a),
   deriveDeliverableFilename: (workflowType: string, content?: string, fallback?: string) => {
     // Simplified stub that dispatches on workflow type like the real function
     if (workflowType === "user_stories" || workflowType === "user_stories_revision") {
@@ -100,6 +106,22 @@ describe("PreviewPanel — Phase 39 run header + tabs", () => {
     expect(tabs.map((t) => t.textContent?.trim())).toEqual(["Preview", "Steps", "Files", "Audit"]);
     // The relabelled Steps tab still resolves to the stable "thinking" id.
     expect(screen.getByTestId("tab-thinking")).toHaveTextContent("Steps");
+  });
+
+  it("shows Workspace as soon as a run id is known, not after the detail fetch", () => {
+    // The tab is dropped while `workspaceRunId` is null. On a history reopen the
+    // id used to be published only after `getWorkflow` resolved, so Workspace
+    // appeared ~2s behind the other four and read as a broken tab.
+    render(
+      <PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" liveRunId="r1" />,
+    );
+    const tabs = screen.getAllByRole("tab").map((t) => t.textContent?.trim());
+    expect(tabs).toEqual(["Preview", "Steps", "Files", "Workspace", "Audit"]);
+  });
+
+  it("drops Workspace only when there is no run id at all", () => {
+    render(<PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" />);
+    expect(screen.queryByTestId("tab-workspace")).toBeNull();
   });
 
   it("mounts the run header and exactly ONE version affordance (INV-3) in the settled state", () => {
@@ -187,6 +209,151 @@ describe("PreviewPanel — Phase 39 Preview browser chrome", () => {
     );
     expect(screen.queryByTestId("preview-chrome")).toBeNull();
     expect(screen.getByTestId("appbuilder-preview")).toBeInTheDocument();
+  });
+
+  it("a ppt_v2 deliverable renders through the Slides renderer, with no generic mimetype pills", () => {
+    // spec 017 — ppt_v2 is the SAME HTML deck as ppt (it only ALSO emits a .pptx),
+    // so it normalizes to renderType "ppt" and belongs in the pptContent slot.
+    // It used to be routed into the GENERIC deliverable channel by page.tsx (whose
+    // dispatch listed only "ppt"/"ppt_revision"), which left Auto and Slides empty
+    // and made the accidental HTML/Markdown/Bundle pills the only thing that worked.
+    render(<PreviewPanel workflowType={"ppt_v2" as never} pptContent="<html>deck</html>" />);
+    expect(screen.getByTestId("ppt-preview")).toBeInTheDocument();
+    const pills = screen.getAllByTestId("renderer-pill").map((p) => p.textContent?.trim());
+    expect(pills).toEqual(["Auto", "Slides"]);
+  });
+
+  // ── Header Download — the workflow's DECLARED file, from the workspace ──────
+  // Every workflow.yaml names what it delivers (prototype → prototype.html), the
+  // engine emits that literal on pipeline_complete, and this button serves THAT
+  // FILE. It used to rebuild one from on-screen content and name it from a
+  // <title>, so the declaration lost to a guess and the bytes came from what the
+  // panel held rather than from what the run wrote.
+  const dlProps = {
+    workflowType: "prototype" as const,
+    prototypeContent: "<html><head><title>Bespoke Facebook · Sprint 8</title></head></html>",
+    liveRunId: "run-1",
+    pipelineState: { ...settledState, deliverableFilename: "prototype.html" },
+  };
+
+  it("Download is DISABLED until the declared file exists in the workspace", async () => {
+    mockGetRunSandbox.mockResolvedValue({
+      run_id: "run-1", expired: false, truncated: false,
+      files: [{ path: "spec.md", size: 10, modified: 0, text: true }],
+    });
+    render(<PreviewPanel {...dlProps} />);
+    const btn = screen.getByLabelText("Download the deliverable");
+    await waitFor(() => expect(mockGetRunSandbox).toHaveBeenCalled());
+    expect(btn).toBeDisabled();
+  });
+
+  it("Download serves the declared workspace file, not a name derived from content", async () => {
+    mockGetRunSandbox.mockResolvedValue({
+      run_id: "run-1", expired: false, truncated: false,
+      files: [
+        { path: "spec.md", size: 10, modified: 0, text: true },
+        { path: "prototype.html", size: 34_000, modified: 0, text: true },
+      ],
+    });
+    mockGetRunSandboxFileBlob.mockResolvedValue(new Blob(["<html></html>"], { type: "text/html" }));
+    mockDownloadBlob.mockClear();
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+
+    render(<PreviewPanel {...dlProps} />);
+    const btn = screen.getByLabelText("Download the deliverable");
+    await waitFor(() => expect(btn).not.toBeDisabled());
+    fireEvent.click(btn);
+
+    // The run's OWN bytes, read from the workspace — not the on-screen content.
+    await waitFor(() =>
+      expect(mockGetRunSandboxFileBlob).toHaveBeenCalledWith("test-token", "run-1", "prototype.html"),
+    );
+    // …saved under the DECLARED name, not "bespoke-facebook-sprint-8.html"
+    // derived from the deck's <title>.
+    await waitFor(() =>
+      expect(mockDownloadBlob).toHaveBeenCalledWith("blob:mock", "prototype.html", "text/html"),
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("prefers the editable .pptx over the declared .html when the run wrote both", async () => {
+    // ppt_v2 declares presentation.html (that declaration also drives Preview's
+    // mimetype and its render-step-failed fallback, so it stays as it is), but
+    // the file you send is the PowerPoint. Keyed on the EXTENSION, not the
+    // workflow name.
+    mockGetRunSandbox.mockResolvedValue({
+      run_id: "run-1", expired: false, truncated: false,
+      files: [
+        { path: "presentation.html", size: 30_000, modified: 0, text: true },
+        { path: "presentation.pptx", size: 90_000, modified: 0, text: false },
+      ],
+    });
+    mockGetRunSandboxFileBlob.mockResolvedValue(new Blob(["x"], { type: "application/vnd.ms-powerpoint" }));
+    render(
+      <PreviewPanel
+        workflowType={"ppt_v2" as never}
+        pptContent="<html><title>Deck</title></html>"
+        liveRunId="run-1"
+        pipelineState={{ ...settledState, deliverableFilename: "presentation.html" }}
+      />,
+    );
+    const btn = screen.getByLabelText("Download the deliverable");
+    await waitFor(() => expect(btn).not.toBeDisabled());
+    fireEvent.click(btn);
+    await waitFor(() =>
+      expect(mockGetRunSandboxFileBlob).toHaveBeenCalledWith("test-token", "run-1", "presentation.pptx"),
+    );
+  });
+
+  it("falls back to the deck when the declared .pptx was never written (plain ppt)", async () => {
+    // `ppt` declares presentation.pptx while nothing in it emits PptxGenJS, so
+    // that file is never on disk and the button used to be dead. Same-stem
+    // fallback gives you the deck the run actually produced.
+    mockGetRunSandbox.mockResolvedValue({
+      run_id: "run-1", expired: false, truncated: false,
+      files: [{ path: "presentation.html", size: 30_000, modified: 0, text: true }],
+    });
+    render(
+      <PreviewPanel
+        workflowType="ppt"
+        pptContent="<html><title>Deck</title></html>"
+        liveRunId="run-1"
+        pipelineState={{ ...settledState, deliverableFilename: "presentation.pptx" }}
+      />,
+    );
+    const btn = screen.getByLabelText("Download the deliverable");
+    await waitFor(() => expect(btn).not.toBeDisabled());
+    fireEvent.click(btn);
+    await waitFor(() =>
+      expect(mockGetRunSandboxFileBlob).toHaveBeenCalledWith("test-token", "run-1", "presentation.html"),
+    );
+  });
+
+  it("considers NO sibling for a non-deck deliverable", async () => {
+    // Scoped by the declared EXTENSION, not the workflow name: only a .html or
+    // .pptx declaration asks a deck question. A .md deliverable resolves to
+    // itself and nothing else, so a stray same-stem file can never be served in
+    // its place.
+    mockGetRunSandbox.mockResolvedValue({
+      run_id: "run-1", expired: false, truncated: false,
+      files: [
+        { path: "user_stories.pptx", size: 1, modified: 0, text: false },
+        { path: "user_stories.html", size: 1, modified: 0, text: true },
+      ],
+    });
+    render(
+      <PreviewPanel
+        workflowType="user_stories"
+        userStoryContent="# stories"
+        liveRunId="run-1"
+        pipelineState={{ ...settledState, deliverableFilename: "user_stories.md" }}
+      />,
+    );
+    const btn = screen.getByLabelText("Download the deliverable");
+    await waitFor(() => expect(mockGetRunSandbox).toHaveBeenCalled());
+    // The declared .md is absent, and neither sibling is a candidate.
+    expect(btn).toBeDisabled();
   });
 
   it("offers a 'Renders as' switch with ONLY the deliverable's live typed renderers (ND-D — not the mock's fixed 5-way)", () => {

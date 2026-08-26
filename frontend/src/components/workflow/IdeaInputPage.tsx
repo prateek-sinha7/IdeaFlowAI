@@ -1055,6 +1055,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
 
         const raw = detail.manifest_steps;
         setManifestRawSteps(raw ?? undefined);
+
         console.log("[wf] 1. fetched", workflowId, {
           compiledSteps: detail.steps.length,
           manifestSteps: raw?.length ?? 0,
@@ -1238,13 +1239,24 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       console.log("[wf] 4. roster for", effectiveType, {
         fromLibrary: fromLibrary.length,
         fromManifest: manifestAgents?.length ?? 0,
-        using: fromLibrary.length > 0 ? "library" : "manifest",
+        using: fromLibrary.length >= (manifestAgents?.length ?? 0) && fromLibrary.length > 0 ? "library" : "manifest",
       });
       // The override wins when it is on. Decided HERE rather than by a later
       // setPipelineAgents call: this effect re-runs whenever `manifestAgents`
       // lands (same fetch that produced the override), so a separate apply would
       // race it and the library roster would sometimes win.
-      const systemRoster = fromLibrary.length > 0 ? fromLibrary : (manifestAgents ?? []);
+      // The library is a CONVENIENCE PROJECTION of the plan, not the plan. It is
+      // built by filtering LIBRARY_AGENTS on pipeline_type, which each AGENT.md
+      // declares exactly once — so a workflow that REUSES an agent from another
+      // pipeline gets a PARTIAL library roster, not an empty one. ppt_v2 reuses
+      // ppt's brief-analyst and composer, so `fromLibrary` was 2 of its 4 steps,
+      // won this comparison on "non-empty", and Advanced opened on "2 agents" for
+      // a four-step workflow — with the other two invisible and uneditable.
+      // Prefer the manifest whenever it knows about steps the library does not.
+      const libraryIsComplete =
+        fromLibrary.length > 0 &&
+        fromLibrary.length >= (manifestAgents?.length ?? 0);
+      const systemRoster = libraryIsComplete ? fromLibrary : (manifestAgents ?? fromLibrary);
       setPipelineAgents(
         showOverride && overrideAgents && overrideAgents.length > 0
           ? overrideAgents

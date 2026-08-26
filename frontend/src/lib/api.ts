@@ -985,6 +985,115 @@ export async function getRunArtifacts(
   });
 }
 
+// ─── Run workspace (spec 017 phase 2) ────────────────────────────────────────
+
+export interface SandboxFile {
+  /** POSIX path relative to the run sandbox root. */
+  path: string;
+  size: number;
+  /** Epoch seconds. */
+  modified: number;
+  /** True when the viewer can render this file's bytes as text. */
+  text: boolean;
+  /** How the viewer should present it. `text` is `kind === "text"`. */
+  kind?: "text" | "image" | "pdf" | "binary";
+  /** Part of what the run DELIVERED, as opposed to how it worked.
+   *
+   *  Computed server-side by `is_deliverable_relpath` — the same predicate the
+   *  deliverable walk applies — so the workspace can group Deliverables without
+   *  a copy of `_DELIVERABLE_EXCLUDE` here that drifts from the backend's.
+   *  Absent on a listing that predates the field. */
+  deliverable?: boolean;
+}
+
+export interface SandboxListing {
+  run_id: string;
+  /** The run dir is gone — TTL-swept. Distinct from "the run wrote nothing". */
+  expired: boolean;
+  /** The listing hit a server-side cap; some files are not shown. */
+  truncated: boolean;
+  files: SandboxFile[];
+}
+
+export async function getRunSandbox(
+  token: string,
+  runId: string,
+): Promise<SandboxListing> {
+  return request<SandboxListing>(`/api/runs/${runId}/sandbox`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
+/** The URL a workspace file's bytes are served from.
+ *
+ *  NEVER navigate a browser to this (an `<a href>`, `window.open`): auth here is
+ *  a bearer token held in JS, not a cookie, so a navigation arrives anonymous and
+ *  the API answers `{"detail":"Not authenticated"}` — which the browser renders
+ *  instead of saving anything. Both readers below send the header. */
+export function runSandboxFileUrl(runId: string, path: string): string {
+  return `${ENV.API_URL}/api/runs/${runId}/sandbox/file?path=${encodeURIComponent(path)}`;
+}
+
+/** One workspace file's bytes as text.
+ *
+ *  Read through `fetch`, never navigated to: the endpoint serves everything
+ *  outside its narrow text whitelist as an octet-stream attachment precisely so
+ *  a browser cannot be pointed at agent-authored HTML. Reading the body here is
+ *  unaffected by that header, and the string lands in a <pre>, never in HTML. */
+export async function getRunSandboxFile(
+  token: string,
+  runId: string,
+  path: string,
+): Promise<string> {
+  const res = await authedFetch(runSandboxFileUrl(runId, path), {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) {
+    throw new Error(`${res.status}: could not read ${path}`);
+  }
+  return res.text();
+}
+
+/** One workspace file's raw bytes, for saving to disk.
+ *
+ *  Same endpoint as the text reader above, taken as a Blob so a binary
+ *  (`presentation.pptx`) survives the trip — `res.text()` would mangle it. The
+ *  caller hands the object URL to `downloadBlob`. */
+export async function getRunSandboxFileBlob(
+  token: string,
+  runId: string,
+  path: string,
+): Promise<Blob> {
+  const res = await authedFetch(runSandboxFileUrl(runId, path), {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) {
+    throw new Error(`${res.status}: could not download ${path}`);
+  }
+  return res.blob();
+}
+
+/** The whole run workspace as one zip.
+ *
+ *  Server-built (stdlib `zipfile`): the alternative is one download per file,
+ *  which every browser blocks after a handful — and a ppt_v2 workspace is 36
+ *  files. Same authed `fetch` as every other read here, for the same reason
+ *  (BUG-031). */
+export async function getRunSandboxZip(token: string, runId: string): Promise<Blob> {
+  const res = await authedFetch(`${ENV.API_URL}/api/runs/${runId}/sandbox/zip`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) {
+    throw new Error(
+      res.status === 413
+        ? "This workspace is too large to archive"
+        : `${res.status}: could not archive the workspace`,
+    );
+  }
+  return res.blob();
+}
+
 export interface ChainContext {
   workflow_id: string;
   pipeline_type: string;

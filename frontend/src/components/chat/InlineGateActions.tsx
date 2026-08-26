@@ -47,9 +47,8 @@ import {
 
 import {
   discriminateArtifact,
-  SpecPreview,
-  TasksPreview,
-  AnalysisPreview,
+  gateAsk,
+  GateWell,
 } from "@/components/results/artifactPreview";
 
 interface InlineGateActionsProps {
@@ -115,8 +114,6 @@ export function InlineGateActions({
   const [editedContent, setEditedContent] = useState(output);
   const [hasEdits, setHasEdits] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
-  // "Request changes" affordance: reveals the redo/update-specs/reject channels.
-  const [showRequestChanges, setShowRequestChanges] = useState(false);
   // KAN-95: two-step reject confirm.
   const [showRejectConfirm, setShowRejectConfirm] = useState(false);
   // Free-text instructions for the redo re-run.
@@ -139,7 +136,6 @@ export function InlineGateActions({
     setEditedContent(output);
     setHasEdits(false);
     setShowEdit(false);
-    setShowRequestChanges(false);
     setShowRejectConfirm(false);
     setRedoInstructions("");
     setShowRedo(false);
@@ -186,10 +182,8 @@ export function InlineGateActions({
   // KAN-100 terminal fence: post-terminal, no actions are available.
   if (!isPipelineRunning) return null;
 
-  // Plan-preview block — reuse the shared artifactPreview discriminator +
-  // renderers (INV-12: no second parser). Pass the backend's artifactKind so
-  // agents with plain-markdown output (e.g. user_stories domain-analyst, kind=
-  // "summary") render correctly without requiring XML wrapper tags in their text.
+  // The artifact kind drives BOTH the well's renderer and the ask (SC-001 —
+  // structural kind only, never a workflow/agent literal).
   const resolvedArtifactKind = discriminateArtifact(output, artifactKind);
 
   // ── Routed human gate: the human IS the router ─────────────────────────────
@@ -215,246 +209,277 @@ export function InlineGateActions({
     }
   })();
 
+  // The ask. A routed gate carries its own prompt on the wire, so that wins; an
+  // approval gate derives one from the artifact kind (see gateAsk). The caller's
+  // approveLabel still overrides the derived button label.
+  const derived = gateAsk(artifactKind, resolvedArtifactKind);
+  const askText = choicePayload
+    ? (choicePayload.prompt || "Which route should the run take?")
+    : derived.ask;
+  const approveText = hasEdits
+    ? "Approve with edits & build"
+    : (approveLabel ?? derived.approve);
+
+  // Request changes has exactly one channel behind it — redo-with-instructions —
+  // so it is rendered only when that channel is open. Update-specs and cancel are
+  // their OWN always-visible quiet actions below; nothing is collapsed behind a
+  // disclosure that the user has to discover.
+  const slotOpen = showRedo || showRejectConfirm;
+
   return (
     <div
       data-testid="chat-gate-actions"
-      className="rounded-2xl border border-line-border bg-surface-white px-4 py-3 space-y-2.5"
+      className="overflow-hidden rounded-[12px] border border-brand-border bg-surface-white shadow-[0_1px_2px_rgba(20,20,40,.04),0_12px_28px_-14px_rgba(60,44,218,.28)]"
     >
-      <div className="flex items-center gap-2">
-        <div className="w-6 h-6 rounded-lg bg-brand flex items-center justify-center flex-shrink-0">
-          <CheckCircle2 className="h-3.5 w-3.5 text-white" />
-        </div>
-        <p className="text-[11px] font-semibold text-ink-900 flex-1 min-w-0 truncate">
-          {agentName} · review before continuing
-        </p>
-        {/* ISS-052: the two spec-revision firings of this gate are otherwise identical
-            on screen — same agent, same output, same actions bar. Name the cycle and
-            say whether the revision is still running. Dormant (renders nothing) on
-            every gate outside a revision cycle. SC-001: server-derived state only. */}
-        {revisionCycle > 0 && (
-          <span
-            data-testid="chat-gate-revision"
-            className={`flex-shrink-0 text-[8.5px] font-semibold uppercase tracking-wider px-1.5 py-1 rounded border ${
-              revisionInFlight
-                ? "text-status-amber bg-status-amber-fill border-status-amber-border"
-                : "text-brand bg-brand-fill border-brand-border"
-            }`}
-          >
-            {revisionInFlight
-              ? `Revision cycle ${revisionCycle} · in progress`
-              : `Revision cycle ${revisionCycle} · complete`}
-          </span>
-        )}
-        {/* A choice gate has no free-text surface — `output` is a JSON envelope,
-            and the answer must be a declared outcome key. */}
-        {!choicePayload && (
-        <button
-          type="button"
-          onClick={() => setShowEdit((v) => !v)}
-          disabled={submitted}
-          className="flex items-center gap-1 text-[10px] text-ink-500 hover:text-ink-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Edit3 className="h-3 w-3" /> Edit
-          {hasEdits && <span className="w-1.5 h-1.5 rounded-full bg-status-amber" />}
-        </button>
-        )}
-      </div>
-
-      {showEdit && (
-        <textarea
-          value={editedContent}
-          onChange={(e) => handleEdit(e.target.value)}
-          disabled={submitted}
-          aria-label="Edit gate content"
-          name="gate-content"
-          className="w-full min-h-[120px] rounded-lg border border-line-border bg-surface-warm px-3 py-2 text-[11px] text-ink-900 font-mono leading-relaxed focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/20 resize-none disabled:opacity-50"
-          spellCheck={false}
-        />
-      )}
-
-      {/* Task-plan PREVIEW block — reused artifactPreview renderers (no parser). */}
-      {resolvedArtifactKind && !showEdit && (
-        <div
-          data-testid="chat-gate-preview"
-          className="rounded-lg border border-line-border bg-surface-warm/60 px-3 py-2.5 max-h-64 overflow-y-auto"
-        >
-          {resolvedArtifactKind === "spec" && <SpecPreview content={output} />}
-          {resolvedArtifactKind === "tasks" && <TasksPreview content={output} />}
-          {resolvedArtifactKind === "analysis" && <AnalysisPreview content={output} />}
-        </div>
-      )}
-
-      {hasEdits && (
-        <p className="text-[10px] text-status-amber">
-          You have unsaved edits — approving will use your edited version.
-        </p>
-      )}
-
-      {/* The declared outcomes, as the primary action row. Each button resolves
-          the gate through the SAME approve channel — the value is the route
-          decision the conditional gate reads, the label is just presentation. */}
-      {choicePayload && (
-        <>
-          {choicePayload.prompt && (
-            <p data-testid="chat-gate-choice-prompt" className="text-[11px] text-ink-700 whitespace-pre-wrap">
-              {choicePayload.prompt}
+      {/* ── The decision ────────────────────────────────────────────────────────
+          Ask, then actions, then the evidence beneath — the "ask first" order.
+          The ask and its actions share ONE brand-filled block closed by a rule
+          (the mock's S2 treatment, applied at the top rather than the bottom):
+          the decision is a PLACE in the card, not a heading above more reading.
+          Before this the card led with "{agentName} · review before continuing",
+          which described the card instead of asking the reader anything. */}
+      <div className="gate-decision bg-brand-fill border-b border-brand-border">
+        <div className="flex items-start gap-3 px-3.5 pt-3">
+          <div className="min-w-0 flex-1">
+            <p className="m-0 mb-1 text-[9.5px] font-bold uppercase tracking-[0.12em] text-brand">
+              Waiting on you
             </p>
-          )}
-          <div className="flex flex-wrap gap-2">
-            {choicePayload.choices.map((choice) => (
-              <button
-                key={choice}
-                type="button"
-                data-testid={`chat-gate-choice-${choice}`}
-                onClick={() => {
-                  if (submitted) return;
-                  setSubmitted(true);
-                  onApprove(gateKey, JSON.stringify({ decision: choice }));
-                }}
-                disabled={submitted}
-                className="flex-1 min-w-[110px] flex items-center justify-center gap-2 rounded-xl bg-brand text-white px-4 py-2.5 text-[12px] font-semibold hover:bg-brand-pressed transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <CheckCircle2 className="h-4 w-4" />
-                {choice.charAt(0).toUpperCase() + choice.slice(1)}
-              </button>
-            ))}
+            <h4 className="m-0 text-[14px] font-semibold leading-snug tracking-[-0.01em] text-ink-900">
+              {askText}
+            </h4>
           </div>
-        </>
-      )}
+          {/* ISS-052: the two spec-revision firings of this gate are otherwise identical
+              on screen — same agent, same output, same actions bar. Name the cycle and
+              say whether the revision is still running. Dormant (renders nothing) on
+              every gate outside a revision cycle. SC-001: server-derived state only. */}
+          {revisionCycle > 0 && (
+            <span
+              data-testid="chat-gate-revision"
+              className={`mt-0.5 flex-none rounded border px-1.5 py-1 text-[8.5px] font-semibold uppercase tracking-wider ${
+                revisionInFlight
+                  ? "text-status-amber bg-status-amber-fill border-status-amber-border"
+                  : "text-brand bg-surface-white border-brand-border"
+              }`}
+            >
+              {revisionInFlight
+                ? `Revision cycle ${revisionCycle} · in progress`
+                : `Revision cycle ${revisionCycle} · complete`}
+            </span>
+          )}
+        </div>
 
-      {/* The mock's TWO primary buttons — Approve & build / Request changes. */}
-      <div className="flex gap-2">
-        {/* 1. Approve — the shared approve_review channel (approved:true).
-               Replaced by the choice row above on a routed gate. */}
-        {!choicePayload && (
-        <button
-          type="button"
-          data-testid="chat-gate-approve"
-          onClick={handleApprove}
-          disabled={submitted}
-          className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-brand text-white px-4 py-2.5 text-[12px] font-semibold hover:bg-brand-pressed transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <CheckCircle2 className="h-4 w-4" />
-          {approveLabel ??
-            (hasEdits ? "Approve with edits & build" : "Approve & build")}
-        </button>
-        )}
+        {/* The actions row. Primaries left, the rarer channels quiet on the right,
+            separated by a flexible spacer so the row degrades by wrapping rather
+            than by crowding. */}
+        <div className="flex flex-wrap items-center gap-2 px-3.5 py-2.5">
+          {/* A routed gate's declared outcomes ARE the primary action: each
+              resolves through the SAME approve channel, the value being the route
+              decision the conditional gate reads. */}
+          {choicePayload
+            ? choicePayload.choices.map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  data-testid={`chat-gate-choice-${choice}`}
+                  onClick={() => {
+                    if (submitted) return;
+                    setSubmitted(true);
+                    onApprove(gateKey, JSON.stringify({ decision: choice }));
+                  }}
+                  disabled={submitted}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-brand px-4 text-[12px] font-semibold text-white shadow-[0_2px_6px_-2px_rgba(60,44,218,.5)] transition-colors hover:bg-brand-pressed disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 flex-none" />
+                  {choice.charAt(0).toUpperCase() + choice.slice(1)}
+                </button>
+              ))
+            : (
+              <button
+                type="button"
+                data-testid="chat-gate-approve"
+                onClick={handleApprove}
+                disabled={submitted}
+                className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-brand px-4 text-[12px] font-semibold text-white shadow-[0_2px_6px_-2px_rgba(60,44,218,.5)] transition-colors hover:bg-brand-pressed disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5 flex-none" />
+                {approveText}
+              </button>
+            )}
 
-        {/* 2. Request changes — reveals the redo/reject channels. */}
-        <button
-          type="button"
-          data-testid="chat-gate-request-changes"
-          onClick={() => setShowRequestChanges((v) => !v)}
-          disabled={submitted}
-          className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-line-control text-ink-700 px-4 py-2.5 text-[12px] font-semibold hover:border-ink-300 hover:bg-surface-warm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <MessageSquarePlus className="h-4 w-4" />
-          Request changes
-        </button>
-      </div>
+          {/* Request changes — the redo channel, opened as a composer in the slot
+              below. Rendered only when the server says the step is redoable; a
+              button that cannot send anything is worse than no button. */}
+          {canRedo && (
+            <button
+              type="button"
+              data-testid="chat-gate-request-changes"
+              onClick={() => { setShowRejectConfirm(false); setShowRedo((v) => !v); }}
+              disabled={submitted}
+              className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-control bg-surface-white px-4 text-[12px] font-medium text-ink-800 transition-colors hover:border-ink-300 hover:bg-surface-warm disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <MessageSquarePlus className="h-3.5 w-3.5 flex-none" />
+              Request changes
+            </button>
+          )}
 
-      {/* The collapsed change channels — redo / reject / update-specs. These fire
-          the EXACT same handlers/channels as before. All are revealed inside the
-          Request changes panel. */}
-      {showRequestChanges && (
-        <div className="space-y-2 rounded-xl border border-line-border bg-surface-warm/60 px-3 py-2.5">
+          <span className="flex-1" />
 
           {/* KAN-101 "Update the Specs" — rendered iff the server flag is set
               (updateSpecsEligible, derived generically from artifactKind — SC-001). */}
           {canUpdateSpecs && (
-            <button
-              type="button"
-              data-testid="chat-gate-update-specs"
-              onClick={handleUpdateSpecs}
-              disabled={submitted}
-              className="w-full flex items-center justify-center gap-2 rounded-xl border border-brand/30 text-brand px-4 py-2 text-[11px] font-semibold hover:bg-brand-fill transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Update the Specs
-            </button>
+            <>
+              <button
+                type="button"
+                data-testid="chat-gate-update-specs"
+                onClick={handleUpdateSpecs}
+                disabled={submitted}
+                className="inline-flex items-center gap-1.5 text-[11px] text-ink-500 transition-colors hover:text-brand hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Update the specs
+              </button>
+              <span aria-hidden className="text-line-faint">·</span>
+            </>
           )}
 
-          {/* Redo — rendered IFF onRedo AND server-set redoable (generic fence). */}
-          {canRedo && (
-            <div className="space-y-1.5">
-              {showRedo ? (
-                <>
-                  <textarea
-                    value={redoInstructions}
-                    onChange={(e) => setRedoInstructions(e.target.value)}
-                    disabled={submitted}
-                    placeholder="Optional instructions — leave blank to just regenerate"
-                    aria-label="Additional instructions for redo"
-                    name="redo-instructions"
-                    className="w-full min-h-[52px] rounded-lg border border-brand-border bg-surface-white px-3 py-2 text-[11px] text-ink-900 leading-relaxed focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/40 resize-none disabled:opacity-50"
-                    spellCheck={false}
-                  />
+          {/* KAN-95: cancel is a two-step confirm, opened in the slot below. */}
+          <button
+            type="button"
+            data-testid="chat-gate-cancel"
+            onClick={() => { setShowRedo(false); setShowRejectConfirm((v) => !v); }}
+            disabled={submitted}
+            className="inline-flex items-center gap-1.5 text-[11px] text-ink-500 transition-colors hover:text-status-failed hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <XCircle className="h-3.5 w-3.5" />
+            Cancel run
+          </button>
+        </div>
+
+        {/* ── The slot ──────────────────────────────────────────────────────────
+            Where the composer and the destructive confirm open. It sits INSIDE
+            the decision block (and so on its fill) rather than between the
+            decision and the evidence — opened there, either one drove a wedge
+            through the card and orphaned the "What … wrote" heading from it. */}
+        {slotOpen && (
+          <div className="px-3.5 pb-3">
+            {showRedo && (
+              <div className="flex flex-col gap-2.5 rounded-[10px] border border-brand-border bg-surface-white p-3">
+                <textarea
+                  value={redoInstructions}
+                  onChange={(e) => setRedoInstructions(e.target.value)}
+                  disabled={submitted}
+                  placeholder="What should change? Leave blank to just run the step again."
+                  aria-label="Additional instructions for redo"
+                  name="redo-instructions"
+                  className="min-h-[80px] w-full resize-y rounded-lg border border-line-border bg-surface-warm px-3 py-2 font-serif text-[12px] leading-relaxed text-ink-900 placeholder:text-ink-300 focus:border-brand focus:bg-surface-white focus:outline-none focus:ring-2 focus:ring-brand/20 disabled:opacity-50"
+                  spellCheck={false}
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowRedo(false)}
+                    className="text-[11px] text-ink-500 transition-colors hover:text-brand hover:underline"
+                  >
+                    Never mind
+                  </button>
                   <button
                     type="button"
                     data-testid="chat-gate-redo"
                     onClick={handleRedo}
                     disabled={submitted}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl border border-brand-border text-brand px-4 py-2 text-[11px] font-semibold hover:bg-brand-fill transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-brand px-4 text-[12px] font-semibold text-white shadow-[0_2px_6px_-2px_rgba(60,44,218,.5)] transition-colors hover:bg-brand-pressed disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    Redo this step
+                    <RotateCcw className="h-3.5 w-3.5 flex-none" />
+                    Send it back
                   </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setShowRedo(true)}
-                  disabled={submitted}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-brand-border text-brand px-4 py-2 text-[11px] font-medium hover:bg-brand-fill transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  Redo with instructions
-                </button>
-              )}
-            </div>
-          )}
+                </div>
+              </div>
+            )}
 
-          {/* Reject — KAN-95 two-step confirm. */}
-          {showRejectConfirm ? (
-            <div className="rounded-xl border border-status-failed-border bg-status-failed-fill px-3 py-2.5 space-y-2">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="h-3.5 w-3.5 text-status-failed flex-shrink-0 mt-0.5" />
-                <p className="text-[11px] font-medium text-status-failed-strong">
-                  Cancel this pipeline? This stops execution and discards progress.
+            {showRejectConfirm && (
+              <div className="flex flex-col gap-2 rounded-[10px] border border-status-failed-border bg-status-failed-fill p-3">
+                <p className="m-0 flex gap-2 font-serif text-[11.5px] leading-snug text-status-failed-strong">
+                  <AlertTriangle aria-hidden className="mt-0.5 h-3.5 w-3.5 flex-none" />
+                  <span>Cancel this run? It stops here and the work so far is discarded.</span>
                 </p>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowRejectConfirm(false)}
+                    className="text-[11px] text-ink-500 transition-colors hover:text-ink-900 hover:underline"
+                  >
+                    Keep reviewing
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="chat-gate-reject"
+                    onClick={handleReject}
+                    disabled={submitted}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-status-failed px-4 text-[12px] font-semibold text-white shadow-[0_2px_6px_-2px_rgba(163,58,50,.5)] transition-colors hover:bg-status-failed-strong disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Yes, cancel
+                  </button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowRejectConfirm(false)}
-                  className="flex-1 rounded-lg border border-line-border bg-surface-white text-ink-600 px-3 py-1.5 text-[11px] font-medium hover:bg-surface-warm transition-all"
-                >
-                  Keep reviewing
-                </button>
-                <button
-                  type="button"
-                  data-testid="chat-gate-reject"
-                  onClick={handleReject}
-                  disabled={submitted}
-                  className="flex-1 rounded-lg bg-status-failed text-white px-3 py-1.5 text-[11px] font-semibold hover:bg-status-failed-strong transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Yes, cancel
-                </button>
-              </div>
-            </div>
-          ) : (
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── The evidence ────────────────────────────────────────────────────────
+          What the run produced, set apart from the decision above it. A CAPPED
+          preview, not the reading surface — the whole artifact is in Preview,
+          Files and Workspace. Its TOP edge is shaded (.gate-well-fade, inside
+          GateWell) and the decision block casts down onto it (.gate-decision),
+          so the well reads as passing UNDER the decision rather than as a
+          second flat panel stacked beside it. */}
+      <div className="px-3.5 pb-3.5 pt-3">
+        <div className="mb-2 flex items-center gap-2.5">
+          <span className="flex-1 text-[9.5px] font-bold uppercase tracking-[0.12em] text-ink-400">
+            {/* A routed gate's `output` is a JSON envelope of route keys, not an
+                artifact — there is nothing authored to show or edit. */}
+            {choicePayload ? "The routes" : `What ${agentName} wrote`}
+          </span>
+          {!choicePayload && (
             <button
               type="button"
-              onClick={() => setShowRejectConfirm(true)}
+              onClick={() => setShowEdit((v) => !v)}
               disabled={submitted}
-              className="w-full flex items-center justify-center gap-2 rounded-xl border border-status-failed-border text-status-failed px-4 py-2 text-[11px] font-medium hover:bg-status-failed-fill transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1.5 text-[11px] text-ink-500 transition-colors hover:text-brand hover:underline disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <XCircle className="h-3.5 w-3.5" />
-              Reject & cancel
+              <Edit3 className="h-3.5 w-3.5" />
+              {showEdit ? "Editing" : "Edit"}
+              {hasEdits && <span className="h-1.5 w-1.5 rounded-full bg-status-amber" />}
             </button>
           )}
         </div>
-      )}
+
+        {showEdit ? (
+          <textarea
+            value={editedContent}
+            onChange={(e) => handleEdit(e.target.value)}
+            disabled={submitted}
+            aria-label="Edit gate content"
+            name="gate-content"
+            className="min-h-[160px] w-full resize-y rounded-[10px] border border-line-border bg-surface-warm px-3 py-2.5 font-mono text-[11px] leading-relaxed text-ink-900 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20 disabled:opacity-50"
+            spellCheck={false}
+          />
+        ) : choicePayload ? (
+          <div data-testid="chat-gate-choice-prompt" className="rounded-[10px] border border-line-border bg-surface-warm px-3 py-2.5 font-serif text-[12px] leading-relaxed text-ink-800">
+            {choicePayload.prompt || "The run branches here on the route you pick."}
+          </div>
+        ) : (
+          <div data-testid="chat-gate-preview">
+            <GateWell content={output} artifactKind={artifactKind} />
+          </div>
+        )}
+
+        {hasEdits && (
+          <p className="mt-2 text-[11px] text-status-amber">
+            You have unsaved edits — approving will use your edited version.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

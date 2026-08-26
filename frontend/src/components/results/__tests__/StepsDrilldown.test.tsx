@@ -184,16 +184,21 @@ describe("Steps drill-down — inline gate/clarify (SC-2, KAN cluster)", () => {
   });
 
   it("shows Update-the-Specs ONLY when updateSpecsEligible (KAN-101, generic flag)", () => {
-    // 42-08: the change channels are collapsed under "Request changes".
+    // Ask-first IA: update-specs and cancel are their own always-visible quiet
+    // channels, no longer collapsed under "Request changes" (which now carries
+    // only the redo channel, and this GATE is redoable:false). The eligibility
+    // flag it is driven off is unchanged.
     renderGate({ updateSpecsEligible: true });
-    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
     expect(screen.getByTestId("chat-gate-update-specs")).toBeInTheDocument();
   });
 
   it("hides Update-the-Specs when NOT eligible", () => {
     renderGate({ updateSpecsEligible: false });
-    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
     expect(screen.queryByTestId("chat-gate-update-specs")).toBeNull();
+    // …and with redoable:false there is no Request changes button either, so
+    // cancel is the only channel left beside approve.
+    expect(screen.queryByTestId("chat-gate-request-changes")).toBeNull();
+    expect(screen.getByTestId("chat-gate-cancel")).toBeInTheDocument();
   });
 
   it("KAN-100 terminal fence: renders NO gate actions once the pipeline is not running", () => {

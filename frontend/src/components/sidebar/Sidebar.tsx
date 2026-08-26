@@ -40,6 +40,7 @@ const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; 
   user_stories: { icon: FileText, color: "text-blue-400", label: "User Stories" },
   user_stories_revision: { icon: FileText, color: "text-blue-400", label: "User Stories (revision)" },
   ppt: { icon: Presentation, color: "text-amber-400", label: "Presentation" },
+  ppt_v2: { icon: Presentation, color: "text-amber-400", label: "Presentation (v2)" },
   ppt_revision: { icon: Presentation, color: "text-amber-400", label: "Presentation (revision)" },
   prototype: { icon: Layout, color: "text-emerald-400", label: "Prototype" },
   prototype_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype (revision)" },

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Presentation, RefreshCw } from "lucide-react";
 import { authedFetch, getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
+import { stripStaticPreviewFallback } from "@/lib/deckHtml";
 
 interface PPTPreviewProps {
   content?: string;
@@ -15,9 +16,13 @@ interface PPTPreviewProps {
   /** @deprecated Every ppt run is now the HTML-deck pipeline; kept only so
    * existing callers don't need an edit. No longer read. */
   pipelineType?: string;
+  /** The run on screen. Without it the export falls back to "most recent
+   *  type=ppt run", which is the wrong run for a reopened deck and no run at
+   *  all for `ppt_v2` (spec 017). */
+  runId?: string | null;
 }
 
-export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPreviewProps) {
+export function PPTPreview({ content, isStreaming, pptxCode, runId, onRevise }: PPTPreviewProps) {
   const [iframeKey] = useState(0);
   const [isDownloading, setIsDownloading] = useState(false);
   const [revisionText, setRevisionText] = useState("");
@@ -59,21 +64,23 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPrev
       }
 
       // Find matching workflow for Agent 3 code
-      let workflowId = "";
-      try {
-        const res = await authedFetch(`${ENV.API_URL}/api/runs?type=ppt&limit=20`, {
-          headers: { "Authorization": `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const runs = await res.json();
-          const h1 = content?.match(/<h1[^>]*>([^<]+)<\/h1>/i);
-          if (h1) {
-            const match = runs.find((r: { output?: string }) => r.output?.includes(h1[1]));
-            if (match) workflowId = match.id;
+      let workflowId = runId ?? "";
+      if (!workflowId) {
+        try {
+          const res = await authedFetch(`${ENV.API_URL}/api/runs?type=ppt&limit=20`, {
+            headers: { "Authorization": `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const runs = await res.json();
+            const h1 = content?.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+            if (h1) {
+              const match = runs.find((r: { output?: string }) => r.output?.includes(h1[1]));
+              if (match) workflowId = match.id;
+            }
+            if (!workflowId && runs.length > 0) workflowId = runs[0].id;
           }
-          if (!workflowId && runs.length > 0) workflowId = runs[0].id;
-        }
-      } catch {}
+        } catch {}
+      }
 
       // FR-015: authedFetch, not bare fetch — Blob response, so request() is
       // not an option; a 401 previously threw a plain "Export failed" with no
@@ -176,6 +183,10 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPrev
   htmlContent = htmlContent.replace(/<button[^>]*class="dl-btn"[^>]*>[^<]*<\/button>/gi, "");
   htmlContent = htmlContent.replace(/<button[^>]*onclick="generatePresentation\(\)"[^>]*>[^<]*<\/button>/gi, "");
   htmlContent = htmlContent.replace(/<button[^>]*>[^<]*(?:download|export)\s*pptx[^<]*<\/button>/gi, "");
+
+  // The deck's own nav script is disabled by the template's static-preview
+  // fallback CSS unless that block is removed — see lib/deckHtml.
+  htmlContent = stripStaticPreviewFallback(htmlContent);
 
   // od_ppt decks are scaled from outside the iframe using ResizeObserver +
   // CSS transform (see the iframe container below). No in-body injection needed.

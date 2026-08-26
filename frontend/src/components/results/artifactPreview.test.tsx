@@ -2,12 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import React from "react";
 
-import {
-  discriminateArtifact,
-  SpecPreview,
-  TasksPreview,
-  AnalysisPreview,
-} from "./artifactPreview";
+import { discriminateArtifact, SpecPreview, TasksPreview, AnalysisPreview, GateWell, gateAsk } from "./artifactPreview";
 
 // ─── discriminateArtifact — the name-free artifact discriminator (SC-001) ──────
 // Characterization ported from ReviewGatePanel.tsx:270-273. The discriminator
@@ -146,5 +141,49 @@ describe("AnalysisPreview", () => {
   it("falls back to a raw <pre> when there are no `### ` sections", () => {
     const { container } = render(<AnalysisPreview content={"<analysis>\nplain analysis\n</analysis>"} />);
     expect(container.querySelector("pre")).not.toBeNull();
+  });
+});
+
+// ─── GateWell — the review gate's evidence well ──────────────────────────────
+describe("GateWell", () => {
+  it("hoists the readiness verdict into a banner above the prose", () => {
+    // REGRESSION: the gate used to render <analysis> through AnalysisPreview,
+    // which surfaces this verdict as a coloured banner. Swapping the gate to
+    // GateWell dropped it, burying "CAUTION advised" in the body as ordinary
+    // text — on an approval gate, the worst possible line to lose.
+    render(
+      <GateWell
+        content={"<analysis>\n### Readiness verdict\nCAUTION advised\n\n### Risks\n- one\n</analysis>"}
+        artifactKind="summary"
+      />,
+    );
+    const banner = screen.getByTestId("gate-well-verdict");
+    expect(banner).toHaveTextContent("CAUTION advised");
+    expect(banner).toHaveAttribute("data-verdict-tone", "caution");
+  });
+
+  it("renders no banner when the artifact carries no verdict", () => {
+    render(<GateWell content={"# Settings\n\nJust a spec."} artifactKind="spec" />);
+    expect(screen.queryByTestId("gate-well-verdict")).toBeNull();
+    expect(screen.getByTestId("gate-well")).toHaveAttribute("data-well-kind", "prose");
+  });
+
+  it("renders markdown structure, not escaped source", () => {
+    render(<GateWell content={"| A | B |\n|---|---|\n| 1 | 2 |"} artifactKind="spec" />);
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "A" })).toBeInTheDocument();
+  });
+
+  it("routes a source artifact to the code block, not the prose renderer", () => {
+    render(<GateWell content={"<!DOCTYPE html>\n<html></html>"} artifactKind="html_file" />);
+    expect(screen.getByTestId("gate-well")).toHaveAttribute("data-well-kind", "code");
+    expect(screen.getByTestId("gate-well-copy")).toBeInTheDocument();
+  });
+
+  it("gateAsk derives the ask from the artifact kind only (SC-001)", () => {
+    expect(gateAsk("spec", null).approve).toBe("Approve the spec");
+    expect(gateAsk("task_list", null).approve).toBe("Approve the plan");
+    expect(gateAsk(undefined, "analysis").ask).toBe("Approve this analysis and continue?");
+    expect(gateAsk(undefined, null).approve).toBe("Approve & build");
   });
 });

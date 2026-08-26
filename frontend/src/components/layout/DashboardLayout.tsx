@@ -227,6 +227,8 @@ export interface DashboardLayoutProps {
     selections?: Record<string, Record<string, unknown>>;
     images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
+    /** Which deck pipeline to launch (spec 017). Absent = `ppt`. */
+    pipelineType?: string;
   } | null;
   onClearPendingOdPpt?: () => void;
   userTier?: "basic" | "pro" | "enterprise";
@@ -469,22 +471,30 @@ export function DashboardLayout({
   const handlePreviewPanelTabSelect = useCallback((tab: string) => {
     if (!contentSourceRunId) return;
 
-    // T9 (015-frontend-routing): tab clicks on an already-open run screen must
-    // NOT navigate to a sub-URL. Navigating causes a page remount which:
-    //   - For live/building runs: resets PreviewPanel's autoTabbedForState ref,
-    //     causing the state-keyed default to snap back to Steps immediately.
-    //   - For completed runs: resets autoTabbedForState, causing a snap back
-    //     to Preview regardless of which tab the user clicked.
-    //
-    // Sub-URL navigation (/runs/{id}/steps, /runs/{id}/files, etc.) is for
-    // COLD OPEN deep links — a user pasting a URL or sharing it. In-session
-    // tab clicks must be handled purely by PreviewPanel's own activeTab state.
-    //
-    // PreviewPanel's onTabSelect is wired here only so future analytics/
-    // observability can track tab changes. No routing side-effect needed.
-    // The deepLinkTarget seam (requestOpenTab) is the correct in-session path
-    // for programmatic tab switches (e.g. chat result-card clicks).
-    void tab; // acknowledged — no routing for in-session tab clicks
+    // Map PreviewPanel tab ids to routes
+    const routeMap: Record<string, string> = {
+      "preview": routes.runDetail(contentSourceRunId),
+      "thinking": routes.runSteps(contentSourceRunId),
+      "files": routes.runFiles(contentSourceRunId),
+      "workspace": routes.runWorkspace(contentSourceRunId),
+      "audit": routes.runAudit(contentSourceRunId),
+    };
+
+    const targetRoute = routeMap[tab];
+    if (!targetRoute || targetRoute === window.location.pathname) return;
+
+    // SHALLOW url update — deliberately NOT router.push. A run tab is a
+    // client-side view switch, not a navigation: the run, its stream and its
+    // panel are already mounted. router.push changes the [...view] catch-all
+    // params, which REMOUNTS page.tsx (see its T6/T7 comments — "confirmed
+    // live"), wiping every page-local run state (pipelineState, run type,
+    // brief) and forcing a full re-fetch/durable replay. Until that settled
+    // (~1s) the freshly-mounted PreviewPanel sat on its "preview" default and
+    // only then jumped to the clicked tab — the visible jerk on Steps/Files/
+    // Workspace/Audit. pushState keeps the URL shareable/refreshable and
+    // updates usePathname (Next patches it, app-router.js:252) without
+    // touching the router tree, so nothing remounts and nothing refetches.
+    window.history.pushState(null, "", targetRoute);
   }, [contentSourceRunId]);
 
   // The app-level SSE connection — the sole run transport (44-06). Commands ride
@@ -1312,11 +1322,15 @@ export function DashboardLayout({
     // StrictMode mount-invoke early-returns without a second mint.
     if (launchedPptParamsRef.current === pendingOdPptParams) return;
     launchedPptParamsRef.current = pendingOdPptParams;
+    // Spec 017: `ppt` and `ppt_v2` ride the same staging pipe (identical draft
+    // shape, identical wizard), so the draft names the pipeline. Absent = `ppt`,
+    // which is every draft written before ppt_v2 existed.
+    const deckPipeline = (pendingOdPptParams.pipelineType ?? "ppt") as WorkflowType;
     setMainView("execution");
     // T9 fix (015-frontend-routing, FR-004/FR-010): same reasoning as the
     // pendingOdProtoParams effect above (:1163) — sourceRunId is the PARENT run,
     // not the new one; the pipelineRunId-reactive effect (:662) pushes the real URL.
-    setWorkflowType("ppt");
+    setWorkflowType(deckPipeline);
     setQuestionnaireQuestions([]);
     setQuestionnaireLoading(false);
     if (onClearPendingOdPpt) onClearPendingOdPpt();
@@ -1346,13 +1360,13 @@ export function DashboardLayout({
       odPptNotifId.current = notifId;
       currentPipelineNotifId.current = notifId;
       currentPipelineNotifRunId.current = null; // FIX-194: will be set by reactive effect once pipelineRunId arrives
-      addRunningNotification(notifId, "ppt", pendingOdPptParams.brief.slice(0, 60), 0);
+      addRunningNotification(notifId, deckPipeline, pendingOdPptParams.brief.slice(0, 60), 0);
       const agentIds = pendingOdPptParams.agentIds ?? [];
       if (connectionStatus === "connected") {
-        onStartPipeline("ppt" as WorkflowType, pendingOdPptParams.brief, agentIds, attachedHooks, extraParams);
+        onStartPipeline(deckPipeline, pendingOdPptParams.brief, agentIds, attachedHooks, extraParams);
       } else {
         pendingStartOnConnectRef.current = {
-          type: "ppt" as WorkflowType,
+          type: deckPipeline,
           message: pendingOdPptParams.brief,
           agentIds,
           extraParams,
@@ -1399,6 +1413,13 @@ export function DashboardLayout({
   const handleSelectFeature = useCallback((type: WorkflowType) => {
     setSavedComposition(null);
     setWorkflowType(type);
+    // A wizard-launched workflow goes to its wizard, wherever the click came
+    // from. HomeLaunchGrid checked this map itself, so every OTHER caller —
+    // SavedWorkflowsPage, the revise path, a cold /create/{type} URL — fell
+    // through to the plain brief panel instead, skipping the template and
+    // design-system step the run actually requires.
+    const wizardPath = selectWorkflowWizardPath(baseWorkflowType(type));
+    if (wizardPath) { router.push(wizardPath); return; }
     setMainView(COMPOSER_ENABLED_TYPES.has(type) ? "composer" : "input");
     router.push(COMPOSER_ENABLED_TYPES.has(type) ? routes.workflowNew() : createRouteForType(type));
   }, [router]);
