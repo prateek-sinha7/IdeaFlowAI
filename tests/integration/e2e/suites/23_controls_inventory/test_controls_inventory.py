@@ -265,16 +265,42 @@ def test_activity_is_indicated_while_waiting(page, shot):
 
 @pytest.mark.scenario("S-23-17")
 def test_a_conditional_route_renders_as_a_labelled_edge(page, shot):
-    """Scenario: A conditional route renders as a labelled edge"""
-    with shot("route-edge", "Then the route node and its edge are declared"):
-        SOURCE.assert_declared("canvas-node-route", "canvas-route-edge", "canvas-route-edge-label")
+    """Scenario: A conditional route renders as a labelled edge
+
+    Checked at runtime on `ex_A3_divert`, which is the seeded workflow that
+    actually has a ROUTE node — three outcomes, three labelled edges.
+    """
+    SOURCE.assert_declared("canvas-node-route", "canvas-route-edge", "canvas-route-edge-label")
+
+    with shot("route-edge", 'When I cold-load a workflow with a ROUTE node'):
+        page.goto("/workflows/ex_A3_divert/canvas")
+        expect(page.locator(COMPOSER.HEADER_SUMMARY)).to_be_visible()
+        expect(page.locator('[data-testid^="canvas-node-route-"]').first).to_be_visible(timeout=20000)
+        page.wait_for_timeout(settings.SETTLE_MS // 2)
+
+    labels = page.locator('[data-testid="canvas-route-edge-label"]').all_text_contents()
+    assert labels, "the route draws no labelled edges"
+    assert all(text.strip() for text in labels), f"an outcome edge carries no label: {labels}"
 
 
 @pytest.mark.scenario("S-23-18")
 def test_route_outcomes_are_edited_in_the_rail(page, shot):
     """Scenario: Route outcomes are edited in the rail"""
-    with shot("rail-route", "Then the rail's route controls are declared"):
-        SOURCE.assert_declared("canvas-rail-route", "canvas-rail-route-add")
+    SOURCE.assert_declared("canvas-rail-route", "canvas-rail-route-add")
+
+    page.goto("/workflows/ex_A3_divert/canvas")
+    expect(page.locator(COMPOSER.HEADER_SUMMARY)).to_be_visible()
+    route = page.locator('[data-testid^="canvas-node-route-"]').first
+    expect(route).to_be_visible(timeout=20000)
+    page.wait_for_timeout(settings.SETTLE_MS // 2)
+
+    with shot("rail-route", "When I select the ROUTE node"):
+        route.click()
+        page.wait_for_timeout(settings.SETTLE_MS // 2)
+
+    assert page.locator('[data-testid^="canvas-rail-route-"]').count() > 0, (
+        "selecting a ROUTE node opens no outcome editor in the rail"
+    )
 
 
 @pytest.mark.scenario("S-23-19")
@@ -632,8 +658,16 @@ def test_a_notification_can_be_dismissed_individually(page, shot):
     assert page.get_by_role("button", name=re.compile(r"View progress|Open", re.I)).count() > 0, (
         "a notification offers no action at all"
     )
-    dismiss = page.get_by_role("button", name=re.compile(r"dismiss|clear|remove", re.I)).count()
-    dismiss += page.locator('[title*="ismiss"], [title*="lear"]').count()
+    # Anchored, not a substring: `[title*="lear"]` matches any title with
+    # "lear" in it anywhere on the page and made this fail against a control
+    # that had nothing to do with notifications.
+    panel = page.locator('[aria-label="Notifications"]').locator("xpath=ancestor::*[2]")
+    dismiss = panel.get_by_role(
+        "button", name=re.compile(r"^(dismiss|clear|remove)\b", re.I)
+    ).count()
+    dismiss += page.locator(
+        '[title^="Dismiss"], [title^="Clear"], [aria-label^="Dismiss"]'
+    ).count()
     assert dismiss == 0, (
         "notifications can now be dismissed individually — D-36 is fixed; "
         "rewrite this as the spec's S-23-47"

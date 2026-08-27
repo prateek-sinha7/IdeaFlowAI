@@ -16,6 +16,7 @@ import pytest
 from playwright.sync_api import expect
 
 from framework import api
+from framework import settings
 from framework.locators import home_catalog as L
 
 
@@ -255,10 +256,34 @@ def test_a_live_run_is_distinguishable_from_a_finished_one(page, shot):
 
 @pytest.mark.scenario("S-02-13")
 @pytest.mark.defect
-@pytest.mark.skip(reason="fixture: needs a saved 1-step override of app_builder on one account only")
-def test_a_saved_override_changes_the_catalog_cards_agent_estimate(page, shot):
-    """Scenario: A saved override changes the catalog card's agent estimate"""
-    # D-10. The same card advertises a different agent count depending on
-    # whether the signed-in user has a saved override of that built-in.
-    # Recorded, not judged — possibly intended (the card predicts YOUR run),
-    # possibly per-user state leaking into a catalog estimate.
+def test_a_saved_override_changes_the_catalog_cards_agent_estimate(page_as, shot):
+    """Scenario: A saved override changes the catalog card's agent estimate
+
+    Asserts TODAY'S behaviour — D-10. The SAME card advertises a different agent
+    count depending on whether the signed-in user has a saved override of that
+    built-in. Possibly intended (the card predicts YOUR run), possibly a leak of
+    per-user state into a catalogue estimate. Recorded, not judged.
+
+    qa-admin owns "My app_builder", a 1-step override; qa-basic owns none.
+    """
+    counts = {}
+    for role in ("admin", "basic"):
+        page = page_as(role)
+        with shot(f"card-estimate-{role}", f"When {role} cold-loads the catalogue"):
+            page.goto("/dashboard")
+            expect(page.get_by_text(L.HEADING)).to_be_visible()
+            page.wait_for_timeout(settings.SETTLE_MS)
+
+        card = page.locator(L.card("Build an end-to-end application"))
+        expect(card).to_be_visible()
+        m = re.search(r"~\s*(\d+)\s+agents", card.inner_text())
+        assert m, f"the card reports no agent estimate for {role}: {card.inner_text()!r}"
+        counts[role] = int(m.group(1))
+
+    assert counts["admin"] != counts["basic"], (
+        f"both accounts now see the same estimate ({counts}) — D-10 is resolved, "
+        "and the card no longer depends on who is looking at it"
+    )
+    assert counts["admin"] < counts["basic"], (
+        f"the account WITH the 1-step override sees the larger estimate: {counts}"
+    )

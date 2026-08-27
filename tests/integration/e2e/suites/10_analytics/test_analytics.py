@@ -256,13 +256,49 @@ def test_the_pipeline_breakdown_shows_a_duplicated_and_a_raw_label(page, shot):
 
 
 @pytest.mark.scenario("S-10-13")
-@pytest.mark.skip(reason="fixture: every seeded account now has runs, so no empty state exists")
-def test_a_user_with_no_runs_sees_an_empty_state(page, shot):
-    """Scenario: A user with no runs sees an empty state"""
-    # Needs an account that has never run anything. The four seeded accounts all
-    # have history, and creating a fifth is a seed-script change.
+@pytest.mark.destructive
+def test_a_user_with_no_runs_sees_an_empty_state(shot, disposable_user, browser, pytestconfig):
+    """Scenario: A user with no runs sees an empty state
 
+    Every seeded account has runs by now — this suite gave them some — so the
+    scenario runs against a freshly created account instead, which is the only
+    way left to see a genuinely empty analytics screen.
+    """
+    from framework import settings
+    from framework.locators import auth as AUTH
 
+    user = disposable_user(tier="basic")
+    context = browser.new_context(
+        base_url=settings.BASE_URL,
+        viewport=settings.VIEWPORT,
+        device_scale_factor=pytestconfig.getoption("--dpi"),
+        reduced_motion="reduce",
+    )
+    page = context.new_page()
+
+    try:
+        with shot("empty-analytics", 'When a user with no runs cold-loads "/analytics"'):
+            page.goto("/login")
+            page.fill(AUTH.EMAIL, user["email"])
+            page.fill(AUTH.PASSWORD, user["password"])
+            page.click(AUTH.SIGN_IN)
+            page.wait_for_url("**/dashboard", timeout=settings.LOGIN_TIMEOUT_MS)
+            page.goto("/analytics")
+            expect(page.get_by_text(L.HEADING).first).to_be_visible()
+            page.wait_for_timeout(settings.SETTLE_MS)
+
+        assert L.number(L.tile(page, "TOTAL RUNS")) == 0, "a brand-new account has runs"
+        for label in ("TOTAL TOKENS", "EST. COST"):
+            assert L.number(L.tile(page, label)) == 0, f"{label} is not zero"
+
+        # An empty state, not a broken chart: whatever renders, it has to say
+        # something and must not sit on a spinner.
+        body = page.evaluate("() => document.body.innerText")
+        assert len(body.strip()) > 40
+        for selector in settings.BUSY_SELECTORS:
+            expect(page.locator(selector)).to_have_count(0)
+    finally:
+        context.close()
 @pytest.mark.scenario("S-10-14")
 def test_analytics_is_scoped_to_the_signed_in_user(page_as, shot):
     """Scenario: Analytics is scoped to the signed-in user"""

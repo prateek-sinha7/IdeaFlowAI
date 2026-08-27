@@ -22,7 +22,7 @@ import uuid
 import pytest
 from playwright.sync_api import expect
 
-from framework import accounts, api
+from framework import accounts, api, settings
 from framework.locators import admin as L
 from framework.locators import auth as AUTH
 from framework.locators import shell as SHELL
@@ -527,8 +527,57 @@ def test_admin_reset_is_the_only_recovery_path_under_email_mfa(page, shot):
 
 @pytest.mark.scenario("S-11-20")
 @pytest.mark.destructive
-@pytest.mark.skip(reason="destructive: changing a seeded tier breaks the entitlement fixtures")
-def test_changing_another_users_tier_takes_effect(page, shot):
-    """Scenario: Changing another user's tier takes effect"""
-    # The four seeded tiers are what 02-home-catalog's entitlement matrix is
-    # asserted against. Moving one would break those tests rather than this one.
+def test_changing_another_users_tier_takes_effect(page, shot, disposable_user, browser, pytestconfig):
+    """Scenario: Changing another user's tier takes effect
+
+    The end-to-end half: a tier change must actually change what the user can
+    RUN, not just the badge on the admin row. Driven against a disposable
+    account — re-tiering a seeded one would break the entitlement fixtures every
+    other module depends on.
+    """
+    from framework.locators import home_catalog as HOME
+
+    user = disposable_user(tier="basic")
+    open_admin(page)
+    row = page.locator(L.row(user["email"])).first
+    expect(row).to_be_visible()
+
+    with shot("tier-changed", 'When I change their plan to "pro"'):
+        row.locator('button[aria-haspopup="menu"]').first.click()
+        page.get_by_role("menuitem", name=re.compile("^Pro$", re.I)).first.click()
+        page.wait_for_timeout(settings.SETTLE_MS)
+
+    open_admin(page)
+    assert "PRO" in page.locator(L.row(user["email"])).first.inner_text().upper(), (
+        "the row does not show the new plan"
+    )
+
+    context = browser.new_context(
+        base_url=settings.BASE_URL,
+        viewport=settings.VIEWPORT,
+        device_scale_factor=pytestconfig.getoption("--dpi"),
+        reduced_motion="reduce",
+    )
+    theirs = context.new_page()
+    try:
+        with shot("pro-catalog", "And signing in as that user offers the pro catalog"):
+            theirs.goto("/login")
+            theirs.fill(AUTH.EMAIL, user["email"])
+            theirs.fill(AUTH.PASSWORD, user["password"])
+            theirs.click(AUTH.SIGN_IN)
+            theirs.wait_for_url("**/dashboard", timeout=settings.LOGIN_TIMEOUT_MS)
+            expect(theirs.get_by_text(HOME.HEADING)).to_be_visible()
+            theirs.wait_for_timeout(settings.SETTLE_MS)
+
+        # `prototype` is the entitlement basic does NOT hold and pro does, so it
+        # is what proves the change reached the catalogue and not just the badge.
+        card = theirs.locator(HOME.card("Build an interactive prototype"))
+        expect(card).to_be_visible()
+        assert "Requires" not in card.inner_text(), (
+            "the row says PRO but the catalogue still locks a pro workflow — the "
+            "tier change did not reach entitlement"
+        )
+    finally:
+        context.close()
+
+

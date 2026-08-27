@@ -5,8 +5,8 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **462** |
-| Implemented but skipped | **44** |
+| Implemented and running | **468** |
+| Implemented but skipped | **38** |
 | Not yet written | **0** |
 | **Total** | **506** |
 
@@ -38,7 +38,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-01-19` | A challenge looks like the sign-in screen, not a different app | `01_auth/test_auth.py` |
 | ok | `S-01-20` | Signing out clears the session | `01_auth/test_auth.py` |
 
-## 02-home-catalog.feature.md — 11/13 (2 skipped)
+## 02-home-catalog.feature.md — 12/13 (1 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
@@ -54,7 +54,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-02-10` | spec-014 test fixtures appear as launchable product cards | `02_home_catalog/test_home_catalog.py` |
 | ok | `S-02-11` | Jump back in lists recent runs and opens them | `02_home_catalog/test_home_catalog.py` |
 | s  | `S-02-12` | A live run is distinguishable from a finished one | `02_home_catalog/test_home_catalog.py` — fixture: no run parked in waiting_for_user |
-| s  | `S-02-13` | A saved override changes the catalog card's agent estimate | `02_home_catalog/test_home_catalog.py` — fixture: needs a saved 1-step override of app_builder on one account only |
+| ok | `S-02-13` | A saved override changes the catalog card's agent estimate | `02_home_catalog/test_home_catalog.py` |
 
 ## 03-launch-panels.feature.md — 15/15
 
@@ -234,7 +234,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-09-18` | Email MFA changes the account-recovery story | `09_settings/test_settings.py` |
 | ok | `S-09-19` | Security is a tab, not a page | `09_settings/test_settings.py` |
 
-## 10-analytics.feature.md — 13/14 (1 skipped)
+## 10-analytics.feature.md — 14/14
 
 | | Id | Scenario | Where |
 |---|---|---|---|
@@ -250,10 +250,10 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-10-10` | The pipeline breakdown sums to the totals | `10_analytics/test_analytics.py` |
 | ok | `S-10-11` | Daily activity plots one bar per active day | `10_analytics/test_analytics.py` |
 | ok | `S-10-12` | The pipeline breakdown shows a duplicated and a raw label | `10_analytics/test_analytics.py` |
-| s  | `S-10-13` | A user with no runs sees an empty state | `10_analytics/test_analytics.py` — fixture: every seeded account now has runs, so no empty state exists |
+| ok | `S-10-13` | A user with no runs sees an empty state | `10_analytics/test_analytics.py` |
 | ok | `S-10-14` | Analytics is scoped to the signed-in user | `10_analytics/test_analytics.py` |
 
-## 11-admin.feature.md — 19/20 (1 skipped)
+## 11-admin.feature.md — 20/20
 
 | | Id | Scenario | Where |
 |---|---|---|---|
@@ -276,7 +276,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-11-17` | An admin resets another user's password to a temporary one | `11_admin/test_admin.py` |
 | ok | `S-11-18` | A permanent reset skips the challenge but is knowable | `11_admin/test_admin.py` |
 | ok | `S-11-19` | Admin reset is the only recovery path under email MFA | `11_admin/test_admin.py` |
-| s  | `S-11-20` | Changing another user's tier takes effect | `11_admin/test_admin.py` — destructive: changing a seeded tier breaks the entitlement fixtures |
+| ok | `S-11-20` | Changing another user's tier takes effect | `11_admin/test_admin.py` |
 
 ## 12-shell-nav.feature.md — 16/19 (3 skipped)
 
@@ -345,7 +345,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-14-12` | Run history shows the right status chip | `14_run_states/test_run_states.py` |
 | s  | `S-14-13` | A run parked at a human gate is answerable | `14_run_states/test_run_states.py` — needs a run parked at a human gate; creating one costs a real LLM run  |
 
-## 15-overlays.feature.md — 25/29 (4 skipped)
+## 15-overlays.feature.md — 28/29 (1 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
@@ -372,9 +372,9 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-15-21` | A custom design system is pasted, not uploaded | `15_overlays/test_overlays.py` |
 | ok | `S-15-22` | Add user collects credentials, plan and the admin flag | `15_overlays/test_overlays.py` |
 | ok | `S-15-23` | The create-user dialog can be abandoned | `15_overlays/test_overlays.py` |
-| s  | `S-15-24` | The divert picker opens from the config rail, not the canvas | `15_overlays/test_overlays.py` — the divert picker sits below the rail |
-| s  | `S-15-25` | The divert picker groups and searches the catalogue | `15_overlays/test_overlays.py` — needs the divert picker open; see S-15-24 |
-| s  | `S-15-26` | A failed workflow fetch degrades to free text | `15_overlays/test_overlays.py` — needs the divert picker open before the workflow fetch can be failed; see S-15-24 |
+| ok | `S-15-24` | The divert picker opens from the config rail, not the canvas | `15_overlays/test_overlays.py` |
+| ok | `S-15-25` | The divert picker groups and searches the catalogue | `15_overlays/test_overlays.py` |
+| ok | `S-15-26` | A failed workflow fetch degrades to free text | `15_overlays/test_overlays.py` |
 | ok | `S-15-27` | The skill manager is reachable | `15_overlays/test_overlays.py` |
 | ok | `S-15-28` | A prototype deliverable offers source and tweaks | `15_overlays/test_overlays.py` |
 | ok | `S-15-29` | Menus and drawers close without navigating | `15_overlays/test_overlays.py` |

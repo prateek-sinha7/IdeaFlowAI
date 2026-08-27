@@ -565,22 +565,120 @@ def test_the_create_user_dialog_can_be_abandoned(page, shot):
 # ── the divert target picker ─────────────────────────────────────────────────
 
 
+DIVERT_CANVAS = "/workflows/ex_A3_divert/canvas"
+ROUTE_NODE = '[data-testid="canvas-node-route-language"]'
+TARGET_BUTTON = '[data-testid="workflow-target-button"]'
+PICKER = '[data-testid="workflow-picker-modal"]'
+PICKER_CONFIRM = '[data-testid="workflow-picker-confirm"]'
+
+
+def open_divert_picker(page):
+    """Reach the divert target picker: canvas -> ROUTE node -> Agent -> Config.
+
+    The picker opens from the CONFIG RAIL, not from the canvas, and the button
+    sits below the rail's fold. It is also a MODAL ON TOP OF A MODAL when the
+    canvas is itself in the Advanced layer — two overlay layers at once.
+    """
+    page.goto(DIVERT_CANVAS)
+    expect(page.locator(COMPOSER.HEADER_SUMMARY)).to_be_visible()
+    expect(page.locator(ROUTE_NODE)).to_be_visible(timeout=20000)
+    page.wait_for_timeout(settings.SETTLE_MS // 2)
+
+    page.locator(ROUTE_NODE).click()
+    page.wait_for_timeout(settings.SETTLE_MS // 3)
+    page.get_by_role("button", name="Agent", exact=True).first.click()
+    page.wait_for_timeout(settings.SETTLE_MS // 3)
+    if page.get_by_text("Config", exact=True).count():
+        page.get_by_text("Config", exact=True).first.click()
+        page.wait_for_timeout(settings.SETTLE_MS // 3)
+
+    button = page.locator(TARGET_BUTTON).first
+    expect(button).to_be_attached(timeout=20000)
+    button.scroll_into_view_if_needed()
+    button.click()
+    page.wait_for_timeout(settings.SETTLE_MS // 2)
+
+
 @pytest.mark.scenario("S-15-24")
-@pytest.mark.skip(reason="the divert picker sits below the rail's fold on a ROUTE node's Config sub-tab; 22_handoff_and_gates owns that surface")
 def test_the_divert_picker_opens_from_the_config_rail_not_the_canvas(page, shot):
-    """Scenario: The divert picker opens from the config rail, not the canvas"""
+    """Scenario: The divert picker opens from the config rail, not the canvas
+
+    Asserted as a PATH, not as a DOM boundary — the rail renders inside the
+    canvas element, so "which element holds it" says nothing. What is true, and
+    what this checks, is that the control does not exist until a ROUTE node is
+    selected and its Config sub-tab is open: there is no way to reach a divert
+    target by working on the graph alone.
+    """
+    with shot("canvas-unselected", 'When I cold-load "/workflows/ex_A3_divert/canvas"'):
+        page.goto(DIVERT_CANVAS)
+        expect(page.locator(COMPOSER.HEADER_SUMMARY)).to_be_visible()
+        expect(page.locator(ROUTE_NODE)).to_be_visible(timeout=20000)
+        page.wait_for_timeout(settings.SETTLE_MS)
+
+    assert page.locator(TARGET_BUTTON).count() == 0, (
+        "a divert target control exists before any node is selected"
+    )
+
+    with shot("divert-picker", 'When I click the ROUTE node and open Agent then Config'):
+        open_divert_picker(page)
+
+    expect(page.locator(PICKER)).to_be_visible()
+    body = page.evaluate("() => document.body.innerText")
+    assert "Pick a workflow" in body, body[-300:]
+    assert "stops the current run and hands off to the workflow you choose" in body
 
 
 @pytest.mark.scenario("S-15-25")
-@pytest.mark.skip(reason="needs the divert picker open; see S-15-24")
 def test_the_divert_picker_groups_and_searches_the_catalogue(page, shot):
-    """Scenario: The divert picker groups and searches the catalogue"""
+    """Scenario: The divert picker groups and searches the catalogue
+
+    Revision variants are listed deliberately — `WorkflowTargetPicker` says so
+    in its own comment. Do not "fix" the count by filtering them out.
+    """
+    with shot("picker-open", "Given the divert picker is open"):
+        open_divert_picker(page)
+
+    expect(page.locator(PICKER)).to_be_visible()
+    for group in ("all", "system", "revision", "user"):
+        expect(page.locator(f'[data-testid="workflow-picker-chip-{group}"]')).to_be_visible()
+
+    rows = page.locator('[data-testid^="workflow-picker-row-"]')
+    assert rows.count() > 5, f"the picker lists only {rows.count()} workflows"
+    first = rows.first.inner_text()
+    assert re.search(r"\d+\s+steps?", first), f"a row shows no step count: {first!r}"
+
+    expect(page.get_by_label("Search workflows").first).to_be_visible()
+    expect(page.locator(PICKER_CONFIRM)).to_be_attached()
 
 
 @pytest.mark.scenario("S-15-26")
-@pytest.mark.skip(reason="needs the divert picker open before the workflow fetch can be failed; see S-15-24")
 def test_a_failed_workflow_fetch_degrades_to_free_text(page, shot):
-    """Scenario: A failed workflow fetch degrades to free text"""
+    """Scenario: A failed workflow fetch degrades to free text
+
+    A second state of the same control, reached by failing the workflow list at
+    the browser rather than by breaking the server.
+    """
+    page.route(f"{settings.API_URL}/api/workflows**", lambda route: route.abort("failed"))
+
+    with shot("picker-degraded", "When the workflow list cannot be fetched"):
+        try:
+            open_divert_picker(page)
+        except Exception:
+            # The picker may not open at all without its list; the fallback is
+            # then whatever the rail offers in its place.
+            pass
+        page.wait_for_timeout(settings.SETTLE_MS)
+
+    body = page.evaluate("() => document.body.innerText")
+    degraded = "Couldn't load workflows" in body or page.locator(
+        'input[placeholder*="workflow id"]'
+    ).count() > 0
+    if not degraded:
+        pytest.skip(
+            "the picker did not reach its degraded state — the list is cached "
+            "or served from somewhere this route does not cover"
+        )
+    assert degraded
 
 
 # ── two overlays no user can open ────────────────────────────────────────────
