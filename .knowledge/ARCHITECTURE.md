@@ -465,17 +465,17 @@ flowchart LR
 
 <!-- MODULE-MAP -->
 
-36 logical modules over 659 tracked source files. Each entry links to its
+36 logical modules over 662 tracked source files. Each entry links to its
 architecture card, which carries an auto-generated file and import rollup. Module
 cards describe FOLDERS and carry no diagrams — for how a concern actually works,
 read the domains above.
 
-### Backend — Python (304 files)
+### Backend — Python (307 files)
 
 | Module | Path | Files |
 |---|---|---|
-| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 123 |
-| [MOD-backend-app-agents](architecture/MOD-backend-app-agents.md) | `backend/app/agents` | 40 |
+| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 124 |
+| [MOD-backend-app-agents](architecture/MOD-backend-app-agents.md) | `backend/app/agents` | 42 |
 | [MOD-backend-alembic-versions](architecture/MOD-backend-alembic-versions.md) | `backend/alembic/versions` | 38 |
 | [MOD-backend-app-api](architecture/MOD-backend-app-api.md) | `backend/app/api` | 31 |
 | [MOD-backend-app-models](architecture/MOD-backend-app-models.md) | `backend/app/models` | 24 |
