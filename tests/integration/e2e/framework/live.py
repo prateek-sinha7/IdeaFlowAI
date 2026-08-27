@@ -16,11 +16,11 @@ wrote anything good.
 
 from __future__ import annotations
 
-import re
 import time
 
 from playwright.sync_api import expect
 
+from framework import api
 from framework import settings
 from framework.locators import home_catalog as HOME
 from framework.locators import run_detail as RD
@@ -141,3 +141,58 @@ def answer_choice(page, value: str) -> None:
 def approve(page) -> None:
     page.locator(GATE_APPROVE).first.click()
     page.wait_for_timeout(settings.SETTLE_MS)
+
+
+def run_to_completion(page, timeout_ms: int = RUN_TIMEOUT_MS) -> list[str]:
+    """Poll until the run is done, ANSWERING every gate it stops at.
+
+    A gate is not an obstacle to route around — a pipeline that gates is only
+    smoke-tested if something makes the decision. Approval gates get approved;
+    a choice gate takes its FIRST offered value, since which branch runs is not
+    what a smoke test is asking.
+
+    Returns what was answered, in order, so a test can report the path its run
+    actually took. Raises rather than returning on a failed or cancelled run.
+    """
+    answered: list[str] = []
+    deadline = time.time() + timeout_ms / 1000
+
+    while time.time() < deadline:
+        if is_done(page):
+            return answered
+
+        state = status(page).lower()
+        if state in ("failed", "cancelled"):
+            raise AssertionError(
+                f"the run ended as {state!r} after answering {answered}"
+            )
+
+        if at_gate(page):
+            options = choices(page)
+            if options:
+                answer_choice(page, options[0])
+                answered.append(options[0])
+            elif page.locator(GATE_APPROVE).count():
+                approve(page)
+                answered.append("approve")
+            else:
+                raise AssertionError(
+                    "the run is at a gate that offers neither a choice nor an "
+                    f"approval; its actions render as: {page.locator(GATE_ACTIONS).inner_text()!r}"
+                )
+            continue
+
+        page.wait_for_timeout(5000)
+        page.reload()
+        page.wait_for_timeout(settings.SETTLE_MS)
+
+    raise AssertionError(
+        f"the run was still {status(page)!r} after {timeout_ms / 1000:.0f}s "
+        f"(answered {answered})"
+    )
+
+
+def deliverables(page, run_id: str) -> list[str]:
+    """The workspace paths this run flagged as deliverable."""
+    listing = api.json_body(page, "GET", f"/api/runs/{run_id}/sandbox")
+    return [f["path"] for f in listing.get("files", []) if f.get("deliverable")]
