@@ -239,7 +239,11 @@ def test_jump_back_in_lists_recent_runs_and_opens_them(page, shot):
     # Status, age and a brief excerpt — the three things that make the strip
     # worth having. A card showing only a title is a regression, not a style.
     expect(entry).to_contain_text(re.compile(r"DONE|FAILED|CANCELLED|RUNNING|WAITING", re.I))
-    expect(entry).to_contain_text(re.compile(r"\d+\s*(m|h|d)\s*ago", re.I))
+    # "just now" for anything under a minute — a sweep that has just run leaves
+    # the newest card there, so the numeric form alone is not enough.
+    expect(entry).to_contain_text(
+        re.compile(r"\d+\s*(s|m|h|d)\s*ago|just now", re.I)
+    )
 
     with shot("run-detail", "Then I land on that run's detail surface"):
         entry.click()

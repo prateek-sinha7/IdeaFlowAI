@@ -44,8 +44,12 @@ def open_history(page, query: str = "") -> None:
 
 
 def a_run(page) -> str:
+    """A COMPLETED run. A live one reports "v1 draft" and redirects to /stream,
+    so it answers a different question from the one the version tests ask."""
     open_history(page)
-    page.locator(RH.ROW).first.click()
+    done = [label for label in RH.rows(page) if RH.status_of(label) == "completed"]
+    assert done, "no completed run"
+    page.locator(f'{RH.ROW}[aria-label="{done[0]}"]').first.click()
     page.wait_for_url(lambda url: "/runs/" in url)
     expect(page.locator(RD.LANE)).to_be_visible()
     page.wait_for_timeout(settings.SETTLE_MS)

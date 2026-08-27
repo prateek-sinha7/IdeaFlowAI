@@ -323,9 +323,12 @@ def test_run_actions_are_per_row(page, shot):
 
     # Scoped by the row's own aria-label, not by index: the list re-sorts and a
     # positional lookup would open a different run's menu.
-    target = page.locator(L.ROW).filter(has_text="").nth(1)
     with shot("run-actions", "When I open the control on a specific row"):
-        page.locator(f'{L.ROW}[aria-label="{rows[1]}"]').locator(L.RUN_ACTIONS).click()
+        # `.first` on both: two runs launched from the same brief share an
+        # aria-label, so the row selector is not unique either.
+        page.locator(f'{L.ROW}[aria-label="{rows[1]}"]').first.locator(
+            L.RUN_ACTIONS
+        ).first.click()
         page.wait_for_timeout(settings.SETTLE_MS // 4)
 
     expect(page.locator('[role="menu"], [role="menuitem"]').first).to_be_visible()

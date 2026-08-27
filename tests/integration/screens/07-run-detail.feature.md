@@ -498,6 +498,8 @@ Feature: Run detail
     And the version control reports "v{v}"
 
   @S-07-36
+  @live
+  # live: needs a run that is currently generating, so it cannot run in the offline tier.
   Scenario: A live run streams into the same surface
     Given a run that is currently generating
     When I cold-load "/runs/{id}/stream"

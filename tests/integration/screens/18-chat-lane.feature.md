@@ -299,6 +299,8 @@ Feature: The concierge chat lane
     # so the container is not the signal. Written as it SHOULD be.
 
   @S-18-16
+  @live
+  # live: sending triggers a real LLM turn, so it cannot run in the offline tier.
   @destructive
   @unverified
   Scenario: Sending a message adds a user turn and a reply

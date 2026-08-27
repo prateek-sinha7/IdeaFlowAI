@@ -202,6 +202,8 @@ Feature: Revising a deliverable
     # Guarded on revisionText.trim() in every implementation.
 
   @S-23-04
+  @live
+  # live: submitting dispatches a real run, so it cannot run in the offline tier.
   @sourced
   Scenario: Submitting a revision clears the field
     Given a revision field with text

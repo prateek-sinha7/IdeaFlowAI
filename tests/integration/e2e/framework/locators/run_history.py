@@ -47,7 +47,7 @@ TYPE_PARAMS = {
 
 EMPTY_FILTER = "No runs match this filter"
 
-_SUFFIX = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000}
+_SUFFIX = {"K": 1_000, "M": 1_000_000}
 
 
 def chip(page, label: str):
@@ -102,11 +102,17 @@ def duration_seconds(text: str) -> float | None:
 
 
 def tokens(text: str) -> float | None:
-    """`"965.5K"` -> 965_500. None when the row shows no token total."""
-    m = re.search(r"(\d[\d.,]*)\s*([KMB])\b", text)
+    """`"965.5K"` -> 965_500. None when the row shows no token total.
+
+    Anchored to a WHOLE LINE: the count is its own `<p>`, always one decimal
+    place (`formatTokenCount` is `toFixed(1)`), while the brief above it is
+    free text. A loose search reads "Design a pricing page for a B2B analytics
+    product" as 2 billion tokens — and that row carries no count at all.
+    """
+    m = re.search(r"^(\d+\.\d)([KM])$", text, re.MULTILINE)
     if not m:
         return None
-    return float(m.group(1).replace(",", "")) * _SUFFIX[m.group(2)]
+    return float(m.group(1)) * _SUFFIX[m.group(2)]
 
 
 def age_minutes(text: str) -> float | None:

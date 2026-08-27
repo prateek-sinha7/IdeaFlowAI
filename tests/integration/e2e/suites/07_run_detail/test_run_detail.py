@@ -410,28 +410,44 @@ def test_artifacts_opens_expanded_all_files_opens_collapsed(page, shot):
     Deliberate: five groups and 36 rows is a wall, so the directory set is the
     first answer on All files. Switching panes RESETS the collapse state either
     way.
+
+    Read from the group headers' own `aria-expanded`, not from whether a
+    filename appears in the page text — a deliverable's name shows up in the
+    lane and on the run header too, so text alone cannot tell a collapsed group
+    from an expanded one.
     """
     run_id = a_run_with_files(page)
     open_run(page, run_id, "/workspace")
     expect(L.pane(page, L.ARTIFACTS_PANE)).to_be_visible(timeout=20000)
 
-    with shot("artifacts-expanded", "Then the Artifacts pane is expanded"):
-        artifacts_text = page.evaluate("() => document.body.innerText")
+    def groups(page) -> dict[str, str]:
+        return {
+            row["label"]: row["expanded"]
+            for row in page.evaluate(
+                """() => [...document.querySelectorAll('[aria-expanded]')]
+                     .map(e => ({ label: (e.innerText || '').split('\\n')[0].trim(),
+                                  expanded: e.getAttribute('aria-expanded') }))
+                     .filter(r => r.label && r.label === r.label.toUpperCase()
+                                  || r.label.startsWith('.'))"""
+            )
+        }
 
-    assert "DELIVERABLES" in artifacts_text.upper(), artifacts_text[:300]
-    listing = api.json_body(page, "GET", f"/api/runs/{run_id}/sandbox")
-    shown = [f["path"].split("/")[-1] for f in listing["files"] if f["deliverable"]]
-    assert any(name in artifacts_text for name in shown), (
-        "the Deliverables group is collapsed on open"
+    with shot("artifacts-expanded", "Then the Artifacts pane is expanded"):
+        artifacts = groups(page)
+
+    assert artifacts, f"the Artifacts pane rendered no groups: {artifacts}"
+    assert any(state == "true" for state in artifacts.values()), (
+        f"every Artifacts group is collapsed on open: {artifacts}"
     )
 
     with shot("all-files-collapsed", 'When I click "All files"'):
         L.pane(page, L.ALL_FILES_PANE).click()
         page.wait_for_timeout(settings.SETTLE_MS // 2)
 
-    all_files_text = page.evaluate("() => document.body.innerText")
-    assert not any(name in all_files_text for name in shown), (
-        "All files opened with its groups expanded"
+    all_files = groups(page)
+    assert all_files, "the All files pane rendered no groups"
+    assert all(state == "false" for state in all_files.values()), (
+        f"All files opened with a group already expanded: {all_files}"
     )
 
 
