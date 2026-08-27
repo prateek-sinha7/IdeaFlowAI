@@ -5,8 +5,8 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **129** |
-| Implemented but skipped | **377** |
+| Implemented and running | **181** |
+| Implemented but skipped | **325** |
 | Not yet written | **0** |
 | **Total** | **506** |
 
@@ -76,73 +76,73 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-03-14` | Launching a run navigates to its live surface | `03_launch_panels/test_launch_panels.py` |
 | ok | `S-03-15` | Save as my version creates a user override of a built-in | `03_launch_panels/test_launch_panels.py` |
 
-## 04-composer-canvas.feature.md — 0/19 (19 skipped)
+## 04-composer-canvas.feature.md — 18/19 (1 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-04-01` | A brand-new composer opens empty | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-02` | Editing a saved workflow loads its steps | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-03` | A built-in opens read-to-copy, not read-to-overwrite | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-04` | A built-in canvas survives a hard refresh | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-05` | Switching between Simple and Canvas keeps the roster | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-06` | Adding an agent from the library modal | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-07` | Reordering a node moves it in the plan | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-08` | Removing a node drops it from the summary | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-09` | Renaming a node updates its label and its control names | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-10` | The config rail's Agent tab has five sub-tabs of its own | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-11` | The agent Skills picker is part of the rail, not a modal | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-12` | Each capability toggle flips independently | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-13` | Choosing a deliverable strategy reveals its own fields | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-14` | Run is gated on a long-enough brief | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-15` | A last-streamed built-in refuses an append-after-final-step slot | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-16` | A ppt-based override's editor calls itself CUSTOM | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-17` | Saving a copy of a built-in creates a new row and leaves the original alone | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-18` | The blank custom-agent template is withheld when authoring an override | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
-| s  | `S-04-19` | A saved composition can be launched from the composer | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| ok | `S-04-01` | A brand-new composer opens empty | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-02` | Editing a saved workflow loads its steps | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-03` | A built-in opens read-to-copy, not read-to-overwrite | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-04` | A built-in canvas survives a hard refresh | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-05` | Switching between Simple and Canvas keeps the roster | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-06` | Adding an agent from the library modal | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-07` | Reordering a node moves it in the plan | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-08` | Removing a node drops it from the summary | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-09` | Renaming a node updates its label and its control names | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-10` | The config rail's Agent tab has five sub-tabs of its own | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-11` | The agent Skills picker is part of the rail, not a modal | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-12` | Each capability toggle flips independently | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-13` | Choosing a deliverable strategy reveals its own fields | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-14` | Run is gated on a long-enough brief | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-15` | A last-streamed built-in refuses an append-after-final-step slot | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-16` | A ppt-based override's editor calls itself CUSTOM | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-17` | Saving a copy of a built-in creates a new row and leaves the original alone | `04_composer_canvas/test_composer_canvas.py` |
+| ok | `S-04-18` | The blank custom-agent template is withheld when authoring an override | `04_composer_canvas/test_composer_canvas.py` |
+| s  | `S-04-19` | A saved composition can be launched from the composer | `04_composer_canvas/test_composer_canvas.py` — dispatches a real run; belongs to the live tier |
 
-## 05-saved-workflows.feature.md — 0/13 (13 skipped)
-
-| | Id | Scenario | Where |
-|---|---|---|---|
-| s  | `S-05-01` | The list renders with stats and a create affordance | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
-| s  | `S-05-02` | The stats agree with the cards | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
-| s  | `S-05-03` | Every card exposes its own actions | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
-| s  | `S-05-04` | Search narrows the list by title | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
-| s  | `S-05-05` | New workflow opens the empty composer | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
-| s  | `S-05-06` | A card opens its detail view | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
-| s  | `S-05-07` | The detail view lists agent IDs, not display names | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
-| s  | `S-05-08` | Edit opens the composer bound to this row | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
-| s  | `S-05-09` | Run opens the base workflow's launch panel | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
-| s  | `S-05-10` | A saved override's run panel reports the base agent count | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
-| s  | `S-05-11` | A workflow can be deleted from its card menu | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
-| s  | `S-05-12` | Running from a card starts a run of that workflow | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
-| s  | `S-05-13` | An override can be reverted to the original built-in | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
-
-## 06-run-history.feature.md — 0/21 (21 skipped)
+## 05-saved-workflows.feature.md — 13/13
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-06-01` | The history renders with its controls | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-02` | Runs are grouped by time | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-03` | A finished row shows its cost, a running row does not | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-04` | Type filter counts sum to the total | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-05` | Filtering by type narrows the list | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-06` | The type filter is addressable by URL | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-07` | The chip label and its URL value are different words | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-08` | An unrecognised type shows an empty list rather than an error | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-09` | Sort is addressable by URL and composes with type | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-10` | Sorting reorders the list | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-11` | Search filters by brief text | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-12` | Auto-refresh can be enabled and reports its interval | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-13` | Refresh re-reads without losing filters | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-14` | Opening a row lands on that run | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-15` | A diverted child names its parent and the branching step | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-16` | A diverting parent names its child | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-17` | The divert badge names the workflow, not the run title | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-18` | Run actions are per-row | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-19` | An empty history is explained | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-20` | A run card can be opened in a new tab | `06_run_history/test_run_history.py` — not yet implemented |
-| s  | `S-06-21` | Run history rows are addressable by a stable hook | `06_run_history/test_run_history.py` — not yet implemented |
+| ok | `S-05-01` | The list renders with stats and a create affordance | `05_saved_workflows/test_saved_workflows.py` |
+| ok | `S-05-02` | The stats agree with the cards | `05_saved_workflows/test_saved_workflows.py` |
+| ok | `S-05-03` | Every card exposes its own actions | `05_saved_workflows/test_saved_workflows.py` |
+| ok | `S-05-04` | Search narrows the list by title | `05_saved_workflows/test_saved_workflows.py` |
+| ok | `S-05-05` | New workflow opens the empty composer | `05_saved_workflows/test_saved_workflows.py` |
+| ok | `S-05-06` | A card opens its detail view | `05_saved_workflows/test_saved_workflows.py` |
+| ok | `S-05-07` | The detail view lists agent IDs, not display names | `05_saved_workflows/test_saved_workflows.py` |
+| ok | `S-05-08` | Edit opens the composer bound to this row | `05_saved_workflows/test_saved_workflows.py` |
+| ok | `S-05-09` | Run opens the base workflow's launch panel | `05_saved_workflows/test_saved_workflows.py` |
+| ok | `S-05-10` | A saved override's run panel reports the base agent count | `05_saved_workflows/test_saved_workflows.py` |
+| ok | `S-05-11` | A workflow can be deleted from its card menu | `05_saved_workflows/test_saved_workflows.py` |
+| ok | `S-05-12` | Running from a card starts a run of that workflow | `05_saved_workflows/test_saved_workflows.py` |
+| ok | `S-05-13` | An override can be reverted to the original built-in | `05_saved_workflows/test_saved_workflows.py` |
+
+## 06-run-history.feature.md — 21/21
+
+| | Id | Scenario | Where |
+|---|---|---|---|
+| ok | `S-06-01` | The history renders with its controls | `06_run_history/test_run_history.py` |
+| ok | `S-06-02` | Runs are grouped by time | `06_run_history/test_run_history.py` |
+| ok | `S-06-03` | A finished row shows its cost, a running row does not | `06_run_history/test_run_history.py` |
+| ok | `S-06-04` | Type filter counts sum to the total | `06_run_history/test_run_history.py` |
+| ok | `S-06-05` | Filtering by type narrows the list | `06_run_history/test_run_history.py` |
+| ok | `S-06-06` | The type filter is addressable by URL | `06_run_history/test_run_history.py` |
+| ok | `S-06-07` | The chip label and its URL value are different words | `06_run_history/test_run_history.py` |
+| ok | `S-06-08` | An unrecognised type shows an empty list rather than an error | `06_run_history/test_run_history.py` |
+| ok | `S-06-09` | Sort is addressable by URL and composes with type | `06_run_history/test_run_history.py` |
+| ok | `S-06-10` | Sorting reorders the list | `06_run_history/test_run_history.py` |
+| ok | `S-06-11` | Search filters by brief text | `06_run_history/test_run_history.py` |
+| ok | `S-06-12` | Auto-refresh can be enabled and reports its interval | `06_run_history/test_run_history.py` |
+| ok | `S-06-13` | Refresh re-reads without losing filters | `06_run_history/test_run_history.py` |
+| ok | `S-06-14` | Opening a row lands on that run | `06_run_history/test_run_history.py` |
+| ok | `S-06-15` | A diverted child names its parent and the branching step | `06_run_history/test_run_history.py` |
+| ok | `S-06-16` | A diverting parent names its child | `06_run_history/test_run_history.py` |
+| ok | `S-06-17` | The divert badge names the workflow, not the run title | `06_run_history/test_run_history.py` |
+| ok | `S-06-18` | Run actions are per-row | `06_run_history/test_run_history.py` |
+| ok | `S-06-19` | An empty history is explained | `06_run_history/test_run_history.py` |
+| ok | `S-06-20` | A run card can be opened in a new tab | `06_run_history/test_run_history.py` |
+| ok | `S-06-21` | Run history rows are addressable by a stable hook | `06_run_history/test_run_history.py` |
 
 ## 07-run-detail.feature.md — 0/36 (36 skipped)
 

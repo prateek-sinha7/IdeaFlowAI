@@ -677,3 +677,58 @@ cards:
 
 **Fix sketch:** make the card body open the detail view, as the library's cards
 do. The menu already holds Edit; a body click has nothing to collide with.
+
+---
+
+## D-29 — `Run once` is not disabled while the brief is too short
+
+**Severity:** low. **Found by:** `S-04-14`, phase 2.
+
+The composer shows "3 more characters to enable Run" under the brief field, and
+`Run once` renders with `title="Add a brief first"` — but no `disabled`
+attribute. The button is focusable, clickable, and reads as available.
+
+A `title` is a mouse affordance. A keyboard or screen-reader user meets the
+button as enabled and learns otherwise only by pressing it. The hint text is
+elsewhere in the DOM, not associated with the control.
+
+`S-04-14` asserts the title and the hint, and asserts the button is NOT disabled
+— so it fails the day this is fixed, which is the signal to rewrite it as the
+spec's stronger version.
+
+**Fix sketch:** add `disabled` alongside the existing title, and point
+`aria-describedby` at the hint.
+
+---
+
+## D-30 — No node can be removed from a new custom workflow
+
+**Severity:** high. **Found by:** `S-04-08`, phase 2.
+
+Open `/workflows/new`, add three agents from the library, and every one of them
+comes back with its Remove control like this:
+
+```html
+<button aria-label="Remove Estimation Agent" title="Core agents can't be removed"
+        disabled class="… disabled:cursor-not-allowed disabled:opacity-0">
+```
+
+All three are disabled. Only ONE of the three renders a `Core` badge. Two of
+them — Estimation Agent, Backlog Architecture Agent — are not core in the
+user-stories pipeline they came from either, so this is not the core rule being
+applied correctly to inherited steps.
+
+The consequence is that an author composing a workflow from scratch can add
+agents and then cannot take any of them out. The only recovery is to reload and
+start again, losing everything else configured on the canvas.
+
+`disabled:opacity-0` also means the control is invisible rather than greyed, so
+there is nothing on screen to explain why the node cannot be removed — the
+`title` only appears on hover over an element the user cannot see.
+
+The guard itself is right where it applies: on `/workflows/ppt/canvas` every
+step genuinely is core, and refusing to remove one is correct.
+
+**Fix sketch:** the lock is reading core-ness from the wrong place for
+library-added steps. It should follow the same source the `Core` badge does —
+they disagree today, and the badge is the one telling the truth.
