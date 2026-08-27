@@ -5,10 +5,10 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **468** |
+| Implemented and running | **473** |
 | Implemented but skipped | **38** |
 | Not yet written | **0** |
-| **Total** | **506** |
+| **Total** | **511** |
 
 `skipped` means the test exists and is linked to its spec, but cannot run
 yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
@@ -638,3 +638,13 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | s  | `S-24-32` | An oversized workspace is refused rather than archived | `24_api_contract/test_api_contract.py` — needs a workspace over 64 MB uncompressed; no seeded run has one |
 | s  | `S-24-33` | An expired workspace has nothing to serve | `24_api_contract/test_api_contract.py` — needs a TTL-swept workspace; every seeded run still has one |
 | ok | `S-24-34` | The sandbox is unreachable across an ownership boundary | `24_api_contract/test_api_contract.py` |
+
+## 25-pipeline-smoke.feature.md — 5/5
+
+| | Id | Scenario | Where |
+|---|---|---|---|
+| ok | `S-25-01` | Pitch an idea runs end to end and delivers a deck | `25_pipeline_smoke/test_pipeline_smoke.py` |
+| ok | `S-25-02` | Pitch an idea v2 runs end to end and delivers a deck | `25_pipeline_smoke/test_pipeline_smoke.py` |
+| ok | `S-25-03` | Generate product requirements runs end to end and delivers a story set | `25_pipeline_smoke/test_pipeline_smoke.py` |
+| ok | `S-25-04` | Build an interactive prototype runs end to end and delivers a page | `25_pipeline_smoke/test_pipeline_smoke.py` |
+| ok | `S-25-05` | Build an end-to-end application runs end to end and delivers a sandbox | `25_pipeline_smoke/test_pipeline_smoke.py` |

@@ -18,6 +18,7 @@ import pytest
 from playwright.sync_api import expect
 
 from framework import settings
+from framework import age
 from framework.locators import saved_workflows as L
 
 
@@ -82,7 +83,7 @@ def test_every_card_exposes_its_own_actions(page, shot):
 
     for text in cards.evaluate_all("els => els.map(e => e.innerText)"):
         assert L.agent_count(text) is not None, f"no agent count on: {text[:60]!r}"
-        assert "ago" in text, f"no age on: {text[:60]!r}"
+        assert age.has_age(text), f"no age on: {text[:60]!r}"
 
 
 @pytest.mark.scenario("S-05-04")
