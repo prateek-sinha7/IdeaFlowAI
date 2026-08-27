@@ -58,19 +58,33 @@ def signed_in_state(browser, tmp_path_factory):
     cache: dict[str, str] = {}
     root = tmp_path_factory.mktemp("auth")
 
-    def _state(role: str = "admin") -> str:
-        if role not in cache:
-            context = browser.new_context(base_url=settings.BASE_URL)
+    def _login_once(role: str) -> str:
+        context = browser.new_context(base_url=settings.BASE_URL)
+        try:
             page = context.new_page()
             page.goto("/login")
             page.fill(L.EMAIL, accounts.BY_ROLE[role])
             page.fill(L.PASSWORD, accounts.PASSWORD)
             page.click(L.SIGN_IN)
-            expect(page).to_have_url(re.compile(r"/dashboard"), timeout=30_000)
+            expect(page).to_have_url(re.compile(r"/dashboard"), timeout=settings.LOGIN_TIMEOUT_MS)
             path = str(root / f"{role}.json")
             context.storage_state(path=path)
+            return path
+        finally:
+            # Always closed, including on the failed attempt — a leaked context
+            # holds a browser page open for the rest of the session and makes
+            # the NEXT login slower, which is how one flake becomes several.
             context.close()
-            cache[role] = path
+
+    def _state(role: str = "admin") -> str:
+        if role not in cache:
+            # Retried once. This login gates every test of its role, so a single
+            # slow response would fail dozens of unrelated scenarios and read as
+            # a product regression rather than the flake it is.
+            try:
+                cache[role] = _login_once(role)
+            except Exception:
+                cache[role] = _login_once(role)
         return cache[role]
 
     return _state
@@ -203,6 +217,32 @@ def shot(page, run_dir, request) -> Shooter:
     # outcome — the fixture is gone by then.
     request.node._shooter = shooter
     return shooter
+
+
+@pytest.fixture
+def page_as(browser, signed_in_state, pytestconfig):
+    """A second page, signed in as a given role, alongside the test's own.
+
+    For the handful of scenarios that must compare two auth states in one run —
+    the bare root branching on token presence, or a tier seeing a screen another
+    tier cannot. Contexts are closed when the test ends.
+    """
+    opened = []
+
+    def _page(role: str = "admin"):
+        context = browser.new_context(
+            base_url=settings.BASE_URL,
+            viewport=settings.VIEWPORT,
+            device_scale_factor=pytestconfig.getoption("--dpi"),
+            reduced_motion="reduce",
+            storage_state=signed_in_state(role),
+        )
+        opened.append(context)
+        return context.new_page()
+
+    yield _page
+    for c in opened:
+        c.close()
 
 
 @pytest.fixture

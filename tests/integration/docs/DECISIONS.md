@@ -94,3 +94,18 @@ Nothing blocking. These are the calls I would like confirmed:
    not exist. `PROGRESS.md` lists exactly which.
 3. **Responsive breakpoints** remain the one surface with no spec at all. Needs
    target viewports agreed before it can be written.
+
+---
+
+## D6 — Commits are local; push needs your credentials
+
+`git push origin feat/integration-tests` fails with
+`could not read Username for 'https://gitlab.com'`. No credential helper is
+configured for this remote in this worktree, and I will not store one.
+
+Everything is committed locally on `feat/integration-tests`. Run the push
+yourself when you are back:
+
+```
+git push origin feat/integration-tests
+```

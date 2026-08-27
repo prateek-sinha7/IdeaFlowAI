@@ -24,6 +24,12 @@ def _int(name: str, default: int) -> int:
 
 BASE_URL = os.environ.get("E2E_BASE_URL", "http://localhost:3000")
 
+# The backend's own origin. The frontend calls it DIRECTLY at ENV.API_URL rather
+# than through a Next.js rewrite, so an API assertion must use the absolute URL:
+# a relative "/api/..." fetch from the page reaches Next.js on :3000 and returns
+# a page, not the endpoint under test.
+API_URL = os.environ.get("E2E_API_URL", "http://localhost:8000")
+
 VIEWPORT = {
     "width": _int("E2E_VIEWPORT_WIDTH", 1440),
     "height": _int("E2E_VIEWPORT_HEIGHT", 900),
@@ -41,6 +47,10 @@ DEVICE_SCALE_FACTOR = _int("E2E_DPI", 2)
 # compile to finish painting, short enough that one stuck page does not add
 # this to every shot in the run.
 SETTLE_MS = _int("E2E_SETTLE_MS", 5000)
+
+# One session-wide login per role gates every test of that role, so it gets a
+# longer leash than an ordinary assertion — and is retried once on top.
+LOGIN_TIMEOUT_MS = _int("E2E_LOGIN_TIMEOUT_MS", 45000)
 
 # Longest we wait for the app to stop showing a loading affordance. The `load`
 # event fires when the DOCUMENT is done, which on a client-rendered app is well

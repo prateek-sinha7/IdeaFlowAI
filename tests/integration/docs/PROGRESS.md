@@ -5,636 +5,636 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **2** |
-| Implemented but skipped | **0** |
-| Not yet written | **504** |
+| Implemented and running | **31** |
+| Implemented but skipped | **475** |
+| Not yet written | **0** |
 | **Total** | **506** |
 
 `skipped` means the test exists and is linked to its spec, but cannot run
 yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 
-## 01-auth.feature.md — 2/20
+## 01-auth.feature.md — 20/20
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-01-01` | The sign-in screen renders for an anonymous visitor | — |
-| ok | `S-01-02` | Signing in with valid credentials lands on the dashboard | `01_auth/test_signin.py` |
-| ·  | `S-01-03` | An administrator is not redirected to the admin surface | — |
-| ·  | `S-01-04` | Every seeded tier can sign in | — |
-| ·  | `S-01-05` | Signing in with a bad password is refused | — |
-| ·  | `S-01-06` | An expired session is explained on the sign-in screen | — |
-| ·  | `S-01-07` | An expired-session link with a non-"true" value shows no banner | — |
-| ·  | `S-01-08` | Self-registration is closed and redirects to sign-in | — |
-| ·  | `S-01-09` | The bare root branches on whether a token exists | — |
-| ·  | `S-01-10` | An unauthenticated cold load of a protected screen is bounced | — |
-| ok | `S-01-11` | First sign-in demands a permanent password | `01_auth/test_session.py` |
-| ·  | `S-01-12` | A code challenge asks for six digits | — |
-| ·  | `S-01-13` | An email code names the mailbox it went to | — |
-| ·  | `S-01-14` | Choosing a verification method offers both factors | — |
-| ·  | `S-01-15` | The email factor submits a different value than its challenge name | — |
-| ·  | `S-01-16` | MFA setup is a dead end that explains itself | — |
-| ·  | `S-01-17` | An unrecognised challenge still renders something usable | — |
-| ·  | `S-01-18` | A challenge can be abandoned | — |
-| ·  | `S-01-19` | A challenge looks like the sign-in screen, not a different app | — |
-| ·  | `S-01-20` | Signing out clears the session | — |
+| ok | `S-01-01` | The sign-in screen renders for an anonymous visitor | `01_auth/test_auth.py` |
+| ok | `S-01-02` | Signing in with valid credentials lands on the dashboard | `01_auth/test_auth.py` |
+| ok | `S-01-03` | An administrator is not redirected to the admin surface | `01_auth/test_auth.py` |
+| ok | `S-01-04` | Every seeded tier can sign in | `01_auth/test_auth.py` |
+| ok | `S-01-05` | Signing in with a bad password is refused | `01_auth/test_auth.py` |
+| ok | `S-01-06` | An expired session is explained on the sign-in screen | `01_auth/test_auth.py` |
+| ok | `S-01-07` | An expired-session link with a non-"true" value shows no banner | `01_auth/test_auth.py` |
+| ok | `S-01-08` | Self-registration is closed and redirects to sign-in | `01_auth/test_auth.py` |
+| ok | `S-01-09` | The bare root branches on whether a token exists | `01_auth/test_auth.py` |
+| ok | `S-01-10` | An unauthenticated cold load of a protected screen is bounced | `01_auth/test_auth.py` |
+| ok | `S-01-11` | First sign-in demands a permanent password | `01_auth/test_auth.py` |
+| ok | `S-01-12` | A code challenge asks for six digits | `01_auth/test_auth.py` |
+| ok | `S-01-13` | An email code names the mailbox it went to | `01_auth/test_auth.py` |
+| ok | `S-01-14` | Choosing a verification method offers both factors | `01_auth/test_auth.py` |
+| ok | `S-01-15` | The email factor submits a different value than its challenge name | `01_auth/test_auth.py` |
+| ok | `S-01-16` | MFA setup is a dead end that explains itself | `01_auth/test_auth.py` |
+| ok | `S-01-17` | An unrecognised challenge still renders something usable | `01_auth/test_auth.py` |
+| ok | `S-01-18` | A challenge can be abandoned | `01_auth/test_auth.py` |
+| ok | `S-01-19` | A challenge looks like the sign-in screen, not a different app | `01_auth/test_auth.py` |
+| ok | `S-01-20` | Signing out clears the session | `01_auth/test_auth.py` |
 
-## 02-home-catalog.feature.md — 0/13
-
-| | Id | Scenario | Where |
-|---|---|---|---|
-| ·  | `S-02-01` | The catalog renders on a cold dashboard load | — |
-| ·  | `S-02-02` | /create renders the identical catalog | — |
-| ·  | `S-02-03` | Coming Soon cards are present but not launchable | — |
-| ·  | `S-02-04` | A launchable card opens that workflow's launch surface | — |
-| ·  | `S-02-05` | The inspect affordance opens details without launching | — |
-| ·  | `S-02-06` | Every catalog card renders regardless of tier | — |
-| ·  | `S-02-07` | The lock badge names the tier a card needs | — |
-| ·  | `S-02-08` | A locked card cannot be launched | — |
-| ·  | `S-02-09` | The backend refuses a launch the badge says is locked | — |
-| ·  | `S-02-10` | spec-014 test fixtures appear as launchable product cards | — |
-| ·  | `S-02-11` | Jump back in lists recent runs and opens them | — |
-| ·  | `S-02-12` | A live run is distinguishable from a finished one | — |
-| ·  | `S-02-13` | A saved override changes the catalog card's agent estimate | — |
-
-## 03-launch-panels.feature.md — 0/15
+## 02-home-catalog.feature.md — 11/13 (2 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-03-01` | The presentation wizard renders its template gallery | — |
-| ·  | `S-03-02` | Filtering the template gallery by category narrows it | — |
-| ·  | `S-03-03` | Searching templates filters by name | — |
-| ·  | `S-03-04` | The prototype wizard offers three tabs and a blank-canvas option | — |
-| ·  | `S-03-05` | The prototype template search uses its own field name | — |
-| ·  | `S-03-06` | Each wizard tab reveals its own panel | — |
-| ·  | `S-03-07` | The user-stories panel names its own workflow | — |
-| ·  | `S-03-08` | A catalog workflow cold-loads onto the right panel | — |
-| ·  | `S-03-09` | Cold-loading /create/app shows the user-stories panel | — |
-| ·  | `S-03-10` | Run is disabled until the brief is long enough | — |
-| ·  | `S-03-11` | The Advanced control opens the agent roster | — |
-| ·  | `S-03-12` | Review gates can be set before launch | — |
-| ·  | `S-03-13` | Attaching a file is offered on every launch panel | — |
-| ·  | `S-03-14` | Launching a run navigates to its live surface | — |
-| ·  | `S-03-15` | Save as my version creates a user override of a built-in | — |
+| ok | `S-02-01` | The catalog renders on a cold dashboard load | `02_home_catalog/test_home_catalog.py` |
+| ok | `S-02-02` | /create renders the identical catalog | `02_home_catalog/test_home_catalog.py` |
+| ok | `S-02-03` | Coming Soon cards are present but not launchable | `02_home_catalog/test_home_catalog.py` |
+| ok | `S-02-04` | A launchable card opens that workflow's launch surface | `02_home_catalog/test_home_catalog.py` |
+| ok | `S-02-05` | The inspect affordance opens details without launching | `02_home_catalog/test_home_catalog.py` |
+| ok | `S-02-06` | Every catalog card renders regardless of tier | `02_home_catalog/test_home_catalog.py` |
+| ok | `S-02-07` | The lock badge names the tier a card needs | `02_home_catalog/test_home_catalog.py` |
+| ok | `S-02-08` | A locked card cannot be launched | `02_home_catalog/test_home_catalog.py` |
+| ok | `S-02-09` | The backend refuses a launch the badge says is locked | `02_home_catalog/test_home_catalog.py` |
+| ok | `S-02-10` | spec-014 test fixtures appear as launchable product cards | `02_home_catalog/test_home_catalog.py` |
+| ok | `S-02-11` | Jump back in lists recent runs and opens them | `02_home_catalog/test_home_catalog.py` |
+| s  | `S-02-12` | A live run is distinguishable from a finished one | `02_home_catalog/test_home_catalog.py` — fixture: no run parked in waiting_for_user |
+| s  | `S-02-13` | A saved override changes the catalog card's agent estimate | `02_home_catalog/test_home_catalog.py` — fixture: needs a saved 1-step override of app_builder on one account only |
 
-## 04-composer-canvas.feature.md — 0/19
+## 03-launch-panels.feature.md — 0/15 (15 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-04-01` | A brand-new composer opens empty | — |
-| ·  | `S-04-02` | Editing a saved workflow loads its steps | — |
-| ·  | `S-04-03` | A built-in opens read-to-copy, not read-to-overwrite | — |
-| ·  | `S-04-04` | A built-in canvas survives a hard refresh | — |
-| ·  | `S-04-05` | Switching between Simple and Canvas keeps the roster | — |
-| ·  | `S-04-06` | Adding an agent from the library modal | — |
-| ·  | `S-04-07` | Reordering a node moves it in the plan | — |
-| ·  | `S-04-08` | Removing a node drops it from the summary | — |
-| ·  | `S-04-09` | Renaming a node updates its label and its control names | — |
-| ·  | `S-04-10` | The config rail's Agent tab has five sub-tabs of its own | — |
-| ·  | `S-04-11` | The agent Skills picker is part of the rail, not a modal | — |
-| ·  | `S-04-12` | Each capability toggle flips independently | — |
-| ·  | `S-04-13` | Choosing a deliverable strategy reveals its own fields | — |
-| ·  | `S-04-14` | Run is gated on a long-enough brief | — |
-| ·  | `S-04-15` | A last-streamed built-in refuses an append-after-final-step slot | — |
-| ·  | `S-04-16` | A ppt-based override's editor calls itself CUSTOM | — |
-| ·  | `S-04-17` | Saving a copy of a built-in creates a new row and leaves the original alone | — |
-| ·  | `S-04-18` | The blank custom-agent template is withheld when authoring an override | — |
-| ·  | `S-04-19` | A saved composition can be launched from the composer | — |
+| s  | `S-03-01` | The presentation wizard renders its template gallery | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-02` | Filtering the template gallery by category narrows it | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-03` | Searching templates filters by name | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-04` | The prototype wizard offers three tabs and a blank-canvas option | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-05` | The prototype template search uses its own field name | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-06` | Each wizard tab reveals its own panel | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-07` | The user-stories panel names its own workflow | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-08` | A catalog workflow cold-loads onto the right panel | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-09` | Cold-loading /create/app shows the user-stories panel | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-10` | Run is disabled until the brief is long enough | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-11` | The Advanced control opens the agent roster | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-12` | Review gates can be set before launch | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-13` | Attaching a file is offered on every launch panel | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-14` | Launching a run navigates to its live surface | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| s  | `S-03-15` | Save as my version creates a user override of a built-in | `03_launch_panels/test_launch_panels.py` — not yet implemented |
 
-## 05-saved-workflows.feature.md — 0/13
+## 04-composer-canvas.feature.md — 0/19 (19 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-05-01` | The list renders with stats and a create affordance | — |
-| ·  | `S-05-02` | The stats agree with the cards | — |
-| ·  | `S-05-03` | Every card exposes its own actions | — |
-| ·  | `S-05-04` | Search narrows the list by title | — |
-| ·  | `S-05-05` | New workflow opens the empty composer | — |
-| ·  | `S-05-06` | A card opens its detail view | — |
-| ·  | `S-05-07` | The detail view lists agent IDs, not display names | — |
-| ·  | `S-05-08` | Edit opens the composer bound to this row | — |
-| ·  | `S-05-09` | Run opens the base workflow's launch panel | — |
-| ·  | `S-05-10` | A saved override's run panel reports the base agent count | — |
-| ·  | `S-05-11` | A workflow can be deleted from its card menu | — |
-| ·  | `S-05-12` | Running from a card starts a run of that workflow | — |
-| ·  | `S-05-13` | An override can be reverted to the original built-in | — |
+| s  | `S-04-01` | A brand-new composer opens empty | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-02` | Editing a saved workflow loads its steps | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-03` | A built-in opens read-to-copy, not read-to-overwrite | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-04` | A built-in canvas survives a hard refresh | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-05` | Switching between Simple and Canvas keeps the roster | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-06` | Adding an agent from the library modal | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-07` | Reordering a node moves it in the plan | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-08` | Removing a node drops it from the summary | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-09` | Renaming a node updates its label and its control names | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-10` | The config rail's Agent tab has five sub-tabs of its own | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-11` | The agent Skills picker is part of the rail, not a modal | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-12` | Each capability toggle flips independently | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-13` | Choosing a deliverable strategy reveals its own fields | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-14` | Run is gated on a long-enough brief | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-15` | A last-streamed built-in refuses an append-after-final-step slot | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-16` | A ppt-based override's editor calls itself CUSTOM | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-17` | Saving a copy of a built-in creates a new row and leaves the original alone | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-18` | The blank custom-agent template is withheld when authoring an override | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
+| s  | `S-04-19` | A saved composition can be launched from the composer | `04_composer_canvas/test_composer_canvas.py` — not yet implemented |
 
-## 06-run-history.feature.md — 0/21
-
-| | Id | Scenario | Where |
-|---|---|---|---|
-| ·  | `S-06-01` | The history renders with its controls | — |
-| ·  | `S-06-02` | Runs are grouped by time | — |
-| ·  | `S-06-03` | A finished row shows its cost, a running row does not | — |
-| ·  | `S-06-04` | Type filter counts sum to the total | — |
-| ·  | `S-06-05` | Filtering by type narrows the list | — |
-| ·  | `S-06-06` | The type filter is addressable by URL | — |
-| ·  | `S-06-07` | The chip label and its URL value are different words | — |
-| ·  | `S-06-08` | An unrecognised type shows an empty list rather than an error | — |
-| ·  | `S-06-09` | Sort is addressable by URL and composes with type | — |
-| ·  | `S-06-10` | Sorting reorders the list | — |
-| ·  | `S-06-11` | Search filters by brief text | — |
-| ·  | `S-06-12` | Auto-refresh can be enabled and reports its interval | — |
-| ·  | `S-06-13` | Refresh re-reads without losing filters | — |
-| ·  | `S-06-14` | Opening a row lands on that run | — |
-| ·  | `S-06-15` | A diverted child names its parent and the branching step | — |
-| ·  | `S-06-16` | A diverting parent names its child | — |
-| ·  | `S-06-17` | The divert badge names the workflow, not the run title | — |
-| ·  | `S-06-18` | Run actions are per-row | — |
-| ·  | `S-06-19` | An empty history is explained | — |
-| ·  | `S-06-20` | A run card can be opened in a new tab | — |
-| ·  | `S-06-21` | Run history rows are addressable by a stable hook | — |
-
-## 07-run-detail.feature.md — 0/36
+## 05-saved-workflows.feature.md — 0/13 (13 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-07-01` | A cold load of a run shows its header and deliverable | — |
-| ·  | `S-07-02` | Every tab has an addressable URL | — |
-| ·  | `S-07-03` | Clicking a tab pushes its URL | — |
-| ·  | `S-07-04` | Switching tabs does not wipe run state | — |
-| ·  | `S-07-05` | A run parked at a human gate stays answerable after a tab click | — |
-| ·  | `S-07-06` | Browser back and forward move between tabs without remounting the run | — |
-| ·  | `S-07-07` | A hard refresh on any tab restores that tab | — |
-| ·  | `S-07-08` | The Workspace tab is in the routing contract | — |
-| ·  | `S-07-09` | Steps lists every roster agent and marks the untaken branches | — |
-| ·  | `S-07-10` | An agent row is addressable by URL | — |
-| ·  | `S-07-11` | The starting point shows the brief | — |
-| ·  | `S-07-12` | Files groups the deliverable apart from intermediates | — |
-| ·  | `S-07-13` | The deliverable reports its own validation state | — |
-| ·  | `S-07-14` | Workspace lists the run's files and starts unselected | — |
-| ·  | `S-07-15` | Artifacts opens expanded, All files opens collapsed | — |
-| ·  | `S-07-16` | Only All files offers sort and bulk expand | — |
-| ·  | `S-07-17` | The viewer renders each file kind as what it is | — |
-| ·  | `S-07-18` | Markdown and HTML can be toggled between source and rendered | — |
-| ·  | `S-07-19` | Download all zips the whole workspace | — |
-| ·  | `S-07-20` | A ppt_v2 run shows both artifacts in one view | — |
-| ·  | `S-07-21` | Each empty state says which one it is | — |
-| ·  | `S-07-22` | An expired workspace says where the deliverable still is | — |
-| ·  | `S-07-23` | A workspace with no top-level output offers a way to its files | — |
-| ·  | `S-07-24` | Audit filters by category | — |
-| ·  | `S-07-25` | Audit records the human and conditional gates of a gated run | — |
-| ·  | `S-07-26` | Blocked-only narrows the audit to denials | — |
-| ·  | `S-07-27` | The preview renderer can be switched | — |
-| ·  | `S-07-28` | Choosing HTML for a markdown deliverable renders nothing | — |
-| ·  | `S-07-29` | A prototype run offers its own renderer mode | — |
-| ·  | `S-07-30` | A prototype run previews its validated deliverable | — |
-| ·  | `S-07-31` | A deck run offers Slides and Full Screen | — |
-| ·  | `S-07-32` | Full preview is its own URL | — |
-| ·  | `S-07-33` | The run chat lane accepts a follow-up | — |
-| ·  | `S-07-34` | Back to history returns to the list | — |
-| ·  | `S-07-35` | A specific run version is addressable | — |
-| ·  | `S-07-36` | A live run streams into the same surface | — |
+| s  | `S-05-01` | The list renders with stats and a create affordance | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
+| s  | `S-05-02` | The stats agree with the cards | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
+| s  | `S-05-03` | Every card exposes its own actions | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
+| s  | `S-05-04` | Search narrows the list by title | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
+| s  | `S-05-05` | New workflow opens the empty composer | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
+| s  | `S-05-06` | A card opens its detail view | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
+| s  | `S-05-07` | The detail view lists agent IDs, not display names | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
+| s  | `S-05-08` | Edit opens the composer bound to this row | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
+| s  | `S-05-09` | Run opens the base workflow's launch panel | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
+| s  | `S-05-10` | A saved override's run panel reports the base agent count | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
+| s  | `S-05-11` | A workflow can be deleted from its card menu | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
+| s  | `S-05-12` | Running from a card starts a run of that workflow | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
+| s  | `S-05-13` | An override can be reverted to the original built-in | `05_saved_workflows/test_saved_workflows.py` — not yet implemented |
 
-## 08-library.feature.md — 0/20
+## 06-run-history.feature.md — 0/21 (21 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-08-01` | The library opens on Agents by default | — |
-| ·  | `S-08-02` | Each tab is addressable by query param | — |
-| ·  | `S-08-03` | Tab badge counts agree with the rendered cards | — |
-| ·  | `S-08-04` | Switching a tab updates the URL | — |
-| ·  | `S-08-05` | Category counts sum to the All count | — |
-| ·  | `S-08-06` | Filtering by category narrows the grid | — |
-| ·  | `S-08-07` | The category is addressable by URL | — |
-| ·  | `S-08-08` | Seven agent categories are empty test fixtures | — |
-| ·  | `S-08-09` | Search filters the current tab | — |
-| ·  | `S-08-10` | Search is scoped to the active tab | — |
-| ·  | `S-08-11` | An agent opens from its Configure affordance, not its card body | — |
-| ·  | `S-08-12` | An agent's drawer exposes its configuration tabs | — |
-| ·  | `S-08-13` | Each agent drawer tab shows its own content | — |
-| ·  | `S-08-14` | A skill opens from a card click and renders its document | — |
-| ·  | `S-08-15` | A hook opens from a card click | — |
-| ·  | `S-08-16` | Hook categories are lifecycle events | — |
-| ·  | `S-08-17` | A detail view is a drawer, not a modal | — |
-| ·  | `S-08-18` | Closing a detail returns to the list URL | — |
-| ·  | `S-08-19` | Deep-linking a detail view works cold | — |
-| ·  | `S-08-20` | The library is read-only | — |
+| s  | `S-06-01` | The history renders with its controls | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-02` | Runs are grouped by time | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-03` | A finished row shows its cost, a running row does not | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-04` | Type filter counts sum to the total | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-05` | Filtering by type narrows the list | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-06` | The type filter is addressable by URL | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-07` | The chip label and its URL value are different words | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-08` | An unrecognised type shows an empty list rather than an error | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-09` | Sort is addressable by URL and composes with type | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-10` | Sorting reorders the list | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-11` | Search filters by brief text | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-12` | Auto-refresh can be enabled and reports its interval | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-13` | Refresh re-reads without losing filters | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-14` | Opening a row lands on that run | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-15` | A diverted child names its parent and the branching step | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-16` | A diverting parent names its child | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-17` | The divert badge names the workflow, not the run title | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-18` | Run actions are per-row | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-19` | An empty history is explained | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-20` | A run card can be opened in a new tab | `06_run_history/test_run_history.py` — not yet implemented |
+| s  | `S-06-21` | Run history rows are addressable by a stable hook | `06_run_history/test_run_history.py` — not yet implemented |
 
-## 09-settings.feature.md — 0/19
-
-| | Id | Scenario | Where |
-|---|---|---|---|
-| ·  | `S-09-01` | Every tab is addressable by URL | — |
-| ·  | `S-09-02` | Clicking a tab pushes its URL | — |
-| ·  | `S-09-03` | A bare /settings lands on Profile | — |
-| ·  | `S-09-04` | Profile shows identity and plan, with email read-only | — |
-| ·  | `S-09-05` | Changing the password requires the current one and a confirmation | — |
-| ·  | `S-09-06` | The model preference lists the available models | — |
-| ·  | `S-09-07` | Selecting a model shows its description | — |
-| ·  | `S-09-08` | Saving a model preference persists it | — |
-| ·  | `S-09-09` | Usage shows the plan and its deliverable access | — |
-| ·  | `S-09-10` | Deliverable access reflects the tier | — |
-| ·  | `S-09-11` | The constitution editor enforces its limit | — |
-| ·  | `S-09-12` | A saved constitution persists across a reload | — |
-| ·  | `S-09-13` | MFA is unavailable for an externally-managed account | — |
-| ·  | `S-09-14` | Security lists both second-factor methods | — |
-| ·  | `S-09-15` | Email codes are a toggle, not a wizard | — |
-| ·  | `S-09-16` | The authenticator row offers no control at all | — |
-| ·  | `S-09-17` | An environment with no methods says so | — |
-| ·  | `S-09-18` | Email MFA changes the account-recovery story | — |
-| ·  | `S-09-19` | Security is a tab, not a page | — |
-
-## 10-analytics.feature.md — 0/14
+## 07-run-detail.feature.md — 0/36 (36 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-10-01` | The analytics screen renders its tiles and controls | — |
-| ·  | `S-10-02` | The token tile's in/out split sums to its total | — |
-| ·  | `S-10-03` | Average per run is consistent with the totals | — |
-| ·  | `S-10-04` | The success rate matches the run counts | — |
-| ·  | `S-10-05` | Changing the range changes the data | — |
-| ·  | `S-10-06` | Ranges are nested — a wider range never reports less | — |
-| ·  | `S-10-07` | The range is addressable by URL | — |
-| ·  | `S-10-08` | The pipeline filter narrows every tile | — |
-| ·  | `S-10-09` | The pipeline filter is addressable by URL | — |
-| ·  | `S-10-10` | The pipeline breakdown sums to the totals | — |
-| ·  | `S-10-11` | Daily activity plots one bar per active day | — |
-| ·  | `S-10-12` | The pipeline breakdown shows a duplicated and a raw label | — |
-| ·  | `S-10-13` | A user with no runs sees an empty state | — |
-| ·  | `S-10-14` | Analytics is scoped to the signed-in user | — |
+| s  | `S-07-01` | A cold load of a run shows its header and deliverable | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-02` | Every tab has an addressable URL | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-03` | Clicking a tab pushes its URL | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-04` | Switching tabs does not wipe run state | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-05` | A run parked at a human gate stays answerable after a tab click | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-06` | Browser back and forward move between tabs without remounting the run | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-07` | A hard refresh on any tab restores that tab | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-08` | The Workspace tab is in the routing contract | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-09` | Steps lists every roster agent and marks the untaken branches | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-10` | An agent row is addressable by URL | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-11` | The starting point shows the brief | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-12` | Files groups the deliverable apart from intermediates | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-13` | The deliverable reports its own validation state | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-14` | Workspace lists the run's files and starts unselected | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-15` | Artifacts opens expanded, All files opens collapsed | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-16` | Only All files offers sort and bulk expand | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-17` | The viewer renders each file kind as what it is | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-18` | Markdown and HTML can be toggled between source and rendered | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-19` | Download all zips the whole workspace | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-20` | A ppt_v2 run shows both artifacts in one view | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-21` | Each empty state says which one it is | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-22` | An expired workspace says where the deliverable still is | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-23` | A workspace with no top-level output offers a way to its files | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-24` | Audit filters by category | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-25` | Audit records the human and conditional gates of a gated run | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-26` | Blocked-only narrows the audit to denials | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-27` | The preview renderer can be switched | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-28` | Choosing HTML for a markdown deliverable renders nothing | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-29` | A prototype run offers its own renderer mode | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-30` | A prototype run previews its validated deliverable | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-31` | A deck run offers Slides and Full Screen | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-32` | Full preview is its own URL | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-33` | The run chat lane accepts a follow-up | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-34` | Back to history returns to the list | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-35` | A specific run version is addressable | `07_run_detail/test_run_detail.py` — not yet implemented |
+| s  | `S-07-36` | A live run streams into the same surface | `07_run_detail/test_run_detail.py` — not yet implemented |
 
-## 11-admin.feature.md — 0/20
-
-| | Id | Scenario | Where |
-|---|---|---|---|
-| ·  | `S-11-01` | The admin dashboard renders its own shell | — |
-| ·  | `S-11-02` | The stat tiles agree with the table | — |
-| ·  | `S-11-03` | Every user row carries its full record | — |
-| ·  | `S-11-04` | An admin cannot delete their own account | — |
-| ·  | `S-11-05` | An admin cannot change their own tier | — |
-| ·  | `S-11-06` | An admin cannot demote themselves | — |
-| ·  | `S-11-07` | A non-admin cannot reach the admin dashboard | — |
-| ·  | `S-11-08` | An anonymous visitor cannot reach the admin dashboard | — |
-| ·  | `S-11-09` | The admin API refuses a non-admin directly | — |
-| ·  | `S-11-10` | Search filters the users table | — |
-| ·  | `S-11-11` | The account menu is the way in | — |
-| ·  | `S-11-12` | A non-admin is not offered the entry point | — |
-| ·  | `S-11-13` | Back to app returns to the main shell | — |
-| ·  | `S-11-14` | Logout from the admin shell clears the session | — |
-| ·  | `S-11-15` | Adding a user creates an account at the chosen tier | — |
-| ·  | `S-11-16` | Deleting a user removes them | — |
-| ·  | `S-11-17` | An admin resets another user's password to a temporary one | — |
-| ·  | `S-11-18` | A permanent reset skips the challenge but is knowable | — |
-| ·  | `S-11-19` | Admin reset is the only recovery path under email MFA | — |
-| ·  | `S-11-20` | Changing another user's tier takes effect | — |
-
-## 12-shell-nav.feature.md — 0/19
+## 08-library.feature.md — 0/20 (20 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-12-01` | The header is present on every authenticated screen | — |
-| ·  | `S-12-02` | Each nav item routes to its screen | — |
-| ·  | `S-12-03` | Nav items are buttons, not links | — |
-| ·  | `S-12-04` | The active screen is indicated in the nav | — |
-| ·  | `S-12-05` | The shell is absent where it should be | — |
-| ·  | `S-12-06` | The account menu lists its items | — |
-| ·  | `S-12-07` | An admin additionally sees the admin entry | — |
-| ·  | `S-12-08` | A non-admin does not | — |
-| ·  | `S-12-09` | Each menu item routes correctly | — |
-| ·  | `S-12-10` | Escape closes the account menu | — |
-| ·  | `S-12-11` | The notifications panel opens with an empty state | — |
-| ·  | `S-12-12` | A completed run produces a notification | — |
-| ·  | `S-12-13` | A live run surfaces in the header with its progress | — |
-| ·  | `S-12-14` | The badge opens the live run | — |
-| ·  | `S-12-15` | The badge is absent when nothing is running | — |
-| ·  | `S-12-16` | Dark mode toggles and persists | — |
-| ·  | `S-12-17` | Browser back and forward work across top-level screens | — |
-| ·  | `S-12-18` | Every top-level screen survives a hard refresh | — |
-| ·  | `S-12-19` | An expired session sends me to sign-in with an explanation | — |
+| s  | `S-08-01` | The library opens on Agents by default | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-02` | Each tab is addressable by query param | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-03` | Tab badge counts agree with the rendered cards | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-04` | Switching a tab updates the URL | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-05` | Category counts sum to the All count | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-06` | Filtering by category narrows the grid | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-07` | The category is addressable by URL | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-08` | Seven agent categories are empty test fixtures | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-09` | Search filters the current tab | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-10` | Search is scoped to the active tab | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-11` | An agent opens from its Configure affordance, not its card body | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-12` | An agent's drawer exposes its configuration tabs | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-13` | Each agent drawer tab shows its own content | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-14` | A skill opens from a card click and renders its document | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-15` | A hook opens from a card click | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-16` | Hook categories are lifecycle events | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-17` | A detail view is a drawer, not a modal | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-18` | Closing a detail returns to the list URL | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-19` | Deep-linking a detail view works cold | `08_library/test_library.py` — not yet implemented |
+| s  | `S-08-20` | The library is read-only | `08_library/test_library.py` — not yet implemented |
 
-## 13-errors.feature.md — 0/20
-
-| | Id | Scenario | Where |
-|---|---|---|---|
-| ·  | `S-13-01` | An unrecognised URL shows the 404 screen | — |
-| ·  | `S-13-02` | The 404 offers a way back that works | — |
-| ·  | `S-13-03` | The 404 create action reaches the composer | — |
-| ·  | `S-13-04` | The 404 offers Sign in to an already-authenticated user | — |
-| ·  | `S-13-05` | Malformed routes fall back rather than crash | — |
-| ·  | `S-13-06` | A bare /settings redirects to Profile | — |
-| ·  | `S-13-07` | Legacy library list URLs are redirected, not 404'd | — |
-| ·  | `S-13-08` | A run id that does not exist falls back to the generic 404 | — |
-| ·  | `S-13-09` | A workflow id that does not exist falls back to the generic 404 | — |
-| ·  | `S-13-10` | Missing-resource errors are indistinguishable from a bad URL | — |
-| ·  | `S-13-11` | A nonexistent artifact version falls back to v1 without saying so | — |
-| ·  | `S-13-12` | An oversized full-screen preview explains itself | — |
-| ·  | `S-13-13` | Another user's run is not readable | — |
-| ·  | `S-13-14` | A run file cannot be fetched across an ownership boundary | — |
-| ·  | `S-13-15` | A request with no credentials is answered 401, not 403 | — |
-| ·  | `S-13-16` | A request with a malformed token is answered 401 | — |
-| ·  | `S-13-17` | An expired session is recovered once before being surrendered | — |
-| ·  | `S-13-18` | An unrefreshable session ends at sign-in with an explanation | — |
-| ·  | `S-13-19` | A backend outage is reported, not swallowed | — |
-| ·  | `S-13-20` | A failed run is presented as failed | — |
-
-## 14-run-states.feature.md — 0/13
+## 09-settings.feature.md — 0/19 (19 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-14-01` | A failed run explains itself and offers a way forward | — |
-| ·  | `S-14-02` | A failed run has no Preview tab | — |
-| ·  | `S-14-03` | A cancelled run offers to resume | — |
-| ·  | `S-14-04` | The cancelled empty-state names a tab that does not exist | — |
-| ·  | `S-14-05` | A diverted run points at its continuation | — |
-| ·  | `S-14-06` | A live run streams and can be stopped | — |
-| ·  | `S-14-07` | A live run cannot deep-link any tab | — |
-| ·  | `S-14-08` | The same tab URLs work once the run finishes | — |
-| ·  | `S-14-09` | A failed run's audit reports its governance totals | — |
-| ·  | `S-14-10` | Audit categories filter the trail | — |
-| ·  | `S-14-11` | A secret scan appears as a security record | — |
-| ·  | `S-14-12` | Run history shows the right status chip | — |
-| ·  | `S-14-13` | A run parked at a human gate is answerable | — |
+| s  | `S-09-01` | Every tab is addressable by URL | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-02` | Clicking a tab pushes its URL | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-03` | A bare /settings lands on Profile | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-04` | Profile shows identity and plan, with email read-only | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-05` | Changing the password requires the current one and a confirmation | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-06` | The model preference lists the available models | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-07` | Selecting a model shows its description | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-08` | Saving a model preference persists it | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-09` | Usage shows the plan and its deliverable access | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-10` | Deliverable access reflects the tier | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-11` | The constitution editor enforces its limit | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-12` | A saved constitution persists across a reload | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-13` | MFA is unavailable for an externally-managed account | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-14` | Security lists both second-factor methods | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-15` | Email codes are a toggle, not a wizard | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-16` | The authenticator row offers no control at all | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-17` | An environment with no methods says so | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-18` | Email MFA changes the account-recovery story | `09_settings/test_settings.py` — not yet implemented |
+| s  | `S-09-19` | Security is a tab, not a page | `09_settings/test_settings.py` — not yet implemented |
 
-## 15-overlays.feature.md — 0/29
-
-| | Id | Scenario | Where |
-|---|---|---|---|
-| ·  | `S-15-01` | Inspecting a catalog workflow describes it without launching | — |
-| ·  | `S-15-02` | The Advanced control opens the full agent configuration | — |
-| ·  | `S-15-03` | The Advanced layer's Workflow tab exposes the deliverable settings | — |
-| ·  | `S-15-04` | Open in full canvas escalates to the composer | — |
-| ·  | `S-15-05` | Saving from the Advanced layer names the new workflow | — |
-| ·  | `S-15-06` | The add-agent modal lists agents by category | — |
-| ·  | `S-15-07` | Each agent card is individually addressable | — |
-| ·  | `S-15-08` | The add-agent modal cannot be closed by name or by Escape | — |
-| ·  | `S-15-09` | The library item drawer opens beside the list, not over it | — |
-| ·  | `S-15-10` | The agent drawer's tabs each show their own panel | — |
-| ·  | `S-15-11` | An agent with no suggested hooks says so | — |
-| ·  | `S-15-12` | The agent Config tab exposes the gate overrides | — |
-| ·  | `S-15-13` | The workflow actions menu offers the four row operations | — |
-| ·  | `S-15-14` | The run actions menu offers only delete | — |
-| ·  | `S-15-15` | The version picker lists a run's artifact versions | — |
-| ·  | `S-15-16` | Share copies a link rather than opening a dialog | — |
-| ·  | `S-15-17` | A template tile opens a detail modal with a live preview | — |
-| ·  | `S-15-18` | The gallery mounts one live iframe per tile | — |
-| ·  | `S-15-19` | Custom upload is offered on both wizards, HTML only | — |
-| ·  | `S-15-20` | A design-system tile shows its full DESIGN.md | — |
-| ·  | `S-15-21` | A custom design system is pasted, not uploaded | — |
-| ·  | `S-15-22` | Add user collects credentials, plan and the admin flag | — |
-| ·  | `S-15-23` | The create-user dialog can be abandoned | — |
-| ·  | `S-15-24` | The divert picker opens from the config rail, not the canvas | — |
-| ·  | `S-15-25` | The divert picker groups and searches the catalogue | — |
-| ·  | `S-15-26` | A failed workflow fetch degrades to free text | — |
-| ·  | `S-15-27` | The skill manager is reachable | — |
-| ·  | `S-15-28` | A prototype deliverable offers source and tweaks | — |
-| ·  | `S-15-29` | Menus and drawers close without navigating | — |
-
-## 16-pages-outside-routes.feature.md — 0/17
+## 10-analytics.feature.md — 0/14 (14 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-16-01` | The legacy workflow builder is reachable by URL | — |
-| ·  | `S-16-02` | The legacy builder is not the composer | — |
-| ·  | `S-16-03` | The legacy builder cannot add an agent | — |
-| ·  | `S-16-04` | The legacy wizard path redirects to the named create route | — |
-| ·  | `S-16-05` | A runId deep-link redirects to the run's full preview | — |
-| ·  | `S-16-06` | The bare path with no payload falls back to run history | — |
-| ·  | `S-16-07` | An oversized project explains itself and offers a way out | — |
-| ·  | `S-16-08` | The App Builder full-screen button hands files over in sessionStorage | — |
-| ·  | `S-16-09` | Handoff settings offers the install command | — |
-| ·  | `S-16-10` | A GitHub token can be saved and is never read back | — |
-| ·  | `S-16-11` | A saved GitHub token is not echoed to the client | — |
-| ·  | `S-16-12` | An API key is shown once and never again | — |
-| ·  | `S-16-13` | Handoff settings requires authentication | — |
-| ·  | `S-16-14` | One user cannot see another's handoff credentials | — |
-| ·  | `S-16-15` | An invalid handoff token is refused clearly | — |
-| ·  | `S-16-16` | A valid handoff token opens the handoff workflow | — |
-| ·  | `S-16-17` | A handoff token belonging to another user is refused | — |
+| s  | `S-10-01` | The analytics screen renders its tiles and controls | `10_analytics/test_analytics.py` — not yet implemented |
+| s  | `S-10-02` | The token tile's in/out split sums to its total | `10_analytics/test_analytics.py` — not yet implemented |
+| s  | `S-10-03` | Average per run is consistent with the totals | `10_analytics/test_analytics.py` — not yet implemented |
+| s  | `S-10-04` | The success rate matches the run counts | `10_analytics/test_analytics.py` — not yet implemented |
+| s  | `S-10-05` | Changing the range changes the data | `10_analytics/test_analytics.py` — not yet implemented |
+| s  | `S-10-06` | Ranges are nested — a wider range never reports less | `10_analytics/test_analytics.py` — not yet implemented |
+| s  | `S-10-07` | The range is addressable by URL | `10_analytics/test_analytics.py` — not yet implemented |
+| s  | `S-10-08` | The pipeline filter narrows every tile | `10_analytics/test_analytics.py` — not yet implemented |
+| s  | `S-10-09` | The pipeline filter is addressable by URL | `10_analytics/test_analytics.py` — not yet implemented |
+| s  | `S-10-10` | The pipeline breakdown sums to the totals | `10_analytics/test_analytics.py` — not yet implemented |
+| s  | `S-10-11` | Daily activity plots one bar per active day | `10_analytics/test_analytics.py` — not yet implemented |
+| s  | `S-10-12` | The pipeline breakdown shows a duplicated and a raw label | `10_analytics/test_analytics.py` — not yet implemented |
+| s  | `S-10-13` | A user with no runs sees an empty state | `10_analytics/test_analytics.py` — not yet implemented |
+| s  | `S-10-14` | Analytics is scoped to the signed-in user | `10_analytics/test_analytics.py` — not yet implemented |
 
-## 17-theme-and-tiers.feature.md — 0/12
+## 11-admin.feature.md — 0/20 (20 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-17-01` | Dark mode applies and persists | — |
-| ·  | `S-17-02` | The theme control names the target, not the state | — |
-| ·  | `S-17-03` | Every major surface renders in both themes | — |
-| ·  | `S-17-04` | Theme is a per-browser preference, not per-account | — |
-| ·  | `S-17-05` | The account menu reflects the role, not the tier | — |
-| ·  | `S-17-06` | A non-admin is redirected away from the admin surface | — |
-| ·  | `S-17-07` | Deliverable access matches the tier | — |
-| ·  | `S-17-08` | Deliverable Access omits workflows the catalog offers | — |
-| ·  | `S-17-09` | A hexaware user gains prototype and loses presentations | — |
-| ·  | `S-17-10` | The admin dialog offers every tier the backend knows | — |
-| ·  | `S-17-11` | Entitlement is enforced by the backend, not only the badge | — |
-| ·  | `S-17-12` | One user's runs are invisible to another | — |
+| s  | `S-11-01` | The admin dashboard renders its own shell | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-02` | The stat tiles agree with the table | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-03` | Every user row carries its full record | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-04` | An admin cannot delete their own account | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-05` | An admin cannot change their own tier | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-06` | An admin cannot demote themselves | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-07` | A non-admin cannot reach the admin dashboard | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-08` | An anonymous visitor cannot reach the admin dashboard | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-09` | The admin API refuses a non-admin directly | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-10` | Search filters the users table | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-11` | The account menu is the way in | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-12` | A non-admin is not offered the entry point | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-13` | Back to app returns to the main shell | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-14` | Logout from the admin shell clears the session | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-15` | Adding a user creates an account at the chosen tier | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-16` | Deleting a user removes them | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-17` | An admin resets another user's password to a temporary one | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-18` | A permanent reset skips the challenge but is knowable | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-19` | Admin reset is the only recovery path under email MFA | `11_admin/test_admin.py` — not yet implemented |
+| s  | `S-11-20` | Changing another user's tier takes effect | `11_admin/test_admin.py` — not yet implemented |
 
-## 18-chat-lane.feature.md — 0/19
-
-| | Id | Scenario | Where |
-|---|---|---|---|
-| ·  | `S-18-01` | The lane is present on every run-detail surface | — |
-| ·  | `S-18-02` | The lane survives every tab | — |
-| ·  | `S-18-03` | Run status is read from the lane, not the tab pane | — |
-| ·  | `S-18-04` | Back returns to run history without losing the filter | — |
-| ·  | `S-18-05` | Every message declares its role and a stable id | — |
-| ·  | `S-18-06` | The narrator names each lifecycle event | — |
-| ·  | `S-18-07` | A clarification request points at Steps | — |
-| ·  | `S-18-08` | The clarification exchange is not duplicated | — |
-| ·  | `S-18-09` | A diverted run links to the workflow it handed off to | — |
-| ·  | `S-18-10` | The run summary collapses and expands | — |
-| ·  | `S-18-11` | The summary label does not announce its own state | — |
-| ·  | `S-18-12` | Send is gated on non-empty input | — |
-| ·  | `S-18-13` | The composer offers attachments and voice | — |
-| ·  | `S-18-14` | Whether the user can reply depends on the run's state | — |
-| ·  | `S-18-15` | Terminal runs agree on whether they can be replied to | — |
-| ·  | `S-18-16` | Sending a message adds a user turn and a reply | — |
-| ·  | `S-18-17` | A chainable run offers follow-on workflows | — |
-| ·  | `S-18-18` | The unavailable chip has its own testid | — |
-| ·  | `S-18-19` | Chain suggestions appear only where they are meaningful | — |
-
-## 19-toasts-and-dialogs.feature.md — 0/17
+## 12-shell-nav.feature.md — 0/19 (19 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-19-01` | A completed run raises a toast with a way into the result | — |
-| ·  | `S-19-02` | A failed run names the workflow in the toast | — |
-| ·  | `S-19-03` | A completion toast dismisses itself after 7 seconds | — |
-| ·  | `S-19-04` | A toast can be dismissed early | — |
-| ·  | `S-19-05` | Toasts stack rather than replace | — |
-| ·  | `S-19-06` | A toast does not block the page beneath it | — |
-| ·  | `S-19-07` | Admin actions confirm themselves by toast | — |
-| ·  | `S-19-08` | An admin failure is reported, not swallowed | — |
-| ·  | `S-19-09` | The two toast families use different timeouts | — |
-| ·  | `S-19-10` | Deleting a user requires confirmation | — |
-| ·  | `S-19-11` | Cancelling a delete leaves the user intact | — |
-| ·  | `S-19-12` | Clicking the scrim cancels the delete | — |
-| ·  | `S-19-13` | Confirming removes the user and says so | — |
-| ·  | `S-19-14` | An admin cannot delete themselves into lockout | — |
-| ·  | `S-19-15` | A failed download reports itself through window.alert | — |
-| ·  | `S-19-16` | Every test that can trigger a download registers a dialog handler | — |
-| ·  | `S-19-17` | Download failures are the only native dialogs in the product | — |
+| s  | `S-12-01` | The header is present on every authenticated screen | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-02` | Each nav item routes to its screen | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-03` | Nav items are buttons, not links | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-04` | The active screen is indicated in the nav | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-05` | The shell is absent where it should be | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-06` | The account menu lists its items | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-07` | An admin additionally sees the admin entry | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-08` | A non-admin does not | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-09` | Each menu item routes correctly | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-10` | Escape closes the account menu | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-11` | The notifications panel opens with an empty state | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-12` | A completed run produces a notification | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-13` | A live run surfaces in the header with its progress | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-14` | The badge opens the live run | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-15` | The badge is absent when nothing is running | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-16` | Dark mode toggles and persists | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-17` | Browser back and forward work across top-level screens | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-18` | Every top-level screen survives a hard refresh | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| s  | `S-12-19` | An expired session sends me to sign-in with an explanation | `12_shell_nav/test_shell_nav.py` — not yet implemented |
 
-## 20-keyboard-and-navigation.feature.md — 0/16
-
-| | Id | Scenario | Where |
-|---|---|---|---|
-| ·  | `S-20-01` | Escape closes an overlay | — |
-| ·  | `S-20-02` | Escape closes the add-agent modal | — |
-| ·  | `S-20-03` | Holding Space pans the canvas | — |
-| ·  | `S-20-04` | Space still types a space in a text field | — |
-| ·  | `S-20-05` | Space-to-pan releases on keyup | — |
-| ·  | `S-20-06` | Modifier shortcuts behave as advertised | — |
-| ·  | `S-20-07` | Submitting a chat message by keyboard | — |
-| ·  | `S-20-08` | Every route survives a cold load | — |
-| ·  | `S-20-09` | An in-app affordance lands where its URL claims | — |
-| ·  | `S-20-10` | Back returns to where I came from | — |
-| ·  | `S-20-11` | A new-tab affordance opens a new tab | — |
-| ·  | `S-20-12` | A session that cannot be refreshed forces a hard reload to sign-in | — |
-| ·  | `S-20-13` | A route-level render error is caught and explained | — |
-| ·  | `S-20-14` | Recovering from an error boundary does a full reload | — |
-| ·  | `S-20-15` | A root-level failure still renders something | — |
-| ·  | `S-20-16` | A server 500 does not leave the user on a blank page | — |
-
-## 21-run-families-and-versions.feature.md — 0/15
+## 13-errors.feature.md — 0/20 (20 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-21-01` | Runs sharing a root collapse into one family row | — |
-| ·  | `S-21-02` | The version badge's accessible name is not its text | — |
-| ·  | `S-21-03` | A family expands to show every version | — |
-| ·  | `S-21-04` | A family of one renders as a plain row | — |
-| ·  | `S-21-05` | The family counts as one against a filter chip | — |
-| ·  | `S-21-06` | Families bucket by date and reorder by sort | — |
-| ·  | `S-21-07` | A revised run shows its version timeline | — |
-| ·  | `S-21-08` | A timeline entry names what it revises | — |
-| ·  | `S-21-09` | Selecting a version navigates to it | — |
-| ·  | `S-21-10` | A version that does not exist is refused | — |
-| ·  | `S-21-11` | A single-version run shows no timeline | — |
-| ·  | `S-21-12` | A diverting run links forward to the run it triggered | — |
-| ·  | `S-21-13` | The triggered run links back to its origin | — |
-| ·  | `S-21-14` | The two directions are distinguishable | — |
-| ·  | `S-21-15` | A diverted run's chat lane names its target | — |
+| s  | `S-13-01` | An unrecognised URL shows the 404 screen | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-02` | The 404 offers a way back that works | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-03` | The 404 create action reaches the composer | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-04` | The 404 offers Sign in to an already-authenticated user | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-05` | Malformed routes fall back rather than crash | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-06` | A bare /settings redirects to Profile | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-07` | Legacy library list URLs are redirected, not 404'd | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-08` | A run id that does not exist falls back to the generic 404 | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-09` | A workflow id that does not exist falls back to the generic 404 | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-10` | Missing-resource errors are indistinguishable from a bad URL | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-11` | A nonexistent artifact version falls back to v1 without saying so | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-12` | An oversized full-screen preview explains itself | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-13` | Another user's run is not readable | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-14` | A run file cannot be fetched across an ownership boundary | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-15` | A request with no credentials is answered 401, not 403 | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-16` | A request with a malformed token is answered 401 | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-17` | An expired session is recovered once before being surrendered | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-18` | An unrefreshable session ends at sign-in with an explanation | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-19` | A backend outage is reported, not swallowed | `13_errors/test_errors.py` — not yet implemented |
+| s  | `S-13-20` | A failed run is presented as failed | `13_errors/test_errors.py` — not yet implemented |
 
-## 22-handoff-and-gates.feature.md — 0/28
-
-| | Id | Scenario | Where |
-|---|---|---|---|
-| ·  | `S-22-01` | A valid handoff opens the workflow for its run | — |
-| ·  | `S-22-02` | An invalid token is refused without confirming anything | — |
-| ·  | `S-22-03` | Another user's handoff token is refused identically | — |
-| ·  | `S-22-04` | A handoff without a saved GitHub PAT asks for one first | — |
-| ·  | `S-22-05` | Start pipeline is inert until a PAT exists | — |
-| ·  | `S-22-06` | An expired handoff explains how to mint a new one | — |
-| ·  | `S-22-07` | Only a pending or failed handoff can be started | — |
-| ·  | `S-22-08` | The handoff shows the change it proposes | — |
-| ·  | `S-22-09` | Test and compliance reports render when produced | — |
-| ·  | `S-22-10` | A run waiting at a gate offers the decision in the lane | — |
-| ·  | `S-22-11` | Approving continues the run | — |
-| ·  | `S-22-12` | Requesting changes takes instructions | — |
-| ·  | `S-22-13` | A redo takes additional instructions | — |
-| ·  | `S-22-14` | The gated content itself is editable before approval | — |
-| ·  | `S-22-15` | A choice gate presents its options | — |
-| ·  | `S-22-16` | The gated content can be previewed before deciding | — |
-| ·  | `S-22-17` | Rejecting ends the run | — |
-| ·  | `S-22-18` | Cancelling the run from a gate takes two steps | — |
-| ·  | `S-22-19` | The gate shows the evidence the decision is about | — |
-| ·  | `S-22-20` | A code artifact can be copied out of the gate | — |
-| ·  | `S-22-21` | A readiness verdict is hoisted above the prose | — |
-| ·  | `S-22-22` | A gate decision is the human's alone in the product | — |
-| ·  | `S-22-23` | A run asking for clarifications offers them in the lane | — |
-| ·  | `S-22-24` | Suggested answers are offered as chips | — |
-| ·  | `S-22-25` | A free-text question can be answered without chips | — |
-| ·  | `S-22-26` | Typing overrides a selected chip | — |
-| ·  | `S-22-27` | Every question can be skipped at once | — |
-| ·  | `S-22-28` | The whole run can be cancelled from the clarify prompt | — |
-
-## 23-controls-inventory.feature.md — 0/57
+## 14-run-states.feature.md — 0/13 (13 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-23-01` | Every deliverable type can be revised in place | — |
-| ·  | `S-23-02` | Revision fields share an accessible name but not a name attribute | — |
-| ·  | `S-23-03` | An empty revision does nothing | — |
-| ·  | `S-23-04` | Submitting a revision clears the field | — |
-| ·  | `S-23-05` | An agent proposal can be confirmed or rejected | — |
-| ·  | `S-23-06` | Confirming a proposal disables it while it runs | — |
-| ·  | `S-23-07` | A refinement chip can be accepted or dismissed | — |
-| ·  | `S-23-08` | The chain picker offers follow-on workflows | — |
-| ·  | `S-23-09` | An agent's reasoning is collapsible | — |
-| ·  | `S-23-10` | Tool calls and file operations are shown as cards | — |
-| ·  | `S-23-11` | Token and context usage are visible | — |
-| ·  | `S-23-12` | Terminal runs show a terminal banner | — |
-| ·  | `S-23-13` | A message can be copied, edited or regenerated | — |
-| ·  | `S-23-14` | Chat modes can be added and removed | — |
-| ·  | `S-23-15` | Files can be attached by drop or by chip | — |
-| ·  | `S-23-16` | Activity is indicated while waiting | — |
-| ·  | `S-23-17` | A conditional route renders as a labelled edge | — |
-| ·  | `S-23-18` | Route outcomes are edited in the rail | — |
-| ·  | `S-23-19` | A route outcome names its condition source | — |
-| ·  | `S-23-20` | A detached node is marked as such | — |
-| ·  | `S-23-21` | Edges can be regrabbed to reparent a node | — |
-| ·  | `S-23-22` | Sub-agents are added under a node | — |
-| ·  | `S-23-23` | Numeric limits step up and down | — |
-| ·  | `S-23-24` | A loop node caps its iterations | — |
-| ·  | `S-23-25` | An agent can be renamed inline | — |
-| ·  | `S-23-26` | A node declares its capabilities | — |
-| ·  | `S-23-27` | Each capability is configured per agent, by name | — |
-| ·  | `S-23-28` | An agent's prompt can be overridden | — |
-| ·  | `S-23-29` | Hooks can be searched | — |
-| ·  | `S-23-30` | An agent's skills are chosen from the rail, not a modal | — |
-| ·  | `S-23-31` | The audit log exports in three formats | — |
-| ·  | `S-23-32` | A live run's audit tab says it is live | — |
-| ·  | `S-23-33` | The audit log can be searched | — |
-| ·  | `S-23-34` | Each list has its own search input | — |
-| ·  | `S-23-35` | Analytics filters by model as well as pipeline | — |
-| ·  | `S-23-36` | Run history sort has two accessible names | — |
-| ·  | `S-23-37` | Design systems are shown as colour bands | — |
-| ·  | `S-23-38` | A generating preview shows progress | — |
-| ·  | `S-23-39` | The artifact version picker is addressable | — |
-| ·  | `S-23-40` | A deliverable can be downloaded from the header | — |
-| ·  | `S-23-41` | A prototype's HTML can be edited directly | — |
-| ·  | `S-23-42` | Steps show review and divert markers | — |
-| ·  | `S-23-43` | A run detail can auto-refresh | — |
-| ·  | `S-23-44` | Agent construction progress is reported | — |
-| ·  | `S-23-45` | Clarifications are summarised with a count | — |
-| ·  | `S-23-46` | A chained run shows where it came from | — |
-| ·  | `S-23-47` | A notification can be dismissed individually | — |
-| ·  | `S-23-48` | The admin table can be searched and its tier set | — |
-| ·  | `S-23-49` | A custom template can be taken from a URL | — |
-| ·  | `S-23-50` | Handoff credentials are labelled | — |
-| ·  | `S-23-51` | An artifact card names and downloads its file | — |
-| ·  | `S-23-52` | The 404 page carries the brand panel | — |
-| ·  | `S-23-53` | A dropped realtime connection offers a reconnect | — |
-| ·  | `S-23-54` | An empty run history invites a first run | — |
-| ·  | `S-23-55` | An edited message is saved and resent in one action | — |
-| ·  | `S-23-56` | The skill manager's editor | — |
-| ·  | `S-23-57` | The sidebar's controls | — |
+| s  | `S-14-01` | A failed run explains itself and offers a way forward | `14_run_states/test_run_states.py` — not yet implemented |
+| s  | `S-14-02` | A failed run has no Preview tab | `14_run_states/test_run_states.py` — not yet implemented |
+| s  | `S-14-03` | A cancelled run offers to resume | `14_run_states/test_run_states.py` — not yet implemented |
+| s  | `S-14-04` | The cancelled empty-state names a tab that does not exist | `14_run_states/test_run_states.py` — not yet implemented |
+| s  | `S-14-05` | A diverted run points at its continuation | `14_run_states/test_run_states.py` — not yet implemented |
+| s  | `S-14-06` | A live run streams and can be stopped | `14_run_states/test_run_states.py` — not yet implemented |
+| s  | `S-14-07` | A live run cannot deep-link any tab | `14_run_states/test_run_states.py` — not yet implemented |
+| s  | `S-14-08` | The same tab URLs work once the run finishes | `14_run_states/test_run_states.py` — not yet implemented |
+| s  | `S-14-09` | A failed run's audit reports its governance totals | `14_run_states/test_run_states.py` — not yet implemented |
+| s  | `S-14-10` | Audit categories filter the trail | `14_run_states/test_run_states.py` — not yet implemented |
+| s  | `S-14-11` | A secret scan appears as a security record | `14_run_states/test_run_states.py` — not yet implemented |
+| s  | `S-14-12` | Run history shows the right status chip | `14_run_states/test_run_states.py` — not yet implemented |
+| s  | `S-14-13` | A run parked at a human gate is answerable | `14_run_states/test_run_states.py` — not yet implemented |
 
-## 24-api-contract.feature.md — 0/34
+## 15-overlays.feature.md — 0/29 (29 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| ·  | `S-24-01` | The endpoint inventory matches the snapshot | — |
-| ·  | `S-24-02` | No endpoint loses its authentication silently | — |
-| ·  | `S-24-03` | The public list is exactly eighteen, and each is deliberate | — |
-| ·  | `S-24-04` | A request with no credentials is answered 401, not 403 | — |
-| ·  | `S-24-05` | Registration is permanently closed | — |
-| ·  | `S-24-06` | Login returns either a session or a challenge | — |
-| ·  | `S-24-07` | A challenge is answered on its own endpoint | — |
-| ·  | `S-24-08` | Logout works with an already-invalid token | — |
-| ·  | `S-24-09` | Password recovery refuses when email is a second factor | — |
-| ·  | `S-24-10` | Second-factor management requires a session | — |
-| ·  | `S-24-11` | Every admin endpoint requires an admin | — |
-| ·  | `S-24-12` | Creating a user answers 201 with the created user | — |
-| ·  | `S-24-13` | Deleting a user answers 204 with no body | — |
-| ·  | `S-24-14` | Role and tier changes return the updated user | — |
-| ·  | `S-24-15` | Template previews load without a token | — |
-| ·  | `S-24-16` | The asset route refuses path traversal | — |
-| ·  | `S-24-17` | A missing asset is a 404, not a 500 | — |
-| ·  | `S-24-18` | Handoff creation is authenticated by API key, not by JWT | — |
-| ·  | `S-24-19` | Handoff creation without a valid key is refused | — |
-| ·  | `S-24-20` | A GitHub PAT is not required to create a handoff | — |
-| ·  | `S-24-21` | A run is readable only by its owner | — |
-| ·  | `S-24-22` | A run's files cannot be fetched across an ownership boundary | — |
-| ·  | `S-24-23` | The listing describes the whole workspace | — |
-| ·  | `S-24-24` | An expired workspace is stated, not inferred | — |
-| ·  | `S-24-25` | The reserved subtrees are never listed | — |
-| ·  | `S-24-26` | An HTML workspace file is never served inline | — |
-| ·  | `S-24-27` | Text extensions come back inline as plain text | — |
-| ·  | `S-24-28` | The path parameter refuses to leave the run directory | — |
-| ·  | `S-24-29` | A symlink cannot be used to read outside the run directory | — |
-| ·  | `S-24-30` | A file too large to preview is refused, not streamed | — |
-| ·  | `S-24-31` | The zip holds exactly what the listing showed | — |
-| ·  | `S-24-32` | An oversized workspace is refused rather than archived | — |
-| ·  | `S-24-33` | An expired workspace has nothing to serve | — |
-| ·  | `S-24-34` | The sandbox is unreachable across an ownership boundary | — |
+| s  | `S-15-01` | Inspecting a catalog workflow describes it without launching | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-02` | The Advanced control opens the full agent configuration | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-03` | The Advanced layer's Workflow tab exposes the deliverable settings | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-04` | Open in full canvas escalates to the composer | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-05` | Saving from the Advanced layer names the new workflow | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-06` | The add-agent modal lists agents by category | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-07` | Each agent card is individually addressable | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-08` | The add-agent modal cannot be closed by name or by Escape | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-09` | The library item drawer opens beside the list, not over it | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-10` | The agent drawer's tabs each show their own panel | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-11` | An agent with no suggested hooks says so | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-12` | The agent Config tab exposes the gate overrides | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-13` | The workflow actions menu offers the four row operations | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-14` | The run actions menu offers only delete | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-15` | The version picker lists a run's artifact versions | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-16` | Share copies a link rather than opening a dialog | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-17` | A template tile opens a detail modal with a live preview | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-18` | The gallery mounts one live iframe per tile | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-19` | Custom upload is offered on both wizards, HTML only | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-20` | A design-system tile shows its full DESIGN.md | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-21` | A custom design system is pasted, not uploaded | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-22` | Add user collects credentials, plan and the admin flag | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-23` | The create-user dialog can be abandoned | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-24` | The divert picker opens from the config rail, not the canvas | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-25` | The divert picker groups and searches the catalogue | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-26` | A failed workflow fetch degrades to free text | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-27` | The skill manager is reachable | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-28` | A prototype deliverable offers source and tweaks | `15_overlays/test_overlays.py` — not yet implemented |
+| s  | `S-15-29` | Menus and drawers close without navigating | `15_overlays/test_overlays.py` — not yet implemented |
+
+## 16-pages-outside-routes.feature.md — 0/17 (17 skipped)
+
+| | Id | Scenario | Where |
+|---|---|---|---|
+| s  | `S-16-01` | The legacy workflow builder is reachable by URL | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-02` | The legacy builder is not the composer | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-03` | The legacy builder cannot add an agent | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-04` | The legacy wizard path redirects to the named create route | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-05` | A runId deep-link redirects to the run's full preview | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-06` | The bare path with no payload falls back to run history | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-07` | An oversized project explains itself and offers a way out | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-08` | The App Builder full-screen button hands files over in sessionStorage | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-09` | Handoff settings offers the install command | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-10` | A GitHub token can be saved and is never read back | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-11` | A saved GitHub token is not echoed to the client | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-12` | An API key is shown once and never again | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-13` | Handoff settings requires authentication | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-14` | One user cannot see another's handoff credentials | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-15` | An invalid handoff token is refused clearly | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-16` | A valid handoff token opens the handoff workflow | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| s  | `S-16-17` | A handoff token belonging to another user is refused | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+
+## 17-theme-and-tiers.feature.md — 0/12 (12 skipped)
+
+| | Id | Scenario | Where |
+|---|---|---|---|
+| s  | `S-17-01` | Dark mode applies and persists | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
+| s  | `S-17-02` | The theme control names the target, not the state | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
+| s  | `S-17-03` | Every major surface renders in both themes | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
+| s  | `S-17-04` | Theme is a per-browser preference, not per-account | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
+| s  | `S-17-05` | The account menu reflects the role, not the tier | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
+| s  | `S-17-06` | A non-admin is redirected away from the admin surface | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
+| s  | `S-17-07` | Deliverable access matches the tier | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
+| s  | `S-17-08` | Deliverable Access omits workflows the catalog offers | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
+| s  | `S-17-09` | A hexaware user gains prototype and loses presentations | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
+| s  | `S-17-10` | The admin dialog offers every tier the backend knows | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
+| s  | `S-17-11` | Entitlement is enforced by the backend, not only the badge | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
+| s  | `S-17-12` | One user's runs are invisible to another | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
+
+## 18-chat-lane.feature.md — 0/19 (19 skipped)
+
+| | Id | Scenario | Where |
+|---|---|---|---|
+| s  | `S-18-01` | The lane is present on every run-detail surface | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-02` | The lane survives every tab | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-03` | Run status is read from the lane, not the tab pane | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-04` | Back returns to run history without losing the filter | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-05` | Every message declares its role and a stable id | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-06` | The narrator names each lifecycle event | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-07` | A clarification request points at Steps | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-08` | The clarification exchange is not duplicated | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-09` | A diverted run links to the workflow it handed off to | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-10` | The run summary collapses and expands | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-11` | The summary label does not announce its own state | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-12` | Send is gated on non-empty input | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-13` | The composer offers attachments and voice | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-14` | Whether the user can reply depends on the run's state | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-15` | Terminal runs agree on whether they can be replied to | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-16` | Sending a message adds a user turn and a reply | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-17` | A chainable run offers follow-on workflows | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-18` | The unavailable chip has its own testid | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| s  | `S-18-19` | Chain suggestions appear only where they are meaningful | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+
+## 19-toasts-and-dialogs.feature.md — 0/17 (17 skipped)
+
+| | Id | Scenario | Where |
+|---|---|---|---|
+| s  | `S-19-01` | A completed run raises a toast with a way into the result | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-02` | A failed run names the workflow in the toast | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-03` | A completion toast dismisses itself after 7 seconds | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-04` | A toast can be dismissed early | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-05` | Toasts stack rather than replace | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-06` | A toast does not block the page beneath it | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-07` | Admin actions confirm themselves by toast | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-08` | An admin failure is reported, not swallowed | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-09` | The two toast families use different timeouts | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-10` | Deleting a user requires confirmation | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-11` | Cancelling a delete leaves the user intact | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-12` | Clicking the scrim cancels the delete | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-13` | Confirming removes the user and says so | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-14` | An admin cannot delete themselves into lockout | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-15` | A failed download reports itself through window.alert | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-16` | Every test that can trigger a download registers a dialog handler | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| s  | `S-19-17` | Download failures are the only native dialogs in the product | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+
+## 20-keyboard-and-navigation.feature.md — 0/16 (16 skipped)
+
+| | Id | Scenario | Where |
+|---|---|---|---|
+| s  | `S-20-01` | Escape closes an overlay | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-02` | Escape closes the add-agent modal | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-03` | Holding Space pans the canvas | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-04` | Space still types a space in a text field | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-05` | Space-to-pan releases on keyup | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-06` | Modifier shortcuts behave as advertised | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-07` | Submitting a chat message by keyboard | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-08` | Every route survives a cold load | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-09` | An in-app affordance lands where its URL claims | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-10` | Back returns to where I came from | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-11` | A new-tab affordance opens a new tab | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-12` | A session that cannot be refreshed forces a hard reload to sign-in | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-13` | A route-level render error is caught and explained | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-14` | Recovering from an error boundary does a full reload | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-15` | A root-level failure still renders something | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| s  | `S-20-16` | A server 500 does not leave the user on a blank page | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+
+## 21-run-families-and-versions.feature.md — 0/15 (15 skipped)
+
+| | Id | Scenario | Where |
+|---|---|---|---|
+| s  | `S-21-01` | Runs sharing a root collapse into one family row | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-02` | The version badge's accessible name is not its text | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-03` | A family expands to show every version | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-04` | A family of one renders as a plain row | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-05` | The family counts as one against a filter chip | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-06` | Families bucket by date and reorder by sort | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-07` | A revised run shows its version timeline | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-08` | A timeline entry names what it revises | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-09` | Selecting a version navigates to it | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-10` | A version that does not exist is refused | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-11` | A single-version run shows no timeline | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-12` | A diverting run links forward to the run it triggered | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-13` | The triggered run links back to its origin | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-14` | The two directions are distinguishable | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| s  | `S-21-15` | A diverted run's chat lane names its target | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+
+## 22-handoff-and-gates.feature.md — 0/28 (28 skipped)
+
+| | Id | Scenario | Where |
+|---|---|---|---|
+| s  | `S-22-01` | A valid handoff opens the workflow for its run | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-02` | An invalid token is refused without confirming anything | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-03` | Another user's handoff token is refused identically | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-04` | A handoff without a saved GitHub PAT asks for one first | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-05` | Start pipeline is inert until a PAT exists | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-06` | An expired handoff explains how to mint a new one | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-07` | Only a pending or failed handoff can be started | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-08` | The handoff shows the change it proposes | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-09` | Test and compliance reports render when produced | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-10` | A run waiting at a gate offers the decision in the lane | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-11` | Approving continues the run | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-12` | Requesting changes takes instructions | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-13` | A redo takes additional instructions | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-14` | The gated content itself is editable before approval | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-15` | A choice gate presents its options | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-16` | The gated content can be previewed before deciding | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-17` | Rejecting ends the run | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-18` | Cancelling the run from a gate takes two steps | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-19` | The gate shows the evidence the decision is about | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-20` | A code artifact can be copied out of the gate | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-21` | A readiness verdict is hoisted above the prose | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-22` | A gate decision is the human's alone in the product | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-23` | A run asking for clarifications offers them in the lane | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-24` | Suggested answers are offered as chips | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-25` | A free-text question can be answered without chips | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-26` | Typing overrides a selected chip | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-27` | Every question can be skipped at once | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| s  | `S-22-28` | The whole run can be cancelled from the clarify prompt | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+
+## 23-controls-inventory.feature.md — 0/57 (57 skipped)
+
+| | Id | Scenario | Where |
+|---|---|---|---|
+| s  | `S-23-01` | Every deliverable type can be revised in place | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-02` | Revision fields share an accessible name but not a name attribute | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-03` | An empty revision does nothing | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-04` | Submitting a revision clears the field | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-05` | An agent proposal can be confirmed or rejected | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-06` | Confirming a proposal disables it while it runs | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-07` | A refinement chip can be accepted or dismissed | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-08` | The chain picker offers follow-on workflows | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-09` | An agent's reasoning is collapsible | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-10` | Tool calls and file operations are shown as cards | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-11` | Token and context usage are visible | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-12` | Terminal runs show a terminal banner | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-13` | A message can be copied, edited or regenerated | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-14` | Chat modes can be added and removed | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-15` | Files can be attached by drop or by chip | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-16` | Activity is indicated while waiting | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-17` | A conditional route renders as a labelled edge | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-18` | Route outcomes are edited in the rail | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-19` | A route outcome names its condition source | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-20` | A detached node is marked as such | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-21` | Edges can be regrabbed to reparent a node | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-22` | Sub-agents are added under a node | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-23` | Numeric limits step up and down | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-24` | A loop node caps its iterations | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-25` | An agent can be renamed inline | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-26` | A node declares its capabilities | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-27` | Each capability is configured per agent, by name | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-28` | An agent's prompt can be overridden | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-29` | Hooks can be searched | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-30` | An agent's skills are chosen from the rail, not a modal | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-31` | The audit log exports in three formats | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-32` | A live run's audit tab says it is live | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-33` | The audit log can be searched | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-34` | Each list has its own search input | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-35` | Analytics filters by model as well as pipeline | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-36` | Run history sort has two accessible names | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-37` | Design systems are shown as colour bands | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-38` | A generating preview shows progress | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-39` | The artifact version picker is addressable | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-40` | A deliverable can be downloaded from the header | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-41` | A prototype's HTML can be edited directly | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-42` | Steps show review and divert markers | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-43` | A run detail can auto-refresh | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-44` | Agent construction progress is reported | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-45` | Clarifications are summarised with a count | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-46` | A chained run shows where it came from | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-47` | A notification can be dismissed individually | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-48` | The admin table can be searched and its tier set | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-49` | A custom template can be taken from a URL | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-50` | Handoff credentials are labelled | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-51` | An artifact card names and downloads its file | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-52` | The 404 page carries the brand panel | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-53` | A dropped realtime connection offers a reconnect | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-54` | An empty run history invites a first run | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-55` | An edited message is saved and resent in one action | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-56` | The skill manager's editor | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| s  | `S-23-57` | The sidebar's controls | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+
+## 24-api-contract.feature.md — 0/34 (34 skipped)
+
+| | Id | Scenario | Where |
+|---|---|---|---|
+| s  | `S-24-01` | The endpoint inventory matches the snapshot | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-02` | No endpoint loses its authentication silently | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-03` | The public list is exactly eighteen, and each is deliberate | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-04` | A request with no credentials is answered 401, not 403 | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-05` | Registration is permanently closed | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-06` | Login returns either a session or a challenge | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-07` | A challenge is answered on its own endpoint | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-08` | Logout works with an already-invalid token | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-09` | Password recovery refuses when email is a second factor | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-10` | Second-factor management requires a session | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-11` | Every admin endpoint requires an admin | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-12` | Creating a user answers 201 with the created user | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-13` | Deleting a user answers 204 with no body | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-14` | Role and tier changes return the updated user | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-15` | Template previews load without a token | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-16` | The asset route refuses path traversal | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-17` | A missing asset is a 404, not a 500 | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-18` | Handoff creation is authenticated by API key, not by JWT | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-19` | Handoff creation without a valid key is refused | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-20` | A GitHub PAT is not required to create a handoff | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-21` | A run is readable only by its owner | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-22` | A run's files cannot be fetched across an ownership boundary | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-23` | The listing describes the whole workspace | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-24` | An expired workspace is stated, not inferred | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-25` | The reserved subtrees are never listed | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-26` | An HTML workspace file is never served inline | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-27` | Text extensions come back inline as plain text | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-28` | The path parameter refuses to leave the run directory | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-29` | A symlink cannot be used to read outside the run directory | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-30` | A file too large to preview is refused, not streamed | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-31` | The zip holds exactly what the listing showed | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-32` | An oversized workspace is refused rather than archived | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-33` | An expired workspace has nothing to serve | `24_api_contract/test_api_contract.py` — not yet implemented |
+| s  | `S-24-34` | The sandbox is unreachable across an ownership boundary | `24_api_contract/test_api_contract.py` — not yet implemented |
