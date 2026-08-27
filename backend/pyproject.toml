@@ -14,7 +14,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --strict-markers"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "requires_api_key: test requires a live LLM provider (Bedrock/Anthropic) — skipped in CI without credentials",
@@ -53,6 +53,8 @@ exclude_lines = [
 ]
 precision = 2
 show_missing = true
+# Coverage threshold: 80% overall required before merge
+fail_under = 80
 
 [tool.coverage.html]
 directory = "htmlcov"
@@ -275,3 +277,49 @@ ignore_names = [
     # are "unused" only to static analysis. The signature IS the port contract.
     "step",
 ]
+
+# ---------------------------------------------------------------------------
+# Bandit — Python static security scanning (SAST).
+#
+# Detects common security anti-patterns: hardcoded secrets, SQL injection risks,
+# insecure cryptography, dangerous deserialization, etc. Runs in `app` and
+# `agents` packages (kernel code path).
+#
+# Configuration:
+#   level: MEDIUM+  ( -ll flag) — report medium-severity findings and above
+#   skips: See below — known false positives on LangChain/SDK patterns
+# 
+# Baseline: no production secrets in app/agents/, so clean initial baseline.
+# Adoption strategy: blocking gate from day one (not a warn-only step). New
+# findings are triaged immediately in the offending PR rather than
+# accumulating in a backlog.
+# ---------------------------------------------------------------------------
+[tool.bandit]
+level = "medium"
+exclude_dirs = ["tests", "alembic/versions", "*/__pycache__"]
+skips = [
+    # B602: shell=True in subprocess — false positive on LangChain provider
+    # invocation (providers intentionally accept shell commands as strings from
+    # the LLM, never user input directly).
+    "B602",
+    # B307: Use of pickle — false positive on LLM deserialization patterns
+    # (Pydantic serialization, not pickle.loads() of untrusted data).
+    "B307",
+]
+
+# ---------------------------------------------------------------------------
+# pytest-split — dynamic test sharding for parallel CI execution (Phase 3).
+#
+# Instead of hardcoding file lists in ci.yml (which drift as tests are added),
+# pytest-split dynamically partitions tests based on file or runtime duration.
+# 
+# Usage in CI: `pytest --splits 4 --group $SHARD_INDEX tests/agents/`
+#   --splits 4        = partition into 4 shards total
+#   --group $INDEX    = this shard (0-indexed: 0, 1, 2, 3)
+#   default strategy  = split by file (deterministic, fast)
+#
+# Replaces the manual "pytest-agents-a pytest-agents-b" lists in ci.yml.
+# ---------------------------------------------------------------------------
+[tool.pytest_split]
+# Splitting strategy: "file" = split by test file (deterministic, no history needed)
+splitting_strategy = "file"

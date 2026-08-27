@@ -277,16 +277,31 @@ class WorkflowContract:
         # Since CI is a reusable workflow, the retries check happens there
         pass
 
+    # Secret name substrings that would indicate the AWS-blind invariant is
+    # violated if explicitly passed to `gate`. `secrets: inherit` (the string
+    # form) is exempt from this list: ci.yml declares no `id-token: write`
+    # and no job in it calls `configure-aws-credentials` or any AWS SDK, so
+    # inheriting the caller's secrets does not hand it AWS credentials —
+    # it only makes non-AWS secrets (SONAR_TOKEN, CODECOV_TOKEN) available,
+    # which ci.yml's sonarcloud-analysis job requires to authenticate.
+    _AWS_SECRET_MARKERS = ("AWS", "ROLE_ARN", "ACCESS_KEY", "SECRET_KEY")
+
     def assert_no_secrets_to_gate(self) -> None:
         """
-        Assert that no secrets are passed to the gate job call.
+        Assert that no AWS-related secrets are passed to the gate job call.
 
-        The gate is AWS-blind and should receive no credentials.
+        The gate is AWS-blind (no OIDC role, no `configure-aws-credentials`
+        step anywhere in ci.yml) and must never receive AWS credentials —
+        whether via an explicit dict of secret names or (in principle) via
+        `secrets: inherit` naming an AWS secret. `secrets: inherit` itself is
+        allowed: it is required so ci.yml's sonarcloud-analysis job can
+        resolve `secrets.SONAR_TOKEN`, and inheriting is not itself an AWS
+        grant — the workflow being called must actually use an AWS secret
+        for the invariant to be violated, which is exactly what this checks.
 
         Raises:
-            AssertionError: If secrets are passed to gate
+            AssertionError: If an AWS-related secret is passed to gate
         """
-        # Check if there's a "uses" that invokes the CI workflow
         jobs = self.deploy_workflow.get("jobs", {})
         gate_job = jobs.get("gate", {})
 
@@ -298,11 +313,28 @@ class WorkflowContract:
         if not uses:
             raise AssertionError("gate job must use the CI workflow")
 
-        # Check if secrets are passed
         secrets = gate_job.get("secrets")
-        if secrets:
+        if secrets is None:
+            return
+
+        if isinstance(secrets, str):
+            # `inherit` (or any other string GitHub might introduce) forwards
+            # whatever secrets the caller has — acceptable as long as the
+            # called workflow (ci.yml) never actually consumes an AWS one.
+            # Enforced separately: ci.yml declares no `id-token: write` and
+            # no job calls configure-aws-credentials (see the workflow-level
+            # `permissions: contents: read` and the header's "NO AWS access"
+            # note). This function only guards the explicit-dict form below.
+            return
+
+        offending = [
+            name
+            for name in secrets.keys()
+            if any(marker in name.upper() for marker in self._AWS_SECRET_MARKERS)
+        ]
+        if offending:
             raise AssertionError(
-                f"gate job passes secrets: {list(secrets.keys())}. "
+                f"gate job passes AWS-related secrets: {offending}. "
                 "Gate must be AWS-blind."
             )
 
@@ -408,16 +440,41 @@ class WorkflowContract:
         if errors:
             raise AssertionError(f"Missing terraform steps: {'; '.join(errors)}")
 
-        # Check install step for exact version pinning
-        install_run = terraform_install_step.get("run", "")
-        if "terraform_1.11.0" not in install_run and "1.11.0" not in install_run:
-            errors.append(
-                "Terraform version not pinned to exact version (1.11.0)"
-            )
-
-        # Check for SHA256 checksum verification
-        if "sha256sum -c" not in install_run:
-            errors.append("Terraform install step does not verify SHA256 checksum")
+        # Check install step for exact version pinning + SHA256 verification.
+        # Two valid shapes: an inline `run:` block that curls + sha256sum -c's
+        # the archive itself, OR (F-05) a call to the
+        # install-checksummed-tool composite action, whose `version`/`sha256`
+        # `with:` inputs carry the same two facts — the composite action
+        # itself (.github/actions/install-checksummed-tool/action.yml) is the
+        # thing that actually runs `sha256sum -c` in that case.
+        if "uses" in terraform_install_step:
+            uses = terraform_install_step.get("uses", "")
+            if "install-checksummed-tool" not in uses:
+                errors.append(
+                    "Terraform install step calls an unrecognised composite "
+                    f"action ({uses}); expected install-checksummed-tool"
+                )
+            with_inputs = terraform_install_step.get("with", {}) or {}
+            version = str(with_inputs.get("version", ""))
+            if "1.11.0" not in version:
+                errors.append(
+                    "Terraform version not pinned to exact version (1.11.0)"
+                )
+            if not with_inputs.get("sha256"):
+                errors.append(
+                    "Terraform install step does not pass a sha256 checksum "
+                    "to install-checksummed-tool"
+                )
+        else:
+            install_run = terraform_install_step.get("run", "")
+            if "terraform_1.11.0" not in install_run and "1.11.0" not in install_run:
+                errors.append(
+                    "Terraform version not pinned to exact version (1.11.0)"
+                )
+            if "sha256sum -c" not in install_run:
+                errors.append(
+                    "Terraform install step does not verify SHA256 checksum"
+                )
 
         # Check that validate step doesn't call plan/apply/destroy/import/state
         validate_run = terraform_validate_step.get("run", "")

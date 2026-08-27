@@ -1,0 +1,49 @@
+name: Setup backend
+description: Install Python, uv, and cached venv (dev or prod deps)
+
+inputs:
+  dev-deps:
+    description: Include dev dependencies (ruff, pyright, pytest, etc.)
+    required: false
+    default: "true"
+  python-version:
+    description: Python version to use
+    required: false
+    default: "3.12"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Setup uv
+      uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      with:
+        enable-cache: true
+        cache-dependency-glob: backend/requirements*.txt
+
+    - name: Cache .venv
+      id: venv
+      uses: actions/cache@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+      with:
+        path: backend/.venv
+        key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('backend/requirements-prod.txt', 'backend/requirements-dev.txt') }}-${{ inputs.dev-deps }}
+        restore-keys: |
+          venv-${{ runner.os }}-py${{ inputs.python-version }}-
+          venv-${{ runner.os }}-
+
+    - name: Install dependencies
+      if: steps.venv.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: backend
+      run: |
+        set -euo pipefail
+        uv venv --python ${{ inputs.python-version }}
+        if [[ "${{ inputs.dev-deps }}" == "true" ]]; then
+          uv sync --frozen --group dev
+        else
+          uv sync --frozen
+        fi

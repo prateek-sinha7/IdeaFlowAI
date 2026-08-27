@@ -22,7 +22,7 @@
 # ============================================================================
 # Stage 1 — builder
 # ============================================================================
-FROM python:3.13-slim-bookworm AS builder
+FROM python:3.13-slim-bookworm@sha256:b6bd71b0dd3811ddbcbc523ec2965fd1e1bcfdf7a20ab24679273d3bee726129 AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -49,24 +49,15 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 # Cache-friendly: install deps before copying app source so source-only
-# changes hit the cached layer.
+# changes hit the cached layer. 
+# Phase 6: Install only production dependencies (requirements-prod.txt).
+# Test dependencies (pytest, hypothesis, etc.) are NOT included in the runtime image.
+# Phase 7: Use --mount=type=cache to speed up pip installs (local cache, not in layer).
 WORKDIR /build
-COPY requirements.txt ./
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
-
-# Trim install-time bloat that doesn't belong in a runtime image:
-#   * __pycache__ — pip writes .pyc on install despite PYTHONDONTWRITEBYTECODE
-#     applying only to *new* compilations; reclaiming ~70 MB.
-#   * In-package tests/ dirs — numpy alone ships ~70 MB of test fixtures we
-#     never execute. Other libs (passlib, sqlalchemy) add another few MB.
-# This step lives in the builder stage so the cleaned tree is what gets
-# COPYed into the runtime stage. Net image saving: ~140 MB.
-RUN find /opt/venv -depth -type d -name '__pycache__' -prune -exec rm -rf {} + \
-    && find /opt/venv/lib -depth -type d -name 'tests' -prune -exec rm -rf {} + \
-    && find /opt/venv/lib -depth -type d -name 'test' -prune -exec rm -rf {} + \
-    && find /opt/venv/lib -depth -type d \( -name 'pip' -o -name 'pip-*' -o -name 'setuptools' -o -name 'setuptools-*' -o -name 'wheel' -o -name 'wheel-*' -o -name 'pkg_resources' \) -prune -exec rm -rf {} + \
-    && rm -f /opt/venv/bin/pip /opt/venv/bin/pip3 /opt/venv/bin/pip3.13
+COPY requirements-prod.txt ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements-prod.txt
 
 
 # ============================================================================
@@ -116,8 +107,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 #   * libstdc++6 — the official Node 20 binary we copy below links against
 #                  it; libc.so.6 / libm.so.6 / libgcc_s.so.1 are already
 #                  present in python:3.13-slim-bookworm.
+#   * git        — used by app/services/handoff_github.py (GitHub handoff capability)
+#                  and agents/runtime/local.py (worktree isolation for parallel agents).
+#                  Required for production, not just testing.
 # Everything else from the builder stage (gcc, libpq-dev, build-essential)
 # stays out of this layer to keep the image small.
+# Phase 7: Install playwright browser deps in the same apt-get call to minimize layers.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libpq5 \
@@ -125,6 +120,29 @@ RUN apt-get update \
         ca-certificates \
         libstdc++6 \
         git \
+        # Playwright deps (for chromium binary installation below)
+        libatomic1 \
+        libatk-bridge2.0-0 \
+        libatk1.0-0 \
+        libatspi2.0-0 \
+        libcairo2 \
+        libcups2 \
+        libdbus-1-3 \
+        libdrm2 \
+        libegl1 \
+        libgbm1 \
+        libglib2.0-0 \
+        libgtk-3-0 \
+        libnspr4 \
+        libnss3 \
+        libpango-1.0-0 \
+        libpangocairo-1.0-0 \
+        libx11-6 \
+        libxcb1 \
+        libxdamage1 \
+        libxext6 \
+        libxfixes3 \
+        libxrandr2 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -132,15 +150,15 @@ RUN apt-get update \
 COPY --from=builder /opt/venv /opt/venv
 
 # Headless Chromium for prototype render-validation (app/agents/render_check.py).
-# `playwright` (the Python package) arrived in the venv above; this fetches the
-# browser binary + its OS libraries. Run as root, BEFORE the USER switch, into a
-# fixed path the non-root runtime user can launch from (PLAYWRIGHT_BROWSERS_PATH).
+# `playwright` (the Python package) arrived in the venv above from requirements-prod.txt;
+# this step fetches the browser binary + its OS libraries. Run as root, BEFORE the USER switch,
+# into a fixed path the non-root runtime user can launch from (PLAYWRIGHT_BROWSERS_PATH).
 # Adds ~350 MB to the image — the cost of in-image headless validation.
+# Phase 6: Note that playwright is a PRODUCTION dependency, not a test dependency,
+# used for the render_check capability.
+# Phase 7: All deps installed in single apt-get call above; just invoke playwright install.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
-RUN apt-get update \
-    && playwright install --with-deps chromium \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
+RUN playwright install --with-deps chromium \
     && chown -R 10001:10001 /opt/playwright
 
 # Node 20 runtime binary, taken from the same official image used by the

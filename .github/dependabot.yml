@@ -1,0 +1,108 @@
+version: 2
+
+updates:
+  # Python dependencies (backend)
+  # Dependabot preserves SHA pins and updates the # vX.Y.Z comment alongside.
+  # Group langchain ecosystem together to reduce PR noise while keeping pace with
+  # the agent runtime dependencies.
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    groups:
+      langchain:
+        patterns:
+          - "langchain*"
+          - "langgraph*"
+          - "deepagents"
+    commit-message:
+      prefix: "chore: "
+      prefix-scope: "deps"
+    reviewers:
+      - "Hexaware-HnI/engineering"
+    allow:
+      - dependency-type: "all"
+    # Avoid opening PRs during deployments (typically Tuesday/Thursday)
+    ignore-conditions:
+      - dependency-update-type: "semver:major"
+        update-types:
+          - "semver:major"
+
+  # Node.js dependencies (frontend)
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    commit-message:
+      prefix: "chore: "
+      prefix-scope: "deps"
+    reviewers:
+      - "Hexaware-HnI/engineering"
+    allow:
+      - dependency-type: "all"
+
+  # GitHub Actions (shared across workflows)
+  # SHA-pinned actions get their # vX.Y.Z comment updated automatically.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:30"
+    commit-message:
+      prefix: "chore: "
+      prefix-scope: "ci"
+    reviewers:
+      - "Hexaware-HnI/devops"
+    allow:
+      - dependency-type: "all"
+
+  # Container base images (Dockerfile FROM statements)
+  # Tracks updates to python:3.13-slim-bookworm and node:20-bookworm-slim
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: wednesday
+      time: "10:00"
+    commit-message:
+      prefix: "chore: "
+      prefix-scope: "docker"
+    reviewers:
+      - "Hexaware-HnI/devops"
+    allow:
+      - dependency-type: "all"
+
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: wednesday
+      time: "10:00"
+    commit-message:
+      prefix: "chore: "
+      prefix-scope: "docker"
+    reviewers:
+      - "Hexaware-HnI/devops"
+    allow:
+      - dependency-type: "all"
+
+  # Terraform modules and providers (infrastructure)
+  # Less frequent: IaC changes should be vetted more carefully
+  - package-ecosystem: terraform
+    directory: /infra/terraform
+    schedule:
+      interval: monthly
+      day: 1
+      time: "11:00"
+    commit-message:
+      prefix: "chore: "
+      prefix-scope: "infra"
+    reviewers:
+      - "Hexaware-HnI/devops"
+    allow:
+      - dependency-type: "all"

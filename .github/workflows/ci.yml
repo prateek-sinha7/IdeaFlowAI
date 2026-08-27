@@ -15,8 +15,19 @@
 #
 #   `dev` / `staging` / `v*` are deliberately NOT standalone push triggers:
 #   deploy.yml fires on exactly those refs and calls this workflow as its
-#   `gate` job, so listing them here too would run the whole suite twice on
-#   the same commit and report two independent statuses for one push.
+#   `gate` job (with `secrets: inherit`), so listing them here too would run
+#   the whole suite twice on the same commit and report two independent
+#   statuses for one push. THIS ONLY GIVES `dev`/`staging` PUSH COVERAGE IF
+#   deploy.yml's `gate` job is actually wired into `build`'s and `deploy`'s
+#   `needs:` (it was temporarily bypassed once — see git history around
+#   commit 8f3042d6 — which left every push to `dev` with NO CI at all,
+#   silently, because both the "runs on main/PR only" exclusion here AND the
+#   gate bypass in deploy.yml were true at once). tests/ci/test_workflow_contracts.py
+#   plus the "Deploy workflow gate contract" step in the test-debt job below
+#   assert the gate dependency exists, specifically so this exclusion never
+#   becomes a silent coverage gap again. PRs targeting `dev`/`staging` (prior
+#   to merge) ARE covered here regardless, via the unfiltered `pull_request:`
+#   trigger below.
 #
 # deploy.yml depends on this gate: no deploy lands without lint + test + scan
 # passing on the same commit. This gate BLOCKS deploy.yml's `build` job (which
@@ -33,14 +44,11 @@
 # ran in its pre_build phase, are covered locally by .pre-commit-config.yaml.
 #
 # Action pinning: every third-party/first-party action below is pinned to a
-# full commit SHA (not a mutable tag), per GitHub's supply-chain guidance and
-# in direct response to CVE-2026-33634 (GHSA-69fq-xp46-6x23) — the March 2026
-# Trivy/aquasecurity compromise where attackers force-pushed malicious commits
-# onto existing version tags of aquasecurity/trivy-action and
-# aquasecurity/setup-trivy. Because of that incident, the security-scan job
-# below does NOT use either of those actions at all: gitleaks, checkov, trivy,
-# and tflint are all installed as direct release binaries with a pinned
-# version + verified sha256 checksum instead.
+# full commit SHA (never a mutable tag). security-scan installs gitleaks,
+# checkov, trivy, and tflint as checksum-verified release binaries rather
+# than via aquasecurity/trivy-action or aquasecurity/setup-trivy at all.
+# Full incident rationale (CVE-2026-33634): F-07 —
+# docs/CICD-DESIGN-DECISIONS.md#action-pinning-and-cve-2026-33634
 # =============================================================================
 
 name: CI
@@ -67,7 +75,107 @@ concurrency:
 permissions:
   contents: read
 
+# F-08: values that were previously hardcoded at multiple sites within this
+# file (and, for TRIVY_*, duplicated a second time in deploy.yml) now have
+# exactly one authoritative definition. A version/checksum bump or an ECR
+# repo rename is now a one-line diff instead of a multi-site find-and-replace
+# that is easy to apply incompletely.
+env:
+  # Consumed by security-scan's "Install trivy" step below AND by
+  # deploy.yml's "Install trivy" step in the build job (deploy.yml declares
+  # its own identical copy of these two values — see the note there — since
+  # workflow-level `env:` cannot be shared across separate workflow FILES).
+  # Bumping the version here requires the SAME bump in deploy.yml; both
+  # locations are commented with a pointer to the other.
+  TRIVY_VERSION: "0.69.3"
+  TRIVY_SHA256: "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75"
+
+  # The 6 Terraform roots this repo has, read by BOTH "Terraform validate"
+  # and "Check for .terraform.lock.hcl" in the security-scan job (F-08: these
+  # were previously two independent hardcoded copies of the same array).
+  TF_ROOTS: "infra/terraform/app infra/terraform/bootstrap infra/terraform/foundation infra/terraform/localstack infra/terraform/shared infra/terraform/velocityai-alb"
+
 jobs:
+  # ---------------------------------------------------------------------------
+  # Phase 8: Fast-fail tier — catches trivial errors in ~90 seconds, gates
+  # all heavier jobs. Runs:
+  #   - ruff format --check (formatting)
+  #   - ruff check (linting)
+  #   - python -m compileall (syntax)
+  #   - migration_guard.py --verify (migration invariants)
+  #   - gitleaks (secrets)
+  #   - shellcheck / bash -n (shell syntax)
+  #
+  # Cost: ~1 min billable. If this job fails, everything else is skipped.
+  # ---------------------------------------------------------------------------
+  fast-checks:
+    name: Fast checks (format / lint / compile / migrate / gitleaks / shell)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # Full history for gitleaks
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
+
+      - name: Setup backend (uv + venv)
+        uses: ./.github/actions/setup-backend
+        with:
+          dev-deps: "true"
+
+      - name: ruff format --check
+        working-directory: backend
+        run: ruff format --check .
+
+      - name: ruff check (linting)
+        working-directory: backend
+        run: ruff check .
+
+      - name: python -m compileall (syntax check)
+        working-directory: backend
+        run: python -m compileall -q app agents
+
+      - name: migration_guard.py --verify
+        working-directory: backend
+        run: uv run --no-sync python scripts/migration_guard.py --verify
+
+      # Phase 10: Workflow gate contract test — ensures gate cannot be removed
+      - name: Workflow gate contract
+        run: |
+          pip install --no-cache-dir pyyaml==6.0.2
+          python .github/scripts/check-workflow-gate-contract.py \
+            .github/workflows/deploy.yml --verbose
+
+      # gitleaks: secret scanning (see .gitleaks.toml)
+      - name: Install gitleaks
+        uses: ./.github/actions/install-checksummed-tool
+        with:
+          name: gitleaks
+          version: v8.30.1
+          url: https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          sha256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          archive-format: tar.gz
+          binary-name: gitleaks
+
+      - name: gitleaks detect (full history)
+        run: gitleaks detect --redact --no-banner -v --config .gitleaks.toml --source .
+
+      # Shell syntax checks
+      - name: shellcheck (all .sh files)
+        run: |
+          find . -type f -name "*.sh" \
+            -not -path "./.git/*" \
+            -not -path "./.next/*" \
+            -not -path "./node_modules/*" \
+            -not -path "./.venv/*" \
+            -not -path "./.terraform/*" \
+            | xargs -r shellcheck --severity=error
+
+      - name: bash -n (syntax check all scripts in .github)
+        run: |
+          find .github/scripts -type f -exec bash -n {} +
+
   # ---------------------------------------------------------------------------
   # Shell scripts — the on-host / on-runner bash scripts that SSM RunCommand
   # executes as root (remote-deploy.sh, remote-bootstrap.sh) or that provision
@@ -76,21 +184,21 @@ jobs:
   # "shellcheck'd and bash -n'd in CI" before any such job existed — this job
   # makes that claim true.
   #
-  # `bash -n` is a pure parse check (catches the class of bug that killed a
-  # deploy outright — e.g. the runner's `set -u` shell aborting on an unbound
-  # `$i` from a heredoc body evaluated at the wrong layer). shellcheck catches
-  # everything else (unquoted expansions, unset-variable use under `set -u`,
-  # SC2064-style trap quoting, etc.).
+  # `bash -n` is a pure parse check; shellcheck catches everything else
+  # (unquoted expansions, unset-variable use under `set -u`, SC2064-style
+  # trap quoting, etc.). The specific outage this class of check would have
+  # caught: docs/CICD-DESIGN-DECISIONS.md#the-ssm-runcommand-heredoc-incident-why-payloads-are-built-not-inlined
   # ---------------------------------------------------------------------------
   shellcheck:
     name: Shell scripts (bash -n / shellcheck)
     runs-on: ubuntu-latest
+    needs: [fast-checks]  # Phase 8: Depends on fast-checks
     timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # shellcheck ships preinstalled on the ubuntu-24.04 runner image
+        with:
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
       # (actions/runner-images Ubuntu2404-Readme.md lists it under Included
       # Software), so — unlike gitleaks/checkov/trivy/tflint below, none of
       # which are preinstalled — there is nothing to download here. This
@@ -139,38 +247,83 @@ jobs:
   test-debt:
     name: Test debt (record completeness / baseline counts)
     runs-on: ubuntu-latest
+    needs: [fast-checks]  # Phase 8: Depends on fast-checks
     timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - name: Setup backend
+        uses: ./.github/actions/setup-backend
         with:
-          enable-cache: true
-          cache-dependency-glob: "backend/requirements*.txt"
+          frozen: "true"
 
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Setup frontend
+        uses: ./.github/actions/setup-frontend
+
+      # Phase 8: Cache Playwright browser (~400 MB, 90s install time)
+      - name: Cache Playwright browser
+        uses: actions/cache@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
         with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Create venv + install backend dependencies
-        working-directory: backend
-        run: |
-          uv venv --python 3.12
-          uv pip install -r requirements.txt -r requirements-dev.txt
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: playwright-
 
       # Needed only so `playwright test --list` can resolve the mocked project.
       - name: Install Playwright browser
         working-directory: frontend
         run: npx playwright install --with-deps chromium
+
+      # Blocking: the pytest-agents-a/pytest-agents-b jobs below hardcode their
+      # file lists inline in a `run:` command rather than discovering
+      # tests/agents/ dynamically. That already went stale once — two
+      # characterization goldens (test_characterization_prototype_feature_revision.py,
+      # test_characterization_prototype_large_revision.py) were added to the
+      # directory and silently never ran in CI, which is exactly the failure
+      # mode INV-3 exists to prevent. This step re-derives both shards' file
+      # lists straight from this workflow file and diffs them against
+      # `tests/agents/test_*.py` on disk, so a new test file that isn't added
+      # to either shard fails the PR check instead of silently never running.
+      - name: Verify pytest shard coverage (tests/agents/)
+        run: |
+          set -euo pipefail
+          CI_YML=".github/workflows/ci.yml"
+
+          on_disk="$(cd backend && find tests/agents -maxdepth 1 -name 'test_*.py' -printf '%f\n' | sort)"
+
+          shard_files="$(
+            awk '
+              /name: pytest \(agents — shard [AB]/ { in_shard=1 }
+              in_shard && /run: uv run/ { print; in_shard=0 }
+            ' "$CI_YML" \
+            | grep -oE 'tests/agents/test_[A-Za-z0-9_]+\.py' \
+            | sed 's#tests/agents/##' \
+            | sort -u
+          )"
+
+          missing="$(comm -23 <(echo "$on_disk") <(echo "$shard_files"))"
+
+          if [[ -n "$missing" ]]; then
+            echo "::error::The following tests/agents/test_*.py files exist on disk but are not listed in either pytest-agents-a or pytest-agents-b in ${CI_YML}:"
+            echo "$missing" | sed 's/^/  /'
+            echo "::error::Add each file to a shard's file list in ${CI_YML} before merging."
+            exit 1
+          fi
+
+          echo "All $(echo "$on_disk" | wc -l) tests/agents/test_*.py files are covered by a pytest shard."
+
+      # Blocking: asserts the deploy.yml gate contract directly (build/deploy
+      # both transitively require `gate`, no bypass constructs on the gate
+      # job, every job declares timeout-minutes, no secrets leak to `gate`).
+      # This is the automated check that would have caught `gate` being
+      # silently dropped from `needs:` (see the restored dependency in
+      # deploy.yml) — it must run on every PR, not just exist unwired in the
+      # repo. tests/ci/test_workflow_contracts.py is the single source of
+      # truth for this contract; .github/scripts/check-workflow-gate-contract.py
+      # is kept only as a standalone CLI for local debugging.
+      - name: Deploy workflow gate contract
+        working-directory: backend
+        run: uv run --no-sync pytest tests/ci/test_workflow_contracts.py -v
 
       # Blocking: an incomplete or expired record entry fails the PR check.
       - name: Remediation Record completeness
@@ -207,12 +360,22 @@ jobs:
   #   - integration: ~37s (0m37s)
   # Parallel max duration: ~510s (8m30s) ✓ within 15m timeout
   # 
-  # INV-3 requirement: All 4 characterization suites run in agents-a shard
-  # with SNAPSHOT_UPDATE unset (default pytest behavior).
+  # INV-3 requirement: all 6 characterization suites run in agents-a shard
+  # with SNAPSHOT_UPDATE unset (default pytest behavior). Two of the six
+  # (test_characterization_prototype_feature_revision.py,
+  # test_characterization_prototype_large_revision.py) were added to
+  # tests/agents/ after this shard's file list was written and were never
+  # picked up — added back here. A hardcoded file list cannot notice a new
+  # test file on its own; verify shard coverage after adding any new
+  # tests/agents/test_*.py with:
+  #   pytest --collect-only -q tests/agents/ | diff - <(this shard's list)
+  # or migrate to pytest-split (see docs/CICD note) so file lists never need
+  # hand-maintenance again.
   # ---------------------------------------------------------------------------
   pytest-agents-a:
     name: Backend (pytest agents shard A)
     runs-on: ubuntu-latest
+    needs: [fast-checks, test-debt]  # Phase 8: Depends on fast-checks + test-debt
     timeout-minutes: 15
     defaults:
       run:
@@ -220,32 +383,31 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          enable-cache: true
-          cache-dependency-glob: "backend/requirements*.txt"
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
-      - name: Create venv + install dependencies
-        run: |
-          uv venv --python 3.12
-          uv pip install -r requirements.txt -r requirements-dev.txt
+      - name: Setup backend
+        uses: ./.github/actions/setup-backend
+        with:
+          frozen: "true"
 
       - name: pytest (agents — shard A with coverage)
-        run: uv run --no-sync pytest tests/agents/test_allowed_step_keys.py tests/agents/test_api_prefix_validator.py tests/agents/test_artifact_fallback_and_roster.py tests/agents/test_artifact_graph.py tests/agents/test_artifacts.py tests/agents/test_attach_replay_matrix.py tests/agents/test_audit_endpoints.py tests/agents/test_banned_patterns.py tests/agents/test_bedrock_cache_and_thinking.py tests/agents/test_budget.py tests/agents/test_cancel_stops_resumed_run.py tests/agents/test_capabilities_threading.py tests/agents/test_capability_resolution.py tests/agents/test_characterization_app_builder.py tests/agents/test_characterization_ppt.py tests/agents/test_characterization_prototype.py tests/agents/test_characterization_prototype_revision.py tests/agents/test_chat_event_neutrality.py tests/agents/test_chat_history_compaction.py tests/agents/test_chunk_sanitizer.py tests/agents/test_clarify_llm_live.py tests/agents/test_code_validators.py tests/agents/test_compiled_plan_runs.py tests/agents/test_compiler.py tests/agents/test_compiler_subagents.py tests/agents/test_compiler_trust.py tests/agents/test_composed_fanout.py tests/agents/test_composer_skills_delivery.py tests/agents/test_concierge_capability.py tests/agents/test_constitution_prod.py tests/agents/test_context_message_oracle.py tests/agents/test_context_pack.py tests/agents/test_context_providers.py tests/agents/test_conversation_provider.py tests/agents/test_create_runner.py tests/agents/test_custom_agent_prompt.py tests/agents/test_declared_gate_streaming.py tests/agents/test_deep_agent_runner_hitl_live.py tests/agents/test_deliverable_resolvers.py tests/agents/test_edge_manifests.py tests/agents/test_engine_runner_error_arm.py tests/agents/test_exec_runs.py tests/agents/test_execution_context.py tests/agents/test_fanout.py tests/agents/test_fanout_cancel.py tests/agents/test_fanout_tool.py tests/agents/test_gate_revision_discriminator.py tests/agents/test_gate_stub_signature_drift.py tests/agents/test_gates.py tests/agents/test_guardrails.py tests/agents/test_heading_tasks_parser.py tests/agents/test_hooks.py tests/agents/test_id_alias_resolver.py tests/agents/test_image_input_wiring.py tests/agents/test_input_providers_run_images.py tests/agents/test_integration_providers.py tests/agents/test_integration_scopes.py tests/agents/test_internet_tool_provider.py tests/agents/test_isolation.py tests/agents/test_iss032_cache_tokens.py tests/agents/test_iss033_aux_token_fold_offline.py tests/agents/test_iss033a_fixloop_token_fold_offline.py tests/agents/test_iss034_cost_full.py tests/agents/test_iss056_clarify_quality_fixes.py tests/agents/test_json_tasks.py tests/agents/test_live_contract.py tests/agents/test_live_harness.py tests/agents/test_loader.py tests/agents/test_local_runtime.py tests/agents/test_manifest.py tests/agents/test_manifest_coverage.py tests/agents/test_manifest_parity.py tests/agents/test_mcp_catalog.py tests/agents/test_mcp_client.py -v \
+        run: uv run --no-sync pytest tests/agents/test_allowed_step_keys.py tests/agents/test_api_prefix_validator.py tests/agents/test_artifact_fallback_and_roster.py tests/agents/test_artifact_graph.py tests/agents/test_artifacts.py tests/agents/test_attach_replay_matrix.py tests/agents/test_audit_endpoints.py tests/agents/test_banned_patterns.py tests/agents/test_bedrock_cache_and_thinking.py tests/agents/test_budget.py tests/agents/test_cancel_stops_resumed_run.py tests/agents/test_capabilities_threading.py tests/agents/test_capability_resolution.py tests/agents/test_characterization_app_builder.py tests/agents/test_characterization_ppt.py tests/agents/test_characterization_prototype.py tests/agents/test_characterization_prototype_revision.py tests/agents/test_characterization_prototype_feature_revision.py tests/agents/test_characterization_prototype_large_revision.py tests/agents/test_chat_event_neutrality.py tests/agents/test_chat_history_compaction.py tests/agents/test_chunk_sanitizer.py tests/agents/test_clarify_llm_live.py tests/agents/test_code_validators.py tests/agents/test_compiled_plan_runs.py tests/agents/test_compiler.py tests/agents/test_compiler_subagents.py tests/agents/test_compiler_trust.py tests/agents/test_composed_fanout.py tests/agents/test_composer_skills_delivery.py tests/agents/test_concierge_capability.py tests/agents/test_constitution_prod.py tests/agents/test_context_message_oracle.py tests/agents/test_context_pack.py tests/agents/test_context_providers.py tests/agents/test_conversation_provider.py tests/agents/test_create_runner.py tests/agents/test_custom_agent_prompt.py tests/agents/test_declared_gate_streaming.py tests/agents/test_deep_agent_runner_hitl_live.py tests/agents/test_deliverable_resolvers.py tests/agents/test_edge_manifests.py tests/agents/test_engine_runner_error_arm.py tests/agents/test_exec_runs.py tests/agents/test_execution_context.py tests/agents/test_fanout.py tests/agents/test_fanout_cancel.py tests/agents/test_fanout_tool.py tests/agents/test_gate_revision_discriminator.py tests/agents/test_gate_stub_signature_drift.py tests/agents/test_gates.py tests/agents/test_guardrails.py tests/agents/test_heading_tasks_parser.py tests/agents/test_hooks.py tests/agents/test_id_alias_resolver.py tests/agents/test_image_input_wiring.py tests/agents/test_input_providers_run_images.py tests/agents/test_integration_providers.py tests/agents/test_integration_scopes.py tests/agents/test_internet_tool_provider.py tests/agents/test_isolation.py tests/agents/test_iss032_cache_tokens.py tests/agents/test_iss033_aux_token_fold_offline.py tests/agents/test_iss033a_fixloop_token_fold_offline.py tests/agents/test_iss034_cost_full.py tests/agents/test_iss056_clarify_quality_fixes.py tests/agents/test_json_tasks.py tests/agents/test_live_contract.py tests/agents/test_live_harness.py tests/agents/test_loader.py tests/agents/test_local_runtime.py tests/agents/test_manifest.py tests/agents/test_manifest_coverage.py tests/agents/test_manifest_parity.py tests/agents/test_mcp_catalog.py tests/agents/test_mcp_client.py -v \
           --cov=app \
           --cov=agents \
           --cov-report=term-missing:skip-covered \
-          --cov-report=xml:coverage-agents-a.xml \
+          --cov-report= \
+          --cov-fail-under=80 \
           --junitxml=junit-agents-a.xml
+        env:
+          COVERAGE_FILE: .coverage.agents-a
 
       - name: Upload coverage artifact (agents-a)
         if: always()
         uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
         with:
           name: coverage-agents-a
-          path: backend/coverage-agents-a.xml
+          path: backend/.coverage.agents-a
           retention-days: 1
 
       - name: Upload JUnit artifact (agents-a)
@@ -259,6 +421,7 @@ jobs:
   pytest-agents-b:
     name: Backend (pytest agents shard B)
     runs-on: ubuntu-latest
+    needs: [fast-checks, test-debt]  # Phase 8: Depends on fast-checks + test-debt
     timeout-minutes: 15
     defaults:
       run:
@@ -266,32 +429,31 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          enable-cache: true
-          cache-dependency-glob: "backend/requirements*.txt"
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
-      - name: Create venv + install dependencies
-        run: |
-          uv venv --python 3.12
-          uv pip install -r requirements.txt -r requirements-dev.txt
+      - name: Setup backend
+        uses: ./.github/actions/setup-backend
+        with:
+          frozen: "true"
 
       - name: pytest (agents — shard B with coverage)
         run: uv run --no-sync pytest tests/agents/test_mcp_compile_validation.py tests/agents/test_mcp_gating.py tests/agents/test_merge.py tests/agents/test_merge_conflict.py tests/agents/test_migration_ledger.py tests/agents/test_model_catalog.py tests/agents/test_model_fallback.py tests/agents/test_model_pricing.py tests/agents/test_nav_coverage.py tests/agents/test_parallel_group_strategy.py tests/agents/test_parent_run_ownership.py tests/agents/test_per_task_capture.py tests/agents/test_phase3_compaction.py tests/agents/test_phase3_cutover_verify.py tests/agents/test_phase3_parity.py tests/agents/test_phase3_token_delta_live.py tests/agents/test_phase5_fixloop_selection.py tests/agents/test_phase5_revision_validation.py tests/agents/test_phase6_frontend_consistency.py tests/agents/test_phase8_live.py tests/agents/test_phase8_resume.py tests/agents/test_prompt_contracts.py tests/agents/test_prototype_image_optin.py tests/agents/test_redo_gate_safety.py tests/agents/test_redo_prompt_contract.py tests/agents/test_registry.py tests/agents/test_registry_capabilities.py tests/agents/test_registry_discovery.py tests/agents/test_registry_helpers.py tests/agents/test_repo_diff.py tests/agents/test_repo_index.py tests/agents/test_repo_inventory.py tests/agents/test_repositories_persistence.py tests/agents/test_restart_resume.py tests/agents/test_resume_marker_workspace.py tests/agents/test_resume_ws_bridge.py tests/agents/test_revision_gating.py tests/agents/test_route_table.py tests/agents/test_routing_parity.py tests/agents/test_run_log.py tests/agents/test_runner_output_fallback.py tests/agents/test_sample_brownfield_workflow.py tests/agents/test_sample_wave_workflow.py tests/agents/test_sandbox_deliverable.py tests/agents/test_sc001_fanout.py tests/agents/test_sc001_gate_flag.py tests/agents/test_sc001_lane_router_concierge.py tests/agents/test_sc001_nonprototype_task_loop.py tests/agents/test_sc001_reconcile.py tests/agents/test_scratch_lock_fanout_race.py tests/agents/test_severity.py tests/agents/test_skill_directive_block.py tests/agents/test_skill_prompt_baseline.py tests/agents/test_skills_text_only_deliverable.py tests/agents/test_spec_revision_context.py tests/agents/test_spec_revision_cycles.py tests/agents/test_specs_from_plan.py tests/agents/test_sse_cutover_banned_patterns.py tests/agents/test_static_check.py tests/agents/test_steering_seam.py tests/agents/test_step_retry.py tests/agents/test_strategies.py tests/agents/test_subagent_runs.py tests/agents/test_task_identity.py tests/agents/test_task_list_gate_lineage.py tests/agents/test_text_only_prompt_hygiene.py tests/agents/test_tool_grant_invariants.py tests/agents/test_tool_permissions.py tests/agents/test_update_specs_enforcement.py tests/agents/test_uploaded_files_provider.py tests/agents/test_validators.py tests/agents/test_wave_runs.py tests/agents/test_wave_scheduler.py tests/agents/test_wire_parity.py -v \
           --cov=app \
           --cov=agents \
           --cov-report=term-missing:skip-covered \
-          --cov-report=xml:coverage-agents-b.xml \
+          --cov-report= \
+          --cov-fail-under=80 \
           --junitxml=junit-agents-b.xml
+        env:
+          COVERAGE_FILE: .coverage.agents-b
 
       - name: Upload coverage artifact (agents-b)
         if: always()
         uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
         with:
           name: coverage-agents-b
-          path: backend/coverage-agents-b.xml
+          path: backend/.coverage.agents-b
           retention-days: 1
 
       - name: Upload JUnit artifact (agents-b)
@@ -302,42 +464,62 @@ jobs:
           path: backend/junit-agents-b.xml
           retention-days: 1
 
-  pytest-unit:
-    name: Backend (pytest unit)
+  pytest-unit-and-integration:
+    name: Backend (pytest unit + integration)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    needs: [fast-checks, test-debt]  # Phase 8: Depends on fast-checks + test-debt
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          enable-cache: true
-          cache-dependency-glob: "backend/requirements*.txt"
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
-      - name: Create venv + install dependencies
-        run: |
-          uv venv --python 3.12
-          uv pip install -r requirements.txt -r requirements-dev.txt
+      - name: Setup backend
+        uses: ./.github/actions/setup-backend
+        with:
+          frozen: "true"
 
+      # Phase 8: Merged job (unit + integration in one pass)
       - name: pytest (unit tests with coverage)
         run: uv run --no-sync pytest tests/unit -v \
           --cov=app \
           --cov=agents \
           --cov-report=term-missing:skip-covered \
-          --cov-report=xml:coverage-unit.xml \
+          --cov-report= \
+          --cov-fail-under=80 \
           --junitxml=junit-unit.xml
+        env:
+          COVERAGE_FILE: .coverage.unit
+
+      - name: pytest (integration tests with coverage)
+        run: uv run --no-sync pytest tests/integration -v \
+          --cov=app \
+          --cov=agents \
+          --cov-report=term-missing:skip-covered \
+          --cov-report= \
+          --cov-fail-under=80 \
+          --junitxml=junit-integration.xml
+        env:
+          COVERAGE_FILE: .coverage.integration
 
       - name: Upload coverage artifact (unit)
         if: always()
         uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
         with:
           name: coverage-unit
-          path: backend/coverage-unit.xml
+          path: backend/.coverage.unit
+          retention-days: 1
+
+      - name: Upload coverage artifact (integration)
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: coverage-integration
+          path: backend/.coverage.integration
           retention-days: 1
 
       - name: Upload JUnit artifact (unit)
@@ -346,44 +528,6 @@ jobs:
         with:
           name: junit-unit
           path: backend/junit-unit.xml
-          retention-days: 1
-
-  pytest-integration:
-    name: Backend (pytest integration)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: "backend/requirements*.txt"
-
-      - name: Create venv + install dependencies
-        run: |
-          uv venv --python 3.12
-          uv pip install -r requirements.txt -r requirements-dev.txt
-
-      - name: pytest (integration tests with coverage)
-        run: uv run --no-sync pytest tests/integration -v \
-          --cov=app \
-          --cov=agents \
-          --cov-report=term-missing:skip-covered \
-          --cov-report=xml:coverage-integration.xml \
-          --junitxml=junit-integration.xml
-
-      - name: Upload coverage artifact (integration)
-        if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
-        with:
-          name: coverage-integration
-          path: backend/coverage-integration.xml
           retention-days: 1
 
       - name: Upload JUnit artifact (integration)
@@ -399,7 +543,7 @@ jobs:
     name: Backend (merge coverage & JUnit)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [pytest-agents-a, pytest-agents-b, pytest-unit, pytest-integration]
+    needs: [pytest-agents-a, pytest-agents-b, pytest-unit-and-integration, fast-checks]  # Phase 8: Updated for merged job
     defaults:
       run:
         working-directory: backend
@@ -407,24 +551,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          enable-cache: true
-          cache-dependency-glob: "backend/requirements*.txt"
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
-      - name: Create venv + install dependencies
-        run: |
-          uv venv --python 3.12
-          uv pip install -r requirements.txt -r requirements-dev.txt
+      - name: Setup backend
+        uses: ./.github/actions/setup-backend
+        with:
+          frozen: "true"
 
       - name: Download all coverage artifacts
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.0.0
         with:
           pattern: coverage-*
-          path: backend/
-          merge-multiple: true
+          path: backend/coverage-artifacts
+          merge-multiple: false
+
+      - name: Extract coverage files from artifacts
+        run: |
+          set -euo pipefail
+          # Move .coverage.* files from subdirectories to current dir
+          find backend/coverage-artifacts -name ".coverage.*" -exec mv {} backend/ \;
+          ls -la backend/.coverage.* 2>/dev/null || echo "No .coverage files found"
 
       - name: Download all JUnit artifacts
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.0.0
@@ -435,8 +582,11 @@ jobs:
 
       - name: Merge coverage reports
         run: |
-          uv run --no-sync coverage combine coverage-agents-a.xml coverage-agents-b.xml coverage-unit.xml coverage-integration.xml --keep
-          uv run --no-sync coverage report
+          # Combine all .coverage.<shard> files
+          uv run --no-sync coverage combine .coverage.agents-a .coverage.agents-b .coverage.unit .coverage.integration
+          
+          # Generate all report formats
+          uv run --no-sync coverage report --fail-under=80
           uv run --no-sync coverage html
           uv run --no-sync coverage json
           uv run --no-sync coverage xml
@@ -452,7 +602,7 @@ jobs:
         with:
           name: backend-coverage-report
           path: backend/htmlcov/
-          retention-days: 30
+          retention-days: 1  # Phase 8: Reduced from 30 to 1 day (PR-scoped data)
 
       - name: Upload merged JUnit report
         if: always()
@@ -460,7 +610,7 @@ jobs:
         with:
           name: backend-junit-report
           path: backend/junit-merged.xml
-          retention-days: 30
+          retention-days: 1  # Phase 8: Reduced from 30 to 1 day
 
       - name: Upload backend coverage to Codecov
         if: always()
@@ -471,10 +621,42 @@ jobs:
           name: backend-coverage
           fail_ci_if_error: false
 
-  # Original backend job (minus pytest) continues for linting
-  backend:
-    name: Backend (Python linting)
+  # Phase 8: Split backend linting into two jobs:
+  #   1. ruff-vulture: fast, dev deps only (~30s)
+  #   2. backend: full deps needed for pyright import resolution
+  ruff-vulture:
+    name: Backend (ruff + vulture)
     runs-on: ubuntu-latest
+    needs: [fast-checks]  # Phase 8: Depends on fast-checks
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
+
+      - name: Setup backend (uv + venv)
+        uses: ./.github/actions/setup-backend
+        with:
+          dev-deps: "true"
+
+      - name: ruff (correctness rules)
+        run: uv run --no-sync ruff check .
+
+      - name: ruff (format check)
+        run: uv run --no-sync ruff format --check --diff .
+
+      - name: vulture (dead-code detection)
+        run: uv run --no-sync vulture app/ agents/
+
+  # Original backend job (now: pyright + import-linter + migration + bandit)
+  backend:
+    name: Backend (Python linting: pyright / import-linter / bandit / migration)
+    runs-on: ubuntu-latest
+    needs: [fast-checks, ruff-vulture]  # Phase 8: Depends on fast-checks + ruff-vulture
     timeout-minutes: 15
     defaults:
       run:
@@ -482,23 +664,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          enable-cache: true
-          cache-dependency-glob: "backend/requirements*.txt"
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
-      - name: Create venv + install dependencies
-        run: |
-          uv venv --python 3.12
-          uv pip install -r requirements.txt -r requirements-dev.txt
-
-      - name: Python syntax gate
-        run: uv run --no-sync python -m compileall -q app agents
-
-      - name: ruff (correctness rules)
-        run: uv run --no-sync ruff check .
+      - name: Setup backend
+        uses: ./.github/actions/setup-backend
+        with:
+          frozen: "true"
 
       - name: pyright (import resolution only)
         run: uv run --no-sync pyright
@@ -506,8 +678,8 @@ jobs:
       - name: import-linter (kernel/ports boundary contracts)
         run: uv run --no-sync lint-imports
 
-      - name: vulture (dead-code detection)
-        run: uv run --no-sync vulture app/ agents/
+      - name: bandit (Python SAST security scanning)
+        run: uv run --no-sync bandit -c pyproject.toml -r app agents -ll
 
       # Migration-chain integrity. Catches three things Alembic cannot see for
       # itself, all of which are silent until they reach a deployed database:
@@ -539,8 +711,18 @@ jobs:
       # TODO(flip-to-failing: 2026-08-01): remove `|| true` once pre-existing
       # findings are triaged. pip-audit checks requirements.txt against the
       # PyPI advisory database for known CVEs.
-      - name: pip-audit (warn-only)
-        run: uv run --no-sync pip-audit -r requirements.txt || true
+      - name: pip-audit (blocking)
+        run: uv run --no-sync pip-audit -r requirements.txt
+
+      # Phase 7: Scan Docker image on PR (no push, just build+scan)
+      - name: Scan backend Docker image
+        uses: ./.github/workflows/_docker.yml
+        with:
+          component: backend
+          build-context: ./backend
+          dockerfile-path: ./backend/Dockerfile
+          image-tag: pr-${{ github.run_number }}
+          push: false
 
   # ---------------------------------------------------------------------------
   # Backend Postgres integration — task.md DB-002/DB-001. The `backend` job
@@ -562,6 +744,7 @@ jobs:
   backend-postgres:
     name: Backend (PostgreSQL integration)
     runs-on: ubuntu-latest
+    needs: [fast-checks, ruff-vulture]  # Phase 8: Depends on fast-checks + ruff-vulture
     timeout-minutes: 15
     defaults:
       run:
@@ -581,17 +764,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          enable-cache: true
-          cache-dependency-glob: "backend/requirements*.txt"
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
-      - name: Create venv + install dependencies
-        run: |
-          uv venv --python 3.12
-          uv pip install -r requirements.txt -r requirements-dev.txt
+      - name: Setup backend
+        uses: ./.github/actions/setup-backend
+        with:
+          frozen: "true"
 
       - name: pytest (requires_postgres suite only)
         env:
@@ -621,6 +800,7 @@ jobs:
   backend-postgres-populated-migration:
     name: Backend (PostgreSQL populated migration test)
     runs-on: ubuntu-latest
+    needs: [fast-checks, ruff-vulture]  # Phase 8: Depends on fast-checks + ruff-vulture
     timeout-minutes: 30
     defaults:
       run:
@@ -640,6 +820,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
       - name: Wait for PostgreSQL availability (120s timeout)
         timeout-minutes: 2
@@ -656,16 +838,10 @@ jobs:
           done
           echo "PostgreSQL ready after $(($deadline - $now + 120))s"
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - name: Setup backend
+        uses: ./.github/actions/setup-backend
         with:
-          enable-cache: true
-          cache-dependency-glob: "backend/requirements*.txt"
-
-      - name: Create venv + install dependencies
-        run: |
-          uv venv --python 3.12
-          uv pip install -r requirements.txt -r requirements-dev.txt
+          frozen: "true"
 
       - name: pytest (populated migration test)
         env:
@@ -683,6 +859,7 @@ jobs:
   frontend:
     name: Frontend (Node)
     runs-on: ubuntu-latest
+    needs: [fast-checks]  # Phase 8: Depends on fast-checks
     timeout-minutes: 15
     defaults:
       run:
@@ -690,22 +867,36 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Setup frontend
+        uses: ./.github/actions/setup-frontend
+
+      - name: Check git status (lockfile drift detection)
+        working-directory: frontend
+        run: |
+          git diff --exit-code package-lock.json || {
+            echo "::error::package-lock.json is out of sync with package.json"
+            echo "Run 'npm ci' or 'npm install' to update it"
+            exit 1
+          }
+
+      - name: Typecheck (TypeScript - parallel with lint)
+        working-directory: frontend
+        run: npm run typecheck
 
       - name: Lint
+        working-directory: frontend
         run: npm run lint
 
       - name: Test (single-pass with coverage)
+        working-directory: frontend
         run: npm run test
+
+      - name: E2E tests (Playwright mocked)
+        working-directory: frontend
+        run: npm run e2e
 
       - name: Upload frontend coverage HTML
         if: always()
@@ -713,7 +904,15 @@ jobs:
         with:
           name: frontend-coverage-report
           path: frontend/coverage/
-          retention-days: 30
+          retention-days: 1  # Phase 8: Reduced from 30 to 1 day (PR-scoped data)
+
+      - name: Upload frontend coverage XML (for SonarCloud)
+        if: always()
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: frontend-coverage-xml
+          path: frontend/coverage/coverage-final.xml
+          retention-days: 1
 
       - name: Upload frontend coverage to Codecov
         if: always()
@@ -725,13 +924,238 @@ jobs:
           fail_ci_if_error: false
 
       - name: Build
+        working-directory: frontend
         run: npm run build
 
-      # TODO(flip-to-failing: 2026-08-01): remove `|| true` once pre-existing
-      # findings are triaged. npm audit checks package-lock.json against the
-      # npm advisory database for known CVEs.
-      - name: npm audit (warn-only)
-        run: npm audit --audit-level=high || true
+      - name: npm ls --omit=dev (detect lockfile drift)
+        working-directory: frontend
+        run: npm ls --omit=dev > /dev/null
+
+      # Phase 7: Scan Docker image on PR (no push, just build+scan)
+      - name: Scan frontend Docker image
+        uses: ./.github/workflows/_docker.yml
+        with:
+          component: frontend
+          build-context: ./frontend
+          dockerfile-path: ./frontend/Dockerfile
+          image-tag: pr-${{ github.run_number }}
+          push: false
+
+      # TODO(flip-to-high: 2026-09-01): Tighten to --audit-level=high once
+      # initial critical findings are triaged. Starting at critical-only to
+      # avoid a flood of newly-blocking findings that would delay PR merges.
+      - name: npm audit (critical vulnerabilities blocking)
+        working-directory: frontend
+        run: npm audit --audit-level=critical
+
+  # ---------------------------------------------------------------------------
+  # Coverage Consolidation for SonarCloud (Task 4)
+  #
+  # This job downloads backend + frontend coverage artifacts from test-results
+  # and frontend jobs, respectively, and prepares them in a consolidated
+  # directory for SonarScanner to consume in the sonarcloud-analysis job.
+  #
+  # Coverage Flow:
+  #   - Backend: pytest jobs → test-results (merge) → coverage.xml
+  #   - Frontend: vitest → coverage/ (includes coverage.xml from v8 provider)
+  #   - Consolidation: download both → prepare for SonarScanner
+  # ---------------------------------------------------------------------------
+  prepare-sonarcloud:
+    name: Prepare coverage for SonarCloud
+    runs-on: ubuntu-latest
+    needs: [test-results, frontend, ruff-vulture]  # Phase 8: Added ruff-vulture dependency
+    if: always()  # Run even if test-results or frontend jobs fail, so we can analyze partial coverage
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # Full repo history needed for SonarScanner to compute delta/new code
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
+
+      - name: Download backend coverage artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.0.0
+        with:
+          name: backend-coverage-report
+          path: coverage-backend/
+
+      - name: Download frontend coverage XML artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.0.0
+        with:
+          name: frontend-coverage-xml
+          path: coverage-frontend/
+
+      - name: Verify coverage files exist and are valid XML
+        run: |
+          set -euo pipefail
+          echo "=== Backend Coverage Files ==="
+          ls -lh coverage-backend/ || echo "No backend coverage files found"
+          find coverage-backend -name "*.xml" -exec file {} \;
+          echo ""
+          echo "=== Frontend Coverage Files ==="
+          ls -lh coverage-frontend/ || echo "No frontend coverage files found"
+          find coverage-frontend -name "*.xml" -exec file {} \;
+
+      - name: Create sonarcloud-coverage directory
+        run: mkdir -p sonarcloud-coverage
+
+      - name: Consolidate coverage files for SonarCloud
+        run: |
+          set -euo pipefail
+          echo "Copying backend coverage..."
+          if [ -f coverage-backend/coverage.xml ]; then
+            cp coverage-backend/coverage.xml sonarcloud-coverage/coverage-backend.xml
+            echo "✓ Copied coverage-backend.xml"
+          else
+            echo "⚠ WARNING: Backend coverage.xml not found" >&2
+          fi
+          
+          echo "Copying frontend coverage..."
+          if [ -f coverage-frontend/coverage-final.xml ]; then
+            cp coverage-frontend/coverage-final.xml sonarcloud-coverage/coverage-frontend.xml
+            echo "✓ Copied coverage-frontend.xml (from coverage-final.xml)"
+          else
+            echo "⚠ WARNING: Frontend coverage.xml not found" >&2
+          fi
+          
+          echo ""
+          echo "=== Consolidated Coverage Directory ==="
+          ls -lh sonarcloud-coverage/
+
+      - name: Validate consolidated coverage XML files
+        run: |
+          set -euo pipefail
+          for file in sonarcloud-coverage/*.xml; do
+            if [ -f "$file" ]; then
+              echo "Validating: $file"
+              head -1 "$file" | grep -q "<?xml" || echo "⚠ WARNING: $file does not start with XML declaration"
+              wc -l "$file"
+            fi
+          done
+
+      - name: Upload consolidated coverage artifact
+        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        with:
+          name: sonarcloud-coverage
+          path: sonarcloud-coverage/
+          retention-days: 1
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # SonarCloud Analysis Job (Task 5)
+  #
+  # Runs SonarScanner CLI to analyze code and coverage reports, publishes
+  # results to SonarCloud, and enforces quality gates. SonarCloud automatically
+  # decorates PRs with check status and comments.
+  #
+  # Dependencies: prepare-sonarcloud (provides consolidated coverage artifacts)
+  # Environment: SONAR_TOKEN (GitHub Organization Secret), SONAR_HOST_URL
+  # ---------------------------------------------------------------------------
+  sonarcloud-analysis:
+    name: SonarCloud analysis
+    runs-on: ubuntu-latest
+    needs: [prepare-sonarcloud]
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'  # Phase 9: Guard fork PRs from accessing secrets
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # Full repo history needed for SonarScanner to compute delta/new code
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
+
+      - name: Download consolidated coverage artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.0.0
+        with:
+          name: sonarcloud-coverage
+          path: sonarcloud-coverage/
+
+      - name: Verify coverage artifacts exist
+        run: |
+          echo "=== Coverage Artifacts ==="
+          ls -lh sonarcloud-coverage/ || echo "No coverage artifacts found"
+
+      - name: Install SonarScanner CLI (checksum-verified binary)
+        run: |
+          set -euo pipefail
+          # SonarScanner latest stable release
+          # To verify/update checksum: download the .zip file and run:
+          #   sha256sum sonar-scanner-cli-<VERSION>-linux-x64.zip
+          SONAR_VERSION="8.0.1.6346"
+          # Checksum verified from official SonarSource release binaries:
+          # https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.0.1.6346-linux-x64.zip.sha256
+          SONAR_CHECKSUM="4bd40bf8411ed104853e94a3746ec92bc92845fde2b27dbf5c33fb5cfa8ecbe9"
+          SONAR_BINARY="sonar-scanner-cli-${SONAR_VERSION}-linux-x64"
+          SONAR_ZIP="${SONAR_BINARY}.zip"
+          
+          echo "Downloading SonarScanner v${SONAR_VERSION}..."
+          curl -sSL -o "${SONAR_ZIP}" \
+            "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${SONAR_ZIP}"
+          
+          # Verify checksum
+          echo "${SONAR_CHECKSUM}  ${SONAR_ZIP}" | sha256sum -c -
+          echo "✓ Checksum verified"
+          
+          echo "Extracting..."
+          unzip -q "${SONAR_ZIP}"
+          
+          echo "Installing to /opt..."
+          sudo mkdir -p /opt
+          sudo mv "${SONAR_BINARY}" /opt/sonar-scanner
+          sudo chmod +x /opt/sonar-scanner/bin/sonar-scanner
+          
+          echo "Verifying installation..."
+          /opt/sonar-scanner/bin/sonar-scanner --version
+          
+          echo ""
+          echo "✓ SonarScanner installed successfully"
+
+      # F-08: sonar-scanner reads sonar-project.properties from the current
+      # working directory (the repo root, where this step runs) by default —
+      # organization/projectKey/projectName/sources/exclusions/
+      # coverage.exclusions/coverageReportPaths were previously ALSO passed
+      # here as -D flags with the identical values, which win over the
+      # properties file on any conflict. That meant sonar-project.properties
+      # was decorative documentation, not the actual config: a value changed
+      # in one place silently had no effect unless the other copy was also
+      # updated. Only `sonar.log.level`, which has no equivalent entry in the
+      # properties file (deliberately: it's noisy and belongs at the
+      # invocation, not committed config), stays as a -D flag.
+      - name: Run SonarScanner analysis
+        env:
+          SONAR_HOST_URL: https://sonarcloud.io
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          /opt/sonar-scanner/bin/sonar-scanner -Dsonar.log.level=INFO
+
+      - name: Display SonarCloud analysis results
+        if: always()
+        run: |
+          cat << 'EOF'
+          
+          ✓ SonarScanner analysis completed
+          
+          ================================
+          Next Steps
+          ================================
+          
+          1. View analysis results:
+             https://sonarcloud.io/dashboard?id=velocityai
+          
+          2. For PR checks:
+             - SonarCloud will automatically post a check on your PR
+             - Look for "SonarCloud Quality Gate" in the Checks section
+             - Merge is blocked if the quality gate fails
+          
+          3. Troubleshooting:
+             - If check doesn't appear: verify SONAR_TOKEN is set in GitHub Organization Secrets
+             - If analysis is incomplete: check this job's logs for errors
+             - For coverage issues: verify coverage artifacts were downloaded in prepare-sonarcloud job
+          
+          ================================
+          EOF
 
   # ---------------------------------------------------------------------------
   # Security scan — gitleaks, checkov, trivy (config), tflint.
@@ -742,73 +1166,62 @@ jobs:
   # CVE-2026-33634 (see workflow header) and the broader campaign it was part
   # of (compromised npm + PyPI packages in the same window) — pinning a
   # checksum we verify ourselves removes any dependency on a third party's
-  # action staying uncompromised between now and when this workflow runs.
-  # ---------------------------------------------------------------------------
-  security-scan:
-    name: Security scan (gitleaks / checkov / trivy / tflint)
+  # Phase 8: Split security-scan into 3 parallel jobs for speed
+  # Job 1: secrets scanning (gitleaks)
+  security-scan-secrets:
+    name: Security scan (gitleaks)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    needs: [fast-checks]  # Phase 8: Depends on fast-checks
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # --- gitleaks: secret scanning (repo-wide, see .gitleaks.toml) ---------
-      - name: Install gitleaks v8.30.1 (checksum-verified)
-        run: |
-          set -euo pipefail
-          curl -sSL -o gitleaks.tar.gz \
-            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
-          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
-          tar -xzf gitleaks.tar.gz gitleaks
-          sudo mv gitleaks /usr/local/bin/gitleaks
-          rm gitleaks.tar.gz
-          gitleaks version
-
-      - name: gitleaks detect
-        # Flags match the retired infra/buildspec.yml pre_build invocation
-        # verbatim so a finding history stays comparable across the migration:
-        #   --no-git    scan the working tree, not the commit history (the CI
-        #               checkout is shallow, so history scanning is unreliable)
-        #   --redact    never print the discovered secret VALUE to the CI log,
-        #               only its location — the "never log sensitive data" rule
-        #   --no-banner keep the log readable
-        #   -v          list every finding rather than just the count
-        run: gitleaks detect --no-git --redact --no-banner -v --config .gitleaks.toml --source .
-
-      # --- checkov: Terraform IaC scanning (see .checkov.yaml) ---------------
-      - name: Setup Python (for checkov)
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
-      - name: Install checkov
-        run: pip install --no-cache-dir checkov==3.3.8
+      - name: Install gitleaks
+        uses: ./.github/actions/install-checksummed-tool
+        with:
+          name: gitleaks
+          version: v8.30.1
+          url: https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          sha256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          archive-format: tar.gz
+          binary-name: gitleaks
+
+      - name: gitleaks detect (full history)
+        run: gitleaks detect --redact --no-banner -v --config .gitleaks.toml --source .
+
+  # Job 2: IaC scanning (checkov + trivy config)
+  security-scan-iac:
+    name: Security scan (checkov / trivy config)
+    runs-on: ubuntu-latest
+    needs: [fast-checks]  # Phase 8: Depends on fast-checks
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
+
+      - name: Setup backend
+        uses: ./.github/actions/setup-backend
+        with:
+          dev-deps: "true"
 
       - name: checkov IaC scan
         run: checkov -d infra/terraform --config-file .checkov.yaml
 
-      # --- trivy: Terraform misconfiguration scanning (see .trivyignore) -----
-      - name: Install trivy v0.69.3 (checksum-verified, pre-compromise release)
-        run: |
-          set -euo pipefail
-          curl -sSL -o trivy.tar.gz \
-            https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_Linux-64bit.tar.gz
-          echo "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75  trivy.tar.gz" | sha256sum -c -
-          tar -xzf trivy.tar.gz trivy
-          sudo mv trivy /usr/local/bin/trivy
-          rm trivy.tar.gz
-          trivy --version
+      - name: Install trivy
+        uses: ./.github/actions/install-checksummed-tool
+        with:
+          name: trivy
+          version: "v${{ env.TRIVY_VERSION }}"
+          url: https://github.com/aquasecurity/trivy/releases/download/v${{ env.TRIVY_VERSION }}/trivy_${{ env.TRIVY_VERSION }}_Linux-64bit.tar.gz
+          sha256: ${{ env.TRIVY_SHA256 }}
+          archive-format: tar.gz
+          binary-name: trivy
 
-      # Flags match the retired infra/buildspec.yml pre_build invocation. All
-      # three are load-bearing, not cosmetic:
-      #   --severity HIGH,CRITICAL  the accepted-findings baseline in
-      #       .trivyignore was triaged at this threshold; without it every
-      #       MEDIUM/LOW advisory in the tree fails the build on day one
-      #   --skip-dirs **/examples/**    module usage demos, never deployed
-      #   --skip-dirs **/localstack/**  local-only throwaway layer whose values
-      #       are explicit placeholders
-      # The two skip-dirs mirror the `skip-path` entries in .checkov.yaml, so
-      # both scanners look at exactly the same set of deployed resources.
       - name: trivy config scan
         run: |
           trivy config --exit-code 1 --severity HIGH,CRITICAL \
@@ -817,61 +1230,51 @@ jobs:
             --skip-dirs "**/localstack/**" \
             infra/terraform
 
-      # --- tflint: Terraform lint (see infra/terraform/.tflint.hcl) ----------
-      - name: Install tflint v0.64.0 (checksum-verified)
-        run: |
-          set -euo pipefail
-          curl -sSL -o tflint.zip \
-            https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip
-          echo "cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537  tflint.zip" | sha256sum -c -
-          unzip -q tflint.zip
-          sudo mv tflint /usr/local/bin/tflint
-          rm tflint.zip
-          tflint --version
+  # Job 3: Terraform linting and validation (tflint + terraform fmt/validate)
+  security-scan-terraform:
+    name: Security scan (terraform validate / tflint)
+    runs-on: ubuntu-latest
+    needs: [fast-checks]  # Phase 8: Depends on fast-checks
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
-      # An ABSOLUTE TFLINT_CONFIG_FILE is required with --recursive: tflint
-      # resolves a relative config path against each module directory it walks
-      # into, so a relative path would only be found for the top directory.
-      # This is the same export the .pre-commit-config.yaml tflint hook does.
+      - name: Install tflint
+        uses: ./.github/actions/install-checksummed-tool
+        with:
+          name: tflint
+          version: v0.64.0
+          url: https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip
+          sha256: cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537
+          archive-format: zip
+          binary-name: tflint
+
       - name: tflint init (fetch pinned ruleset plugins)
         env:
           TFLINT_CONFIG_FILE: ${{ github.workspace }}/infra/terraform/.tflint.hcl
         run: tflint --chdir=infra/terraform --init
 
-      # --minimum-failure-severity=error: the `recommended` terraform preset
-      # emits warnings (missing description/type, naming conventions) across a
-      # tree this size. Those are review comments, not merge blockers; genuine
-      # errors (invalid instance type, unresolvable reference) still fail.
-
-      # --- terraform fmt/validate: Check Terraform syntax and formatting ------
-      - name: Install Terraform v1.11.0 (checksum-verified)
-        run: |
-          set -euo pipefail
-          # Download Terraform binary with SHA256 verification
-          # Checksum from: https://releases.hashicorp.com/terraform/1.11.0/terraform_1.11.0_SHA256SUMS
-          curl -sSL -o terraform.zip \
-            https://releases.hashicorp.com/terraform/1.11.0/terraform_1.11.0_linux_amd64.zip
-          # Use the official checksum (update this if the version changes)
-          # NOTE: This checksum must be verified against HashiCorp's official releases
-          echo "32ca9c487ae91d62db5c1f21a0f6d99aac3a53dd2c8c8f6be3fc975f7968d0cd  terraform.zip" | sha256sum -c - || {
-            echo "Checksum verification failed. Please verify the Terraform version and checksum."
-            exit 1
-          }
-          unzip -q terraform.zip
-          sudo mv terraform /usr/local/bin/terraform
-          rm terraform.zip
-          terraform --version
+      - name: Install Terraform
+        uses: ./.github/actions/install-checksummed-tool
+        with:
+          name: terraform
+          version: v1.11.0
+          url: https://releases.hashicorp.com/terraform/1.11.0/terraform_1.11.0_linux_amd64.zip
+          sha256: 32ca9c487ae91d62db5c1f21a0f6d99aac3a53dd2c8c8f6be3fc975f7968d0cd
+          archive-format: zip
+          binary-name: terraform
 
       - name: Terraform format check (recursive)
-        run: |
-          terraform fmt -check -recursive infra/terraform
-        continue-on-error: false
+        run: terraform fmt -check -recursive infra/terraform
 
       - name: Terraform validate (per root)
         run: |
           set -euo pipefail
           status=0
-          roots=("infra/terraform/app" "infra/terraform/bootstrap" "infra/terraform/foundation" "infra/terraform/localstack" "infra/terraform/shared" "infra/terraform/velocityai-alb")
+          IFS=' ' read -r -a roots <<< "$TF_ROOTS"
           for root in "${roots[@]}"; do
             echo "Validating root: $root"
             if [ -d "$root" ]; then
@@ -892,10 +1295,9 @@ jobs:
         run: |
           set -euo pipefail
           status=0
-          roots=("infra/terraform/app" "infra/terraform/bootstrap" "infra/terraform/foundation" "infra/terraform/localstack" "infra/terraform/shared" "infra/terraform/velocityai-alb")
+          IFS=' ' read -r -a roots <<< "$TF_ROOTS"
           for root in "${roots[@]}"; do
             if [ -d "$root" ]; then
-              # Check if any .tf files declare a provider block
               if grep -r 'provider\s*"' "$root" > /dev/null 2>&1; then
                 if [ ! -f "$root/.terraform.lock.hcl" ]; then
                   echo "ERROR: $root declares a provider but has no committed .terraform.lock.hcl"
@@ -910,3 +1312,54 @@ jobs:
         env:
           TFLINT_CONFIG_FILE: ${{ github.workspace }}/infra/terraform/.tflint.hcl
         run: tflint --chdir=infra/terraform --recursive --minimum-failure-severity=error
+
+  # ---------------------------------------------------------------------------
+  # ci-required — the single aggregation point for every job above.
+  #
+  # F-01: without this job, branch protection / repository rulesets would have
+  # to enumerate all 14 job names above as separate required status checks.
+  # That is brittle in both directions: renaming or removing a shard (as
+  # happened when the pytest jobs were split into agents-a/agents-b/unit/
+  # integration) silently drops a required check with no error anywhere, and
+  # a new job someone forgets to add to the ruleset never blocks anything.
+  # This job is the ONLY status check that should ever be named in a
+  # required_status_checks list — see docs/GITHUB_CICD_SETUP.md.
+  #
+  # `if: always()` is required so this job still runs (and can report
+  # failure) when an upstream job fails or is cancelled — the default
+  # `if: success()` would skip it, and a SKIPPED required check does not
+  # block a merge the way a FAILED one does.
+  #
+  # `needs` intentionally excludes sonarcloud-analysis and prepare-sonarcloud:
+  # SonarCloud posts its own PR check ("SonarCloud Code Analysis") directly,
+  # which is added to the ruleset as a second, independent required check.
+  # Folding it in here would make this job depend on Sonar's availability,
+  # which is an external service outside this repo's control.
+  # ---------------------------------------------------------------------------
+  ci-required:
+    name: ci-required
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    needs:
+      - fast-checks  # Phase 8: First check, gates all else
+      - backend  # Python checks
+      - backend-postgres  # Backend integration
+      - frontend  # Next.js checks
+      - security-scan-secrets  # Phase 8: Security scan (gitleaks)
+      - security-scan-iac  # Phase 8: Security scan (checkov/trivy)
+      - security-scan-terraform  # Phase 8: Security scan (terraform validate)
+    steps:
+      - name: Assert every upstream job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key)=\(.value.result)"'
+          failed="$(echo "$RESULTS" | jq -r \
+            'to_entries[] | select(.value.result != "success") | .key')"
+          if [[ -n "$failed" ]]; then
+            echo "::error::Required jobs did not succeed: $(echo "$failed" | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "All required jobs succeeded."

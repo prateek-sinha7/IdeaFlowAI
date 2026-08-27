@@ -1,125 +1,14 @@
-fastapi==0.115.6
-uvicorn==0.34.0
-sqlalchemy==2.0.36
-# Schema migrations. Production runs `alembic upgrade head` as the systemd
-# unit's ExecStartPre (see docs/SIMPLE_AWS_DEPLOYMENT.md Appendix B). The
-# 1.14.x series is the latest stable as of 2026-Q2 and pairs with SA 2.0.x.
-alembic==1.14.0
-# Postgres driver — required for the production DATABASE_URL=postgresql://...
-# In dev with the SQLite default, this dependency is unused but harmless.
-psycopg2-binary==2.9.12
-pydantic[email]==2.12.5
-pydantic-settings==2.7.1
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-# langchain 1.x line. Bumped to satisfy deepagents 0.6.7's floor
-# (langchain>=1.3.2, langchain-core>=1.4.0, langgraph>=1.2.4). Resolver-verified
-# to coexist unchanged with langchain-aws 1.4.6 + langchain-anthropic 1.4.3.
-langchain==1.3.4
-langchain-core==1.4.0
-# Anthropic direct API — used when ANTHROPIC_API_KEY is set (local dev)
-langchain-anthropic==1.4.3
-# Mistral — free-tier provider used as a build_model() fallback / explicit
-# eval-harness opt-in.
-# Pinned to 1.1.4, NOT the latest (1.1.6): 1.1.5+ requires langchain-core>=1.4.7,
-# which conflicts with this repo's langchain-core==1.4.0 pin (resolver-verified
-# 2026-07-28 — 1.1.4 requires langchain-core>=1.3.2,<2.0.0, no conflict).
-langchain-mistralai==1.1.4
-# LangGraph — runtime under the deepagents graphs (replaces the hand-rolled
-# DeepAgent loop). deepagents 0.6.7 requires langgraph>=1.2.4,<1.3.
-langgraph==1.2.4
-# AWS Bedrock provider (default). On the langchain 1.x line to match
-# langchain-core 1.x.
-langchain-aws==1.4.6
-# Pinned for reproducibility; langchain-aws depends on it transitively.
-# langchain-aws 1.4.6 requires boto3>=1.42.42.
-boto3==1.43.2
-# LangChain deepagents — the agent runtime for ALL pipeline agents (replaces the
-# custom app/agents/deep_agent.py). Pulls langgraph-checkpoint/prebuilt/sdk + langsmith.
-deepagents==0.6.7
-# LangGraph Postgres checkpointer — durable HITL review gates + crash/disconnect
-# resume; uses the production DATABASE_URL=postgresql://... (manages its own tables).
-langgraph-checkpoint-postgres==3.1.0
-# langgraph-checkpoint-postgres depends transitively on bare `psycopg>=3.2.0`,
-# which resolves to the core package with NO pq wrapper bundled — it needs a
-# system libpq at import time or it raises "no pq wrapper available" the
-# moment get_checkpointer() runs (checkpointer.py). Pinning the [binary] extra
-# here bundles a self-contained libpq in the wheel so no OS-level Postgres
-# client library install is required on any dev machine or container.
-psycopg[binary]==3.2.4
-# Headless Chromium driver for prototype render-validation
-# (app/agents/render_check.py). The browser binary itself is installed in the
-# Dockerfile via `playwright install --with-deps chromium` (not in the wheel).
-playwright==1.60.0
-websockets==14.1
-python-dotenv==1.0.1
-pytest==8.3.4
-hypothesis==6.122.3
-httpx==0.28.1
-# pytest-asyncio is required to actually run the @pytest.mark.asyncio tests
-# in tests/unit/test_base_agent.py and tests/unit/test_pipeline_cancel.py.
-# Without it pytest silently skips them with a PytestUnhandledCoroutineWarning
-# — discovered when the local Bedrock-live walk-through caught two bugs in
-# BaseAgent that the test suite had been quietly missing.
-pytest-asyncio==0.24.0
-# YAML frontmatter parser for AGENT.md files (folder-per-agent architecture)
-python-frontmatter==1.1.0
-# OpenTelemetry — the otel_tracing canonical hook (08-07 / OBS-02). API + SDK only
-# (CNCF OpenTelemetry, github.com/open-telemetry/opentelemetry-python; human-verified
-# on PyPI at the package-legitimacy checkpoint). The hook emits a span per fired
-# lifecycle event behind a ConsoleSpanExporter by default; it auto-switches to the
-# OTLP exporter only when OTEL_EXPORTER_OTLP_ENDPOINT is set, importing
-# `opentelemetry-exporter-otlp` LAZILY in that branch — so the OTLP exporter is an
-# OPTIONAL runtime dependency, NOT pinned here (least-privilege / supply-chain).
-opentelemetry-api==1.42.1
-opentelemetry-sdk==1.42.1
-# tree-sitter — the symbol-index backing for the optional repo_index capability
-# (09-03 / REPO-02). Human-verified at the package-legitimacy checkpoint:
-# `tree-sitter` (github.com/tree-sitter/py-tree-sitter, Max Brunsfeld) and the
-# per-language grammar wheels below are all PyPI-legitimate, prebuilt (abi3, no C
-# toolchain), and OFFLINE-INSTALLABLE.
+# Phase 6: Reproducible builds
+# This file is now a convenience include for development only.
+# Production containers build from requirements-prod.txt (no test deps).
+# For reproducible builds with uv, use: uv sync --frozen
+# This reads uv.lock and installs exact pinned versions.
 #
-# FALLBACK DECISION (RESEARCH R-C Open Risk realized): the originally-planned
-# `tree-sitter-language-pack==1.8.1` was VERIFIED-LEGITIMATE at the checkpoint but
-# its 1.8.1 wheel does NOT bundle grammars — its native `get_parser` LAZY-DOWNLOADS
-# a parsers.json manifest from github.com/kreuzberg-dev/... at first use, which
-# FAILS with zero network (the phase's offline-CI accept gate). The documented R-C
-# fallback is taken: pin the per-language prebuilt grammar wheels, which DO bundle
-# the compiled grammar IN the wheel (offline-proven in test_repo_index.py with the
-# network disabled). tree-sitter-language-pack is NOT pinned (network-coupled).
-tree-sitter==0.25.2
-tree-sitter-python==0.25.0
-tree-sitter-javascript==0.25.0
-tree-sitter-typescript==0.23.2
-# langchain-mcp-adapters — the net-new MCP *client* layer (09-05 / MCP-01). The
-# backend was an inbound MCP server only (app/api/mcp.py, no SDK); this adds the
-# OUTBOUND `MultiServerMCPClient` that connects to external MCP servers, lists
-# their tools, and binds the allowed ones INTO the deepagents tool set (augment,
-# never replace — INV-13). Human-verified LEGITIMATE at the package-legitimacy
-# checkpoint (2026-06-10): official github.com/langchain-ai/langchain-mcp-adapters
-# (LangChain org, author Vadym Barda); transitive `mcp` is the reference MCP SDK
-# (github.com/modelcontextprotocol/python-sdk, Anthropic PBC) providing FastMCP/stdio
-# for the offline stub fixture.
+# Local development: uv sync (without --frozen)
+#   Installs prod + dev dependencies from requirements.txt and requirements-dev.txt
 #
-# VERSION-PIN DECISION (checkpoint version-resolution caution realized): the floor
-# `>=0.2.2` resolves to the day-old `0.3.0` (released 2026-06-10), whose transitive
-# `mcp` pulls `starlette>=...` up to 1.2.x, which BREAKS the pinned `fastapi==0.115.6`
-# (it requires `starlette<0.42`; `app.main` failed to import on the 0.3.0 resolution).
-# Per the documented caution we pin the known-good 0.2.x: `langchain-mcp-adapters>=0.2.2,<0.3`.
-# `mcp` is pinned at the resolved 1.27.2 (requires only `starlette>=0.27`, no upper bound —
-# so it does NOT itself force the breaking upgrade); `sse-starlette` is held at 3.0.2
-# (its starlette pin is an `examples` extra only, so it coexists with the project's
-# starlette 0.41.3). starlette is NOT bumped — the project's 0.41.3 (fastapi-compatible)
-# is the floor. Proven: FastMCP + MultiServerMCPClient + app.main all import together.
-langchain-mcp-adapters>=0.2.2,<0.3
-mcp==1.27.2
-sse-starlette==3.0.2
-# Document-text extraction — used by _extract_docx / _extract_pptx / _extract_pdf
-# in app/api/file_extract.py (single extraction impl, INV-12).  These were absent
-# from requirements.txt which caused all three extractors to silently fail via the
-# broad `except Exception` (also catches ImportError) in each function, returning ""
-# for every upload in the deployed container.  Pinned to the locally-verified working
-# versions.  ISS-057 / FIX-191.
-python-docx==1.1.2
-python-pptx==1.0.2
-pypdf==5.1.0
+# For CI: uv sync --frozen
+#   Ensures exact reproducibility across all builds
+
+-r requirements-prod.txt
+-r requirements-dev.txt

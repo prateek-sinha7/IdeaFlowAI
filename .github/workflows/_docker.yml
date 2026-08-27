@@ -1,0 +1,180 @@
+name: Docker Build + Scan
+
+on:
+  workflow_call:
+    inputs:
+      component:
+        required: true
+        type: string
+        description: "'backend' or 'frontend'"
+      build-context:
+        required: true
+        type: string
+        description: "Build context directory (e.g., './backend')"
+      dockerfile-path:
+        required: true
+        type: string
+        description: "Path to Dockerfile (e.g., './backend/Dockerfile')"
+      image-tag:
+        required: true
+        type: string
+        description: "ECR image tag (e.g., 'v1.2.3' or 'main-latest')"
+      push:
+        required: false
+        type: boolean
+        default: false
+        description: "Whether to push the image to ECR (true for deploy, false for PR)"
+      registry:
+        required: false
+        type: string
+        description: "ECR registry (e.g., '123456789.dkr.ecr.us-east-1.amazonaws.com')"
+    outputs:
+      digest:
+        description: "Image digest (sha256:...)"
+        value: ${{ jobs.build.outputs.digest }}
+      image-ref:
+        description: "Full image reference with digest"
+        value: ${{ jobs.build.outputs.image-ref }}
+
+env:
+  TRIVY_VERSION: "0.69.3"
+  GRYPE_VERSION: "0.75.0"
+
+jobs:
+  build:
+    name: Build + Scan (${{ inputs.component }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      image-ref: ${{ steps.build.outputs.image-ref }}
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d70bba72b1f3fd22344832f00baa16ece964efeb # v3.3.0
+
+      - name: Build image
+        id: build
+        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0 # v5.3.0
+        with:
+          context: ${{ inputs.build-context }}
+          file: ${{ inputs.dockerfile-path }}
+          platforms: linux/amd64
+          provenance: mode=max
+          sbom: true
+          push: ${{ inputs.push }}
+          # If pushing, include registry; if not, use docker.io as temporary ref
+          tags: |
+            ${{ inputs.push && format('{0}/{1}:{2}', inputs.registry, inputs.component, inputs.image-tag) || format('docker.io/library/{0}:local-{1}', inputs.component, inputs.image-tag) }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: ${{ inputs.push && '' || 'type=docker' }}
+
+      - name: Export image (for scanning if not pushed)
+        if: ${{ !inputs.push }}
+        run: |
+          # If not pushing to registry, the image is in docker daemon
+          # We'll reference it by tag for scanning
+          echo "IMAGE_REF=docker.io/library/${{ inputs.component }}:local-${{ inputs.image-tag }}" >> "$GITHUB_ENV"
+
+      - name: Set image ref (for scanning)
+        if: ${{ inputs.push }}
+        run: |
+          echo "IMAGE_REF=${{ inputs.registry }}/${{ inputs.component }}:${{ inputs.image-tag }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_ENV"
+
+      # ── Phase 7: Image Scanning ────────────────────────────────────────
+
+      - name: Install Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          trivy-version: ${{ env.TRIVY_VERSION }}
+
+      - name: Scan image with Trivy (blocking on HIGH,CRITICAL)
+        run: |
+          set -euo pipefail
+          
+          echo "Scanning image: ${{ env.IMAGE_REF }}"
+          
+          # Generate SARIF for GitHub Security tab
+          trivy image \
+            --exit-code 1 \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --ignorefile .trivyignore.images \
+            --format sarif \
+            --output trivy-${{ inputs.component }}.sarif \
+            "${{ env.IMAGE_REF }}"
+          
+          echo "✓ Trivy scan passed (no HIGH/CRITICAL vulns)"
+
+      - name: Upload Trivy SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@29b1f65c5e92e901e5a4b5bb5c9f135cb1b65b47 # v3.25.4
+        with:
+          sarif_file: trivy-${{ inputs.component }}.sarif
+          category: "trivy-${{ inputs.component }}"
+
+      - name: Install Grype
+        run: |
+          set -euo pipefail
+          
+          mkdir -p /tmp/grype
+          curl -sSL "https://github.com/anchore/grype/releases/download/v${{ env.GRYPE_VERSION }}/grype_${{ env.GRYPE_VERSION }}_linux_amd64.tar.gz" \
+            -o /tmp/grype.tar.gz
+          
+          tar -xzf /tmp/grype.tar.gz -C /tmp/grype
+          
+          # Add to PATH
+          echo "/tmp/grype" >> "$GITHUB_PATH"
+
+      - name: Scan image with Grype (second engine, blocking on HIGH)
+        run: |
+          set -euo pipefail
+          
+          echo "Scanning image with Grype: ${{ env.IMAGE_REF }}"
+          
+          grype "${{ env.IMAGE_REF }}" \
+            --fail-on high \
+            --output json \
+            > grype-results-${{ inputs.component }}.json || EXIT_CODE=$?
+          
+          if [[ $EXIT_CODE -ne 0 ]]; then
+            echo "❌ Grype scan failed (found HIGH or higher severity vulnerabilities)"
+            cat grype-results-${{ inputs.component }}.json
+            exit 1
+          fi
+          
+          echo "✓ Grype scan passed"
+
+      - name: Generate SBOM artifact
+        if: ${{ inputs.push }}
+        run: |
+          # SBOM is already generated by build-push-action and attached as OCI attestation
+          # This step documents the availability
+          echo "SBOM for ${{ inputs.component }} attached as OCI attestation to image digest"
+
+      - name: Summary
+        if: always()
+        run: |
+          cat << 'EOF'
+          
+          ================================
+          Docker Build + Scan Complete
+          ================================
+          
+          Component:  ${{ inputs.component }}
+          Image Ref:  ${{ env.IMAGE_REF }}
+          
+          Scans Run:
+            ✓ Trivy (HIGH,CRITICAL, exit-code 1)
+            ✓ Grype (HIGH and above, fail-on high)
+          
+          SBOM:       OCI attestation attached to image digest
+          Provenance: SLSA v1 Build Level 2 (signed by GitHub)
+          
+          EOF

@@ -1,0 +1,20 @@
+{
+  "name": "prod",
+  "description": "Production environment — strict approval gates, release-managers team required, no admin bypass.",
+  "can_admins_bypass": false,
+  "wait_timer": 0,
+  "deployment_branch_policy": {
+    "protected_tags": true,
+    "protected_branches": false,
+    "custom_branch_policies": true
+  },
+  "reviewers": [
+    {
+      "type": "Team",
+      "id": "release-managers"
+    }
+  ],
+  "min_review_count": 2,
+  "require_branch_uptodate": true,
+  "protect_custom_deployment_gate_reviewers": true
+}

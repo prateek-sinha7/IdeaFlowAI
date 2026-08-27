@@ -1,0 +1,51 @@
+# CODEOWNERS — Mandatory code review assignments
+#
+# Enables GitHub's "Require code owner review" branch protection rule.
+# Any PR touching these paths requires approval from the listed team/user
+# before merge.
+#
+# Syntax:
+#   <path/pattern>  <@team or @user>  [additional owners...]
+#
+# Matching: Latest matching rule wins (bottom-to-top in this file).
+# Wildcards: * (anything in one level), ** (recursive), ? (single char)
+
+# ── Default owners ───────────────────────────────────────────────────────
+# Catch-all for any file not listed below
+*                   @Hexaware-HnI/engineering
+
+# ── Backend — Python / Agent Runtime ────────────────────────────────────
+backend/agents/**   @Hexaware-HnI/platform-engineering
+backend/app/**      @Hexaware-HnI/platform-engineering
+
+# ── Frontend — React / Next.js ─────────────────────────────────────────
+frontend/src/**     @Hexaware-HnI/frontend
+frontend/app/**     @Hexaware-HnI/frontend
+
+# ── Infrastructure — Terraform / IaC ───────────────────────────────────
+infra/**            @Hexaware-HnI/devops
+.github/**          @Hexaware-HnI/devops
+
+# ── CI/CD Workflows ────────────────────────────────────────────────────
+.github/workflows/**   @Hexaware-HnI/devops
+.github/actions/**     @Hexaware-HnI/devops
+
+# ── Database Migrations ────────────────────────────────────────────────
+backend/alembic/**     @Hexaware-HnI/platform-engineering
+backend/alembic.ini    @Hexaware-HnI/platform-engineering
+
+# ── Documentation ────────────────────────────────────────────────────
+docs/**             @Hexaware-HnI/engineering
+README.md           @Hexaware-HnI/engineering
+CONTRIBUTING.md     @Hexaware-HnI/engineering
+
+# ── Security / Secrets / Configuration ─────────────────────────────────
+.gitleaks.toml      @Hexaware-HnI/devops
+.checkov.yaml       @Hexaware-HnI/devops
+.github/dependabot.yml   @Hexaware-HnI/devops
+pyproject.toml      @Hexaware-HnI/platform-engineering
+package.json        @Hexaware-HnI/frontend
+
+# ── Root-Level Config ────────────────────────────────────────────────
+/.gitignore         @Hexaware-HnI/devops
+/.env.example       @Hexaware-HnI/devops
