@@ -5,8 +5,8 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **93** |
-| Implemented but skipped | **413** |
+| Implemented and running | **109** |
+| Implemented but skipped | **397** |
 | Not yet written | **0** |
 | **Total** | **506** |
 
@@ -278,29 +278,29 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-11-19` | Admin reset is the only recovery path under email MFA | `11_admin/test_admin.py` |
 | s  | `S-11-20` | Changing another user's tier takes effect | `11_admin/test_admin.py` — destructive: changing a seeded tier breaks the entitlement fixtures |
 
-## 12-shell-nav.feature.md — 0/19 (19 skipped)
+## 12-shell-nav.feature.md — 16/19 (3 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-12-01` | The header is present on every authenticated screen | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-02` | Each nav item routes to its screen | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-03` | Nav items are buttons, not links | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-04` | The active screen is indicated in the nav | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-05` | The shell is absent where it should be | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-06` | The account menu lists its items | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-07` | An admin additionally sees the admin entry | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-08` | A non-admin does not | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-09` | Each menu item routes correctly | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-10` | Escape closes the account menu | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-11` | The notifications panel opens with an empty state | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-12` | A completed run produces a notification | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-13` | A live run surfaces in the header with its progress | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-14` | The badge opens the live run | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-15` | The badge is absent when nothing is running | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-16` | Dark mode toggles and persists | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-17` | Browser back and forward work across top-level screens | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-18` | Every top-level screen survives a hard refresh | `12_shell_nav/test_shell_nav.py` — not yet implemented |
-| s  | `S-12-19` | An expired session sends me to sign-in with an explanation | `12_shell_nav/test_shell_nav.py` — not yet implemented |
+| ok | `S-12-01` | The header is present on every authenticated screen | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-02` | Each nav item routes to its screen | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-03` | Nav items are buttons, not links | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-04` | The active screen is indicated in the nav | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-05` | The shell is absent where it should be | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-06` | The account menu lists its items | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-07` | An admin additionally sees the admin entry | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-08` | A non-admin does not | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-09` | Each menu item routes correctly | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-10` | Escape closes the account menu | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-11` | The notifications panel opens with an empty state | `12_shell_nav/test_shell_nav.py` |
+| s  | `S-12-12` | A completed run produces a notification | `12_shell_nav/test_shell_nav.py` — needs a run to complete; belongs to the live tier |
+| s  | `S-12-13` | A live run surfaces in the header with its progress | `12_shell_nav/test_shell_nav.py` — needs a run in progress; belongs to the live tier |
+| s  | `S-12-14` | The badge opens the live run | `12_shell_nav/test_shell_nav.py` — needs a run in progress; belongs to the live tier |
+| ok | `S-12-15` | The badge is absent when nothing is running | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-16` | Dark mode toggles and persists | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-17` | Browser back and forward work across top-level screens | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-18` | Every top-level screen survives a hard refresh | `12_shell_nav/test_shell_nav.py` |
+| ok | `S-12-19` | An expired session sends me to sign-in with an explanation | `12_shell_nav/test_shell_nav.py` |
 
 ## 13-errors.feature.md — 0/20 (20 skipped)
 

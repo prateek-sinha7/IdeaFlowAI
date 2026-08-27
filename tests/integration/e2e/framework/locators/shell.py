@@ -29,3 +29,40 @@ RECONNECT = 'button:has-text("Reconnect")'
 def nav(page, label: str):
     """A top-nav item, by accessible name."""
     return page.get_by_role("button", name=label, exact=True)
+
+
+# The active item is marked with aria-current="page" — nothing else in the
+# header carries it, so it doubles as "which screen am I on" for a test.
+CURRENT = 'nav button[aria-current="page"]'
+
+MENU = '[role="menu"]'
+MENU_ITEMS = [
+    "Account Settings",
+    "Analytics",
+    "Run History",
+    "Dark mode",
+    "Log out",
+]
+ADMIN_MENU_ITEM = "Admin Dashboard"
+
+# Menu-item routes. `/history` is NOT a route and 404s — never derive one from
+# the label.
+MENU_ROUTES = {
+    "Account Settings": "/settings/profile",
+    "Analytics": "/analytics",
+    "Run History": "/runs",
+    "Admin Dashboard": "/admin",
+}
+
+NOTIFICATIONS_HEADING = "Notifications"
+NO_NOTIFICATIONS = "No notifications yet"
+NOTIFICATIONS_HINT = "Pipeline completions will appear here"
+
+
+def menu_item(page, label: str):
+    """One account-menu entry, by role and exact name.
+
+    Located by role and clicked directly: a plain text click on these is
+    documented as intermittently failing, Analytics worst of all.
+    """
+    return page.get_by_role("menuitem", name=label, exact=True)
