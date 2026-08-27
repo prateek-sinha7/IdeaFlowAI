@@ -595,3 +595,57 @@ a test that fails to find it.
 
 **Fix sketch:** leave the guard, delete the message, or drop the `disabled`
 condition and let the banner explain the refusal. Not both.
+
+---
+
+## D-26 — Half the library's agents are unreachable by any category pill
+
+**Severity:** medium, discoverability. **Found by:** `S-08-05`, phase 2.
+
+The agent grid renders every agent (93). The category pills are built from a
+different list:
+
+```ts
+...workflows.filter((w) => w.user_launchable && !w.is_beta && !["custom"].includes(w.id))
+```
+
+Counting the 93 cards by the workflow label each one displays gives 19 distinct
+workflow types. Only 12 of them have a pill. The named pills account for 41
+agents; the other 52 — `.NET TO AZURE` (13), `MULESOFT TO SPRING BOOT` (13),
+`SPEC_KIT` (8), `CHAT` (7), and eight revision/fixture types — can be reached
+only by scrolling "All".
+
+So the spec's `S-08-05` ("the sum of the other category counts equals the All
+count") is not merely unmet; it cannot hold while the two lists are derived
+differently. This is the same root cause as **D-04**, seen from the other side:
+D-04 is seven pills with no agents, D-26 is fifty-two agents with no pill.
+
+`S-08-05` therefore asserts what IS invariant — the All pill equals the grid,
+and no pill claims more agents than exist.
+
+**Fix sketch:** derive the pills from the pipeline types actually present among
+the rendered agents, rather than from the launchable-workflow list. That closes
+both directions at once — the empty pills disappear and the orphaned agents gain
+one.
+
+---
+
+## D-27 — Switching a library tab writes no history entry
+
+**Severity:** low. **Found by:** `S-08-04`, phase 2.
+
+The tab strip and the category pills both call `router.replace`, not `push`:
+
+```ts
+router.replace(routes.library({ tab, category: ... }));
+```
+
+The URL updates and is shareable, so deep links work. But Back does not return
+to the previous tab — it leaves the library altogether, skipping every tab and
+filter the user moved through. On a screen whose whole navigation model is
+"three tabs and a row of filters", that is the one gesture most likely to be
+tried.
+
+`S-08-04` asserts today's behaviour and will fail loudly if this is changed to
+`push`, which is the point: the spec's original claim was that Back returns to
+Agents, and whoever makes that true should be told the test agrees again.

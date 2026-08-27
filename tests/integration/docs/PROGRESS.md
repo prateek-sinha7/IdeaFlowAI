@@ -5,8 +5,8 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **109** |
-| Implemented but skipped | **397** |
+| Implemented and running | **129** |
+| Implemented but skipped | **377** |
 | Not yet written | **0** |
 | **Total** | **506** |
 
@@ -185,30 +185,30 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | s  | `S-07-35` | A specific run version is addressable | `07_run_detail/test_run_detail.py` — not yet implemented |
 | s  | `S-07-36` | A live run streams into the same surface | `07_run_detail/test_run_detail.py` — not yet implemented |
 
-## 08-library.feature.md — 0/20 (20 skipped)
+## 08-library.feature.md — 20/20
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-08-01` | The library opens on Agents by default | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-02` | Each tab is addressable by query param | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-03` | Tab badge counts agree with the rendered cards | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-04` | Switching a tab updates the URL | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-05` | Category counts sum to the All count | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-06` | Filtering by category narrows the grid | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-07` | The category is addressable by URL | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-08` | Seven agent categories are empty test fixtures | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-09` | Search filters the current tab | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-10` | Search is scoped to the active tab | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-11` | An agent opens from its Configure affordance, not its card body | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-12` | An agent's drawer exposes its configuration tabs | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-13` | Each agent drawer tab shows its own content | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-14` | A skill opens from a card click and renders its document | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-15` | A hook opens from a card click | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-16` | Hook categories are lifecycle events | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-17` | A detail view is a drawer, not a modal | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-18` | Closing a detail returns to the list URL | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-19` | Deep-linking a detail view works cold | `08_library/test_library.py` — not yet implemented |
-| s  | `S-08-20` | The library is read-only | `08_library/test_library.py` — not yet implemented |
+| ok | `S-08-01` | The library opens on Agents by default | `08_library/test_library.py` |
+| ok | `S-08-02` | Each tab is addressable by query param | `08_library/test_library.py` |
+| ok | `S-08-03` | Tab badge counts agree with the rendered cards | `08_library/test_library.py` |
+| ok | `S-08-04` | Switching a tab updates the URL | `08_library/test_library.py` |
+| ok | `S-08-05` | Category counts sum to the All count | `08_library/test_library.py` |
+| ok | `S-08-06` | Filtering by category narrows the grid | `08_library/test_library.py` |
+| ok | `S-08-07` | The category is addressable by URL | `08_library/test_library.py` |
+| ok | `S-08-08` | Seven agent categories are empty test fixtures | `08_library/test_library.py` |
+| ok | `S-08-09` | Search filters the current tab | `08_library/test_library.py` |
+| ok | `S-08-10` | Search is scoped to the active tab | `08_library/test_library.py` |
+| ok | `S-08-11` | An agent opens from its Configure affordance, not its card body | `08_library/test_library.py` |
+| ok | `S-08-12` | An agent's drawer exposes its configuration tabs | `08_library/test_library.py` |
+| ok | `S-08-13` | Each agent drawer tab shows its own content | `08_library/test_library.py` |
+| ok | `S-08-14` | A skill opens from a card click and renders its document | `08_library/test_library.py` |
+| ok | `S-08-15` | A hook opens from a card click | `08_library/test_library.py` |
+| ok | `S-08-16` | Hook categories are lifecycle events | `08_library/test_library.py` |
+| ok | `S-08-17` | A detail view is a drawer, not a modal | `08_library/test_library.py` |
+| ok | `S-08-18` | Closing a detail returns to the list URL | `08_library/test_library.py` |
+| ok | `S-08-19` | Deep-linking a detail view works cold | `08_library/test_library.py` |
+| ok | `S-08-20` | The library is read-only | `08_library/test_library.py` |
 
 ## 09-settings.feature.md — 19/19
 
