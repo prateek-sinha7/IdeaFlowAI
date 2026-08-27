@@ -20,6 +20,7 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import expect
 
+from framework import nav as NAV
 from framework import settings
 from framework.locators import auth as AUTH
 from framework.locators import shell as L
@@ -351,11 +352,11 @@ def test_an_expired_session_sends_me_to_sign_in_with_an_explanation(page, shot):
             L.nav(page, "Library").click(timeout=5000)
         except Exception:
             pass
-        page.wait_for_url("**/login?expired=true", timeout=settings.LOGIN_TIMEOUT_MS)
-        # The sign-in screen can redirect again on arrival; the screenshot this
-        # step takes on exit fails on a frame that is still navigating.
-        page.wait_for_load_state("load")
-        page.wait_for_timeout(settings.SETTLE_MS // 2)
+        # Polled, not `wait_for_url`: that attaches to the in-flight navigation
+        # and raises ERR_ABORTED when the sign-in screen redirects again on
+        # arrival. See framework/nav.py.
+        NAV.wait_for_url_containing(page, "/login?expired=true")
+        NAV.settle_after_redirect(page)
 
     expect(page.get_by_text(AUTH.EXPIRED_BANNER)).to_be_visible()
     # The stored token is cleared as well as the redirect fired — leaving it

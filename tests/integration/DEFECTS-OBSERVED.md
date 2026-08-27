@@ -732,3 +732,84 @@ step genuinely is core, and refusing to remove one is correct.
 **Fix sketch:** the lock is reading core-ness from the wrong place for
 library-added steps. It should follow the same source the `Core` badge does —
 they disagree today, and the badge is the one telling the truth.
+
+---
+
+## D-31 — Granting a second admin locks EVERY admin out of the product
+
+**Severity:** critical. **Found by:** `S-19-07`, phase 2 — the hard way.
+
+The admin dashboard's "Grant admin access to \<email\>" happily promotes a second
+user. The auth layer then refuses every local-admin credential:
+
+```json
+{"auth_event":"break_glass_invariant_violated",
+ "reason":"unexpected_local_admin_count","local_admin_count":2}
+```
+
+> Rejected a local-admin credential: expected exactly 1 local admin
+> (break-glass invariant, plan section 5.6) but found 2.
+
+`resolve_principal` returns `None`, and `_decode_and_load_user` turns that into
+a flat `401 {"detail":"Invalid token"}`. So:
+
+- `POST /api/auth/login` still answers **200** with a perfectly valid token.
+- Every authenticated request with that token answers **401**.
+- The client's 401 ladder refreshes once, fails, and redirects to
+  `/login?expired=true`.
+
+The user is told their **session expired**. It did not. There is no session that
+would work, for any admin, until the second admin row is removed — and removing
+it needs the admin dashboard, which no admin can now reach. The only way back is
+a direct database write:
+
+```sql
+update users set is_admin = false where email = '<the second admin>';
+```
+
+**Two independent problems, and both matter:**
+
+1. The dashboard offers an action that violates an invariant the auth layer
+   enforces. Either the grant should be refused with an explanation, or the
+   invariant should tolerate more than one local admin.
+2. The failure is reported as an expired session. Nothing anywhere — not the
+   toast, not the login screen, not the API response — mentions the invariant.
+   The log line exists, but only server-side.
+
+**How this was found:** `S-19-07` granted admin to `qa-pro` to assert the
+success toast. The grant succeeded; the very next request 401'd; the test's own
+cleanup could not run because it needed the session the grant had just
+destroyed. The whole suite stopped authenticating and stayed that way until the
+row was restored by hand. Two hours were spent looking for a port collision that
+was real but unrelated.
+
+`S-19-07` now skips the grant and revoke rows for exactly this reason. **No
+offline test may create a second admin.**
+
+**Fix sketch:** refuse the grant in the API with a message naming the invariant,
+and disable the control in the dashboard when a local admin already exists.
+
+---
+
+## D-32 — A refused admin action is applied optimistically and silently
+
+**Severity:** medium. **Found by:** `S-19-08`, phase 2.
+
+An admin cannot change their own tier — the backend refuses it, and S-11-08
+pins that. The dashboard does not notice:
+
+- the row immediately shows the tier that was refused (`BASIC` on an
+  `ENTERPRISE` admin),
+- the stat tiles one line above still count the real tier, so the screen
+  contradicts itself,
+- no error toast appears, and nothing else on the page reports the refusal.
+
+A reload restores the truth, which is how you discover the change never
+happened.
+
+The scenario in the spec is titled "An admin failure is reported, not
+swallowed". It is swallowed. `S-19-08` asserts the current behaviour and will
+fail the day the error toast appears.
+
+**Fix sketch:** await the response before updating the row, and surface the
+server's message in the error toast the other admin actions already use.

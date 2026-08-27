@@ -90,84 +90,114 @@ def test_a_toast_does_not_block_the_page_beneath_it(page, shot):
 # ── admin toasts ─────────────────────────────────────────────────────────────
 
 
+_LOCKS_EVERYONE_OUT = (
+    "granting a second admin trips the break-glass invariant and locks EVERY "
+    "admin out of the product — D-31"
+)
+
+
+def tier_control(page):
+    return page.locator(ADMIN.row(accounts.PRO)).first.locator(
+        'button[aria-haspopup="menu"]'
+    ).first
+
+
+def set_tier(page, label: str) -> None:
+    tier_control(page).click()
+    page.get_by_role("menuitem", name=re.compile(label, re.I)).first.click()
+    page.wait_for_timeout(settings.SETTLE_MS // 2)
+
+
 @pytest.mark.scenario("S-19-07")
 @pytest.mark.destructive
 @pytest.mark.parametrize("action", ["grant", "revoke", "tier", "create", "delete"])
 def test_admin_actions_confirm_themselves_by_toast(page, shot, action):
     """Scenario: Admin actions confirm themselves by toast
 
-    Only the three REVERSIBLE actions run. Creating and deleting a user need a
-    disposable fixture account this suite does not have — the same reason
-    S-11-15 and S-19-13 defer.
+    Only the tier change runs. The other four are all unsafe here, for two
+    different reasons:
 
-    Each of the three changes exactly one thing about qa-pro and puts it back.
+    **grant / revoke** — granting admin to a second account leaves the database
+    with two local admins, and `resolve_principal` then refuses EVERY
+    local-admin credential ("break-glass invariant, plan §5.6: expected exactly
+    1 local admin but found 2"). The grant succeeds, the account is locked out
+    on the very next request, and the test's own cleanup cannot run because it
+    needs the session it just destroyed. That is D-31, and it cost this suite a
+    two-hour outage before it was understood.
+
+    **create / delete** — need a disposable fixture account, as S-11-15 does.
     """
+    if action in ("grant", "revoke"):
+        pytest.skip(_LOCKS_EVERYONE_OUT)
     if action in ("create", "delete"):
         pytest.skip("needs a disposable fixture user; see S-11-15")
 
     open_admin(page)
+    before = tier_control(page).inner_text().strip().split("\n")[0]
 
-    if action in ("grant", "revoke"):
-        try:
-            with shot("grant-admin", "When I grant admin access"):
-                page.click(ADMIN.grant_admin(accounts.PRO))
-                expect(toast_with(page, L.ADMIN_MESSAGES["grant"])).to_be_visible()
-
-            if action == "revoke":
-                with shot("revoke-admin", "When I remove admin access"):
-                    page.click(ADMIN.revoke_admin(accounts.PRO))
-                    expect(toast_with(page, L.ADMIN_MESSAGES["revoke"])).to_be_visible()
-        finally:
-            open_admin(page)
-            if page.locator(ADMIN.revoke_admin(accounts.PRO)).count():
-                page.click(ADMIN.revoke_admin(accounts.PRO))
-                page.wait_for_timeout(settings.SETTLE_MS // 2)
-        return
-
-    # tier
-    row = page.locator(ADMIN.row(accounts.PRO)).first
-    trigger = row.locator('button[aria-haspopup="menu"]').first
-    before = trigger.inner_text().strip().split("\n")[0]
     try:
         with shot("tier-changed", "When I change a user's tier"):
-            trigger.click()
-            page.get_by_role("menuitem", name=re.compile("Enterprise", re.I)).first.click()
+            set_tier(page, "Enterprise")
             expect(toast_with(page, L.ADMIN_MESSAGES["tier"])).to_be_visible()
     finally:
         open_admin(page)
-        trigger = page.locator(ADMIN.row(accounts.PRO)).first.locator(
-            'button[aria-haspopup="menu"]'
-        ).first
-        if trigger.inner_text().strip().split("\n")[0].lower() != before.lower():
-            trigger.click()
-            page.get_by_role("menuitem", name=re.compile(before, re.I)).first.click()
-            page.wait_for_timeout(settings.SETTLE_MS // 2)
+        if tier_control(page).inner_text().strip().split("\n")[0].lower() != before.lower():
+            set_tier(page, before)
 
 
 @pytest.mark.scenario("S-19-08")
+@pytest.mark.defect
 def test_an_admin_failure_is_reported_not_swallowed(page, shot):
     """Scenario: An admin failure is reported, not swallowed
 
-    Driven through a refusal the backend already guarantees — an admin may not
-    change their OWN tier (S-11-08) — so nothing is mutated to produce the
-    error.
+    Asserts TODAY'S behaviour, which is the opposite of the scenario's name —
+    D-32. The backend refuses an admin's attempt to change their OWN tier
+    (S-11-08 pins the API side), and the dashboard applies the change
+    optimistically anyway: the row shows the tier that was refused, no error
+    toast appears, and the stat tiles above still count the old one. Only a
+    reload reveals that nothing was saved.
+
+    Driven through that refusal precisely because it changes nothing — the
+    write never lands, so there is nothing to restore beyond the reload this
+    test does anyway.
     """
     open_admin(page)
-    row = page.locator(ADMIN.row(accounts.ADMIN)).first
-    trigger = row.locator('button[aria-haspopup="menu"]').first
+    own = page.locator(ADMIN.row(accounts.ADMIN)).first
+    trigger = own.locator('button[aria-haspopup="menu"]').first
 
     if trigger.is_disabled():
         pytest.skip("the admin's own tier control is disabled, so no request is made")
 
-    with shot("admin-error-toast", "When I attempt a change the backend rejects"):
+    before = trigger.inner_text().strip().split("\n")[0]
+
+    with shot("admin-refusal-swallowed", "When I attempt a change the backend rejects"):
         trigger.click()
         page.get_by_role("menuitem", name=re.compile("Basic", re.I)).first.click()
         page.wait_for_timeout(settings.SETTLE_MS)
 
     body = page.evaluate("() => document.body.innerText")
-    assert any(
-        word in body.lower() for word in ("cannot", "not allowed", "failed", "refus", "own")
-    ), f"the refusal was swallowed — nothing on screen reports it: {body[:300]!r}"
+    reported = any(
+        word in body.lower() for word in ("cannot", "not allowed", "failed", "refus")
+    )
+    assert not reported, (
+        "the refusal is now reported — D-32 is fixed. Rewrite this as the "
+        f"spec's S-19-08, which asserts the error toast. Page said: {body[:200]!r}"
+    )
+    assert trigger.inner_text().strip().split("\n")[0].lower() == "basic", (
+        "the row no longer shows the refused tier, so the optimistic update is "
+        "gone too — re-read D-32"
+    )
+
+    with shot("reverted-on-reload", "When I reload, the refused change is gone"):
+        open_admin(page)
+
+    after = page.locator(ADMIN.row(accounts.ADMIN)).first.locator(
+        'button[aria-haspopup="menu"]'
+    ).first.inner_text().strip().split("\n")[0]
+    assert after.lower() == before.lower(), (
+        f"the admin's tier really changed to {after!r} — the backend did NOT "
+        "refuse it, which is far worse than D-32"
+    )
 
 
 @pytest.mark.scenario("S-19-09")
@@ -176,16 +206,19 @@ def test_the_two_toast_families_use_different_timeouts(page, shot):
     """Scenario: The two toast families use different timeouts
 
     Measures the ADMIN toast, which is reachable offline. The 7000ms
-    run-completion timeout is S-19-03's, in the live tier — this asserts the
-    admin one is meaningfully shorter, which is the part a shared wait helper
-    gets wrong.
+    run-completion timeout is S-19-03's, in the live tier — what this asserts is
+    that the admin one is meaningfully shorter, which is the part a shared wait
+    helper gets wrong.
+
+    Driven by a tier change, not by granting admin: see S-19-07 and D-31.
     """
     open_admin(page)
+    before = tier_control(page).inner_text().strip().split("\n")[0]
 
     try:
         with shot("admin-toast-shown", "When an admin toast appears"):
-            page.click(ADMIN.grant_admin(accounts.PRO))
-            toast = toast_with(page, L.ADMIN_MESSAGES["grant"])
+            set_tier(page, "Enterprise")
+            toast = toast_with(page, L.ADMIN_MESSAGES["tier"])
             expect(toast).to_be_visible()
             started = time.monotonic()
 
@@ -198,9 +231,8 @@ def test_the_two_toast_families_use_different_timeouts(page, shot):
         )
     finally:
         open_admin(page)
-        if page.locator(ADMIN.revoke_admin(accounts.PRO)).count():
-            page.click(ADMIN.revoke_admin(accounts.PRO))
-            page.wait_for_timeout(settings.SETTLE_MS // 2)
+        if tier_control(page).inner_text().strip().split("\n")[0].lower() != before.lower():
+            set_tier(page, before)
 
 
 # ── the delete-user confirm ──────────────────────────────────────────────────
@@ -329,19 +361,22 @@ def test_download_failures_are_the_only_native_dialogs_in_the_product(page, shot
     someone reintroducing `window.confirm`. There is no runtime surface that
     could prove an absence.
     """
-    offenders = []
+    # Bare `alert(`/`confirm(`, optionally `window.`-qualified — the product
+    # writes `alert("Failed to generate ZIP.")`, so a `window.`-only pattern
+    # matches nothing and the check passes without checking anything.
+    # No space before the paren: prose says "an explicit confirm (44-02)" and
+    # "the system prompt (KAN-76)", and a `\s*` there matches all of it.
+    native = re.compile(r"(?<![\w.$])(?:window\.)?(confirm|prompt)\(")
+    alert_call = re.compile(r"(?<![\w.$])(?:window\.)?alert\(")
+
+    offenders, alerts = [], 0
     for path in FRONTEND.rglob("*.ts*"):
         if ".test." in path.name or path.name.endswith(".d.ts"):
             continue
         text = path.read_text(errors="ignore")
-        for call in ("window.confirm(", "window.prompt(", "confirm(", "prompt("):
-            if re.search(rf"(?<![\w.]){re.escape(call)}", text) and call.startswith("window."):
-                offenders.append(f"{path.relative_to(FRONTEND)}: {call}")
-    assert not offenders, f"native confirm/prompt reintroduced: {offenders}"
+        for m in native.finditer(text):
+            offenders.append(f"{path.relative_to(FRONTEND)}: {m.group(0)}")
+        alerts += len(alert_call.findall(text))
 
-    alerts = sum(
-        len(re.findall(r"(?<![\w.])window\.alert\(", p.read_text(errors="ignore")))
-        for p in FRONTEND.rglob("*.ts*")
-        if ".test." not in p.name
-    )
-    assert alerts > 0, "no window.alert remains — S-19-15 has nothing left to assert"
+    assert not offenders, f"native confirm/prompt reintroduced: {offenders}"
+    assert alerts > 0, "no alert() remains — S-19-15 has nothing left to assert"

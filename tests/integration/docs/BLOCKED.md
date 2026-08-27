@@ -1,67 +1,57 @@
-# Blocked: two backends are sharing port 8000
+# Resolved: the suite could not authenticate for ~2 hours
 
 **Found:** 2026-08-27, ~05:10, while verifying `19_toasts_and_dialogs`.
-**Effect:** every test that signs in fails. The suite cannot be verified until
-this is resolved. Nothing about it is caused by the tests.
+**Resolved:** the same session, once the real cause was understood.
+Kept as a record because both causes are worth knowing about.
 
-## What is happening
+## The real cause: a second admin locks every admin out — D-31
 
-Two uvicorn servers are listening on port 8000, from two different worktrees:
+`S-19-07` granted admin to `qa-pro@flowinqa.com` so it could assert the success
+toast. The grant succeeded. Every request after it answered
+`401 {"detail":"Invalid token"}`, and the client reported an **expired session**.
 
-| PID | Started | cwd | Bound to |
-|---|---|---|---|
-| 195 | 00:25:53 | `VELOCITY-AI-feat-impeccable-improvements/backend` | `127.0.0.1:8000` |
-| 42333 (+ child 49727) | 03:32:05 | `VELOCITY-AI/backend` (main checkout) | `*:8000` |
+The server-side reason never reaches the client:
 
-Their `backend/.env` files differ in **both** `SECRET_KEY` and `DATABASE_URL`.
-
-Requests to `localhost:8000` are split between them, so:
-
-```
-POST /api/auth/login   -> 200, token signed with the MAIN checkout's SECRET_KEY
-GET  /api/auth/me      -> 401 {"detail":"Invalid token"}
+```json
+{"auth_event":"break_glass_invariant_violated",
+ "reason":"unexpected_local_admin_count","local_admin_count":2}
 ```
 
-Ten consecutive login-then-verify pairs failed. A token minted directly with the
-main checkout's `SECRET_KEY` is also refused, and `verify_credential` accepts
-that same token when called in-process against the main checkout's settings —
-which is only possible if the two calls are being answered by two processes.
+Two local admins violate the break-glass invariant, so `resolve_principal`
+returns `None` for **every** local-admin credential — including brand-new ones.
+`POST /api/auth/login` keeps answering 200 with a valid token; nothing that
+token is used for will work.
 
-The first backend was already running when this session started; the second
-appeared at **03:32**, which is exactly when the suite stopped being able to
-sign in. Everything committed before that point was verified green against a
-single server.
-
-## The fix
-
-Stop one of them, then restart the other so it owns the port cleanly:
-
-```sh
-kill 42333            # or 195 — whichever backend is not the one you want
-```
-
-Neither process was started by this session, so neither has been touched here.
-
-## State this session changed and put back
-
-`S-19-07` granted admin to `qa-pro@flowinqa.com` and its cleanup could not run,
-because the page had already stopped authenticating. The row was restored
-directly:
+The test's own cleanup could not run: it needed the admin session the grant had
+just destroyed. Recovery was a direct database write:
 
 ```sql
 update users set is_admin = false where email = 'qa-pro@flowinqa.com';
 ```
 
-The four seeded accounts now match `seed_test_users.py` exactly —
-`qa-admin` admin/enterprise, `qa-pro` pro, `qa-enterprise` enterprise,
-`qa-basic` basic.
+`S-19-07` now skips its grant and revoke rows. **No offline test may create a
+second admin.** Full write-up in `DEFECTS-OBSERVED.md` as D-31.
 
-## What to do after the restart
+## The red herring: two backends on port 8000
 
-```sh
-sh tests/integration/scripts/run-all-offline.sh
-```
+Real, and worth fixing, but not what broke the suite. For about ninety minutes
+two uvicorn servers were listening on 8000:
 
-`19_toasts_and_dialogs` is committed but **never ran green** — it is the one
-module in the suite that has not been verified end to end. Everything from
-`17_theme_and_tiers` backwards was verified before the collision.
+| PID | Started | cwd | Bound to |
+|---|---|---|---|
+| 195 | 00:25:53 | `VELOCITY-AI-feat-impeccable-improvements/backend` | `127.0.0.1:8000` |
+| 42333 | 03:32:05 | `VELOCITY-AI/backend` | `*:8000` |
+
+Their `backend/.env` files differ in both `SECRET_KEY` and `DATABASE_URL`, so
+requests split between two servers that could not read each other's tokens. PID
+195 exited on its own and the collision went with it — but the 401s continued,
+which is what finally pointed at the invariant instead.
+
+**If sign-in fails again, check both:** `lsof -nP -iTCP:8000 -sTCP:LISTEN`
+should list one server (plus its reload child), and
+`select email from users where is_admin` should return exactly one row.
+
+## State restored
+
+The four seeded accounts match `seed_test_users.py` exactly: `qa-admin`
+admin/enterprise, `qa-pro` pro, `qa-enterprise` enterprise, `qa-basic` basic.

@@ -14,6 +14,7 @@ import pytest
 from playwright.sync_api import expect
 
 from framework import api, settings
+from framework import nav as NAV
 from framework.locators import errors as L
 from framework.locators import run_history as RH
 from framework.locators import shell as SHELL
@@ -386,11 +387,11 @@ def test_an_unrefreshable_session_ends_at_sign_in_with_an_explanation(page, shot
                 act()
             except Exception:
                 pass
-        page.wait_for_url("**/login?expired=true", timeout=settings.LOGIN_TIMEOUT_MS)
-        # The sign-in screen can redirect again on arrival; the screenshot this
-        # step takes on exit fails on a frame that is still navigating.
-        page.wait_for_load_state("load")
-        page.wait_for_timeout(settings.SETTLE_MS // 2)
+        # Polled, not `wait_for_url`: that attaches to the in-flight navigation
+        # and raises ERR_ABORTED when the sign-in screen redirects again on
+        # arrival. See framework/nav.py.
+        NAV.wait_for_url_containing(page, "/login?expired=true")
+        NAV.settle_after_redirect(page)
 
     expect(page.get_by_text("Your session expired. Please sign in again.")).to_be_visible()
 
