@@ -109,6 +109,8 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("context_provider", "conversation"),  # 33 / D-08 — compacted chat run_events as context
     ("chat", "concierge"),                 # 33 / D-05 — app-side per-run proposal-only Concierge
     ("tool", "internet"),                  # spec 012 — internet-access tool
+    ("tool", "pptx"),                      # spec 017 — pptx tool set (missing from this list)
+    ("tool", "playwright"),                # spec 018 — headless-browser tool set
 ]
 
 

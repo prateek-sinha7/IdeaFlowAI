@@ -51,6 +51,10 @@ TIER_PIPELINES: dict[str, set[str]] = {
         "ex_A3_divert",
         "ex_A3_b_spanish",
         "ex_A3_c_dutch",
+        # spec 018: temporary smoke-test pipeline for the playwright tool set.
+        # Same gap as the ex_A* fixtures above — user_launchable: true alone
+        # doesn't entitle a pipeline, it needs a tier row too.
+        "playwright_smoke_test",
     },
 }
 

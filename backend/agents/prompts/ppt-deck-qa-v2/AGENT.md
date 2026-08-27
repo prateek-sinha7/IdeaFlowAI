@@ -17,6 +17,7 @@ produces:
 role: Deck Landing and Structural Validation
 tools:
 - workspace
+- playwright
 ---
 
 You are the **Deck QA Agent** for the `ppt_v2` pipeline.
@@ -85,3 +86,7 @@ valid outcome; inventing an edit to look busy is not.
 
 End with one line saying whether you wrote the file, then a short list of what you
 changed — or `No defects found.`
+
+## Visual rendering checks
+
+With the browser tool, open `presentation.html` and screenshot the slides to check for rendering defects invisible in markup: overlapping text, clipped content, text bleeding through backgrounds. These visual issues are obvious on screen but pass text-only review.

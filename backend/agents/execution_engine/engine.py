@@ -3490,6 +3490,26 @@ class ExecutionEngine:
                 },
             }
             return
+        finally:
+            # T7 (spec 018, FR-009): the ONLY point every exit from this try
+            # crosses — normal completion, each of the three excepts above, an
+            # unhandled exception, AND GeneratorExit (the consumer abandons this
+            # generator — e.g. a WebSocket disconnect — so none of the excepts
+            # above ever runs). Releases this run's Playwright session (T3a); a
+            # no-op for the near-totality of runs that never launched a browser.
+            # MUST NOT raise: on the cancel path above (ISS-023) a genuine
+            # task.cancel() has to keep propagating so the disconnect cleanup
+            # runs — an exception raised here would mask it.
+            try:
+                from app.agents.playwright_session import release as _release_playwright_session
+
+                await _release_playwright_session(pipeline_run_id)
+            except Exception:  # noqa: BLE001 — must never mask the exception in flight
+                logger.warning(
+                    "playwright session release failed for run %s",
+                    pipeline_run_id,
+                    exc_info=True,
+                )
 
         # ── Step 5: Pipeline complete ─────────────────────────────────────
         # Guard: if the run was already cancelled (e.g. user rejected a review

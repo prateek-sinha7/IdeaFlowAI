@@ -465,27 +465,27 @@ flowchart LR
 
 <!-- MODULE-MAP -->
 
-36 logical modules over 650 tracked source files. Each entry links to its
+36 logical modules over 662 tracked source files. Each entry links to its
 architecture card, which carries an auto-generated file and import rollup. Module
 cards describe FOLDERS and carry no diagrams — for how a concern actually works,
 read the domains above.
 
-### Backend — Python (295 files)
+### Backend — Python (307 files)
 
 | Module | Path | Files |
 |---|---|---|
-| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 123 |
-| [MOD-backend-app-agents](architecture/MOD-backend-app-agents.md) | `backend/app/agents` | 40 |
+| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 124 |
+| [MOD-backend-app-agents](architecture/MOD-backend-app-agents.md) | `backend/app/agents` | 42 |
 | [MOD-backend-alembic-versions](architecture/MOD-backend-alembic-versions.md) | `backend/alembic/versions` | 38 |
 | [MOD-backend-app-api](architecture/MOD-backend-app-api.md) | `backend/app/api` | 31 |
 | [MOD-backend-app-models](architecture/MOD-backend-app-models.md) | `backend/app/models` | 24 |
+| [MOD-backend](architecture/MOD-backend.md) | `backend` | 10 |
 | [MOD-backend-app-core](architecture/MOD-backend-app-core.md) | `backend/app/core` | 10 |
 | [MOD-backend-evals](architecture/MOD-backend-evals.md) | `backend/evals` | 9 |
 | [MOD-backend-scripts](architecture/MOD-backend-scripts.md) | `backend/scripts` | 9 |
 | [MOD-backend-app-services](architecture/MOD-backend-app-services.md) | `backend/app/services` | 5 |
 | [MOD-backend-app](architecture/MOD-backend-app.md) | `backend/app` | 2 |
 | [MOD-backend-app-scripts](architecture/MOD-backend-app-scripts.md) | `backend/app/scripts` | 2 |
-| [MOD-backend](architecture/MOD-backend.md) | `backend` | 1 |
 | [MOD-backend-alembic](architecture/MOD-backend-alembic.md) | `backend/alembic` | 1 |
 
 ### Frontend — TypeScript (355 files)

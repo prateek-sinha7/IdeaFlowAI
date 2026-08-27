@@ -1,0 +1,43 @@
+# playwright_smoke_test — throwaway single-step pipeline for validating spec 018's
+# playwright tool set end to end, live, without waiting on a full ppt_v2/prototype run.
+#
+# THIS IS TEMPORARY. Delete this directory and agents/prompts/playwright-smoke-test/
+# once spec 018's live validation is done — it exists only so QA can exercise
+# tools:[playwright] in under a minute instead of waiting on a multi-step pipeline.
+#
+# deliverable: serialized_sandbox (not single_file) is deliberate — it walks the WHOLE
+# sandbox and applies is_deliverable_relpath, so it actually exercises the .browser/
+# exclusion (FR-006) rather than trivially not-including-it the way a single named
+# deliverable would.
+
+id: playwright_smoke_test
+user_launchable: true
+is_beta: false
+display_name: Playwright Smoke Test
+short_name: PW Smoke Test
+icon: TestTube
+description: Temporary one-step check that the playwright tool set works (spec 018).
+version: 1
+planner: skip
+clarify:
+  mode: skip
+  defaults: []
+deliverable:
+  strategy: serialized_sandbox
+context_providers: []
+seed_files: {}
+capabilities:
+  internet: false
+limits:
+  wall_clock_seconds: 180
+
+steps:
+- agent: playwright-smoke-test
+  instance_id: smoke
+  tools:
+    read_files: true
+    write_files: true
+    exec: false
+  gates: []
+
+name: Playwright Smoke Test

@@ -321,8 +321,9 @@ def create_runner(
     # so the anti-fabrication ``tool_availability`` preamble can be injected.
     # The sandbox is built + ensure()d above; pass it so a sandbox-bound tool set
     # (spec 017's pptx tools) binds to THIS run's dir — including a fan-out
-    # worker's isolated override.
-    custom_tools, exclude_builtin_tools = _resolve_runner_tools(spec, ctx, sandbox)
+    # worker's isolated override. agent_id is passed for per-agent browser context
+    # isolation (spec 018 / FR-010).
+    custom_tools, exclude_builtin_tools = _resolve_runner_tools(spec, ctx, sandbox, agent_id=agent_id)
     if delivery.staged:
         # A run with staged skills needs the full filesystem tool set (read AND
         # write) on every agent so it can actually carry out a skill's
@@ -998,11 +999,18 @@ _PPTX_TOOL_KEYS = frozenset({
     "render_pptx", "verify_pptx_layout", "extract_pptx_shapes", "screenshot_pptx",
 })
 
+_PLAYWRIGHT_TOOL_KEYS = frozenset({
+    "playwright_navigate", "playwright_snapshot", "playwright_click", "playwright_type",
+    "playwright_take_screenshot", "playwright_console_messages", "playwright_wait_for",
+    "playwright_evaluate", "playwright_close",
+})
+
 
 def _resolve_custom_tool_keys(
     keys: list[str],
     ctx: AgentContext | None = None,
     sandbox: Any = None,
+    agent_id: str | None = None,
 ) -> list:
     """Map provider-emitted custom-tool KEYS → concrete tool objects (08-03 / F2).
 
@@ -1014,7 +1022,8 @@ def _resolve_custom_tool_keys(
 
       * ``"report_task_complete"`` → the store-free runner tool (one tool).
       * ``"planning"``             → the whole ``PLANNING_TOOLS`` set (a list).
-      * the three ``pptx`` keys     → the pptx tools, bound to THIS run's sandbox.
+      * the four ``pptx`` keys     → the pptx tools, bound to THIS run's sandbox.
+      * the nine ``playwright`` keys → the playwright tools, bound to THIS run's sandbox.
 
     ``ctx`` and ``sandbox`` are optional and default to None so every existing
     caller and test is unchanged; only the pptx keys read them, and only to hand
@@ -1080,6 +1089,23 @@ def _resolve_custom_tool_keys(
             concrete = getattr(pptx_tools, key)
             if concrete not in resolved:
                 resolved.append(concrete)
+        elif key in _PLAYWRIGHT_TOOL_KEYS:
+            # spec 018 — bound only when the step declares tools: [playwright]
+            # (user_allowed=False at the registry, so no user/db manifest can
+            # name it). The sandbox is ambient per-run state, never a model
+            # argument, so it is bound onto the module rather than passed.
+            if sandbox is None:
+                logger.warning(
+                    "playwright tool key %r requested with no run sandbox — skipping "
+                    "(the tools would have nowhere safe to write)", key,
+                )
+                continue
+            from app.agents.tools import playwright
+
+            playwright.bind_sandbox(sandbox, agent_id=agent_id or "unknown")
+            concrete = getattr(playwright, key)
+            if concrete not in resolved:
+                resolved.append(concrete)
         else:
             raise ValueError(
                 f"unknown custom-tool key '{key}' emitted by a tool_provider; "
@@ -1088,7 +1114,7 @@ def _resolve_custom_tool_keys(
     return resolved
 
 
-def _resolve_runner_tools(spec, ctx: AgentContext, sandbox: Any = None) -> tuple[list, bool]:
+def _resolve_runner_tools(spec, ctx: AgentContext, sandbox: Any = None, agent_id: str | None = None) -> tuple[list, bool]:
     """Resolve spec.tools to the (custom_tools, exclude_builtin_tools) pair via the
     ``tool_provider`` registry (08-03 / F2 — replaces the closed switch, INV-12).
 
@@ -1173,7 +1199,7 @@ def _resolve_runner_tools(spec, ctx: AgentContext, sandbox: Any = None) -> tuple
             return (mcp_tools, False)
         return ([], False)
 
-    resolved = _resolve_custom_tool_keys(custom_keys, ctx, sandbox)
+    resolved = _resolve_custom_tool_keys(custom_keys, ctx, sandbox, agent_id=agent_id)
     # Union the pre-warmed MCP tools after the registered keys (a pre-bound MCP tool
     # needs the native fs surface, so it flips exclude off too — INV-13 augment).
     if mcp_tools:
