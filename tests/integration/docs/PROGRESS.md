@@ -5,9 +5,9 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **181** |
-| Implemented but skipped | **325** |
-| Not yet written | **0** |
+| Implemented and running | **209** |
+| Implemented but skipped | **291** |
+| Not yet written | **6** |
 | **Total** | **506** |
 
 `skipped` means the test exists and is linked to its spec, but cannot run
@@ -302,30 +302,30 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-12-18` | Every top-level screen survives a hard refresh | `12_shell_nav/test_shell_nav.py` |
 | ok | `S-12-19` | An expired session sends me to sign-in with an explanation | `12_shell_nav/test_shell_nav.py` |
 
-## 13-errors.feature.md — 0/20 (20 skipped)
+## 13-errors.feature.md — 14/20
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-13-01` | An unrecognised URL shows the 404 screen | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-02` | The 404 offers a way back that works | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-03` | The 404 create action reaches the composer | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-04` | The 404 offers Sign in to an already-authenticated user | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-05` | Malformed routes fall back rather than crash | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-06` | A bare /settings redirects to Profile | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-07` | Legacy library list URLs are redirected, not 404'd | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-08` | A run id that does not exist falls back to the generic 404 | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-09` | A workflow id that does not exist falls back to the generic 404 | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-10` | Missing-resource errors are indistinguishable from a bad URL | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-11` | A nonexistent artifact version falls back to v1 without saying so | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-12` | An oversized full-screen preview explains itself | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-13` | Another user's run is not readable | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-14` | A run file cannot be fetched across an ownership boundary | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-15` | A request with no credentials is answered 401, not 403 | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-16` | A request with a malformed token is answered 401 | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-17` | An expired session is recovered once before being surrendered | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-18` | An unrefreshable session ends at sign-in with an explanation | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-19` | A backend outage is reported, not swallowed | `13_errors/test_errors.py` — not yet implemented |
-| s  | `S-13-20` | A failed run is presented as failed | `13_errors/test_errors.py` — not yet implemented |
+| ok | `S-13-01` | An unrecognised URL shows the 404 screen | `13_errors/test_errors.py` |
+| ok | `S-13-02` | The 404 offers a way back that works | `13_errors/test_errors.py` |
+| ok | `S-13-03` | The 404 create action reaches the composer | `13_errors/test_errors.py` |
+| ok | `S-13-04` | The 404 offers Sign in to an already-authenticated user | `13_errors/test_errors.py` |
+| ok | `S-13-05` | Malformed routes fall back rather than crash | `13_errors/test_errors.py` |
+| ok | `S-13-06` | A bare /settings redirects to Profile | `13_errors/test_errors.py` |
+| ok | `S-13-07` | Legacy library list URLs are redirected, not 404'd | `13_errors/test_errors.py` |
+| ok | `S-13-08` | A run id that does not exist falls back to the generic 404 | `13_errors/test_errors.py` |
+| ok | `S-13-09` | A workflow id that does not exist falls back to the generic 404 | `13_errors/test_errors.py` |
+| ok | `S-13-10` | Missing-resource errors are indistinguishable from a bad URL | `13_errors/test_errors.py` |
+| ok | `S-13-11` | A nonexistent artifact version falls back to v1 without saying so | `13_errors/test_errors.py` |
+| ok | `S-13-12` | An oversized full-screen preview explains itself | `13_errors/test_errors.py` |
+| ok | `S-13-13` | Another user's run is not readable | `13_errors/test_errors.py` |
+| ok | `S-13-14` | A run file cannot be fetched across an ownership boundary | `13_errors/test_errors.py` |
+| ·  | `S-13-15` | A request with no credentials is answered 401, not 403 | — |
+| ·  | `S-13-16` | A request with a malformed token is answered 401 | — |
+| ·  | `S-13-17` | An expired session is recovered once before being surrendered | — |
+| ·  | `S-13-18` | An unrefreshable session ends at sign-in with an explanation | — |
+| ·  | `S-13-19` | A backend outage is reported, not swallowed | — |
+| ·  | `S-13-20` | A failed run is presented as failed | — |
 
 ## 14-run-states.feature.md — 0/13 (13 skipped)
 
@@ -379,27 +379,27 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | s  | `S-15-28` | A prototype deliverable offers source and tweaks | `15_overlays/test_overlays.py` — not yet implemented |
 | s  | `S-15-29` | Menus and drawers close without navigating | `15_overlays/test_overlays.py` — not yet implemented |
 
-## 16-pages-outside-routes.feature.md — 0/17 (17 skipped)
+## 16-pages-outside-routes.feature.md — 14/17 (3 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-16-01` | The legacy workflow builder is reachable by URL | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-02` | The legacy builder is not the composer | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-03` | The legacy builder cannot add an agent | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-04` | The legacy wizard path redirects to the named create route | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-05` | A runId deep-link redirects to the run's full preview | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-06` | The bare path with no payload falls back to run history | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-07` | An oversized project explains itself and offers a way out | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-08` | The App Builder full-screen button hands files over in sessionStorage | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-09` | Handoff settings offers the install command | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-10` | A GitHub token can be saved and is never read back | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-11` | A saved GitHub token is not echoed to the client | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-12` | An API key is shown once and never again | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-13` | Handoff settings requires authentication | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-14` | One user cannot see another's handoff credentials | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-15` | An invalid handoff token is refused clearly | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-16` | A valid handoff token opens the handoff workflow | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
-| s  | `S-16-17` | A handoff token belonging to another user is refused | `16_pages_outside_routes/test_pages_outside_routes.py` — not yet implemented |
+| ok | `S-16-01` | The legacy workflow builder is reachable by URL | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| ok | `S-16-02` | The legacy builder is not the composer | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| ok | `S-16-03` | The legacy builder cannot add an agent | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| ok | `S-16-04` | The legacy wizard path redirects to the named create route | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| ok | `S-16-05` | A runId deep-link redirects to the run's full preview | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| ok | `S-16-06` | The bare path with no payload falls back to run history | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| ok | `S-16-07` | An oversized project explains itself and offers a way out | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| s  | `S-16-08` | The App Builder full-screen button hands files over in sessionStorage | `16_pages_outside_routes/test_pages_outside_routes.py` — needs an App Builder run with an open preview; live tier |
+| ok | `S-16-09` | Handoff settings offers the install command | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| ok | `S-16-10` | A GitHub token can be saved and is never read back | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| ok | `S-16-11` | A saved GitHub token is not echoed to the client | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| ok | `S-16-12` | An API key is shown once and never again | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| ok | `S-16-13` | Handoff settings requires authentication | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| ok | `S-16-14` | One user cannot see another's handoff credentials | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| ok | `S-16-15` | An invalid handoff token is refused clearly | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| s  | `S-16-16` | A valid handoff token opens the handoff workflow | `16_pages_outside_routes/test_pages_outside_routes.py` — needs a fixture that mints a valid handoff token; 22_handoff_and_gates |
+| s  | `S-16-17` | A handoff token belonging to another user is refused | `16_pages_outside_routes/test_pages_outside_routes.py` — needs a handoff token issued to another user; 22_handoff_and_gates |
 
 ## 17-theme-and-tiers.feature.md — 0/12 (12 skipped)
 
