@@ -742,13 +742,39 @@ def test_a_prototype_run_offers_its_own_renderer_mode(page, shot):
 
 
 @pytest.mark.scenario("S-07-30")
-@pytest.mark.defect
-@pytest.mark.skip(
-    reason="D-18: asserting which FILE the Preview pane renders needs a hook the "
-    "pane does not expose — it renders text, not a named source"
-)
 def test_a_prototype_run_previews_its_validated_deliverable(page, shot):
-    """Scenario: A prototype run previews its validated deliverable"""
+    """Scenario: A prototype run previews its validated deliverable
+
+    **D-18 is FIXED.** The spec records the Preview tab rendering the spec
+    agent's markdown as plain text with zero iframes while the Files tab
+    reported `prototype.html · validated`. It now renders the prototype in an
+    iframe, so this asserts the scenario as written rather than the defect.
+    """
+    page.goto("/runs")
+    expect(page.locator(RH.ROW).first).to_be_visible()
+    RH.chip(page, "Prototype").first.click()
+    page.wait_for_url("**type=prototype")
+    page.wait_for_timeout(settings.SETTLE_MS // 2)
+    done = [label for label in RH.rows(page) if RH.status_of(label) == "completed"]
+    if not done:
+        pytest.skip("no completed prototype run")
+
+    page.locator(f'{RH.ROW}[aria-label="{done[0]}"]').first.click()
+    page.wait_for_url(lambda url: "/runs/" in url)
+    run_id = page.url.split("/runs/")[1].split("/")[0].split("?")[0]
+    open_run(page, run_id)
+
+    with shot("prototype-rendered", 'When I select the "Prototype" renderer'):
+        switch = page.locator(L.RENDERER_SWITCH)
+        expect(switch).to_be_visible(timeout=20000)
+        if switch.get_by_text("Prototype", exact=True).count():
+            switch.get_by_text("Prototype", exact=True).first.click()
+            page.wait_for_timeout(settings.SETTLE_MS)
+
+    assert page.locator("iframe").count() > 0, (
+        "the prototype deliverable is not rendered in an iframe — D-18 has "
+        "regressed and the Preview tab is showing a different file again"
+    )
 
 
 @pytest.mark.scenario("S-07-31")

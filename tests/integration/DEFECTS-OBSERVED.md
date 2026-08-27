@@ -911,3 +911,15 @@ simply uncovered, and this records why.
 
 **Fix sketch:** `expose_headers=["Content-Disposition", "X-Content-Type-Options"]`
 on the CORS middleware.
+
+---
+
+## D-18 — RESOLVED
+
+`PrototypePreview` now mounts. A completed prototype run's Preview tab renders
+the deliverable in an iframe and offers the controls titled "View source",
+"Open tweaks panel" and "Open in new tab".
+
+Recorded at phase 2 by `S-07-30` and `S-15-28`, both of which now assert the
+scenario as the spec writes it rather than the defect. If the Preview tab ever
+goes back to rendering the spec agent's markdown as plain text, both fail.

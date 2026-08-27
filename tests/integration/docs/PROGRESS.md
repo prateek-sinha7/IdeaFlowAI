@@ -5,8 +5,8 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **311** |
-| Implemented but skipped | **195** |
+| Implemented and running | **368** |
+| Implemented but skipped | **138** |
 | Not yet written | **0** |
 | **Total** | **506** |
 
@@ -144,7 +144,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-06-20` | A run card can be opened in a new tab | `06_run_history/test_run_history.py` |
 | ok | `S-06-21` | Run history rows are addressable by a stable hook | `06_run_history/test_run_history.py` |
 
-## 07-run-detail.feature.md — 27/36 (9 skipped)
+## 07-run-detail.feature.md — 28/36 (8 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
@@ -177,7 +177,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-07-27` | The preview renderer can be switched | `07_run_detail/test_run_detail.py` |
 | ok | `S-07-28` | Choosing HTML for a markdown deliverable renders nothing | `07_run_detail/test_run_detail.py` |
 | ok | `S-07-29` | A prototype run offers its own renderer mode | `07_run_detail/test_run_detail.py` |
-| s  | `S-07-30` | A prototype run previews its validated deliverable | `07_run_detail/test_run_detail.py` — D-18: asserting which FILE the Preview pane renders needs a hook the  |
+| ok | `S-07-30` | A prototype run previews its validated deliverable | `07_run_detail/test_run_detail.py` |
 | s  | `S-07-31` | A deck run offers Slides and Full Screen | `07_run_detail/test_run_detail.py` — needs a completed ppt_v2 deck run |
 | ok | `S-07-32` | Full preview is its own URL | `07_run_detail/test_run_detail.py` |
 | ok | `S-07-33` | The run chat lane accepts a follow-up | `07_run_detail/test_run_detail.py` |
@@ -345,39 +345,39 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-14-12` | Run history shows the right status chip | `14_run_states/test_run_states.py` |
 | s  | `S-14-13` | A run parked at a human gate is answerable | `14_run_states/test_run_states.py` — needs a run parked at a human gate; creating one costs a real LLM run  |
 
-## 15-overlays.feature.md — 0/29 (29 skipped)
+## 15-overlays.feature.md — 25/29 (4 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-15-01` | Inspecting a catalog workflow describes it without launching | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-02` | The Advanced control opens the full agent configuration | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-03` | The Advanced layer's Workflow tab exposes the deliverable settings | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-04` | Open in full canvas escalates to the composer | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-05` | Saving from the Advanced layer names the new workflow | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-06` | The add-agent modal lists agents by category | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-07` | Each agent card is individually addressable | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-08` | The add-agent modal cannot be closed by name or by Escape | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-09` | The library item drawer opens beside the list, not over it | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-10` | The agent drawer's tabs each show their own panel | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-11` | An agent with no suggested hooks says so | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-12` | The agent Config tab exposes the gate overrides | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-13` | The workflow actions menu offers the four row operations | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-14` | The run actions menu offers only delete | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-15` | The version picker lists a run's artifact versions | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-16` | Share copies a link rather than opening a dialog | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-17` | A template tile opens a detail modal with a live preview | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-18` | The gallery mounts one live iframe per tile | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-19` | Custom upload is offered on both wizards, HTML only | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-20` | A design-system tile shows its full DESIGN.md | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-21` | A custom design system is pasted, not uploaded | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-22` | Add user collects credentials, plan and the admin flag | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-23` | The create-user dialog can be abandoned | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-24` | The divert picker opens from the config rail, not the canvas | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-25` | The divert picker groups and searches the catalogue | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-26` | A failed workflow fetch degrades to free text | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-27` | The skill manager is reachable | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-28` | A prototype deliverable offers source and tweaks | `15_overlays/test_overlays.py` — not yet implemented |
-| s  | `S-15-29` | Menus and drawers close without navigating | `15_overlays/test_overlays.py` — not yet implemented |
+| ok | `S-15-01` | Inspecting a catalog workflow describes it without launching | `15_overlays/test_overlays.py` |
+| ok | `S-15-02` | The Advanced control opens the full agent configuration | `15_overlays/test_overlays.py` |
+| ok | `S-15-03` | The Advanced layer's Workflow tab exposes the deliverable settings | `15_overlays/test_overlays.py` |
+| ok | `S-15-04` | Open in full canvas escalates to the composer | `15_overlays/test_overlays.py` |
+| s  | `S-15-05` | Saving from the Advanced layer names the new workflow | `15_overlays/test_overlays.py` — saving from the Advanced layer creates a real workflow row; S-04-17 covers the save path with cleanup |
+| ok | `S-15-06` | The add-agent modal lists agents by category | `15_overlays/test_overlays.py` |
+| ok | `S-15-07` | Each agent card is individually addressable | `15_overlays/test_overlays.py` |
+| ok | `S-15-08` | The add-agent modal cannot be closed by name or by Escape | `15_overlays/test_overlays.py` |
+| ok | `S-15-09` | The library item drawer opens beside the list, not over it | `15_overlays/test_overlays.py` |
+| ok | `S-15-10` | The agent drawer's tabs each show their own panel | `15_overlays/test_overlays.py` |
+| ok | `S-15-11` | An agent with no suggested hooks says so | `15_overlays/test_overlays.py` |
+| ok | `S-15-12` | The agent Config tab exposes the gate overrides | `15_overlays/test_overlays.py` |
+| ok | `S-15-13` | The workflow actions menu offers the four row operations | `15_overlays/test_overlays.py` |
+| ok | `S-15-14` | The run actions menu offers only delete | `15_overlays/test_overlays.py` |
+| ok | `S-15-15` | The version picker lists a run's artifact versions | `15_overlays/test_overlays.py` |
+| ok | `S-15-16` | Share copies a link rather than opening a dialog | `15_overlays/test_overlays.py` |
+| ok | `S-15-17` | A template tile opens a detail modal with a live preview | `15_overlays/test_overlays.py` |
+| ok | `S-15-18` | The gallery mounts one live iframe per tile | `15_overlays/test_overlays.py` |
+| ok | `S-15-19` | Custom upload is offered on both wizards, HTML only | `15_overlays/test_overlays.py` |
+| ok | `S-15-20` | A design-system tile shows its full DESIGN.md | `15_overlays/test_overlays.py` |
+| ok | `S-15-21` | A custom design system is pasted, not uploaded | `15_overlays/test_overlays.py` |
+| ok | `S-15-22` | Add user collects credentials, plan and the admin flag | `15_overlays/test_overlays.py` |
+| ok | `S-15-23` | The create-user dialog can be abandoned | `15_overlays/test_overlays.py` |
+| s  | `S-15-24` | The divert picker opens from the config rail, not the canvas | `15_overlays/test_overlays.py` — the divert picker sits below the rail |
+| s  | `S-15-25` | The divert picker groups and searches the catalogue | `15_overlays/test_overlays.py` — needs the divert picker open; see S-15-24 |
+| s  | `S-15-26` | A failed workflow fetch degrades to free text | `15_overlays/test_overlays.py` — needs the divert picker open before the workflow fetch can be failed; see S-15-24 |
+| ok | `S-15-27` | The skill manager is reachable | `15_overlays/test_overlays.py` |
+| ok | `S-15-28` | A prototype deliverable offers source and tweaks | `15_overlays/test_overlays.py` |
+| ok | `S-15-29` | Menus and drawers close without navigating | `15_overlays/test_overlays.py` |
 
 ## 16-pages-outside-routes.feature.md — 14/17 (3 skipped)
 
@@ -418,29 +418,29 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-17-11` | Entitlement is enforced by the backend, not only the badge | `17_theme_and_tiers/test_theme_and_tiers.py` |
 | ok | `S-17-12` | One user's runs are invisible to another | `17_theme_and_tiers/test_theme_and_tiers.py` |
 
-## 18-chat-lane.feature.md — 0/19 (19 skipped)
+## 18-chat-lane.feature.md — 16/19 (3 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-18-01` | The lane is present on every run-detail surface | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-02` | The lane survives every tab | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-03` | Run status is read from the lane, not the tab pane | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-04` | Back returns to run history without losing the filter | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-05` | Every message declares its role and a stable id | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-06` | The narrator names each lifecycle event | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-07` | A clarification request points at Steps | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-08` | The clarification exchange is not duplicated | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-09` | A diverted run links to the workflow it handed off to | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-10` | The run summary collapses and expands | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-11` | The summary label does not announce its own state | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-12` | Send is gated on non-empty input | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-13` | The composer offers attachments and voice | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-14` | Whether the user can reply depends on the run's state | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-15` | Terminal runs agree on whether they can be replied to | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-16` | Sending a message adds a user turn and a reply | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-17` | A chainable run offers follow-on workflows | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-18` | The unavailable chip has its own testid | `18_chat_lane/test_chat_lane.py` — not yet implemented |
-| s  | `S-18-19` | Chain suggestions appear only where they are meaningful | `18_chat_lane/test_chat_lane.py` — not yet implemented |
+| ok | `S-18-01` | The lane is present on every run-detail surface | `18_chat_lane/test_chat_lane.py` |
+| ok | `S-18-02` | The lane survives every tab | `18_chat_lane/test_chat_lane.py` |
+| ok | `S-18-03` | Run status is read from the lane, not the tab pane | `18_chat_lane/test_chat_lane.py` |
+| ok | `S-18-04` | Back returns to run history without losing the filter | `18_chat_lane/test_chat_lane.py` |
+| ok | `S-18-05` | Every message declares its role and a stable id | `18_chat_lane/test_chat_lane.py` |
+| ok | `S-18-06` | The narrator names each lifecycle event | `18_chat_lane/test_chat_lane.py` |
+| ok | `S-18-07` | A clarification request points at Steps | `18_chat_lane/test_chat_lane.py` |
+| ok | `S-18-08` | The clarification exchange is not duplicated | `18_chat_lane/test_chat_lane.py` |
+| s  | `S-18-09` | A diverted run links to the workflow it handed off to | `18_chat_lane/test_chat_lane.py` — needs a diverted run; 22_handoff_and_gates creates one in the live tier |
+| ok | `S-18-10` | The run summary collapses and expands | `18_chat_lane/test_chat_lane.py` |
+| ok | `S-18-11` | The summary label does not announce its own state | `18_chat_lane/test_chat_lane.py` |
+| ok | `S-18-12` | Send is gated on non-empty input | `18_chat_lane/test_chat_lane.py` |
+| ok | `S-18-13` | The composer offers attachments and voice | `18_chat_lane/test_chat_lane.py` |
+| ok | `S-18-14` | Whether the user can reply depends on the run's state | `18_chat_lane/test_chat_lane.py` |
+| ok | `S-18-15` | Terminal runs agree on whether they can be replied to | `18_chat_lane/test_chat_lane.py` |
+| s  | `S-18-16` | Sending a message adds a user turn and a reply | `18_chat_lane/test_chat_lane.py` — sending triggers a live LLM turn, and on a gated workflow it can  |
+| ok | `S-18-17` | A chainable run offers follow-on workflows | `18_chat_lane/test_chat_lane.py` |
+| ok | `S-18-18` | The unavailable chip has its own testid | `18_chat_lane/test_chat_lane.py` |
+| s  | `S-18-19` | Chain suggestions appear only where they are meaningful | `18_chat_lane/test_chat_lane.py` — what governs chain suggestions was never established — they showed  |
 
 ## 19-toasts-and-dialogs.feature.md — 14/17 (3 skipped)
 
@@ -485,25 +485,25 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | s  | `S-20-15` | A root-level failure still renders something | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — app/global-error.tsx catches what escapes the route boundary; no  |
 | ok | `S-20-16` | A server 500 does not leave the user on a blank page | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` |
 
-## 21-run-families-and-versions.feature.md — 0/15 (15 skipped)
+## 21-run-families-and-versions.feature.md — 15/15
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-21-01` | Runs sharing a root collapse into one family row | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-02` | The version badge's accessible name is not its text | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-03` | A family expands to show every version | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-04` | A family of one renders as a plain row | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-05` | The family counts as one against a filter chip | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-06` | Families bucket by date and reorder by sort | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-07` | A revised run shows its version timeline | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-08` | A timeline entry names what it revises | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-09` | Selecting a version navigates to it | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-10` | A version that does not exist is refused | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-11` | A single-version run shows no timeline | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-12` | A diverting run links forward to the run it triggered | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-13` | The triggered run links back to its origin | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-14` | The two directions are distinguishable | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
-| s  | `S-21-15` | A diverted run's chat lane names its target | `21_run_families_and_versions/test_run_families_and_versions.py` — not yet implemented |
+| ok | `S-21-01` | Runs sharing a root collapse into one family row | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-02` | The version badge's accessible name is not its text | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-03` | A family expands to show every version | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-04` | A family of one renders as a plain row | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-05` | The family counts as one against a filter chip | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-06` | Families bucket by date and reorder by sort | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-07` | A revised run shows its version timeline | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-08` | A timeline entry names what it revises | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-09` | Selecting a version navigates to it | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-10` | A version that does not exist is refused | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-11` | A single-version run shows no timeline | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-12` | A diverting run links forward to the run it triggered | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-13` | The triggered run links back to its origin | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-14` | The two directions are distinguishable | `21_run_families_and_versions/test_run_families_and_versions.py` |
+| ok | `S-21-15` | A diverted run's chat lane names its target | `21_run_families_and_versions/test_run_families_and_versions.py` |
 
 ## 22-handoff-and-gates.feature.md — 0/28 (28 skipped)
 
