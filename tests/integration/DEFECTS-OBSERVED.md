@@ -649,3 +649,31 @@ tried.
 `S-08-04` asserts today's behaviour and will fail loudly if this is changed to
 `push`, which is the point: the spec's original claim was that Back returns to
 Agents, and whoever makes that true should be told the test agrees again.
+
+---
+
+## D-28 — The saved-workflow detail view is unreachable from the UI
+
+**Severity:** low. **Found by:** `S-05-06`, phase 2.
+
+`/workflows/{id}` renders a read-only summary — type badge, title, description,
+`4 AGENTS` and the agent roster, plus Edit and Run. Nothing links to it.
+
+`SavedWorkflowsPage` attaches `onClick` to the actions menu and to
+`Run workflow`, and to nothing else. The card body, the monogram and the title
+are all inert, so the only way to reach the detail view is to type its URL —
+which requires knowing an id the list never displays.
+
+Two smaller things found alongside it, recorded here rather than as their own
+cards:
+
+- The detail view's `Edit` and `Run` are real anchors with hrefs. The
+  run-history rows one screen over are `div[role="button"]` with no URL at all
+  (D-14). The same product answers the same question two ways.
+- `Run workflow` on a saved override's card lands on `/create/ppt` — the base
+  wizard's own route, carrying no reference to the saved row. `/workflows/{id}/run`
+  at least keeps the id in the URL. More evidence for **D-05**: the binding is
+  dropped before the panel renders.
+
+**Fix sketch:** make the card body open the detail view, as the library's cards
+do. The menu already holds Edit; a body click has nothing to collide with.
