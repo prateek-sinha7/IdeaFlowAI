@@ -418,3 +418,86 @@ def test_property_byte_identical_to_workspace(tmp_path: Path, pairs: dict[str, s
     case_dir = tmp_path / f"case_{abs(hash(frozenset(pairs.items()))) & 0xFFFFFFF}"
     case_dir.mkdir(parents=True, exist_ok=True)
     _assert_byte_identical(case_dir, pairs)
+
+
+# ---------------------------------------------------------------------------
+# Streamed agent outputs — the listed-but-not-delivered tier
+# ---------------------------------------------------------------------------
+#
+# `.agents/` is the only sandbox prefix the Workspace listing shows and the
+# deliverable walk skips. Get that asymmetry backwards in either direction and
+# the failure is silent but total: skip it in BOTH and the Workspace tab loses
+# the streamed outputs it exists to show; skip it in NEITHER and every agent
+# transcript is glued into `WorkflowRun.output`, so a deck comes back with its
+# own build log inside it.
+
+
+def _mk_sandbox(tmp_path):
+    from app.agents.sandbox import RunSandbox
+
+    sb = RunSandbox("user-1", "run-1", runs_root=str(tmp_path))
+    sb.ensure()
+    return sb
+
+
+def test_agent_outputs_are_listed_but_never_delivered(tmp_path):
+    from app.agents.sandbox import (
+        count_sandbox_deliverables,
+        serialize_sandbox_deliverable,
+        write_agent_output,
+    )
+
+    sb = _mk_sandbox(tmp_path)
+    sb.write("presentation.html", "<h1>deck</h1>")
+    written = write_agent_output(
+        sb, index=2, agent_id="ppt-composer", name="PPT Composer", output="I composed a deck."
+    )
+    # 1-based: the engine's step 2 is the third step, and these names are read
+    # by a person — a run whose first file is "00-" reads as a numbering bug.
+    assert written == ".agents/03-ppt-composer.md"
+
+    # Workspace sees it.
+    paths = [f["path"] for f in sb.list_files()[0]]
+    assert ".agents/03-ppt-composer.md" in paths
+    assert "presentation.html" in paths
+
+    # The deliverable does not — byte-identical to the sandbox without it.
+    assert count_sandbox_deliverables(sb.root) == 1
+    out = serialize_sandbox_deliverable(sb.root)
+    assert "ppt-composer" not in out
+    assert "I composed a deck." not in out
+    assert out == "```filename: presentation.html\n<h1>deck</h1>\n```"
+
+
+def test_repeated_invocations_do_not_overwrite_each_other(tmp_path):
+    from app.agents.sandbox import write_agent_output
+
+    sb = _mk_sandbox(tmp_path)
+    first = write_agent_output(
+        sb, index=1, agent_id="builder", name="Builder", output="pass one", visit_count=0
+    )
+    second = write_agent_output(
+        sb, index=1, agent_id="builder", name="Builder", output="pass two",
+        task_number="2", visit_count=2,
+    )
+    assert first != second
+    assert sb.read(first).endswith("pass one")
+    assert sb.read(second).endswith("pass two")
+
+
+def test_write_agent_output_is_best_effort(tmp_path):
+    """Never raises and never writes an empty file — it runs on a step that
+    already SUCCEEDED, so a disk failure must not turn it into a failed run."""
+    from app.agents.sandbox import write_agent_output
+
+    sb = _mk_sandbox(tmp_path)
+    assert write_agent_output(sb, index=0, agent_id="a", name="A", output="") is None
+    assert write_agent_output(sb, index=0, agent_id="a", name="A", output="   ") is None
+    # No sandbox at all (harness paths pass None) and a writer that explodes.
+    assert write_agent_output(None, index=0, agent_id="a", name="A", output="x") is None
+
+    class Boom:
+        def write(self, *_a, **_k):
+            raise OSError("no space left on device")
+
+    assert write_agent_output(Boom(), index=0, agent_id="a", name="A", output="x") is None

@@ -35,6 +35,10 @@ interface FilesTabProps {
   // and default undefined → a non-revision run shows NO such section (zero
   // regression for existing renders that pass neither).
   parentRunId?: string | null;
+  /** The run on screen, for the PPTX export. Without it the export guesses the
+   *  most recent `type=ppt` run — wrong for a reopened deck, and never a match
+   *  for `ppt_v2` (spec 017). */
+  runId?: string | null;
   parentVersionNumber?: number;
   // Workstream C2 (POR §5 D7) — "Run input" section. The raw run input (parsed
   // via C1 parseRunInput → prompt.md) and the answered clarify rounds (rendered
@@ -406,7 +410,7 @@ function deriveDeliverableFiles(
   return files;
 }
 
-export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable, parentRunId, parentVersionNumber, runInput, clarifications, onOpenPreview, runStatus, isRunning, buildingTaskIndex, buildingTaskTotal, buildingFilename }: FilesTabProps) {
+export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable, runId, parentRunId, parentVersionNumber, runInput, clarifications, onOpenPreview, runStatus, isRunning, buildingTaskIndex, buildingTaskTotal, buildingFilename }: FilesTabProps) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   // ─── B3 (POR §5 D6) — base-version "From v{n-1}" section state ────────────────
   // Collapsed by default; the parent run's files are fetched LAZILY on first
@@ -613,21 +617,23 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
         const { authedFetch, getToken } = await import("@/lib/api");
         const token = getToken();
         const title = file.name.replace(".pptx", "").replace(/-/g, " ");
-        let workflowId = "";
-        try {
-          const res = await authedFetch(`${ENV.API_URL}/api/runs?type=ppt&limit=20`, {
-            headers: { "Authorization": `Bearer ${token}` },
-          });
-          if (res.ok) {
-            const runs = await res.json();
-            const h1 = pptContent.match(/<h1[^>]*>([^<]+)<\/h1>/i);
-            if (h1) {
-              const match = runs.find((r: { output?: string }) => r.output?.includes(h1[1]));
-              if (match) workflowId = match.id;
+        let workflowId = runId ?? "";
+        if (!workflowId) {
+          try {
+            const res = await authedFetch(`${ENV.API_URL}/api/runs?type=ppt&limit=20`, {
+              headers: { "Authorization": `Bearer ${token}` },
+            });
+            if (res.ok) {
+              const runs = await res.json();
+              const h1 = pptContent.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+              if (h1) {
+                const match = runs.find((r: { output?: string }) => r.output?.includes(h1[1]));
+                if (match) workflowId = match.id;
+              }
+              if (!workflowId && runs.length > 0) workflowId = runs[0].id;
             }
-            if (!workflowId && runs.length > 0) workflowId = runs[0].id;
-          }
-        } catch {}
+          } catch {}
+        }
         const response = await authedFetch(`${ENV.API_URL}/api/runs/export-pptx`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
@@ -647,7 +653,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     } else {
       downloadBlob(file.content, file.name, file.mimeType);
     }
-  }, [userStoryContent, pptContent, appBuilderCodeFiles, appBuilderDocFiles]);
+  }, [userStoryContent, pptContent, appBuilderCodeFiles, appBuilderDocFiles, runId]);
 
   const isAppBuilder = workflowType === "app_builder" || workflowType === "app_builder_revision";
   // Workstream C2 (POR §5 D7) — the "Run input" rows; counted in totalCount so the

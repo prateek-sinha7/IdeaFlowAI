@@ -171,6 +171,15 @@ NON-NEGOTIABLES
    The first slide gets `class="slide active"`.
    - On a CAROUSEL layout (translateX navigation): ALL slides stay `display: grid`. They are NOT hidden — navigation works purely by translating the `.stage`. The `.active` class is only a cosmetic marker; it does NOT control visibility.
    - **FORBIDDEN on carousel**: do NOT add `.slide { display: none }`, `.slide:not(.active) { display: none }`, or `opacity: 0` / `visibility: hidden` rules that hide non-active slides.
+   - **FORBIDDEN on every layout — the "Static-preview fallback" block.** The
+     template example ends its `<head>` with a `<style>` block commented
+     `/* Static-preview fallback (runtime.js is absent — keep every slide visible) */`
+     that sets `.slide{position:relative;inset:auto;opacity:1;transform:none}`.
+     It exists because `example.html` ships with NO script. Your deck ships a
+     navigation script, so copying that block disables it: every slide stays in
+     flow and opaque, `.is-active` toggles nothing, and the deck answers the
+     arrow keys by updating the slide counter while the screen never moves.
+     **Copy the template's CSS but DELETE that block.**
 
 3. **Navigation script**: Mode A — copy verbatim from template. Mode B — use the built-in script above verbatim.
 

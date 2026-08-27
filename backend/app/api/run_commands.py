@@ -2731,18 +2731,25 @@ async def launch_run(
             # legitimately returns [] for them. Fall back to the compiled plan —
             # the same single source of roster truth the engine now uses — before
             # rejecting as no_agents.
-            if not agents:
-                from agents.execution_engine.engine import (
-                    compile_for_run,
-                    get_execution_engine,
-                )
+            #
+            # ALSO taken when the registry is INCOMPLETE rather than empty. It is
+            # derived from each AGENT.md's own `pipeline_type`, which is a single
+            # value, so a workflow REUSING an agent from another pipeline gets a
+            # partial roster: ppt_v2 reuses ppt's brief-analyst and composer, and
+            # `get_pipeline_agents("ppt_v2")` returns only the two authored for it.
+            # The run then minted with agent_count=2 for a four-step plan, and the
+            # progress chip read "0/2" for a run that executes four.
+            from agents.execution_engine.engine import (
+                compile_for_run,
+                get_execution_engine,
+            )
 
-                try:
-                    _plan = compile_for_run(base_pipeline_type)
-                except Exception:
-                    _plan = None
-                if _plan is not None and _plan.steps:
-                    agents = get_execution_engine()._specs_from_plan(_plan.steps)
+            try:
+                _plan = compile_for_run(base_pipeline_type)
+            except Exception:
+                _plan = None
+            if _plan is not None and _plan.steps and len(agents) < len(_plan.steps):
+                agents = get_execution_engine()._specs_from_plan(_plan.steps)
 
         # ── Spec 016: this caller's saved override of a BUILT-IN ───────────────
         # Stays inside FILE_PIPELINE — no fourth LaunchSource (ADR-0020's locked

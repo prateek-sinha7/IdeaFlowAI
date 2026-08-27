@@ -47,6 +47,36 @@ _UPLOADS_PREFIX = ".uploads/"
 # trace or leaking into the delivered artifact tree.
 _LOGS_PREFIX = ".logs/"
 
+# Reserved prefix for the pptx gate's evidence (spec 017): the validator report,
+# the rendered slide images, and the exact source of each build attempt. Written
+# by the tools, read by a human through the workspace view — never part of the
+# delivered artifact, for the same reason ``.logs/`` is not.
+_VERIFY_PREFIX = ".verify/"
+
+# Reserved sandbox prefix for AGENT OUTPUTS — the text an agent streamed rather
+# than wrote through ``write_file``. Until this existed the sandbox held only what
+# an agent explicitly authored, so a step that just streamed prose left nothing on
+# disk and the Workspace tab could not show it; its text survived only as the
+# ``WorkflowRun.agent_outputs`` DB column that the Files tab renders.
+#
+# THIS PREFIX IS THE ONLY ONE THAT IS LISTED BUT NOT DELIVERED, and that asymmetry
+# is the whole point. ``list_files`` (the Workspace tab) shows it; the deliverable
+# walk below skips it. Without the skip, every agent transcript would be glued
+# into ``serialize_sandbox_deliverable``'s output — i.e. into ``WorkflowRun.output``,
+# the string the deliverable resolvers, the Files tab and AppBuilderPreview all
+# parse — so a deck would come back with its own build transcripts inside it.
+# INV-3: a golden run writes nothing here, so serialization stays byte-identical.
+_AGENT_OUTPUTS_PREFIX = ".agents/"
+
+# Caps for the workspace LISTING (spec 017 phase 2). A run sandbox is written by
+# agents, so nothing bounds its file count or tree depth but the agent's own
+# behaviour — a runaway loop can leave thousands of files behind. The listing
+# endpoint is a UI convenience, not an archive: it stops at these and says so,
+# rather than serving an unbounded response. The read endpoint has its own byte
+# cap; these two bound the listing side.
+_LIST_MAX_FILES = 500
+_LIST_MAX_DEPTH = 12
+
 # Sentinel emitted when no deliverable files exist — kept byte-identical to the
 # legacy deliverable format so the engine produces the same ``WorkflowRun.output``
 # string from the on-disk sandbox.
@@ -162,6 +192,56 @@ class RunSandbox:
         logger.debug("read %s -> %d chars", relpath, len(result))
         return result
 
+    def list_files(self) -> tuple[list[dict], bool]:
+        """List the regular files in this sandbox as ``(files, truncated)``.
+
+        Each entry is ``{"path": <posix relpath>, "size": <bytes>, "modified":
+        <epoch seconds>}``, sorted by path. Returns ``([], False)`` when the run
+        dir is absent — a TTL-swept run is EMPTY, not an error; the caller
+        distinguishes the two by testing ``root`` itself.
+
+        DIRECTORIES ARE NOT EMITTED, deliberately. The consumer builds its tree
+        by splitting these paths, so a directory row would be data nothing reads
+        — and the only case it would add (an empty directory) is one an agent
+        cannot produce through ``write_file`` anyway.
+
+        The reserved subtrees are excluded on the same grounds they are excluded
+        from the deliverable: ``.uploads/`` is the owner's own upload staging
+        (already listed by its manifest) and ``.logs/`` is the engine-owned run
+        trace, surfaced through the audit view rather than as workspace files.
+
+        ``os.walk`` does not follow symlinks, and ``is_file()`` drops dangling
+        links, FIFOs and sockets — so a symlink planted in the sandbox cannot
+        make this list, or later read, a file outside the run dir.
+        """
+        if not self.root.is_dir():
+            return [], False
+        files: list[dict] = []
+        truncated = False
+        for dirpath, dirnames, filenames in os.walk(self.root):
+            rel_dir = Path(dirpath).relative_to(self.root)
+            depth = 0 if rel_dir == Path(".") else len(rel_dir.parts)
+            if depth >= _LIST_MAX_DEPTH:
+                # Prune in place so os.walk does not descend further.
+                if dirnames:
+                    truncated = True
+                dirnames[:] = []
+            for name in sorted(filenames):
+                full = Path(dirpath) / name
+                if not full.is_file():
+                    continue
+                relpath = full.relative_to(self.root).as_posix()
+                if relpath.startswith(_UPLOADS_PREFIX) or relpath.startswith(_LOGS_PREFIX):
+                    continue
+                if len(files) >= _LIST_MAX_FILES:
+                    return sorted(files, key=lambda f: f["path"]), True
+                try:
+                    st = full.stat()
+                except OSError:
+                    continue
+                files.append({"path": relpath, "size": st.st_size, "modified": st.st_mtime})
+        return sorted(files, key=lambda f: f["path"]), truncated
+
     def audit_log(self, event: str, detail: dict) -> None:
         """Trace-only structured audit line (mirrors the reference tracer)."""
         logger.debug("audit_log %s %s", event, detail)
@@ -248,6 +328,76 @@ def sweep_expired(
 
 
 # ---------------------------------------------------------------------------
+# Streamed agent outputs — workspace-visible, never deliverable
+# ---------------------------------------------------------------------------
+
+
+def agent_output_relpath(
+    *, index: int, agent_id: str, task_number: str = "", visit_count: int = 0
+) -> str:
+    """The sandbox path one agent invocation's streamed output is written to.
+
+    ``index`` is the engine's own 0-based step position, and the filename is
+    ONE-BASED: these names are read by a person in the Workspace tab, where a
+    first step called ``00-`` reads as a numbering bug. Converted here, in the
+    one function that owns the user-facing name, so the call site keeps passing
+    the engine's value unmodified.
+
+    ``.agents/{index+1:02d}-{agent_id}.md``, with the loop identity appended when
+    the same step runs more than once — a task-loop agent and a revisited step
+    both complete repeatedly, and a bare per-agent name would let pass 2 silently
+    overwrite pass 1. Mirrors the ``task_number``/``visit_count`` pair the engine
+    already carries on ``agent_complete``: both are omitted when absent/zero, so
+    the single-shot case (every golden run) stays the short form.
+    """
+    stem = f"{index + 1:02d}-{_safe_segment(agent_id, fallback='agent')}"
+    if task_number:
+        stem += f"-t{_safe_segment(str(task_number), fallback='0')}"
+    if visit_count:
+        stem += f"-p{int(visit_count)}"
+    return f"{_AGENT_OUTPUTS_PREFIX}{stem}.md"
+
+
+def write_agent_output(
+    sandbox: object,
+    *,
+    index: int,
+    agent_id: str,
+    name: str,
+    output: str,
+    task_number: str = "",
+    visit_count: int = 0,
+) -> str | None:
+    """Persist one agent's streamed output into the run sandbox. Best-effort.
+
+    Returns the relative path written, or ``None`` when there was nothing to write
+    or the write failed. NEVER raises: this runs on the completion path of a step
+    that has already succeeded, and a full disk or a read-only volume must not
+    turn a finished agent into a failed run. The UI stream is unaffected either
+    way — this is an additional record, not the transport.
+
+    ``sandbox`` is duck-typed (the engine's runner supplies it and it can be
+    ``None`` on harness paths), so the ``write`` attribute is probed rather than
+    assumed.
+    """
+    if not output or not output.strip():
+        return None
+    writer = getattr(sandbox, "write", None)
+    if not callable(writer):
+        return None
+    relpath = agent_output_relpath(
+        index=index, agent_id=agent_id, task_number=task_number, visit_count=visit_count
+    )
+    header = f"# {name or agent_id}\n\n"
+    try:
+        writer(relpath, header + output)
+    except Exception:  # noqa: BLE001 — see the never-raises contract above
+        logger.warning("could not persist agent output for %s", agent_id, exc_info=True)
+        return None
+    return relpath
+
+
+# ---------------------------------------------------------------------------
 # Deliverable serialisation — the disk deliverable format
 # ---------------------------------------------------------------------------
 #
@@ -263,6 +413,28 @@ def sweep_expired(
 # directory and reproduce the SAME string BYTE-FOR-BYTE so the deliverable the
 # UI receives is unchanged. They are isolated and additive — Task #42 wires them
 # into the engine; nothing here imports the engine, factory, or workspace.
+
+
+def is_deliverable_relpath(
+    relpath: str, *, exclude: frozenset[str] | Iterable[str] = None  # type: ignore[assignment]
+) -> bool:
+    """Is ``relpath`` part of what the run DELIVERED, as opposed to how it worked?
+
+    The single definition of that question. ``_collect_deliverable_relpaths``
+    applies it while walking, and the workspace API applies it per listed file
+    so the UI can group Deliverables without re-deriving the rule — and without
+    a copy of ``_DELIVERABLE_EXCLUDE`` in TypeScript that drifts from this one.
+
+    Excluded are the four reserved subtrees (owner uploads, the engine's run
+    trace, a gate tool's evidence, and the streamed agent outputs) plus anything
+    matching ``exclude`` by full relative path OR by basename.
+    """
+    exclude_set = frozenset(_DELIVERABLE_EXCLUDE if exclude is None else exclude)
+    if relpath.startswith(
+        (_UPLOADS_PREFIX, _LOGS_PREFIX, _VERIFY_PREFIX, _AGENT_OUTPUTS_PREFIX)
+    ):
+        return False
+    return relpath not in exclude_set and relpath.rsplit("/", 1)[-1] not in exclude_set
 
 
 def _collect_deliverable_relpaths(
@@ -297,15 +469,12 @@ def _collect_deliverable_relpaths(
             if not full.is_file():
                 continue
             relpath = full.relative_to(root).as_posix()
-            # Prefix-aware exclusion for the reserved uploads subtree (UPLD-01):
-            # every raw upload + ``.txt`` sidecar + ``manifest.json`` lives under
-            # ``.uploads/`` and must never surface as a deliverable file. Dormant
-            # on golden runs (no ``.uploads/`` dir → identical output, INV-3).
-            if relpath.startswith(_UPLOADS_PREFIX):
-                continue
-            if relpath.startswith(_LOGS_PREFIX):
-                continue
-            if relpath in exclude_set or name in exclude_set:
+            # The reserved subtrees (uploads UPLD-01, the engine run trace, a
+            # gate's evidence, the streamed agent outputs) and the exclude set
+            # are all applied by is_deliverable_relpath — one definition, so the
+            # workspace API cannot drift from the walk. Dormant on golden runs
+            # (no such dirs → identical output, INV-3).
+            if not is_deliverable_relpath(relpath, exclude=exclude_set):
                 continue
             relpaths.append(relpath)
     relpaths.sort()

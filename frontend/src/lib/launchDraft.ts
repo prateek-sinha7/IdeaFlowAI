@@ -27,8 +27,15 @@
 import type { DiscoveryAnswers } from "@/components/workflow/prototype/DiscoveryForm";
 import { EMPTY_ANSWERS } from "@/components/workflow/prototype/DiscoveryForm";
 
-/** The deliverable family the launch targets. NOT a workflow-name branch. */
-export type LaunchMode = "prototype" | "ppt";
+/** The deliverable family the launch targets. NOT a workflow-name branch.
+ *
+ * `ppt_v2` is the deck family's second deliverable (spec 017: the same HTML deck
+ * PLUS a real .pptx). It rides the ppt launch pipe verbatim — same storage keys,
+ * same staging effects, same wizard steps — and is distinguished ONLY by the
+ * `pipelineType` field `buildLaunchDraft` appends below. Duplicating the key
+ * pair would mean duplicating four staging/fire effects in `[...view]/page.tsx`
+ * for a hand-off whose shape is identical. */
+export type LaunchMode = "prototype" | "ppt" | "ppt_v2";
 
 /** An out-of-band image ride-along (D3): SEPARATE from brief-inlined file text. */
 export interface LaunchImage {
@@ -69,10 +76,12 @@ export interface LaunchDraft {
   pendingKey: string;
 }
 
-/** The per-mode storage-key pair — the ONLY mode-driven difference. */
+/** The per-mode storage-key pair. `ppt_v2` deliberately SHARES ppt's pair — see
+ *  the LaunchMode note above; the draft's `pipelineType` field tells them apart. */
 const MODE_KEYS: Record<LaunchMode, { draftKey: string; pendingKey: string }> = {
   prototype: { draftKey: "prototype.draft", pendingKey: "prototype.pending" },
   ppt: { draftKey: "ppt.draft", pendingKey: "ppt.pending" },
+  ppt_v2: { draftKey: "ppt.draft", pendingKey: "ppt.pending" },
 };
 
 /**
@@ -109,6 +118,10 @@ export function buildLaunchDraft(mode: LaunchMode, inputs: LaunchDraftInputs): L
     ...(selections && Object.keys(selections).length > 0 ? { selections } : {}),
     ...(images && images.length > 0 ? { images } : {}),
     agentIds,
+    // Appended LAST and ONLY for a non-`ppt` deck launch, so the ppt and
+    // prototype drafts stay byte-identical to the retired flow and the
+    // launch-contract parity gate keeps proving it.
+    ...(mode === "ppt_v2" ? { pipelineType: mode } : {}),
   });
 
   return { ...MODE_KEYS[mode], draftJson };

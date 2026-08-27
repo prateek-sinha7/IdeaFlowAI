@@ -84,7 +84,7 @@ export function TemplateCard({ template, selected, onSelect, onOpenDetail }: Tem
       </div>
 
       {/* Preview surface */}
-      <div className="relative h-44 overflow-hidden bg-gray-50">
+      <div className="relative h-44 overflow-hidden bg-surface-warm">
         {thumbnailUrl ? (
           // Pre-rendered screenshot — one cheap <img> load instead of an iframe
           // document render. Falls back to the sandboxed (allow-scripts) iframe below.
@@ -111,7 +111,7 @@ export function TemplateCard({ template, selected, onSelect, onOpenDetail }: Tem
         ) : previewUrl && shouldMount ? (
           <>
             {!previewLoaded && (
-              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
+              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-surface-warm to-surface-card" />
             )}
             {/* Fallback when no pre-rendered thumbnail exists yet: render the
                 template's example.html live (HTML + JS) in a sandboxed iframe,

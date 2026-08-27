@@ -8,7 +8,7 @@ Tier = Literal["basic", "pro", "enterprise", "hexaware"]
 TIER_PIPELINES: dict[str, set[str]] = {
     "basic": {
         "user_stories", "user_stories_revision",
-        "ppt", "ppt_revision",
+        "ppt", "ppt_v2", "ppt_revision",
     },
     # KAN-161 / ISS-055: scoped tier for deployments that need prototype +
     # user_stories only (e.g. Hexaware internal tooling). Deliberately excludes
@@ -21,7 +21,7 @@ TIER_PIPELINES: dict[str, set[str]] = {
     },
     "pro": {
         "user_stories", "user_stories_revision",
-        "ppt", "ppt_revision",
+        "ppt", "ppt_v2", "ppt_revision",
         "prototype", "prototype_revision",
         "prototype_large_revision",    # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest
@@ -29,7 +29,7 @@ TIER_PIPELINES: dict[str, set[str]] = {
     },
     "enterprise": {
         "user_stories", "user_stories_revision",
-        "ppt", "ppt_revision",
+        "ppt", "ppt_v2", "ppt_revision",
         "prototype", "prototype_revision",
         "prototype_large_revision",    # tiered large-revision manifest
         "prototype_feature_revision",  # tiered feature-revision manifest

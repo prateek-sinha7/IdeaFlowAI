@@ -11,8 +11,8 @@ member_count: 9
 modules_spanned:
 - MOD-backend-agents
 watched_files: 20
-code_signature: b4f2358e9afa
-symbols_signature: d950fbbf4279
+code_signature: 34e49792a645
+symbols_signature: fb9ffdfcf2d5
 prose_signature: b4f2358e9afa
 prose_symbols_signature: d950fbbf4279
 last_synced: '2026-08-26'
@@ -52,7 +52,7 @@ last_synced: '2026-08-26'
 - [backend/app/api/user_workflows.py](../../backend/app/api/user_workflows.py)
 - [backend/app/api/workflows.py](../../backend/app/api/workflows.py)
 
-### Imports, from outside this domain (23)
+### Imports, from outside this domain (24)
 - [backend/agents/__init__.py](../../backend/agents/__init__.py)
 - [backend/agents/capabilities/__init__.py](../../backend/agents/capabilities/__init__.py)
 - [backend/agents/capabilities/hooks/__init__.py](../../backend/agents/capabilities/hooks/__init__.py)
@@ -75,6 +75,7 @@ last_synced: '2026-08-26'
 - [backend/app/agents/skill_staging.py](../../backend/app/agents/skill_staging.py)
 - [backend/app/agents/skills_catalog.py](../../backend/app/agents/skills_catalog.py)
 - [backend/app/agents/tools/__init__.py](../../backend/app/agents/tools/__init__.py)
+- [backend/app/agents/tools/pptx_tools.py](../../backend/app/agents/tools/pptx_tools.py)
 - [backend/app/agents/tools/runner_tools.py](../../backend/app/agents/tools/runner_tools.py)
 
 ### External

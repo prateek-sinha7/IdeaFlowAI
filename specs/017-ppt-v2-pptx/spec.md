@@ -2,7 +2,7 @@
 
 **Spec ID**: 017-ppt-v2-pptx
 **Created**: 2026-08-25
-**Status**: Draft — plan exists at [plan.md](plan.md); not built
+**Status**: **Done** — shipped in `bab17c0b9` (2026-08-27); 9 tasks · 3 checkpoints complete, audited against the code the same day (48 tests green). See [tasks.md](tasks.md) for the two recorded deviations.
 **Root**: `backend/agents/workflows/ppt_v2/`, `backend/app/agents/tools/`, `backend/app/services/pptx_export.py`
 **Grounding**: `DRY-RUN-PPTv2/` (a hand-run that produced real `.pptx` files), `specs/016-workflow-overrides` (steps-only overlay precedent), ADR-0005 (pipeline types discovered from disk).
 

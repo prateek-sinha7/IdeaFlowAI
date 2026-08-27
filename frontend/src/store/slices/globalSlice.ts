@@ -218,6 +218,7 @@ const selectChainIntoIndex = createSelector(
   (workflows) => {
     const WIZARD_ROUTES: Record<string, string> = {
       ppt: "/workflow/create?mode=ppt",
+      ppt_v2: "/workflow/create?mode=ppt_v2",
       prototype: "/workflow/create?mode=prototype",
     };
     const index: Record<string, ChainTarget[]> = {};
@@ -247,6 +248,7 @@ const selectChainIntoIndex = createSelector(
   const selectWorkflowWizardPath = (id: string): string | undefined => {
     const routes: Record<string, string> = {
       ppt: "/workflow/create?mode=ppt",
+      ppt_v2: "/workflow/create?mode=ppt_v2",
       prototype: "/workflow/create?mode=prototype",
     };
     return routes[id];
