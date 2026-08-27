@@ -138,12 +138,14 @@ Feature: The concierge chat lane
 
   # ---------- Structure ----------
 
+  @S-18-01
   Scenario: The lane is present on every run-detail surface
     Given a completed run
     When I cold-load "/runs/{id}"
     Then the chat lane is present
     And it carries the run's type, status, title and meta
 
+  @S-18-02
   Scenario Outline: The lane survives every tab
     Given a completed run
     When I cold-load "<route>"
@@ -160,11 +162,13 @@ Feature: The concierge chat lane
     # The lane is the left column, not a tab. A page object that models the run
     # page as a tab strip misses half the screen.
 
+  @S-18-03
   Scenario: Run status is read from the lane, not the tab pane
     Given a failed run
     When I cold-load "/runs/{id}"
     Then the element with testid "lane-run-status" reads "Failed"
 
+  @S-18-04
   Scenario: Back returns to run history without losing the filter
     Given I reached a run from "/runs?type=custom"
     When I activate "lane-back"
@@ -172,6 +176,7 @@ Feature: The concierge chat lane
 
   # ---------- Transcript ----------
 
+  @S-18-05
   Scenario: Every message declares its role and a stable id
     Given a completed run
     When I cold-load "/runs/{id}"
@@ -180,6 +185,7 @@ Feature: The concierge chat lane
     # Seeded runs only ever produce data-role="narrator". Assert the attribute
     # exists; do not assume the value until a user turn has been created.
 
+  @S-18-06
   Scenario Outline: The narrator names each lifecycle event
     Given a run in state "<state>"
     When I cold-load "/runs/{id}"
@@ -193,6 +199,7 @@ Feature: The concierge chat lane
       | cancelled | Cancelled by you                       | Open in Steps    |
       | failed    | What went wrong                        | Open in Steps    |
 
+  @S-18-07
   Scenario: A clarification request points at Steps
     Given a run whose workflow asked for clarifications
     When I cold-load "/runs/{id}"
@@ -202,6 +209,7 @@ Feature: The concierge chat lane
     # The lane ASKS but does not COLLECT. The answer is given in Steps. Any test
     # that expects to type the answer into the lane composer is wrong.
 
+  @S-18-08
   @defect
   # D-21. The prototype run's transcript repeats itself.
   Scenario: The clarification exchange is not duplicated
@@ -214,6 +222,7 @@ Feature: The concierge chat lane
     # rounds reading as a repeat is the defect. Written as it SHOULD be, so this
     # is red until resolved either way.
 
+  @S-18-09
   @unverified
   # A diverted run's lane never names where the run went.
   Scenario: A diverted run links to the workflow it handed off to
@@ -227,6 +236,7 @@ Feature: The concierge chat lane
 
   # ---------- Adornments ----------
 
+  @S-18-10
   Scenario: The run summary collapses and expands
     Given a completed run
     When I cold-load "/runs/{id}"
@@ -238,6 +248,7 @@ Feature: The concierge chat lane
     # "lane-adornments" is in the DOM in BOTH states. Assert aria-expanded or
     # lane-pipeline-mini — its presence alone proves nothing.
 
+  @S-18-11
   Scenario: The summary label does not announce its own state
     Given the adornments are expanded
     Then the toggle still reads "Run summary"
@@ -246,6 +257,7 @@ Feature: The concierge chat lane
 
   # ---------- Composer ----------
 
+  @S-18-12
   Scenario: Send is gated on non-empty input
     Given a completed run
     When I cold-load "/runs/{id}"
@@ -255,12 +267,14 @@ Feature: The concierge chat lane
     When I clear the input
     Then "chat-send" is disabled again
 
+  @S-18-13
   Scenario: The composer offers attachments and voice
     Given a completed run
     When I cold-load "/runs/{id}"
     Then I see a file input behind "Attach files"
     And I see a "Voice · transcribe" control
 
+  @S-18-14
   Scenario Outline: Whether the user can reply depends on the run's state
     Given a run in state "<state>"
     When I cold-load "/runs/{id}"
@@ -273,6 +287,7 @@ Feature: The concierge chat lane
       | cancelled | absent  |
       | diverted  | absent  |
 
+  @S-18-15
   @defect
   # D-19. Three terminal states, two contracts, no visible rule.
   Scenario: Terminal runs agree on whether they can be replied to
@@ -283,6 +298,7 @@ Feature: The concierge chat lane
     # DIVERTED runs have none — and "chat-composer" is in the DOM for all three,
     # so the container is not the signal. Written as it SHOULD be.
 
+  @S-18-16
   @destructive
   @unverified
   Scenario: Sending a message adds a user turn and a reply
@@ -296,6 +312,7 @@ Feature: The concierge chat lane
 
   # ---------- Chaining ----------
 
+  @S-18-17
   Scenario: A chainable run offers follow-on workflows
     Given the completed prototype run
     When I cold-load "/runs/{id}"
@@ -303,6 +320,7 @@ Feature: The concierge chat lane
     And I see chips "Pitch an idea" and "Generate product requirements"
     And I see a chip "Build an end-to-end application" badged "SOON"
 
+  @S-18-18
   Scenario: The unavailable chip has its own testid
     Given the chain suggestions are shown
     Then the "SOON" chip's testid is "chat-chain-suggestion-chip-beta"
@@ -310,6 +328,7 @@ Feature: The concierge chat lane
     # A selector on the base testid silently misses it. Use a prefix selector to
     # count, an exact one to click.
 
+  @S-18-19
   @unverified
   Scenario: Chain suggestions appear only where they are meaningful
     # Observed on 1 of 6 runs. A completed PPT V2 run and a completed human-gate

@@ -91,6 +91,7 @@ Feature: Admin dashboard
   Background:
     Given I am signed in as "qa-admin@flowinqa.com" with is_admin true
 
+  @S-11-01
   Scenario: The admin dashboard renders its own shell
     When I cold-load "/admin"
     Then I see the heading "Admin Dashboard"
@@ -99,18 +100,21 @@ Feature: Admin dashboard
     And I do NOT see the main app nav (Home / Library / My Workflows)
     And I do NOT see the account menu
 
+  @S-11-02
   Scenario: The stat tiles agree with the table
     When I cold-load "/admin"
     Then TOTAL USERS equals the number of rows in the users table
     And BASIC + PRO + ENTERPRISE equals TOTAL USERS
     And ADMINS equals the number of rows whose ROLE is "ADMIN"
 
+  @S-11-03
   Scenario: Every user row carries its full record
     When I cold-load "/admin"
     Then each row shows an email, a truncated id, a plan badge, a run count, a role and a joined date
 
   # ---- The guards ----
 
+  @S-11-04
   Scenario: An admin cannot delete their own account
     When I cold-load "/admin"
     Then no delete control exists for "qa-admin@flowinqa.com"
@@ -118,6 +122,7 @@ Feature: Admin dashboard
     # admin.py:616. The absence of the control on your own row IS the guard's
     # visible half.
 
+  @S-11-05
   Scenario: An admin cannot change their own tier
     When I cold-load "/admin"
     And I attempt to change my own row's plan
@@ -129,12 +134,14 @@ Feature: Admin dashboard
     # Assert the API's refusal, not just the control's absence: the UI may hide
     # the affordance while the endpoint still accepts the call.
 
+  @S-11-06
   Scenario: An admin cannot demote themselves
     When I cold-load "/admin"
     And I attempt to remove my own ADMIN role
     Then the change is refused
     # admin.py:329.
 
+  @S-11-07
   Scenario Outline: A non-admin cannot reach the admin dashboard
     Given I am signed in as "<email>" with is_admin false
     When I cold-load "/admin"
@@ -149,12 +156,14 @@ Feature: Admin dashboard
     # qa-enterprise is the important row: same tier as the admin, no admin flag.
     # It proves the gate is on the role, not on the tier.
 
+  @S-11-08
   Scenario: An anonymous visitor cannot reach the admin dashboard
     Given I have no auth token
     When I cold-load "/admin"
     Then I do not see the users table
     And I end up on the sign-in screen
 
+  @S-11-09
   Scenario: The admin API refuses a non-admin directly
     Given I hold a valid token for "qa-basic@flowinqa.com"
     When I call the admin users endpoint with that token
@@ -163,6 +172,7 @@ Feature: Admin dashboard
 
   # ---- Ordinary operations ----
 
+  @S-11-10
   Scenario: Search filters the users table
     When I cold-load "/admin"
     And I type "qa-pro" into the user search
@@ -170,6 +180,7 @@ Feature: Admin dashboard
     When I clear the search
     Then all rows return
 
+  @S-11-11
   Scenario: The account menu is the way in
     Given I am signed in as an admin
     When I open the account menu
@@ -177,22 +188,26 @@ Feature: Admin dashboard
     When I click it
     Then I land on "/admin"
 
+  @S-11-12
   Scenario: A non-admin is not offered the entry point
     Given I am signed in as "qa-pro@flowinqa.com"
     When I open the account menu
     Then I do NOT see "Admin Dashboard"
 
+  @S-11-13
   Scenario: Back to app returns to the main shell
     When I cold-load "/admin"
     And I click "← Back to app"
     Then I land back in the main application shell
 
+  @S-11-14
   Scenario: Logout from the admin shell clears the session
     When I cold-load "/admin"
     And I click "Logout"
     Then the auth token is removed
     And I end up on the sign-in screen
 
+  @S-11-15
   @destructive
   Scenario: Adding a user creates an account at the chosen tier
     When I cold-load "/admin"
@@ -202,6 +217,7 @@ Feature: Admin dashboard
     And TOTAL USERS increases by one
     And BASIC increases by one
 
+  @S-11-16
   @destructive
   Scenario: Deleting a user removes them
     Given a disposable user exists
@@ -213,6 +229,7 @@ Feature: Admin dashboard
     # Scope the delete by the target's email — the aria-label is
     # "Delete <email>", which is unique. Do not click by row index.
 
+  @S-11-17
   @destructive
   @sourced
   @destructive
@@ -228,6 +245,7 @@ Feature: Admin dashboard
     # It is also how the first-sign-in challenge in 01-auth is reached in normal
     # operation.
 
+  @S-11-18
   @sourced
   @destructive
   Scenario: A permanent reset skips the challenge but is knowable
@@ -238,6 +256,7 @@ Feature: Admin dashboard
     # Recorded so the trade-off is explicit: convenience for the admin, at the
     # cost of the admin knowing a live credential. Prefer the default.
 
+  @S-11-19
   @sourced
   Scenario: Admin reset is the only recovery path under email MFA
     Given the pool uses email as a second factor
@@ -247,6 +266,7 @@ Feature: Admin dashboard
     # factor. This is correct behaviour, not a bug — and it is why the sign-in
     # screen offers no "forgot password" link at all.
 
+  @S-11-20
   Scenario: Changing another user's tier takes effect
     Given a disposable user at tier "basic"
     When I change their plan to "pro"

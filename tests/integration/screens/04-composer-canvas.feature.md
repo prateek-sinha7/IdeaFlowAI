@@ -93,6 +93,7 @@ Feature: Composing a workflow
   Background:
     Given I am signed in as "qa-admin@flowinqa.com"
 
+  @S-04-01
   Scenario: A brand-new composer opens empty
     When I cold-load "/workflows/new"
     Then the header reads "CUSTOM · COMPOSER"
@@ -104,6 +105,7 @@ Feature: Composing a workflow
     # initialAgentIds, which is how DashboardLayout drives it. A bare mount
     # really does render an empty composer — that is the contract, not a bug.
 
+  @S-04-02
   Scenario: Editing a saved workflow loads its steps
     Given I own a saved workflow with 4 steps
     When I cold-load "/workflows/{id}/edit"
@@ -111,6 +113,7 @@ Feature: Composing a workflow
     And I see one canvas node per step, in manifest order
     And the primary action is "Save workflow"
 
+  @S-04-03
   Scenario: A built-in opens read-to-copy, not read-to-overwrite
     When I cold-load "/workflows/ppt/canvas"
     Then the header reads "PPT · COPY"
@@ -120,6 +123,7 @@ Feature: Composing a workflow
     # ADR-0014. This is the single most important assertion on this surface:
     # a built-in must never be overwritable in place.
 
+  @S-04-04
   Scenario: A built-in canvas survives a hard refresh
     When I cold-load "/workflows/ppt/canvas"
     And I reload the page
@@ -128,6 +132,7 @@ Feature: Composing a workflow
     # The pipeline_type is carried in the URL precisely so the composer can
     # rebuild from the API on any mount. There is no sessionStorage handoff.
 
+  @S-04-05
   Scenario: Switching between Simple and Canvas keeps the roster
     When I cold-load "/workflows/ppt/canvas"
     And I note the agent names
@@ -136,6 +141,7 @@ Feature: Composing a workflow
     When I click "Canvas"
     Then the same agent nodes are shown, in the same order
 
+  @S-04-06
   Scenario: Adding an agent from the library modal
     When I cold-load "/workflows/new"
     And I click the "Add agent" control
@@ -151,6 +157,7 @@ Feature: Composing a workflow
     # anything else. Quirk `multipleIdenticalLabels`: "+ Add" repeats once per
     # card — always scope the click to the card's unique title.
 
+  @S-04-07
   Scenario: Reordering a node moves it in the plan
     Given a composer with agents A, B, C in order
     When I click "Move B Agent earlier"
@@ -158,12 +165,14 @@ Feature: Composing a workflow
     When I click "Move B Agent later"
     Then the order returns to A, B, C
 
+  @S-04-08
   Scenario: Removing a node drops it from the summary
     Given a composer with 3 agents
     When I click "Remove <name> Agent"
     Then that node disappears
     And the header summary reports "2 agents"
 
+  @S-04-09
   Scenario: Renaming a node updates its label and its control names
     Given a composer with an agent named "Deck QA"
     When I rename it to "Deck Review"
@@ -173,6 +182,7 @@ Feature: Composing a workflow
     # The per-node aria-labels are derived from the display name. Any phase-2
     # helper that caches them must re-read after a rename.
 
+  @S-04-10
   Scenario: The config rail's Agent tab has five sub-tabs of its own
     When I cold-load "/workflows/ppt/canvas"
     And I click the rail tab "Agent"
@@ -180,6 +190,7 @@ Feature: Composing a workflow
     And I see the sub-tabs "Overview", "Skills", "Hooks", "Tools", "Config"
     And an input named "agent-name" is present
 
+  @S-04-11
   Scenario: The agent Skills picker is part of the rail, not a modal
     When I cold-load "/workflows/ppt/canvas"
     And I click the rail tab "Agent"
@@ -190,6 +201,7 @@ Feature: Composing a workflow
     # `fixed inset-0` match in its source. At runtime it is inline. A phase-2
     # helper that waits for a dialog here waits forever.
 
+  @S-04-12
   Scenario Outline: Each capability toggle flips independently
     When I cold-load "/workflows/new"
     And I toggle the switch "<switch>"
@@ -205,6 +217,7 @@ Feature: Composing a workflow
     # only the LAST click — React batches them. Click one at a time and wait
     # ~400-500ms between each.
 
+  @S-04-13
   Scenario Outline: Choosing a deliverable strategy reveals its own fields
     When I cold-load "/workflows/new"
     And I select the deliverable strategy "<strategy>"
@@ -216,6 +229,7 @@ Feature: Composing a workflow
       | Single file        | reads back one named file from the workspace  |
       | Serialized sandbox | zips the whole workspace                      |
 
+  @S-04-14
   Scenario: Run is gated on a long-enough brief
     When I cold-load "/workflows/new"
     Then I see the hint "3 more characters to enable Run"
@@ -223,6 +237,7 @@ Feature: Composing a workflow
     When I type a brief of at least 3 characters
     Then "Run once" is enabled
 
+  @S-04-15
   Scenario: A last-streamed built-in refuses an append-after-final-step slot
     When I cold-load "/workflows/ppt/canvas"
     Then I see the guidance that the last step's output IS the deliverable
@@ -230,6 +245,7 @@ Feature: Composing a workflow
     # Spec 016. Appending would silently replace output.md. Sandbox-readback
     # deliverables keep the slot; last-streamed ones do not.
 
+  @S-04-16
   @defect
   # ISS-183. A ppt-based override still labels itself CUSTOM on the composer,
   # because base_pipeline_type is hardcoded to "custom" there. Recorded as
@@ -240,6 +256,7 @@ Feature: Composing a workflow
     Then the header reads "CUSTOM · COMPOSER"
     And it does NOT read "PRESENTATION · COMPOSER"
 
+  @S-04-17
   @destructive
   Scenario: Saving a copy of a built-in creates a new row and leaves the original alone
     When I cold-load "/workflows/ppt/canvas"
@@ -248,6 +265,7 @@ Feature: Composing a workflow
     Then a new saved workflow exists with that name
     And "/workflows/ppt/canvas" still shows the original built-in steps
 
+  @S-04-18
   @destructive
   Scenario: The blank custom-agent template is withheld when authoring an override
     Given I am authoring an override of a built-in
@@ -257,6 +275,7 @@ Feature: Composing a workflow
     # so such an override saves and renders and then 400s with invalid_agent_ids
     # on every launch. Withholding the template is the guard.
 
+  @S-04-19
   @destructive
   Scenario: A saved composition can be launched from the composer
     Given a composer with at least one agent and a valid brief

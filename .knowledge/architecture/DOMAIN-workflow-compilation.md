@@ -13,8 +13,8 @@ modules_spanned:
 watched_files: 20
 code_signature: 34e49792a645
 symbols_signature: fb9ffdfcf2d5
-prose_signature: b4f2358e9afa
-prose_symbols_signature: d950fbbf4279
+prose_signature: 34e49792a645
+prose_symbols_signature: fb9ffdfcf2d5
 last_synced: '2026-08-26'
 ---
 

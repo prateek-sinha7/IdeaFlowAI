@@ -69,12 +69,14 @@ Feature: The home catalog
   Background:
     Given I am signed in as "qa-admin@flowinqa.com" with tier "enterprise"
 
+  @S-02-01
   Scenario: The catalog renders on a cold dashboard load
     When I cold-load "/dashboard"
     Then I see the heading "What would you like to build today?"
     And I see a "Coming Soon" section
     And every launchable card has an "Inspect <title> details" button beside it
 
+  @S-02-02
   Scenario: /create renders the identical catalog
     When I cold-load "/create"
     Then I see the heading "What would you like to build today?"
@@ -82,23 +84,27 @@ Feature: The home catalog
     # Both routes map to MainView "home" on purpose. Assert the equivalence so a
     # refactor cannot split them without a failing test.
 
+  @S-02-03
   Scenario: Coming Soon cards are present but not launchable
     When I cold-load "/dashboard"
     Then I see "Reverse engineer a codebase" under "Coming Soon"
     And clicking it does not navigate away from "/dashboard"
 
+  @S-02-04
   Scenario: A launchable card opens that workflow's launch surface
     When I cold-load "/dashboard"
     And I click the card "Generate product requirements"
     Then I land on a launch surface for "user_stories"
     And the surface names that workflow, not a different one
 
+  @S-02-05
   Scenario: The inspect affordance opens details without launching
     When I cold-load "/dashboard"
     And I click "Inspect Pitch an idea details"
     Then I see details for that workflow
     And no run has been started
 
+  @S-02-06
   # CORRECTED after the tier sweep (see DEFECTS-OBSERVED D-09). Cards are NEVER
   # hidden by tier — every card renders for every user, and entitlement shows as
   # a "Requires <Plan> plan" badge. The first draft of this file asserted absence,
@@ -109,6 +115,7 @@ Feature: The home catalog
     Then I see all 13 launchable card titles
     And the ones my tier does not cover carry a "Requires ... plan" badge
 
+  @S-02-07
   Scenario Outline: The lock badge names the tier a card needs
     Given I am signed in as "<email>"
     When I cold-load "/dashboard"
@@ -130,6 +137,7 @@ Feature: The home catalog
     # equal; FIX-315 exists because they had drifted. This is the end-to-end half
     # of that guard. Full observed matrix: capture/64, 67, 68.
 
+  @S-02-08
   Scenario: A locked card cannot be launched
     Given I am signed in as "qa-basic@flowinqa.com"
     When I cold-load "/dashboard"
@@ -137,6 +145,7 @@ Feature: The home catalog
     Then no run is started
     And I am not taken to that workflow's launch panel
 
+  @S-02-09
   Scenario: The backend refuses a launch the badge says is locked
     Given I hold a valid token for "qa-basic@flowinqa.com"
     When I POST a run for a pipeline my tier does not cover
@@ -144,6 +153,7 @@ Feature: The home catalog
     # The badge is presentation. Assert the server enforces it too — ISS-055
     # recorded a period where launch never checked entitlement at all.
 
+  @S-02-10
   @defect
   # D-04 / ISS-187. Recorded as current behaviour, NOT as correct behaviour.
   # If the fixtures are hidden from the catalog, rewrite this scenario to assert
@@ -160,6 +170,7 @@ Feature: The home catalog
     And I see the launchable card "Ask a Human, Then Decide"
     And the description of "Spanish Greeter" contains the internal id "ex_A3_divert"
 
+  @S-02-11
   Scenario: Jump back in lists recent runs and opens them
     Given at least one run exists for my account
     When I cold-load "/dashboard"
@@ -169,12 +180,14 @@ Feature: The home catalog
     Then I land on that run's detail surface
     And the URL contains that run's id
 
+  @S-02-12
   Scenario: A live run is distinguishable from a finished one
     Given I have a run in state "waiting_for_user"
     When I cold-load "/dashboard"
     Then that run's entry shows the status "WAITING_FOR_USER"
     And a completed run's entry shows "DONE"
 
+  @S-02-13
   @defect @unverified
   # D-10. The same card advertises a different agent count depending on whether
   # the signed-in user has a saved override of that built-in. qa-basic (no

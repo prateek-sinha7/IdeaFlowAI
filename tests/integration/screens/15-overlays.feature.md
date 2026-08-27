@@ -86,6 +86,7 @@ Feature: Overlays
   Background:
     Given I am signed in as "qa-admin@flowinqa.com"
 
+  @S-15-01
   Scenario: Inspecting a catalog workflow describes it without launching
     When I cold-load "/dashboard"
     And I click "Inspect Pitch an idea (v2) details"
@@ -97,6 +98,7 @@ Feature: Overlays
     When I press Escape
     Then the dialog closes
 
+  @S-15-02
   Scenario: The Advanced control opens the full agent configuration
     When I cold-load "/create/user-stories"
     And I click "Advanced 7 agents"
@@ -106,6 +108,7 @@ Feature: Overlays
     And I see "Open in full canvas"
     And built-in agents are marked CORE and the legend reads "CORE = LOCKED"
 
+  @S-15-03
   Scenario: The Advanced layer's Workflow tab exposes the deliverable settings
     Given the Advanced layer is open
     When I select its "Workflow" tab
@@ -113,11 +116,13 @@ Feature: Overlays
     And I see output filename and format controls
     And I see the Smart planning, Confirm requirements first and Internet access switches
 
+  @S-15-04
   Scenario: Open in full canvas escalates to the composer
     Given the Advanced layer is open
     When I click "Open in full canvas"
     Then I land on a composer URL for that workflow
 
+  @S-15-05
   @destructive
   Scenario: Saving from the Advanced layer names the new workflow
     Given the Advanced layer is open
@@ -125,6 +130,7 @@ Feature: Overlays
     Then a naming dialog opens with a name field and a description field
     And the name field is required before the save can complete
 
+  @S-15-06
   Scenario: The add-agent modal lists agents by category
     When I cold-load "/workflows/new"
     And I click the "Add agent" control
@@ -133,6 +139,7 @@ Feature: Overlays
     And I see a search input with testid "agent-search"
     And each agent card has testid "library-card-<agentId>"
 
+  @S-15-07
   Scenario: Each agent card is individually addressable
     Given the add-agent modal is open
     Then clicking the "+ Add" inside "library-card-domain-analyst" adds THAT agent
@@ -140,6 +147,7 @@ Feature: Overlays
     # Use the per-card testid. The older clickNear-on-title workaround exists
     # only because "+ Add" repeats; the testid removes the ambiguity entirely.
 
+  @S-15-08
   @defect
   # D-07. The modal's only close control has no accessible name, and Escape does
   # not close it — both contrary to the ba-browser definition's
@@ -151,12 +159,14 @@ Feature: Overlays
     And its only close control has no accessible name, no aria-label and no title
     # Expected once fixed: aria-label="Close" (or similar) AND Escape closes it.
 
+  @S-15-09
   Scenario: The library item drawer opens beside the list, not over it
     When I cold-load "/library/agents/material-analyzer"
     Then a drawer with testid "agent-drawer" is shown
     And the library list behind it is still rendered
     And no element with role "dialog" is present
 
+  @S-15-10
   Scenario Outline: The agent drawer's tabs each show their own panel
     When I cold-load "/library/agents/material-analyzer"
     And I click the drawer tab "<tab>"
@@ -169,11 +179,13 @@ Feature: Overlays
       | Hooks    | suggested hooks, or an explicit empty state              |
       | Config   | per-agent overrides for prompt, model, validator, gates and retry |
 
+  @S-15-11
   Scenario: An agent with no suggested hooks says so
     When I open an agent drawer whose Hooks tab has nothing to show
     Then I see "No suggested hooks"
     And I see that there are no pre-built hooks recommended for this agent
 
+  @S-15-12
   Scenario: The agent Config tab exposes the gate overrides
     When I open an agent drawer and select "Config"
     Then I can set a System Prompt override
@@ -184,16 +196,19 @@ Feature: Overlays
     And I see a Retry setting, a Reset control and a Save control
     And each override is described as inheriting from the workflow by default
 
+  @S-15-13
   Scenario: The workflow actions menu offers the four row operations
     When I cold-load "/workflows"
     And I open the "Workflow actions" menu on a specific card
     Then the menu contains exactly: Edit, Rename, Duplicate, Delete
 
+  @S-15-14
   Scenario: The run actions menu offers only delete
     When I cold-load "/runs"
     And I open the "Run actions" menu on a specific row
     Then the menu contains exactly: Delete
 
+  @S-15-15
   Scenario: The version picker lists a run's artifact versions
     Given a completed run
     When I cold-load its detail URL
@@ -203,6 +218,7 @@ Feature: Overlays
     # A scrim covers the page while it is open — dismiss it before clicking
     # anything else in the header, or the click is intercepted.
 
+  @S-15-16
   Scenario: Share copies a link rather than opening a dialog
     Given a completed run
     When I cold-load its detail URL
@@ -213,6 +229,7 @@ Feature: Overlays
 
   # ---------- The wizard galleries ----------
 
+  @S-15-17
   Scenario: A template tile opens a detail modal with a live preview
     When I cold-load "/create/prototype"
     And I click the template tile "AI Coach Hub"
@@ -224,12 +241,14 @@ Feature: Overlays
     # the add-agent modal's close control (D-07). Use title here; there is
     # nothing else.
 
+  @S-15-18
   Scenario: The gallery mounts one live iframe per tile
     When I cold-load "/create/prototype"
     Then each of the 46 template tiles renders its own iframe preview
     # 46 iframes on one page. Budget for it: this screen is slow to settle, and
     # a naive "wait for network idle" may never resolve.
 
+  @S-15-19
   Scenario Outline: Custom upload is offered on both wizards, HTML only
     When I cold-load "<route>"
     And I click "Upload custom"
@@ -246,6 +265,7 @@ Feature: Overlays
     # the prototype modal reused verbatim. Recorded as observed; whether a deck
     # wizard should accept an HTML file is a product question.
 
+  @S-15-20
   Scenario: A design-system tile shows its full DESIGN.md
     When I cold-load "/create/prototype"
     And I open the "Design System" tab
@@ -253,6 +273,7 @@ Feature: Overlays
     Then a modal opens rendering that system's DESIGN.md inline
     And it offers "Use this system"
 
+  @S-15-21
   Scenario: A custom design system is pasted, not uploaded
     When I cold-load "/create/prototype"
     And I open the "Design System" tab
@@ -265,6 +286,7 @@ Feature: Overlays
 
   # ---------- Admin ----------
 
+  @S-15-22
   Scenario: Add user collects credentials, plan and the admin flag
     Given I am signed in as an admin
     When I click "Add user" on "/admin"
@@ -273,6 +295,7 @@ Feature: Overlays
         a plan select named "new-user-tier" and a checkbox named "new-user-is-admin"
     And the plan select offers "basic", "pro", "enterprise" and "hexaware"
 
+  @S-15-23
   @defect
   # The dialog has no Cancel. Its only dismissal is an unnamed icon button.
   Scenario: The create-user dialog can be abandoned
@@ -285,6 +308,7 @@ Feature: Overlays
 
   # ---------- The divert target picker ----------
 
+  @S-15-24
   Scenario: The divert picker opens from the config rail, not the canvas
     When I cold-load "/workflows/ex_A3_divert/canvas"
     And I click the ROUTE node "Pick Language"
@@ -297,6 +321,7 @@ Feature: Overlays
     # scroll it into view first. It is a MODAL ON TOP OF A MODAL: two overlay
     # layers are present while it is open.
 
+  @S-15-25
   Scenario: The divert picker groups and searches the catalogue
     Given the divert picker is open
     Then "workflow-picker-modal" is shown
@@ -307,6 +332,7 @@ Feature: Overlays
     # Revision variants are listed deliberately — see WorkflowTargetPicker's own
     # comment. Do not "fix" the count by filtering them out.
 
+  @S-15-26
   @unverified
   Scenario: A failed workflow fetch degrades to free text
     Given the workflow list cannot be fetched
@@ -318,6 +344,7 @@ Feature: Overlays
 
   # ---------- Two overlays no user can open ----------
 
+  @S-15-27
   @defect
   # D-17. SkillManager's only host page cannot create the node that opens it.
   Scenario: The skill manager is reachable
@@ -329,6 +356,7 @@ Feature: Overlays
     # no node there is no button, so this overlay cannot be opened by anyone.
     # Written as it SHOULD be.
 
+  @S-15-28
   @defect
   # D-18. PrototypePreview never mounts, so none of its controls exist.
   Scenario: A prototype deliverable offers source and tweaks
@@ -341,6 +369,7 @@ Feature: Overlays
     # controls in the DOM. The overlay is uncapturable because the feature under
     # it is broken, not because the sweep missed it.
 
+  @S-15-29
   Scenario Outline: Menus and drawers close without navigating
     Given "<overlay>" is open on "<route>"
     When I dismiss it

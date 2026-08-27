@@ -52,6 +52,7 @@ yet renders correctly anyway. That is D-02, and it is specified in
 ```gherkin
 Feature: Errors and fallbacks
 
+  @S-13-01
   Scenario: An unrecognised URL shows the 404 screen
     Given I am signed in
     When I cold-load "/this-route-does-not-exist"
@@ -60,16 +61,19 @@ Feature: Errors and fallbacks
     And I see the actions "Back to dashboard", "Create a workflow" and "Sign in"
     And the main app nav is not rendered
 
+  @S-13-02
   Scenario: The 404 offers a way back that works
     Given I am on the 404 screen
     When I click "Back to dashboard"
     Then I land on "/dashboard"
 
+  @S-13-03
   Scenario: The 404 create action reaches the composer
     Given I am on the 404 screen
     When I click "Create a workflow"
     Then I reach a workflow creation surface
 
+  @S-13-04
   @defect
   # Minor. The 404 screen offers "Sign in" regardless of auth state — it is
   # rendered outside the shell and does not read the session. Harmless today
@@ -81,6 +85,7 @@ Feature: Errors and fallbacks
     Then I see a "Sign in" action
     # Expected once fixed: an authenticated user is not offered Sign in.
 
+  @S-13-05
   Scenario Outline: Malformed routes fall back rather than crash
     Given I am signed in
     When I cold-load "<route>"
@@ -94,6 +99,7 @@ Feature: Errors and fallbacks
       | /library/widgets/some-slug             |
       | /create/                               |
 
+  @S-13-06
   Scenario: A bare /settings redirects to Profile
     Given I am signed in
     When I cold-load "/settings"
@@ -103,6 +109,7 @@ Feature: Errors and fallbacks
     # directly, it does. The parser's return value and the user's destination
     # are two different things.
 
+  @S-13-07
   Scenario: Legacy library list URLs are redirected, not 404'd
     Given I am signed in
     When I cold-load "/library/agents"
@@ -113,6 +120,7 @@ Feature: Errors and fallbacks
 
   # ---- Missing and forbidden resources ----
 
+  @S-13-08
   Scenario: A run id that does not exist falls back to the generic 404
     Given I am signed in
     When I cold-load "/runs/00000000-0000-0000-0000-000000000000"
@@ -122,11 +130,13 @@ Feature: Errors and fallbacks
     # "Page not found." screen as an unparseable URL. The user is never told
     # the RUN is missing — only that the page is.
 
+  @S-13-09
   Scenario: A workflow id that does not exist falls back to the generic 404
     Given I am signed in
     When I cold-load "/workflows/00000000-0000-0000-0000-000000000000"
     Then I see the generic 404 screen
 
+  @S-13-10
   @defect
   # Three distinct failures — an unparseable URL, a missing run, a missing
   # workflow — render one byte-identical screen. A test cannot tell them apart
@@ -140,6 +150,7 @@ Feature: Errors and fallbacks
     Then all three render the same "Page not found." screen
     And none of them names the resource that was missing
 
+  @S-13-11
   @defect
   # D-12. Asking for a version that does not exist silently serves v1.
   Scenario: A nonexistent artifact version falls back to v1 without saying so
@@ -152,6 +163,7 @@ Feature: Errors and fallbacks
     # Expected once fixed: either a not-found state, or a visible notice that
     # the requested version was unavailable and v1 was served instead.
 
+  @S-13-12
   Scenario: An oversized full-screen preview explains itself
     When I cold-load "/preview-fullscreen?error=quota"
     Then I see "Project too large for full screen"
@@ -160,6 +172,7 @@ Feature: Errors and fallbacks
     # the page offers no navigation at all — browser Back is the only way out.
     # There is also no heading element: match on text, not getByRole('heading').
 
+  @S-13-13
   Scenario: Another user's run is not readable
     Given a run owned by "qa-pro@flowinqa.com"
     When I cold-load that run's URL as "qa-basic@flowinqa.com"
@@ -171,6 +184,7 @@ Feature: Errors and fallbacks
     # read_parent_file call inside it, so a parent sandbox was read before
     # ownership was established. Assert ownership from the front door too.
 
+  @S-13-14
   Scenario: A run file cannot be fetched across an ownership boundary
     Given a run owned by another user
     When I request one of its files with my own token
@@ -179,6 +193,7 @@ Feature: Errors and fallbacks
 
   # ---- Auth failure modes ----
 
+  @S-13-15
   Scenario: A request with no credentials is answered 401, not 403
     When I call an authenticated API endpoint with no Authorization header
     Then the response status is 401
@@ -187,10 +202,12 @@ Feature: Errors and fallbacks
     # that meant "you never signed in" was the one that looked like "you are
     # signed in but not allowed". bearer_scheme is subclassed to fix it.
 
+  @S-13-16
   Scenario: A request with a malformed token is answered 401
     When I call an authenticated API endpoint with a non-Bearer header
     Then the response status is 401
 
+  @S-13-17
   Scenario: An expired session is recovered once before being surrendered
     Given my access token has expired but is refreshable
     When the app makes an authenticated request
@@ -198,6 +215,7 @@ Feature: Errors and fallbacks
     And I am NOT sent to the sign-in screen
     # ADR-0024.
 
+  @S-13-18
   Scenario: An unrefreshable session ends at sign-in with an explanation
     Given my session cannot be refreshed
     When the app makes an authenticated request
@@ -206,12 +224,14 @@ Feature: Errors and fallbacks
 
   # ---- Network and backend failure ----
 
+  @S-13-19
   Scenario: A backend outage is reported, not swallowed
     Given the backend is unreachable
     When I cold-load "/dashboard"
     Then I am shown an error state
     And the page does not sit on a spinner indefinitely
 
+  @S-13-20
   Scenario: A failed run is presented as failed
     Given a run that failed
     When I open its detail surface

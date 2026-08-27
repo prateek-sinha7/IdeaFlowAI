@@ -51,6 +51,7 @@ Feature: Run history
     Given I am signed in as "qa-admin@flowinqa.com"
     And I have runs in more than one state
 
+  @S-06-01
   Scenario: The history renders with its controls
     When I cold-load "/runs"
     Then I see the heading "Run History"
@@ -59,22 +60,26 @@ Feature: Run history
     And I see the sort controls "Newest", "Longest", "Tokens"
     And I see an auto-refresh selector defaulting to "Off"
 
+  @S-06-02
   Scenario: Runs are grouped by time
     When I cold-load "/runs"
     Then I see a "TODAY" group header with a count
     And each group's header count equals the number of rows beneath it
 
+  @S-06-03
   Scenario: A finished row shows its cost, a running row does not
     Given I have a completed run and a running run
     When I cold-load "/runs"
     Then the completed row shows a duration and a token total
     And the running row shows "Running" and no token total
 
+  @S-06-04
   Scenario: Type filter counts sum to the total
     When I cold-load "/runs"
     Then the "All" filter's count equals the total run count
     And the sum of the other filters' counts equals the "All" count
 
+  @S-06-05
   Scenario Outline: Filtering by type narrows the list
     When I cold-load "/runs"
     And I click the filter "<filter>"
@@ -89,6 +94,7 @@ Feature: Run history
       | App Builder   |
       | Custom        |
 
+  @S-06-06
   Scenario: The type filter is addressable by URL
     When I cold-load "/runs?type=ppt"
     Then the history is filtered to that type on a cold load
@@ -98,12 +104,14 @@ Feature: Run history
     # VERIFIED: ?type=custom → 39 rows, ?type=ppt → 7 rows, both matching
     # their chips. The filters do narrow correctly.
 
+  @S-06-07
   Scenario: The chip label and its URL value are different words
     When I click the filter "Presentation"
     Then the URL becomes "/runs?type=ppt"
     # The chip says Presentation; the param says ppt. Do not derive one from
     # the other — the same mismatch that makes the next scenario a trap.
 
+  @S-06-08
   @defect
   # D-15. An unrecognised type is treated as a filter matching nothing.
   Scenario: An unrecognised type shows an empty list rather than an error
@@ -116,12 +124,14 @@ Feature: Run history
     # Expected once fixed: fall back to All, or say the filter is not
     # recognised. Not silence.
 
+  @S-06-09
   Scenario: Sort is addressable by URL and composes with type
     When I cold-load "/runs?type=custom&sort=duration"
     Then the history is filtered to Custom and ordered by duration
     # Newest omits the param entirely — it is the default. A test asserting
     # "?sort=recent" after clicking Newest will fail; assert its absence.
 
+  @S-06-10
   Scenario Outline: Sorting reorders the list
     When I cold-load "/runs"
     And I click "<sort>"
@@ -133,6 +143,7 @@ Feature: Run history
       | Longest | duration        |
       | Tokens  | total tokens    |
 
+  @S-06-11
   Scenario: Search filters by brief text
     When I cold-load "/runs"
     And I type a distinctive word from one run's brief into the search
@@ -140,24 +151,28 @@ Feature: Run history
     When I clear the search
     Then the full list returns
 
+  @S-06-12
   Scenario: Auto-refresh can be enabled and reports its interval
     When I cold-load "/runs"
     And I set auto-refresh to "Every 10s"
     Then the control reports "Every 10s"
     And the list refreshes without a full page reload
 
+  @S-06-13
   Scenario: Refresh re-reads without losing filters
     When I cold-load "/runs"
     And I filter by "Presentation"
     And I click "Refresh"
     Then the "Presentation" filter is still applied
 
+  @S-06-14
   Scenario: Opening a row lands on that run
     When I cold-load "/runs"
     And I click the first row
     Then the URL contains that run's id
     And I see that run's detail surface
 
+  @S-06-15
   Scenario: A diverted child names its parent and the branching step
     Given a run that was diverted into from a parent run
     When I cold-load "/runs"
@@ -167,11 +182,13 @@ Feature: Run history
     # DivertBadge just never read it, so the badge said "Continued from X" with
     # no indication of WHERE the parent branched. Unit tests cannot catch this.
 
+  @S-06-16
   Scenario: A diverting parent names its child
     Given a run that diverted into a child workflow
     When I cold-load "/runs"
     Then that row shows a badge reading "Diverted to <child workflow> →"
 
+  @S-06-17
   Scenario: The divert badge names the workflow, not the run title
     Given a divert pair
     When I cold-load "/runs"
@@ -179,18 +196,21 @@ Feature: Run history
     And it does NOT contain the other run's title
     # Deliberate and staying that way. Asserted so nobody "fixes" it.
 
+  @S-06-18
   Scenario: Run actions are per-row
     When I cold-load "/runs"
     Then each row has its own "Run actions" control
     When I open the control on a specific row, scoped by that row's brief
     Then a menu of actions for THAT run opens
 
+  @S-06-19
   Scenario: An empty history is explained
     Given I am signed in as a user with no runs
     When I cold-load "/runs"
     Then the run count reads zero
     And I am told there is nothing here yet, rather than shown a blank pane
 
+  @S-06-20
   @defect
   # D-14. Run cards are div[role="button"], not links.
   Scenario: A run card can be opened in a new tab
@@ -203,6 +223,7 @@ Feature: Run history
     # record. Today every row is a div[role="button"] with a click handler:
     # no middle-click, no "Open in new tab", no copyable link.
 
+  @S-06-21
   @defect
   # D-14, second half. The whole page has zero data-testid attributes.
   Scenario: Run history rows are addressable by a stable hook

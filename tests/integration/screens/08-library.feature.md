@@ -77,6 +77,7 @@ Feature: The capability library
   Background:
     Given I am signed in as "qa-admin@flowinqa.com"
 
+  @S-08-01
   Scenario: The library opens on Agents by default
     When I cold-load "/library"
     Then I see the heading "Library"
@@ -85,6 +86,7 @@ Feature: The capability library
     And the URL has no "tab" parameter
     # routes.library() omits tab when it is the default. Assert the clean URL.
 
+  @S-08-02
   Scenario Outline: Each tab is addressable by query param
     When I cold-load "/library?tab=<tab>"
     Then the "<label>" tab is selected
@@ -95,6 +97,7 @@ Feature: The capability library
       | skills | Skills 186 | skills |
       | hooks  | Hooks 8    | hooks  |
 
+  @S-08-03
   Scenario: Tab badge counts agree with the rendered cards
     When I cold-load "/library"
     Then the number of agent cards equals the count in the "Agents" tab badge
@@ -105,6 +108,7 @@ Feature: The capability library
     # Count cards with `div.cursor-pointer.p-4`. `.bg-surface-card` over-matches
     # — it also hits layout chrome (107 elements for 93 agents).
 
+  @S-08-04
   Scenario: Switching a tab updates the URL
     When I cold-load "/library"
     And I click the second tab
@@ -114,17 +118,20 @@ Feature: The capability library
     # Quirk `libraryTabBadgeFormatting`: tab labels carry their count
     # ("Agents  93"), so an exact-text click fails. Use [role="tab"]:nth-child(N).
 
+  @S-08-05
   Scenario: Category counts sum to the All count
     When I cold-load "/library"
     Then the "All" pill's count equals the total agent count
     And the sum of the other category counts equals the "All" count
 
+  @S-08-06
   Scenario: Filtering by category narrows the grid
     When I cold-load "/library"
     And I click the category "App Builder"
     Then the visible card count equals that category's badge count
     And every visible card carries the "APP BUILDER" badge
 
+  @S-08-07
   Scenario: The category is addressable by URL
     When I cold-load "/library?category=ppt"
     Then that category is applied on a cold load
@@ -132,6 +139,7 @@ Feature: The capability library
     # routes.library() omits category when it is "all" — so the default is clean
     # and a non-default is explicit.
 
+  @S-08-08
   @defect
   # D-04 / ISS-187. Seven of the fourteen agent categories are spec-014 test
   # fixtures with no agents behind them. Recorded as current behaviour.
@@ -142,6 +150,7 @@ Feature: The capability library
     When I click "Retry Loop"
     Then no cards are shown
 
+  @S-08-09
   Scenario: Search filters the current tab
     When I cold-load "/library"
     And I type "architecture" into the library search
@@ -149,12 +158,14 @@ Feature: The capability library
     When I clear the search
     Then the full grid returns
 
+  @S-08-10
   Scenario: Search is scoped to the active tab
     When I cold-load "/library?tab=skills"
     And I type a term that matches an AGENT but no skill
     Then no cards are shown
     And the Skills tab is still selected
 
+  @S-08-11
   Scenario: An agent opens from its Configure affordance, not its card body
     When I cold-load "/library"
     And I click the card body of the first agent
@@ -165,6 +176,7 @@ Feature: The capability library
     # Agent cards differ from skill and hook cards, which DO navigate on a body
     # click. Do not share a page-object method across the three.
 
+  @S-08-12
   Scenario: An agent's drawer exposes its configuration tabs
     When I cold-load "/library/agents/material-analyzer"
     Then a drawer with testid "agent-drawer" is shown
@@ -175,6 +187,7 @@ Feature: The capability library
     # material-analyzer IS Architecture Agent — verified against
     # backend/agents/prompts/material-analyzer/AGENT.md.
 
+  @S-08-13
   Scenario Outline: Each agent drawer tab shows its own content
     When I cold-load "/library/agents/{slug}"
     And I click the drawer tab "<tab>"
@@ -187,6 +200,7 @@ Feature: The capability library
       | Hooks    |
       | Config   |
 
+  @S-08-14
   Scenario: A skill opens from a card click and renders its document
     When I cold-load "/library?tab=skills"
     And I click the first skill card
@@ -197,6 +211,7 @@ Feature: The capability library
     # Section headings vary by skill. Assert on WHEN TO USE, which every skill
     # has, not on the full list.
 
+  @S-08-15
   Scenario: A hook opens from a card click
     When I cold-load "/library?tab=hooks"
     And I click the first hook card
@@ -204,28 +219,33 @@ Feature: The capability library
     And I see the hook's name as a heading
     And I see a "Copy" control
 
+  @S-08-16
   Scenario: Hook categories are lifecycle events
     When I cold-load "/library?tab=hooks"
     Then the category pills are "All", "PostToolUse", "PreToolUse", "SessionStart", "Stop"
 
+  @S-08-17
   Scenario: A detail view is a drawer, not a modal
     When I cold-load "/library/skills/{slug}"
     Then the list behind the drawer is still rendered
     And no element with role "dialog" is present
     And the tab badges are still visible
 
+  @S-08-18
   Scenario: Closing a detail returns to the list URL
     Given I am on "/library/agents/{slug}"
     When I close the drawer
     Then I return to the library list
     And the tab I came from is still selected
 
+  @S-08-19
   Scenario: Deep-linking a detail view works cold
     When I cold-load "/library/hooks/post-design-quality"
     Then that hook's drawer is open
     And the Hooks tab is selected behind it
     # A shared link must land on the right item AND the right tab.
 
+  @S-08-20
   Scenario: The library is read-only
     When I cold-load "/library"
     Then no control offers to create, edit or delete an agent, skill or hook

@@ -61,6 +61,7 @@ Feature: Run families on run history
   Background:
     Given I am signed in as "qa-admin@flowinqa.com"
 
+  @S-21-01
   @sourced
   Scenario: Runs sharing a root collapse into one family row
     Given a run that has been revised twice
@@ -69,6 +70,7 @@ Feature: Run families on run history
     And that row is labelled "Open <title> (latest version), <status>"
     And it shows a version badge reading "v3"
 
+  @S-21-02
   @sourced
   Scenario: The version badge's accessible name is not its text
     Given a family of 3 versions
@@ -76,6 +78,7 @@ Feature: Run families on run history
     And its accessible name is "3 versions"
     # Read the aria-label. A test matching on "v3" is matching presentation.
 
+  @S-21-03
   @sourced
   Scenario: A family expands to show every version
     Given a family row with 3 versions
@@ -83,6 +86,7 @@ Feature: Run families on run history
     Then I see 3 entries, each named "Version <i>, <status>"
     And the control becomes "Collapse versions"
 
+  @S-21-04
   @sourced
   Scenario: A family of one renders as a plain row
     Given a run with no revisions
@@ -93,6 +97,7 @@ Feature: Run families on run history
     # This is the ONLY shape any sweep has seen — all 50 seeded runs are families
     # of one. Everything above it is unrendered logic.
 
+  @S-21-05
   @sourced
   Scenario: The family counts as one against a filter chip
     Given a family of a prototype run plus two prototype revisions
@@ -102,6 +107,7 @@ Feature: Run families on run history
     # not runs — worth pinning, because "50 runs" and the chip totals are then
     # counting different things.
 
+  @S-21-06
   @sourced
   Scenario Outline: Families bucket by date and reorder by sort
     Given families started on different days
@@ -120,6 +126,7 @@ Feature: Run families on run history
 
 Feature: The version timeline on a run
 
+  @S-21-07
   @sourced
   Scenario: A revised run shows its version timeline
     Given a run that is version 2 of a family
@@ -127,6 +134,7 @@ Feature: The version timeline on a run
     Then a region labelled "Workflow versions" is shown
     And it lists both versions
 
+  @S-21-08
   @sourced
   Scenario: A timeline entry names what it revises
     Given a family of 3 versions
@@ -136,6 +144,7 @@ Feature: The version timeline on a run
     # The first version has no parent_run_id, so its name has no revises clause.
     # A test asserting a uniform name shape fails on version 1 only.
 
+  @S-21-09
   @sourced
   Scenario: Selecting a version navigates to it
     Given the version timeline is open
@@ -143,6 +152,7 @@ Feature: The version timeline on a run
     Then I land on that version's run
     And its artifact is the one shown
 
+  @S-21-10
   @defect
   # D-12, restated where the version UI is specified.
   Scenario: A version that does not exist is refused
@@ -152,6 +162,7 @@ Feature: The version timeline on a run
     # Today it silently serves v1 with the URL still reading 99 — a shared link
     # to a removed version shows the wrong content with no indication.
 
+  @S-21-11
   @sourced
   Scenario: A single-version run shows no timeline
     Given a run with no revisions
@@ -162,6 +173,7 @@ Feature: The version timeline on a run
 
 Feature: Divert links
 
+  @S-21-12
   @sourced
   Scenario: A diverting run links forward to the run it triggered
     Given a run that diverted into another workflow
@@ -171,6 +183,7 @@ Feature: Divert links
     When I activate it
     Then I land on the triggered run
 
+  @S-21-13
   @sourced
   Scenario: The triggered run links back to its origin
     Given a run that was started by a divert
@@ -180,6 +193,7 @@ Feature: Divert links
     When I activate it
     Then I land on the originating run
 
+  @S-21-14
   @sourced
   Scenario: The two directions are distinguishable
     Given both ends of a divert pair
@@ -188,6 +202,7 @@ Feature: Divert links
     # buildDivertLinks assigns a direction per run. One shared assertion on
     # "divert" matches both and proves neither.
 
+  @S-21-15
   @defect
   # Filed in 18-chat-lane. Restated here because this is where the fix belongs.
   Scenario: A diverted run's chat lane names its target

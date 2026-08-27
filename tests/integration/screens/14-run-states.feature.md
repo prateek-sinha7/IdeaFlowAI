@@ -65,6 +65,7 @@ Feature: Run states
   Background:
     Given I am signed in as "qa-admin@flowinqa.com"
 
+  @S-14-01
   Scenario: A failed run explains itself and offers a way forward
     Given a run whose status is "failed"
     When I cold-load its detail URL
@@ -75,6 +76,7 @@ Feature: Run states
     And I see "Edit brief & run again"
     And the version badge indicates a partial result
 
+  @S-14-02
   Scenario: A failed run has no Preview tab
     Given a run whose status is "failed"
     When I cold-load its detail URL
@@ -83,6 +85,7 @@ Feature: Run states
     # There is no deliverable, so the tab is absent rather than empty. Never
     # index the run tab strip positionally — its length is status-dependent.
 
+  @S-14-03
   Scenario: A cancelled run offers to resume
     Given a run whose status is "cancelled"
     When I cold-load its detail URL
@@ -91,6 +94,7 @@ Feature: Run states
     And I see a "Run Again" control
     And I am told it will resume from where it left off
 
+  @S-14-04
   @defect
   # D-08. Copy points at a tab that does not exist. The tab is labelled Steps;
   # only its testid still says thinking.
@@ -101,6 +105,7 @@ Feature: Run states
     And no tab labelled "Thinking" exists
     # Expected once fixed: the copy says "Steps".
 
+  @S-14-05
   Scenario: A diverted run points at its continuation
     Given a run whose status is "diverted"
     When I cold-load its detail URL
@@ -108,6 +113,7 @@ Feature: Run states
     And I see a "Start a new run" control
     And the Preview pane reads "Output will appear here"
 
+  @S-14-06
   Scenario: A live run streams and can be stopped
     Given a run whose status is "generating"
     When I cold-load its detail URL
@@ -117,6 +123,7 @@ Feature: Run states
     And the currently executing agent is marked as streaming
     And the deliverable is marked as a draft
 
+  @S-14-07
   @defect
   # D-06. The highest-value routing defect found in sweep 2. Every tab URL of a
   # running run is overridden to /stream + Steps. The same URLs work once the run
@@ -134,6 +141,7 @@ Feature: Run states
       | /runs/{id}/steps     | Steps     |
     # Expected once fixed: each URL selects its own tab while the run streams.
 
+  @S-14-08
   Scenario: The same tab URLs work once the run finishes
     Given a run that has completed
     When I cold-load "/runs/{id}/audit"
@@ -143,6 +151,7 @@ Feature: Run states
     # defect reads as "tab routing is broken" rather than "it is broken while
     # a run is live".
 
+  @S-14-09
   Scenario: A failed run's audit reports its governance totals
     Given a run whose status is "failed"
     When I open its Audit tab
@@ -150,6 +159,7 @@ Feature: Run states
     And Passed + Warnings + Blocked + Denied equals Checks
     And the Gate and Security counts sum to Checks
 
+  @S-14-10
   Scenario Outline: Audit categories filter the trail
     Given a completed run with governance records and no security records
     When I open its Audit tab
@@ -163,12 +173,14 @@ Feature: Run states
       | Security   | the empty state "No records match the active filters." is shown |
       | Activity   | the empty state "No records match the active filters." is shown |
 
+  @S-14-11
   Scenario: A secret scan appears as a security record
     Given a run whose agents wrote files
     When I open its Audit tab and select "Security"
     Then I see a "Secret scan — scanned before write" record
     And its severity is SECURITY
 
+  @S-14-12
   Scenario Outline: Run history shows the right status chip
     Given runs in several states
     When I cold-load "/runs"
@@ -182,6 +194,7 @@ Feature: Run states
       | diverted   | Diverted  |
       | generating | Running   |
 
+  @S-14-13
   @unverified
   # NOT CAPTURED. No run in the dev database is parked at a human gate, and
   # reaching that state requires launching a real LLM run — real cost, and it

@@ -594,6 +594,33 @@
     "response_model": null
   },
   {
+    "method": "GET",
+    "path": "/api/runs/{run_id}/sandbox",
+    "handler": "list_sandbox",
+    "file": "backend/app/api/run_files.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs/{run_id}/sandbox/file",
+    "handler": "read_sandbox_file",
+    "file": "backend/app/api/run_files.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/runs/{run_id}/sandbox/zip",
+    "handler": "download_sandbox_zip",
+    "file": "backend/app/api/run_files.py",
+    "auth": "user",
+    "status_code": null,
+    "response_model": null
+  },
+  {
     "method": "DELETE",
     "path": "/api/runs/{workflow_id}",
     "handler": "delete_run",

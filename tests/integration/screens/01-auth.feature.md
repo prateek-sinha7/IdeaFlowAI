@@ -77,6 +77,7 @@ Feature: Signing in
     Given the frontend is served at http://localhost:3000
     And the backend is served at http://localhost:8000
 
+  @S-01-01
   Scenario: The sign-in screen renders for an anonymous visitor
     Given I have no auth token
     When I cold-load "/login"
@@ -86,6 +87,7 @@ Feature: Signing in
     And I see the text "Access is by invitation. Contact your administrator for an account."
     And I do NOT see any link offering to create an account
 
+  @S-01-02
   Scenario: Signing in with valid credentials lands on the dashboard
     Given I have no auth token
     When I cold-load "/login"
@@ -96,6 +98,7 @@ Feature: Signing in
     And an auth token is present in localStorage under the key "auth_token"
     And I see the heading "What would you like to build today?"
 
+  @S-01-03
   # An admin lands on /dashboard like everyone else. Do not expect /admin —
   # the admin surface is reached from the account menu, not from login.
   Scenario: An administrator is not redirected to the admin surface
@@ -103,6 +106,7 @@ Feature: Signing in
     Then the URL becomes "/dashboard"
     And the URL is NOT "/admin"
 
+  @S-01-04
   Scenario Outline: Every seeded tier can sign in
     When I sign in as "<email>"
     Then the URL becomes "/dashboard"
@@ -115,6 +119,7 @@ Feature: Signing in
       | qa-pro@flowinqa.com        | pro        | no    |
       | qa-basic@flowinqa.com      | basic      | no    |
 
+  @S-01-05
   Scenario: Signing in with a bad password is refused
     When I cold-load "/login"
     And I fill the email field with "qa-admin@flowinqa.com"
@@ -124,11 +129,13 @@ Feature: Signing in
     And no auth token is written to localStorage
     And an error is shown to the user
 
+  @S-01-06
   Scenario: An expired session is explained on the sign-in screen
     When I cold-load "/login?expired=true"
     Then I see the text "Your session expired. Please sign in again."
     And I still see the email and password fields
 
+  @S-01-07
   @defect
   # D-03. The banner is gated on the literal string "true". Any other truthy
   # value renders a plain sign-in screen with no explanation of why the user is
@@ -139,6 +146,7 @@ Feature: Signing in
     Then I do NOT see the text "Your session expired"
     And the screen is indistinguishable from a plain "/login"
 
+  @S-01-08
   Scenario: Self-registration is closed and redirects to sign-in
     When I cold-load "/register"
     Then the URL becomes "/login"
@@ -146,6 +154,7 @@ Feature: Signing in
     # register/page.tsx keeps the route alive rather than 404ing so cached
     # external links land somewhere sensible. It is a stub, not a screen.
 
+  @S-01-09
   Scenario Outline: The bare root branches on whether a token exists
     Given I am "<state>"
     When I cold-load "/"
@@ -163,6 +172,7 @@ Feature: Signing in
     # It renders null while deciding, so wait for the settled URL, not the first
     # paint.
 
+  @S-01-10
   Scenario: An unauthenticated cold load of a protected screen is bounced
     Given I have no auth token
     When I cold-load "/dashboard"
@@ -171,6 +181,7 @@ Feature: Signing in
 
   # ---------- Cognito challenges ----------
 
+  @S-01-11
   @sourced
   Scenario: First sign-in demands a permanent password
     Given an account whose password must be changed
@@ -178,6 +189,7 @@ Feature: Signing in
     Then I am told this is my first sign-in
     And I am asked to choose and confirm a permanent password
 
+  @S-01-12
   @sourced
   Scenario Outline: A code challenge asks for six digits
     Given an account challenged with "<challenge>"
@@ -191,6 +203,7 @@ Feature: Signing in
       | SOFTWARE_TOKEN_MFA | Enter your authentication code |
       | EMAIL_OTP          | Check your email               |
 
+  @S-01-13
   @sourced
   Scenario: An email code names the mailbox it went to
     Given an EMAIL_OTP challenge whose delivery address Cognito reported
@@ -199,6 +212,7 @@ Feature: Signing in
     # AWS masks it. Do not unmask it, and do not replace this with the generic
     # "Check your email" — the whole point is telling the user WHICH mailbox.
 
+  @S-01-14
   @sourced
   Scenario: Choosing a verification method offers both factors
     Given a SELECT_MFA_TYPE challenge
@@ -206,6 +220,7 @@ Feature: Signing in
     And I can pick "Email me a code" or "Use my authenticator app"
     And each is a radio named "mfa-factor"
 
+  @S-01-15
   @sourced
   Scenario: The email factor submits a different value than its challenge name
     Given a SELECT_MFA_TYPE challenge
@@ -215,6 +230,7 @@ Feature: Signing in
     # Cognito's asymmetry, flagged in the source. Reusing one constant for both
     # fails on exactly one step.
 
+  @S-01-16
   @sourced
   Scenario: MFA setup is a dead end that explains itself
     Given an account challenged with MFA_SETUP
@@ -225,12 +241,14 @@ Feature: Signing in
     # The backend answers 501 for this path. A code field here would collect a
     # code and then fail — the explanation is the correct behaviour.
 
+  @S-01-17
   @sourced
   Scenario: An unrecognised challenge still renders something usable
     Given a challenge kind the UI does not know
     Then I see "Additional verification required"
     And I am told to follow the prompt below
 
+  @S-01-18
   @sourced
   Scenario: A challenge can be abandoned
     Given I am part-way through a challenge
@@ -238,6 +256,7 @@ Feature: Signing in
     Then I return to the plain sign-in form
     And no partially-entered code or password is retained
 
+  @S-01-19
   @sourced
   Scenario: A challenge looks like the sign-in screen, not a different app
     Given any challenge
@@ -245,6 +264,7 @@ Feature: Signing in
     # Stated as intent in the source. A verification step that looks like a
     # different app reads as a phishing page — worth pinning.
 
+  @S-01-20
   Scenario: Signing out clears the session
     Given I am signed in
     When I open the account menu

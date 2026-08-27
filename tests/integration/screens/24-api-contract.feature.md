@@ -1,7 +1,7 @@
 # Feature: The API contract
 
 **Screenshots:** none — this is the layer beneath the UI.
-**Snapshot:** `capture/API-CONTRACT.json` — all 108 endpoints with method, path, auth
+**Snapshot:** `capture/API-CONTRACT.json` — all 111 endpoints with method, path, auth
 requirement, status code and response model, extracted from source.
 
 ```
@@ -26,11 +26,11 @@ discovered in production.
 
 ## The surface
 
-**108 endpoints.** By auth requirement:
+**111 endpoints.** By auth requirement:
 
 | | Count |
 |---|---:|
-| Requires a signed-in user | **84** |
+| Requires a signed-in user | **87** |
 | Requires an admin | **6** |
 | Public | **18** |
 
@@ -38,7 +38,7 @@ By area:
 
 | Area | Endpoints | Auth |
 |---|---:|---|
-| `runs` | 23 | all user |
+| `runs` | 26 | all user |
 | `auth` | 14 | 6 public, 8 user |
 | `settings` | 11 | all user |
 | `prototype` | 10 | 4 public, 6 user |
@@ -219,7 +219,7 @@ arriving unlisted. **A** = auth: `P`ublic, `U`ser, `A`dmin.
 | P | `GET` | `/api/prototype/templates/{template_id}/preview` | — |
 | P | `GET` | `/api/prototype/templates/{template_id}/thumbnail` | — |
 
-### `runs` — 23
+### `runs` — 26
 
 | A | Method | Path | Returns |
 |---|---|---|---|
@@ -234,6 +234,9 @@ arriving unlisted. **A** = auth: `P`ublic, `U`ser, `A`dmin.
 | U | `POST` | `/api/runs/{run_id}/messages` | — |
 | U | `POST` | `/api/runs/{run_id}/resume` | — |
 | U | `POST` | `/api/runs/{run_id}/revisions` | — |
+| U | `GET` | `/api/runs/{run_id}/sandbox` | `{run_id, expired, truncated, files[]}` |
+| U | `GET` | `/api/runs/{run_id}/sandbox/file` | one file's bytes |
+| U | `GET` | `/api/runs/{run_id}/sandbox/zip` | `application/zip` |
 | U | `DELETE` | `/api/runs/{workflow_id}` | 204 No Content |
 | U | `GET` | `/api/runs/{workflow_id}` | WorkflowRunResponse |
 | U | `GET` | `/api/runs/{workflow_id}/artifacts` | — |
@@ -301,6 +304,7 @@ arriving unlisted. **A** = auth: `P`ublic, `U`ser, `A`dmin.
 ```gherkin
 Feature: The API contract holds
 
+  @S-24-01
   @sourced
   Scenario: The endpoint inventory matches the snapshot
     When I regenerate capture/API-CONTRACT.json from source
@@ -310,6 +314,7 @@ Feature: The API contract holds
     # update the snapshot in the same commit, so the diff is reviewed rather
     # than discovered later.
 
+  @S-24-02
   @sourced
   Scenario: No endpoint loses its authentication silently
     Given the committed snapshot records 84 user and 6 admin endpoints
@@ -318,6 +323,7 @@ Feature: The API contract holds
     # The single highest-value assertion here. A dropped Depends(get_current_user)
     # is a one-line diff that no UI test can see.
 
+  @S-24-03
   @sourced
   Scenario: The public list is exactly eighteen, and each is deliberate
     Then exactly 18 endpoints require no authentication
@@ -328,6 +334,7 @@ Feature: The API contract holds
 
 Feature: Authentication endpoints
 
+  @S-24-04
   Scenario: A request with no credentials is answered 401, not 403
     When I call an authenticated endpoint with no Authorization header
     Then the response status is 401
@@ -337,6 +344,7 @@ Feature: Authentication endpoints
     # in" looked like "you are signed in but not allowed". bearer_scheme is
     # subclassed to fix it.
 
+  @S-24-05
   @sourced
   Scenario: Registration is permanently closed
     When I POST /api/auth/register
@@ -344,6 +352,7 @@ Feature: Authentication endpoints
     # Declared as status_code=HTTP_403_FORBIDDEN on the route itself — not a
     # runtime check. It cannot succeed by configuration.
 
+  @S-24-06
   @sourced
   Scenario: Login returns either a session or a challenge
     When I POST valid credentials to /api/auth/login
@@ -351,6 +360,7 @@ Feature: Authentication endpoints
     # A union, which is what makes the five-challenge flow in 01-auth possible.
     # A client that assumes AuthResponse breaks on any MFA-enabled account.
 
+  @S-24-07
   @sourced
   Scenario: A challenge is answered on its own endpoint
     Given a login that returned a challenge
@@ -358,6 +368,7 @@ Feature: Authentication endpoints
     Then the response is again an AuthResponse or an AuthChallengeResponse
     # Also a union: one challenge can lead to another (SELECT_MFA_TYPE → EMAIL_OTP).
 
+  @S-24-08
   @sourced
   Scenario: Logout works with an already-invalid token
     Given an expired or revoked token
@@ -366,6 +377,7 @@ Feature: Authentication endpoints
     # Public by necessity. A logout that requires a valid session cannot clear a
     # broken one, which is exactly when a user reaches for it.
 
+  @S-24-09
   @sourced
   Scenario: Password recovery refuses when email is a second factor
     Given the pool uses email MFA
@@ -376,6 +388,7 @@ Feature: Authentication endpoints
     # recovery channel when it is also a second factor. See 09-settings and
     # 11-admin for the path that does work.
 
+  @S-24-10
   @sourced
   Scenario Outline: Second-factor management requires a session
     Then "<endpoint>" requires an authenticated user
@@ -395,6 +408,7 @@ Feature: Authentication endpoints
 
 Feature: Admin endpoints
 
+  @S-24-11
   @sourced
   Scenario Outline: Every admin endpoint requires an admin
     Then "<endpoint>" is refused for a non-admin user
@@ -411,18 +425,21 @@ Feature: Admin endpoints
     # passwords. 17-theme-and-tiers proves the UI redirects a non-admin away
     # from /admin; that is presentation. This is the control.
 
+  @S-24-12
   @sourced
   Scenario: Creating a user answers 201 with the created user
     When an admin POSTs to /api/admin/users
     Then the status is 201
     And the body is an AdminUserResponse
 
+  @S-24-13
   @sourced
   Scenario: Deleting a user answers 204 with no body
     When an admin DELETEs /api/admin/users/{id}
     Then the status is 204
     And the body is empty
 
+  @S-24-14
   @sourced
   Scenario: Role and tier changes return the updated user
     When an admin PATCHes a user's role or tier
@@ -433,6 +450,7 @@ Feature: Admin endpoints
 
 Feature: Public asset routes
 
+  @S-24-15
   @sourced
   Scenario: Template previews load without a token
     When I GET a template preview or thumbnail with no Authorization header
@@ -441,6 +459,7 @@ Feature: Public asset routes
     # into static requests. Asserting it stops someone "securing" these routes
     # and silently breaking every template gallery.
 
+  @S-24-16
   @sourced
   @destructive
   Scenario: The asset route refuses path traversal
@@ -452,6 +471,7 @@ Feature: Public asset routes
     # traversal and confines reads to assets/. That is a comment; this is the
     # test. Cover encoded forms (%2e%2e%2f) and absolute paths too.
 
+  @S-24-17
   @sourced
   Scenario: A missing asset is a 404, not a 500
     When I GET a nonexistent asset for a real template
@@ -461,6 +481,7 @@ Feature: Public asset routes
 
 Feature: Handoff ingress
 
+  @S-24-18
   @sourced
   Scenario: Handoff creation is authenticated by API key, not by JWT
     When I POST /api/handoff/receive with a valid X-Flowin-API-Key
@@ -468,6 +489,7 @@ Feature: Handoff ingress
     # get_user_via_api_key, not get_current_user. "Public" in the inventory means
     # "no bearer token", not "no authentication".
 
+  @S-24-19
   @sourced
   Scenario: Handoff creation without a valid key is refused
     When I POST /api/handoff/receive with a missing or wrong API key
@@ -475,6 +497,7 @@ Feature: Handoff ingress
     # This endpoint mints a URL that grants access to a run. It is reachable from
     # the public internet and its only guard is that header.
 
+  @S-24-20
   @sourced
   Scenario: A GitHub PAT is not required to create a handoff
     Given I have no GitHub PAT saved
@@ -487,20 +510,172 @@ Feature: Handoff ingress
 
 Feature: Ownership
 
+  @S-24-21
   Scenario: A run is readable only by its owner
     Given a run owned by another user
     When I GET it with my own token
     Then the response is 403 or 404
     And its contents are not returned
-    # 23 run endpoints, all user-authenticated. Authentication is not
+    # 26 run endpoints, all user-authenticated. Authentication is not
     # authorization — every one needs an ownership check, and FIX-309 records a
     # case where the check ran AFTER a file read.
 
+  @S-24-22
   Scenario: A run's files cannot be fetched across an ownership boundary
     Given a run owned by another user
     When I request one of its files with my own token
     Then the response is 403 or 404
     And the file's contents are not returned
+
+
+Feature: The run sandbox
+
+  # Added at 9b0fb8c79 for ppt_v2, which leaves two artifacts on disk. Three
+  # read-only endpoints exposing the run workspace itself. There is no write
+  # path here, and all three run the SAME two-layer owner check the upload
+  # endpoint uses — lifted verbatim so they cannot drift apart on ownership.
+
+  Background:
+    Given I am signed in
+    And a completed run exists that I own
+
+  @S-24-23
+  Scenario: The listing describes the whole workspace
+    When I GET "/api/runs/{id}/sandbox"
+    Then the response has "run_id", "expired", "truncated" and "files"
+    And every file carries "path", "size", "kind", "text" and "deliverable"
+    And "kind" is one of "text", "image", "pdf", "binary"
+    # `kind` is computed ONCE here so the viewer never re-derives it from the
+    # extension. `deliverable` comes from is_deliverable_relpath — the same
+    # predicate the deliverable walk uses, which is why the frontend does not
+    # know that PLANNER.md is not one.
+
+  @S-24-24
+  Scenario: An expired workspace is stated, not inferred
+    Given a run whose workspace has been TTL-swept
+    When I GET "/api/runs/{id}/sandbox"
+    Then "expired" is true
+    And "files" is empty
+    # A swept run and a run that wrote nothing both return an empty list. Only
+    # this flag separates them, and the UI renders different copy for each.
+
+  @S-24-25
+  Scenario: The reserved subtrees are never listed
+    When I GET "/api/runs/{id}/sandbox"
+    Then no file's path starts with ".uploads/" or ".logs/"
+    # The listing is the complete description of what /sandbox/file will serve.
+
+  @S-24-26
+  @security
+  Scenario: An HTML workspace file is never served inline
+    Given the workspace holds "presentation.html"
+    When I GET "/api/runs/{id}/sandbox/file?path=presentation.html"
+    Then the Content-Type is "application/octet-stream"
+    And Content-Disposition is "attachment"
+    And "X-Content-Type-Options" is "nosniff"
+    # THE assertion on this endpoint. Sandbox files are agent-authored content.
+    # Serving one inline from the API origin with an executable content type is
+    # stored XSS with the caller's session in scope. Only txt, md, json, jsonl,
+    # csv, log, yaml and yml come back inline, and only ever as text/plain.
+    # The UI still shows HTML source: fetch() reads the body regardless of
+    # Content-Disposition. The header governs direct navigation — the case
+    # being denied.
+
+  @S-24-27
+  Scenario Outline: Text extensions come back inline as plain text
+    Given the workspace holds "<file>"
+    When I GET "/api/runs/{id}/sandbox/file?path=<file>"
+    Then the Content-Type is "text/plain; charset=utf-8"
+    And Content-Disposition is "inline"
+
+    Examples:
+      | file        |
+      | notes.md    |
+      | result.json |
+      | run.log     |
+
+  @S-24-28
+  @security
+  Scenario Outline: The path parameter refuses to leave the run directory
+    When I GET "/api/runs/{id}/sandbox/file?path=<path>"
+    Then the response is 400 or 404
+    And no host file's contents are returned
+
+    Examples:
+      | path                    |
+      | ../../../etc/passwd     |
+      | /etc/passwd             |
+      | ..%2f..%2fetc%2fpasswd  |
+      | .uploads/manifest.json  |
+      | .logs/run.log           |
+    # path_for resolves inside the run dir and raises on any escape, so `..`
+    # and an absolute path both land as 400. The reserved prefixes are refused
+    # separately, as 404 — they are not part of the workspace view.
+
+  @S-24-29
+  @security
+  Scenario: A symlink cannot be used to read outside the run directory
+    Given the workspace holds a symlink pointing outside the run directory
+    When I GET that path via "/api/runs/{id}/sandbox/file"
+    Then the response is 400 or 404
+    # path_for resolves BEFORE it checks containment, and is_file() is false
+    # for a dangling link, a link to a directory, a FIFO and a socket.
+
+  @S-24-30
+  Scenario: A file too large to preview is refused, not streamed
+    Given the workspace holds a file larger than 8 MB
+    When I GET it via "/api/runs/{id}/sandbox/file"
+    Then the response is 413
+    And the message names both the size and the limit
+    # This endpoint feeds a browser preview, so it refuses rather than streams.
+    # The cap was raised from 2 MB when the viewer learned to show PDFs: a
+    # 12-slide deck's .verify/presentation.pdf is ~0.5 MB.
+
+  @S-24-31
+  Scenario: The zip holds exactly what the listing showed
+    When I GET "/api/runs/{id}/sandbox/zip"
+    Then the response is "application/zip" as an attachment
+    And every entry sits under one top-level "workspace-{id-prefix}/" directory
+    And no entry comes from ".uploads/" or ".logs/"
+    # One archive rather than one download per file: a browser blocks the
+    # fire-every-150ms approach after a handful, and a ppt_v2 workspace is 36
+    # files. Every entry is re-resolved through path_for, so a planted symlink
+    # cannot pull a host file into the archive.
+
+  @S-24-32
+  Scenario: An oversized workspace is refused rather than archived
+    Given a run whose workspace exceeds 64 MB uncompressed
+    When I GET "/api/runs/{id}/sandbox/zip"
+    Then the response is 413
+    # A run that wrote a GB of intermediate output is a bug report, not a
+    # download.
+
+  @S-24-33
+  Scenario Outline: An expired workspace has nothing to serve
+    Given a run whose workspace has been TTL-swept
+    When I GET "<endpoint>"
+    Then the response is 404 "Workspace expired"
+
+    Examples:
+      | endpoint                              |
+      | /api/runs/{id}/sandbox/file?path=a.md |
+      | /api/runs/{id}/sandbox/zip            |
+
+  @S-24-34
+  @security
+  Scenario Outline: The sandbox is unreachable across an ownership boundary
+    Given a run owned by another user
+    When I GET "<endpoint>" with my own token
+    Then the response is 404, never 403
+    And nothing about the run is disclosed
+
+    Examples:
+      | endpoint                              |
+      | /api/runs/{id}/sandbox                |
+      | /api/runs/{id}/sandbox/file?path=a.md |
+      | /api/runs/{id}/sandbox/zip            |
+    # 404 for BOTH cross-owner and unknown, deliberately: a 403 would confirm
+    # the id exists (IDOR).
 ```
 
 ## Notes for phase 2
@@ -511,7 +686,7 @@ Feature: Ownership
 - **Test the traversal scenario for real.** An unauthenticated wildcard path
   parameter is the one item here that could be a live vulnerability rather than a
   regression risk, and today its only guard is a comment saying it is guarded.
-- Ownership is the gap between authentication and authorization. 84 endpoints require
+- Ownership is the gap between authentication and authorization. 87 endpoints require
   *a* user; the contract does not say they check *which* user. The two ownership
   scenarios above are the minimum, and FIX-309 is why.
 - This file is `@sourced` throughout — extracted from route decorators and

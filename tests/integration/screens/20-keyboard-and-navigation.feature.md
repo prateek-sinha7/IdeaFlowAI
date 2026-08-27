@@ -87,6 +87,7 @@ the user should see when it happens.
 ```gherkin
 Feature: Keyboard
 
+  @S-20-01
   Scenario Outline: Escape closes an overlay
     Given "<overlay>" is open
     When I press Escape
@@ -106,6 +107,7 @@ Feature: Keyboard
     # Verified individually in sweeps 4 and 5. Do NOT collapse this into "Escape
     # closes any overlay" — the add-agent modal is the exception below.
 
+  @S-20-02
   @defect
   # D-07, already filed. Restated here so the keyboard contract is in one place.
   Scenario: Escape closes the add-agent modal
@@ -114,6 +116,7 @@ Feature: Keyboard
     Then it closes
     # Today it does not, and its only close control has no accessible name.
 
+  @S-20-03
   @sourced
   Scenario: Holding Space pans the canvas
     Given I am on "/workflows/ppt/canvas"
@@ -121,6 +124,7 @@ Feature: Keyboard
     Then the canvas pans
     And the page itself does not scroll
 
+  @S-20-04
   @sourced
   Scenario: Space still types a space in a text field
     Given I am on "/workflows/ppt/canvas"
@@ -132,6 +136,7 @@ Feature: Keyboard
     # rename and prompt fields become unusable — a silent, total break of an
     # editing surface. This is the highest-value keyboard assertion in the suite.
 
+  @S-20-05
   @sourced
   Scenario: Space-to-pan releases on keyup
     Given I am holding Space on the canvas
@@ -140,6 +145,7 @@ Feature: Keyboard
     # Global keydown/keyup pair. A missed keyup leaves the canvas stuck in pan
     # mode with no visible cause.
 
+  @S-20-06
   @unverified
   Scenario: Modifier shortcuts behave as advertised
     # Six files read metaKey/ctrlKey/shiftKey/altKey and NONE has been exercised:
@@ -147,6 +153,7 @@ Feature: Keyboard
     # WorkflowView. Enumerate what each binds before writing assertions — this is
     # a placeholder marking known-unknown territory, not a test.
 
+  @S-20-07
   @sourced
   Scenario: Submitting a chat message by keyboard
     Given the run chat composer has text in it
@@ -159,11 +166,13 @@ Feature: Keyboard
 
 Feature: Navigation edges
 
+  @S-20-08
   Scenario: Every route survives a cold load
     # Already covered — PAGES.md reaches all 55 URLs by page.goto. Recorded here
     # so the distinction is explicit: cold-load fidelity is proven, in-app
     # navigation is not.
 
+  @S-20-09
   @sourced
   Scenario Outline: An in-app affordance lands where its URL claims
     Given I am on "<from>"
@@ -183,6 +192,7 @@ Feature: Navigation edges
     # for covering them; phase 2 should extend the table from _gaps.py --full
     # rather than trusting this sample.
 
+  @S-20-10
   @sourced
   Scenario: Back returns to where I came from
     Given I opened a run from "/runs?type=custom"
@@ -191,6 +201,7 @@ Feature: Navigation edges
     # DashboardLayout has the product's only router.back(). Whether the type
     # filter survives is exactly the kind of thing router.back() gets wrong.
 
+  @S-20-11
   @sourced
   Scenario Outline: A new-tab affordance opens a new tab
     Given "<surface>"
@@ -206,6 +217,7 @@ Feature: Navigation edges
     # noopener so the new tab can read the opener's sessionStorage — asserting
     # noopener there would be asserting a regression (see 16-pages-outside-routes).
 
+  @S-20-12
   @sourced
   Scenario: A session that cannot be refreshed forces a hard reload to sign-in
     Given my session cannot be refreshed
@@ -218,6 +230,7 @@ Feature: Navigation edges
 
 Feature: Error boundaries
 
+  @S-20-13
   @sourced
   Scenario: A route-level render error is caught and explained
     Given a route whose render throws
@@ -228,6 +241,7 @@ Feature: Error boundaries
     # can force it by intercepting a required request and returning malformed
     # data.
 
+  @S-20-14
   @sourced
   Scenario: Recovering from an error boundary does a full reload
     Given the error boundary is showing
@@ -238,12 +252,14 @@ Feature: Error boundaries
     # client state is discarded — which is the point, but it must be asserted so
     # nobody "optimises" it into a soft navigation that keeps the broken state.
 
+  @S-20-15
   @sourced
   Scenario: A root-level failure still renders something
     Given an error that escapes the route boundary
     Then app/global-error.tsx renders a complete document
     And the user is not shown a blank white page
 
+  @S-20-16
   @sourced
   Scenario: A server 500 does not leave the user on a blank page
     Given the server returns 500 for a route

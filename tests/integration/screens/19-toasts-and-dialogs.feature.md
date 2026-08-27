@@ -101,6 +101,7 @@ fixtures, which is exactly why a test suite meets them unprepared.
 ```gherkin
 Feature: Toasts
 
+  @S-19-01
   @sourced
   Scenario: A completed run raises a toast with a way into the result
     Given a run I started is in progress
@@ -112,6 +113,7 @@ Feature: Toasts
     When I activate "Open"
     Then I land on that run's preview
 
+  @S-19-02
   @sourced
   Scenario: A failed run names the workflow in the toast
     Given a run I started is in progress
@@ -120,6 +122,7 @@ Feature: Toasts
     And it offers NO "Open" control
     # Only the success toast carries an Open affordance.
 
+  @S-19-03
   @sourced
   Scenario: A completion toast dismisses itself after 7 seconds
     Given a completion toast is showing
@@ -128,18 +131,21 @@ Feature: Toasts
     # Hard-coded 7000ms. A test that waits for it must exceed that; a test that
     # asserts its presence must run within it.
 
+  @S-19-04
   @sourced
   Scenario: A toast can be dismissed early
     Given a completion toast is showing
     When I activate its dismiss control
     Then it is gone immediately
 
+  @S-19-05
   @sourced
   Scenario: Toasts stack rather than replace
     Given two of my runs complete close together
     Then two toasts are shown, stacked
     And dismissing one leaves the other
 
+  @S-19-06
   @sourced
   Scenario: A toast does not block the page beneath it
     Given a toast is showing
@@ -149,6 +155,7 @@ Feature: Toasts
     # The container is pointer-events-none; only each toast re-enables pointer
     # events. Worth pinning — it is what stops toasts eating clicks.
 
+  @S-19-07
   @sourced
   Scenario Outline: Admin actions confirm themselves by toast
     Given I am signed in as an admin on "/admin"
@@ -163,12 +170,14 @@ Feature: Toasts
       | create a user           | User <email> created          |
       | delete a user           | User deleted                  |
 
+  @S-19-08
   @sourced
   Scenario: An admin failure is reported, not swallowed
     Given the backend rejects a tier change
     When I attempt it
     Then an error toast is shown carrying the server's message
 
+  @S-19-09
   @sourced
   Scenario: The two toast families use different timeouts
     Then an admin toast clears after 3500ms
@@ -180,6 +189,7 @@ Feature: Toasts
 
 Feature: Destructive confirms
 
+  @S-19-10
   @sourced
   @destructive
   Scenario: Deleting a user requires confirmation
@@ -189,6 +199,7 @@ Feature: Destructive confirms
     And it warns the deletion is permanent and cannot be undone
     And it offers "Cancel" and "Delete"
 
+  @S-19-11
   @sourced
   @destructive
   Scenario: Cancelling a delete leaves the user intact
@@ -197,6 +208,7 @@ Feature: Destructive confirms
     Then the dialog closes
     And the user is still listed
 
+  @S-19-12
   @sourced
   @destructive
   Scenario: Clicking the scrim cancels the delete
@@ -204,6 +216,7 @@ Feature: Destructive confirms
     When I click the scrim outside the dialog
     Then the dialog closes without deleting
 
+  @S-19-13
   @sourced
   @destructive
   Scenario: Confirming removes the user and says so
@@ -215,6 +228,7 @@ Feature: Destructive confirms
     # THE most destructive control in the product. It needs its own disposable
     # fixture user and must never run against a shared dev database.
 
+  @S-19-14
   @sourced
   Scenario: An admin cannot delete themselves into lockout
     Given I am the only admin
@@ -227,6 +241,7 @@ Feature: Destructive confirms
 
 Feature: Native browser dialogs
 
+  @S-19-15
   @sourced
   Scenario Outline: A failed download reports itself through window.alert
     Given a run whose "<surface>" download will fail
@@ -241,6 +256,7 @@ Feature: Native browser dialogs
       | Files tab ZIP     | Failed to generate ZIP.                                        |
       | Files tab PPTX    | PPTX export failed.                                            |
 
+  @S-19-16
   @sourced
   Scenario: Every test that can trigger a download registers a dialog handler
     Given a phase-2 test that touches a preview or the Files tab
@@ -250,6 +266,7 @@ Feature: Native browser dialogs
     # it is handled: an unhandled alert hangs the run rather than failing it.
     # page.on('dialog', d => d.dismiss()) in the shared fixture is enough.
 
+  @S-19-17
   @sourced
   Scenario: Download failures are the only native dialogs in the product
     Then no window.confirm or window.prompt is used anywhere

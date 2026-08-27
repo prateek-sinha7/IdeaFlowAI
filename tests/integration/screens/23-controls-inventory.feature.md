@@ -167,6 +167,7 @@ for what a user reads as one control. Read the source before choosing.
 ```gherkin
 Feature: Revising a deliverable
 
+  @S-23-01
   @sourced
   Scenario Outline: Every deliverable type can be revised in place
     Given a completed run whose deliverable is "<type>"
@@ -184,6 +185,7 @@ Feature: Revising a deliverable
       | markdown    | markdown-revision    |
       | user story  | user-story-revision  |
 
+  @S-23-02
   @sourced
   Scenario: Revision fields share an accessible name but not a name attribute
     Then all five carry aria-label "Revision instructions"
@@ -191,6 +193,7 @@ Feature: Revising a deliverable
     # Select by aria-label. A page object keyed on the name matches nothing on
     # four of the five types, and does so silently.
 
+  @S-23-03
   @sourced
   Scenario: An empty revision does nothing
     Given a revision field
@@ -198,6 +201,7 @@ Feature: Revising a deliverable
     Then no revision is requested
     # Guarded on revisionText.trim() in every implementation.
 
+  @S-23-04
   @sourced
   Scenario: Submitting a revision clears the field
     Given a revision field with text
@@ -208,6 +212,7 @@ Feature: Revising a deliverable
 
 Feature: Chat lane proposals, refinements and modes
 
+  @S-23-05
   @sourced
   Scenario: An agent proposal can be confirmed or rejected
     Given a run whose agent has proposed an action
@@ -216,6 +221,7 @@ Feature: Chat lane proposals, refinements and modes
     And the confirm control carries that proposal's data-proposal-id
     # Address a specific proposal by its data-proposal-id; the testid repeats.
 
+  @S-23-06
   @sourced
   Scenario: Confirming a proposal disables it while it runs
     Given a proposal
@@ -224,12 +230,14 @@ Feature: Chat lane proposals, refinements and modes
     # Guards double-submission. Assert it — a re-enabled button mid-flight means
     # the same action can be dispatched twice.
 
+  @S-23-07
   @sourced
   Scenario: A refinement chip can be accepted or dismissed
     Given a run offering a refinement
     Then "chat-refinement-chip" is shown
     And it offers "chat-refinement-confirm" and "chat-refinement-dismiss"
 
+  @S-23-08
   @sourced
   Scenario: The chain picker offers follow-on workflows
     When I open "chat-chain-picker"
@@ -238,23 +246,27 @@ Feature: Chat lane proposals, refinements and modes
     # Distinct from the "TAKE THIS FURTHER" chips in 18-chat-lane: those are
     # inline suggestions, this is a picker.
 
+  @S-23-09
   @sourced
   Scenario: An agent's reasoning is collapsible
     Given a message with reasoning
     Then "chat-thinking-block" is collapsed by default
     And it can be expanded
 
+  @S-23-10
   @sourced
   Scenario: Tool calls and file operations are shown as cards
     Given a run whose agent called a tool
     Then "chat-tool-card" describes the invocation
     And "chat-file-ops" summarises any file operations
 
+  @S-23-11
   @sourced
   Scenario: Token and context usage are visible
     Then "chat-token-widget" reports token usage
     And "chat-context-usage" reports context consumption
 
+  @S-23-12
   @sourced
   Scenario Outline: Terminal runs show a terminal banner
     Given a run that ended "<how>"
@@ -267,6 +279,7 @@ Feature: Chat lane proposals, refinements and modes
     # "degraded" appears in NO run-state table elsewhere in this suite — not in
     # MANIFEST group D, not in 14-run-states. Establish what produces it.
 
+  @S-23-13
   @sourced
   Scenario: A message can be copied, edited or regenerated
     Given a message in the transcript
@@ -274,11 +287,13 @@ Feature: Chat lane proposals, refinements and modes
     When I choose "Edit message"
     Then a field named "edit-message" is offered
 
+  @S-23-14
   @sourced
   Scenario: Chat modes can be added and removed
     Then "Open mode menu" offers the available modes
     And a selected mode offers "Remove mode"
 
+  @S-23-15
   @sourced
   Scenario: Files can be attached by drop or by chip
     Then "chat-attach-dropzone" accepts a dropped file
@@ -286,6 +301,7 @@ Feature: Chat lane proposals, refinements and modes
     And a run's own attachments are listed in "lane-run-attachments"
     And each shows as "lane-run-attach-chip" offering "lane-run-attach-remove"
 
+  @S-23-16
   @sourced
   Scenario: Activity is indicated while waiting
     Then "typing-indicator" shows while the agent composes
@@ -294,6 +310,7 @@ Feature: Chat lane proposals, refinements and modes
 
 Feature: Composer routing, sub-agents and limits
 
+  @S-23-17
   @sourced
   Scenario: A conditional route renders as a labelled edge
     Given a workflow with a routing node
@@ -301,6 +318,7 @@ Feature: Composer routing, sub-agents and limits
     Then "canvas-node-route" marks the node
     And each outcome draws a "canvas-route-edge" with a "canvas-route-edge-label"
 
+  @S-23-18
   @sourced
   Scenario: Route outcomes are edited in the rail
     Given a routing node is selected
@@ -309,17 +327,20 @@ Feature: Composer routing, sub-agents and limits
     And each offers "Remove outcome"
     And a "Default (no match)" outcome is configurable
 
+  @S-23-19
   @sourced
   Scenario: A route outcome names its condition source
     Given a route outcome
     Then "Condition source" selects what it tests
     And "Source list from" selects the list it draws on
 
+  @S-23-20
   @sourced
   Scenario: A detached node is marked as such
     Given a node with no parent
     Then it carries "canvas-node-detached"
 
+  @S-23-21
   @sourced
   Scenario: Edges can be regrabbed to reparent a node
     Given a node with a parent
@@ -328,6 +349,7 @@ Feature: Composer routing, sub-agents and limits
     And "canvas-chain-connect-preview" previews the new connection
     # The canvas's own hint says "drag a top port to reparent".
 
+  @S-23-22
   @sourced
   Scenario: Sub-agents are added under a node
     Given an agent node
@@ -335,6 +357,7 @@ Feature: Composer routing, sub-agents and limits
     Then a "subagent-row" appears beneath it
     And "Sub-agent strategy" (name="subagent-strategy") selects how they run
 
+  @S-23-23
   @sourced
   Scenario Outline: Numeric limits step up and down
     Given an agent node is selected
@@ -347,12 +370,14 @@ Feature: Composer routing, sub-agents and limits
     # Two pairs, four controls, names differing only by a verb. A selector
     # matching /retries/ hits both members of that pair.
 
+  @S-23-24
   @sourced
   Scenario: A loop node caps its iterations
     Given a node that loops back
     Then "Max loop count" bounds it
     # Without a cap a conditional gate looping to an earlier step runs forever.
 
+  @S-23-25
   @sourced
   Scenario: An agent can be renamed inline
     Given an agent node
@@ -363,6 +388,7 @@ Feature: Composer routing, sub-agents and limits
     # 04-composer-canvas already warns that node aria-labels derive from the
     # display name. This is the control that changes it.
 
+  @S-23-26
   @sourced
   Scenario: A node declares its capabilities
     Then "canvas-declared-capabilities" lists what it declares
@@ -370,6 +396,7 @@ Feature: Composer routing, sub-agents and limits
 
 Feature: Per-agent capability configuration
 
+  @S-23-27
   @sourced
   Scenario Outline: Each capability is configured per agent, by name
     Given the agents popup is open
@@ -387,14 +414,17 @@ Feature: Per-agent capability configuration
     # EVERY one of these is templated on the agent name. An unscoped selector
     # matches every row in the popup and edits whichever comes first.
 
+  @S-23-28
   @sourced
   Scenario: An agent's prompt can be overridden
     Then "Custom agent prompt" (name="agent-prompt") accepts an override
 
+  @S-23-29
   @sourced
   Scenario: Hooks can be searched
     Then "Search hooks" (name="hook-search") filters the hook list
 
+  @S-23-30
   @sourced
   Scenario: An agent's skills are chosen from the rail, not a modal
     Given an agent node is selected on the canvas
@@ -409,6 +439,7 @@ Feature: Per-agent capability configuration
 
 Feature: Audit export and monitoring
 
+  @S-23-31
   @sourced
   Scenario Outline: The audit log exports in three formats
     Given a run with audit records
@@ -425,6 +456,7 @@ Feature: Audit export and monitoring
     # raises a native alert when an export fails (19-toasts-and-dialogs) — an
     # unhandled dialog here hangs the run.
 
+  @S-23-32
   @sourced
   Scenario: A live run's audit tab says it is live
     Given a run still generating
@@ -433,6 +465,7 @@ Feature: Audit export and monitoring
     And "audit-elapsed" counts up
     And "audit-monitoring-banner" explains the tail
 
+  @S-23-33
   @sourced
   Scenario: The audit log can be searched
     Then "Search audit log" filters the records
@@ -440,6 +473,7 @@ Feature: Audit export and monitoring
 
 Feature: Search and filter controls
 
+  @S-23-34
   @sourced
   Scenario Outline: Each list has its own search input
     Given I am on "<surface>"
@@ -458,6 +492,7 @@ Feature: Search and filter controls
     # NINE search inputs, nine different name attributes, no shared component.
     # There is no single search selector for this product — do not write one.
 
+  @S-23-35
   @sourced
   Scenario: Analytics filters by model as well as pipeline
     When I cold-load "/analytics"
@@ -466,6 +501,7 @@ Feature: Search and filter controls
     # Only the pipeline filter was captured. The model filter was missed
     # entirely — and per-model cost is the reason this page exists.
 
+  @S-23-36
   @sourced
   Scenario: Run history sort has two accessible names
     When I cold-load "/runs"
@@ -476,6 +512,7 @@ Feature: Search and filter controls
 
 Feature: Design system picker
 
+  @S-23-37
   @sourced
   Scenario: Design systems are shown as colour bands
     Given the Design System tab
@@ -485,33 +522,39 @@ Feature: Design system picker
 
 Feature: Preview chrome and artifacts
 
+  @S-23-38
   @sourced
   Scenario: A generating preview shows progress
     Given a run still generating a deliverable
     Then "preview-progress" reports progress
     And "files-building-hero" is shown on the Files tab
 
+  @S-23-39
   @sourced
   Scenario: The artifact version picker is addressable
     Then "artifact-version-picker" selects a version
     And "Run versions" opens the version list
 
+  @S-23-40
   @sourced
   Scenario: A deliverable can be downloaded from the header
     Then "Download the deliverable" downloads it
     # Register a dialog handler: PreviewPanel alerts on failure.
 
+  @S-23-41
   @sourced
   Scenario: A prototype's HTML can be edited directly
     Given the tweaks panel is open
     Then "Edit HTML directly" (name="tweak-html") accepts raw HTML
     # BLOCKED by D-18 — PrototypePreview never mounts, so neither does this.
 
+  @S-23-42
   @sourced
   Scenario: Steps show review and divert markers
     Then "steps-review-dot" marks a step that was reviewed
     And "steps-divert-link-row" links a step to the run it diverted into
 
+  @S-23-43
   @sourced
   Scenario: A run detail can auto-refresh
     Then "Auto-refresh interval" selects the polling interval
@@ -519,6 +562,7 @@ Feature: Preview chrome and artifacts
 
 Feature: Remaining controls
 
+  @S-23-44
   @sourced
   Scenario: Agent construction progress is reported
     Given an agent building a deliverable
@@ -526,42 +570,50 @@ Feature: Remaining controls
     And "construction-task-row" lists each task
     And "construction-empty" is shown when there is nothing yet
 
+  @S-23-45
   @sourced
   Scenario: Clarifications are summarised with a count
     Then a card labelled "Clarifications, <n>" summarises them
 
+  @S-23-46
   @sourced
   Scenario: A chained run shows where it came from
     Given a run started from another workflow
     Then "Show context from previous workflow" reveals that context
     And "Show original brief version 1" reveals the original brief
 
+  @S-23-47
   @sourced
   Scenario: A notification can be dismissed individually
     Given the notification panel is open
     Then each entry offers "Dismiss notification for <x>"
 
+  @S-23-48
   @sourced
   Scenario: The admin table can be searched and its tier set
     When I cold-load "/admin"
     Then "Search users" filters the table
     And "Select plan tier" sets a user's plan
 
+  @S-23-49
   @sourced
   Scenario: A custom template can be taken from a URL
     Given the custom template modal, "From URL" tab
     Then "Template URL" (name="template-url") accepts a URL
 
+  @S-23-50
   @sourced
   Scenario: Handoff credentials are labelled
     Then "GitHub personal access token" and "API key name" are labelled fields
     And the handoff preview offers "auto-follow"
 
+  @S-23-51
   @sourced
   Scenario: An artifact card names and downloads its file
     Then "Artifact: <name>" identifies it
     And "Download file" downloads it
 
+  @S-23-52
   @sourced
   Scenario: The 404 page carries the brand panel
     When I cold-load an unknown route
@@ -574,6 +626,7 @@ Feature: Controls addressable only by their text
   text — and were invisible to the first version of the coverage gate for exactly
   that reason.
 
+  @S-23-53
   @sourced
   Scenario: A dropped realtime connection offers a reconnect
     Given the app's realtime connection drops
@@ -584,6 +637,7 @@ Feature: Controls addressable only by their text
     # run page streams over a live connection, so this is the affordance a user
     # meets when a run appears to stall.
 
+  @S-23-54
   @sourced
   Scenario: An empty run history invites a first run
     Given a user with no runs
@@ -594,6 +648,7 @@ Feature: Controls addressable only by their text
     # The empty-state CTA. Reachable today with qa-pro/basic/enterprise, all of
     # which have zero runs.
 
+  @S-23-55
   @sourced
   Scenario: An edited message is saved and resent in one action
     Given I am editing a message in the chat lane
@@ -610,6 +665,7 @@ Feature: Controls inside unreachable code
   listed so the inventory is complete and so nobody writes a test against them
   expecting it to run.
 
+  @S-23-56
   @unverified
   Scenario: The skill manager's editor
     Given the skill manager could be opened
@@ -618,6 +674,7 @@ Feature: Controls inside unreachable code
     # page's Add Agent picker returns "No agents found" for all six categories,
     # so no node ever exists to open it from.
 
+  @S-23-57
   @unverified
   Scenario: The sidebar's controls
     Given the sidebar were mounted

@@ -45,7 +45,18 @@ special cases are broken.
 
 ## D-02 — `/runs/{id}/workspace` works but is not in the routing contract
 
-**Severity:** medium.
+**Severity:** medium. **RESOLVED at `9b0fb8c79`.**
+
+`routes.ts` now exposes `runWorkspace: (id) => /runs/${id}/workspace`, `ParsedView`
+carries a `run-workspace` variant, and `parseViewPath`'s `runs` branch handles
+`subpath === 'workspace'`. The route is now both built and parsed by `routes.ts`, as
+ADR-0018 requires.
+
+`07-run-detail.feature.md` no longer tags this `@defect`; it asserts the correct
+behaviour instead, so a regression fails rather than passing quietly. The original
+report is kept below because the screenshot `05-runs/p27` predates the fix.
+
+---
 
 Run detail has **five** tabs: Preview, Steps, Files, Workspace, Audit. Clicking
 Workspace pushes `/runs/{id}/workspace`, and a cold load renders correctly with the

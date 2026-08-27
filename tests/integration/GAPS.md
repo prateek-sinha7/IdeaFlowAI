@@ -339,6 +339,28 @@ scenarios into verified ones — in this order:
 Still fixture-blocked after that: a valid handoff token, a `waiting_for_user` gate, a
 second account's session, a hexaware user, a deck deliverable for `Slides`.
 
+## Workspace tab — specified, but with no test handles
+
+`components/results/SandboxTab.tsx` is **1354 lines with zero `data-testid` and zero
+`aria-label`.** Its only addressable attribute is one `title` on `Download all`. It
+arrived at `9b0fb8c79`, replacing the flat file list, and it is the largest new
+surface on the branch.
+
+`07-run-detail.feature.md` now specifies it in full — panes, groups, sort, the four
+empty states, the four render kinds — but **every one of those scenarios selects on
+visible text**, which breaks on any copy change. That is a knowingly weaker standard
+than the rest of the suite, recorded here rather than hidden.
+
+**`_coverage.py` structurally cannot see this**, and that is a limit of the gate, not
+an oversight in the app. It counts controls that *exist* and asks whether a spec names
+them; a component with no addressable attributes contributes nothing to the
+denominator, so it **raises** the coverage percentage by being untestable. The 98%
+figure after this merge is measured over a set that excludes this component entirely.
+
+The fix is testids on `SandboxTab` — an app change, so it needs a decision rather
+than being done here. Until then these scenarios are text-selected and brittle by
+construction.
+
 ## The one surface with no spec at all
 
 **Responsive breakpoints.** Every capture ran at one desktop viewport. No scenario

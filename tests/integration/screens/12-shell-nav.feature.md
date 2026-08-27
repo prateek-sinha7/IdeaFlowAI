@@ -58,11 +58,13 @@ Feature: Shell and navigation
   Background:
     Given I am signed in as "qa-admin@flowinqa.com"
 
+  @S-12-01
   Scenario: The header is present on every authenticated screen
     When I cold-load "/dashboard"
     Then I see "Home", "Library" and "My Workflows"
     And I see a Notifications control and an Account menu control
 
+  @S-12-02
   Scenario Outline: Each nav item routes to its screen
     Given I am on "/dashboard"
     When I click "<item>"
@@ -75,16 +77,19 @@ Feature: Shell and navigation
       | My Workflows | /workflows |
       | Home         | /dashboard |
 
+  @S-12-03
   Scenario: Nav items are buttons, not links
     When I cold-load "/dashboard"
     Then the header contains no anchor elements
     # There are no <a href> nodes in the header. Enumerating nav by anchor
     # returns an empty list and a test built that way silently passes.
 
+  @S-12-04
   Scenario: The active screen is indicated in the nav
     When I cold-load "/library"
     Then "Library" is shown as the current screen
 
+  @S-12-05
   Scenario Outline: The shell is absent where it should be
     When I cold-load "<route>"
     Then the main nav is not rendered
@@ -99,22 +104,26 @@ Feature: Shell and navigation
 
   # ---- Account menu ----
 
+  @S-12-06
   Scenario: The account menu lists its items
     When I cold-load "/dashboard"
     And I click the Account menu control
     Then a menu opens
     And it contains "Account Settings", "Analytics", "Run History", "Dark mode" and "Log out"
 
+  @S-12-07
   Scenario: An admin additionally sees the admin entry
     Given I am signed in as an admin
     When I open the account menu
     Then I also see "Admin Dashboard"
 
+  @S-12-08
   Scenario: A non-admin does not
     Given I am signed in as "qa-pro@flowinqa.com"
     When I open the account menu
     Then I do NOT see "Admin Dashboard"
 
+  @S-12-09
   Scenario Outline: Each menu item routes correctly
     When I open the account menu
     And I click the menu item "<item>"
@@ -131,6 +140,7 @@ Feature: Shell and navigation
     # Analytics worst of all. Locate by role + exact text and call .click().
     # There is no "/history" route — do not guess one; it 404s.
 
+  @S-12-10
   Scenario: Escape closes the account menu
     When I open the account menu
     And I press Escape
@@ -139,6 +149,7 @@ Feature: Shell and navigation
 
   # ---- Notifications ----
 
+  @S-12-11
   Scenario: The notifications panel opens with an empty state
     When I cold-load "/dashboard"
     And I click the Notifications control
@@ -147,6 +158,7 @@ Feature: Shell and navigation
     And I see "Pipeline completions will appear here"
     And the URL is unchanged
 
+  @S-12-12
   Scenario: A completed run produces a notification
     Given a run of mine has just completed
     When I open the notifications panel
@@ -154,17 +166,20 @@ Feature: Shell and navigation
 
   # ---- Running-pipeline badge ----
 
+  @S-12-13
   Scenario: A live run surfaces in the header with its progress
     Given I have a run in progress
     When I cold-load "/dashboard"
     Then the header shows a badge naming that workflow
     And the badge shows completed-of-total agents
 
+  @S-12-14
   Scenario: The badge opens the live run
     Given the header shows a running-pipeline badge
     When I click it
     Then I land on that run's surface
 
+  @S-12-15
   Scenario: The badge is absent when nothing is running
     Given I have no run in progress
     When I cold-load "/dashboard"
@@ -172,6 +187,7 @@ Feature: Shell and navigation
 
   # ---- Theme ----
 
+  @S-12-16
   Scenario: Dark mode toggles and persists
     When I open the account menu
     And I click "Dark mode"
@@ -183,6 +199,7 @@ Feature: Shell and navigation
 
   # ---- Cross-cutting routing ----
 
+  @S-12-17
   Scenario: Browser back and forward work across top-level screens
     Given I am on "/dashboard"
     When I navigate to "/library"
@@ -192,6 +209,7 @@ Feature: Shell and navigation
     When I press browser Forward
     Then I am on "/workflows"
 
+  @S-12-18
   Scenario: Every top-level screen survives a hard refresh
     When I cold-load "/library?tab=hooks"
     And I reload the page
@@ -199,6 +217,7 @@ Feature: Shell and navigation
     # Spec 015's core promise: every screen is addressable and cold-loadable.
     # Repeat this for /workflows, /runs, /analytics and each /settings tab.
 
+  @S-12-19
   Scenario: An expired session sends me to sign-in with an explanation
     Given my auth token has expired
     When I click any nav item

@@ -94,6 +94,7 @@ launchable for enterprise but appear nowhere in Deliverable Access (D-04).
 ```gherkin
 Feature: Theme
 
+  @S-17-01
   Scenario: Dark mode applies and persists
     Given I am signed in
     When I open the account menu and click "Dark mode"
@@ -102,6 +103,7 @@ Feature: Theme
     When I reload the page
     Then data-theme is still "dark"
 
+  @S-17-02
   Scenario: The theme control names the target, not the state
     Given the theme is dark
     When I open the account menu
@@ -109,6 +111,7 @@ Feature: Theme
     # It is not a state label. Read data-theme to know which theme is active;
     # a test that reads the menu text will always see "Dark mode".
 
+  @S-17-03
   Scenario Outline: Every major surface renders in both themes
     Given the theme is "<theme>"
     When I cold-load "<route>"
@@ -123,6 +126,7 @@ Feature: Theme
       | dark  | /library                 |
       | light | /dashboard               |
 
+  @S-17-04
   Scenario: Theme is a per-browser preference, not per-account
     Given I set dark mode as one user
     When I sign out and sign in as a different user in the same browser
@@ -133,6 +137,7 @@ Feature: Theme
 
 Feature: Tier and role gating
 
+  @S-17-05
   Scenario Outline: The account menu reflects the role, not the tier
     Given I am signed in as "<email>"
     When I open the account menu
@@ -148,6 +153,7 @@ Feature: Tier and role gating
     # qa-enterprise is the control: same tier as the admin, no admin flag. It
     # proves the gate is on is_admin and not on entitlement.
 
+  @S-17-06
   Scenario Outline: A non-admin is redirected away from the admin surface
     Given I am signed in as "<email>"
     When I cold-load "/admin"
@@ -160,6 +166,7 @@ Feature: Tier and role gating
       | qa-pro@flowinqa.com        |
       | qa-basic@flowinqa.com      |
 
+  @S-17-07
   Scenario Outline: Deliverable access matches the tier
     Given I am signed in as "<email>"
     When I cold-load "/settings/usage"
@@ -171,6 +178,7 @@ Feature: Tier and role gating
       | qa-basic@flowinqa.com      | Basic      | Product Requirements  |
       | qa-enterprise@flowinqa.com | Enterprise | Custom Workflow       |
 
+  @S-17-08
   @defect
   # D-04. Deliverable Access and the home catalog disagree for enterprise: the
   # seven ex_A* fixtures are launchable on the catalog but listed nowhere here.
@@ -182,6 +190,7 @@ Feature: Tier and role gating
     When I cold-load "/settings/usage"
     Then Deliverable Access does NOT mention it
 
+  @S-17-09
   @defect
   # D-16. The tier lattice is not a chain, and nothing here tests that.
   Scenario: A hexaware user gains prototype and loses presentations
@@ -197,6 +206,7 @@ Feature: Tier and role gating
     # run — create it through the admin Create-User dialog, which offers the
     # tier, or extend the seed script.
 
+  @S-17-10
   Scenario: The admin dialog offers every tier the backend knows
     Given I am signed in as an admin
     When I open "Add user" on "/admin"
@@ -205,6 +215,7 @@ Feature: Tier and role gating
     # apart. test_entitlement_parity already keeps the backend and frontend
     # maps in sync; nothing currently keeps the admin UI in sync with either.
 
+  @S-17-11
   Scenario: Entitlement is enforced by the backend, not only the badge
     Given I hold a valid token for "qa-basic@flowinqa.com"
     When I request a launch of a pipeline my tier does not cover
@@ -213,6 +224,7 @@ Feature: Tier and role gating
     # and any user could run any pipeline. The badge is presentation; this is
     # the control.
 
+  @S-17-12
   Scenario: One user's runs are invisible to another
     Given "qa-pro@flowinqa.com" has runs
     When I cold-load "/runs" as "qa-basic@flowinqa.com"

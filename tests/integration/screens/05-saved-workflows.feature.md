@@ -74,6 +74,7 @@ Feature: Saved workflows
     Given I am signed in as "qa-admin@flowinqa.com"
     And I own at least one saved workflow
 
+  @S-05-01
   Scenario: The list renders with stats and a create affordance
     When I cold-load "/workflows"
     Then I see the heading "My Workflows"
@@ -82,17 +83,20 @@ Feature: Saved workflows
     And I see a "New workflow" button
     And I see a search input named "saved-workflows-search"
 
+  @S-05-02
   Scenario: The stats agree with the cards
     When I cold-load "/workflows"
     Then the workflow count equals the number of cards
     And the total-agent count equals the sum of the cards' agent counts
 
+  @S-05-03
   Scenario: Every card exposes its own actions
     When I cold-load "/workflows"
     Then each card shows a type badge, a title, an agent count and an age
     And each card has its own "Workflow actions" control
     And each card has its own "Run workflow" button
 
+  @S-05-04
   Scenario: Search narrows the list by title
     Given I own a workflow whose title contains "presentation"
     When I cold-load "/workflows"
@@ -101,12 +105,14 @@ Feature: Saved workflows
     When I clear the search
     Then the full list returns
 
+  @S-05-05
   Scenario: New workflow opens the empty composer
     When I cold-load "/workflows"
     And I click "New workflow"
     Then I land on "/workflows/new"
     And the composer reports "0 agents"
 
+  @S-05-06
   Scenario: A card opens its detail view
     When I cold-load "/workflows"
     And I open the card titled "<title>"
@@ -115,6 +121,7 @@ Feature: Saved workflows
     And I see its agent roster
     And I see "Edit" and "Run"
 
+  @S-05-07
   Scenario: The detail view lists agent IDs, not display names
     Given a saved workflow whose base is "ppt"
     When I cold-load "/workflows/{id}"
@@ -122,6 +129,7 @@ Feature: Saved workflows
     And the roster does NOT list canvas display names such as "Deck Engineer"
     # Two views of one manifest. Assert the right vocabulary per screen.
 
+  @S-05-08
   Scenario: Edit opens the composer bound to this row
     When I cold-load "/workflows/{id}"
     And I click "Edit"
@@ -130,12 +138,14 @@ Feature: Saved workflows
     And it is NOT "Save as copy"
     # A saved row is overwritable; a built-in is not. See 04-composer-canvas.
 
+  @S-05-09
   Scenario: Run opens the base workflow's launch panel
     Given a saved workflow whose base is "ppt"
     When I cold-load "/workflows/{id}/run"
     Then I see the ppt launch panel with its template gallery
     And I see the eyebrow "NEW PRESENTATION"
 
+  @S-05-10
   @unverified @defect
   # D-05. The row reports 4 agents; its run panel reports 3, which is the BASE
   # manifest's count. Whether the launch then runs 4 steps or 3 is unknown — the
@@ -152,6 +162,7 @@ Feature: Saved workflows
     #   When I launch from that panel
     #   Then the run dispatches 4 agents, not 3
 
+  @S-05-11
   @destructive
   Scenario: A workflow can be deleted from its card menu
     Given I own a disposable saved workflow
@@ -164,6 +175,7 @@ Feature: Saved workflows
     # Scope the menu click by the card's unique title. "Workflow actions" repeats
     # once per card, and an unscoped click deletes the wrong workflow.
 
+  @S-05-12
   @destructive
   Scenario: Running from a card starts a run of that workflow
     When I cold-load "/workflows"
@@ -171,6 +183,7 @@ Feature: Saved workflows
     Then I reach a launch surface for that workflow
     And the surface names that workflow
 
+  @S-05-13
   Scenario: An override can be reverted to the original built-in
     Given I own an override of the built-in "user_stories"
     When I open that built-in's launch surface

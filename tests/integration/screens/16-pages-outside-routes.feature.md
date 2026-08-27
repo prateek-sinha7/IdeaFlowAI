@@ -79,6 +79,7 @@ Feature: Pages outside routes.ts
 
   # ---------- /workflow ----------
 
+  @S-16-01
   Scenario: The legacy workflow builder is reachable by URL
     When I cold-load "/workflow"
     Then I see the heading "VelocityAI — Agent Workflows"
@@ -88,12 +89,14 @@ Feature: Pages outside routes.ts
     # composer with its own chrome. Recorded so a decision gets made about it
     # rather than it rotting unnoticed.
 
+  @S-16-02
   Scenario: The legacy builder is not the composer
     When I cold-load "/workflow"
     Then I do NOT see the composer header "CUSTOM · COMPOSER"
     And I do NOT see the Simple / Canvas view toggle
     And I do NOT see a "Save workflow" control
 
+  @S-16-03
   @defect
   # D-17. ANSWERED: it does not work. The open question from sweep 2 is closed.
   Scenario: The legacy builder cannot add an agent
@@ -114,6 +117,7 @@ Feature: Pages outside routes.ts
 
   # ---------- /workflow/create ----------
 
+  @S-16-04
   Scenario Outline: The legacy wizard path redirects to the named create route
     When I cold-load "/workflow/create?mode=<mode>"
     Then I land on "/create/<mode>"
@@ -131,24 +135,28 @@ Feature: Pages outside routes.ts
 
   # ---------- /preview-fullscreen ----------
 
+  @S-16-05
   Scenario: A runId deep-link redirects to the run's full preview
     Given a completed run with a deliverable
     When I cold-load "/preview-fullscreen?runId={id}"
     Then I land on "/runs/{id}/preview/full"
     And the deliverable is rendered
 
+  @S-16-06
   Scenario: The bare path with no payload falls back to run history
     Given sessionStorage has no "__app_preview__" key
     When I cold-load "/preview-fullscreen"
     Then I land on "/runs"
     And I am not left on a blank screen
 
+  @S-16-07
   Scenario: An oversized project explains itself and offers a way out
     When I cold-load "/preview-fullscreen?error=quota"
     Then I see "Project too large for full screen"
     And I am told the project exceeds the ~5MB session storage limit
     And I am directed to the Download ZIP button in the preview panel
 
+  @S-16-08
   @unverified
   Scenario: The App Builder full-screen button hands files over in sessionStorage
     Given an App Builder run whose preview is open
@@ -161,6 +169,7 @@ Feature: Pages outside routes.ts
 
   # ---------- /handoff/settings ----------
 
+  @S-16-09
   Scenario: Handoff settings offers the install command
     When I cold-load "/handoff/settings"
     Then I see the heading "Handoff integrations"
@@ -168,6 +177,7 @@ Feature: Pages outside routes.ts
     And I see a "Copy" control for it
     And I am told the install is idempotent and safe to re-run
 
+  @S-16-10
   Scenario: A GitHub token can be saved and is never read back
     When I cold-load "/handoff/settings"
     Then I see a GitHub token field named "github-pat"
@@ -175,6 +185,7 @@ Feature: Pages outside routes.ts
     And I am told it is encrypted at rest and never returned by any API
     And when no token is saved I am told so explicitly
 
+  @S-16-11
   @destructive
   Scenario: A saved GitHub token is not echoed to the client
     Given I save a GitHub token
@@ -184,6 +195,7 @@ Feature: Pages outside routes.ts
     # The page claims the token is never returned by any API. Assert it, at the
     # network layer — this is the whole security promise of the field.
 
+  @S-16-12
   @destructive
   Scenario: An API key is shown once and never again
     When I cold-load "/handoff/settings"
@@ -192,12 +204,14 @@ Feature: Pages outside routes.ts
     When I reload the page
     Then the key is listed but its plaintext is NOT shown
 
+  @S-16-13
   Scenario: Handoff settings requires authentication
     Given I have no auth token
     When I cold-load "/handoff/settings"
     Then I do not see any token or API key field
     And I end up on the sign-in screen
 
+  @S-16-14
   Scenario: One user cannot see another's handoff credentials
     Given "qa-pro@flowinqa.com" has saved a GitHub token and created an API key
     When I cold-load "/handoff/settings" as "qa-basic@flowinqa.com"
@@ -207,12 +221,14 @@ Feature: Pages outside routes.ts
 
   # ---------- /handoff/{token} ----------
 
+  @S-16-15
   Scenario: An invalid handoff token is refused clearly
     When I cold-load "/handoff/invalid-token"
     Then I see "Handoff not found"
     And I see a way back to the dashboard
     And no handoff content is rendered
 
+  @S-16-16
   @unverified
   Scenario: A valid handoff token opens the handoff workflow
     Given a valid handoff token issued for one of my runs
@@ -221,6 +237,7 @@ Feature: Pages outside routes.ts
     # No valid token was available during the capture sweep. Phase 2 needs a
     # fixture that mints one.
 
+  @S-16-17
   Scenario: A handoff token belonging to another user is refused
     Given a handoff token issued to another user
     When I cold-load it as myself

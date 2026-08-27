@@ -116,6 +116,7 @@ Feature: Account settings
   Background:
     Given I am signed in as "qa-admin@flowinqa.com" with tier "enterprise"
 
+  @S-09-01
   Scenario Outline: Every tab is addressable by URL
     When I cold-load "<route>"
     Then I see the heading "Account Settings"
@@ -130,6 +131,7 @@ Feature: Account settings
       | /settings/constitution   | Constitution   |
       | /settings/security       | Security       |
 
+  @S-09-02
   Scenario Outline: Clicking a tab pushes its URL
     Given I am on "/settings/profile"
     When I click the tab with testid "<testid>"
@@ -145,6 +147,7 @@ Feature: Account settings
     # The testids do not match the route segments. tab-model ↔ ai-model and
     # tab-limits ↔ usage. Map them; do not derive one from the other.
 
+  @S-09-03
   Scenario: A bare /settings lands on Profile
     When I cold-load "/settings"
     Then I land on "/settings/profile"
@@ -156,6 +159,7 @@ Feature: Account settings
 
   # ---- Profile ----
 
+  @S-09-04
   Scenario: Profile shows identity and plan, with email read-only
     When I cold-load "/settings/profile"
     Then I see my email address
@@ -164,6 +168,7 @@ Feature: Account settings
     And I see a "PASSWORD" section with three password fields
     And I see a "Change Password" button
 
+  @S-09-05
   @destructive
   Scenario: Changing the password requires the current one and a confirmation
     When I cold-load "/settings/profile"
@@ -176,6 +181,7 @@ Feature: Account settings
 
   # ---- AI Model ----
 
+  @S-09-06
   Scenario: The model preference lists the available models
     When I cold-load "/settings/ai-model"
     Then I see a model selector named "default-model"
@@ -183,12 +189,14 @@ Feature: Account settings
     And its options include Haiku, Sonnet and Opus tiers
     And I see the note that individual agents can override this in the composer
 
+  @S-09-07
   Scenario: Selecting a model shows its description
     When I cold-load "/settings/ai-model"
     And I select a model
     Then a description of that model is shown
     And a "Save" button is available
 
+  @S-09-08
   @destructive
   Scenario: Saving a model preference persists it
     When I cold-load "/settings/ai-model"
@@ -200,12 +208,14 @@ Feature: Account settings
 
   # ---- Usage & Limits ----
 
+  @S-09-09
   Scenario: Usage shows the plan and its deliverable access
     When I cold-load "/settings/usage"
     Then I see my plan name
     And I see a "DELIVERABLE ACCESS" list
     And I see a "Manage plan" control
 
+  @S-09-10
   Scenario Outline: Deliverable access reflects the tier
     Given I am signed in as "<email>"
     When I cold-load "/settings/usage"
@@ -222,6 +232,7 @@ Feature: Account settings
 
   # ---- Constitution ----
 
+  @S-09-11
   Scenario: The constitution editor enforces its limit
     When I cold-load "/settings/constitution"
     Then I see a textarea named "constitution"
@@ -230,6 +241,7 @@ Feature: Account settings
     When I type into it
     Then the counter increases
 
+  @S-09-12
   @destructive
   Scenario: A saved constitution persists across a reload
     When I cold-load "/settings/constitution"
@@ -243,6 +255,7 @@ Feature: Account settings
 
   # ---- Security ----
 
+  @S-09-13
   Scenario: MFA is unavailable for an externally-managed account
     When I cold-load "/settings/security"
     Then I see the explanation that credentials are managed outside the application
@@ -251,6 +264,7 @@ Feature: Account settings
     # True for Cognito-backed accounts, which is every seeded QA user. If the
     # app ever supports local credentials, this scenario needs a second variant.
 
+  @S-09-14
   @sourced
   Scenario: Security lists both second-factor methods
     When I cold-load "/settings/security"
@@ -258,6 +272,7 @@ Feature: Account settings
     And I see a method row titled "Authenticator app"
     And each row states whether it is active
 
+  @S-09-15
   @sourced
   Scenario: Email codes are a toggle, not a wizard
     Given email MFA is available for my pool
@@ -268,6 +283,7 @@ Feature: Account settings
     # email codes because the mailbox is already the pool's verified sign-in
     # identifier. There is nothing to display, scan or confirm.
 
+  @S-09-16
   @sourced
   Scenario: The authenticator row offers no control at all
     When I cold-load "/settings/security"
@@ -277,6 +293,7 @@ Feature: Account settings
     # deliberately does not call them — TOTP needs a wizard nobody has built.
     # Asserted so the absence stays a decision rather than becoming a bug report.
 
+  @S-09-17
   @sourced
   Scenario: An environment with no methods says so
     Given neither email MFA nor TOTP is available
@@ -284,6 +301,7 @@ Feature: Account settings
     Then I see "No two-factor methods are enabled for this environment yet."
     And I am told to contact my administrator
 
+  @S-09-18
   @sourced
   Scenario: Email MFA changes the account-recovery story
     Given email MFA is available
@@ -295,6 +313,7 @@ Feature: Account settings
     # channel whenever it is also a second factor. See 11-admin for the path
     # that does work.
 
+  @S-09-19
   @sourced
   Scenario: Security is a tab, not a page
     When I cold-load "/settings/security"

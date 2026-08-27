@@ -92,6 +92,7 @@ Feature: Launching a workflow
 
   # ---------- Shell A: the wizard ----------
 
+  @S-03-01
   Scenario: The presentation wizard renders its template gallery
     When I cold-load "/create/ppt"
     Then I see the eyebrow "NEW PRESENTATION"
@@ -102,6 +103,7 @@ Feature: Launching a workflow
     And I see a template search input named "ppt-template-search"
     And the gallery footer reports a template count
 
+  @S-03-02
   Scenario: Filtering the template gallery by category narrows it
     When I cold-load "/create/ppt"
     And I note the number of template tiles
@@ -109,11 +111,13 @@ Feature: Launching a workflow
     Then fewer template tiles are shown than before
     And every visible tile belongs to that category
 
+  @S-03-03
   Scenario: Searching templates filters by name
     When I cold-load "/create/ppt"
     And I type "keynote" into the template search
     Then every visible template tile's name contains "keynote", case-insensitively
 
+  @S-03-04
   Scenario: The prototype wizard offers three tabs and a blank-canvas option
     When I cold-load "/create/prototype"
     Then I see the eyebrow "NEW PROTOTYPE"
@@ -121,6 +125,7 @@ Feature: Launching a workflow
     And I see a template tile "No template" tagged "BLANK CANVAS"
     And the review-gates control reads "1 agent pause for review"
 
+  @S-03-05
   Scenario: The prototype template search uses its own field name
     When I cold-load "/create/prototype"
     Then a search input named "template-search" exists
@@ -128,6 +133,7 @@ Feature: Launching a workflow
     # These two wizards do NOT share a search selector. Guard it here so a
     # phase-2 page object cannot quietly unify them.
 
+  @S-03-06
   Scenario Outline: Each wizard tab reveals its own panel
     When I cold-load "/create/prototype"
     And I click the tab "<tab>"
@@ -142,6 +148,7 @@ Feature: Launching a workflow
 
   # ---------- Shell B: the simple launch panel ----------
 
+  @S-03-07
   Scenario: The user-stories panel names its own workflow
     When I cold-load "/create/user-stories"
     Then I see the eyebrow "GENERATE PRODUCT REQUIREMENTS"
@@ -149,6 +156,7 @@ Feature: Launching a workflow
     And I see the agent control "Advanced 7 agents"
     And I see the buttons "Save workflow", "Save as my version", "Run workflow"
 
+  @S-03-08
   Scenario: A catalog workflow cold-loads onto the right panel
     When I cold-load "/create/ex_A2_branch"
     Then I see the eyebrow "BRANCH BY LANGUAGE"
@@ -157,6 +165,7 @@ Feature: Launching a workflow
     # pipelineType through initialWorkflowTypeFor. It is the ONLY create route
     # that resolves its type correctly on a cold load — see the next scenario.
 
+  @S-03-09
   @defect
   # D-01. /create/app is supposed to launch app_builder. It renders the
   # user_stories panel instead, because initialWorkflowTypeFor
@@ -174,12 +183,14 @@ Feature: Launching a workflow
 
   # ---------- Shared behaviour ----------
 
+  @S-03-10
   Scenario: Run is disabled until the brief is long enough
     When I cold-load "/create/user-stories"
     Then the "Run workflow" button is disabled
     When I type "Build a hello world service" into the brief
     Then the "Run workflow" button is enabled
 
+  @S-03-11
   Scenario: The Advanced control opens the agent roster
     When I cold-load "/create/user-stories"
     And I click "Advanced 7 agents"
@@ -188,6 +199,7 @@ Feature: Launching a workflow
     When I press Escape
     Then the modal closes
 
+  @S-03-12
   Scenario: Review gates can be set before launch
     When I cold-load "/create/user-stories"
     Then the review-gates control reads "no gates"
@@ -195,11 +207,13 @@ Feature: Launching a workflow
     And I mark one agent to pause for review
     Then the control reports one gate
 
+  @S-03-13
   Scenario: Attaching a file is offered on every launch panel
     When I cold-load "/create/user-stories"
     Then I see "+ Attach file"
     And a file input exists
 
+  @S-03-14
   @destructive
   Scenario: Launching a run navigates to its live surface
     Given a disposable brief
@@ -213,6 +227,7 @@ Feature: Launching a workflow
     # as "USER STORIES" when it is something else. Launch a PPT run to test it
     # properly — the bug only showed on a non-default type.
 
+  @S-03-15
   @destructive
   Scenario: Save as my version creates a user override of a built-in
     When I cold-load "/create/user-stories"
