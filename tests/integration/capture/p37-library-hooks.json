@@ -1,0 +1,8 @@
+{
+  "url": "http://localhost:3000/library?tab=hooks",
+  "selected": [
+    "Hooks 8"
+  ],
+  "cards": 8,
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nLibrary\n93 agents · 186 skills · 8 hooks · tap any item to see its capabilities\nAgents 93\nSkills 186\nHooks 8\nAll\nPostToolUse\nPreToolUse\nSessionStart\nStop\nDesign Quality Check X\nPostToolUse\nAfter Edit / Write on frontend files\nWarns when frontend edits drift toward generic template-looking UI. Keeps visual output distinctive and intentional.\ndesign\nui\nquality\nView →\nQuality Gate\nPostToolUse\nAfter Edit / Write / MultiEdit\nRuns lint, typecheck, and test suite after every file edit. Blocks progression if quality checks fail.\nlint\ntypecheck\nquality\nView →\nConfig Protection\nPreToolUse\nBefore Write / Edit / MultiEdit on config files\nBlocks modifications to linter and formatter config files. Steers the agent to fix code instead of weakening quality gates.\nconfig\nprotection\nquality\nView →\nGateGuard: Fact Force\nPreToolUse\nBefore first Edi"
+}

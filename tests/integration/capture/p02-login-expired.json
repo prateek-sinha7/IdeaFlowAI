@@ -1,0 +1,15 @@
+{
+  "url": "http://localhost:3000/login?expired=true",
+  "h": [
+    "H2:Ship faster with your agent workforce.",
+    "H1:Welcome back"
+  ],
+  "btn": [
+    "Sign in"
+  ],
+  "inp": [
+    "input[email]",
+    "input[password]"
+  ],
+  "text": "VelocityAI\nAI DELIVERY, ORCHESTRATED\nShip faster with your agent workforce.\nCompose, run, and review delivery workflows — every step traceable, every artifact yours.\nAudit trail\nRole-based access\nInvitation-only\nWelcome back\nSign in to continue building with your AI delivery agents.\nYour session expired. Please sign in again.\nEMAIL\nPASSWORD\nSign in\nAccess is by invitation. Contact your administrator for an account."
+}

@@ -1,0 +1,8 @@
+{
+  "url": "http://localhost:3000/library/hooks/post-design-quality",
+  "h": [
+    "H2:Design Quality Check X"
+  ],
+  "dialogs": 0,
+  "text": "op\nEnd of each agent response\nPersists session state after each response so context survives across sessions. Enables long-running multi-session workflows.\nsession\npersistence\nmemory\nView →\nDesign Quality Check X\nPostToolUse\nCopy\nWarns when frontend edits drift toward generic template-looking UI. Keeps visual output distinctive and intentional.\nEVENT: POSTTOOLUSE\nRuns after a tool completes. Can validate output or trigger follow-up actions.\nWHEN IT FIRES\nAfter Edit / Write on frontend files\nHOW TO USE\n1\nAttach this hook to agents in the Advanced → Skills & Hooks panel before running a pipeline.\n2\nThe hook's behaviour will be injected as a guideline into the agent's execution context.\n3\nBest suited for: app-ux-design, html-prototype-builder, prototype-polisher and more.\nCOMPATIBLE AGENTS\napp-ux-design\nhtml-prototype-builder\nprototype-polisher\nppt-slide-architect\ndesign\nui\nquality\nfrontend"
+}

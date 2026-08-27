@@ -1,0 +1,8 @@
+{
+  "url": "http://localhost:3000/handoff/invalid-token-for-capture",
+  "h": [
+    "H1:Handoff not found"
+  ],
+  "btn": [],
+  "text": "Handoff not found\nHandoff not found\nBack to dashboard"
+}

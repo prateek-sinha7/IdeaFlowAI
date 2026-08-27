@@ -1,0 +1,17 @@
+{
+  "url": "http://localhost:3000/workflow",
+  "h": [
+    "H1:VelocityAI — Agent Workflows",
+    "H2:User Stories"
+  ],
+  "btn": [
+    "Agent Library",
+    "@Back",
+    "@Close",
+    "@",
+    "Browse Library",
+    "Add Agent",
+    "Run Workflow"
+  ],
+  "text": "VelocityAI — Agent Workflows\nAgent Library\nUser Stories\n0 agents • ~0 min\nDescribe your idea\nWorkflow Agents\n(0)\nBrowse Library\nAdd Agent\nRun Workflow"
+}

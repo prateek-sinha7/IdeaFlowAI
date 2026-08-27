@@ -1,0 +1,24 @@
+{
+  "url": "http://localhost:3000/create/app",
+  "eyebrow": "0/4",
+  "h": [
+    "H1:Provide the brief"
+  ],
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "Pitch an idea (v2) 0/4",
+    "@Notifications",
+    "@Account menu",
+    "@Back to dashboard",
+    "+ Attach file",
+    "Voice",
+    "Save workflow",
+    "Save as my version",
+    "Run workflow",
+    "Advanced 7 agents",
+    "Review gates no gates"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nGENERATE PRODUCT REQUIREMENTS\nProvide the brief\nTurn an idea or brief into a Jira-ready backlog — epics, stories, and Gherkin acceptance criteria.\n+ Attach file\nVoice\nSave workflow\nSave as my version\nRun workflow\nAdvanced\n7 agents\nReview gates\nno gates"
+}

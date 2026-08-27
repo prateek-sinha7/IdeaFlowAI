@@ -1,0 +1,18 @@
+{
+  "Governance": {
+    "visibleText": null,
+    "sample": "audit logger — before step\n— · 12:59:36 PM\nGATE\nPassed\naudit logger — after step\n— · 12:59:41 PM\nGATE\nPassed\nhuman\ncustom-agent:pick-language · 01:00:17 PM\nGATE\nPassed\naudit logger"
+  },
+  "Security": {
+    "visibleText": null,
+    "sample": "No records match the active filters.\n\nImmutable, owner- and workspace-attributed log · every entry carries severity + timestamp · exportable to CSV / JSON for compliance review."
+  },
+  "Activity": {
+    "visibleText": null,
+    "sample": "No records match the active filters.\n\nImmutable, owner- and workspace-attributed log · every entry carries severity + timestamp · exportable to CSV / JSON for compliance review."
+  },
+  "All": {
+    "visibleText": null,
+    "sample": "audit logger — before step\n— · 12:59:36 PM\nGATE\nPassed\naudit logger — after step\n— · 12:59:41 PM\nGATE\nPassed\nhuman\ncustom-agent:pick-language · 01:00:17 PM\nGATE\nPassed\naudit logger"
+  }
+}

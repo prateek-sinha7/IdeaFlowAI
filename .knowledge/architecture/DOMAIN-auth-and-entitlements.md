@@ -60,9 +60,10 @@ last_synced: '2026-08-27'
 **[MOD-frontend-src-lib](MOD-frontend-src-lib.md)**
 - [frontend/src/lib/entitlements.ts](../../frontend/src/lib/entitlements.ts)
 
-### Imported by, from outside this domain (46)
+### Imported by, from outside this domain (47)
 - [backend/agents/execution_engine/clarify_engine.py](../../backend/agents/execution_engine/clarify_engine.py)
 - [backend/agents/execution_engine/engine.py](../../backend/agents/execution_engine/engine.py)
+- [backend/agents/model_policy.py](../../backend/agents/model_policy.py)
 - [backend/agents/planner/smart_planner.py](../../backend/agents/planner/smart_planner.py)
 - [backend/app/agents/cached_invoke.py](../../backend/app/agents/cached_invoke.py)
 - [backend/app/agents/chat/concierge.py](../../backend/app/agents/chat/concierge.py)
@@ -85,8 +86,7 @@ last_synced: '2026-08-27'
 - [backend/app/api/install.py](../../backend/app/api/install.py)
 - [backend/app/api/mcp.py](../../backend/app/api/mcp.py)
 - [backend/app/api/ppt_templates.py](../../backend/app/api/ppt_templates.py)
-- [backend/app/api/prototype_templates.py](../../backend/app/api/prototype_templates.py)
-- …and 21 more
+- …and 22 more
 
 ### Imports, from outside this domain (17)
 - [backend/app/__init__.py](../../backend/app/__init__.py)

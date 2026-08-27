@@ -1,0 +1,12 @@
+{
+  "asked": "/preview-fullscreen",
+  "landedOn": "/runs",
+  "h1": "Run History",
+  "hasAppNav": true,
+  "runCount": 50,
+  "notes": [
+    "with no ?runId and no sessionStorage['__app_preview__'] payload it redirects to /runs rather than showing an error",
+    "the redirect is client-side, so the URL is /preview-fullscreen for a beat before it settles — wait for the settled URL, not the first paint"
+  ],
+  "screenshot": "screenshots/11-errors/p55-preview-fullscreen-bare-redirect.png"
+}

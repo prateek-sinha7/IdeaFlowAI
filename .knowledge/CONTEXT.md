@@ -1,7 +1,7 @@
 ---
-built_from_commit: 0460727ab5a7526839a767bb84b3ab538d1de755
+built_from_commit: 7bd1de4055a7f7096e272ee9371c9b783f82153f
 built_at: 2026-08-17
-cards_indexed: 597
+cards_indexed: 598
 modules_indexed: 36
 ---
 
@@ -65,7 +65,7 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 |---|---|---|
 | adr | 34 | 34 |
 | fix | 333 | 33 |
-| issue | 186 | 66 |
+| issue | 187 | 67 |
 | bug | 44 | 19 |
 
 **adr (34):**

@@ -14,10 +14,10 @@ modules_spanned:
 - MOD-backend-app-agents
 - MOD-backend-app-models
 watched_files: 17
-code_signature: b2503ad97ce9
-symbols_signature: a7ed7403e667
-prose_signature: b2503ad97ce9
-prose_symbols_signature: a7ed7403e667
+code_signature: 34f769ccbeb4
+symbols_signature: fcbb75dc0168
+prose_signature: 34f769ccbeb4
+prose_symbols_signature: fcbb75dc0168
 last_synced: '2026-08-27'
 ---
 

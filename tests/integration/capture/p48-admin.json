@@ -1,0 +1,19 @@
+{
+  "url": "/admin",
+  "h1": "Admin Dashboard",
+  "shell": "own chrome — no app nav (Home/Library/My Workflows absent), only '← Back to app' and 'Logout'",
+  "subtitle": "VelocityAI · User Management",
+  "kpis": ["TOTAL USERS 4", "BASIC 1", "PRO 1", "ENTERPRISE 2", "ADMINS 1"],
+  "tableHeaders": ["USER", "PLAN", "RUNS", "ROLE", "JOINED", "ACTIONS"],
+  "rowCount": 4,
+  "rows": [
+    {"email": "qa-admin@flowinqa.com", "plan": "ENTERPRISE", "runs": 244, "role": "ADMIN", "joined": "Aug 14, 2026"},
+    {"email": "qa-enterprise@flowinqa.com", "plan": "ENTERPRISE", "runs": 0, "role": "User", "joined": "Aug 14, 2026"},
+    {"email": "qa-pro@flowinqa.com", "plan": "PRO", "runs": 0, "role": "User", "joined": "Aug 14, 2026"},
+    {"email": "qa-basic@flowinqa.com", "plan": "BASIC", "runs": 0, "role": "User", "joined": "Aug 14, 2026"}
+  ],
+  "controls": ["Add user", "per-row plan chip (editable)", "per-row role chip (editable)"],
+  "note": "user ids are truncated to 8 hex chars + ellipsis; full uuid is not rendered",
+  "is404": false,
+  "screenshot": "screenshots/09-admin/p48-admin.png"
+}

@@ -1,0 +1,13 @@
+{
+  "url": "http://localhost:3000/workflows/ppt/canvas",
+  "header": "3 agents | 0 review gates | ~1m",
+  "saveLabel": [
+    "Save as copy"
+  ],
+  "h": [
+    "Presentation Strategist",
+    "Deck Engineer",
+    "Deck QA"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nPPT · COPY\n3 agents\n0 review gates\n~1m\nSimple\nCanvas\nRun once\nSave as copy\nClick a node to configure\nDrag to move · drag a top port to reparent\nHold Space + drag to pan\nBRIEF\nWhat to build\nthe run input\nPS\nPresentation Strategist\nSlide Plan & Content Architecture\nCORE\nDefault\nValidator\nGate\nRetry\nSub-agent\nDE\nDeck Engineer\nHTML Deck Construction\nCORE\nDefault\nValidator\nGate\nRetry\nSub-agent\nDQ\nDeck QA\nStructural Validation & Delivery\nCORE\nDefault\nValidator\nGate\nRetry\nSub-agent\nThe last step's output is this workflow's deliverable (output.md). Adding a step after it would replace output.md with the new step's output — insert it before another step instead.\n67%\nFit\nAuto-arrange\nWorkflow\nAgent\nReset to default\nThe instruction sent to the workflow's first agent when this run starts — describe what you want built.\nBrief instruction\nWhat should this run build? Sent as the run's input.\n+ Attach file\n3 more characters to enable Run\nON — Runs a planning agent that breaks the brief into a task plan before the workflow's agents start.\nOFF — Agents start directly from the brief, with no planning pass.\nSmart planning\nON — Pauses the run to ask clarifying questions about the brief, then uses your answers to fill in missing details.\nOFF — Runs immediately with the brief as written.\nConfirm requirements first\nStreamed text— uses the age"
+}

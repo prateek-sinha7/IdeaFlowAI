@@ -22,10 +22,10 @@ modules_spanned:
 - MOD-backend-app-models
 - MOD-backend-app-services
 watched_files: 29
-code_signature: 8b2c85ef0308
-symbols_signature: 34f6204658c8
-prose_signature: 8b2c85ef0308
-prose_symbols_signature: 34f6204658c8
+code_signature: c540ecb571a1
+symbols_signature: 5b3d9fd82af1
+prose_signature: c540ecb571a1
+prose_symbols_signature: 5b3d9fd82af1
 last_synced: '2026-08-27'
 ---
 

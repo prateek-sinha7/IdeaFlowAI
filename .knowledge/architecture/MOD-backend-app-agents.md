@@ -6,7 +6,7 @@ title: backend/app/agents — module
 path: backend/app/agents
 language: python
 file_count: 42
-code_signature: be48d3c630b8
+code_signature: 7517a516cb64
 last_synced: '2026-08-27'
 ---
 

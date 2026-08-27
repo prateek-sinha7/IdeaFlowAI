@@ -1,0 +1,59 @@
+{
+  "url": "http://localhost:3000/library/agents/material-analyzer",
+  "h": [
+    "H1:Library",
+    "H2:Architecture Agent"
+  ],
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "@Notifications",
+    "@Account menu",
+    "Agents 93",
+    "Skills 186",
+    "Hooks 8",
+    "All 93",
+    "App Builder 15",
+    "Retry Loop 0",
+    "Language Branch 0",
+    "Spanish Greeter 0",
+    "Dutch Greeter 0",
+    "Workflow Handoff 0",
+    "Human Handoff 0",
+    "Human Gate 0",
+    "PPT 3",
+    "PPT v2 2",
+    "Prototype 5",
+    "User Stories 6",
+    "Custom 10",
+    "@",
+    "Overview",
+    "Skills",
+    "Hooks",
+    "Config",
+    "System Prompt Base AGENT.md prompt"
+  ],
+  "tab": [
+    "Agents 93",
+    "Skills 186",
+    "Hooks 8",
+    "Overview",
+    "Skills",
+    "Hooks",
+    "Config"
+  ],
+  "sw": [],
+  "inp": [
+    "input[library-search]"
+  ],
+  "tid": [
+    "tab-agents",
+    "tab-skills",
+    "tab-hooks",
+    "agent-drawer",
+    "tab-overview",
+    "tab-config"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nLibrary\n93 agents · 186 skills · 8 hooks · tap any item to see its capabilities\nAgents 93\nSkills 186\nHooks 8\nAll\n93\nApp Builder\n15\nRetry Loop\n0\nLanguage Branch\n0\nSpanish Greeter\n0\nDutch Greeter\n0\nWorkflow Handoff\n0\nHuman Handoff\n0\nHuman Gate\n0\nPPT\n3\nPPT v2\n2\nPrototype\n5\nUser Stories\n6\nCustom\n10\nArchitecture Agent\nAPP BUILDER\nSolution & System Design\nAnalyzes your requirements and designs the complete application architecture.\n~6s\nConfigure →\nUser Stories Agent\nAPP BUILDER\nRequirements & Acceptance Criteria\nTranslates the architecture into epics, user stories, and Gherkin acceptance criteria the team can pick up as deliverable work.\n~9s\nConfigure →\nSystem Design Agent\nAPP BUILDER\nDetailed Architecture & Decomposition\nDetailed component decomposition, sync/async boundaries, state ownership, deployment topology, and ADRs.\n~10s\nConfigure →\nSecurity Architecture Agent\nAPP BUILDER\nThreat Modelling & Security Controls\nSTRIDE threat model, identity/IAM design, encryption, secrets, WAF, and security gates for the application.\n~9s\nConfigure →\nUX & UI Design Agent\nAPP BUILDER\nUser Journeys, Wireframes & Design System\nInformation architecture, wireframes, design tokens, component library, accessibility plan, and error/loading states.\n~9s\nConfigure →\nAPI Contract Agent\nAPP BUILDER\nREST/GraphQL Contracts & OpenAPI\nEndpoint contracts, error envelopes, idempotency rules, async event contracts, versioning policy, and the OpenAPI 3.1 document.\n~8s\nConfigure →\nData Model Agent\nAPP BUILDER\nSchema, Indexes & Migrations\nEntity model, DDL, indexing strategy, migration tooling, PII classification, backup/recovery targets, and query budgets.\n~8s\nConfigure →\nCode Generation Agent\nAPP BUILDER\nFull-Stack Code Generation\nGenerates complete frontend and backend code for your application — controllers, services, models, pages, components.\n~15s\nConfigure →\nFeature Implementation Agent\nAPP BUILDER\nBusiness Logic per User Story\nFleshes out the user stories' business logic in the generated codebase — route handlers, services, integrations, and feature flags.\n~14s\nConfigure →\nInfrastructure Agent\nAPP BUILDER\nDeployment & Platform\nSets up deployment configuration, tests, and infrastructure for your app.\n~8s\nConfigure →\nCode Compliance Agent\nAPP BUILDER\nStatic Analysis, Linting & Licensing\nSAST/SCA tooling, SonarQube quality gates, language-specific lint config, license policy, and pre-commit/CI gates.\n~8s\nConfigure →\nTest Implementation Agent\nAPP BUILDER\nUnit, Integration & Contract Test Code\nWrites the test code (JUnit/xUnit/Jest/Pact/Playwright) that proves the user stories' acceptance criteria.\n~12s\nConfigure →\nTest Compliance Agent\nAPP BUILDER\nTest Strategy & Coverage Gates\nTest pyramid, coverage gates, compliance test mapping (PCI/GDPR/SOC 2), performance and chaos plans.\n~8s\nConfigure →\nDevOps Agent\nAPP BUILDER\nBuild, Deploy, Operate & Quality Gates\nBranching model, CI/CD pipeline-as-code, environment promotion, OIDC secrets, DORA-metric ob"
+}
