@@ -568,3 +568,30 @@ records why it cannot assert the figures themselves.
 **Fix sketch:** one `aria-label` per bar, e.g. `"Aug 14: 31,331,878 tokens"`.
 The data is already in hand at render time; the same string would make `S-10-11`
 able to check the figures.
+
+---
+
+## D-25 — "All fields are required" is unreachable dead code
+
+**Severity:** low, dead code. **Found by:** `S-09-05`, phase 2.
+
+`handleChangePassword` opens with:
+
+```ts
+if (!currentPassword || !newPassword || !confirmPassword) {
+  setMessage({ type: "error", text: "All fields are required" });
+  return;
+}
+```
+
+The button that calls it is already `disabled={changing || !currentPassword ||
+!newPassword || !confirmPassword}` — the exact same condition. The guard can
+never fire through the UI, so that string can never be shown to a user.
+
+Harmless as defence in depth, and `S-09-05` asserts the disabled button instead
+(a stronger refusal than a banner). Recorded so that the string is not mistaken
+for a reachable state by whoever writes the next test — and so nobody "fixes"
+a test that fails to find it.
+
+**Fix sketch:** leave the guard, delete the message, or drop the `disabled`
+condition and let the banner explain the refusal. Not both.

@@ -5,8 +5,8 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **31** |
-| Implemented but skipped | **475** |
+| Implemented and running | **93** |
+| Implemented but skipped | **413** |
 | Not yet written | **0** |
 | **Total** | **506** |
 
@@ -56,25 +56,25 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | s  | `S-02-12` | A live run is distinguishable from a finished one | `02_home_catalog/test_home_catalog.py` — fixture: no run parked in waiting_for_user |
 | s  | `S-02-13` | A saved override changes the catalog card's agent estimate | `02_home_catalog/test_home_catalog.py` — fixture: needs a saved 1-step override of app_builder on one account only |
 
-## 03-launch-panels.feature.md — 0/15 (15 skipped)
+## 03-launch-panels.feature.md — 15/15
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-03-01` | The presentation wizard renders its template gallery | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-02` | Filtering the template gallery by category narrows it | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-03` | Searching templates filters by name | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-04` | The prototype wizard offers three tabs and a blank-canvas option | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-05` | The prototype template search uses its own field name | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-06` | Each wizard tab reveals its own panel | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-07` | The user-stories panel names its own workflow | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-08` | A catalog workflow cold-loads onto the right panel | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-09` | Cold-loading /create/app shows the user-stories panel | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-10` | Run is disabled until the brief is long enough | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-11` | The Advanced control opens the agent roster | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-12` | Review gates can be set before launch | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-13` | Attaching a file is offered on every launch panel | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-14` | Launching a run navigates to its live surface | `03_launch_panels/test_launch_panels.py` — not yet implemented |
-| s  | `S-03-15` | Save as my version creates a user override of a built-in | `03_launch_panels/test_launch_panels.py` — not yet implemented |
+| ok | `S-03-01` | The presentation wizard renders its template gallery | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-02` | Filtering the template gallery by category narrows it | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-03` | Searching templates filters by name | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-04` | The prototype wizard offers three tabs and a blank-canvas option | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-05` | The prototype template search uses its own field name | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-06` | Each wizard tab reveals its own panel | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-07` | The user-stories panel names its own workflow | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-08` | A catalog workflow cold-loads onto the right panel | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-09` | Cold-loading /create/app shows the user-stories panel | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-10` | Run is disabled until the brief is long enough | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-11` | The Advanced control opens the agent roster | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-12` | Review gates can be set before launch | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-13` | Attaching a file is offered on every launch panel | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-14` | Launching a run navigates to its live surface | `03_launch_panels/test_launch_panels.py` |
+| ok | `S-03-15` | Save as my version creates a user override of a built-in | `03_launch_panels/test_launch_panels.py` |
 
 ## 04-composer-canvas.feature.md — 0/19 (19 skipped)
 
@@ -210,73 +210,73 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | s  | `S-08-19` | Deep-linking a detail view works cold | `08_library/test_library.py` — not yet implemented |
 | s  | `S-08-20` | The library is read-only | `08_library/test_library.py` — not yet implemented |
 
-## 09-settings.feature.md — 0/19 (19 skipped)
+## 09-settings.feature.md — 19/19
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-09-01` | Every tab is addressable by URL | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-02` | Clicking a tab pushes its URL | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-03` | A bare /settings lands on Profile | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-04` | Profile shows identity and plan, with email read-only | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-05` | Changing the password requires the current one and a confirmation | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-06` | The model preference lists the available models | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-07` | Selecting a model shows its description | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-08` | Saving a model preference persists it | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-09` | Usage shows the plan and its deliverable access | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-10` | Deliverable access reflects the tier | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-11` | The constitution editor enforces its limit | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-12` | A saved constitution persists across a reload | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-13` | MFA is unavailable for an externally-managed account | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-14` | Security lists both second-factor methods | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-15` | Email codes are a toggle, not a wizard | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-16` | The authenticator row offers no control at all | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-17` | An environment with no methods says so | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-18` | Email MFA changes the account-recovery story | `09_settings/test_settings.py` — not yet implemented |
-| s  | `S-09-19` | Security is a tab, not a page | `09_settings/test_settings.py` — not yet implemented |
+| ok | `S-09-01` | Every tab is addressable by URL | `09_settings/test_settings.py` |
+| ok | `S-09-02` | Clicking a tab pushes its URL | `09_settings/test_settings.py` |
+| ok | `S-09-03` | A bare /settings lands on Profile | `09_settings/test_settings.py` |
+| ok | `S-09-04` | Profile shows identity and plan, with email read-only | `09_settings/test_settings.py` |
+| ok | `S-09-05` | Changing the password requires the current one and a confirmation | `09_settings/test_settings.py` |
+| ok | `S-09-06` | The model preference lists the available models | `09_settings/test_settings.py` |
+| ok | `S-09-07` | Selecting a model shows its description | `09_settings/test_settings.py` |
+| ok | `S-09-08` | Saving a model preference persists it | `09_settings/test_settings.py` |
+| ok | `S-09-09` | Usage shows the plan and its deliverable access | `09_settings/test_settings.py` |
+| ok | `S-09-10` | Deliverable access reflects the tier | `09_settings/test_settings.py` |
+| ok | `S-09-11` | The constitution editor enforces its limit | `09_settings/test_settings.py` |
+| ok | `S-09-12` | A saved constitution persists across a reload | `09_settings/test_settings.py` |
+| ok | `S-09-13` | MFA is unavailable for an externally-managed account | `09_settings/test_settings.py` |
+| ok | `S-09-14` | Security lists both second-factor methods | `09_settings/test_settings.py` |
+| ok | `S-09-15` | Email codes are a toggle, not a wizard | `09_settings/test_settings.py` |
+| ok | `S-09-16` | The authenticator row offers no control at all | `09_settings/test_settings.py` |
+| ok | `S-09-17` | An environment with no methods says so | `09_settings/test_settings.py` |
+| ok | `S-09-18` | Email MFA changes the account-recovery story | `09_settings/test_settings.py` |
+| ok | `S-09-19` | Security is a tab, not a page | `09_settings/test_settings.py` |
 
-## 10-analytics.feature.md — 0/14 (14 skipped)
-
-| | Id | Scenario | Where |
-|---|---|---|---|
-| s  | `S-10-01` | The analytics screen renders its tiles and controls | `10_analytics/test_analytics.py` — not yet implemented |
-| s  | `S-10-02` | The token tile's in/out split sums to its total | `10_analytics/test_analytics.py` — not yet implemented |
-| s  | `S-10-03` | Average per run is consistent with the totals | `10_analytics/test_analytics.py` — not yet implemented |
-| s  | `S-10-04` | The success rate matches the run counts | `10_analytics/test_analytics.py` — not yet implemented |
-| s  | `S-10-05` | Changing the range changes the data | `10_analytics/test_analytics.py` — not yet implemented |
-| s  | `S-10-06` | Ranges are nested — a wider range never reports less | `10_analytics/test_analytics.py` — not yet implemented |
-| s  | `S-10-07` | The range is addressable by URL | `10_analytics/test_analytics.py` — not yet implemented |
-| s  | `S-10-08` | The pipeline filter narrows every tile | `10_analytics/test_analytics.py` — not yet implemented |
-| s  | `S-10-09` | The pipeline filter is addressable by URL | `10_analytics/test_analytics.py` — not yet implemented |
-| s  | `S-10-10` | The pipeline breakdown sums to the totals | `10_analytics/test_analytics.py` — not yet implemented |
-| s  | `S-10-11` | Daily activity plots one bar per active day | `10_analytics/test_analytics.py` — not yet implemented |
-| s  | `S-10-12` | The pipeline breakdown shows a duplicated and a raw label | `10_analytics/test_analytics.py` — not yet implemented |
-| s  | `S-10-13` | A user with no runs sees an empty state | `10_analytics/test_analytics.py` — not yet implemented |
-| s  | `S-10-14` | Analytics is scoped to the signed-in user | `10_analytics/test_analytics.py` — not yet implemented |
-
-## 11-admin.feature.md — 0/20 (20 skipped)
+## 10-analytics.feature.md — 13/14 (1 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-11-01` | The admin dashboard renders its own shell | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-02` | The stat tiles agree with the table | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-03` | Every user row carries its full record | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-04` | An admin cannot delete their own account | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-05` | An admin cannot change their own tier | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-06` | An admin cannot demote themselves | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-07` | A non-admin cannot reach the admin dashboard | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-08` | An anonymous visitor cannot reach the admin dashboard | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-09` | The admin API refuses a non-admin directly | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-10` | Search filters the users table | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-11` | The account menu is the way in | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-12` | A non-admin is not offered the entry point | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-13` | Back to app returns to the main shell | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-14` | Logout from the admin shell clears the session | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-15` | Adding a user creates an account at the chosen tier | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-16` | Deleting a user removes them | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-17` | An admin resets another user's password to a temporary one | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-18` | A permanent reset skips the challenge but is knowable | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-19` | Admin reset is the only recovery path under email MFA | `11_admin/test_admin.py` — not yet implemented |
-| s  | `S-11-20` | Changing another user's tier takes effect | `11_admin/test_admin.py` — not yet implemented |
+| ok | `S-10-01` | The analytics screen renders its tiles and controls | `10_analytics/test_analytics.py` |
+| ok | `S-10-02` | The token tile's in/out split sums to its total | `10_analytics/test_analytics.py` |
+| ok | `S-10-03` | Average per run is consistent with the totals | `10_analytics/test_analytics.py` |
+| ok | `S-10-04` | The success rate matches the run counts | `10_analytics/test_analytics.py` |
+| ok | `S-10-05` | Changing the range changes the data | `10_analytics/test_analytics.py` |
+| ok | `S-10-06` | Ranges are nested — a wider range never reports less | `10_analytics/test_analytics.py` |
+| ok | `S-10-07` | The range is addressable by URL | `10_analytics/test_analytics.py` |
+| ok | `S-10-08` | The pipeline filter narrows every tile | `10_analytics/test_analytics.py` |
+| ok | `S-10-09` | The pipeline filter is addressable by URL | `10_analytics/test_analytics.py` |
+| ok | `S-10-10` | The pipeline breakdown sums to the totals | `10_analytics/test_analytics.py` |
+| ok | `S-10-11` | Daily activity plots one bar per active day | `10_analytics/test_analytics.py` |
+| ok | `S-10-12` | The pipeline breakdown shows a duplicated and a raw label | `10_analytics/test_analytics.py` |
+| s  | `S-10-13` | A user with no runs sees an empty state | `10_analytics/test_analytics.py` — fixture: every seeded account now has runs, so no empty state exists |
+| ok | `S-10-14` | Analytics is scoped to the signed-in user | `10_analytics/test_analytics.py` |
+
+## 11-admin.feature.md — 15/20 (5 skipped)
+
+| | Id | Scenario | Where |
+|---|---|---|---|
+| ok | `S-11-01` | The admin dashboard renders its own shell | `11_admin/test_admin.py` |
+| ok | `S-11-02` | The stat tiles agree with the table | `11_admin/test_admin.py` |
+| ok | `S-11-03` | Every user row carries its full record | `11_admin/test_admin.py` |
+| ok | `S-11-04` | An admin cannot delete their own account | `11_admin/test_admin.py` |
+| ok | `S-11-05` | An admin cannot change their own tier | `11_admin/test_admin.py` |
+| ok | `S-11-06` | An admin cannot demote themselves | `11_admin/test_admin.py` |
+| ok | `S-11-07` | A non-admin cannot reach the admin dashboard | `11_admin/test_admin.py` |
+| ok | `S-11-08` | An anonymous visitor cannot reach the admin dashboard | `11_admin/test_admin.py` |
+| ok | `S-11-09` | The admin API refuses a non-admin directly | `11_admin/test_admin.py` |
+| ok | `S-11-10` | Search filters the users table | `11_admin/test_admin.py` |
+| ok | `S-11-11` | The account menu is the way in | `11_admin/test_admin.py` |
+| ok | `S-11-12` | A non-admin is not offered the entry point | `11_admin/test_admin.py` |
+| ok | `S-11-13` | Back to app returns to the main shell | `11_admin/test_admin.py` |
+| ok | `S-11-14` | Logout from the admin shell clears the session | `11_admin/test_admin.py` |
+| s  | `S-11-15` | Adding a user creates an account at the chosen tier | `11_admin/test_admin.py` — destructive: creates a real account; needs a disposable-user fixture |
+| s  | `S-11-16` | Deleting a user removes them | `11_admin/test_admin.py` — destructive: depends on the disposable user S-11-15 would create |
+| s  | `S-11-17` | An admin resets another user's password to a temporary one | `11_admin/test_admin.py` — destructive: would revoke a seeded account |
+| s  | `S-11-18` | A permanent reset skips the challenge but is knowable | `11_admin/test_admin.py` — destructive: would change a seeded account |
+| ok | `S-11-19` | Admin reset is the only recovery path under email MFA | `11_admin/test_admin.py` |
+| s  | `S-11-20` | Changing another user's tier takes effect | `11_admin/test_admin.py` — destructive: changing a seeded tier breaks the entitlement fixtures |
 
 ## 12-shell-nav.feature.md — 0/19 (19 skipped)
 
