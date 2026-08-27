@@ -72,6 +72,7 @@ them, in this order:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -155,6 +156,18 @@ _FONT_DIRS = (
 # approximate. Bundling them makes the result identical on a laptop, a container
 # and CI, with no LibreOffice and no host fonts at all.
 _BUNDLED_DIR = Path(__file__).resolve().parent / "fonts"
+
+# The pre-fetched .eot library (skills/opendesign/fonts/) render_pptx embeds
+# fonts from before this check ever runs. A font in this library is safe for a
+# different reason than _OFFICE_SAFE below — its BYTES travel with the file,
+# so the recipient never needs it installed. Checked by slug, same
+# normalisation the one-time download job and _embed_fonts() both use.
+_EMBEDDABLE_FONTS_DIR = Path(__file__).resolve().parents[3] / "fonts"
+
+
+def _is_embeddable(fam: str) -> bool:
+    slug = re.sub(r"[^a-z0-9]+", "-", fam.lower()).strip("-")
+    return (_EMBEDDABLE_FONTS_DIR / f"{slug}-Regular.eot").is_file()
 _METRIC_CLONES: dict[str, str] = {
     "calibri": "Carlito",
     "carlito": "Carlito",
@@ -661,7 +674,7 @@ def verify(path: Path, content_max_y: float | None, canvas_w: float | None,
     # is not 125 problems, it is one problem, and a wall of them is how a
     # validator gets skimmed instead of read.
     for fam, (count, first) in sorted(fonts_seen.items(), key=lambda kv: -kv[1][0]):
-        if fam.replace(" ", "").lower() in _OFFICE_SAFE:
+        if fam.replace(" ", "").lower() in _OFFICE_SAFE or _is_embeddable(fam):
             continue
         violations.append(
             f"font '{fam}' is not a font PowerPoint ships with — used by {count} "

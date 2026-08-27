@@ -45,15 +45,24 @@ stop. Do not call `render_pptx`.
 
 ## The loop
 
-1. **`read_file("presentation.html")`** — read the whole deck before writing anything.
-   Count the slides. You are reproducing all of them.
-2. **Author the complete script.** Every slide, in order.
-3. **`render_pptx(your_code)`** — it returns `ok` with a byte count, or the actual
+1. **`extract_computed_styles()`**, then `read_file(".browser/deck-styles.json")` —
+   do this FIRST, before reading the HTML. It renders the deck for real and dumps
+   every visible element's actual position, rotation, font, fill, border and
+   shadow. These are measured values, not your reading of the CSS — use them for
+   `rotate`, `fontFace`/`fontSize`, `fill`, `line`/`rectRadius` instead of
+   estimating from markup. Positions are in pixels relative to the viewport
+   (`viewportWidthPx`/`viewportHeightPx` are included) — convert to your canvas
+   the same way you convert `vw`: `(px / viewportWidthPx) * canvasWidthIn`.
+2. **`read_file("presentation.html")`** — read the whole deck before writing anything.
+   Count the slides. You are reproducing all of them. The extracted styles give you
+   the numbers; the HTML gives you the copy, structure and slide order.
+3. **Author the complete script.** Every slide, in order.
+4. **`render_pptx(your_code)`** — it returns `ok` with a byte count, or the actual
    compiler error. On an error, fix precisely what the message names and call it
    again. Do not rewrite the whole script for a one-line fault.
-4. **`verify_pptx_layout()`** — it returns `clean`, or the violations with slide index,
+5. **`verify_pptx_layout()`** — it returns `clean`, or the violations with slide index,
    shape name and measurement. Move or resize those shapes and re-render.
-5. **Stop when it says clean.**
+6. **Stop when it says clean.**
 
 If `render_pptx` is not among your tools, the run is misconfigured — say so and stop.
 Never fall back to emitting the script and calling it done: no file would be built, and
@@ -62,6 +71,13 @@ the reply alone would read as success.
 `extract_pptx_shapes()` dumps the real positions inside the built file. Use it when a
 violation does not match what you believe you wrote — the file is the truth, your
 source is the intention.
+
+**If the same violation is still there on your SECOND `render_pptx` attempt** (even a
+smaller or larger version of it — "overlap by 0.70x0.10" becoming "0.70x0.15" is the
+SAME violation, not a new one), stop adjusting numbers by feel. Call
+`extract_pptx_shapes()` immediately and compute the fix from the real x/y/w/h it
+returns, rather than guessing a third and fourth time. Two blind attempts is the
+budget; the third call onward must be measured, not estimated.
 
 ## Getting it right
 

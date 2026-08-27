@@ -176,12 +176,24 @@ class TestFontSafety:
         """The source decks pull their type from Google Fonts, and transcribing
         those names into a .pptx produces a file that renders correctly on
         exactly one machine: the one that built it. PowerPoint stores a font
-        NAME and substitutes whatever it likes when the name is missing."""
+        NAME and substitutes whatever it likes when the name is missing —
+        unless it's one render_pptx can embed (see test below); "Poppins" is
+        deliberately NOT in the opendesign template font library."""
+        prs = _deck()
+        _add_text(prs, "Bespoke Employee Community", width=7.0, height=1.5,
+                  size=24, font="Poppins")
+        violations, _ = _verify(_save(prs, tmp_path))
+        assert any("Poppins" in v and "PowerPoint ships with" in v for v in violations)
+
+    def test_an_embeddable_web_font_is_not_a_violation(self, tmp_path):
+        """DM Sans is a web font AND one render_pptx embeds real bytes for
+        (skills/opendesign/fonts/) — the recipient never needs it installed,
+        so this is not the same failure mode as test_a_web_font_is_a_violation."""
         prs = _deck()
         _add_text(prs, "Bespoke Employee Community", width=7.0, height=1.5,
                   size=24, font="DM Sans")
         violations, _ = _verify(_save(prs, tmp_path))
-        assert any("DM Sans" in v and "PowerPoint ships with" in v for v in violations)
+        assert not [v for v in violations if "PowerPoint ships with" in v]
 
     def test_office_fonts_are_not_flagged(self, tmp_path):
         prs = _deck()
@@ -198,7 +210,7 @@ class TestFontSafety:
         prs = _deck()
         for i in range(6):
             _add_text(prs, f"Row {i}", left=0.5, top=0.4 + i * 0.7, width=3.0,
-                      height=0.5, size=12, font="Cormorant Garamond")
+                      height=0.5, size=12, font="Poppins")
         violations, _ = _verify(_save(prs, tmp_path))
         font_lines = [v for v in violations if "PowerPoint ships with" in v]
         assert len(font_lines) == 1

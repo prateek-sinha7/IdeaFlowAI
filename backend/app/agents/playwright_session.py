@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # never imported at runtime — see the module docstring
@@ -404,6 +406,43 @@ class PlaywrightSession:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("PlaywrightSession[%s]: playwright stop failed: %s", self.run_id, exc)
             self._playwright = None
+
+
+# One background loop for every Playwright coroutine in this process, shared
+# across every tool module that touches a session. Playwright's async objects
+# are bound to whichever loop created them — a second independent bridge loop
+# calling into a session another module already launched would raise "Future
+# attached to a different loop" the moment their calls interleaved (e.g.
+# ppt-deck-qa-v2 and ppt-code-generator sharing one run's session).
+_BRIDGE_LOOP: asyncio.AbstractEventLoop | None = None
+_BRIDGE_LOCK = threading.Lock()
+
+
+def _bridge_loop() -> asyncio.AbstractEventLoop:
+    global _BRIDGE_LOOP
+    with _BRIDGE_LOCK:
+        if _BRIDGE_LOOP is None:
+            _BRIDGE_LOOP = asyncio.new_event_loop()
+            threading.Thread(target=_BRIDGE_LOOP.run_forever, daemon=True).start()
+        return _BRIDGE_LOOP
+
+
+def run_sync(coro: Any) -> Any:
+    """Run a Playwright coroutine on the shared bridge loop and block for its result."""
+    return asyncio.run_coroutine_threadsafe(coro, _bridge_loop()).result()
+
+
+def run_id_from_sandbox(sandbox: Any) -> str | None:
+    """Best-effort run_id extraction from a bound RunSandbox's root path."""
+    if sandbox is None:
+        return None
+    try:
+        parts = Path(sandbox.root).parts
+        if len(parts) >= 2:
+            return parts[-1]
+    except Exception:  # noqa: BLE001 — best-effort extraction
+        pass
+    return None
 
 
 # Module-level registry keyed by run id — the seam the tools (T4) and the engine

@@ -62,15 +62,25 @@ box width. A box is not "big enough" because the text looks fine in the HTML.
   Times New Roman. Georgia, Cambria, Garamond and Trebuchet render wider than
   they measure, so give anything set in them ~10% extra room.
 
-## MAP the fonts — never copy the names
+## Fonts — use the real name, `render_pptx` embeds it when it can
 
-The HTML deck loads its type from Google Fonts. A `.pptx` stores a font NAME and
-nothing else, so writing `DM Sans` into it produces a file that looks right on
-exactly one machine — yours. On the client's PowerPoint the name is missing,
-something else is substituted, and every line rewraps.
+A `.pptx` normally stores a font NAME and nothing else, so writing `Caveat`
+into it produces a file that looks right on exactly one machine — yours. On
+the client's PowerPoint the name is missing, something else is substituted,
+and every line rewraps. **That is no longer always true here**: `render_pptx`
+embeds the real font bytes for any font it has a pre-fetched copy of
+(`skills/opendesign/fonts/` — every font the opendesign template library
+uses), so for those, the recipient sees the real typeface with nothing
+installed.
 
-Read the deck's `@import` / `font-family` and translate to the nearest family
-that ships with Office:
+**So: always write the real font name from `fontFamily` in `deck-styles.json`
+first.** Don't pre-emptively substitute — if it's in the library, it gets
+embedded automatically and you get the exact typeface for free. Only fall
+back to substitution below for a font genuinely outside that library (rare —
+it means the deck used a font no opendesign template does).
+
+Translate anything NOT covered by embedding to the nearest family that ships
+with Office:
 
 | The deck's font | What goes in the pptx |
 |---|---|
@@ -79,15 +89,27 @@ that ships with Office:
 | Playfair Display, Cormorant Garamond, Lora, Merriweather, Spectral | **Georgia** or **Cambria** |
 | EB Garamond, Libre Baskerville | **Garamond** or **Times New Roman** |
 | Courier Prime, JetBrains Mono, IBM Plex Mono, Space Mono, Fira Code | **Courier New** or **Consolas** |
+| Caveat, Kalam, Shadows Into Light, Indie Flower, Patrick Hand, Gochi Hand, Homemade Apple, Amatic SC, Permanent Marker (handwriting/script) | **Comic Sans MS**, else **Trebuchet MS** |
+| Shrikhand, Lobster, Pacifico, Bungee, Fredoka, Righteous, Bangers (display/novelty) | **Impact**, else **Trebuchet MS** |
 
 Anything not on this list: pick by category — sans → Arial, serif → Georgia,
-mono → Courier New. The full safe set is Arial, Arial Black, Calibri, Cambria,
-Candara, Consolas, Constantia, Corbel, Courier New, Garamond, Georgia, Impact,
-Palatino Linotype, Segoe UI, Tahoma, Times New Roman, Trebuchet MS, Verdana.
+mono → Courier New, handwriting/script → Comic Sans MS or Trebuchet MS,
+display/novelty → Impact or Trebuchet MS. The full safe set is Arial, Arial
+Black, Calibri, Cambria, Candara, Comic Sans MS, Consolas, Constantia, Corbel,
+Courier New, Garamond, Georgia, Impact, Palatino Linotype, Segoe UI, Tahoma,
+Times New Roman, Trebuchet MS, Verdana.
 
-The verifier fails any font outside it, once per family, naming how many shapes
-use it. Losing the exact typeface is the cost of a file the client can open and
-edit — say so in your final message rather than implying the type carried over.
+**Only for a font truly outside the library**: none of these substitutes look
+like a handwritten sticky note — the safe set has no genuine script face,
+because a script font that only exists on your machine would defeat the
+entire point of substitution. `Comic Sans MS` (universally available,
+informal, closest in spirit to a handwritten note) is the closest available;
+`Trebuchet MS` is the safe fallback everywhere. Say plainly in your final
+message that this one font's exact typeface did not carry over — don't imply
+it did.
+
+The verifier fails any font that is neither in the safe set nor embeddable,
+once per family, naming how many shapes use it.
 
 ## Five rules that break the build
 
@@ -139,6 +161,56 @@ many slides came out. Reach for it when the numbers look right and you still
 doubt the result: a deck no renderer will load is corrupt whatever the geometry
 says. Every verdict, every rendered slide and the exact source of each attempt
 are written to `.verify/` in the workspace, so a human can see what the gate saw.
+
+## Position, size, rotation, font, fill, border — read `extract_computed_styles()`, don't guess
+
+Call `extract_computed_styles()` and `read_file(".browser/deck-styles.json")`
+**before** you write any code (see "The loop" in the agent instructions). It
+renders the real deck — every slide, not just the one that happens to be
+visible — and measures each element's actual `x`/`y`/`w`/`h` (pixels, relative
+to `viewportWidthPx`/`viewportHeightPx`), `slideIndex`, `rotation`,
+`fontFamily`, `fontSizePx`, `color`, `background`, `borderRadiusPx`,
+`hasBorder` and `hasShadow` — ground truth from the browser's own layout
+engine, not your reading of the CSS text.
+
+**Size and position are not optional to use — they are the fix for the most
+common failure mode.** Match each element you author to its `deck-styles.json`
+entry by `slideIndex` + text/class, and convert its `w`/`h` (not just `x`/`y`)
+with the same formula: `(px / viewportWidthPx) * canvasWidthIn`. A box you
+size by eyeballing the HTML routinely comes out too large or too small
+relative to the deck's real proportions — the measured `w`/`h` is what the
+element actually occupies, use it directly rather than approximating.
+
+`rotation` is already normalized to PptxGenJS's 0–359 range (converted from
+CSS's signed degrees) — pass it straight into `rotate`. `background.hex` /
+`background.opacity` go straight into `fill`. `borderRadiusPx` (converted to
+inches the same way) goes into `rectRadius` when non-zero — a card that reads
+as a soft-cornered "sticky note" in the HTML and a hard rectangle in the pptx
+lost that identity for exactly this reason, not because PptxGenJS can't do it.
+`hasBorder`/`hasShadow` tell you whether to add `line`/`shadow` options at
+all — don't add a border or shadow to a shape that measured as having neither.
+
+```js
+slide.addShape(pres.ShapeType.roundRect, {
+  x: 2.4, y: 1.1, w: 3.2, h: 1.5, rotate: 348, rectRadius: 0.12,
+  fill: { color: "FFE066", transparency: 0 },
+  ...
+});
+```
+
+**If `extract_computed_styles()` is unavailable or fails for a given run**,
+fall back to reading the CSS by hand: templates that use tilted stamps, badges,
+tags or torn-paper labels apply `transform: rotate(Xdeg)`. Nothing about
+transcription copies that automatically — a shape you author renders dead
+straight unless you set `rotate` yourself. PptxGenJS's `rotate` is 0–359, not
+signed — `rotate(-12deg)` is `348`, not `-12`; convert with
+`((deg % 360) + 360) % 360`. Position/size math is unaffected either way: keep
+the box's `x`/`y`/`w`/`h` exactly as you would for an unrotated element.
+
+Either way: the geometry verifier checks each shape's stored (unrotated)
+bounding box, not its rotated silhouette, so keep rotated elements away from
+the canvas edge and the footer band — a rotated corner can visually clip
+something the audit still reports clean.
 
 ## Transitions do not survive
 

@@ -22,6 +22,7 @@ TOOL_RENDER_PPTX = "render_pptx"
 TOOL_VERIFY_PPTX_LAYOUT = "verify_pptx_layout"
 TOOL_EXTRACT_PPTX_SHAPES = "extract_pptx_shapes"
 TOOL_SCREENSHOT_PPTX = "screenshot_pptx"
+TOOL_EXTRACT_COMPUTED_STYLES = "extract_computed_styles"
 
 
 @register(
@@ -29,14 +30,17 @@ TOOL_SCREENSHOT_PPTX = "screenshot_pptx"
     "pptx",
     description="Build a real .pptx from PptxGenJS source and gate it on a "
     "deterministic geometry audit plus a render: render_pptx / "
-    "verify_pptx_layout / extract_pptx_shapes / screenshot_pptx (spec 017).",
+    "verify_pptx_layout / extract_pptx_shapes / screenshot_pptx (spec 017), "
+    "plus extract_computed_styles — a headless-render DOM walk that dumps real "
+    "position/rotation/font/fill/border data before authoring starts, ground "
+    "truth instead of estimating from HTML text.",
 )
 class PptxToolProvider:
     """The pptx tool set (``name='pptx'``).
 
     Returns ``exclude_builtin=False`` — the step still needs ``read_file`` to read
     the composed deck it is transcribing, so the native filesystem tools stay
-    alongside these three.
+    alongside these four.
     """
 
     name = "pptx"
@@ -48,6 +52,7 @@ class PptxToolProvider:
                 TOOL_VERIFY_PPTX_LAYOUT,
                 TOOL_EXTRACT_PPTX_SHAPES,
                 TOOL_SCREENSHOT_PPTX,
+                TOOL_EXTRACT_COMPUTED_STYLES,
             ],
             False,
         )
