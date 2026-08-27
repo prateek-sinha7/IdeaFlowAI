@@ -157,6 +157,8 @@ Feature: Pages outside routes.ts
     And I am directed to the Download ZIP button in the preview panel
 
   @S-16-08
+  @live
+  # live: needs an App Builder run with an open preview, so it cannot run in the offline tier.
   @unverified
   Scenario: The App Builder full-screen button hands files over in sessionStorage
     Given an App Builder run whose preview is open

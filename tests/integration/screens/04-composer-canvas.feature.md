@@ -276,6 +276,8 @@ Feature: Composing a workflow
     # on every launch. Withholding the template is the guard.
 
   @S-04-19
+  @live
+  # live: dispatches a real run, so it cannot run in the offline tier.
   @destructive
   Scenario: A saved composition can be launched from the composer
     Given a composer with at least one agent and a valid brief

@@ -352,6 +352,10 @@ def test_an_expired_session_sends_me_to_sign_in_with_an_explanation(page, shot):
         except Exception:
             pass
         page.wait_for_url("**/login?expired=true", timeout=settings.LOGIN_TIMEOUT_MS)
+        # The sign-in screen can redirect again on arrival; the screenshot this
+        # step takes on exit fails on a frame that is still navigating.
+        page.wait_for_load_state("load")
+        page.wait_for_timeout(settings.SETTLE_MS // 2)
 
     expect(page.get_by_text(AUTH.EXPIRED_BANNER)).to_be_visible()
     # The stored token is cleared as well as the redirect fired — leaving it

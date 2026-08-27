@@ -214,6 +214,8 @@ Feature: Launching a workflow
     And a file input exists
 
   @S-03-14
+  @live
+  # live: dispatches a real run, so it cannot run in the offline tier.
   @destructive
   Scenario: Launching a run navigates to its live surface
     Given a disposable brief

@@ -5,9 +5,9 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **209** |
-| Implemented but skipped | **291** |
-| Not yet written | **6** |
+| Implemented and running | **214** |
+| Implemented but skipped | **292** |
+| Not yet written | **0** |
 | **Total** | **506** |
 
 `skipped` means the test exists and is linked to its spec, but cannot run
@@ -302,7 +302,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-12-18` | Every top-level screen survives a hard refresh | `12_shell_nav/test_shell_nav.py` |
 | ok | `S-12-19` | An expired session sends me to sign-in with an explanation | `12_shell_nav/test_shell_nav.py` |
 
-## 13-errors.feature.md — 14/20
+## 13-errors.feature.md — 19/20 (1 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
@@ -320,12 +320,12 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-13-12` | An oversized full-screen preview explains itself | `13_errors/test_errors.py` |
 | ok | `S-13-13` | Another user's run is not readable | `13_errors/test_errors.py` |
 | ok | `S-13-14` | A run file cannot be fetched across an ownership boundary | `13_errors/test_errors.py` |
-| ·  | `S-13-15` | A request with no credentials is answered 401, not 403 | — |
-| ·  | `S-13-16` | A request with a malformed token is answered 401 | — |
-| ·  | `S-13-17` | An expired session is recovered once before being surrendered | — |
-| ·  | `S-13-18` | An unrefreshable session ends at sign-in with an explanation | — |
-| ·  | `S-13-19` | A backend outage is reported, not swallowed | — |
-| ·  | `S-13-20` | A failed run is presented as failed | — |
+| ok | `S-13-15` | A request with no credentials is answered 401, not 403 | `13_errors/test_errors.py` |
+| ok | `S-13-16` | A request with a malformed token is answered 401 | `13_errors/test_errors.py` |
+| s  | `S-13-17` | An expired session is recovered once before being surrendered | `13_errors/test_errors.py` — needs an access token that is expired but still refreshable;  |
+| ok | `S-13-18` | An unrefreshable session ends at sign-in with an explanation | `13_errors/test_errors.py` |
+| ok | `S-13-19` | A backend outage is reported, not swallowed | `13_errors/test_errors.py` |
+| ok | `S-13-20` | A failed run is presented as failed | `13_errors/test_errors.py` |
 
 ## 14-run-states.feature.md — 0/13 (13 skipped)
 

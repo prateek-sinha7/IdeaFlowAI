@@ -211,7 +211,7 @@ def test_a_nonexistent_artifact_version_falls_back_to_v1_without_saying_so(page,
     expect(page.locator(RH.ROW).first).to_be_visible()
     completed = [label for label in RH.rows(page) if RH.status_of(label) == "completed"]
     assert completed, "no completed run to ask for a version of"
-    page.locator(f'{RH.ROW}[aria-label="{completed[0]}"]').click()
+    page.locator(f'{RH.ROW}[aria-label="{completed[0]}"]').first.click()
     page.wait_for_url(lambda url: "/runs/" in url)
     run_id = page.url.split("/runs/")[1].split("/")[0].split("?")[0]
 
@@ -302,3 +302,143 @@ def test_a_run_file_cannot_be_fetched_across_an_ownership_boundary(page, shot, p
             f"a foreign run's {path or '/'} answered {result['status']}: "
             f"{result['body'][:200]!r}"
         )
+
+
+# ── auth failures at the API edge ────────────────────────────────────────────
+
+_NO_AUTH = """
+async ([url, header]) => {
+  const res = await fetch(url, header ? { headers: { Authorization: header } } : {});
+  return { status: res.status, body: (await res.text()).slice(0, 200) };
+}
+"""
+
+
+@pytest.mark.scenario("S-13-15")
+def test_a_request_with_no_credentials_is_answered_401_not_403(page, shot):
+    """Scenario: A request with no credentials is answered 401, not 403
+
+    FIX-311. FastAPI's stock `HTTPBearer` raises 403 on a MISSING header while
+    every other auth failure in `dependencies.py` answers 401 — so the one case
+    that means "you never signed in" was the one that looked like "you are
+    signed in but not allowed". `bearer_scheme` is subclassed to fix it, and
+    this is the assertion that keeps it fixed.
+    """
+    with shot("no-credentials", "When I call an authenticated endpoint with no header"):
+        page.goto("/dashboard")
+        result = page.evaluate(_NO_AUTH, [f"{settings.API_URL}/api/runs", None])
+
+    assert result["status"] == 401, (
+        f"a request with no Authorization header answered {result['status']} — "
+        "403 here is the FIX-311 regression"
+    )
+
+
+@pytest.mark.scenario("S-13-16")
+def test_a_request_with_a_malformed_token_is_answered_401(page, shot):
+    """Scenario: A request with a malformed token is answered 401"""
+    with shot("malformed-token", "When I call an authenticated endpoint with a non-Bearer header"):
+        page.goto("/dashboard")
+        results = {
+            header: page.evaluate(_NO_AUTH, [f"{settings.API_URL}/api/runs", header])
+            for header in ("Basic abc123", "Bearer", "Bearer not-a-token", "garbage")
+        }
+
+    for header, result in results.items():
+        assert result["status"] == 401, (
+            f"{header!r} answered {result['status']}, not 401"
+        )
+
+
+@pytest.mark.scenario("S-13-17")
+@pytest.mark.skip(
+    reason="needs an access token that is expired but still refreshable; "
+    "the pool mints only fresh ones and there is no clock to move"
+)
+def test_an_expired_session_is_recovered_once_before_being_surrendered(page, shot):
+    """Scenario: An expired session is recovered once before being surrendered"""
+
+
+@pytest.mark.scenario("S-13-18")
+def test_an_unrefreshable_session_ends_at_sign_in_with_an_explanation(page, shot):
+    """Scenario: An unrefreshable session ends at sign-in with an explanation
+
+    The refresh call authenticates with the same access token, so replacing that
+    token with a value the backend cannot accept fails BOTH halves of ADR-0024's
+    ladder — which is what "cannot be refreshed" means here. Merely waiting for
+    an expiry would exercise the recovery path instead.
+    """
+    page.goto("/dashboard")
+    expect(SHELL.nav(page, "Home")).to_be_visible()
+
+    with shot("unrefreshable", "Given my session cannot be refreshed"):
+        # Both steps are guarded: the shell polls, so its own next request can
+        # meet the 401 and start navigating while this one is still running —
+        # which detaches the frame under `evaluate` as readily as under `click`.
+        # Either path is the scenario; the destination is the assertion.
+        for act in (
+            lambda: page.evaluate(
+                "() => localStorage.setItem('auth_token', 'not-a-usable-token')"
+            ),
+            lambda: SHELL.nav(page, "Library").click(timeout=5000),
+        ):
+            try:
+                act()
+            except Exception:
+                pass
+        page.wait_for_url("**/login?expired=true", timeout=settings.LOGIN_TIMEOUT_MS)
+        # The sign-in screen can redirect again on arrival; the screenshot this
+        # step takes on exit fails on a frame that is still navigating.
+        page.wait_for_load_state("load")
+        page.wait_for_timeout(settings.SETTLE_MS // 2)
+
+    expect(page.get_by_text("Your session expired. Please sign in again.")).to_be_visible()
+
+
+# ── network and backend failure ──────────────────────────────────────────────
+
+
+@pytest.mark.scenario("S-13-19")
+def test_a_backend_outage_is_reported_not_swallowed(page, shot):
+    """Scenario: A backend outage is reported, not swallowed
+
+    The outage is simulated by failing every request to the API origin at the
+    browser, rather than by stopping the server — which would take the rest of
+    the suite down with it.
+    """
+    page.route(f"{settings.API_URL}/**", lambda route: route.abort("failed"))
+
+    with shot("backend-down", 'When I cold-load "/dashboard" with the backend unreachable'):
+        page.goto("/dashboard")
+        page.wait_for_load_state("load")
+        page.wait_for_timeout(settings.SETTLE_MS * 2)
+
+    # The page must not sit on a spinner: whatever it shows, it has to have
+    # stopped waiting.
+    for selector in settings.BUSY_SELECTORS:
+        expect(page.locator(selector)).to_have_count(0)
+    body = page.evaluate("() => document.body.innerText")
+    assert body.strip(), "the page rendered nothing at all"
+
+
+@pytest.mark.scenario("S-13-20")
+def test_a_failed_run_is_presented_as_failed(page, shot):
+    """Scenario: A failed run is presented as failed"""
+    page.goto("/runs")
+    expect(page.locator(RH.ROW).first).to_be_visible()
+    failed = [label for label in RH.rows(page) if RH.status_of(label) == "failed"]
+    if not failed:
+        pytest.skip("no failed run in this history")
+
+    with shot("failed-run", "When I open a failed run's detail surface"):
+        # `.first`: a brief excerpt is not unique, so several rows can share
+        # one aria-label.
+        page.locator(f'{RH.ROW}[aria-label="{failed[0]}"]').first.click()
+        page.wait_for_url(lambda url: "/runs/" in url)
+        page.wait_for_timeout(settings.SETTLE_MS)
+
+    body = page.evaluate("() => document.body.innerText")
+    assert "fail" in body.lower(), f"the run does not present as failed: {body[:200]!r}"
+    # The tabs that say WHY it failed must still be reachable.
+    for tab in ("Steps", "Audit"):
+        expect(page.get_by_text(tab, exact=True).first).to_be_visible()

@@ -199,14 +199,14 @@ if unknown_id:
     problems += len(unknown_id)
     print(f"\n── {len(unknown_id)} test names an id no spec defines")
     for sid in unknown_id:
-        print(f"   {sid}  {tests[sid][0]}")
+        print(f"   {sid}  {tests[sid]['file']}")
 
 if live_drift:
     problems += len(live_drift)
     print(f"\n── {len(live_drift)} live/offline mismatch between spec and test")
     for sid in live_drift:
         want = "live" if "live" in specs[sid][2] else "offline"
-        print(f"   {sid}  spec says {want}, test says the opposite  ({tests[sid][0]})")
+        print(f"   {sid}  spec says {want}, test says the opposite  ({tests[sid]['file']})")
 
 # `missing_test` is progress, not a defect, while the suite is being built: it
 # counts down as tests land. Only real inconsistencies fail the gate.

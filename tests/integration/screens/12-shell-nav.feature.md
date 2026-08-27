@@ -159,6 +159,8 @@ Feature: Shell and navigation
     And the URL is unchanged
 
   @S-12-12
+  @live
+  # live: needs a run to complete, so it cannot run in the offline tier.
   Scenario: A completed run produces a notification
     Given a run of mine has just completed
     When I open the notifications panel
@@ -167,6 +169,8 @@ Feature: Shell and navigation
   # ---- Running-pipeline badge ----
 
   @S-12-13
+  @live
+  # live: needs a run in progress, so it cannot run in the offline tier.
   Scenario: A live run surfaces in the header with its progress
     Given I have a run in progress
     When I cold-load "/dashboard"
@@ -174,6 +178,8 @@ Feature: Shell and navigation
     And the badge shows completed-of-total agents
 
   @S-12-14
+  @live
+  # live: needs a run in progress, so it cannot run in the offline tier.
   Scenario: The badge opens the live run
     Given the header shows a running-pipeline badge
     When I click it

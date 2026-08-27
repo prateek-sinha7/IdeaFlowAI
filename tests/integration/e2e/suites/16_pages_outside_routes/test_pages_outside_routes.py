@@ -124,7 +124,7 @@ def test_a_runid_deep_link_redirects_to_the_runs_full_preview(page, shot):
         label for label in RH.rows(page) if RH.status_of(label) == "completed"
     ]
     assert completed, "no completed run to deep-link"
-    page.locator(f'{RH.ROW}[aria-label="{completed[0]}"]').click()
+    page.locator(f'{RH.ROW}[aria-label="{completed[0]}"]').first.click()
     page.wait_for_url(lambda url: "/runs/" in url)
     run_id = page.url.split("/runs/")[1].split("/")[0].split("?")[0]
 
