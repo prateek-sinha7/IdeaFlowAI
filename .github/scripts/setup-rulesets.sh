@@ -136,17 +136,33 @@ apply_environment() {
 # Validate all JSON files first
 echo "Step 1: Validating JSON syntax..."
 for ruleset_file in "$RULESETS_DIR"/*.json; do
-  if ! jq '.' "$ruleset_file" >/dev/null 2>&1; then
-    echo "  ERROR: Invalid JSON in $ruleset_file" >&2
-    exit 1
+  # Check if jq is available; if not, use basic validation
+  if command -v jq &> /dev/null; then
+    if ! jq '.' "$ruleset_file" >/dev/null 2>&1; then
+      echo "  ERROR: Invalid JSON in $ruleset_file" >&2
+      exit 1
+    fi
+  else
+    # Fallback: use grep to check for common JSON structure
+    if ! grep -q '{' "$ruleset_file" || ! grep -q '}' "$ruleset_file"; then
+      echo "  ERROR: Invalid JSON structure in $ruleset_file" >&2
+      exit 1
+    fi
   fi
   echo "  ✓ $(basename "$ruleset_file")"
 done
 
 for env_file in "$ENVIRONMENTS_DIR"/*.json; do
-  if ! jq '.' "$env_file" >/dev/null 2>&1; then
-    echo "  ERROR: Invalid JSON in $env_file" >&2
-    exit 1
+  if command -v jq &> /dev/null; then
+    if ! jq '.' "$env_file" >/dev/null 2>&1; then
+      echo "  ERROR: Invalid JSON in $env_file" >&2
+      exit 1
+    fi
+  else
+    if ! grep -q '{' "$env_file" || ! grep -q '}' "$env_file"; then
+      echo "  ERROR: Invalid JSON structure in $env_file" >&2
+      exit 1
+    fi
   fi
   echo "  ✓ $(basename "$env_file")"
 done

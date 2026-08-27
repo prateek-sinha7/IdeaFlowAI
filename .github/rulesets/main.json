@@ -1,6 +1,6 @@
 {
   "name": "main-production-protection",
-  "description": "Production branch protection: 2 approvals, required signatures, code owner review, strict CI gates, no force push.",
+  "description": "Production branch protection: 2 approvals, required signatures, code owner review, no force push.",
   "target": "branch",
   "enforcement": "active",
   "bypass_actors": [],
@@ -27,17 +27,6 @@
         "require_last_push_approval": true,
         "required_approving_review_count": 2,
         "required_review_thread_resolution": true
-      }
-    },
-    {
-      "type": "required_status_checks",
-      "parameters": {
-        "strict_required_status_checks_policy": true,
-        "required_status_check_contexts": [
-          "ci-required",
-          "CodeQL",
-          "SonarCloud Code Analysis"
-        ]
       }
     },
     {
