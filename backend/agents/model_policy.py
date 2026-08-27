@@ -49,6 +49,116 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _COST_CLASS_ORDER: tuple[str, ...] = ("premium", "standard", "cheap")
 
+# ---------------------------------------------------------------------------
+# Geo-prefix normalization (GEO-01) — resolves CRIS prefix to match AWS_REGION.
+#
+# AGENT.md files may declare a model with any geo prefix (e.g. "us.anthropic.
+# claude-sonnet-5" for local dev at us-east-2). When the same code is deployed
+# to eu-central-1, that US prefix causes a Bedrock ValidationException — the US
+# CRIS profile is not available in EU regions. Rather than editing AGENT.md per
+# environment, the resolver normalizes the geo prefix at runtime using AWS_REGION.
+#
+# Supported prefixes: us. / eu. / au. / apac. (global. passes through unchanged).
+# Unknown regions pass through unchanged and let Bedrock reject if truly wrong.
+# ---------------------------------------------------------------------------
+
+# All known geo prefixes — the resolver replaces these when the region doesn't match.
+_GEO_PREFIXES: tuple[str, ...] = ("us.", "eu.", "au.", "apac.")
+
+# Map AWS region → the correct CRIS geo prefix for that geography.
+# Source: AWS Bedrock documentation for cross-region inference profiles.
+_REGION_TO_GEO_PREFIX: dict[str, str] = {
+    # US regions
+    "us-east-1": "us.",
+    "us-east-2": "us.",
+    "us-west-1": "us.",
+    "us-west-2": "us.",
+    "ca-central-1": "us.",
+    "ca-west-1": "us.",
+    # EU regions
+    "eu-central-1": "eu.",
+    "eu-central-2": "eu.",
+    "eu-north-1": "eu.",
+    "eu-south-1": "eu.",
+    "eu-south-2": "eu.",
+    "eu-west-1": "eu.",
+    "eu-west-2": "eu.",
+    "eu-west-3": "eu.",
+    # APAC regions
+    "ap-northeast-1": "apac.",
+    "ap-northeast-2": "apac.",
+    "ap-northeast-3": "apac.",
+    "ap-south-1": "apac.",
+    "ap-south-2": "apac.",
+    "ap-southeast-1": "apac.",
+    "ap-southeast-2": "apac.",
+    "ap-southeast-3": "apac.",
+    "ap-southeast-4": "apac.",
+    "ap-southeast-5": "apac.",
+    "ap-southeast-6": "apac.",
+    "ap-southeast-7": "apac.",
+    "ap-east-2": "apac.",
+}
+
+
+def _normalize_geo_prefix(model_id: str, *, _region_override: str | None = None) -> str:
+    """Swap a CRIS geo prefix to match the deployment AWS_REGION.
+
+    Example: ``us.anthropic.claude-sonnet-5`` on ``eu-central-1``
+             → ``eu.anthropic.claude-sonnet-5``
+
+    Rules:
+    - ``global.`` prefixes are never swapped (they route anywhere by design).
+    - Models with no geo prefix pass through unchanged.
+    - Unknown AWS regions pass through unchanged (let Bedrock surface the error).
+    - Already-correct prefix is a no-op (fast path).
+
+    ``_region_override`` is for testing only — it bypasses ``settings.AWS_REGION``
+    so unit tests can assert normalization behaviour without patching settings.
+
+    This is called after the D-02 precedence chain resolves so it applies
+    equally to tier-1 overrides, tier-3 AGENT.md values, and the session default.
+    The catalog validation for tier-3 always runs on the RAW (pre-normalization)
+    value, which must be in the catalog — both ``us.`` and ``eu.`` Sonnet-5 entries
+    are present so validation passes before the swap happens.
+    """
+    if _region_override is not None:
+        region = _region_override
+    else:
+        # Lazy import to avoid a circular import at module load time.
+        # model_policy is a kernel module that may be imported before app.core.config
+        # is fully initialised; the lazy import is safe here because _normalize_geo_prefix
+        # is only called from resolve(), which only runs at request time.
+        try:
+            from app.core.config import settings as _settings  # noqa: PLC0415
+            region = _settings.AWS_REGION or ""
+        except Exception:  # noqa: BLE001
+            return model_id  # config unavailable — pass through
+
+    correct_prefix = _REGION_TO_GEO_PREFIX.get(region)
+    if not correct_prefix:
+        # Unknown region — pass through unchanged.
+        return model_id
+
+    # Identify the geo prefix the model id currently carries.
+    current_prefix: str | None = None
+    for prefix in _GEO_PREFIXES:
+        if model_id.startswith(prefix):
+            current_prefix = prefix
+            break
+
+    if current_prefix is None or current_prefix == correct_prefix:
+        # No geo prefix, or already correct — nothing to do.
+        return model_id
+
+    # Swap the prefix.
+    normalized = correct_prefix + model_id[len(current_prefix):]
+    logger.debug(
+        "model_resolver: geo-prefix swapped %r → %r (AWS_REGION=%r)",
+        model_id, normalized, region,
+    )
+    return normalized
+
 
 class ModelResolver:
     """Resolve the effective model id per agent invocation, by the D-02 precedence.
@@ -68,12 +178,16 @@ class ModelResolver:
         session_model_id: str | None = None,
         haiku_default: str = "",
         catalog: ModelCatalog | None = None,
+        _region_override: str | None = None,
     ) -> None:
         self._overrides: dict[str, str] = dict(model_overrides or {})
         self._workflow_model = workflow_model
         self._session_model_id = session_model_id
         self._haiku_default = haiku_default
         self._catalog = catalog or ModelCatalog()
+        # For testing: bypass settings.AWS_REGION with an explicit region string.
+        # Pass the empty string "" to disable geo-prefix normalization entirely.
+        self._region_override = _region_override
         # Active fallback chain + cursor (06-05 retry loop). The cursor points at the
         # CURRENTLY-running id; advance() moves to the next chain entry.
         self._chain: list[str] = []
@@ -144,7 +258,14 @@ class ModelResolver:
                     f"AGENT.md model {agent_model!r} for agent "
                     f"{getattr(spec, 'id', '?')!r} is not a known, allowed catalog model"
                 )
-        return resolved
+        # GEO-01: swap the CRIS geo prefix (us./eu./au.) to match the deployment
+        # AWS_REGION before returning. AGENT.md files declare the model with any
+        # regional prefix; this makes the same manifest work on both local dev
+        # (us-east-2) and production (eu-central-1) without any per-environment
+        # edits. The swap happens AFTER catalog validation so the raw AGENT.md
+        # value is what gets validated (both us. and eu. Sonnet-5 are in the
+        # catalog), and the normalized value is what reaches build_model.
+        return _normalize_geo_prefix(resolved, _region_override=self._region_override)
 
     # ── Fallback chain derivation (N11 / D-05) ───────────────────────────────────────
     def chain_for(self, model_id: str, policy: ModelPolicy | None = None) -> list[str]:

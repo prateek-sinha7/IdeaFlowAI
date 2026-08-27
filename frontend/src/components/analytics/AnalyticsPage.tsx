@@ -23,12 +23,22 @@ type DateFilter = "today" | "3d" | "7d" | "30d" | "90d" | "all";
 type PipelineFilter = "all" | "user_stories" | "ppt" | "prototype" | "app_builder" | "custom";
 
 // ─── Model metadata (DISPLAY-ONLY lookup — SC-001, no control flow) ───────────
-const MODEL_META: Record<string, { name: string; short: string; inputRate: string; outputRate: string; context: string }> = {
-  "eu.anthropic.claude-haiku-4-5-20251001-v1:0":  { name: "Claude Haiku 4.5",  short: "Haiku 4.5",   inputRate: "$0.25 / 1M",  outputRate: "$1.25 / 1M",  context: "200K" },
-  "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { name: "Claude Sonnet 4.5", short: "Sonnet 4.5",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M", context: "200K" },
-  "eu.anthropic.claude-sonnet-4-6":               { name: "Claude Sonnet 4.6", short: "Sonnet 4.6",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M", context: "1M"   },
-  "eu.anthropic.claude-opus-4-5-20251101-v1:0":   { name: "Claude Opus 4.5",   short: "Opus 4.5",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M", context: "200K" },
-  "eu.anthropic.claude-opus-4-6-v1":              { name: "Claude Opus 4.6",   short: "Opus 4.6",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M", context: "200K" },
+// Covers both eu. and us. geo prefixes (GEO-01: model_policy normalizes the prefix
+// at runtime, but the DB stores whichever prefix was active when the run completed).
+// Cache read rate is 10% of input; cache write (5m) is 125% of input per Anthropic pricing.
+const MODEL_META: Record<string, { name: string; short: string; inputRate: string; outputRate: string; cacheReadRate: string; cacheWriteRate: string; context: string }> = {
+  "eu.anthropic.claude-haiku-4-5-20251001-v1:0":  { name: "Claude Haiku 4.5",  short: "Haiku 4.5",   inputRate: "$0.25 / 1M",  outputRate: "$1.25 / 1M",   cacheReadRate: "$0.03 / 1M",  cacheWriteRate: "$0.30 / 1M",  context: "200K" },
+  "us.anthropic.claude-haiku-4-5-20251001-v1:0":  { name: "Claude Haiku 4.5",  short: "Haiku 4.5",   inputRate: "$0.25 / 1M",  outputRate: "$1.25 / 1M",   cacheReadRate: "$0.03 / 1M",  cacheWriteRate: "$0.30 / 1M",  context: "200K" },
+  "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { name: "Claude Sonnet 4.5", short: "Sonnet 4.5",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M",  cacheReadRate: "$0.30 / 1M",  cacheWriteRate: "$3.75 / 1M",  context: "200K" },
+  "us.anthropic.claude-sonnet-4-5-20250929-v1:0": { name: "Claude Sonnet 4.5", short: "Sonnet 4.5",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M",  cacheReadRate: "$0.30 / 1M",  cacheWriteRate: "$3.75 / 1M",  context: "200K" },
+  "eu.anthropic.claude-sonnet-4-6":               { name: "Claude Sonnet 4.6", short: "Sonnet 4.6",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M",  cacheReadRate: "$0.30 / 1M",  cacheWriteRate: "$3.75 / 1M",  context: "1M"   },
+  "us.anthropic.claude-sonnet-4-6":               { name: "Claude Sonnet 4.6", short: "Sonnet 4.6",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M",  cacheReadRate: "$0.30 / 1M",  cacheWriteRate: "$3.75 / 1M",  context: "1M"   },
+  "eu.anthropic.claude-sonnet-5":                 { name: "Claude Sonnet 5",   short: "Sonnet 5",    inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M",  cacheReadRate: "$0.30 / 1M",  cacheWriteRate: "$3.75 / 1M",  context: "1M"   },
+  "us.anthropic.claude-sonnet-5":                 { name: "Claude Sonnet 5",   short: "Sonnet 5",    inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M",  cacheReadRate: "$0.30 / 1M",  cacheWriteRate: "$3.75 / 1M",  context: "1M"   },
+  "eu.anthropic.claude-opus-4-5-20251101-v1:0":   { name: "Claude Opus 4.5",   short: "Opus 4.5",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M",  cacheReadRate: "$1.50 / 1M",  cacheWriteRate: "$18.75 / 1M", context: "200K" },
+  "us.anthropic.claude-opus-4-5-20251101-v1:0":   { name: "Claude Opus 4.5",   short: "Opus 4.5",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M",  cacheReadRate: "$1.50 / 1M",  cacheWriteRate: "$18.75 / 1M", context: "200K" },
+  "eu.anthropic.claude-opus-4-6-v1":              { name: "Claude Opus 4.6",   short: "Opus 4.6",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M",  cacheReadRate: "$1.50 / 1M",  cacheWriteRate: "$18.75 / 1M", context: "200K" },
+  "us.anthropic.claude-opus-4-6-v1":              { name: "Claude Opus 4.6",   short: "Opus 4.6",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M",  cacheReadRate: "$1.50 / 1M",  cacheWriteRate: "$18.75 / 1M", context: "200K" },
 };
 const DEFAULT_MODEL_ID = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
 
@@ -204,6 +214,12 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
   const totalTokens = tokenTotals?.total ?? 0;
   const inputTokens = tokenTotals?.input ?? 0;
   const outputTokens = tokenTotals?.output ?? 0;
+  const cacheReadTokens = tokenTotals?.cache_read ?? 0;
+  const cacheWriteTokens = tokenTotals?.cache_write ?? 0;
+  // Uncached input = gross input − cache_read − cache_write (Bedrock convention:
+  // input_tokens in usage_metadata is the gross total including all cache tiers).
+  const uncachedInputTokens = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
+  const hasCacheData = cacheReadTokens > 0 || cacheWriteTokens > 0;
   const completedCount = kpis?.completed ?? 0;
   const failedCount = kpis?.failed ?? 0;
   const totalCount = kpis?.total ?? 0;
@@ -518,51 +534,119 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
                     </span>
                   )}
                 </div>
+
                 {totalTokens === 0 ? (
                   <p className="text-[11px] text-ink-400 py-3 text-center">No token data yet</p>
                 ) : (
                   <>
+                    {/* Segmented bar: uncached input / cache_read / cache_write / output */}
                     <div className="h-2.5 bg-[var(--status-queued-fill)] rounded-full overflow-hidden flex mb-3.5">
-                      <motion.div className="h-full bg-brand rounded-l-full"
-                        initial={{ width: 0 }}
-                        animate={{ width: `${(inputTokens / totalTokens) * 100}%` }}
-                        transition={{ duration: 0.8, ease: "easeOut" }}
-                      />
-                      <motion.div className="h-full rounded-r-full"
-                        style={{ background: "var(--brand-on-dark)" }}
-                        initial={{ width: 0 }}
-                        animate={{ width: `${(outputTokens / totalTokens) * 100}%` }}
-                        transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
-                      />
+                      {hasCacheData ? (
+                        <>
+                          <motion.div className="h-full bg-brand"
+                            style={{ borderRadius: "9999px 0 0 9999px" }}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(uncachedInputTokens / totalTokens) * 100}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut" }}
+                            title={`New input: ${formatTokens(uncachedInputTokens)}`}
+                          />
+                          <motion.div className="h-full"
+                            style={{ background: "var(--status-amber)" }}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(cacheReadTokens / totalTokens) * 100}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut", delay: 0.05 }}
+                            title={`Cache read: ${formatTokens(cacheReadTokens)}`}
+                          />
+                          <motion.div className="h-full"
+                            style={{ background: "var(--status-amber-border)" }}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(cacheWriteTokens / totalTokens) * 100}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
+                            title={`Cache write: ${formatTokens(cacheWriteTokens)}`}
+                          />
+                          <motion.div className="h-full rounded-r-full"
+                            style={{ background: "var(--brand-on-dark)" }}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(outputTokens / totalTokens) * 100}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut", delay: 0.15 }}
+                            title={`Output: ${formatTokens(outputTokens)}`}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <motion.div className="h-full bg-brand rounded-l-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(inputTokens / totalTokens) * 100}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut" }}
+                          />
+                          <motion.div className="h-full rounded-r-full"
+                            style={{ background: "var(--brand-on-dark)" }}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(outputTokens / totalTokens) * 100}%` }}
+                            transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
+                          />
+                        </>
+                      )}
                     </div>
-                    <div className="grid grid-cols-3 gap-2.5">
-                      {[
-                        { label: "Input", value: inputTokens, color: "var(--brand)", accent: "text-ink-900" },
-                        { label: "Output", value: outputTokens, color: "var(--brand-on-dark)", accent: "text-ink-900" },
-                        { label: "Total", value: totalTokens, color: "var(--brand)", accent: "text-brand" },
-                      ].map(item => (
-                        <div key={item.label} className="bg-surface-white border border-line-faint-row rounded-[10px] px-3 py-[11px]">
-                          <p className={`text-[16px] font-bold tabular-nums ${item.accent}`}>{formatTokens(item.value)}</p>
-                          <div className="flex items-center gap-1.5 mt-1.5">
-                            <span className="h-1.5 w-1.5 rounded-full" style={{ background: item.color }} />
-                            <span className="text-[10.5px] text-ink-300 font-medium">{item.label}</span>
+                    {/* Token stat grid — shows cache columns when data is available */}
+                    {hasCacheData ? (
+                      <div className="grid grid-cols-2 gap-2 mb-2">
+                        {[
+                          { label: "New Input",    value: uncachedInputTokens, color: "var(--brand)",             accent: "text-ink-900", tip: "Uncached — billed at full input rate" },
+                          { label: "Output",       value: outputTokens,        color: "var(--brand-on-dark)",     accent: "text-ink-900", tip: "Model-generated tokens" },
+                          { label: "Cache Read",   value: cacheReadTokens,     color: "var(--status-amber)",      accent: "text-ink-900", tip: "Served from cache — ~10% of input rate" },
+                          { label: "Cache Write",  value: cacheWriteTokens,    color: "var(--status-amber-border)", accent: "text-ink-900", tip: "Written to cache — ~125% of input rate (5 min TTL)" },
+                        ].map(item => (
+                          <div key={item.label} className="bg-surface-white border border-line-faint-row rounded-[10px] px-3 py-[11px]" title={item.tip}>
+                            <p className={`text-[16px] font-bold tabular-nums ${item.accent}`}>{formatTokens(item.value)}</p>
+                            <div className="flex items-center gap-1.5 mt-1.5">
+                              <span className="h-1.5 w-1.5 rounded-full" style={{ background: item.color }} />
+                              <span className="text-[10.5px] text-ink-300 font-medium">{item.label}</span>
+                            </div>
                           </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2.5">
+                        {[
+                          { label: "Input", value: inputTokens, color: "var(--brand)", accent: "text-ink-900" },
+                          { label: "Output", value: outputTokens, color: "var(--brand-on-dark)", accent: "text-ink-900" },
+                          { label: "Total", value: totalTokens, color: "var(--brand)", accent: "text-brand" },
+                        ].map(item => (
+                          <div key={item.label} className="bg-surface-white border border-line-faint-row rounded-[10px] px-3 py-[11px]">
+                            <p className={`text-[16px] font-bold tabular-nums ${item.accent}`}>{formatTokens(item.value)}</p>
+                            <div className="flex items-center gap-1.5 mt-1.5">
+                              <span className="h-1.5 w-1.5 rounded-full" style={{ background: item.color }} />
+                              <span className="text-[10.5px] text-ink-300 font-medium">{item.label}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Total row always shown at bottom when cache data is present */}
+                    {hasCacheData && (
+                      <div className="bg-surface-white border border-line-faint-row rounded-[10px] px-3 py-[11px] flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-brand" />
+                          <span className="text-[10.5px] text-ink-300 font-medium">Total</span>
                         </div>
-                      ))}
-                    </div>
+                        <p className="text-[16px] font-bold tabular-nums text-brand">{formatTokens(totalTokens)}</p>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
-
               {/* Model info — display-only meta for the active model */}
               <div className="bg-surface-card rounded-[14px] border border-line-border px-[18px] py-4 hover:shadow-md transition-shadow">
                 <p className="text-[12px] font-semibold text-ink-800 mb-2">Model Details</p>
                 <div>
                   {[
-                    { label: "Model",          value: meta.name },
-                    { label: "Input rate",     value: `${meta.inputRate} tokens` },
-                    { label: "Output rate",    value: `${meta.outputRate} tokens` },
-                    { label: "Context window", value: `${meta.context} tokens` },
+                    { label: "Model",             value: meta.name },
+                    { label: "Input rate",        value: `${meta.inputRate} tokens` },
+                    { label: "Output rate",       value: `${meta.outputRate} tokens` },
+                    { label: "Cache read rate",   value: `${meta.cacheReadRate} tokens` },
+                    { label: "Cache write rate",  value: `${meta.cacheWriteRate} tokens (5m TTL)` },
+                    { label: "Context window",    value: `${meta.context} tokens` },
                   ].map(item => (
                     <div key={item.label} className="flex items-center gap-3 py-2 border-t border-line-faint-row">
                       <span className="w-[130px] flex-none text-[11.5px] font-medium text-ink-300">{item.label}</span>
