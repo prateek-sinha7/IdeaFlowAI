@@ -923,3 +923,24 @@ the deliverable in an iframe and offers the controls titled "View source",
 Recorded at phase 2 by `S-07-30` and `S-15-28`, both of which now assert the
 scenario as the spec writes it rather than the defect. If the Preview tab ever
 goes back to rendering the spec agent's markdown as plain text, both fail.
+
+---
+
+## D-36 — A notification cannot be dismissed
+
+**Severity:** low. **Found by:** `S-23-47`, phase 2.
+
+The notifications panel lists each event with its action — "View progress" on a
+running pipeline, "Open" on a completed one — and nothing else. There is no
+per-item dismiss control by any handle: no button whose accessible name matches
+dismiss/clear/remove, no `title` containing either word, no icon control beside
+the row.
+
+So the panel only empties when whatever produced the event stops producing it.
+A user who has read a notification has no way to say so.
+
+`S-23-47` asserts the absence and fails the day a dismiss control appears, which
+is the signal to rewrite it as the spec's version.
+
+**Fix sketch:** one `aria-label="Dismiss <title>"` control per row, and a
+"Clear all" beside the panel heading.
