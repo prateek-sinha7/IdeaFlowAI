@@ -70,6 +70,10 @@ export const TIER_PIPELINES: Record<Tier, Set<string>> = {
     "ex_A3_divert",
     "ex_A3_b_spanish",
     "ex_A3_c_dutch",
+    // spec 018: temporary smoke-test pipeline for the playwright tool set.
+    // Entitled on the backend but missed here on first pass — same drift class
+    // as the ex_A* fixtures above.
+    "playwright_smoke_test",
   ]),
 };
 

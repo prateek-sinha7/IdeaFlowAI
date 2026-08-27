@@ -21,5 +21,6 @@ from __future__ import annotations
 from agents.capabilities.tools import providers  # noqa: F401 — import side effect: @register
 from agents.capabilities.tools import internet  # noqa: F401 — import side effect: @register
 from agents.capabilities.tools import pptx  # noqa: F401 — import side effect: @register
+from agents.capabilities.tools import playwright  # noqa: F401 — import side effect: @register
 
-__all__ = ["providers", "internet", "pptx"]
+__all__ = ["providers", "internet", "pptx", "playwright"]

@@ -349,6 +349,19 @@ class Settings(BaseSettings):
     # Default = 6 hours (21600s). Set lower in dev to observe sweeps faster.
     SANDBOX_SWEEP_INTERVAL_SECONDS: int = 21_600
 
+    # ── Browser URL policy (agent-browser-tools / FR-015) ────────────────────
+    # Comma-separated list of URL schemes/hosts the browser tool is permitted to
+    # visit. Each token controls:
+    #   - "file": local files, resolved through RunSandbox.path_for (traversal-proof,
+    #     cannot escape the run sandbox)
+    #   - "localhost": http(s) on localhost / 127.0.0.1 only
+    #   - "http": any http(s) URL (allows model-driven outbound egress from containers
+    #     holding database credentials — same trust surface as web_fetch — which is why
+    #     it is not in the default)
+    # Parsing/enforcement of this policy is in T3b and later; this setting is the
+    # configuration surface only.
+    BROWSER_URL_POLICY: str = "file,localhost"
+
     # RUN_DIR_TTL_HOURS: raised to 168h (7 days) to cover the revision-parent seed
     # window. The old 48h was too short — a run could be deleted before a user
     # creates a revision from it. Operator-overridable via the env var.

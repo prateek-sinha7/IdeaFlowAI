@@ -53,6 +53,11 @@ _LOGS_PREFIX = ".logs/"
 # delivered artifact, for the same reason ``.logs/`` is not.
 _VERIFY_PREFIX = ".verify/"
 
+# Reserved sandbox prefix for browser-based agent outputs (screenshots and page
+# captures). These files are evidence for the human through the workspace view —
+# never part of the deliverable, just like .verify/ files.
+_BROWSER_PREFIX = ".browser/"
+
 # Reserved sandbox prefix for AGENT OUTPUTS — the text an agent streamed rather
 # than wrote through ``write_file``. Until this existed the sandbox held only what
 # an agent explicitly authored, so a step that just streamed prose left nothing on
@@ -425,13 +430,14 @@ def is_deliverable_relpath(
     so the UI can group Deliverables without re-deriving the rule — and without
     a copy of ``_DELIVERABLE_EXCLUDE`` in TypeScript that drifts from this one.
 
-    Excluded are the four reserved subtrees (owner uploads, the engine's run
-    trace, a gate tool's evidence, and the streamed agent outputs) plus anything
-    matching ``exclude`` by full relative path OR by basename.
+    Excluded are the five reserved subtrees (owner uploads, the engine's run
+    trace, a gate tool's evidence, browser-based agent outputs, and the streamed
+    agent outputs) plus anything matching ``exclude`` by full relative path OR by
+    basename.
     """
     exclude_set = frozenset(_DELIVERABLE_EXCLUDE if exclude is None else exclude)
     if relpath.startswith(
-        (_UPLOADS_PREFIX, _LOGS_PREFIX, _VERIFY_PREFIX, _AGENT_OUTPUTS_PREFIX)
+        (_UPLOADS_PREFIX, _LOGS_PREFIX, _VERIFY_PREFIX, _BROWSER_PREFIX, _AGENT_OUTPUTS_PREFIX)
     ):
         return False
     return relpath not in exclude_set and relpath.rsplit("/", 1)[-1] not in exclude_set
