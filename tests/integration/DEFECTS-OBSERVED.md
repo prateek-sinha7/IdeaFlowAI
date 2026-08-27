@@ -842,3 +842,72 @@ than any mode indicator — there is none to assert on.
 
 **Fix sketch:** `cursor: grab` while Space is held, `grabbing` while dragging.
 One line, and it makes both the feature and its failure visible.
+
+---
+
+## D-34 — Logout is declared public and 204, and answers 401
+
+**Severity:** medium. **Found by:** `S-24-08`, phase 2.
+
+`capture/API-CONTRACT.json`, extracted from the route declaration:
+
+```json
+{"method":"POST","path":"/api/auth/logout","auth":"public",
+ "status_code":"HTTP_204_NO_CONTENT"}
+```
+
+The running server:
+
+```
+POST /api/auth/logout                                    -> 401
+POST /api/auth/logout  Authorization: Bearer <broken>    -> 401 {"detail":"Invalid token"}
+```
+
+The spec's reasoning for making it public is exactly right — *"a logout that
+requires a valid session cannot clear a broken one, which is exactly when a user
+reaches for it"*. That is what happens today. A user whose token has been
+revoked, expired, or invalidated by D-31 cannot log out through the API at all;
+the client has to clear localStorage on its own and hope the server-side
+revocation was not the point.
+
+This is the drift `24-api-contract` exists to catch: the static inventory and
+the running implementation disagree, and no UI test can see it.
+
+**Fix sketch:** accept and discard an unusable credential — revoke the jti if
+one can be read, answer 204 either way.
+
+---
+
+## D-35 — Security headers are invisible to the app's own JavaScript
+
+**Severity:** low, with a testing cost. **Found by:** `S-24-26`, phase 2.
+
+The sandbox file endpoint sets exactly the right headers:
+
+```
+content-disposition: attachment; filename="deck.html"
+x-content-type-options: nosniff
+content-type: application/octet-stream
+```
+
+None of the first two reaches the browser's `fetch`. The backend sets no
+`Access-Control-Expose-Headers`, so a cross-origin response exposes only the
+CORS-safelisted set — `Content-Type`, `Content-Length` and four others. The
+frontend runs on `:3000` and the API on `:8000`, so every response the product
+reads is cross-origin.
+
+Two consequences:
+
+1. The product cannot use the server's filename when saving a download; it has
+   to invent one.
+2. `S-24-26`, `S-24-27` and `S-24-31` can assert only the content type. The
+   `attachment` disposition and `nosniff` are verified on the wire (curl) but
+   cannot be asserted from inside the suite, which drives every request through
+   the browser so a bearer token never enters the test process.
+
+The content type alone still carries the security property — `application/octet-stream`
+is not renderable — so the assertion that matters survives. The other two are
+simply uncovered, and this records why.
+
+**Fix sketch:** `expose_headers=["Content-Disposition", "X-Content-Type-Options"]`
+on the CORS middleware.
