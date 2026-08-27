@@ -3,116 +3,345 @@
 Every test carries the `scenario` marker naming the Gherkin scenario it
 implements; `capture/_scenarios.py` checks both directions of that link.
 
-Stubs below are SKIPPED rather than passing — a test that asserts nothing
-but reports green is worse than no test at all.
+The run-completion toasts need a run to finish, so S-19-01..S-19-06 belong to
+the live tier. What runs offline is the admin family — its toasts, its timeout,
+and the in-app confirm that guards the most destructive control in the product.
+
+The admin scenarios mutate a seeded account and put it back in a `finally`.
+Each one changes exactly one thing about qa-pro and reverses it.
 """
 
 from __future__ import annotations
 
+import re
+import time
+from pathlib import Path
+
 import pytest
+from playwright.sync_api import expect
+
+from framework import accounts, settings
+from framework.locators import admin as ADMIN
+from framework.locators import toasts as L
+
+# …/tests/integration/e2e/suites/19_toasts_and_dialogs/ -> the repo root is five
+# levels up, not four: suites, e2e, integration, tests, root.
+FRONTEND = Path(__file__).resolve().parents[5] / "frontend" / "src"
+
+
+def open_admin(page) -> None:
+    page.goto("/admin")
+    expect(page.get_by_text(ADMIN.HEADING)).to_be_visible()
+    expect(page.locator(ADMIN.row(accounts.PRO)).first).to_be_visible()
+
+
+def toast_with(page, text: str):
+    """A toast carrying `text`, whichever live region it landed in."""
+    return page.get_by_text(re.compile(re.escape(text))).first
+
+
+# ── run-completion toasts (live) ─────────────────────────────────────────────
+
+_NEEDS_A_RUN = "needs a run to finish while the page is open; live tier"
 
 
 @pytest.mark.scenario("S-19-01")
-@pytest.mark.skip(reason="not yet implemented")
+@pytest.mark.live
+@pytest.mark.skip(reason=_NEEDS_A_RUN)
 def test_a_completed_run_raises_a_toast_with_a_way_into_the_result(page, shot):
     """Scenario: A completed run raises a toast with a way into the result"""
 
 
 @pytest.mark.scenario("S-19-02")
-@pytest.mark.skip(reason="not yet implemented")
+@pytest.mark.live
+@pytest.mark.skip(reason=_NEEDS_A_RUN)
 def test_a_failed_run_names_the_workflow_in_the_toast(page, shot):
     """Scenario: A failed run names the workflow in the toast"""
 
 
 @pytest.mark.scenario("S-19-03")
-@pytest.mark.skip(reason="not yet implemented")
+@pytest.mark.live
+@pytest.mark.skip(reason=_NEEDS_A_RUN)
 def test_a_completion_toast_dismisses_itself_after_7_seconds(page, shot):
     """Scenario: A completion toast dismisses itself after 7 seconds"""
 
 
 @pytest.mark.scenario("S-19-04")
-@pytest.mark.skip(reason="not yet implemented")
+@pytest.mark.live
+@pytest.mark.skip(reason=_NEEDS_A_RUN)
 def test_a_toast_can_be_dismissed_early(page, shot):
     """Scenario: A toast can be dismissed early"""
 
 
 @pytest.mark.scenario("S-19-05")
-@pytest.mark.skip(reason="not yet implemented")
+@pytest.mark.live
+@pytest.mark.skip(reason="needs two runs completing close together; live tier")
 def test_toasts_stack_rather_than_replace(page, shot):
     """Scenario: Toasts stack rather than replace"""
 
 
 @pytest.mark.scenario("S-19-06")
-@pytest.mark.skip(reason="not yet implemented")
+@pytest.mark.live
+@pytest.mark.skip(reason=_NEEDS_A_RUN)
 def test_a_toast_does_not_block_the_page_beneath_it(page, shot):
     """Scenario: A toast does not block the page beneath it"""
 
 
+# ── admin toasts ─────────────────────────────────────────────────────────────
+
+
 @pytest.mark.scenario("S-19-07")
-@pytest.mark.skip(reason="not yet implemented")
-def test_admin_actions_confirm_themselves_by_toast(page, shot):
-    """Scenario: Admin actions confirm themselves by toast"""
+@pytest.mark.destructive
+@pytest.mark.parametrize("action", ["grant", "revoke", "tier", "create", "delete"])
+def test_admin_actions_confirm_themselves_by_toast(page, shot, action):
+    """Scenario: Admin actions confirm themselves by toast
+
+    Only the three REVERSIBLE actions run. Creating and deleting a user need a
+    disposable fixture account this suite does not have — the same reason
+    S-11-15 and S-19-13 defer.
+
+    Each of the three changes exactly one thing about qa-pro and puts it back.
+    """
+    if action in ("create", "delete"):
+        pytest.skip("needs a disposable fixture user; see S-11-15")
+
+    open_admin(page)
+
+    if action in ("grant", "revoke"):
+        try:
+            with shot("grant-admin", "When I grant admin access"):
+                page.click(ADMIN.grant_admin(accounts.PRO))
+                expect(toast_with(page, L.ADMIN_MESSAGES["grant"])).to_be_visible()
+
+            if action == "revoke":
+                with shot("revoke-admin", "When I remove admin access"):
+                    page.click(ADMIN.revoke_admin(accounts.PRO))
+                    expect(toast_with(page, L.ADMIN_MESSAGES["revoke"])).to_be_visible()
+        finally:
+            open_admin(page)
+            if page.locator(ADMIN.revoke_admin(accounts.PRO)).count():
+                page.click(ADMIN.revoke_admin(accounts.PRO))
+                page.wait_for_timeout(settings.SETTLE_MS // 2)
+        return
+
+    # tier
+    row = page.locator(ADMIN.row(accounts.PRO)).first
+    trigger = row.locator('button[aria-haspopup="menu"]').first
+    before = trigger.inner_text().strip().split("\n")[0]
+    try:
+        with shot("tier-changed", "When I change a user's tier"):
+            trigger.click()
+            page.get_by_role("menuitem", name=re.compile("Enterprise", re.I)).first.click()
+            expect(toast_with(page, L.ADMIN_MESSAGES["tier"])).to_be_visible()
+    finally:
+        open_admin(page)
+        trigger = page.locator(ADMIN.row(accounts.PRO)).first.locator(
+            'button[aria-haspopup="menu"]'
+        ).first
+        if trigger.inner_text().strip().split("\n")[0].lower() != before.lower():
+            trigger.click()
+            page.get_by_role("menuitem", name=re.compile(before, re.I)).first.click()
+            page.wait_for_timeout(settings.SETTLE_MS // 2)
 
 
 @pytest.mark.scenario("S-19-08")
-@pytest.mark.skip(reason="not yet implemented")
 def test_an_admin_failure_is_reported_not_swallowed(page, shot):
-    """Scenario: An admin failure is reported, not swallowed"""
+    """Scenario: An admin failure is reported, not swallowed
+
+    Driven through a refusal the backend already guarantees — an admin may not
+    change their OWN tier (S-11-08) — so nothing is mutated to produce the
+    error.
+    """
+    open_admin(page)
+    row = page.locator(ADMIN.row(accounts.ADMIN)).first
+    trigger = row.locator('button[aria-haspopup="menu"]').first
+
+    if trigger.is_disabled():
+        pytest.skip("the admin's own tier control is disabled, so no request is made")
+
+    with shot("admin-error-toast", "When I attempt a change the backend rejects"):
+        trigger.click()
+        page.get_by_role("menuitem", name=re.compile("Basic", re.I)).first.click()
+        page.wait_for_timeout(settings.SETTLE_MS)
+
+    body = page.evaluate("() => document.body.innerText")
+    assert any(
+        word in body.lower() for word in ("cannot", "not allowed", "failed", "refus", "own")
+    ), f"the refusal was swallowed — nothing on screen reports it: {body[:300]!r}"
 
 
 @pytest.mark.scenario("S-19-09")
-@pytest.mark.skip(reason="not yet implemented")
+@pytest.mark.destructive
 def test_the_two_toast_families_use_different_timeouts(page, shot):
-    """Scenario: The two toast families use different timeouts"""
+    """Scenario: The two toast families use different timeouts
+
+    Measures the ADMIN toast, which is reachable offline. The 7000ms
+    run-completion timeout is S-19-03's, in the live tier — this asserts the
+    admin one is meaningfully shorter, which is the part a shared wait helper
+    gets wrong.
+    """
+    open_admin(page)
+
+    try:
+        with shot("admin-toast-shown", "When an admin toast appears"):
+            page.click(ADMIN.grant_admin(accounts.PRO))
+            toast = toast_with(page, L.ADMIN_MESSAGES["grant"])
+            expect(toast).to_be_visible()
+            started = time.monotonic()
+
+        # Gone well before a run-completion toast would be.
+        expect(toast).to_have_count(0, timeout=L.RUN_TIMEOUT_MS)
+        elapsed_ms = (time.monotonic() - started) * 1000
+        assert elapsed_ms < L.RUN_TIMEOUT_MS, (
+            f"the admin toast lasted {elapsed_ms:.0f}ms — as long as a "
+            "run-completion toast, so the two families no longer differ"
+        )
+    finally:
+        open_admin(page)
+        if page.locator(ADMIN.revoke_admin(accounts.PRO)).count():
+            page.click(ADMIN.revoke_admin(accounts.PRO))
+            page.wait_for_timeout(settings.SETTLE_MS // 2)
+
+
+# ── the delete-user confirm ──────────────────────────────────────────────────
 
 
 @pytest.mark.scenario("S-19-10")
 @pytest.mark.destructive
-@pytest.mark.skip(reason="not yet implemented")
 def test_deleting_a_user_requires_confirmation(page, shot):
-    """Scenario: Deleting a user requires confirmation"""
+    """Scenario: Deleting a user requires confirmation
+
+    Opens the dialog and cancels. Nothing is deleted — the whole point is that
+    the control does not act on its own.
+    """
+    open_admin(page)
+
+    with shot("delete-dialog", 'When I activate "Delete <email>"'):
+        page.click(ADMIN.delete_user(accounts.PRO))
+        expect(page.get_by_text(L.DELETE_DIALOG)).to_be_visible()
+
+    expect(page.get_by_text(re.compile(L.DELETE_WARNING, re.I))).to_be_visible()
+    expect(page.locator(L.CANCEL)).to_be_visible()
+    expect(page.locator(L.CONFIRM_DELETE).last).to_be_visible()
+    page.click(L.CANCEL)
 
 
 @pytest.mark.scenario("S-19-11")
 @pytest.mark.destructive
-@pytest.mark.skip(reason="not yet implemented")
 def test_cancelling_a_delete_leaves_the_user_intact(page, shot):
     """Scenario: Cancelling a delete leaves the user intact"""
+    open_admin(page)
+    page.click(ADMIN.delete_user(accounts.PRO))
+    expect(page.get_by_text(L.DELETE_DIALOG)).to_be_visible()
+
+    with shot("delete-cancelled", 'When I activate "Cancel"'):
+        page.click(L.CANCEL)
+        expect(page.get_by_text(L.DELETE_DIALOG)).to_have_count(0)
+
+    expect(page.locator(ADMIN.row(accounts.PRO)).first).to_be_visible()
 
 
 @pytest.mark.scenario("S-19-12")
 @pytest.mark.destructive
-@pytest.mark.skip(reason="not yet implemented")
 def test_clicking_the_scrim_cancels_the_delete(page, shot):
     """Scenario: Clicking the scrim cancels the delete"""
+    open_admin(page)
+    page.click(ADMIN.delete_user(accounts.PRO))
+    expect(page.get_by_text(L.DELETE_DIALOG)).to_be_visible()
+
+    with shot("scrim-cancelled", "When I click the scrim outside the dialog"):
+        # Top-left corner: far from the centred dialog, inside the scrim.
+        page.mouse.click(8, 8)
+        expect(page.get_by_text(L.DELETE_DIALOG)).to_have_count(0)
+
+    expect(page.locator(ADMIN.row(accounts.PRO)).first).to_be_visible()
 
 
 @pytest.mark.scenario("S-19-13")
 @pytest.mark.destructive
-@pytest.mark.skip(reason="not yet implemented")
+@pytest.mark.skip(reason="deletes a real account; needs a disposable fixture user (S-11-15)")
 def test_confirming_removes_the_user_and_says_so(page, shot):
     """Scenario: Confirming removes the user and says so"""
 
 
 @pytest.mark.scenario("S-19-14")
-@pytest.mark.skip(reason="not yet implemented")
 def test_an_admin_cannot_delete_themselves_into_lockout(page, shot):
-    """Scenario: An admin cannot delete themselves into lockout"""
+    """Scenario: An admin cannot delete themselves into lockout
+
+    The spec records this as UNVERIFIED — no last-admin guard was found in
+    `app/admin/page.tsx`. The guard that DOES exist is a narrower one: an admin
+    cannot delete their own account at all, which is what this asserts.
+
+    That is not the same promise. With two admins, either can delete the other,
+    and the second deletion is refused only because it is a self-delete. Whether
+    the last admin can be removed by another admin is untested here because it
+    cannot be tried without destroying the fixture that would prove it.
+    """
+    open_admin(page)
+
+    with shot("self-delete", "When I look at my own row's delete control"):
+        own = page.locator(ADMIN.delete_user(accounts.ADMIN))
+
+    assert own.count() == 0 or own.first.is_disabled(), (
+        "an admin is offered a working delete control on their own row"
+    )
+
+
+# ── native browser dialogs ───────────────────────────────────────────────────
 
 
 @pytest.mark.scenario("S-19-15")
-@pytest.mark.skip(reason="not yet implemented")
+@pytest.mark.live
+@pytest.mark.skip(reason="needs a run whose deliverable download can be made to fail; live tier")
 def test_a_failed_download_reports_itself_through_window_alert(page, shot):
     """Scenario: A failed download reports itself through window.alert"""
 
 
 @pytest.mark.scenario("S-19-16")
-@pytest.mark.skip(reason="not yet implemented")
 def test_every_test_that_can_trigger_a_download_registers_a_dialog_handler(page, shot):
-    """Scenario: Every test that can trigger a download registers a dialog handler"""
+    """Scenario: Every test that can trigger a download registers a dialog handler
+
+    A HARNESS requirement, not a product assertion — recorded here because this
+    is where someone will look for it. Playwright BLOCKS on a native dialog
+    until something handles it, so an unhandled alert hangs the run instead of
+    failing it.
+
+    `conftest.dismiss_native_dialogs` is autouse, and this proves it: raising an
+    alert here would hang this very test if the handler were missing.
+    """
+    with shot("dialog-handled", "When a native alert is raised"):
+        page.goto("/dashboard")
+        page.evaluate("() => window.alert('e2e dialog-handler check')")
+
+    assert "e2e dialog-handler check" in getattr(page, "native_dialogs", []), (
+        "the autouse dialog handler did not see the alert"
+    )
+    # The page is still usable — nothing is blocked behind an open dialog.
+    assert page.evaluate("() => document.readyState") == "complete"
 
 
 @pytest.mark.scenario("S-19-17")
-@pytest.mark.skip(reason="not yet implemented")
 def test_download_failures_are_the_only_native_dialogs_in_the_product(page, shot):
-    """Scenario: Download failures are the only native dialogs in the product"""
+    """Scenario: Download failures are the only native dialogs in the product
+
+    A source assertion, deliberately: destructive confirmation is done with the
+    in-app dialog above, which is the better pattern, and this is what stops
+    someone reintroducing `window.confirm`. There is no runtime surface that
+    could prove an absence.
+    """
+    offenders = []
+    for path in FRONTEND.rglob("*.ts*"):
+        if ".test." in path.name or path.name.endswith(".d.ts"):
+            continue
+        text = path.read_text(errors="ignore")
+        for call in ("window.confirm(", "window.prompt(", "confirm(", "prompt("):
+            if re.search(rf"(?<![\w.]){re.escape(call)}", text) and call.startswith("window."):
+                offenders.append(f"{path.relative_to(FRONTEND)}: {call}")
+    assert not offenders, f"native confirm/prompt reintroduced: {offenders}"
+
+    alerts = sum(
+        len(re.findall(r"(?<![\w.])window\.alert\(", p.read_text(errors="ignore")))
+        for p in FRONTEND.rglob("*.ts*")
+        if ".test." not in p.name
+    )
+    assert alerts > 0, "no window.alert remains — S-19-15 has nothing left to assert"

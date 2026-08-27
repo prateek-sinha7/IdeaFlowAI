@@ -195,6 +195,30 @@ def pytest_runtest_makereport(item, call):
         )
 
 
+@pytest.fixture(autouse=True)
+def dismiss_native_dialogs(page):
+    """Dismiss `window.alert` rather than let it block the run.
+
+    Playwright BLOCKS on a native dialog until something handles it, so an
+    unhandled alert HANGS the test instead of failing it — and the product
+    raises six of them, all download failures (19-toasts-and-dialogs). Autouse
+    because the tests that can trigger one are not the tests that expect one:
+    any preview or Files-tab interaction can.
+
+    Handlers registered later by a test take precedence, so a scenario that
+    wants to READ the alert text can still add its own.
+    """
+    seen: list[str] = []
+
+    def handle(dialog):
+        seen.append(dialog.message)
+        dialog.dismiss()
+
+    page.on("dialog", handle)
+    page.native_dialogs = seen  # readable by a test that wants to assert on them
+    yield seen
+
+
 @pytest.fixture
 def shot(page, run_dir, request) -> Shooter:
     """Screenshot writer bound to this scenario's own folder.
