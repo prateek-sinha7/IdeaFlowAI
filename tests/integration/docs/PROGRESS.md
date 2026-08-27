@@ -5,8 +5,8 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **302** |
-| Implemented but skipped | **204** |
+| Implemented and running | **311** |
+| Implemented but skipped | **195** |
 | Not yet written | **0** |
 | **Total** | **506** |
 
@@ -327,23 +327,23 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-13-19` | A backend outage is reported, not swallowed | `13_errors/test_errors.py` |
 | ok | `S-13-20` | A failed run is presented as failed | `13_errors/test_errors.py` |
 
-## 14-run-states.feature.md — 0/13 (13 skipped)
+## 14-run-states.feature.md — 9/13 (4 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-14-01` | A failed run explains itself and offers a way forward | `14_run_states/test_run_states.py` — not yet implemented |
-| s  | `S-14-02` | A failed run has no Preview tab | `14_run_states/test_run_states.py` — not yet implemented |
-| s  | `S-14-03` | A cancelled run offers to resume | `14_run_states/test_run_states.py` — not yet implemented |
-| s  | `S-14-04` | The cancelled empty-state names a tab that does not exist | `14_run_states/test_run_states.py` — not yet implemented |
-| s  | `S-14-05` | A diverted run points at its continuation | `14_run_states/test_run_states.py` — not yet implemented |
-| s  | `S-14-06` | A live run streams and can be stopped | `14_run_states/test_run_states.py` — not yet implemented |
-| s  | `S-14-07` | A live run cannot deep-link any tab | `14_run_states/test_run_states.py` — not yet implemented |
-| s  | `S-14-08` | The same tab URLs work once the run finishes | `14_run_states/test_run_states.py` — not yet implemented |
-| s  | `S-14-09` | A failed run's audit reports its governance totals | `14_run_states/test_run_states.py` — not yet implemented |
-| s  | `S-14-10` | Audit categories filter the trail | `14_run_states/test_run_states.py` — not yet implemented |
-| s  | `S-14-11` | A secret scan appears as a security record | `14_run_states/test_run_states.py` — not yet implemented |
-| s  | `S-14-12` | Run history shows the right status chip | `14_run_states/test_run_states.py` — not yet implemented |
-| s  | `S-14-13` | A run parked at a human gate is answerable | `14_run_states/test_run_states.py` — not yet implemented |
+| ok | `S-14-01` | A failed run explains itself and offers a way forward | `14_run_states/test_run_states.py` |
+| ok | `S-14-02` | A failed run has no Preview tab | `14_run_states/test_run_states.py` |
+| ok | `S-14-03` | A cancelled run offers to resume | `14_run_states/test_run_states.py` |
+| ok | `S-14-04` | The cancelled empty-state names a tab that does not exist | `14_run_states/test_run_states.py` |
+| s  | `S-14-05` | A diverted run points at its continuation | `14_run_states/test_run_states.py` — no run in this history is diverted; 22_handoff_and_gates makes one |
+| s  | `S-14-06` | A live run streams and can be stopped | `14_run_states/test_run_states.py` — needs a run in flight; live tier |
+| s  | `S-14-07` | A live run cannot deep-link any tab | `14_run_states/test_run_states.py` — needs a run in flight to reproduce the /stream override; live tier |
+| ok | `S-14-08` | The same tab URLs work once the run finishes | `14_run_states/test_run_states.py` |
+| ok | `S-14-09` | A failed run's audit reports its governance totals | `14_run_states/test_run_states.py` |
+| ok | `S-14-10` | Audit categories filter the trail | `14_run_states/test_run_states.py` |
+| ok | `S-14-11` | A secret scan appears as a security record | `14_run_states/test_run_states.py` |
+| ok | `S-14-12` | Run history shows the right status chip | `14_run_states/test_run_states.py` |
+| s  | `S-14-13` | A run parked at a human gate is answerable | `14_run_states/test_run_states.py` — needs a run parked at a human gate; creating one costs a real LLM run  |
 
 ## 15-overlays.feature.md — 0/29 (29 skipped)
 

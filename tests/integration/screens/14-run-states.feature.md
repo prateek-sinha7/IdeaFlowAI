@@ -114,6 +114,8 @@ Feature: Run states
     And the Preview pane reads "Output will appear here"
 
   @S-14-06
+  @live
+  # live: needs a run in flight, so it cannot run in the offline tier.
   Scenario: A live run streams and can be stopped
     Given a run whose status is "generating"
     When I cold-load its detail URL
@@ -124,6 +126,8 @@ Feature: Run states
     And the deliverable is marked as a draft
 
   @S-14-07
+  @live
+  # live: needs a run in flight to reproduce the /stream override, so it cannot run in the offline tier.
   @defect
   # D-06. The highest-value routing defect found in sweep 2. Every tab URL of a
   # running run is overridden to /stream + Steps. The same URLs work once the run
