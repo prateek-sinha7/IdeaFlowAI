@@ -1,5 +1,5 @@
 ---
-built_from_commit: 739c798c008bc3c9b78d57d904e1af47f29357e0
+built_from_commit: d95b144aab397df1e31d1862e84f9f34676fe623
 built_at: 2026-08-17
 cards_indexed: 597
 modules_indexed: 36

@@ -5,8 +5,8 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **214** |
-| Implemented but skipped | **292** |
+| Implemented and running | **250** |
+| Implemented but skipped | **256** |
 | Not yet written | **0** |
 | **Total** | **506** |
 
@@ -401,22 +401,22 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | s  | `S-16-16` | A valid handoff token opens the handoff workflow | `16_pages_outside_routes/test_pages_outside_routes.py` — needs a fixture that mints a valid handoff token; 22_handoff_and_gates |
 | s  | `S-16-17` | A handoff token belonging to another user is refused | `16_pages_outside_routes/test_pages_outside_routes.py` — needs a handoff token issued to another user; 22_handoff_and_gates |
 
-## 17-theme-and-tiers.feature.md — 0/12 (12 skipped)
+## 17-theme-and-tiers.feature.md — 11/12 (1 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-17-01` | Dark mode applies and persists | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
-| s  | `S-17-02` | The theme control names the target, not the state | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
-| s  | `S-17-03` | Every major surface renders in both themes | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
-| s  | `S-17-04` | Theme is a per-browser preference, not per-account | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
-| s  | `S-17-05` | The account menu reflects the role, not the tier | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
-| s  | `S-17-06` | A non-admin is redirected away from the admin surface | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
-| s  | `S-17-07` | Deliverable access matches the tier | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
-| s  | `S-17-08` | Deliverable Access omits workflows the catalog offers | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
-| s  | `S-17-09` | A hexaware user gains prototype and loses presentations | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
-| s  | `S-17-10` | The admin dialog offers every tier the backend knows | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
-| s  | `S-17-11` | Entitlement is enforced by the backend, not only the badge | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
-| s  | `S-17-12` | One user's runs are invisible to another | `17_theme_and_tiers/test_theme_and_tiers.py` — not yet implemented |
+| ok | `S-17-01` | Dark mode applies and persists | `17_theme_and_tiers/test_theme_and_tiers.py` |
+| ok | `S-17-02` | The theme control names the target, not the state | `17_theme_and_tiers/test_theme_and_tiers.py` |
+| ok | `S-17-03` | Every major surface renders in both themes | `17_theme_and_tiers/test_theme_and_tiers.py` |
+| ok | `S-17-04` | Theme is a per-browser preference, not per-account | `17_theme_and_tiers/test_theme_and_tiers.py` |
+| ok | `S-17-05` | The account menu reflects the role, not the tier | `17_theme_and_tiers/test_theme_and_tiers.py` |
+| ok | `S-17-06` | A non-admin is redirected away from the admin surface | `17_theme_and_tiers/test_theme_and_tiers.py` |
+| ok | `S-17-07` | Deliverable access matches the tier | `17_theme_and_tiers/test_theme_and_tiers.py` |
+| ok | `S-17-08` | Deliverable Access omits workflows the catalog offers | `17_theme_and_tiers/test_theme_and_tiers.py` |
+| s  | `S-17-09` | A hexaware user gains prototype and loses presentations | `17_theme_and_tiers/test_theme_and_tiers.py` — no hexaware account is seeded; creating one needs the admin  |
+| ok | `S-17-10` | The admin dialog offers every tier the backend knows | `17_theme_and_tiers/test_theme_and_tiers.py` |
+| ok | `S-17-11` | Entitlement is enforced by the backend, not only the badge | `17_theme_and_tiers/test_theme_and_tiers.py` |
+| ok | `S-17-12` | One user's runs are invisible to another | `17_theme_and_tiers/test_theme_and_tiers.py` |
 
 ## 18-chat-lane.feature.md — 0/19 (19 skipped)
 
@@ -442,48 +442,48 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | s  | `S-18-18` | The unavailable chip has its own testid | `18_chat_lane/test_chat_lane.py` — not yet implemented |
 | s  | `S-18-19` | Chain suggestions appear only where they are meaningful | `18_chat_lane/test_chat_lane.py` — not yet implemented |
 
-## 19-toasts-and-dialogs.feature.md — 0/17 (17 skipped)
+## 19-toasts-and-dialogs.feature.md — 14/17 (3 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-19-01` | A completed run raises a toast with a way into the result | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-02` | A failed run names the workflow in the toast | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-03` | A completion toast dismisses itself after 7 seconds | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-04` | A toast can be dismissed early | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-05` | Toasts stack rather than replace | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-06` | A toast does not block the page beneath it | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-07` | Admin actions confirm themselves by toast | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-08` | An admin failure is reported, not swallowed | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-09` | The two toast families use different timeouts | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-10` | Deleting a user requires confirmation | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-11` | Cancelling a delete leaves the user intact | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-12` | Clicking the scrim cancels the delete | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-13` | Confirming removes the user and says so | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-14` | An admin cannot delete themselves into lockout | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-15` | A failed download reports itself through window.alert | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-16` | Every test that can trigger a download registers a dialog handler | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
-| s  | `S-19-17` | Download failures are the only native dialogs in the product | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — not yet implemented |
+| ok | `S-19-01` | A completed run raises a toast with a way into the result | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
+| ok | `S-19-02` | A failed run names the workflow in the toast | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
+| ok | `S-19-03` | A completion toast dismisses itself after 7 seconds | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
+| ok | `S-19-04` | A toast can be dismissed early | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
+| s  | `S-19-05` | Toasts stack rather than replace | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — needs two runs completing close together; live tier |
+| ok | `S-19-06` | A toast does not block the page beneath it | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
+| ok | `S-19-07` | Admin actions confirm themselves by toast | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
+| ok | `S-19-08` | An admin failure is reported, not swallowed | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
+| ok | `S-19-09` | The two toast families use different timeouts | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
+| ok | `S-19-10` | Deleting a user requires confirmation | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
+| ok | `S-19-11` | Cancelling a delete leaves the user intact | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
+| ok | `S-19-12` | Clicking the scrim cancels the delete | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
+| s  | `S-19-13` | Confirming removes the user and says so | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — deletes a real account; needs a disposable fixture user (S-11-15) |
+| ok | `S-19-14` | An admin cannot delete themselves into lockout | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
+| s  | `S-19-15` | A failed download reports itself through window.alert | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — needs a run whose deliverable download can be made to fail; live tier |
+| ok | `S-19-16` | Every test that can trigger a download registers a dialog handler | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
+| ok | `S-19-17` | Download failures are the only native dialogs in the product | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
 
-## 20-keyboard-and-navigation.feature.md — 0/16 (16 skipped)
+## 20-keyboard-and-navigation.feature.md — 11/16 (5 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-20-01` | Escape closes an overlay | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-02` | Escape closes the add-agent modal | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-03` | Holding Space pans the canvas | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-04` | Space still types a space in a text field | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-05` | Space-to-pan releases on keyup | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-06` | Modifier shortcuts behave as advertised | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-07` | Submitting a chat message by keyboard | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-08` | Every route survives a cold load | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-09` | An in-app affordance lands where its URL claims | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-10` | Back returns to where I came from | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-11` | A new-tab affordance opens a new tab | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-12` | A session that cannot be refreshed forces a hard reload to sign-in | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-13` | A route-level render error is caught and explained | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-14` | Recovering from an error boundary does a full reload | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-15` | A root-level failure still renders something | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
-| s  | `S-20-16` | A server 500 does not leave the user on a blank page | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — not yet implemented |
+| ok | `S-20-01` | Escape closes an overlay | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` |
+| ok | `S-20-02` | Escape closes the add-agent modal | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` |
+| ok | `S-20-03` | Holding Space pans the canvas | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` |
+| ok | `S-20-04` | Space still types a space in a text field | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` |
+| ok | `S-20-05` | Space-to-pan releases on keyup | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` |
+| s  | `S-20-06` | Modifier shortcuts behave as advertised | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — a placeholder marking known-unknown territory: six files read  |
+| s  | `S-20-07` | Submitting a chat message by keyboard | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — the run chat composer belongs to 18_chat_lane; its send binding is unconfirmed |
+| ok | `S-20-08` | Every route survives a cold load | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` |
+| ok | `S-20-09` | An in-app affordance lands where its URL claims | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` |
+| ok | `S-20-10` | Back returns to where I came from | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` |
+| s  | `S-20-11` | A new-tab affordance opens a new tab | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — the template and design-system modals belong to 15_overlays |
+| ok | `S-20-12` | A session that cannot be refreshed forces a hard reload to sign-in | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` |
+| ok | `S-20-13` | A route-level render error is caught and explained | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` |
+| s  | `S-20-14` | Recovering from an error boundary does a full reload | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — needs the route-level boundary to actually render; S-20-13 shows the  |
+| s  | `S-20-15` | A root-level failure still renders something | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` — app/global-error.tsx catches what escapes the route boundary; no  |
+| ok | `S-20-16` | A server 500 does not leave the user on a blank page | `20_keyboard_and_navigation/test_keyboard_and_navigation.py` |
 
 ## 21-run-families-and-versions.feature.md — 0/15 (15 skipped)
 

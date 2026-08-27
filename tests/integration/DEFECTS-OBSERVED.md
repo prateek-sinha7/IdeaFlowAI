@@ -813,3 +813,32 @@ fail the day the error toast appears.
 
 **Fix sketch:** await the response before updating the row, and surface the
 server's message in the error toast the other admin actions already use.
+
+---
+
+## D-33 — Space-to-pan is invisible, and redundant
+
+**Severity:** low, discoverability. **Found by:** `S-20-03` / `S-20-05`, phase 2.
+
+The canvas prints "Hold Space + drag to pan" as on-screen guidance. Holding
+Space changes nothing observable:
+
+```js
+getComputedStyle(canvas).cursor  // "auto", Space held or not
+canvas.className                 // "flex h-full min-h-0", unchanged
+```
+
+No cursor, no class, no attribute. A user who holds Space has no confirmation
+that anything happened, and a stuck pan mode — the exact failure a missed keyup
+produces — is indistinguishable from a working canvas until they try to drag
+something.
+
+Dragging empty canvas already pans it, with or without Space. The Space binding
+only changes what a drag STARTING ON A NODE does: pan instead of move. That is
+the single behaviour it adds, and it is the one the hint does not describe.
+
+`S-20-03` and `S-20-05` therefore assert the relative motion of the nodes rather
+than any mode indicator — there is none to assert on.
+
+**Fix sketch:** `cursor: grab` while Space is held, `grabbing` while dragging.
+One line, and it makes both the feature and its failure visible.

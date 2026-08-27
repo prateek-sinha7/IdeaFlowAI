@@ -102,6 +102,8 @@ fixtures, which is exactly why a test suite meets them unprepared.
 Feature: Toasts
 
   @S-19-01
+  @live
+  # live: needs a run to finish while the page is open, so it cannot run in the offline tier.
   @sourced
   Scenario: A completed run raises a toast with a way into the result
     Given a run I started is in progress
@@ -114,6 +116,8 @@ Feature: Toasts
     Then I land on that run's preview
 
   @S-19-02
+  @live
+  # live: needs a run to fail while the page is open, so it cannot run in the offline tier.
   @sourced
   Scenario: A failed run names the workflow in the toast
     Given a run I started is in progress
@@ -123,6 +127,8 @@ Feature: Toasts
     # Only the success toast carries an Open affordance.
 
   @S-19-03
+  @live
+  # live: needs a completion toast, which needs a run to finish, so it cannot run in the offline tier.
   @sourced
   Scenario: A completion toast dismisses itself after 7 seconds
     Given a completion toast is showing
@@ -132,6 +138,8 @@ Feature: Toasts
     # asserts its presence must run within it.
 
   @S-19-04
+  @live
+  # live: needs a completion toast, which needs a run to finish, so it cannot run in the offline tier.
   @sourced
   Scenario: A toast can be dismissed early
     Given a completion toast is showing
@@ -139,6 +147,8 @@ Feature: Toasts
     Then it is gone immediately
 
   @S-19-05
+  @live
+  # live: needs two runs completing close together, so it cannot run in the offline tier.
   @sourced
   Scenario: Toasts stack rather than replace
     Given two of my runs complete close together
@@ -146,6 +156,8 @@ Feature: Toasts
     And dismissing one leaves the other
 
   @S-19-06
+  @live
+  # live: needs a toast, which needs a run to finish, so it cannot run in the offline tier.
   @sourced
   Scenario: A toast does not block the page beneath it
     Given a toast is showing
@@ -242,6 +254,8 @@ Feature: Destructive confirms
 Feature: Native browser dialogs
 
   @S-19-15
+  @live
+  # live: needs a deliverable download that can be made to fail, so it cannot run in the offline tier.
   @sourced
   Scenario Outline: A failed download reports itself through window.alert
     Given a run whose "<surface>" download will fail
