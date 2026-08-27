@@ -5,8 +5,8 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **250** |
-| Implemented but skipped | **256** |
+| Implemented and running | **302** |
+| Implemented but skipped | **204** |
 | Not yet written | **0** |
 | **Total** | **506** |
 
@@ -144,46 +144,46 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-06-20` | A run card can be opened in a new tab | `06_run_history/test_run_history.py` |
 | ok | `S-06-21` | Run history rows are addressable by a stable hook | `06_run_history/test_run_history.py` |
 
-## 07-run-detail.feature.md — 0/36 (36 skipped)
+## 07-run-detail.feature.md — 27/36 (9 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-07-01` | A cold load of a run shows its header and deliverable | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-02` | Every tab has an addressable URL | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-03` | Clicking a tab pushes its URL | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-04` | Switching tabs does not wipe run state | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-05` | A run parked at a human gate stays answerable after a tab click | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-06` | Browser back and forward move between tabs without remounting the run | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-07` | A hard refresh on any tab restores that tab | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-08` | The Workspace tab is in the routing contract | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-09` | Steps lists every roster agent and marks the untaken branches | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-10` | An agent row is addressable by URL | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-11` | The starting point shows the brief | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-12` | Files groups the deliverable apart from intermediates | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-13` | The deliverable reports its own validation state | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-14` | Workspace lists the run's files and starts unselected | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-15` | Artifacts opens expanded, All files opens collapsed | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-16` | Only All files offers sort and bulk expand | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-17` | The viewer renders each file kind as what it is | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-18` | Markdown and HTML can be toggled between source and rendered | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-19` | Download all zips the whole workspace | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-20` | A ppt_v2 run shows both artifacts in one view | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-21` | Each empty state says which one it is | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-22` | An expired workspace says where the deliverable still is | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-23` | A workspace with no top-level output offers a way to its files | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-24` | Audit filters by category | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-25` | Audit records the human and conditional gates of a gated run | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-26` | Blocked-only narrows the audit to denials | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-27` | The preview renderer can be switched | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-28` | Choosing HTML for a markdown deliverable renders nothing | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-29` | A prototype run offers its own renderer mode | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-30` | A prototype run previews its validated deliverable | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-31` | A deck run offers Slides and Full Screen | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-32` | Full preview is its own URL | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-33` | The run chat lane accepts a follow-up | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-34` | Back to history returns to the list | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-35` | A specific run version is addressable | `07_run_detail/test_run_detail.py` — not yet implemented |
-| s  | `S-07-36` | A live run streams into the same surface | `07_run_detail/test_run_detail.py` — not yet implemented |
+| ok | `S-07-01` | A cold load of a run shows its header and deliverable | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-02` | Every tab has an addressable URL | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-03` | Clicking a tab pushes its URL | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-04` | Switching tabs does not wipe run state | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-05` | A run parked at a human gate stays answerable after a tab click | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-06` | Browser back and forward move between tabs without remounting the run | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-07` | A hard refresh on any tab restores that tab | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-08` | The Workspace tab is in the routing contract | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-09` | Steps lists every roster agent and marks the untaken branches | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-10` | An agent row is addressable by URL | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-11` | The starting point shows the brief | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-12` | Files groups the deliverable apart from intermediates | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-13` | The deliverable reports its own validation state | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-14` | Workspace lists the run's files and starts unselected | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-15` | Artifacts opens expanded, All files opens collapsed | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-16` | Only All files offers sort and bulk expand | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-17` | The viewer renders each file kind as what it is | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-18` | Markdown and HTML can be toggled between source and rendered | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-19` | Download all zips the whole workspace | `07_run_detail/test_run_detail.py` |
+| s  | `S-07-20` | A ppt_v2 run shows both artifacts in one view | `07_run_detail/test_run_detail.py` — needs a completed ppt_v2 run whose workspace holds both artifacts |
+| s  | `S-07-21` | Each empty state says which one it is | `07_run_detail/test_run_detail.py` — needs runs in four specific workspace states; none is seeded |
+| s  | `S-07-22` | An expired workspace says where the deliverable still is | `07_run_detail/test_run_detail.py` — needs a TTL-swept workspace; every seeded run still has one |
+| s  | `S-07-23` | A workspace with no top-level output offers a way to its files | `07_run_detail/test_run_detail.py` — needs a run whose files are all nested; none is seeded |
+| ok | `S-07-24` | Audit filters by category | `07_run_detail/test_run_detail.py` |
+| s  | `S-07-25` | Audit records the human and conditional gates of a gated run | `07_run_detail/test_run_detail.py` — needs a run that passed BOTH a human and a conditional gate; 22_handoff_and_gates makes one |
+| ok | `S-07-26` | Blocked-only narrows the audit to denials | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-27` | The preview renderer can be switched | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-28` | Choosing HTML for a markdown deliverable renders nothing | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-29` | A prototype run offers its own renderer mode | `07_run_detail/test_run_detail.py` |
+| s  | `S-07-30` | A prototype run previews its validated deliverable | `07_run_detail/test_run_detail.py` — D-18: asserting which FILE the Preview pane renders needs a hook the  |
+| s  | `S-07-31` | A deck run offers Slides and Full Screen | `07_run_detail/test_run_detail.py` — needs a completed ppt_v2 deck run |
+| ok | `S-07-32` | Full preview is its own URL | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-33` | The run chat lane accepts a follow-up | `07_run_detail/test_run_detail.py` |
+| ok | `S-07-34` | Back to history returns to the list | `07_run_detail/test_run_detail.py` |
+| s  | `S-07-35` | A specific run version is addressable | `07_run_detail/test_run_detail.py` — no run in this database has more than one version |
+| s  | `S-07-36` | A live run streams into the same surface | `07_run_detail/test_run_detail.py` — needs a run that is currently generating; live tier |
 
 ## 08-library.feature.md — 20/20
 
@@ -600,41 +600,41 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | s  | `S-23-56` | The skill manager's editor | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
 | s  | `S-23-57` | The sidebar's controls | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
 
-## 24-api-contract.feature.md — 0/34 (34 skipped)
+## 24-api-contract.feature.md — 25/34 (9 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-24-01` | The endpoint inventory matches the snapshot | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-02` | No endpoint loses its authentication silently | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-03` | The public list is exactly eighteen, and each is deliberate | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-04` | A request with no credentials is answered 401, not 403 | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-05` | Registration is permanently closed | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-06` | Login returns either a session or a challenge | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-07` | A challenge is answered on its own endpoint | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-08` | Logout works with an already-invalid token | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-09` | Password recovery refuses when email is a second factor | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-10` | Second-factor management requires a session | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-11` | Every admin endpoint requires an admin | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-12` | Creating a user answers 201 with the created user | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-13` | Deleting a user answers 204 with no body | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-14` | Role and tier changes return the updated user | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-15` | Template previews load without a token | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-16` | The asset route refuses path traversal | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-17` | A missing asset is a 404, not a 500 | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-18` | Handoff creation is authenticated by API key, not by JWT | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-19` | Handoff creation without a valid key is refused | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-20` | A GitHub PAT is not required to create a handoff | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-21` | A run is readable only by its owner | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-22` | A run's files cannot be fetched across an ownership boundary | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-23` | The listing describes the whole workspace | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-24` | An expired workspace is stated, not inferred | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-25` | The reserved subtrees are never listed | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-26` | An HTML workspace file is never served inline | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-27` | Text extensions come back inline as plain text | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-28` | The path parameter refuses to leave the run directory | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-29` | A symlink cannot be used to read outside the run directory | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-30` | A file too large to preview is refused, not streamed | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-31` | The zip holds exactly what the listing showed | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-32` | An oversized workspace is refused rather than archived | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-33` | An expired workspace has nothing to serve | `24_api_contract/test_api_contract.py` — not yet implemented |
-| s  | `S-24-34` | The sandbox is unreachable across an ownership boundary | `24_api_contract/test_api_contract.py` — not yet implemented |
+| ok | `S-24-01` | The endpoint inventory matches the snapshot | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-02` | No endpoint loses its authentication silently | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-03` | The public list is exactly eighteen, and each is deliberate | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-04` | A request with no credentials is answered 401, not 403 | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-05` | Registration is permanently closed | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-06` | Login returns either a session or a challenge | `24_api_contract/test_api_contract.py` |
+| s  | `S-24-07` | A challenge is answered on its own endpoint | `24_api_contract/test_api_contract.py` — needs a login that returns a challenge; this pool reports MFA as  |
+| ok | `S-24-08` | Logout works with an already-invalid token | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-09` | Password recovery refuses when email is a second factor | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-10` | Second-factor management requires a session | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-11` | Every admin endpoint requires an admin | `24_api_contract/test_api_contract.py` |
+| s  | `S-24-12` | Creating a user answers 201 with the created user | `24_api_contract/test_api_contract.py` — creates a real account; needs a disposable fixture user (S-11-15) |
+| s  | `S-24-13` | Deleting a user answers 204 with no body | `24_api_contract/test_api_contract.py` — deletes a real account; needs a disposable fixture user (S-11-15) |
+| ok | `S-24-14` | Role and tier changes return the updated user | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-15` | Template previews load without a token | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-16` | The asset route refuses path traversal | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-17` | A missing asset is a 404, not a 500 | `24_api_contract/test_api_contract.py` |
+| s  | `S-24-18` | Handoff creation is authenticated by API key, not by JWT | `24_api_contract/test_api_contract.py` — needs a valid X-Flowin-API-Key; minting one is 22_handoff_and_gates |
+| ok | `S-24-19` | Handoff creation without a valid key is refused | `24_api_contract/test_api_contract.py` |
+| s  | `S-24-20` | A GitHub PAT is not required to create a handoff | `24_api_contract/test_api_contract.py` — needs a valid X-Flowin-API-Key to reach the PAT branch at all |
+| ok | `S-24-21` | A run is readable only by its owner | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-22` | A run's files cannot be fetched across an ownership boundary | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-23` | The listing describes the whole workspace | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-24` | An expired workspace is stated, not inferred | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-25` | The reserved subtrees are never listed | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-26` | An HTML workspace file is never served inline | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-27` | Text extensions come back inline as plain text | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-28` | The path parameter refuses to leave the run directory | `24_api_contract/test_api_contract.py` |
+| s  | `S-24-29` | A symlink cannot be used to read outside the run directory | `24_api_contract/test_api_contract.py` — needs a symlink planted in a run workspace; no fixture writes one |
+| s  | `S-24-30` | A file too large to preview is refused, not streamed | `24_api_contract/test_api_contract.py` — needs a workspace file larger than 8 MB; no seeded run has one |
+| ok | `S-24-31` | The zip holds exactly what the listing showed | `24_api_contract/test_api_contract.py` |
+| s  | `S-24-32` | An oversized workspace is refused rather than archived | `24_api_contract/test_api_contract.py` — needs a workspace over 64 MB uncompressed; no seeded run has one |
+| s  | `S-24-33` | An expired workspace has nothing to serve | `24_api_contract/test_api_contract.py` — needs a TTL-swept workspace; every seeded run still has one |
+| ok | `S-24-34` | The sandbox is unreachable across an ownership boundary | `24_api_contract/test_api_contract.py` |
