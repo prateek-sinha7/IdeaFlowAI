@@ -465,40 +465,40 @@ flowchart LR
 
 <!-- MODULE-MAP -->
 
-36 logical modules over 642 tracked source files. Each entry links to its
+36 logical modules over 659 tracked source files. Each entry links to its
 architecture card, which carries an auto-generated file and import rollup. Module
 cards describe FOLDERS and carry no diagrams — for how a concern actually works,
 read the domains above.
 
-### Backend — Python (293 files)
+### Backend — Python (304 files)
 
 | Module | Path | Files |
 |---|---|---|
-| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 122 |
-| [MOD-backend-app-agents](architecture/MOD-backend-app-agents.md) | `backend/app/agents` | 39 |
+| [MOD-backend-agents](architecture/MOD-backend-agents.md) | `backend/agents` | 123 |
+| [MOD-backend-app-agents](architecture/MOD-backend-app-agents.md) | `backend/app/agents` | 40 |
 | [MOD-backend-alembic-versions](architecture/MOD-backend-alembic-versions.md) | `backend/alembic/versions` | 38 |
 | [MOD-backend-app-api](architecture/MOD-backend-app-api.md) | `backend/app/api` | 31 |
 | [MOD-backend-app-models](architecture/MOD-backend-app-models.md) | `backend/app/models` | 24 |
+| [MOD-backend](architecture/MOD-backend.md) | `backend` | 10 |
 | [MOD-backend-app-core](architecture/MOD-backend-app-core.md) | `backend/app/core` | 10 |
 | [MOD-backend-evals](architecture/MOD-backend-evals.md) | `backend/evals` | 9 |
 | [MOD-backend-scripts](architecture/MOD-backend-scripts.md) | `backend/scripts` | 9 |
 | [MOD-backend-app-services](architecture/MOD-backend-app-services.md) | `backend/app/services` | 5 |
 | [MOD-backend-app](architecture/MOD-backend-app.md) | `backend/app` | 2 |
 | [MOD-backend-app-scripts](architecture/MOD-backend-app-scripts.md) | `backend/app/scripts` | 2 |
-| [MOD-backend](architecture/MOD-backend.md) | `backend` | 1 |
 | [MOD-backend-alembic](architecture/MOD-backend-alembic.md) | `backend/alembic` | 1 |
 
-### Frontend — TypeScript (349 files)
+### Frontend — TypeScript (355 files)
 
 | Module | Path | Files |
 |---|---|---|
 | [MOD-frontend-src-components-workflow](architecture/MOD-frontend-src-components-workflow.md) | `frontend/src/components/workflow` | 59 |
-| [MOD-frontend-src-lib](architecture/MOD-frontend-src-lib.md) | `frontend/src/lib` | 46 |
+| [MOD-frontend-src-lib](architecture/MOD-frontend-src-lib.md) | `frontend/src/lib` | 48 |
 | [MOD-frontend-src-components-chat](architecture/MOD-frontend-src-components-chat.md) | `frontend/src/components/chat` | 38 |
 | [MOD-frontend-src](architecture/MOD-frontend-src.md) | `frontend/src` | 33 |
 | [MOD-frontend-src-hooks](architecture/MOD-frontend-src-hooks.md) | `frontend/src/hooks` | 32 |
-| [MOD-frontend-src-app](architecture/MOD-frontend-src-app.md) | `frontend/src/app` | 28 |
-| [MOD-frontend-src-components-results](architecture/MOD-frontend-src-components-results.md) | `frontend/src/components/results` | 27 |
+| [MOD-frontend-src-components-results](architecture/MOD-frontend-src-components-results.md) | `frontend/src/components/results` | 30 |
+| [MOD-frontend-src-app](architecture/MOD-frontend-src-app.md) | `frontend/src/app` | 29 |
 | [MOD-frontend-src-components-preview](architecture/MOD-frontend-src-components-preview.md) | `frontend/src/components/preview` | 18 |
 | [MOD-frontend-src-components-history](architecture/MOD-frontend-src-components-history.md) | `frontend/src/components/history` | 12 |
 | [MOD-frontend-src-components-ui](architecture/MOD-frontend-src-components-ui.md) | `frontend/src/components/ui` | 11 |

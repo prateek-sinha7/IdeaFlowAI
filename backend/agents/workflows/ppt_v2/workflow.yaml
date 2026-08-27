@@ -1,0 +1,79 @@
+# ppt_v2 — the deck pipeline that also produces a real .pptx (spec 017).
+#
+# `ppt` is named for PowerPoint and delivers HTML: nothing in it ever emits
+# PptxGenJS, so the Download PPTX button finds nothing to regenerate from. This
+# workflow adds a fourth step that authors that source and calls a tool to build
+# the file, so the WORKFLOW produces the pptx rather than the download path
+# trying to conjure one afterwards.
+#
+# `ppt` itself is untouched. Steps 1 and 2 are reused verbatim.
+#
+# DELIVERABLE — the load-bearing difference. `ppt` declares `strategy: ppt`,
+# which resolves to `ctx.last_streamed`, i.e. the LAST step's output. Add a
+# fourth step under that strategy and the deck is replaced by JavaScript.
+# `single_file` reads a NAMED FILE back off the run sandbox instead, so the HTML
+# deliverable is immune to step order — and if step 4 fails outright, the
+# composer's presentation.html is still on disk and the run still delivers a deck.
+#
+# ONE WRITER PER FILE. presentation.html is WRITTEN and then EDITED by step 3, and
+# only READ by step 4. presentation.pptx is written by the render_pptx tool alone.
+#
+# Step 3 writes it because step 2 CANNOT. `ppt-composer` is reused verbatim from
+# `ppt`, whose deliverable strategy is `ppt` (= ctx.last_streamed): its output
+# contract is to EMIT the deck inside <artifact> tags, not to write a file, and
+# retrofitting `ppt` is out of scope (spec 017 §5, SC-002). The first cut of this
+# manifest assumed it wrote one — the run then had no presentation.html at all, so
+# QA had nothing to read, the transcriber invented its own deck from the brief, and
+# `single_file` fell back to the last streamed output (step 4's JavaScript). Step 3
+# now lands the composer's artifact as the file before QA-ing it.
+#
+# No `skills:` on steps 1-2, for the same reason ppt gives: the html-ppt guidance
+# already arrives through the opendesign template pipe, and attaching it as a
+# skill ALSO stages it at a second mount point whose sibling references resolve
+# nowhere. Step 4's skill is different — html-deck-to-pptx has no template pipe.
+id: ppt_v2
+version: 1
+user_launchable: true
+# is_beta gates the CATALOG CARD, not maturity: HomeLaunchGrid renders a beta row
+# as "Coming Soon" and disables it outright (allowed = !isBeta && canRunPipeline).
+# ppt_v2 is launchable, so false — same as ppt.
+is_beta: false
+name: PPT v2
+display_name: Pitch an idea (v2)
+short_name: PPT v2
+icon: Presentation
+description: Executive-grade deck, delivered as a rendered HTML deck and a real editable PowerPoint file.
+launch_surface: wizard
+planner: run
+clarify:
+  mode: auto
+  rounds: 2
+  defaults: [target_audience, tone_and_style, key_objectives, slide_count, content_depth, data_availability, visual_style, key_sections]
+deliverable:
+  strategy: single_file
+  name: presentation.html
+context_providers:
+- opendesign
+seed_files: {}
+steps:
+- agent: ppt-brief-analyst
+  tools: {read_files: true, write_files: true}
+  strategy: single_shot
+  gates: []
+- agent: ppt-composer
+  tools: {read_files: true, write_files: true}
+  strategy: single_shot
+  gates: []
+- agent: ppt-deck-qa-v2
+  # write_files is load-bearing, not incidental: this step is the ONLY writer of
+  # presentation.html (see the ONE WRITER note above).
+  tools: {read_files: true, write_files: true}
+  strategy: single_shot
+  gates: []
+- agent: ppt-code-generator
+  # The pptx tool set writes the binary; read_files lets the agent read the deck
+  # it is transcribing. write_files stays FALSE: the only file this step should
+  # produce is the pptx, and render_pptx writes that itself.
+  tools: {read_files: true, write_files: false}
+  strategy: single_shot
+  gates: []

@@ -42,27 +42,45 @@ function renderGate(overrides: Record<string, unknown> = {}) {
 }
 
 describe("InlineGateActions", () => {
-  it("renders exactly two primary buttons — Approve & build + Request changes", () => {
+  // ── "Ask first" IA ────────────────────────────────────────────────────────
+  // The card opens with the ASK, then its actions, then the evidence. Two
+  // primaries (approve + request changes) and two quiet channels (update-specs
+  // + cancel) that are NO LONGER collapsed behind a disclosure: each of the four
+  // is one channel, and hiding two of them behind a third that is itself a
+  // channel made "Request changes" mean two different things. Every callback
+  // and its arguments are unchanged — only what you click to reach them.
+  it("leads with the ask, not a card label", () => {
     renderGate();
     expect(screen.getByTestId("chat-gate-actions")).toBeInTheDocument();
+    expect(screen.getByText("Waiting on you")).toBeInTheDocument();
+    // OUTPUT is an <analysis> artifact → the analysis ask (gateAsk, SC-001).
+    expect(
+      screen.getByRole("heading", { name: "Approve this analysis and continue?" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders two primaries and two always-visible quiet channels", () => {
+    renderGate();
     expect(screen.getByTestId("chat-gate-approve")).toHaveTextContent(
-      "Approve & build",
+      "Approve the analysis",
     );
     expect(screen.getByTestId("chat-gate-request-changes")).toHaveTextContent(
       "Request changes",
     );
-    // The change channels are collapsed until "Request changes" is opened.
-    expect(screen.queryByTestId("chat-gate-update-specs")).toBeNull();
-    expect(screen.queryByText("Reject & cancel")).toBeNull();
-    expect(screen.queryByText("Redo with instructions")).toBeNull();
+    // Reachable without opening anything first.
+    expect(screen.getByTestId("chat-gate-update-specs")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-gate-cancel")).toBeInTheDocument();
+    // …but neither destructive/re-run action fires from that first click.
+    expect(screen.queryByTestId("chat-gate-redo")).toBeNull();
+    expect(screen.queryByTestId("chat-gate-reject")).toBeNull();
   });
 
-  it("Request changes reveals the preserved redo/update-specs/reject channels", () => {
+  it("Request changes opens the composer for the redo channel", () => {
     renderGate();
+    expect(screen.queryByLabelText("Additional instructions for redo")).toBeNull();
     fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
-    expect(screen.getByTestId("chat-gate-update-specs")).toBeInTheDocument();
-    expect(screen.getByText("Reject & cancel")).toBeInTheDocument();
-    expect(screen.getByText("Redo with instructions")).toBeInTheDocument();
+    expect(screen.getByLabelText("Additional instructions for redo")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-gate-redo")).toHaveTextContent("Send it back");
   });
 
   it("renders the plan preview via the shared artifactPreview module", () => {
@@ -115,8 +133,7 @@ describe("InlineGateActions", () => {
 
   it("KAN-95: reject requires the confirm step before firing onReject", () => {
     const { onReject } = renderGate();
-    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
-    fireEvent.click(screen.getByText("Reject & cancel"));
+    fireEvent.click(screen.getByTestId("chat-gate-cancel"));
     // Not fired yet — confirm dialog is shown.
     expect(onReject).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("chat-gate-reject"));
@@ -127,7 +144,6 @@ describe("InlineGateActions", () => {
   it("redo carries the free-text instructions on the shared channel", () => {
     const { onRedo } = renderGate();
     fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
-    fireEvent.click(screen.getByText("Redo with instructions"));
     fireEvent.change(screen.getByLabelText("Additional instructions for redo"), {
       target: { value: "tighten spacing" },
     });
@@ -138,7 +154,6 @@ describe("InlineGateActions", () => {
 
   it("KAN-101: update_specs fires onUpdateSpecs with the raw analysis report", () => {
     const { onUpdateSpecs } = renderGate();
-    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
     fireEvent.click(screen.getByTestId("chat-gate-update-specs"));
     expect(onUpdateSpecs).toHaveBeenCalledTimes(1);
     expect(onUpdateSpecs).toHaveBeenCalledWith("gate-1", OUTPUT);
@@ -152,18 +167,21 @@ describe("InlineGateActions", () => {
 
   it("SC-001: hides only the update_specs channel when not eligible", () => {
     renderGate({ updateSpecsEligible: false });
-    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
     expect(screen.queryByTestId("chat-gate-update-specs")).toBeNull();
     // Approve stays primary; the other two change channels remain.
     expect(screen.getByTestId("chat-gate-approve")).toBeInTheDocument();
-    expect(screen.getByText("Reject & cancel")).toBeInTheDocument();
-    expect(screen.getByText("Redo with instructions")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-gate-request-changes")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-gate-cancel")).toBeInTheDocument();
   });
 
-  it("hides redo when the server did not mark the gate redoable", () => {
+  it("hides Request changes entirely when the server did not mark the gate redoable", () => {
+    // Redo is the ONLY channel behind that button now, so an un-redoable gate
+    // must not offer it — a button that cannot send anything is worse than none.
     renderGate({ redoable: false });
-    fireEvent.click(screen.getByTestId("chat-gate-request-changes"));
-    expect(screen.queryByText("Redo with instructions")).toBeNull();
+    expect(screen.queryByTestId("chat-gate-request-changes")).toBeNull();
+    // The remaining channels are untouched.
+    expect(screen.getByTestId("chat-gate-approve")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-gate-cancel")).toBeInTheDocument();
   });
 
   it("latches after one resolve action to prevent a double-send", () => {

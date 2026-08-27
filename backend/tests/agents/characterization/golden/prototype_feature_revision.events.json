@@ -1,0 +1,549 @@
+[
+  {
+    "data": {
+      "agent_count": 5,
+      "agents": [
+        {
+          "icon": "🔍",
+          "id": "prototype-revision-analyzer",
+          "name": "Prototype Revision Analyzer",
+          "order": 1,
+          "role": "analyzer"
+        },
+        {
+          "icon": "📋",
+          "id": "prototype-revision-feature-specify",
+          "name": "Feature Specification Agent",
+          "order": 1,
+          "role": "Feature Definition"
+        },
+        {
+          "icon": "🗂️",
+          "id": "prototype-plan",
+          "name": "Task Planner Agent",
+          "order": 2,
+          "role": "Build Planning & Task Decomposition"
+        },
+        {
+          "icon": "🏗️",
+          "id": "prototype-build",
+          "name": "Build Agent",
+          "order": 4,
+          "role": "Incremental HTML Construction"
+        },
+        {
+          "icon": "✅",
+          "id": "prototype-validate",
+          "name": "Validation Agent",
+          "order": 5,
+          "role": "Structural Validation & Delivery"
+        }
+      ],
+      "pipeline_type": "prototype_feature_revision"
+    },
+    "type": "pipeline_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "args": {
+        "content": "<!doctype html><html><body><section data-page='dashboard'>hi</section></body></html>",
+        "file_path": "prototype.html"
+      },
+      "tool": "write_file"
+    },
+    "type": "tool_call"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "args": {
+        "content": "<!doctype html><html><body><section data-page='dashboard'>hi</section></body></html>",
+        "file_path": "prototype.html"
+      },
+      "tool": "write_file"
+    },
+    "type": "tool_call"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "args": {
+        "summary": "did it",
+        "task_number": 1,
+        "task_title": "Build shell"
+      },
+      "tool": "report_task_complete"
+    },
+    "type": "tool_call"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "args": {
+        "summary": "did it",
+        "task_number": 1,
+        "task_title": "Build shell"
+      },
+      "tool": "report_task_complete"
+    },
+    "type": "tool_call"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "completed_count": 1,
+      "completed_tasks": [
+        {
+          "number": 1,
+          "summary": "did it",
+          "title": "Build shell"
+        }
+      ]
+    },
+    "type": "task_progress"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "completed_count": 2,
+      "completed_tasks": [
+        {
+          "number": 1,
+          "summary": "did it",
+          "title": "Build shell"
+        },
+        {
+          "number": 1,
+          "summary": "did it",
+          "title": "Build shell"
+        }
+      ]
+    },
+    "type": "task_progress"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Task Planner Agent (Build Planning & Task Decomposition) ---\n## Task 1: Build the HTML shell\nCreate the document skeleton.\n\n## Task 2: Fill the dashboard page\nAdd the dashboard content.\n\n\n=== REVISION ANALYSIS ===\n\nUpdate the `<header id='page-header'>` element to display the revised title. No route, function, or style changes are required.\n=== END REVISION ANALYSIS ===\n\n=== CURRENT TASK ===\nTask 1 of 2\n## Task 1: Build the HTML shell\nCreate the document skeleton.\n=== END CURRENT TASK ===\n\n=== TEMPLATE COMPLIANCE ===\nTemplate:  — use ONLY its CSS classes from the TEMPLATE SEED\nDesign System:  — use ONLY :root variables, never raw hex colors\n=== END TEMPLATE COMPLIANCE ===",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Task Planner Agent (Build Planning & Task Decomposition) ---\n## Task 1: Build the HTML shell\nCreate the document skeleton.\n\n## Task 2: Fill the dashboard page\nAdd the dashboard content.\n\n\n=== REVISION ANALYSIS ===\n\nUpdate the `<header id='page-header'>` element to display the revised title. No route, function, or style changes are required.\n=== END REVISION ANALYSIS ===\n\n=== CURRENT TASK ===\nTask 2 of 2\n## Task 2: Fill the dashboard page\nAdd the dashboard content.\n=== END CURRENT TASK ===\n\n=== CURRENT PROTOTYPE (skeleton — call read_file('prototype.html') for full content before editing) ===\nPages still empty (1): dashboard\nChrome: none (copy chrome from any filled page — do NOT rewrite it)\nTotal HTML so far: 84 chars across 1 sections\n=== END CURRENT PROTOTYPE ===\n\n=== TEMPLATE COMPLIANCE ===\nTemplate:  — use ONLY its CSS classes from the TEMPLATE SEED\nDesign System:  — use ONLY :root variables, never raw hex colors\n=== END TEMPLATE COMPLIANCE ===",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "duration": "<normalized>",
+      "index": 3,
+      "input_tokens": "<normalized>",
+      "name": "Build Agent",
+      "output_length": 24,
+      "output_tokens": "<normalized>",
+      "total": 5,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "duration": "<normalized>",
+      "index": 3,
+      "input_tokens": "<normalized>",
+      "name": "Build Agent",
+      "output_length": 24,
+      "output_tokens": "<normalized>",
+      "total": 5,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "icon": "🏗️",
+      "index": 3,
+      "name": "Build Agent",
+      "role": "Incremental HTML Construction",
+      "total": 5
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "icon": "🏗️",
+      "index": 3,
+      "name": "Build Agent",
+      "role": "Incremental HTML Construction",
+      "total": 5
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "result": "Cannot write to /prototype.html because it already exists. Read and then make an edit, or write to a new path.",
+      "tool": "write_file"
+    },
+    "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "result": "Updated file /prototype.html",
+      "tool": "write_file"
+    },
+    "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "result": "✓ Task 1 complete: Build shell",
+      "tool": "report_task_complete"
+    },
+    "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "result": "✓ Task 1 complete: Build shell",
+      "tool": "report_task_complete"
+    },
+    "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "task_number": 1,
+      "total_tasks": 2
+    },
+    "type": "task_loop_progress"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "task_number": 2,
+      "total_tasks": 2
+    },
+    "type": "task_loop_progress"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-plan",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-plan",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-plan",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Feature Specification Agent (Feature Definition) ---\nWriting feature specification. Feature specification complete.\n\n=== REVISION ANALYSIS ===\n\nUpdate the `<header id='page-header'>` element to display the revised title. No route, function, or style changes are required.\n=== END REVISION ANALYSIS ===",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-plan",
+      "duration": "<normalized>",
+      "index": 2,
+      "input_tokens": "<normalized>",
+      "name": "Task Planner Agent",
+      "output_length": 125,
+      "output_tokens": "<normalized>",
+      "total": 5,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-plan",
+      "icon": "🗂️",
+      "index": 2,
+      "name": "Task Planner Agent",
+      "role": "Build Planning & Task Decomposition",
+      "total": 5
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-analyzer",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-analyzer",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-analyzer",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-analyzer",
+      "duration": "<normalized>",
+      "index": 0,
+      "input_tokens": "<normalized>",
+      "name": "Prototype Revision Analyzer",
+      "output_length": 144,
+      "output_tokens": "<normalized>",
+      "total": 5,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-analyzer",
+      "icon": "🔍",
+      "index": 0,
+      "name": "Prototype Revision Analyzer",
+      "role": "analyzer",
+      "total": 5
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-feature-specify",
+      "args": {
+        "content": "## Feature Specification: Task Detail Panel\n\n### Overview\nExtend the dashboard with an inline task-detail panel.\n\n### Requirements\n1. Each task row in `#task-list` must be expandable on click.\n2. The expanded panel must show description and due-date.\n3. Toggle state must be managed via `data-task-id` attributes.\n",
+        "file_path": "feature-spec.md"
+      },
+      "tool": "write_file"
+    },
+    "type": "tool_call"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-feature-specify",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-feature-specify",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-feature-specify",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-feature-specify",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n=== REVISION ANALYSIS ===\n\nUpdate the `<header id='page-header'>` element to display the revised title. No route, function, or style changes are required.\n=== END REVISION ANALYSIS ===",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-feature-specify",
+      "duration": "<normalized>",
+      "index": 1,
+      "input_tokens": "<normalized>",
+      "name": "Feature Specification Agent",
+      "output_length": 62,
+      "output_tokens": "<normalized>",
+      "total": 5,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-feature-specify",
+      "icon": "📋",
+      "index": 1,
+      "name": "Feature Specification Agent",
+      "role": "Feature Definition",
+      "total": 5
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-feature-specify",
+      "result": "Updated file /feature-spec.md",
+      "tool": "write_file"
+    },
+    "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-validate",
+      "attached_hooks": [],
+      "attached_skills": [],
+      "estimated_tokens": 0,
+      "skills_load_errors": []
+    },
+    "type": "agent_skills"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-validate",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-validate",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Build Agent (Incremental HTML Construction) ---\n<!doctype html><html><body><section data-page='dashboard'>hi</section></body></html>\n\n=== REVISION ANALYSIS ===\n\nUpdate the `<header id='page-header'>` element to display the revised title. No route, function, or style changes are required.\n=== END REVISION ANALYSIS ===",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-validate",
+      "duration": "<normalized>",
+      "index": 4,
+      "input_tokens": "<normalized>",
+      "name": "Validation Agent",
+      "output_length": 32,
+      "output_tokens": "<normalized>",
+      "total": 5,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-validate",
+      "icon": "✅",
+      "index": 4,
+      "name": "Validation Agent",
+      "role": "Structural Validation & Delivery",
+      "total": 5
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agents_completed": 6,
+      "agents_total": 5,
+      "final_output": "<!doctype html><html><body><section data-page='dashboard'>hi</section></body></html>",
+      "pipeline_type": "prototype_feature_revision",
+      "total_input_tokens": "<normalized>",
+      "total_output_tokens": "<normalized>",
+      "total_tokens": "<normalized>"
+    },
+    "type": "pipeline_complete"
+  },
+  {
+    "data": {
+      "dag_edges": [
+        {
+          "artifact_type": "prototype-revision-feature-specify",
+          "from": "prototype-revision-feature-specify",
+          "to": "prototype-plan"
+        },
+        {
+          "artifact_type": "prototype-plan",
+          "from": "prototype-plan",
+          "to": "prototype-build"
+        },
+        {
+          "artifact_type": "prototype-build",
+          "from": "prototype-build",
+          "to": "prototype-validate"
+        }
+      ],
+      "satisfiable": true,
+      "unresolved_edges": []
+    },
+    "type": "workflow_validated"
+  }
+]

@@ -61,6 +61,9 @@ _EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
     # ask nothing. Visible to this test only since ADR-0005 derived
     # SUPPORTED_PIPELINE_TYPES from disk, which swept the sample_* workflows in.
     # Kept in lockstep with test_manifest_parity.py's _ENGINE_PIPELINE_DEFAULTS.
+    # spec 017 — ppt_v2 reuses ppt's clarify contract verbatim; the deck it asks
+    # about is the same deck, it just also ships a .pptx.
+    "ppt_v2": ["target_audience", "tone_and_style", "key_objectives", "slide_count", "content_depth", "data_availability", "visual_style", "key_sections"],
     "sample_subagents_parallel": [],
     "sample_fanout": [],
     "sample_wave": [],
@@ -159,6 +162,22 @@ def test_compiled_agent_sequence_matches_registry_order(pipeline_type: str) -> N
 
     registry_order = [a.id for a in get_pipeline_agents(manifest_id)]
     expected = registry_order if registry_order else PIPELINE_AGENTS[manifest_id]
+
+    # PIPELINE_AGENTS is derived from each AGENT.md's `pipeline_type`, so it holds
+    # only the agents authored FOR this pipeline. A workflow that REUSES an agent
+    # from another one therefore has a PARTIAL registry side — ppt_v2 reuses ppt's
+    # brief-analyst and composer verbatim (spec 017), so equality cannot hold and
+    # demanding it would forbid reuse outright. The guard this test exists for is
+    # "the engine did not REORDER the plan", which survives as: every registry
+    # agent appears in the compiled plan, in the same relative order.
+    if set(expected) < set(compiled_ids):
+        pos = [compiled_ids.index(a) for a in expected]
+        assert pos == sorted(pos), (
+            f"{pipeline_type}: registry agents {expected} appear out of order in the "
+            f"compiled plan {compiled_ids} — the engine reordered the plan"
+        )
+        return
+
     assert compiled_ids == expected
 
 

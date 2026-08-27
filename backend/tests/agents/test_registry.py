@@ -128,17 +128,62 @@ class TestGetPipelineAgents:
         result = get_pipeline_agents("")
         assert result == []
 
-    def test_get_pipeline_agents_order_matches_list_agent_ids_order(self):
-        """get_pipeline_agents order must match list_agent_ids order for every pipeline."""
+    def test_get_pipeline_agents_is_discovery_plus_its_own_manifest_steps(self):
+        """The roster CONTAINS everything AGENT.md discovery finds, in order — and may
+        contain more.
+
+        This assertion used to be equality with ``list_agent_ids``, which encoded the
+        very assumption that broke ``ppt_v2``: that a pipeline's roster is exactly the
+        agents whose ``AGENT.md`` names it. ``pipeline_type`` holds ONE value, so a
+        workflow REUSING an agent from another pipeline could never be described that
+        way — ``ppt_v2`` reuses ppt's brief-analyst and composer, and the roster
+        reported 2 of its 4 steps. The DAG resolver validates ``consumes`` against
+        this list and called the whole pipeline unsatisfiable as a result.
+
+        So the contract is now containment, not equality. What is still pinned, and is
+        what the original test was actually protecting: discovery's agents all survive,
+        their relative order is unchanged, and the whole list is ``order``-sorted.
+        """
         for pipeline_type in sorted(SUPPORTED_PIPELINE_TYPES):
             ids_from_list = list_agent_ids(pipeline_type)
-            specs_from_get = get_pipeline_agents(pipeline_type)
+            ids_from_get = [spec.id for spec in get_pipeline_agents(pipeline_type)]
 
-            ids_from_get = [spec.id for spec in specs_from_get]
-            assert ids_from_list == ids_from_get, (
+            assert set(ids_from_list) <= set(ids_from_get), (
+                f"Pipeline {pipeline_type!r}: discovery agents DROPPED from the roster — "
+                f"list_agent_ids={ids_from_list} get_pipeline_agents={ids_from_get}"
+            )
+            # Relative order of the discovered agents is preserved.
+            assert [i for i in ids_from_get if i in set(ids_from_list)] == ids_from_list, (
                 f"Pipeline {pipeline_type!r}: order mismatch between "
                 f"list_agent_ids={ids_from_list} and get_pipeline_agents={ids_from_get}"
             )
+
+    def test_a_reusing_pipeline_reports_every_step_it_will_run(self):
+        """spec 017 — the concrete case the contract above exists for.
+
+        ``ppt_v2``'s manifest runs four steps; two of them are ppt's, so neither
+        declares ``pipeline_type: ppt_v2``. A roster missing them is not a cosmetic
+        undercount: it is what the DAG resolver validates against.
+        """
+        roster = [spec.id for spec in get_pipeline_agents("ppt_v2")]
+        assert roster == [
+            "ppt-brief-analyst",
+            "ppt-composer",
+            "ppt-deck-qa-v2",
+            "ppt-code-generator",
+        ]
+
+    def test_completing_the_roster_never_adds_a_template_agent(self):
+        """``template: true`` marks a folder that exists to be INSTANTIATED, never to
+        be a pipeline member — which is why discovery excludes it. A composed
+        workflow's manifest steps ARE those instances, so completing from the manifest
+        has to honour the same rule or every composed pipeline grows a phantom
+        ``custom-agent`` member."""
+        for pipeline_type in sorted(SUPPORTED_PIPELINE_TYPES):
+            for spec in get_pipeline_agents(pipeline_type):
+                assert not getattr(spec, "template", False), (
+                    f"Pipeline {pipeline_type!r}: template agent {spec.id!r} in the roster"
+                )
 
 
 # ---------------------------------------------------------------------------

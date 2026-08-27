@@ -432,11 +432,80 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
     if agent_id == "prototype-validate":
         return [_ScriptedTurn(texts=["Validation passed. No P0 issues."], usage=(20, 10))]
 
+    # ── prototype-revision-analyzer (tools=[], text-only): outputs a ## Solution Plan
+    # section so the engine's produces_solution_plan hook can extract it and store it
+    # on ectx.analyzer_solution. This is step 0 of prototype_revision,
+    # prototype_large_revision, and prototype_feature_revision. The text must contain
+    # a ## Solution Plan heading so parse_analyzer_output returns a non-empty string
+    # (the downstream _compose_context_message then injects === REVISION ANALYSIS ===
+    # into step 1's context). Fixed usage keeps token normalisation deterministic.
+    if agent_id == "prototype-revision-analyzer":
+        return [
+            _ScriptedTurn(
+                texts=[
+                    "## Solution Plan\n"
+                    "Update the `<header id='page-header'>` element to display the revised title. "
+                    "No route, function, or style changes are required."
+                ],
+                usage=(20, 12),
+            )
+        ]
+
+    # ── prototype-revision-planner (tools=workspace): reads prototype.html then
+    # writes tasks.md and streams a <tasks> block. The task_loop step reads the
+    # streamed text via latest_typed_content("prototype-revision-planner"). The
+    # heading_tasks parser extracts ## Task N: headers from the streamed text.
+    if agent_id == "prototype-revision-planner":
+        tasks_content = (
+            "<tasks>\n"
+            "## Task 1: Update the page header\n"
+            "Update `<header id='page-header'>` to display the revised title text "
+            "as instructed in the solution plan.\n\n"
+            "## Task 2: Verify navigation links\n"
+            "Check that all nav links in `<nav id='main-nav'>` resolve correctly "
+            "after the header update.\n"
+            "</tasks>"
+        )
+        return [
+            _ScriptedTurn(
+                texts=[tasks_content],
+                tool_calls=[
+                    ("write_file", _j.dumps({"file_path": "tasks.md", "content": tasks_content}), "c_tasks"),
+                ],
+                usage=(50, 25),
+            ),
+            _ScriptedTurn(texts=["Task plan written."], usage=(8, 4)),
+        ]
+
     # ── prototype-revision-validate (tools=workspace): reads prototype.html then
     # emits a validation summary. Text-only — no file edits in the scripted harness
     # (the golden just needs to see the agent fire; real edits happen on live Bedrock).
     if agent_id == "prototype-revision-validate":
         return [_ScriptedTurn(texts=["Validated — 1 page checked, no issues found."], usage=(20, 10))]
+
+    # ── prototype-revision-feature-specify (tools=workspace, strategy=single_shot):
+    # writes a feature spec file. Uses write_file so the spec is available to the
+    # task_loop build step via runner.latest_typed_content("prototype-revision-feature-specify").
+    if agent_id == "prototype-revision-feature-specify":
+        spec_content = (
+            "## Feature Specification: Task Detail Panel\n\n"
+            "### Overview\n"
+            "Extend the dashboard with an inline task-detail panel.\n\n"
+            "### Requirements\n"
+            "1. Each task row in `#task-list` must be expandable on click.\n"
+            "2. The expanded panel must show description and due-date.\n"
+            "3. Toggle state must be managed via `data-task-id` attributes.\n"
+        )
+        return [
+            _ScriptedTurn(
+                texts=["Writing feature specification. "],
+                tool_calls=[
+                    ("write_file", _j.dumps({"file_path": "feature-spec.md", "content": spec_content}), "c_fs"),
+                ],
+                usage=(28, 14),
+            ),
+            _ScriptedTurn(texts=["Feature specification complete."], usage=(8, 4)),
+        ]
 
     # ── Code-gen agents (tools=workspace): write 2 files then a final text. ───
     # NEW world: native write_file(file_path=…, content=…).
@@ -550,7 +619,17 @@ async def _drive(pipeline_type: str, world: str = "new", **execute_kwargs) -> li
 
     engine_mod.compile_for_run = _patched_compile_for_run
 
-    specs = get_pipeline_agents(_lookup_type)
+    # ── Agent list: let the engine build from compiled manifest steps ──────────
+    # Pass agents=[] so the engine's ``if compiled.steps and not agents`` branch
+    # fires and calls ``_specs_from_plan(compiled.steps)``. This ensures revision
+    # pipelines include ``prototype-revision-analyzer`` as step 0 (declared in the
+    # manifest but not registered in PIPELINE_AGENTS because its AGENT.md carries
+    # pipeline_type: prototype_revision_analyzer). The registry-based list via
+    # ``get_pipeline_agents`` is still available for callers that need it, but the
+    # harness defers to the manifest — the single source of truth for agent ordering.
+    # NOTE: ``get_pipeline_agents`` is still imported above for call-site compat
+    # (other tests may import it directly from this module).
+    _ = get_pipeline_agents  # keep the import referenced (linter guard)
 
     # ── Per-agent scripted model factory ──────────────────────────────────────
     # The engine creates one agent per spec via create_runner. We inject a
@@ -617,7 +696,7 @@ async def _drive(pipeline_type: str, world: str = "new", **execute_kwargs) -> li
         }
 
     kwargs: dict[str, Any] = dict(
-        agents=list(specs),
+        agents=[],  # engine builds from compiled manifest steps via _specs_from_plan
         user_message="Build me a thing for managing tasks.",
         pipeline_run_id=run_id,
         pipeline_type=pipeline_type,

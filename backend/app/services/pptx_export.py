@@ -347,6 +347,25 @@ def _apply_child_rlimits() -> None:
         pass
 
 
+_SYSTEM_BIN_DIRS = "/usr/local/bin:/usr/bin:/bin"
+
+
+def _node_path_dirs() -> str:
+    """The child's PATH: node's real directory, then the fixed system dirs.
+
+    Returns the system dirs unchanged when node is not on the parent's PATH or
+    already lives in one of them — so a Linux container where node is at
+    /usr/local/bin/node gets a byte-identical value to before this existed.
+    """
+    node = shutil.which("node")
+    if not node:
+        return _SYSTEM_BIN_DIRS
+    node_dir = str(Path(node).resolve().parent)
+    if node_dir in _SYSTEM_BIN_DIRS.split(":"):
+        return _SYSTEM_BIN_DIRS
+    return f"{node_dir}:{_SYSTEM_BIN_DIRS}"
+
+
 def _build_clean_env(temp_dir: str) -> dict:
     """Build a minimal env dict for the Node subprocess.
 
@@ -369,7 +388,16 @@ def _build_clean_env(temp_dir: str) -> dict:
     network control.
     """
     return {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        # The node binary's OWN directory, prepended to the fixed system dirs.
+        # Hardcoding the three system dirs assumed a Linux distro layout: on a
+        # Homebrew macOS box node lives at /opt/homebrew/bin, is absent from all
+        # three, and the child dies `FileNotFoundError: node` before it can run a
+        # line of PptxGenJS — which is why no .pptx was ever producible on a dev
+        # machine even with valid source. `shutil.which` reads the PARENT's PATH,
+        # so this resolves the same interpreter the server itself would run.
+        # Resolving a path adds no secrets: the env stays otherwise scrubbed, and
+        # `_NODE_DIR` is computed once at import rather than per call.
+        "PATH": _node_path_dirs(),
         "HOME": "/tmp",
         "TMPDIR": temp_dir,
         "NODE_OPTIONS": "--max-old-space-size=1024 --dns-result-order=ipv4first",
@@ -552,27 +580,26 @@ if (typeof globalThis.window === "undefined") {{
 
 {func_code}
 
-const _FallbackPptx = require("{pptxgenjs_path}");
-const _OrigFunc = generatePresentation;
-generatePresentation = async function() {{
-  try {{
-    const r = await _OrigFunc();
-    return r;
-  }} catch(e) {{
-    console.error("Crashed:", e.message, "- creating fallback");
-    const p = new _FallbackPptx();
-    p.layout = "LAYOUT_16x9";
-    const s = p.addSlide();
-    s.background = {{ color: "FFFFFF" }};
-    s.addText("Export error: " + e.message, {{x:0.5,y:2,w:9,h:1,fontSize:14,color:"1A1A1A"}});
-    return await p.write("nodebuffer");
-  }}
-}};
-
+// A crash FAILS. It used to produce a one-slide deck reading
+// "Export error: <message>" — a file, therefore a success as far as every
+// caller could tell. The Python side checks only whether the output file
+// exists, so that deck sailed through: the agent's `render_pptx` returned
+// "ok", the layout verifier found nothing wrong with one tidy error slide,
+// and a 12-slide deck shipped as a single error card that said it was fine
+// (run 4a3b4728, 2026-08-26). Both callers have a better story for failure
+// than a deck that lies: the tool hands the message back to the agent to fix,
+// and the download endpoint returns it as an error. So: no file, non-zero
+// exit, message on stderr.
 async function main() {{
+  let r;
   try {{
-    let r = generatePresentation();
+    r = generatePresentation();
     if (r && typeof r.then === "function") r = await r;
+  }} catch(e) {{
+    process.stderr.write("the deck code threw: " + e.message);
+    process.exit(1);
+  }}
+  try {{
     if (Buffer.isBuffer(r)) {{
       fs.writeFileSync("{out_path}", r);
       process.stdout.write("OK");
@@ -580,16 +607,18 @@ async function main() {{
       fs.writeFileSync("{out_path}", Buffer.from(r));
       process.stdout.write("OK");
     }} else {{
-      const p = new _FallbackPptx();
-      p.layout = "LAYOUT_16x9";
-      const s = p.addSlide();
-      s.addText("Export failed: no buffer returned", {{x:0.5,y:2,w:9,h:1,fontSize:14,color:"1A1A1A"}});
-      const buf = await p.write("nodebuffer");
-      fs.writeFileSync("{out_path}", buf);
-      process.stdout.write("OK");
+      // Almost always a missing `return pres.write("nodebuffer")`.
+      // Single quotes on purpose: this template is a Python string, so a
+      // backslash-escaped double quote here would reach the generated
+      // JavaScript already unescaped and break the very line it describes.
+      process.stderr.write(
+        'generatePresentation() returned no buffer — it must end with ' +
+        'return pres.write("nodebuffer");'
+      );
+      process.exit(1);
     }}
   }} catch(e) {{
-    process.stderr.write("Fatal: " + e.message);
+    process.stderr.write("could not write the pptx: " + e.message);
     process.exit(1);
   }}
 }}

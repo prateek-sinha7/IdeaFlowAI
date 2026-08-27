@@ -15,6 +15,8 @@ produces:
 role: Revision Task Decomposition
 tools:
 - workspace
+injects:
+- uploaded_files
 ---
 
 > **When an `=== REVISION ANALYSIS ===` block is present in your context, use the

@@ -12,6 +12,9 @@ chained_from:
 - id: ppt
   beta: false
   text: Build the interactive demo
+- id: ppt_v2
+  beta: false
+  text: Build the interactive demo
 description: Navigable, high-fidelity HTML prototype from a brief or story set.
 launch_surface: wizard
 planner: run

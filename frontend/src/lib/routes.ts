@@ -71,6 +71,8 @@ export const routes = {
 
   runFiles: (id: string): string => `/runs/${id}/files`,
 
+  runWorkspace: (id: string): string => `/runs/${id}/workspace`,
+
   runAudit: (id: string): string => `/runs/${id}/audit`,
 
   runStream: (id: string): string => `/runs/${id}/stream`,
@@ -169,6 +171,7 @@ export type ParsedView =
   | { screen: 'run-steps'; runId: string }
   | { screen: 'run-steps-agent'; runId: string; agentId: string }
   | { screen: 'run-files'; runId: string }
+  | { screen: 'run-workspace'; runId: string }
   | { screen: 'run-audit'; runId: string }
   | { screen: 'run-stream'; runId: string }
   | { screen: 'run-version'; runId: string; version: string }
@@ -312,6 +315,11 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
     // /runs/{id}/files
     if (subpath === 'files') {
       return { screen: 'run-files', runId };
+    }
+
+    // /runs/{id}/workspace
+    if (subpath === 'workspace') {
+      return { screen: 'run-workspace', runId };
     }
 
     // /runs/{id}/audit

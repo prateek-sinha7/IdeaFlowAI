@@ -136,6 +136,9 @@ _DISPOSITIONS: dict[str, tuple[object, object]] = {
         ["upstream"],
         lambda s, c: list(getattr(s, "depends_on", [])) == ["upstream"],
     ),
+    # ── revision-pipeline-refactor: declaration-driven post-step hook flag ───
+    # Consumed directly onto Step.produces_solution_plan (bool coercion in _compile_step).
+    "produces_solution_plan": (True, lambda s, c: s.produces_solution_plan is True),
 }
 
 

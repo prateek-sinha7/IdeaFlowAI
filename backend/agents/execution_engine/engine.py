@@ -96,7 +96,7 @@ from agents.execution_engine.fanout import FanoutWorkerFailed
 from agents.execution_engine.clarify_engine import ClarifyEngine as _ClarifyEngineImpl
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
-from agents.execution_engine.run_log import RunLog
+from agents.execution_engine.run_log import RunLog, RunTrace
 from agents.execution_engine.state_machine import get_state_machine
 from agents.capabilities.model_catalog import ModelCatalog
 from agents.capabilities.model_pricing import estimate_cost_usd
@@ -106,7 +106,7 @@ from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX, artifact_name, topic
 from agents.workflows.compiler import WorkflowCompiler
 from agents.workflows.manifest import load_manifest
 from agents.workflows.plan import CompiledWorkflow
-from app.agents.sandbox import RunSandbox
+from app.agents.sandbox import RunSandbox, write_agent_output
 
 logger = logging.getLogger("agents.execution_engine.engine")
 
@@ -1152,6 +1152,15 @@ class ExecutionEngine:
         already stamped on the new ``WorkflowRun`` row is not overwritten.
         """
         sink = _RunEventSink(milestone_sink=milestone_sink)
+        # R-23 amendment — the on-disk run trace. The engine ALREADY emits every
+        # fact worth tracing (each tool call and its arguments, each result, the
+        # model's reasoning and output, gates, clarify rounds, failures) as a typed
+        # event, and every one of them passes through the stamping boundary a few
+        # lines below. Tracing there means the engine keeps no per-event logging
+        # calls of its own and cannot grow a gap: a new event type is traced the
+        # day it is added. `.logs/run-logs.jsonl` previously held step boundaries
+        # only, so reading a broken run meant reading the console or the database.
+        _trace = RunTrace(RunSandbox(user_id or "anon", pipeline_run_id).root)
         # Manual monotonic allocator (NOT itertools.count): a milestone card projected below
         # is drawn from this SAME per-run seq space, so the loop must be able to advance the
         # counter PAST the card's persisted seq — otherwise the engine's next event would reuse
@@ -1213,6 +1222,7 @@ class ExecutionEngine:
                     data["seq"] = actual_seq
                     if actual_seq >= next_seq:
                         next_seq = actual_seq + 1
+                _trace.observe(event)
                 yield event
                 # A.4 (Phase 43, DEF-43-03-1): project + persist a chat_reply milestone card for
                 # this event via the INJECTED narrator callback (self-filtering; DORMANT when
@@ -1244,6 +1254,9 @@ class ExecutionEngine:
                             },
                         }
         finally:
+            # Flush any deltas buffered when the stream ended (or was abandoned
+            # mid-run), so a cancelled/failed run's last output is still on disk.
+            _trace.flush()
             # A.3: ALWAYS deregister the run's live ectx (normal completion, exception, or an
             # early GeneratorExit if the consumer stops draining) so the process-local registry
             # never leaks a terminated run's context. DORMANT when live_ectx_unregister is None
@@ -1689,7 +1702,23 @@ class ExecutionEngine:
         # plan was non-empty discarded the composer's agent picks. Reached only by
         # custom workflows, whose template steps have no AGENT.md for the caller
         # to resolve.
-        if compiled.steps and not agents:
+        # ...and a caller whose roster is a STRICT SUBSET of the plan does not have
+        # one either, in the sense that matters. PIPELINE_AGENTS is derived from each
+        # AGENT.md's `pipeline_type`, so a workflow REUSING an agent from another
+        # pipeline gets a partial roster: ppt_v2 reuses ppt's brief-analyst and
+        # composer, and `get_pipeline_agents("ppt_v2")` returns only the two authored
+        # for it. The DAG resolver then validates against that partial set and
+        # rejects the run outright — "ppt-deck-qa-v2 consumes 'ppt-composer' but no
+        # upstream agent produces it" — when ppt-composer is in fact step 2. The
+        # declaration is right; the roster was missing what the plan already knew.
+        #
+        # A composed run cannot take this branch: its plan is DERIVED from the picks,
+        # so its roster is equal to or larger than the plan, never a strict subset
+        # (the Path-B fan-out case is roster 2 / plan 1). So the composer's picks are
+        # still never discarded, which is what `not agents` was protecting.
+        _plan_ids = {s.agent_id for s in compiled.steps}
+        _roster_is_partial = bool(agents) and {a.id for a in agents} < _plan_ids
+        if compiled.steps and (not agents or _roster_is_partial):
             agents = self._specs_from_plan(compiled.steps)
         # ── EMP-01 (22-04): apply user-composed per-step selections onto the plan ──
         # A saved/custom workflow may carry a compact per-step selections map
@@ -2906,6 +2935,27 @@ class ExecutionEngine:
                 # emitted here — characterization parity holds).
                 if results:
                     ectx.last_streamed = results[-1].get("output", "") or ""
+
+                # -- Post-step: extract solution plan if declared (revision-pipeline-refactor) --
+                # Declaration-driven hook (INV-1/SC-001): branches on the Step's boolean flag,
+                # never on agent id or pipeline name. Default False → DORMANT on all existing
+                # steps → INV-3 byte/event-identical on the 5 characterization goldens.
+                # Use the local ``step`` variable (the just-completed compiled Step) rather than
+                # ``ectx.current_step`` — the KernelServices.run_agent finally block restores
+                # ``ectx.current_step`` to ``prev_step`` (None for the first step) before this
+                # post-step check runs, so ``ectx.current_step`` is always None here.
+                if getattr(step, "produces_solution_plan", False):
+                    try:
+                        from app.agents.revision_analyzer import parse_analyzer_output  # noqa: PLC0415
+                        _raw = ectx.last_streamed or ""
+                        ectx.analyzer_solution = parse_analyzer_output(_raw)
+                        logger.debug("produces_solution_plan hook: solution_len=%d (run=%s)", len(ectx.analyzer_solution), ectx.run_id)
+                    except Exception as _psp_exc:  # noqa: BLE001
+                        logger.warning(
+                            "produces_solution_plan hook failed (%s) — ectx.analyzer_solution stays ''",
+                            _psp_exc,
+                        )
+                        ectx.analyzer_solution = ""
 
                 # ── [KAN-73] after_step hook firing ───────────────────────────────
                 # Fires AFTER the strategy loop and after ectx.last_streamed is
@@ -5613,6 +5663,23 @@ class ExecutionEngine:
                     "step_end", agent_id=spec.id, model=_resolved_model_id,
                     tokens_in=agent_input_tokens, tokens_out=agent_output_tokens,
                 )
+                # Persist what this step STREAMED into the sandbox, so the run
+                # workspace holds every output an agent produced and not only the
+                # files one explicitly authored through ``write_file``. Lands under
+                # the reserved ``.agents/`` prefix, which ``list_files`` shows and
+                # the deliverable walk skips — see sandbox._AGENT_OUTPUTS_PREFIX for
+                # why that asymmetry is required. Best-effort and never raises, so a
+                # write failure cannot fail an agent that already succeeded; the
+                # streamed UI transport below is untouched either way.
+                write_agent_output(
+                    sandbox,
+                    index=index,
+                    agent_id=spec.id,
+                    name=spec.name,
+                    output=output,
+                    task_number=getattr(ectx, "build_task_number", "") or "",
+                    visit_count=ectx.step_visit_counts.get(spec.id, 0),
+                )
                 yield {
                     "type": "agent_complete",
                     # ``visit_count`` mirrors agent_start's (R-08) — same non-zero-only
@@ -7738,19 +7805,23 @@ class ExecutionEngine:
         # EXACTLY, never filtered (a plan↔registry mismatch raises RuntimeError
         # mid-dispatch). SC-001: the alias is data-derived above; no
         # workflow-name literal enters the kernel.
-        from agents.registry import get_pipeline_agents
-
-        agents = get_pipeline_agents(revision_pipeline_type)
-        if not agents:
-            # Pre-dispatch fail-fast for an unmapped target (RESEARCH Pitfall 7):
-            # without this, compile_for_run would FileNotFoundError mid-execute().
-            # The WS layer maps ValueError → revision_validation_error, so the FE
-            # gets an actionable message. SC-001: interpolates data only.
+        # revision-pipeline-refactor: pass agents=[] so execute() builds the agent
+        # roster from the compiled manifest steps via _specs_from_plan(compiled.steps).
+        # This is required because prototype-revision-analyzer declares
+        # pipeline_type: prototype_revision_analyzer (its own private type) and is
+        # therefore NOT in PIPELINE_AGENTS["prototype_revision"] — passing the
+        # registry list silently skips step 0 of the manifest.
+        # Validate the pipeline is registered (compile_for_run succeeds) as the
+        # fail-fast check instead of relying on an empty get_pipeline_agents() result.
+        try:
+            compile_for_run(revision_pipeline_type)
+        except Exception:
             raise ValueError(
                 f"No revision pipeline is registered for target_artifact_type "
                 f"{target_artifact_type!r} (derived pipeline "
                 f"{revision_pipeline_type!r})."
             )
+        agents: list = []
 
         # ── CR-02 (14 review fix): planner-flow pipelines are NOT revision-
         # dispatchable. The derived alias resolves ANY registered ``*_revision``
@@ -8004,6 +8075,22 @@ class ExecutionEngine:
                 except Exception:  # noqa: BLE001 — observability, never abort agent dispatch
                     pass
 
+            # ── Prototype HTML source chip for no-tools first agents (Concierge path) ─
+            # When ectx.revision_original_html is set and the first agent has no tools,
+            # Position 6 in _compose_context_message injects the HTML inline. Surface it
+            # as a source chip so "Context Received" reflects what was actually fed.
+            # INV-1/SC-001: keyed on generic ectx fields and spec.tools, never on
+            # agent id or pipeline name. context_sources is in _VOLATILE_STRIP_KEYS
+            # so INV-3 golden parity holds.
+            _rev_html = getattr(ectx, "revision_original_html", "") or ""
+            _s_tools = list(getattr(spec, "tools", []) or [])
+            if _rev_html and not _s_tools:
+                sources.append({
+                    "type": "context_block",
+                    "label": "prototype.html",
+                    "size_chars": len(_rev_html),
+                })
+
         # ── Prior-agent outputs (inter-agent handoff sources) ─────────────────────
         consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)
         for aid, output in consumed.items():
@@ -8015,6 +8102,23 @@ class ExecutionEngine:
                 "summary_length": len(output),
                 "full_output_length": len(output),
             })
+
+        # ── Revision analysis (additive, INV-1 / SC-001 compliant) ───────────────
+        # When ectx.analyzer_solution is non-empty (set by the produces_solution_plan
+        # post-step hook after the analyzer step), downstream agents receive a
+        # === REVISION ANALYSIS === block in their context. Surface it as a source
+        # chip so "Context Received" is never empty on a revision run.
+        # Keyed on ectx.analyzer_solution truthiness only — no agent_id / pipeline
+        # name branch (SC-001). context_sources is in _VOLATILE_STRIP_KEYS so INV-3
+        # golden parity holds.
+        _analyzer_solution = getattr(ectx, "analyzer_solution", "") or ""
+        if _analyzer_solution and not is_first_agent:
+            sources.append({
+                "type": "context_block",
+                "label": "Revision Analysis",
+                "size_chars": len(_analyzer_solution),
+            })
+
         return sources
 
     def _load_disk_skills(self, agents: list, user_id: str | None) -> dict[str, str]:
@@ -10591,6 +10695,33 @@ class ExecutionEngine:
                 f"\n=== REVISION ANALYSIS ===\n{_analyzer_solution}\n"
                 "=== END REVISION ANALYSIS ==="
             )
+
+        # ── Position 6 — Prototype HTML injection for no-tools first agents ─────
+        # On the Concierge revision path the previous_run provider slims the
+        # user_message to a file pointer ("Call read_file to read it before editing")
+        # because file-capable agents use their tools. A no-tools agent (tools=[])
+        # cannot call read_file, so it never sees the HTML content.
+        # This seam injects the seeded prototype directly when ALL three conditions hold:
+        #   a) ectx.revision_original_html is non-empty (previous_run seeded it)
+        #   b) spec.tools is empty (the agent has no file-reading tools)
+        #   c) ectx.analyzer_solution is empty (this IS the analyzer step — not a
+        #      downstream agent that should use the analysis instead)
+        # Declaration-driven (INV-1/SC-001): keyed on generic ectx fields and
+        # spec.tools, never on agent id or pipeline name. Default "" → DORMANT on
+        # every tool-using agent and every non-revision run → INV-3 byte-parity holds.
+        _revision_html = getattr(ectx, "revision_original_html", "") or ""
+        _spec_tools = list(getattr(spec, "tools", []) or [])
+        _revision_instruction = getattr(ectx, "revision_instruction", None) or ""
+        if _revision_html and not _spec_tools and not _analyzer_solution:
+            parts.append(
+                f"\n=== CURRENT PROTOTYPE HTML ===\n{_revision_html}\n"
+                "=== END CURRENT PROTOTYPE HTML ==="
+            )
+            if _revision_instruction:
+                parts.append(
+                    f"\n=== REVISION INSTRUCTION ===\n{_revision_instruction}\n"
+                    "=== END REVISION INSTRUCTION ==="
+                )
 
         # ── Build agent: the CURRENT TASK block + current HTML (agnostic scratch) ─
         if ectx.build_task_number:
