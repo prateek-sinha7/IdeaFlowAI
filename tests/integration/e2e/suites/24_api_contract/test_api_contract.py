@@ -484,9 +484,33 @@ def test_a_missing_asset_is_a_404_not_a_500(page, shot):
 
 
 @pytest.mark.scenario("S-24-18")
-@pytest.mark.skip(reason="needs a valid X-Flowin-API-Key; minting one is 22_handoff_and_gates' job")
-def test_handoff_creation_is_authenticated_by_api_key_not_by_jwt(page, shot):
-    """Scenario: Handoff creation is authenticated by API key, not by JWT"""
+@pytest.mark.destructive
+def test_handoff_creation_is_authenticated_by_api_key_not_by_jwt(page, shot, handoff_session):
+    """Scenario: Handoff creation is authenticated by API key, not by JWT
+
+    `get_user_via_api_key`, not `get_current_user`. "Public" in the inventory
+    means "no bearer token", not "no authentication" — and the difference
+    matters, because this endpoint mints a URL that grants access to a run.
+    """
+    with shot("handoff-by-api-key", "When I POST with a valid X-Flowin-API-Key"):
+        session = handoff_session()
+
+    for field in ("handoff_id", "token", "url", "expires_at", "status"):
+        assert field in session, f"the receive response has no {field!r}: {sorted(session)}"
+    assert session["url"].endswith(session["token"])
+
+    # The same call with a BEARER token and no API key must not work: swapping
+    # the two would make every signed-in user able to mint handoff URLs.
+    page.goto("/dashboard")
+    with_jwt = api.full(
+        page,
+        "POST",
+        "/api/handoff/receive",
+        {"task": "should not be accepted", "repo_url": "https://github.com/flowinqa/e2e-fixture"},
+    )
+    assert with_jwt["status"] >= 400, (
+        f"a bearer token minted a handoff: {with_jwt['status']} {with_jwt['body'][:200]}"
+    )
 
 
 @pytest.mark.scenario("S-24-19")
@@ -514,9 +538,27 @@ def test_handoff_creation_without_a_valid_key_is_refused(page, shot):
 
 
 @pytest.mark.scenario("S-24-20")
-@pytest.mark.skip(reason="needs a valid X-Flowin-API-Key to reach the PAT branch at all")
-def test_a_github_pat_is_not_required_to_create_a_handoff(page, shot):
-    """Scenario: A GitHub PAT is not required to create a handoff"""
+@pytest.mark.destructive
+def test_a_github_pat_is_not_required_to_create_a_handoff(page, shot, handoff_session):
+    """Scenario: A GitHub PAT is not required to create a handoff
+
+    Deliberate, and stated in the source: `/start` enforces the PAT instead, so
+    the user can be prompted after clicking the URL. That prompt is the
+    onboarding state 22-handoff-and-gates specifies, and S-22-04 asserts it.
+    """
+    page.goto("/handoff/settings")
+    page.wait_for_load_state("load")
+    page.wait_for_timeout(settings.SETTLE_MS // 2)
+    assert "No GitHub token saved yet." in page.evaluate("() => document.body.innerText"), (
+        "this account has a PAT saved, so the scenario's premise does not hold"
+    )
+
+    with shot("handoff-without-pat", "When I POST /api/handoff/receive"):
+        session = handoff_session()
+
+    assert session["status"] == "pending", (
+        f"a handoff created without a PAT is {session['status']!r}, not pending"
+    )
 
 
 # ── ownership ────────────────────────────────────────────────────────────────

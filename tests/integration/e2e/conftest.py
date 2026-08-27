@@ -321,6 +321,86 @@ def disposable_user(page_as):
         _api.full(admin, "DELETE", f"/api/admin/users/{user_id}")
 
 
+# Mints an API key, uses it to create a handoff, and revokes the key — all in
+# one round trip inside the browser. The key's plaintext is returned exactly
+# once by the create call and is never handed back to Python: only the handoff
+# it produced comes out. A key that reached a test process would land in
+# steps.json and the CI log the first time an assertion failed.
+_MINT_HANDOFF = """
+async ([apiUrl, task, repoUrl]) => {
+  const token = localStorage.getItem('auth_token');
+  const auth = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+
+  const keyRes = await fetch(apiUrl + '/api/settings/api-keys', {
+    method: 'POST', headers: auth,
+    body: JSON.stringify({ name: 'e2e-handoff-fixture' }),
+  });
+  if (keyRes.status !== 201) {
+    return { error: 'api-key ' + keyRes.status + ': ' + (await keyRes.text()).slice(0, 200) };
+  }
+  const key = await keyRes.json();
+
+  let created = null;
+  try {
+    const res = await fetch(apiUrl + '/api/handoff/receive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Flowin-API-Key': key.token },
+      body: JSON.stringify({ task, repo_url: repoUrl, source_client: 'e2e' }),
+    });
+    const body = (await res.text()).slice(0, 800);
+    created = { status: res.status, body };
+  } finally {
+    await fetch(apiUrl + '/api/settings/api-keys/' + key.id, {
+      method: 'DELETE', headers: auth,
+    }).catch(() => {});
+  }
+  return created;
+}
+"""
+
+
+@pytest.fixture
+def handoff_session(page_as):
+    """Mint a real handoff session, and delete it afterwards.
+
+    `POST /api/handoff/receive` is authenticated by `X-Flowin-API-Key`, not by
+    a bearer token — "public" in the endpoint inventory means "no JWT", not "no
+    authentication". So a handoff cannot be created without first creating an
+    API key, which is why several scenarios across 16, 22 and 24 waited on this
+    one fixture.
+
+    Yields a factory: `make(owner="admin")` -> the parsed receive response,
+    carrying `token`, `handoff_id`, `url` and `status`.
+    """
+    from framework import api as _api
+
+    opened: list[tuple] = []
+
+    def make(owner: str = "admin", task: str = "E2E handoff fixture — no work is done") -> dict:
+        owner_page = page_as(owner)
+        owner_page.goto("/dashboard")
+        result = owner_page.evaluate(
+            _MINT_HANDOFF,
+            [settings.API_URL, task, "https://github.com/flowinqa/e2e-fixture"],
+        )
+        assert "error" not in result, f"could not mint an API key: {result['error']}"
+        assert result["status"] in (200, 201), (
+            f"/api/handoff/receive answered {result['status']}: {result['body'][:300]}"
+        )
+        session = json.loads(result["body"])
+        opened.append((owner_page, session))
+        return session
+
+    yield make
+
+    # There is no DELETE for a handoff — the API offers receive, read and start
+    # and nothing else. They carry an `expires_at` about an hour out and lapse
+    # on their own, so the teardown revokes nothing and says so rather than
+    # pretending. The API KEY that minted each one is already revoked, inside
+    # the same round trip that used it.
+    del opened
+
+
 @pytest.fixture
 def sign_in(page):
     """Sign in as a seeded account and land on the dashboard.

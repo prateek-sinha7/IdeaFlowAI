@@ -5,8 +5,8 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **460** |
-| Implemented but skipped | **46** |
+| Implemented and running | **462** |
+| Implemented but skipped | **44** |
 | Not yet written | **0** |
 | **Total** | **506** |
 
@@ -379,7 +379,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-15-28` | A prototype deliverable offers source and tweaks | `15_overlays/test_overlays.py` |
 | ok | `S-15-29` | Menus and drawers close without navigating | `15_overlays/test_overlays.py` |
 
-## 16-pages-outside-routes.feature.md — 14/17 (3 skipped)
+## 16-pages-outside-routes.feature.md — 16/17 (1 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
@@ -398,8 +398,8 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-16-13` | Handoff settings requires authentication | `16_pages_outside_routes/test_pages_outside_routes.py` |
 | ok | `S-16-14` | One user cannot see another's handoff credentials | `16_pages_outside_routes/test_pages_outside_routes.py` |
 | ok | `S-16-15` | An invalid handoff token is refused clearly | `16_pages_outside_routes/test_pages_outside_routes.py` |
-| s  | `S-16-16` | A valid handoff token opens the handoff workflow | `16_pages_outside_routes/test_pages_outside_routes.py` — needs a fixture that mints a valid handoff token; 22_handoff_and_gates |
-| s  | `S-16-17` | A handoff token belonging to another user is refused | `16_pages_outside_routes/test_pages_outside_routes.py` — needs a handoff token issued to another user; 22_handoff_and_gates |
+| ok | `S-16-16` | A valid handoff token opens the handoff workflow | `16_pages_outside_routes/test_pages_outside_routes.py` |
+| ok | `S-16-17` | A handoff token belonging to another user is refused | `16_pages_outside_routes/test_pages_outside_routes.py` |
 
 ## 17-theme-and-tiers.feature.md — 12/12
 
@@ -505,7 +505,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-21-14` | The two directions are distinguishable | `21_run_families_and_versions/test_run_families_and_versions.py` |
 | ok | `S-21-15` | A diverted run's chat lane names its target | `21_run_families_and_versions/test_run_families_and_versions.py` |
 
-## 22-handoff-and-gates.feature.md — 28/28
+## 22-handoff-and-gates.feature.md — 26/28 (2 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
@@ -514,10 +514,10 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-22-03` | Another user's handoff token is refused identically | `22_handoff_and_gates/test_handoff_and_gates.py` |
 | ok | `S-22-04` | A handoff without a saved GitHub PAT asks for one first | `22_handoff_and_gates/test_handoff_and_gates.py` |
 | ok | `S-22-05` | Start pipeline is inert until a PAT exists | `22_handoff_and_gates/test_handoff_and_gates.py` |
-| ok | `S-22-06` | An expired handoff explains how to mint a new one | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| s  | `S-22-06` | An expired handoff explains how to mint a new one | `22_handoff_and_gates/test_handoff_and_gates.py` — needs a handoff past its expires_at; they lapse about an hour out  |
 | ok | `S-22-07` | Only a pending or failed handoff can be started | `22_handoff_and_gates/test_handoff_and_gates.py` |
 | ok | `S-22-08` | The handoff shows the change it proposes | `22_handoff_and_gates/test_handoff_and_gates.py` |
-| ok | `S-22-09` | Test and compliance reports render when produced | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| s  | `S-22-09` | Test and compliance reports render when produced | `22_handoff_and_gates/test_handoff_and_gates.py` — test and compliance reports only exist once a handoff has RUN, which  |
 | ok | `S-22-10` | A run waiting at a gate offers the decision in the lane | `22_handoff_and_gates/test_handoff_and_gates.py` |
 | ok | `S-22-11` | Approving continues the run | `22_handoff_and_gates/test_handoff_and_gates.py` |
 | ok | `S-22-12` | Requesting changes takes instructions | `22_handoff_and_gates/test_handoff_and_gates.py` |
@@ -600,7 +600,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-23-56` | The skill manager's editor | `23_controls_inventory/test_controls_inventory.py` |
 | ok | `S-23-57` | The sidebar's controls | `23_controls_inventory/test_controls_inventory.py` |
 
-## 24-api-contract.feature.md — 27/34 (7 skipped)
+## 24-api-contract.feature.md — 29/34 (5 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
@@ -621,9 +621,9 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-24-15` | Template previews load without a token | `24_api_contract/test_api_contract.py` |
 | ok | `S-24-16` | The asset route refuses path traversal | `24_api_contract/test_api_contract.py` |
 | ok | `S-24-17` | A missing asset is a 404, not a 500 | `24_api_contract/test_api_contract.py` |
-| s  | `S-24-18` | Handoff creation is authenticated by API key, not by JWT | `24_api_contract/test_api_contract.py` — needs a valid X-Flowin-API-Key; minting one is 22_handoff_and_gates |
+| ok | `S-24-18` | Handoff creation is authenticated by API key, not by JWT | `24_api_contract/test_api_contract.py` |
 | ok | `S-24-19` | Handoff creation without a valid key is refused | `24_api_contract/test_api_contract.py` |
-| s  | `S-24-20` | A GitHub PAT is not required to create a handoff | `24_api_contract/test_api_contract.py` — needs a valid X-Flowin-API-Key to reach the PAT branch at all |
+| ok | `S-24-20` | A GitHub PAT is not required to create a handoff | `24_api_contract/test_api_contract.py` |
 | ok | `S-24-21` | A run is readable only by its owner | `24_api_contract/test_api_contract.py` |
 | ok | `S-24-22` | A run's files cannot be fetched across an ownership boundary | `24_api_contract/test_api_contract.py` |
 | ok | `S-24-23` | The listing describes the whole workspace | `24_api_contract/test_api_contract.py` |

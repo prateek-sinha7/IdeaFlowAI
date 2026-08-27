@@ -15,7 +15,9 @@ the storage contract, and cannot grant anything if the cleanup ever fails.
 
 from __future__ import annotations
 
+import json
 import re
+import uuid
 
 import pytest
 from playwright.sync_api import expect
@@ -253,14 +255,17 @@ def test_an_api_key_is_shown_once_and_never_again(page, shot):
     Revokes the key it creates, so the account ends with the key list it
     started with.
     """
-    name = "e2e-s-16-12"
+    # Unique per run: revoked keys stay listed (with a "revoked" tag, which is
+    # correct — they are an audit trail), so a fixed name matches every key an
+    # earlier run left behind and the locator resolves to four elements.
+    name = f"e2e-s-16-12-{uuid.uuid4().hex[:8]}"
     cold(page, "/handoff/settings")
 
     try:
         with shot("key-created", "When I create an API key with a name"):
             page.fill(L.API_KEY_NAME, name)
             page.click(L.CREATE_KEY)
-            expect(page.get_by_text(name)).to_be_visible()
+            expect(page.get_by_text(name).first).to_be_visible()
 
         shown = page.evaluate("() => document.body.innerText")
         # The plaintext is a long opaque string shown exactly once. Capture any
@@ -281,14 +286,20 @@ def test_an_api_key_is_shown_once_and_never_again(page, shot):
 
 
 def revoke_key(page, name: str) -> None:
-    """Revoke a named API key, if it is still listed."""
-    cold(page, "/handoff/settings")
-    row = page.locator("div").filter(has_text=re.compile(re.escape(name))).last
-    button = row.locator(L.REVOKE)
-    if button.count():
-        page.once("dialog", lambda d: d.accept())
-        button.first.click()
-        page.wait_for_timeout(settings.SETTLE_MS // 2)
+    """Revoke every API key with this name, through the API.
+
+    Cleanup goes through the API rather than the Revoke button on purpose: the
+    button lives in a row located by text, and when a test fails before the row
+    renders the cleanup silently does nothing. Six live keys accumulated that
+    way before this was changed. The button itself is still exercised — by the
+    scenarios that are about it, not by teardown.
+    """
+    listing = api.full(page, "GET", "/api/settings/api-keys")
+    if listing["status"] != 200:
+        return
+    for key in json.loads(listing["body"]):
+        if key.get("name") == name:
+            api.full(page, "DELETE", f"/api/settings/api-keys/{key['id']}")
 
 
 @pytest.mark.scenario("S-16-13")
@@ -320,7 +331,7 @@ def test_one_user_cannot_see_anothers_handoff_credentials(page, shot, page_as):
 
     qa-pro's key is revoked in the teardown.
     """
-    name = "e2e-s-16-14-pro"
+    name = f"e2e-s-16-14-pro-{uuid.uuid4().hex[:8]}"
     pro = page_as("pro")
     pro.goto("/handoff/settings")
     pro.wait_for_load_state("load")
@@ -330,7 +341,7 @@ def test_one_user_cannot_see_anothers_handoff_credentials(page, shot, page_as):
         with shot("pro-creates-a-key", 'Given "qa-pro" has created an API key'):
             pro.fill(L.API_KEY_NAME, name)
             pro.click(L.CREATE_KEY)
-            expect(pro.get_by_text(name)).to_be_visible()
+            expect(pro.get_by_text(name).first).to_be_visible()
 
         with shot("basic-sees-nothing", 'When I cold-load "/handoff/settings" as qa-basic'):
             cold(page, "/handoff/settings")
@@ -361,12 +372,37 @@ def test_an_invalid_handoff_token_is_refused_clearly(page, shot):
 
 
 @pytest.mark.scenario("S-16-16")
-@pytest.mark.skip(reason="needs a fixture that mints a valid handoff token; 22_handoff_and_gates")
-def test_a_valid_handoff_token_opens_the_handoff_workflow(page, shot):
+@pytest.mark.destructive
+def test_a_valid_handoff_token_opens_the_handoff_workflow(page, shot, handoff_session):
     """Scenario: A valid handoff token opens the handoff workflow"""
+    session = handoff_session()
+
+    with shot("valid-handoff", 'When I cold-load "/handoff/{token}"'):
+        cold(page, f"/handoff/{session['token']}")
+
+    body = page.evaluate("() => document.body.innerText")
+    assert L.HANDOFF_NOT_FOUND not in body, "a freshly minted handoff was refused"
+    assert "HANDOFF WORKFLOW" in body.upper(), body[:300]
 
 
 @pytest.mark.scenario("S-16-17")
-@pytest.mark.skip(reason="needs a handoff token issued to another user; 22_handoff_and_gates")
-def test_a_handoff_token_belonging_to_another_user_is_refused(page, shot):
-    """Scenario: A handoff token belonging to another user is refused"""
+@pytest.mark.destructive
+@pytest.mark.role("basic")
+def test_a_handoff_token_belonging_to_another_user_is_refused(page, shot, handoff_session):
+    """Scenario: A handoff token belonging to another user is refused
+
+    The handoff is minted by qa-admin and read as qa-basic. The URL is the only
+    credential this surface has, so a token that worked across accounts would
+    hand a run's contents to anyone who saw the link.
+    """
+    session = handoff_session(owner="admin")
+
+    with shot("foreign-handoff", "When I cold-load it as another user"):
+        cold(page, f"/handoff/{session['token']}")
+
+    body = page.evaluate("() => document.body.innerText")
+    assert L.HANDOFF_NOT_FOUND in body, (
+        f"another user's handoff rendered its contents: {body[:300]!r}"
+    )
+    assert "E2E handoff fixture" not in body, "the task description leaked"
+    assert "github.com/flowinqa/e2e-fixture" not in body, "the repository leaked"
