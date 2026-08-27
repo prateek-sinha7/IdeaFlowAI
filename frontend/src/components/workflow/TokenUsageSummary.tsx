@@ -42,7 +42,15 @@ export function TokenUsageSummary({ pipelineState, modelId }: TokenUsageSummaryP
   const cost = estimatedCostUsd ?? 0;
   const cacheRead = cacheReadTokens ?? 0;
   const cacheWrite = cacheWriteTokens ?? 0;
-  const pct = Math.round(cacheRead / Math.max(1, input) * 100);
+
+  // `input` (from agent_complete) = total prompt tokens (uncached + cache_read + cache_write)
+  // per ChatBedrockConverse._extract_usage_metadata which sums all three into input_tokens.
+  // "New input" = the uncached portion billed at full rate.
+  const uncachedInput = Math.max(0, input - cacheRead - cacheWrite);
+  const hasCaching = cacheRead > 0 || cacheWrite > 0;
+
+  // Cache percentage relative to total context sent (gross input)
+  const cacheReadPct = Math.round(cacheRead / Math.max(1, input) * 100);
 
   // KAN-83: single compact line — token count + input/output + cost only
   return (
@@ -60,17 +68,22 @@ export function TokenUsageSummary({ pipelineState, modelId }: TokenUsageSummaryP
         {formatTokens(total)} total
       </span>
       <span className="text-[10px] text-gray-400 flex-shrink-0">·</span>
-      <span className="text-[10px] text-gray-500 flex-shrink-0">
-        {formatTokens(input)} input
-      </span>
-      {cacheRead > 0 && (
+      {hasCaching ? (
+        // When caching is active show the breakdown: uncached new input + cached reads
         <>
+          <span className="text-[10px] text-gray-500 flex-shrink-0" title={`Total context sent: ${formatTokens(input)}`}>
+            {formatTokens(uncachedInput)} input
+          </span>
           <span className="text-[10px] text-gray-400 flex-shrink-0">·</span>
           <span className="text-[10px] text-amber-600 flex-shrink-0">
-            ⚡ {formatTokens(cacheRead)} cached ({pct}%)
+            ⚡ {formatTokens(cacheRead)} cached ({cacheReadPct}%)
             {cacheWrite > 0 && ` · ${formatTokens(cacheWrite)} written`}
           </span>
         </>
+      ) : (
+        <span className="text-[10px] text-gray-500 flex-shrink-0">
+          {formatTokens(input)} input
+        </span>
       )}
       <span className="text-[10px] text-gray-400 flex-shrink-0">·</span>
       <span className="text-[10px] text-gray-500 flex-shrink-0">

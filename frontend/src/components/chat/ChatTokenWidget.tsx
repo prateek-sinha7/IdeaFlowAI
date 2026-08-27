@@ -84,6 +84,7 @@ export function ChatTokenWidget({ pipelineState }: ChatTokenWidgetProps) {
     totalOutputTokens,
     estimatedCostUsd,
     cacheReadTokens,
+    cacheWriteTokens,
   } = pipelineState;
 
   // No token data yet → render nothing (mirrors TokenUsageSummary).
@@ -94,7 +95,14 @@ export function ChatTokenWidget({ pipelineState }: ChatTokenWidgetProps) {
   const total = totalTokens ?? input + output;
   const cost = estimatedCostUsd ?? 0;
   const cacheRead = cacheReadTokens ?? 0;
-  const pct = Math.round((cacheRead / Math.max(1, input)) * 100);
+  const cacheWrite = cacheWriteTokens ?? 0;
+
+  // `input` = total prompt tokens (uncached + cache_read + cache_write) per
+  // ChatBedrockConverse convention. Show the uncached "new input" portion so the
+  // user sees what was actually billed at full rate this turn.
+  const uncachedInput = Math.max(0, input - cacheRead - cacheWrite);
+  const hasCaching = cacheRead > 0 || cacheWrite > 0;
+  const cacheReadPct = Math.round((cacheRead / Math.max(1, input)) * 100);
 
   // Composed-context usage sub-display (D-08). Null → hidden (graceful degrade).
   const ctx = composedContextUsage(pipelineState);
@@ -109,12 +117,21 @@ export function ChatTokenWidget({ pipelineState }: ChatTokenWidgetProps) {
       <span className="font-bold text-gray-900">{formatTokens(total)} tokens</span>
       <span className="text-gray-400">·</span>
       <span>{formatCost(cost)}</span>
-      {cacheRead > 0 && (
+      {hasCaching ? (
         <>
           <span className="text-gray-400">·</span>
-          <span className="text-amber-600">
-            ⚡ {formatTokens(cacheRead)} cached ({pct}%)
+          <span title={`Total context: ${formatTokens(input)}`}>
+            {formatTokens(uncachedInput)} in
           </span>
+          <span className="text-gray-400">·</span>
+          <span className="text-amber-600">
+            ⚡ {formatTokens(cacheRead)} cached ({cacheReadPct}%)
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="text-gray-400">·</span>
+          <span>{formatTokens(input)} in</span>
         </>
       )}
       {ctx && (
