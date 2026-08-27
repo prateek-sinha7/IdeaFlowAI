@@ -35,6 +35,27 @@ runs, gates, resumes and delivers — never whether the model wrote anything goo
 Asserting on generated prose would make these tests fail on model drift, which
 is the opposite of a smoke test.
 
+**"Completed" is not the assertion.** A run can report completed while an agent
+silently no-op'd, and it can write a correctly-named file with nothing in it.
+Both read as green to a status check, so each scenario proves three separate
+things:
+
+| | What it catches |
+|---|---|
+| every roster agent reported, none errored, each consumed tokens | a step that was skipped or never reached the model |
+| the deliverable is not zero bytes | a named empty file — the failure this suite exists for |
+| the deliverable is structurally what it claims | a `.pptx` that is really a stack trace |
+
+The structural check is deliberately shallow, and is **structure only**:
+
+| | Must be |
+|---|---|
+| `.pptx` | a ZIP (`PK\x03\x04`) naming `ppt/presentation.xml` among its entries |
+| `.html` | an `<html>` document with a `<body>` |
+| `.md` | markdown carrying at least one ATX heading |
+
+Nothing reads what the model wrote, so model drift can never fail these.
+
 **Launching is driven from the UI, never the API.** `POST /api/runs` skips the
 wizard's launch assembly — template choice, design system, the agent roster the
 panel compiles — so an API-launched run does not exercise what a user's launch
@@ -56,8 +77,10 @@ fingerprint of one would be noise.
     When I launch it with a one-sentence brief
     And I answer every gate it stops at
     Then the run reaches a completed state
+    And every agent in the roster ran without error
     And the run header names the workflow I launched
-    And the workspace holds a deliverable named "presentation.pptx"
+    And the workspace holds a non-empty deliverable named "presentation.pptx"
+    And that file is a ZIP naming "ppt/presentation.xml"
 
   @S-25-02
   @live
@@ -68,8 +91,10 @@ fingerprint of one would be noise.
     When I launch it with a one-sentence brief
     And I answer every gate it stops at
     Then the run reaches a completed state
+    And every agent in the roster ran without error
     And the run header names the workflow I launched
-    And the workspace holds a deliverable named "presentation.html"
+    And the workspace holds a non-empty deliverable named "presentation.html"
+    And that file is an HTML document with a body
 
   @S-25-03
   @live
@@ -80,8 +105,10 @@ fingerprint of one would be noise.
     When I launch it with a one-sentence brief
     And I answer every gate it stops at
     Then the run reaches a completed state
+    And every agent in the roster ran without error
     And the run header names the workflow I launched
-    And the workspace holds a deliverable named "user_stories.md"
+    And the workspace holds a non-empty deliverable named "user_stories.md"
+    And that file carries at least one markdown heading
 
   @S-25-04
   @live
@@ -92,8 +119,10 @@ fingerprint of one would be noise.
     When I launch it with a one-sentence brief
     And I answer every gate it stops at
     Then the run reaches a completed state
+    And every agent in the roster ran without error
     And the run header names the workflow I launched
-    And the workspace holds a deliverable named "prototype.html"
+    And the workspace holds a non-empty deliverable named "prototype.html"
+    And that file is an HTML document with a body
 
   @S-25-05
   @live
@@ -104,5 +133,6 @@ fingerprint of one would be noise.
     When I launch it with a one-sentence brief
     And I answer every gate it stops at
     Then the run reaches a completed state
+    And every agent in the roster ran without error
     And the run header names the workflow I launched
-    And the workspace holds at least one deliverable file
+    And the workspace holds at least one non-empty deliverable file

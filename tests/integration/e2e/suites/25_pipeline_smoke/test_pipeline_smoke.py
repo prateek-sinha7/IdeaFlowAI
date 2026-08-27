@@ -40,6 +40,29 @@ USER_STORIES = ("Generate product requirements", "user_stories.md", r"USER[ _]ST
 PROTOTYPE = ("Build an interactive prototype", "prototype.html", r"PROTOTYPE")
 APP_BUILDER = ("Build an end-to-end application", None, r"APP[ _]BUILDER|APPLICATION")
 
+# The smallest thing that is true of a real file of each type and false of a
+# plausible-looking empty one. STRUCTURE ONLY — nothing here reads what the
+# model wrote, so model drift can never fail these.
+#
+#   .pptx  an OOXML package is a ZIP: it opens with the local-file-header
+#          magic and names ppt/presentation.xml among its entries. Entry names
+#          are stored uncompressed, so a substring search finds one.
+#   .html  a document element and a body. A deck that failed to render still
+#          often leaves a stub, and a stub has neither.
+#   .md    at least one ATX heading. Every one of these pipelines writes
+#          structured markdown; a bare error string has no heading.
+SHAPES = {
+    ".pptx": lambda b: b.startswith("PK\x03\x04") and "ppt/presentation.xml" in b,
+    ".html": lambda b: "<html" in b.lower() and "<body" in b.lower(),
+    ".md": lambda b: re.search(r"^#{1,6}\s+\S", b, re.M) is not None,
+}
+
+SHAPE_SAYS = {
+    ".pptx": "a ZIP whose entries include ppt/presentation.xml",
+    ".html": "an <html> document with a <body>",
+    ".md": "markdown with at least one heading",
+}
+
 
 def smoke(page, shot, card: str, delivers: str | None, names: str) -> None:
     """Launch `card`, drive it to a terminal state, and check what it left.
@@ -66,12 +89,55 @@ def smoke(page, shot, card: str, delivers: str | None, names: str) -> None:
         f"the run surface does not name {card!r} anywhere"
     )
 
+    # ---- every agent in the roster actually ran ----------------------------
+    #
+    # Checked BEFORE the file, because it is the failure a completed status
+    # hides: a pipeline can skip a step and still write something at the
+    # declared path, and then nothing downstream ever notices.
+    roster, ran = live.agents(page, run_id)
+    broken = [a for a in ran if a.get("error")]
+    assert not broken, (
+        f"{card!r} reports completed, but "
+        + "; ".join(f"{a.get('name')}: {a['error']}" for a in broken)
+    )
+    assert len(ran) == roster, (
+        f"{card!r} declares {roster} agents but only {len(ran)} reported: "
+        f"{[a.get('name') for a in ran]}"
+    )
+    silent = [a.get("name") for a in ran if not a.get("total_tokens")]
+    assert not silent, (
+        f"{card!r} completed with agents that consumed no tokens at all, so "
+        f"they never reached the model: {silent}"
+    )
+
+    # ---- the deliverable exists, is not empty, and is what it claims ------
     found = live.deliverables(page, run_id)
     assert found, f"{card!r} completed but flagged no file as a deliverable"
-    if delivers:
-        assert any(p.split("/")[-1] == delivers for p in found), (
-            f"{card!r} completed without its declared deliverable "
-            f"{delivers!r}; the workspace delivered {found}"
+
+    empty = [f["path"] for f in found if not f.get("size")]
+    assert not empty, (
+        f"{card!r} delivered zero-byte file(s): {empty}. A named empty file is "
+        f"the failure this suite exists to catch."
+    )
+
+    if not delivers:
+        # serialized_sandbox — a tree, so there is no one name to check. The
+        # roster and non-empty checks above are the whole assertion.
+        return
+
+    target = next((f for f in found if f["path"].split("/")[-1] == delivers), None)
+    assert target, (
+        f"{card!r} completed without its declared deliverable {delivers!r}; "
+        f"the workspace delivered {[f['path'] for f in found]}"
+    )
+
+    ext = "." + delivers.rsplit(".", 1)[-1]
+    looks_right = SHAPES.get(ext)
+    if looks_right:
+        body = live.file_bytes(page, run_id, target["path"])
+        assert looks_right(body), (
+            f"{delivers!r} is {target['size']} bytes but is not "
+            f"{SHAPE_SAYS[ext]} — it starts {body[:40]!r}"
         )
 
 

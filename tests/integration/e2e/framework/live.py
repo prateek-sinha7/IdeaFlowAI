@@ -17,6 +17,7 @@ wrote anything good.
 from __future__ import annotations
 
 import time
+from urllib.parse import quote
 
 from playwright.sync_api import expect
 
@@ -192,7 +193,38 @@ def run_to_completion(page, timeout_ms: int = RUN_TIMEOUT_MS) -> list[str]:
     )
 
 
-def deliverables(page, run_id: str) -> list[str]:
-    """The workspace paths this run flagged as deliverable."""
+def deliverables(page, run_id: str) -> list[dict]:
+    """The workspace files this run flagged as deliverable, records and all.
+
+    Full records rather than paths: `size` is what separates "the pipeline
+    wrote presentation.pptx" from "the pipeline wrote nothing and named it
+    presentation.pptx", and only the record carries it.
+    """
     listing = api.json_body(page, "GET", f"/api/runs/{run_id}/sandbox")
-    return [f["path"] for f in listing.get("files", []) if f.get("deliverable")]
+    return [f for f in listing.get("files", []) if f.get("deliverable")]
+
+
+def file_bytes(page, run_id: str, path: str) -> str:
+    """One workspace file's BYTES, latin1-decoded — one character per byte.
+
+    Used to check that a deliverable is really a file of its type: a .pptx
+    opens with the ZIP magic and names `ppt/presentation.xml` inside, an .html
+    has a document element. Structure only — never the model's prose, which
+    would make a smoke test fail on model drift.
+    """
+    res = api.raw(page, f"/api/runs/{run_id}/sandbox/file?path={quote(path)}")
+    assert res["status"] == 200, (
+        f"reading {path!r} from the workspace returned {res['status']}"
+    )
+    return res["body"]
+
+
+def agents(page, run_id: str) -> tuple[int, list[dict]]:
+    """`(roster size, per-agent records)` for a finished run.
+
+    The status alone cannot tell a pipeline that ran from one that skipped a
+    step and still wrote its file. `agent_outputs` is where a silently
+    no-op'd agent shows up — it reports no tokens, or it is simply absent.
+    """
+    summary = api.json_body(page, "GET", f"/api/runs/{run_id}/summary")
+    return summary.get("agent_count", 0), summary.get("agents", [])

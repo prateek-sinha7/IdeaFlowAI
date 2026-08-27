@@ -116,3 +116,33 @@ def anonymous(page, method: str, url: str, header: str | None = None) -> dict:
     cases. The page's own token is never attached.
     """
     return page.evaluate(_FETCH_ANON, [method, _absolute(url), header])
+
+
+_FETCH_BYTES = """
+async ([url, limit]) => {
+  const token = localStorage.getItem('auth_token');
+  const res = await fetch(url, {
+    headers: token ? { Authorization: 'Bearer ' + token } : {},
+  });
+  const buf = new Uint8Array(await res.arrayBuffer());
+  // latin1, one char per byte: a binary body survives the trip to Python
+  // intact, so a magic number and an embedded ASCII name are both readable.
+  // Chunked because String.fromCharCode blows the stack on a large spread.
+  let out = '';
+  for (let i = 0; i < Math.min(buf.length, limit); i += 8192) {
+    out += String.fromCharCode.apply(null, buf.subarray(i, i + 8192));
+  }
+  return { status: res.status, size: buf.length, body: out };
+}
+"""
+
+
+def raw(page, url: str, limit: int = 4_000_000) -> dict:
+    """`{status, size, body}` where `body` is the response BYTES, latin1-decoded.
+
+    `full()` reads the response as text, which mangles anything binary —
+    a .pptx round-trips through UTF-8 decoding as replacement characters and
+    its ZIP magic is gone. This keeps one Python character per byte, so
+    `body[:4] == "PK\\x03\\x04"` and `"ppt/presentation.xml" in body` both work.
+    """
+    return page.evaluate(_FETCH_BYTES, [_absolute(url), limit])
