@@ -5,8 +5,8 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **368** |
-| Implemented but skipped | **138** |
+| Implemented and running | **452** |
+| Implemented but skipped | **54** |
 | Not yet written | **0** |
 | **Total** | **506** |
 
@@ -505,100 +505,100 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-21-14` | The two directions are distinguishable | `21_run_families_and_versions/test_run_families_and_versions.py` |
 | ok | `S-21-15` | A diverted run's chat lane names its target | `21_run_families_and_versions/test_run_families_and_versions.py` |
 
-## 22-handoff-and-gates.feature.md — 0/28 (28 skipped)
+## 22-handoff-and-gates.feature.md — 28/28
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-22-01` | A valid handoff opens the workflow for its run | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-02` | An invalid token is refused without confirming anything | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-03` | Another user's handoff token is refused identically | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-04` | A handoff without a saved GitHub PAT asks for one first | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-05` | Start pipeline is inert until a PAT exists | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-06` | An expired handoff explains how to mint a new one | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-07` | Only a pending or failed handoff can be started | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-08` | The handoff shows the change it proposes | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-09` | Test and compliance reports render when produced | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-10` | A run waiting at a gate offers the decision in the lane | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-11` | Approving continues the run | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-12` | Requesting changes takes instructions | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-13` | A redo takes additional instructions | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-14` | The gated content itself is editable before approval | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-15` | A choice gate presents its options | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-16` | The gated content can be previewed before deciding | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-17` | Rejecting ends the run | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-18` | Cancelling the run from a gate takes two steps | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-19` | The gate shows the evidence the decision is about | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-20` | A code artifact can be copied out of the gate | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-21` | A readiness verdict is hoisted above the prose | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-22` | A gate decision is the human's alone in the product | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-23` | A run asking for clarifications offers them in the lane | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-24` | Suggested answers are offered as chips | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-25` | A free-text question can be answered without chips | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-26` | Typing overrides a selected chip | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-27` | Every question can be skipped at once | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
-| s  | `S-22-28` | The whole run can be cancelled from the clarify prompt | `22_handoff_and_gates/test_handoff_and_gates.py` — not yet implemented |
+| ok | `S-22-01` | A valid handoff opens the workflow for its run | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-02` | An invalid token is refused without confirming anything | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-03` | Another user's handoff token is refused identically | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-04` | A handoff without a saved GitHub PAT asks for one first | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-05` | Start pipeline is inert until a PAT exists | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-06` | An expired handoff explains how to mint a new one | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-07` | Only a pending or failed handoff can be started | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-08` | The handoff shows the change it proposes | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-09` | Test and compliance reports render when produced | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-10` | A run waiting at a gate offers the decision in the lane | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-11` | Approving continues the run | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-12` | Requesting changes takes instructions | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-13` | A redo takes additional instructions | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-14` | The gated content itself is editable before approval | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-15` | A choice gate presents its options | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-16` | The gated content can be previewed before deciding | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-17` | Rejecting ends the run | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-18` | Cancelling the run from a gate takes two steps | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-19` | The gate shows the evidence the decision is about | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-20` | A code artifact can be copied out of the gate | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-21` | A readiness verdict is hoisted above the prose | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-22` | A gate decision is the human's alone in the product | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-23` | A run asking for clarifications offers them in the lane | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-24` | Suggested answers are offered as chips | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-25` | A free-text question can be answered without chips | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-26` | Typing overrides a selected chip | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-27` | Every question can be skipped at once | `22_handoff_and_gates/test_handoff_and_gates.py` |
+| ok | `S-22-28` | The whole run can be cancelled from the clarify prompt | `22_handoff_and_gates/test_handoff_and_gates.py` |
 
-## 23-controls-inventory.feature.md — 0/57 (57 skipped)
+## 23-controls-inventory.feature.md — 56/57 (1 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
-| s  | `S-23-01` | Every deliverable type can be revised in place | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-02` | Revision fields share an accessible name but not a name attribute | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-03` | An empty revision does nothing | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-04` | Submitting a revision clears the field | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-05` | An agent proposal can be confirmed or rejected | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-06` | Confirming a proposal disables it while it runs | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-07` | A refinement chip can be accepted or dismissed | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-08` | The chain picker offers follow-on workflows | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-09` | An agent's reasoning is collapsible | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-10` | Tool calls and file operations are shown as cards | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-11` | Token and context usage are visible | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-12` | Terminal runs show a terminal banner | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-13` | A message can be copied, edited or regenerated | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-14` | Chat modes can be added and removed | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-15` | Files can be attached by drop or by chip | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-16` | Activity is indicated while waiting | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-17` | A conditional route renders as a labelled edge | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-18` | Route outcomes are edited in the rail | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-19` | A route outcome names its condition source | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-20` | A detached node is marked as such | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-21` | Edges can be regrabbed to reparent a node | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-22` | Sub-agents are added under a node | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-23` | Numeric limits step up and down | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-24` | A loop node caps its iterations | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-25` | An agent can be renamed inline | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-26` | A node declares its capabilities | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-27` | Each capability is configured per agent, by name | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-28` | An agent's prompt can be overridden | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-29` | Hooks can be searched | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-30` | An agent's skills are chosen from the rail, not a modal | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-31` | The audit log exports in three formats | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-32` | A live run's audit tab says it is live | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-33` | The audit log can be searched | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-34` | Each list has its own search input | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-35` | Analytics filters by model as well as pipeline | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-36` | Run history sort has two accessible names | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-37` | Design systems are shown as colour bands | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-38` | A generating preview shows progress | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-39` | The artifact version picker is addressable | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-40` | A deliverable can be downloaded from the header | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-41` | A prototype's HTML can be edited directly | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-42` | Steps show review and divert markers | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-43` | A run detail can auto-refresh | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-44` | Agent construction progress is reported | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-45` | Clarifications are summarised with a count | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-46` | A chained run shows where it came from | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-47` | A notification can be dismissed individually | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-48` | The admin table can be searched and its tier set | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-49` | A custom template can be taken from a URL | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-50` | Handoff credentials are labelled | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-51` | An artifact card names and downloads its file | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-52` | The 404 page carries the brand panel | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-53` | A dropped realtime connection offers a reconnect | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-54` | An empty run history invites a first run | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-55` | An edited message is saved and resent in one action | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-56` | The skill manager's editor | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
-| s  | `S-23-57` | The sidebar's controls | `23_controls_inventory/test_controls_inventory.py` — not yet implemented |
+| ok | `S-23-01` | Every deliverable type can be revised in place | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-02` | Revision fields share an accessible name but not a name attribute | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-03` | An empty revision does nothing | `23_controls_inventory/test_controls_inventory.py` |
+| s  | `S-23-04` | Submitting a revision clears the field | `23_controls_inventory/test_controls_inventory.py` — submitting a revision dispatches a real run; live tier |
+| ok | `S-23-05` | An agent proposal can be confirmed or rejected | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-06` | Confirming a proposal disables it while it runs | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-07` | A refinement chip can be accepted or dismissed | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-08` | The chain picker offers follow-on workflows | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-09` | An agent's reasoning is collapsible | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-10` | Tool calls and file operations are shown as cards | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-11` | Token and context usage are visible | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-12` | Terminal runs show a terminal banner | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-13` | A message can be copied, edited or regenerated | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-14` | Chat modes can be added and removed | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-15` | Files can be attached by drop or by chip | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-16` | Activity is indicated while waiting | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-17` | A conditional route renders as a labelled edge | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-18` | Route outcomes are edited in the rail | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-19` | A route outcome names its condition source | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-20` | A detached node is marked as such | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-21` | Edges can be regrabbed to reparent a node | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-22` | Sub-agents are added under a node | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-23` | Numeric limits step up and down | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-24` | A loop node caps its iterations | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-25` | An agent can be renamed inline | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-26` | A node declares its capabilities | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-27` | Each capability is configured per agent, by name | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-28` | An agent's prompt can be overridden | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-29` | Hooks can be searched | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-30` | An agent's skills are chosen from the rail, not a modal | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-31` | The audit log exports in three formats | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-32` | A live run's audit tab says it is live | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-33` | The audit log can be searched | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-34` | Each list has its own search input | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-35` | Analytics filters by model as well as pipeline | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-36` | Run history sort has two accessible names | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-37` | Design systems are shown as colour bands | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-38` | A generating preview shows progress | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-39` | The artifact version picker is addressable | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-40` | A deliverable can be downloaded from the header | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-41` | A prototype's HTML can be edited directly | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-42` | Steps show review and divert markers | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-43` | A run detail can auto-refresh | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-44` | Agent construction progress is reported | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-45` | Clarifications are summarised with a count | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-46` | A chained run shows where it came from | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-47` | A notification can be dismissed individually | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-48` | The admin table can be searched and its tier set | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-49` | A custom template can be taken from a URL | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-50` | Handoff credentials are labelled | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-51` | An artifact card names and downloads its file | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-52` | The 404 page carries the brand panel | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-53` | A dropped realtime connection offers a reconnect | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-54` | An empty run history invites a first run | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-55` | An edited message is saved and resent in one action | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-56` | The skill manager's editor | `23_controls_inventory/test_controls_inventory.py` |
+| ok | `S-23-57` | The sidebar's controls | `23_controls_inventory/test_controls_inventory.py` |
 
 ## 24-api-contract.feature.md — 25/34 (9 skipped)
 
