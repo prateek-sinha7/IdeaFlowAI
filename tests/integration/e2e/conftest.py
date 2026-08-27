@@ -8,8 +8,10 @@ writer bound to it.
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -267,6 +269,56 @@ def page_as(browser, signed_in_state, pytestconfig):
     yield _page
     for c in opened:
         c.close()
+
+
+@pytest.fixture
+def disposable_user(page_as):
+    """Create throwaway accounts through the admin API, and delete them after.
+
+    Several scenarios need a user that can be created, renamed, re-tiered and
+    removed without touching a seeded fixture — `seed_test_users.py` owns those
+    four, and a test that mutates one poisons every later test of that role.
+
+    **Never `is_admin=True`.** A second local admin trips the break-glass
+    invariant and `resolve_principal` then refuses EVERY admin credential,
+    including freshly minted ones — the whole suite stops authenticating and the
+    only way back is a direct database write. That is D-31, and it cost this
+    suite a two-hour outage.
+
+    Yields a factory: `make(tier="hexaware")` -> `{"id", "email", "password"}`.
+    """
+    from framework import api as _api
+
+    admin = page_as("admin")
+    admin.goto("/dashboard")
+    created: list[str] = []
+
+    def make(tier: str = "basic", *, email: str | None = None) -> dict:
+        address = email or f"e2e-{uuid.uuid4().hex[:12]}@flowinqa.com"
+        result = _api.full(
+            admin,
+            "POST",
+            "/api/admin/users",
+            {
+                "email": address,
+                "password": accounts.PASSWORD,
+                "tier": tier,
+                "is_admin": False,
+            },
+        )
+        assert result["status"] == 201, (
+            f"creating a disposable user answered {result['status']}: "
+            f"{result['body'][:200]}"
+        )
+        row = json.loads(result["body"])
+        created.append(row["id"])
+        return {"id": row["id"], "email": address, "password": accounts.PASSWORD}
+
+    make.admin_page = admin
+    yield make
+
+    for user_id in created:
+        _api.full(admin, "DELETE", f"/api/admin/users/{user_id}")
 
 
 @pytest.fixture

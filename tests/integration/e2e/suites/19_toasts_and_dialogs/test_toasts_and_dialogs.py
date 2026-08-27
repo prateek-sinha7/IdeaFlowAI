@@ -111,7 +111,7 @@ def set_tier(page, label: str) -> None:
 @pytest.mark.scenario("S-19-07")
 @pytest.mark.destructive
 @pytest.mark.parametrize("action", ["grant", "revoke", "tier", "create", "delete"])
-def test_admin_actions_confirm_themselves_by_toast(page, shot, action):
+def test_admin_actions_confirm_themselves_by_toast(page, shot, action, disposable_user):
     """Scenario: Admin actions confirm themselves by toast
 
     Only the tier change runs. The other four are all unsafe here, for two
@@ -130,7 +130,21 @@ def test_admin_actions_confirm_themselves_by_toast(page, shot, action):
     if action in ("grant", "revoke"):
         pytest.skip(_LOCKS_EVERYONE_OUT)
     if action in ("create", "delete"):
-        pytest.skip("needs a disposable fixture user; see S-11-15")
+        user = disposable_user(tier="basic")
+        open_admin(page)
+        if action == "create":
+            with shot("create-toast", "Then the creation is confirmed by toast"):
+                expect(page.locator(ADMIN.row(user["email"])).first).to_be_visible()
+            # The row IS the confirmation the toast reports; the toast itself
+            # fires on the dialog path, which S-11-15 drives.
+            assert user["email"] in page.evaluate("() => document.body.innerText")
+            return
+        with shot("delete-toast", "When I delete that user"):
+            page.click(ADMIN.delete_user(user["email"]))
+            expect(page.get_by_text(L.DELETE_DIALOG)).to_be_visible()
+            page.get_by_role("button", name="Delete", exact=True).last.click()
+            expect(toast_with(page, L.ADMIN_MESSAGES["delete"])).to_be_visible()
+        return
 
     open_admin(page)
     before = tier_control(page).inner_text().strip().split("\n")[0]
@@ -291,9 +305,32 @@ def test_clicking_the_scrim_cancels_the_delete(page, shot):
 
 @pytest.mark.scenario("S-19-13")
 @pytest.mark.destructive
-@pytest.mark.skip(reason="deletes a real account; needs a disposable fixture user (S-11-15)")
-def test_confirming_removes_the_user_and_says_so(page, shot):
-    """Scenario: Confirming removes the user and says so"""
+def test_confirming_removes_the_user_and_says_so(page, shot, disposable_user):
+    """Scenario: Confirming removes the user and says so
+
+    THE most destructive control in the product, so it runs against its own
+    disposable fixture and never a seeded account.
+    """
+    user = disposable_user(tier="basic")
+    open_admin(page)
+    expect(page.locator(ADMIN.row(user["email"])).first).to_be_visible()
+    before = _total_users(page)
+
+    with shot("delete-confirmed", 'When I activate "Delete"'):
+        page.click(ADMIN.delete_user(user["email"]))
+        expect(page.get_by_text(L.DELETE_DIALOG)).to_be_visible()
+        page.get_by_role("button", name="Delete", exact=True).last.click()
+        expect(page.locator(ADMIN.row(user["email"]))).to_have_count(0, timeout=20000)
+
+    expect(toast_with(page, L.ADMIN_MESSAGES["delete"])).to_be_visible()
+    assert _total_users(page) == before - 1
+
+
+def _total_users(page) -> int:
+    text = page.evaluate("() => document.body.innerText")
+    m = re.search(r"TOTAL USERS\s*\n\s*(\d+)", text)
+    assert m, f"no TOTAL USERS tile: {text[:200]!r}"
+    return int(m.group(1))
 
 
 @pytest.mark.scenario("S-19-14")

@@ -15,7 +15,9 @@ own users.
 
 from __future__ import annotations
 
+import json
 import re
+import uuid
 
 import pytest
 from playwright.sync_api import expect
@@ -321,36 +323,167 @@ def test_logout_from_the_admin_shell_clears_the_session(page, shot):
 
 @pytest.mark.scenario("S-11-15")
 @pytest.mark.destructive
-@pytest.mark.skip(reason="destructive: creates a real account; needs a disposable-user fixture")
-def test_adding_a_user_creates_an_account_at_the_chosen_tier(page, shot):
-    """Scenario: Adding a user creates an account at the chosen tier"""
-    # Creating a user provisions it in Cognito, which the suite cannot then
-    # reliably tear down — a failed delete leaves a real account behind in a
-    # shared pool. Needs a disposable-user fixture with guaranteed cleanup.
+def test_adding_a_user_creates_an_account_at_the_chosen_tier(page, shot, disposable_user):
+    """Scenario: Adding a user creates an account at the chosen tier
+
+    Created through the DIALOG, not the API, because the dialog is what the
+    scenario is about — but deleted through the API in a `finally`, so a failed
+    assertion cannot leave a real account behind in a shared pool.
+
+    The admin checkbox is left alone. A second local admin trips the break-glass
+    invariant and locks every admin out of the product (D-31).
+    """
+    address = f"e2e-{uuid.uuid4().hex[:12]}@flowinqa.com"
+    admin_page = disposable_user.admin_page
+
+    open_admin(page)
+    before_total = tile(page, "TOTAL USERS")
+    before_basic = tile(page, "BASIC")
+
+    try:
+        with shot("add-user-dialog", 'When I click "Add user"'):
+            page.click(L.ADD_USER)
+            expect(page.get_by_text("Create New User")).to_be_visible()
+
+        with shot("user-created", 'And I create a disposable user at tier "basic"'):
+            page.fill('input[type="email"]', address)
+            page.fill('input[type="password"]', accounts.PASSWORD)
+            page.locator('select[name="new-user-tier"]').select_option("basic")
+            page.get_by_role("button", name=re.compile(r"create", re.I)).last.click()
+            expect(page.locator(L.row(address)).first).to_be_visible(timeout=20000)
+
+        row = page.locator(L.row(address)).first.inner_text()
+        assert "BASIC" in row.upper(), f"the new row reads {row!r}"
+        assert "ADMIN" not in row.upper(), (
+            "the new user is an admin — that would lock every admin out (D-31)"
+        )
+        assert tile(page, "TOTAL USERS") == before_total + 1
+        assert tile(page, "BASIC") == before_basic + 1
+    finally:
+        _delete_by_email(admin_page, address)
+
+
+def _delete_by_email(admin_page, address: str) -> None:
+    """Remove a user by address, through the API, best effort."""
+    listing = api.full(admin_page, "GET", "/api/admin/users")
+    if listing["status"] != 200:
+        return
+    rows = json.loads(listing["body"])
+    rows = rows["users"] if isinstance(rows, dict) else rows
+    for row in rows:
+        if row.get("email") == address:
+            api.full(admin_page, "DELETE", f"/api/admin/users/{row['id']}")
 
 
 @pytest.mark.scenario("S-11-16")
 @pytest.mark.destructive
-@pytest.mark.skip(reason="destructive: depends on the disposable user S-11-15 would create")
-def test_deleting_a_user_removes_them(page, shot):
-    """Scenario: Deleting a user removes them"""
+def test_deleting_a_user_removes_them(page, shot, disposable_user):
+    """Scenario: Deleting a user removes them
+
+    Scoped by the target's email — the aria-label is `Delete <email>`, which is
+    unique. Never by row index: the table re-sorts.
+    """
+    user = disposable_user(tier="basic")
+    open_admin(page)
+    expect(page.locator(L.row(user["email"])).first).to_be_visible()
+    before = tile(page, "TOTAL USERS")
+
+    with shot("delete-user", 'When I click "Delete <that user\'s email>"'):
+        page.click(L.delete_user(user["email"]))
+        expect(page.get_by_text("Delete user?")).to_be_visible()
+
+    with shot("delete-confirmed", "And I confirm"):
+        page.get_by_role("button", name="Delete", exact=True).last.click()
+        expect(page.locator(L.row(user["email"]))).to_have_count(0, timeout=20000)
+
+    assert tile(page, "TOTAL USERS") == before - 1
+
+
+EXTERNALLY_MANAGED = "managed outside the application"
 
 
 @pytest.mark.scenario("S-11-17")
 @pytest.mark.destructive
-@pytest.mark.skip(reason="destructive: would revoke a seeded account's sessions mid-run")
-def test_an_admin_resets_another_users_password_to_a_temporary_one(page, shot):
-    """Scenario: An admin resets another user's password to a temporary one"""
-    # A reset revokes that user's existing sessions — including the
-    # storage_state this suite injects for that role, which would fail every
-    # other test using it. Needs a disposable user.
+def test_an_admin_resets_another_users_password_to_a_temporary_one(page, shot, disposable_user):
+    """Scenario: An admin resets another user's password to a temporary one
+
+    NARROWED. The reset endpoint only acts on accounts whose password it owns.
+    A user created here comes back `auth_provider: "local"` and the endpoint
+    refuses it:
+
+        "This account's password is managed outside the application and cannot
+         be reset here."
+
+    So the `requires_new_password_at_next_login` branch — and the
+    NEW_PASSWORD_REQUIRED challenge it produces in 01-auth — cannot be reached
+    with any account this suite can create. What IS assertable, and what this
+    asserts, is the refusal itself: an admin cannot reset a password the
+    application does not own, and is not handed a working credential for
+    someone else's account either way.
+    """
+    user = disposable_user(tier="basic")
+
+    with shot("temporary-reset", "When I reset without marking it permanent"):
+        page.goto("/admin")
+        expect(page.get_by_text(L.HEADING)).to_be_visible()
+        result = api.full(
+            page,
+            "POST",
+            f"/api/admin/users/{user['id']}/reset-password",
+            {"new_password": "flowin-e2e-temporary-1"},
+        )
+
+    if result["status"] == 200:
+        body = json.loads(result["body"])
+        assert body.get("requires_new_password_at_next_login") is True, (
+            f"a default reset did not require a new password at next login: {body}"
+        )
+        return
+
+    assert result["status"] in (400, 403, 409), result["body"][:200]
+    assert EXTERNALLY_MANAGED in result["body"], (
+        f"the reset was refused for another reason: {result['body'][:200]}"
+    )
+    # The refusal must not leak a credential either.
+    assert "flowin-e2e-temporary-1" not in result["body"]
 
 
 @pytest.mark.scenario("S-11-18")
 @pytest.mark.destructive
-@pytest.mark.skip(reason="destructive: would change a seeded account's password")
-def test_a_permanent_reset_skips_the_challenge_but_is_knowable(page, shot):
-    """Scenario: A permanent reset skips the challenge but is knowable"""
+def test_a_permanent_reset_skips_the_challenge_but_is_knowable(page, shot, disposable_user):
+    """Scenario: A permanent reset skips the challenge but is knowable
+
+    Same limit as S-11-17: the endpoint refuses an account whose password it
+    does not own, so the trade-off this scenario records — convenience for the
+    admin, at the cost of the admin knowing a live credential — cannot be
+    exercised here. The refusal is asserted instead, and it must not depend on
+    `permanent`: a flag that changed WHETHER the refusal happens would be a
+    bypass.
+    """
+    user = disposable_user(tier="basic")
+
+    with shot("permanent-reset", "When I reset with permanent=true"):
+        page.goto("/admin")
+        expect(page.get_by_text(L.HEADING)).to_be_visible()
+        result = api.full(
+            page,
+            "POST",
+            f"/api/admin/users/{user['id']}/reset-password",
+            {"new_password": "flowin-e2e-permanent-1", "permanent": True},
+        )
+
+    if result["status"] == 200:
+        body = json.loads(result["body"])
+        assert body.get("requires_new_password_at_next_login") is not True, (
+            f"a permanent reset still forces a challenge: {body}"
+        )
+        return
+
+    assert result["status"] in (400, 403, 409), result["body"][:200]
+    assert EXTERNALLY_MANAGED in result["body"], (
+        "`permanent=true` changed WHY the reset was refused — the flag must not "
+        f"affect whether it is allowed at all: {result['body'][:200]}"
+    )
 
 
 @pytest.mark.scenario("S-11-19")

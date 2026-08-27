@@ -257,13 +257,78 @@ def test_deliverable_access_omits_workflows_the_catalog_offers(page, shot):
 
 
 @pytest.mark.scenario("S-17-09")
-@pytest.mark.defect
-@pytest.mark.skip(
-    reason="no hexaware account is seeded; creating one needs the admin "
-    "Create-User dialog, which S-11-15 also defers for want of a disposable user"
-)
-def test_a_hexaware_user_gains_prototype_and_loses_presentations(page, shot):
-    """Scenario: A hexaware user gains prototype and loses presentations"""
+@pytest.mark.destructive
+def test_a_hexaware_user_gains_prototype_and_loses_presentations(browser, shot, disposable_user, pytestconfig):
+    """Scenario: A hexaware user gains prototype and loses presentations
+
+    **The case that breaks every other scenario in this file.** `hexaware` sits
+    sideways in the lattice: it gains `prototype` over basic and LOSES `ppt`,
+    and `UPGRADE_PATH` sends it straight to enterprise, skipping pro. Moving a
+    user from basic to hexaware therefore takes away their ability to make
+    presentations.
+
+    An assertion shaped "higher tier implies superset" passes vacuously against
+    basic, pro and enterprise and is wrong about exactly this one — which is
+    D-16, and why the account is created here rather than the scenario being
+    skipped for want of a seeded one.
+
+    The user is created through the admin API and deleted in the fixture's
+    teardown. Never `is_admin=True` — see D-31.
+    """
+    from framework.locators import auth as AUTH
+    from framework.locators import home_catalog as HOME
+
+    user = disposable_user(tier="hexaware")
+    context = browser.new_context(
+        base_url=settings.BASE_URL,
+        viewport=settings.VIEWPORT,
+        device_scale_factor=pytestconfig.getoption("--dpi"),
+        reduced_motion="reduce",
+    )
+    page = context.new_page()
+
+    try:
+        with shot("hexaware-signs-in", 'Given a user on the "hexaware" tier'):
+            page.goto("/login")
+            page.fill(AUTH.EMAIL, user["email"])
+            page.fill(AUTH.PASSWORD, user["password"])
+            page.click(AUTH.SIGN_IN)
+            page.wait_for_url("**/dashboard", timeout=settings.LOGIN_TIMEOUT_MS)
+            expect(page.get_by_text(HOME.HEADING)).to_be_visible()
+            page.wait_for_timeout(settings.SETTLE_MS)
+
+        prototype = page.locator(HOME.card("Build an interactive prototype"))
+        presentation = page.locator(HOME.card("Pitch an idea"))
+        expect(prototype).to_be_visible()
+        expect(presentation).to_be_visible()
+
+        with shot("hexaware-entitlements", "Then prototype is launchable and ppt is locked"):
+            prototype_locked = "Requires" in prototype.inner_text()
+            presentation_locked = "Requires" in presentation.inner_text()
+
+        assert not prototype_locked, (
+            "a hexaware user cannot launch a prototype — the tier gained nothing "
+            "over basic, which is not what entitlements.py says"
+        )
+        assert presentation_locked, (
+            "a hexaware user CAN launch a presentation. The lattice is a chain "
+            "again, and every 'higher tier implies superset' assumption in this "
+            "suite is now safe — re-read D-16 before believing that."
+        )
+
+        with shot("hexaware-usage", 'When I cold-load "/settings/usage"'):
+            page.goto("/settings/usage")
+            expect(page.get_by_text(SET.DELIVERABLE_ACCESS)).to_be_visible()
+
+        access = page.evaluate("() => document.body.innerText")
+        assert "Interactive Prototype" in access, (
+            "Deliverable Access does not list the prototype the catalogue offers"
+        )
+        assert "Presentation" not in access.split(SET.DELIVERABLE_ACCESS, 1)[1], (
+            "Deliverable Access lists Presentation for a hexaware plan"
+        )
+    finally:
+        context.close()
 
 
 @pytest.mark.scenario("S-17-10")

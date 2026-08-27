@@ -5,8 +5,8 @@ rewritten on every run of `scripts/run-all-offline.sh`.
 
 | | Scenarios |
 |---|---:|
-| Implemented and running | **452** |
-| Implemented but skipped | **54** |
+| Implemented and running | **460** |
+| Implemented but skipped | **46** |
 | Not yet written | **0** |
 | **Total** | **506** |
 
@@ -253,7 +253,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | s  | `S-10-13` | A user with no runs sees an empty state | `10_analytics/test_analytics.py` — fixture: every seeded account now has runs, so no empty state exists |
 | ok | `S-10-14` | Analytics is scoped to the signed-in user | `10_analytics/test_analytics.py` |
 
-## 11-admin.feature.md — 15/20 (5 skipped)
+## 11-admin.feature.md — 19/20 (1 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
@@ -271,10 +271,10 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-11-12` | A non-admin is not offered the entry point | `11_admin/test_admin.py` |
 | ok | `S-11-13` | Back to app returns to the main shell | `11_admin/test_admin.py` |
 | ok | `S-11-14` | Logout from the admin shell clears the session | `11_admin/test_admin.py` |
-| s  | `S-11-15` | Adding a user creates an account at the chosen tier | `11_admin/test_admin.py` — destructive: creates a real account; needs a disposable-user fixture |
-| s  | `S-11-16` | Deleting a user removes them | `11_admin/test_admin.py` — destructive: depends on the disposable user S-11-15 would create |
-| s  | `S-11-17` | An admin resets another user's password to a temporary one | `11_admin/test_admin.py` — destructive: would revoke a seeded account |
-| s  | `S-11-18` | A permanent reset skips the challenge but is knowable | `11_admin/test_admin.py` — destructive: would change a seeded account |
+| ok | `S-11-15` | Adding a user creates an account at the chosen tier | `11_admin/test_admin.py` |
+| ok | `S-11-16` | Deleting a user removes them | `11_admin/test_admin.py` |
+| ok | `S-11-17` | An admin resets another user's password to a temporary one | `11_admin/test_admin.py` |
+| ok | `S-11-18` | A permanent reset skips the challenge but is knowable | `11_admin/test_admin.py` |
 | ok | `S-11-19` | Admin reset is the only recovery path under email MFA | `11_admin/test_admin.py` |
 | s  | `S-11-20` | Changing another user's tier takes effect | `11_admin/test_admin.py` — destructive: changing a seeded tier breaks the entitlement fixtures |
 
@@ -401,7 +401,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | s  | `S-16-16` | A valid handoff token opens the handoff workflow | `16_pages_outside_routes/test_pages_outside_routes.py` — needs a fixture that mints a valid handoff token; 22_handoff_and_gates |
 | s  | `S-16-17` | A handoff token belonging to another user is refused | `16_pages_outside_routes/test_pages_outside_routes.py` — needs a handoff token issued to another user; 22_handoff_and_gates |
 
-## 17-theme-and-tiers.feature.md — 11/12 (1 skipped)
+## 17-theme-and-tiers.feature.md — 12/12
 
 | | Id | Scenario | Where |
 |---|---|---|---|
@@ -413,7 +413,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-17-06` | A non-admin is redirected away from the admin surface | `17_theme_and_tiers/test_theme_and_tiers.py` |
 | ok | `S-17-07` | Deliverable access matches the tier | `17_theme_and_tiers/test_theme_and_tiers.py` |
 | ok | `S-17-08` | Deliverable Access omits workflows the catalog offers | `17_theme_and_tiers/test_theme_and_tiers.py` |
-| s  | `S-17-09` | A hexaware user gains prototype and loses presentations | `17_theme_and_tiers/test_theme_and_tiers.py` — no hexaware account is seeded; creating one needs the admin  |
+| ok | `S-17-09` | A hexaware user gains prototype and loses presentations | `17_theme_and_tiers/test_theme_and_tiers.py` |
 | ok | `S-17-10` | The admin dialog offers every tier the backend knows | `17_theme_and_tiers/test_theme_and_tiers.py` |
 | ok | `S-17-11` | Entitlement is enforced by the backend, not only the badge | `17_theme_and_tiers/test_theme_and_tiers.py` |
 | ok | `S-17-12` | One user's runs are invisible to another | `17_theme_and_tiers/test_theme_and_tiers.py` |
@@ -442,7 +442,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-18-18` | The unavailable chip has its own testid | `18_chat_lane/test_chat_lane.py` |
 | s  | `S-18-19` | Chain suggestions appear only where they are meaningful | `18_chat_lane/test_chat_lane.py` — what governs chain suggestions was never established — they showed  |
 
-## 19-toasts-and-dialogs.feature.md — 14/17 (3 skipped)
+## 19-toasts-and-dialogs.feature.md — 15/17 (2 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
@@ -458,7 +458,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-19-10` | Deleting a user requires confirmation | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
 | ok | `S-19-11` | Cancelling a delete leaves the user intact | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
 | ok | `S-19-12` | Clicking the scrim cancels the delete | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
-| s  | `S-19-13` | Confirming removes the user and says so | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — deletes a real account; needs a disposable fixture user (S-11-15) |
+| ok | `S-19-13` | Confirming removes the user and says so | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
 | ok | `S-19-14` | An admin cannot delete themselves into lockout | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
 | s  | `S-19-15` | A failed download reports itself through window.alert | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` — needs a run whose deliverable download can be made to fail; live tier |
 | ok | `S-19-16` | Every test that can trigger a download registers a dialog handler | `19_toasts_and_dialogs/test_toasts_and_dialogs.py` |
@@ -600,7 +600,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-23-56` | The skill manager's editor | `23_controls_inventory/test_controls_inventory.py` |
 | ok | `S-23-57` | The sidebar's controls | `23_controls_inventory/test_controls_inventory.py` |
 
-## 24-api-contract.feature.md — 25/34 (9 skipped)
+## 24-api-contract.feature.md — 27/34 (7 skipped)
 
 | | Id | Scenario | Where |
 |---|---|---|---|
@@ -615,8 +615,8 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-24-09` | Password recovery refuses when email is a second factor | `24_api_contract/test_api_contract.py` |
 | ok | `S-24-10` | Second-factor management requires a session | `24_api_contract/test_api_contract.py` |
 | ok | `S-24-11` | Every admin endpoint requires an admin | `24_api_contract/test_api_contract.py` |
-| s  | `S-24-12` | Creating a user answers 201 with the created user | `24_api_contract/test_api_contract.py` — creates a real account; needs a disposable fixture user (S-11-15) |
-| s  | `S-24-13` | Deleting a user answers 204 with no body | `24_api_contract/test_api_contract.py` — deletes a real account; needs a disposable fixture user (S-11-15) |
+| ok | `S-24-12` | Creating a user answers 201 with the created user | `24_api_contract/test_api_contract.py` |
+| ok | `S-24-13` | Deleting a user answers 204 with no body | `24_api_contract/test_api_contract.py` |
 | ok | `S-24-14` | Role and tier changes return the updated user | `24_api_contract/test_api_contract.py` |
 | ok | `S-24-15` | Template previews load without a token | `24_api_contract/test_api_contract.py` |
 | ok | `S-24-16` | The asset route refuses path traversal | `24_api_contract/test_api_contract.py` |

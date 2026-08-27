@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import uuid
 import sys
 from pathlib import Path
 
@@ -326,16 +327,58 @@ def test_every_admin_endpoint_requires_an_admin(page, shot, method, path):
 
 @pytest.mark.scenario("S-24-12")
 @pytest.mark.destructive
-@pytest.mark.skip(reason="creates a real account; needs a disposable fixture user (S-11-15)")
-def test_creating_a_user_answers_201_with_the_created_user(page, shot):
-    """Scenario: Creating a user answers 201 with the created user"""
+def test_creating_a_user_answers_201_with_the_created_user(page, shot, disposable_user):
+    """Scenario: Creating a user answers 201 with the created user
+
+    The account is deleted in the fixture's teardown. `is_admin` is never set —
+    a second local admin locks every admin out (D-31).
+    """
+    with shot("create-201", "When an admin POSTs to /api/admin/users"):
+        page.goto("/dashboard")
+        address = f"e2e-{uuid.uuid4().hex[:12]}@flowinqa.com"
+        result = api.full(
+            disposable_user.admin_page,
+            "POST",
+            "/api/admin/users",
+            {
+                "email": address,
+                "password": accounts.PASSWORD,
+                "tier": "basic",
+                "is_admin": False,
+            },
+        )
+
+    assert result["status"] == 201, f"{result['status']}: {result['body'][:200]}"
+    body = json.loads(result["body"])
+    for field in ("id", "email", "tier", "is_admin", "created_at"):
+        assert field in body, f"the AdminUserResponse has no {field!r}: {sorted(body)}"
+    assert body["email"] == address and body["tier"] == "basic"
+    assert body["is_admin"] is False
+    # Never the password, in any form.
+    assert accounts.PASSWORD not in result["body"]
+
+    api.full(disposable_user.admin_page, "DELETE", f"/api/admin/users/{body['id']}")
 
 
 @pytest.mark.scenario("S-24-13")
 @pytest.mark.destructive
-@pytest.mark.skip(reason="deletes a real account; needs a disposable fixture user (S-11-15)")
-def test_deleting_a_user_answers_204_with_no_body(page, shot):
+def test_deleting_a_user_answers_204_with_no_body(page, shot, disposable_user):
     """Scenario: Deleting a user answers 204 with no body"""
+    user = disposable_user(tier="basic")
+
+    with shot("delete-204", "When an admin DELETEs /api/admin/users/{id}"):
+        page.goto("/dashboard")
+        result = api.full(
+            disposable_user.admin_page, "DELETE", f"/api/admin/users/{user['id']}"
+        )
+
+    assert result["status"] == 204, f"{result['status']}: {result['body'][:200]}"
+    assert result["body"] == "", f"a 204 carried a body: {result['body'][:200]!r}"
+
+    gone = api.full(disposable_user.admin_page, "GET", f"/api/admin/users")
+    rows = json.loads(gone["body"])
+    rows = rows["users"] if isinstance(rows, dict) else rows
+    assert all(row["id"] != user["id"] for row in rows), "the user is still listed"
 
 
 @pytest.mark.scenario("S-24-14")
