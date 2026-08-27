@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from framework import accounts, settings
+from framework import run_report
 from framework.report import Reporter
 from framework.shot import Shooter, slugify
 
@@ -125,17 +126,31 @@ def browser_context_args(browser_context_args, pytestconfig, request, signed_in_
     return args
 
 
-@pytest.fixture(scope="session")
-def run_dir(pytestconfig) -> Path:
-    """`test-runs/<timestamp>-<name>/`, created once per session.
+_RUN_DIR: dict[str, Path] = {}
+
+
+def run_directory(config) -> Path:
+    """`test-runs/<timestamp>-<name>/`, resolved once per session.
 
     Timestamped rather than id'd: it sorts chronologically, cannot collide, and
     reads as something a human can find again later.
+
+    A plain function and not only a fixture, because `pytest_sessionfinish`
+    writes the run report there and hooks cannot request fixtures. Memoised, or
+    a session that crosses a minute boundary would write its report into a
+    different folder from its screenshots.
     """
-    stamp = datetime.now().strftime("%Y-%m-%dT%H-%M")
-    d = INTEGRATION / "test-runs" / f"{stamp}-{slugify(pytestconfig.getoption('--run-name'))}"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    if "path" not in _RUN_DIR:
+        stamp = datetime.now().strftime("%Y-%m-%dT%H-%M")
+        d = INTEGRATION / "test-runs" / f"{stamp}-{slugify(config.getoption('--run-name'))}"
+        d.mkdir(parents=True, exist_ok=True)
+        _RUN_DIR["path"] = d
+    return _RUN_DIR["path"]
+
+
+@pytest.fixture(scope="session")
+def run_dir(pytestconfig) -> Path:
+    return run_directory(pytestconfig)
 
 
 # pytest-playwright parametrises every test by browser, so a node id reads
@@ -172,10 +187,19 @@ def _title(item) -> str:
 _progress = {"i": 0, "total": 0}
 
 
+_results = run_report.Results()
+
+
 def pytest_collection_modifyitems(config, items):
     _progress["total"] = len(items)
+    _results.base_url = config.getoption("--base-url") or "the app"
+    _results.run_name = config.getoption("--run-name")
     if items:
-        Reporter(config).session(len(items), config.getoption("--base-url") or "the app")
+        Reporter(config).session(len(items), _results.base_url)
+
+
+def pytest_deselected(items):
+    _results.deselected += len(items)
 
 
 def pytest_runtest_setup(item):
@@ -189,12 +213,67 @@ def pytest_runtest_setup(item):
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
-    report = outcome.get_result()
-    if report.when == "call":
+    rep = outcome.get_result()
+
+    # A `@pytest.mark.skip` never reaches the call phase, so the report has to
+    # be fed from setup too — otherwise every statically skipped scenario is
+    # simply absent from the run report, and absent reads as "not written".
+    if rep.skipped and rep.when in ("setup", "call"):
+        _record(item, "skipped", rep, reason=_skip_reason(rep))
+    elif rep.when == "call":
         shooter = getattr(item, "_shooter", None)
         Reporter(item.config).outcome(
-            report.passed, shooter.n if shooter else 0, report.duration
+            rep.passed, shooter.n if shooter else 0, rep.duration
         )
+        _record(item, "passed" if rep.passed else "failed", rep,
+                error="" if rep.passed else _short_error(rep))
+
+
+def _skip_reason(rep) -> str:
+    """The reason as written, out of `(path, lineno, "Skipped: <reason>")`."""
+    longrepr = getattr(rep, "longrepr", None)
+    if isinstance(longrepr, tuple) and len(longrepr) == 3:
+        return str(longrepr[2]).removeprefix("Skipped: ").strip()
+    return str(longrepr or "").strip()
+
+
+def _short_error(rep, limit: int = 1200) -> str:
+    """The tail of the traceback — where the assertion actually is.
+
+    The head is fixture plumbing every time; the last lines carry the message
+    and the locator that timed out, which is the whole diagnostic value.
+    """
+    text = rep.longreprtext if hasattr(rep, "longreprtext") else str(rep.longrepr)
+    text = text.strip()
+    return text if len(text) <= limit else "…\n" + text[-limit:]
+
+
+def _record(item, outcome: str, rep, reason: str = "", error: str = "") -> None:
+    if any(c.nodeid == item.nodeid for c in _results.cases):
+        return
+    marker = item.get_closest_marker("scenario")
+    shooter = getattr(item, "_shooter", None)
+    _results.add(
+        run_report.Case(
+            nodeid=item.nodeid,
+            suite=Path(item.fspath).parent.name,
+            scenario=marker.args[0] if marker else "UNMARKED",
+            title=_title(item),
+            outcome=outcome,
+            reason=reason,
+            error=error,
+            duration=getattr(rep, "duration", 0.0),
+            shots=shooter.n if shooter else 0,
+        )
+    )
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Write `0-report.html` at the top of this run's folder."""
+    if not _results.cases:
+        return
+    out = run_report.write(_results, run_directory(session.config))
+    Reporter(session.config).note(f"report  {out}", warn=False)
 
 
 @pytest.fixture(autouse=True)
