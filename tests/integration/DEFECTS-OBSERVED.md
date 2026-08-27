@@ -502,3 +502,69 @@ turned out to be wrong. Recorded here so the wrong claim is not quietly deleted.
 loading the URL. The parser's return value is not the user's destination, and a
 comment is not the code. Every routing claim in these specs is now backed by a
 fingerprint in `capture/`.
+
+---
+
+## D-22 — Escape does not close the Advanced workflow modal
+
+**Severity:** low. **Found by:** `S-03-11`, phase 2.
+
+`Advanced <N> agents` on any launch panel opens the full workflow canvas as a
+modal — `fixed inset-0 z-50`, intercepting pointer events on everything beneath
+it, including the control that opened it.
+
+**Escape does nothing.** The roster stays open. The only ways out are the
+`Cancel` button and an icon-only close control (see D-23).
+
+`20-keyboard-and-navigation` describes an Escape matrix covering every overlay in
+the product. This one is not in it, and the launch panel is one of the most
+frequently opened surfaces there is.
+
+`S-03-11` asserts the current behaviour, so fixing this turns that test red
+rather than letting the change pass unnoticed.
+
+---
+
+## D-23 — The Advanced modal's close button has no accessible name
+
+**Severity:** low, accessibility. **Found by:** `S-03-11`, phase 2.
+
+The icon-only control in the modal's top corner carries **no `aria-label`, no
+`title`, no `data-testid` and no text**. Its only distinguishing feature is a
+CSS class string.
+
+A screen-reader user meets an unlabelled button. A test can only reach it by
+matching on styling, which breaks on any restyle — so the suite uses `Cancel`
+instead, and this control is currently untested.
+
+One `aria-label="Close"` fixes both problems.
+
+---
+
+## D-24 — The daily-activity chart is invisible to assistive technology
+
+**Severity:** medium, accessibility. **Found by:** `S-10-11`, phase 2.
+
+Each bar in Analytics' Daily Activity chart is a bare `<div>`:
+
+```html
+<div data-testid="bar-chart-bar" class="w-full rounded-t-[3px] cursor-pointer"
+     style="background: var(--brand); opacity: 1; height: 100%;"></div>
+```
+
+**No `aria-label`, no `title`, no text content.** The value exists only as a CSS
+height percentage. A screen-reader user gets nothing from this chart, and a test
+can only read a relative height — never the token figure the chart is drawing.
+
+The chart's CONTAINER does carry `aria-label="Daily token usage for Last 30
+days"`, so the chart announces its subject and then says nothing about its data.
+The tiles beside it are readable, so this is the one part of the screen that is
+not.
+
+`S-10-11` therefore asserts what the markup supports — that bars are plotted and
+that a zero-token day is drawn at zero rather than omitted — and this defect
+records why it cannot assert the figures themselves.
+
+**Fix sketch:** one `aria-label` per bar, e.g. `"Aug 14: 31,331,878 tokens"`.
+The data is already in hand at render time; the same string would make `S-10-11`
+able to check the figures.
