@@ -20,13 +20,44 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import expect
 
-from framework import accounts, api
+from framework import accounts, api, settings
 from framework.locators import settings_page as L
 
 
 def open_settings(page, route: str = "/settings/profile") -> None:
     page.goto(route)
     expect(page.get_by_text(L.HEADING).first).to_be_visible()
+
+
+def open_model_tab(page) -> None:
+    """The AI-model tab, waited on until its data has actually landed.
+
+    The `<select>` mounts EMPTY and is filled by a fetch that arrives later —
+    and that fetch sets `pendingModel` as well as `selectedModel`. Selecting
+    an option before it lands is therefore silently UNDONE, which leaves
+    `selectedModel === pendingModel` and Save disabled for good: a 30s click
+    timeout on a button that is present, visible, and never going to enable.
+
+    Waiting for a real option to be attached is what proves the fetch
+    returned; `wait_for()` on the select itself returns far too early.
+    """
+    page.goto("/settings/ai-model")
+    expect(page.locator(f"{L.MODEL_SELECT} option").nth(1)).to_be_attached(
+        timeout=15_000
+    )
+    page.wait_for_timeout(settings.SETTLE_MS)
+
+
+def save_model(page, value: str) -> None:
+    """Pick `value` and save it, from a tab that is already loaded.
+
+    Save is `disabled={savingModel || selectedModel === pendingModel}`, so
+    waiting for it to ENABLE is the assertion that the selection took.
+    """
+    page.select_option(L.MODEL_SELECT, value)
+    expect(page.locator(L.SAVE_MODEL)).to_be_enabled(timeout=10_000)
+    page.click(L.SAVE_MODEL)
+    expect(page.get_by_text("Model preference saved")).to_be_visible(timeout=15_000)
 
 
 def mfa_status(page) -> dict:
@@ -198,7 +229,7 @@ def test_selecting_a_model_shows_its_description(page, shot):
 @pytest.mark.destructive
 def test_saving_a_model_preference_persists_it(page, shot):
     """Scenario: Saving a model preference persists it"""
-    open_settings(page, "/settings/ai-model")
+    open_model_tab(page)
     original = page.locator(L.MODEL_SELECT).input_value()
 
     values = page.locator(f"{L.MODEL_SELECT} option").evaluate_all(
@@ -208,9 +239,7 @@ def test_saving_a_model_preference_persists_it(page, shot):
 
     try:
         with shot("model-saved", f"When I select a different model and save"):
-            page.select_option(L.MODEL_SELECT, target)
-            page.click(L.SAVE_MODEL)
-            expect(page.get_by_text("Model preference saved")).to_be_visible()
+            save_model(page, target)
 
         with shot("model-after-reload", "And I reload the page"):
             page.reload()
@@ -220,11 +249,14 @@ def test_saving_a_model_preference_persists_it(page, shot):
     finally:
         # Restore, or every later run in the suite uses whatever this test left
         # behind — including the live tier.
-        page.goto("/settings/ai-model")
-        page.locator(L.MODEL_SELECT).wait_for()
-        page.select_option(L.MODEL_SELECT, original)
-        page.click(L.SAVE_MODEL)
-        expect(page.get_by_text("Model preference saved")).to_be_visible()
+        #
+        # Conditional, and re-reading the value rather than assuming it: if the
+        # try block failed BEFORE the save, the preference is already `original`
+        # and Save is disabled — restoring unconditionally would then time out
+        # and bury the real failure under a teardown error.
+        open_model_tab(page)
+        if page.locator(L.MODEL_SELECT).input_value() != original:
+            save_model(page, original)
 
 
 # ── Usage & Limits ───────────────────────────────────────────────────────────

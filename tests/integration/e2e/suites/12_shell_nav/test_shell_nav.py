@@ -183,18 +183,48 @@ def test_escape_closes_the_account_menu(page, shot):
 
 
 @pytest.mark.scenario("S-12-11")
-def test_the_notifications_panel_opens_with_an_empty_state(page, shot):
-    """Scenario: The notifications panel opens with an empty state"""
-    page.goto("/dashboard")
-    before = page.url
+@pytest.mark.destructive
+def test_the_notifications_panel_opens_with_an_empty_state(
+    shot, disposable_user, browser, pytestconfig
+):
+    """Scenario: The notifications panel opens with an empty state
 
-    with shot("notifications", "When I click the Notifications control"):
-        page.click(L.NOTIFICATIONS)
-        expect(page.get_by_text(L.NO_NOTIFICATIONS)).to_be_visible()
+    Against a freshly created account, for the same reason S-10-13 is: a
+    notification is raised by a run COMPLETING, and every seeded account has
+    completed runs by now — the live tier and this suite both leave some. On a
+    seeded session the panel legitimately renders its populated state, so
+    asserting the empty copy there fails on correct behaviour.
 
-    expect(page.get_by_text(L.NOTIFICATIONS_HEADING, exact=True)).to_be_visible()
-    expect(page.get_by_text(L.NOTIFICATIONS_HINT)).to_be_visible()
-    assert page.url == before, "the panel changed the URL; it overlays the screen"
+    The empty state is still worth a scenario; it just needs an account that
+    has never run anything, and creating one is the only way left to get it.
+    """
+    user = disposable_user(tier="basic")
+    context = browser.new_context(
+        base_url=settings.BASE_URL,
+        viewport=settings.VIEWPORT,
+        device_scale_factor=pytestconfig.getoption("--dpi"),
+        reduced_motion="reduce",
+    )
+    page = context.new_page()
+    shot.retarget(page)
+
+    try:
+        page.goto("/login")
+        page.fill(AUTH.EMAIL, user["email"])
+        page.fill(AUTH.PASSWORD, user["password"])
+        page.click(AUTH.SIGN_IN)
+        page.wait_for_url("**/dashboard", timeout=settings.LOGIN_TIMEOUT_MS)
+        before = page.url
+
+        with shot("notifications", "When I click the Notifications control"):
+            page.click(L.NOTIFICATIONS)
+            expect(page.get_by_text(L.NO_NOTIFICATIONS)).to_be_visible()
+
+        expect(page.get_by_text(L.NOTIFICATIONS_HEADING, exact=True)).to_be_visible()
+        expect(page.get_by_text(L.NOTIFICATIONS_HINT)).to_be_visible()
+        assert page.url == before, "the panel changed the URL; it overlays the screen"
+    finally:
+        context.close()
 
 
 @pytest.mark.scenario("S-12-12")

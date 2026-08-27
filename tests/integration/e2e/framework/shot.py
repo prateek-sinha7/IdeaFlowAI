@@ -49,6 +49,21 @@ class Shooter:
         page.on("console", self._on_console)
         page.on("requestfailed", self._on_request_failed)
 
+    def retarget(self, page) -> None:
+        """Point this shooter at a DIFFERENT page.
+
+        The fixture binds the test's default `page`, but a scenario that needs
+        its own browser context — a disposable account, a second session —
+        drives a page the fixture has never seen, and every shot would
+        otherwise capture a blank tab. Listeners move with it, or the console
+        errors reported alongside a shot would belong to the abandoned page.
+        """
+        self.page.remove_listener("console", self._on_console)
+        self.page.remove_listener("requestfailed", self._on_request_failed)
+        self.page = page
+        page.on("console", self._on_console)
+        page.on("requestfailed", self._on_request_failed)
+
     # ── listeners ────────────────────────────────────────────────────────────
 
     def _on_console(self, msg) -> None:
