@@ -3337,63 +3337,77 @@ export default function DashboardPage({
                 runId,
               );
             }
-            // FIX-298b: seed the run chat transcript from the same durable frames
-            // so messages and concierge responses appear in the left panel after
-            // the remount. handleWebSocketMessage above feeds useWorkflow/pipeline
-            // state (agents, progress); seedRunChatTranscript feeds useRunChat
-            // (chat_message/chat_reply frames). Without this call the transcript
-            // useState is empty — exactly what handleSwitchToLiveRun does at
-            // its own durable replay step (page.tsx handleSwitchToLiveRun).
-            // REVISION GUARD: seedRunChatTranscript calls setMessages([]) which
-            // wipes the existing transcript. For a just-launched revision run,
-            // durable frames contain no chat frames yet — calling seed would
-            // erase the parent run's messages with an empty replacement. Only
-            // seed when there are actual chat frames to fold in; otherwise
-            // preserve the existing transcript so the parent messages remain.
-            const hasChatFrames = durableFrames.some(
-              (f) => f.type === "chat_message" || f.type === "chat_reply"
-            );
-            if (hasChatFrames) {
-              seedRunChatTranscript(durableFrames, false);
-            } else {
-              // No chat frames yet (just-started revision or fresh launch with no
-              // Concierge turns). Fetch the run's FAMILY transcript so the parent
-              // run's messages appear — same as handleSwitchToLiveRun's family seed.
-              // Best-effort: a failure just leaves the transcript at its prior state.
-              const familyToken = getToken();
-              if (familyToken) {
-                void getRunFamily(familyToken, runId)
-                  .then(async (family) => {
-                    if (!family?.members?.length) return;
-                    // Collect chat frames from all family members (parent + siblings)
-                    // in chronological order — same strategy as handleSelectWorkflowRun.
-                    const memberIds = family.members.map((m: { id: string }) => m.id);
-                    const allFrames: typeof durableFrames = [];
-                    for (const mid of memberIds) {
-                      try {
-                        const tok = getToken();
-                        if (!tok) break;
-                        const mFrames = await getRunEvents(tok, mid);
-                        const chatOnly = mFrames.filter(
-                          (f) => f.type === "chat_message" || f.type === "chat_reply"
-                        );
-                        allFrames.push(...chatOnly);
-                      } catch { /* best-effort per member */ }
-                    }
-                    if (allFrames.length > 0) {
-                      seedRunChatTranscript(allFrames, false);
-                    }
-                    // Also seed the submittedBrief from the most recent member's
-                    // run detail (revision instruction) if not already set.
-                    const liveEntry = recentRuns.find((r) => r.id === runId);
-                    if (liveEntry?.input) {
-                      const parsed = (await import("@/lib/runInput")).parseRunInput(liveEntry.input);
-                      const brief = (parsed.revisionInstruction ?? parsed.brief ?? "").split("\n")[0].trim();
-                      if (brief) setSubmittedBrief(brief);
-                    }
-                  })
-                  .catch(() => { /* non-fatal */ });
-              }
+            // FIX-298b / FIX-263: always seed from the full revision family so the
+            // parent run's messages + concierge responses appear alongside the
+            // revision's own "Revision started" card.
+            //
+            // The original approach branched on `hasChatFrames`: if the revision
+            // run's own events already contained a chat_reply (e.g. the narrator's
+            // "Revision started" card, which is emitted early), it called
+            // seedRunChatTranscript(revisionOnlyFrames) — wiping the parent run's
+            // messages and leaving only "Revision started" visible. The `else`
+            // family-seed path was unreachable once that card landed.
+            //
+            // Fix: always fetch the family and seed from ALL members in
+            // chronological order (parent first, then the revision run), exactly
+            // as handleSelectWorkflowRun does for history reopens. The revision
+            // run's own durable frames are included as the LAST member so
+            // "Revision started" still appears at the end of the transcript in
+            // the correct position. Best-effort: a family-fetch failure falls
+            // back to seeding from the revision run's own frames alone (same
+            // behaviour as the pre-fix hasChatFrames=true branch).
+            const familyToken = getToken();
+            if (familyToken) {
+              void getRunFamily(familyToken, runId)
+                .then(async (family) => {
+                  // getRunFamily resolves the root via an owned ancestor walk and
+                  // returns all members ordered (created_at ASC, id ASC), so
+                  // parent is always first and the current revision is last.
+                  const memberIds = (family?.members ?? []).map((m: { id: string }) => m.id);
+                  if (memberIds.length === 0) {
+                    // No family (e.g. orphaned run or backend not yet committed
+                    // the family link) — fall back to revision-only frames.
+                    const chatOnly = durableFrames.filter(
+                      (f) => f.type === "chat_message" || f.type === "chat_reply"
+                    );
+                    if (chatOnly.length > 0) seedRunChatTranscript(chatOnly, false);
+                    return;
+                  }
+                  // Collect chat frames from every family member in order.
+                  const allFrames: typeof durableFrames = [];
+                  for (const mid of memberIds) {
+                    try {
+                      const tok = getToken();
+                      if (!tok) break;
+                      // Reuse the already-fetched frames for the current run
+                      // to avoid a redundant network round-trip.
+                      const mFrames = mid === runId
+                        ? durableFrames
+                        : await getRunEvents(tok, mid);
+                      const chatOnly = mFrames.filter(
+                        (f) => f.type === "chat_message" || f.type === "chat_reply"
+                      );
+                      allFrames.push(...chatOnly);
+                    } catch { /* best-effort per member */ }
+                  }
+                  if (allFrames.length > 0) {
+                    seedRunChatTranscript(allFrames, false);
+                  }
+                  // Seed the submittedBrief from the revision instruction if not set.
+                  const liveEntry = recentRuns.find((r) => r.id === runId);
+                  if (liveEntry?.input) {
+                    const parsed = (await import("@/lib/runInput")).parseRunInput(liveEntry.input);
+                    const brief = (parsed.revisionInstruction ?? parsed.brief ?? "").split("\n")[0].trim();
+                    if (brief) setSubmittedBrief(brief);
+                  }
+                })
+                .catch(() => {
+                  // Family fetch failed — fall back to the revision run's own frames.
+                  const chatOnly = durableFrames.filter(
+                    (f) => f.type === "chat_message" || f.type === "chat_reply"
+                  );
+                  if (chatOnly.length > 0) seedRunChatTranscript(chatOnly, false);
+                });
             }
             // Re-project the store viewport after replay to ensure a clean final
             // state snapshot reaches the UI (mirrors handleSwitchToLiveRun).
