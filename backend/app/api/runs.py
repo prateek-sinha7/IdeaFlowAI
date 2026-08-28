@@ -21,7 +21,8 @@ Security carried over VERBATIM from the original handlers:
 
 import json
 import re
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -1590,3 +1591,115 @@ async def get_exec_runs(
             for r in rows
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Share endpoints (Option B — public deliverable sharing).
+#
+# POST /api/runs/{id}/share  — owner mints a share token (or refreshes it).
+# DELETE /api/runs/{id}/share — owner revokes the share.
+# GET /s/{token}             — unauthenticated route registered in app/main.py;
+#                              returns ONLY the deliverable (output +
+#                              deliverable_mimetype). Never echoes input,
+#                              agent_outputs, token_usage, or any PII.
+# ---------------------------------------------------------------------------
+
+# Default share link lifetime: 30 days (owner-revocable at any time).
+_SHARE_TTL_DAYS = 30
+
+
+class ShareRunResponse(BaseModel):
+    """Response for POST /api/runs/{id}/share."""
+    share_token: str
+    share_url: str
+    expires_at: Optional[str] = None
+
+
+@router.post("/{workflow_id}/share", response_model=ShareRunResponse)
+def create_or_refresh_share(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mint (or refresh) a public share token for the run's deliverable.
+
+    IDOR: owner gate via user_id — cross-owner / missing → 404, never 403.
+    Only the output + deliverable_mimetype are served at /s/{token}; no
+    input, agent_outputs, token_usage, or PII is ever exposed.
+
+    Re-calling this endpoint replaces any existing token (refresh semantics),
+    which is the same pattern as rotating an API key — the old link stops
+    working and the caller gets a fresh one.
+    """
+    run = _owner_gate_or_404(db, workflow_id, current_user.id)
+
+    # A run must be completed and have a deliverable to share.
+    if run.status not in ("completed", "degraded"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "run_not_shareable",
+                    "message": "Only completed runs with a deliverable can be shared."},
+        )
+    if not run.output:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "no_deliverable",
+                    "message": "This run has no deliverable output to share."},
+        )
+
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=_SHARE_TTL_DAYS)
+
+    run.share_token = token
+    run.share_expires_at = expires_at
+    db.commit()
+
+    # The /s/ route lives at the app root (unauthenticated).
+    # We avoid importing settings here (circular risk) and build the path only.
+    share_path = f"/s/{token}"
+    return ShareRunResponse(
+        share_token=token,
+        share_url=share_path,
+        expires_at=expires_at.isoformat(),
+    )
+
+
+@router.delete("/{workflow_id}/share", status_code=status.HTTP_204_NO_CONTENT,
+               response_class=Response)
+def revoke_share(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revoke the public share for a run (clear share_token).
+
+    Idempotent: revoking a run that has no share is a no-op (204).
+    """
+    run = _owner_gate_or_404(db, workflow_id, current_user.id)
+    run.share_token = None
+    run.share_expires_at = None
+    db.commit()
+    return None
+
+
+def get_shared_run_by_token(token: str, db: Session):
+    """Look up a run by share token; return None for missing/expired tokens.
+
+    Used by the /s/{token} unauthenticated route in app/main.py.
+    NEVER raises — the caller decides the HTTP response.
+    """
+    run = (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.share_token == token)
+        .first()
+    )
+    if run is None:
+        return None
+    # Check expiry (allow a 60-second grace window for clock skew).
+    if run.share_expires_at is not None:
+        exp = run.share_expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp < datetime.now(timezone.utc) - timedelta(seconds=60):
+            return None
+    return run

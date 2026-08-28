@@ -1110,6 +1110,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         activeRunId={activeRunId}
         versionLabel={headerVersionLabel}
         onSelectVersion={handleSelectVersion}
+        runId={liveRunId ?? activeRunId ?? undefined}
         onShare={handleHeaderShare}
         onDownload={handleHeaderDownload}
         canDownload={canHeaderDownload}

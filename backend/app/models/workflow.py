@@ -121,6 +121,17 @@ class WorkflowRun(Base):
     # gates stay NULL (no step_id exists for the trigger). Populated by T41.
     diverted_at_step_id = Column(String, nullable=True)
 
+    # Added additively by migration 0040. Public share token for Option-B
+    # deliverable sharing: any bearer of this token can view the run's
+    # deliverable at GET /s/{token} without authenticating.
+    #   share_token      — cryptographically random 32-byte URL-safe token;
+    #                      NULL = run has not been shared / share was revoked.
+    #   share_expires_at — optional expiry (NULL = permanent until revoked).
+    # IDOR: the /s/ route echoes ONLY output + deliverable_mimetype — never
+    # input, agent_outputs, token_usage, owner_id, or any PII.
+    share_token = Column(String, nullable=True)
+    share_expires_at = Column(DateTime, nullable=True)
+
     user = relationship("User", back_populates="workflow_runs")
     parent_run = relationship("WorkflowRun", remote_side=[id])
     # (The legacy ``artifacts`` -> WorkflowArtifact relationship was removed in 05-07

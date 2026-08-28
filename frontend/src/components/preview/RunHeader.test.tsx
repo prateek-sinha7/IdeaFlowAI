@@ -42,21 +42,21 @@ describe("RunHeader — settled state", () => {
       />,
     );
     expect(screen.getByLabelText(/Version v2, choose version/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Copy a link to this run/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Share this run/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Download the deliverable/ })).toBeEnabled();
     // No live status badge in the settled state.
     expect(screen.queryByText(/streaming/i)).toBeNull();
     expect(screen.queryByText(/Run failed/i)).toBeNull();
   });
 
-  it("Share copies a link client-side (clipboard) and shows a transient 'Link copied' — no network", () => {
+  it("Share button opens popover (no runId → legacy onShare path)", () => {
     const onShare = vi.fn();
     render(
       <RunHeader runState="complete" family={family} activeRunId="r1" versionLabel="v2" onShare={onShare} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /Copy a link to this run/ }));
-    expect(onShare).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("Link copied")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Share this run/ }));
+    // Popover opens — shows share panel heading.
+    expect(screen.getByText(/Share deliverable/i)).toBeInTheDocument();
   });
 
   it("the Version menu lists the live family members; selecting one drives onSelectVersion", () => {
@@ -89,7 +89,7 @@ describe("RunHeader — live (building) state", () => {
     expect(screen.getByText(/streaming/i)).toBeInTheDocument();
     expect(screen.getByText(/building step 4 of 7/i)).toBeInTheDocument();
     expect(screen.getByText(/v1 draft/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Copy a link to this run/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Share this run/ })).toBeDisabled();
     expect(screen.queryByRole("button", { name: /Download the deliverable/ })).toBeNull();
     // No interactive Version menu while running.
     expect(screen.queryByLabelText(/choose version/)).toBeNull();
@@ -112,7 +112,7 @@ describe("RunHeader — failed state", () => {
     render(<RunHeader runState="terminal" failed versionLabel="v1" onShare={() => {}} onDownload={() => {}} />);
     expect(screen.getByText(/Run failed/)).toBeInTheDocument();
     expect(screen.getByText(/v1 · partial/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Copy a link to this run/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Share this run/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Download the deliverable/ })).toBeNull();
   });
 

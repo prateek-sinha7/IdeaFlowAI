@@ -371,3 +371,67 @@ async def health_check():
         "llm_provider": "bedrock" if llm_configured else "none",
         "langsmith": langsmith_enabled,
     }
+
+
+# ---------------------------------------------------------------------------
+# /s/{token} — unauthenticated public share route (Option B).
+#
+# Serves ONLY the deliverable (output bytes + Content-Type).  Never echoes
+# input, agent_outputs, token_usage, owner_id, or any PII.  Access is bounded
+# by the share_token uniqueness and its expiry (share_expires_at).
+# ---------------------------------------------------------------------------
+
+@app.get("/s/{token}")
+async def view_shared_run(token: str):
+    """Return the deliverable for a public share token — NO auth required.
+
+    SC-001: dispatches on ``deliverable_mimetype`` (generic), never on a
+    workflow-name literal.  Returns 404 for missing or expired tokens so the
+    caller cannot distinguish the two cases (no enumeration).
+    """
+    from fastapi.responses import HTMLResponse, PlainTextResponse, Response as _Resp
+    from app.models.database import get_db as _get_db
+    from app.api.runs import get_shared_run_by_token
+
+    db_gen = _get_db()
+    db = next(db_gen)
+    try:
+        run = get_shared_run_by_token(token, db)
+    finally:
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
+    if run is None or not run.output:
+        raise HTTPException(status_code=404, detail="Share not found or expired.")
+
+    output = run.output
+    mimetype = run.deliverable_mimetype or "text/html"
+
+    # Strip JSON envelope if present (the output column stores a JSON string
+    # for prototype HTML when the serialized_sandbox strategy is used).
+    if mimetype == "text/html" and output.startswith('"') and output.endswith('"'):
+        import json as _json
+        try:
+            output = _json.loads(output)
+        except Exception:
+            pass
+
+    # Content-Security-Policy: sandbox so the shared prototype cannot run
+    # arbitrary JS in the viewer's main browsing context.
+    share_headers = {
+        "X-Frame-Options": "SAMEORIGIN",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        # Cache for 5 minutes on CDN; revoked tokens return 404 immediately.
+        "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+    }
+
+    if mimetype == "text/html":
+        return HTMLResponse(content=output, headers=share_headers)
+    if mimetype in ("text/markdown", "text/plain"):
+        return PlainTextResponse(content=output, headers=share_headers)
+    # Generic fallback — let the browser decide.
+    return _Resp(content=output.encode() if isinstance(output, str) else output,
+                 media_type=mimetype, headers=share_headers)

@@ -2083,3 +2083,41 @@ export async function getRunExecRuns(
     throw err;
   }
 }
+
+// --- Share API (Option B — public deliverable sharing) ---
+
+export interface ShareRunResult {
+  share_token: string;
+  /** Relative path: /s/{token} — prepend window.location.origin on the FE. */
+  share_url: string;
+  expires_at?: string | null;
+}
+
+/**
+ * Mint (or refresh) a public share token for the run's deliverable.
+ * Owner-gated (JWT). Returns the token + the /s/{token} path.
+ * Only completed runs with a deliverable can be shared.
+ */
+export async function postShareRun(
+  token: string,
+  runId: string,
+): Promise<ShareRunResult> {
+  return request<ShareRunResult>(
+    `/api/runs/${encodeURIComponent(runId)}/share`,
+    { method: "POST", headers: authHeaders(token) },
+  );
+}
+
+/**
+ * Revoke the public share for a run (clear share_token). Idempotent.
+ * Owner-gated (JWT).
+ */
+export async function deleteShareRun(
+  token: string,
+  runId: string,
+): Promise<void> {
+  await request<void>(
+    `/api/runs/${encodeURIComponent(runId)}/share`,
+    { method: "DELETE", headers: authHeaders(token) },
+  );
+}
