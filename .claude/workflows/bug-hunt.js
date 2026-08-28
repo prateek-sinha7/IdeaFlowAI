@@ -34,6 +34,7 @@ export const meta = {
 const WAVE = (args && args.wave) || 3
 const onlyIds = (args && args.bugIds) || null
 const REGISTER = 'bug-hunter/ledger.md'
+const INDEX = 'bug-hunter/ledger-index.md'
 const STATE = 'bug-hunter/hunt-state.md'
 const PAUSE_FILE = 'bug-hunter/PAUSE'
 
@@ -208,14 +209,13 @@ const PHASE = {
     entry: ['Open', 'LOGGED', 'REOPENED-VALIDATE'],
     exit: 'CONFIRMED',
     serial: true,
-    prompt: (b) => `You are 2-validator. Bug ${b.bugId} — ${b.title || '(untitled)'} on ${b.page} (${b.route}).
+    prompt: (b) => `Bug ${b.bugId} — ${b.title || '(untitled)'} (${b.route}), severity ${b.severity || '?'}.
 
-Recorded reproduction:
-${b.repro || '(none recorded — derive it from the evidence folder)'}
-Fingerprint: ${b.fingerprint || '(none)'}
-Evidence: ${b.evidence || '(none)'}
+FIRST: read this bug's own entry in ${REGISTER}. Find the section headed
+"## ${b.bugId}" and read it in full — reproduction, expected, actual, fingerprint, evidence
+path, browser signals. Do NOT read the whole file; it is ~445 KB. Grep to the heading.
 
-Follow .claude/agents/2-validator.md exactly:
+Then follow your agent definition exactly:
 1. Reproduce 3x, each from a COLD start, capturing evidence per attempt.
 2. 3/3 -> CONFIRMED. 1-2/3 -> vary ONE axis at a time (timing, entry path, tier, theme,
    viewport, run state, empty vs populated, first visit vs revisit, session age) until you can
@@ -234,10 +234,11 @@ Follow .claude/agents/2-validator.md exactly:
     entry: ['CONFIRMED'],
     exit: 'ANALYZED',
     serial: false, // reads code, writes cards — never touches the app
-    prompt: (b) => `You are 3-analyzer. Bug ${b.bugId} — ${b.title || b.route}.
+    prompt: (b) => `Bug ${b.bugId} — ${b.title || b.route}.
 Its ISS card(s) so far: ${JSON.stringify(b.cards || [])}
+Its full entry is under the heading "## ${b.bugId}" in ${REGISTER} — grep to it, do not read the whole file.
 
-Follow .claude/agents/3-analyzer.md exactly:
+Follow your agent definition exactly:
 1. /velocity prime, then read .knowledge/CONTEXT.md for the invariants.
 2. /velocity analyze ${JSON.stringify(b.title || b.route)} — its full procedure. Skip its Jira
    step; you do book-keeping yourself.
@@ -258,10 +259,11 @@ You read code and write cards. You do NOT edit application source.`,
     entry: ['ANALYZED'],
     exit: 'TESTED',
     serial: true, // it RUNS the test
-    prompt: (b) => `You are 4-test-writer. Bug ${b.bugId} on ${b.page} (${b.route}).
+    prompt: (b) => `Bug ${b.bugId} — ${b.title || b.route}.
 Its ISS cards: ${JSON.stringify(b.cards || [])}
+Its full entry is under "## ${b.bugId}" in ${REGISTER} — grep to it, do not read the whole file.
 
-Follow .claude/agents/4-test-writer.md exactly:
+Follow your agent definition exactly:
 - At least one test per card; more when a card names distinct conditions.
 - Browser-observable -> tests/integration/e2e/suites/<NN_area>/. Backend-only ->
   backend/tests/unit/ or backend/tests/agents/. Frontend unit -> beside the component.
@@ -281,10 +283,10 @@ Follow .claude/agents/4-test-writer.md exactly:
     entry: ['TESTED', 'REOPENED'],
     exit: 'FIXED',
     serial: false, // edits disjoint files; never drives the app
-    prompt: (b) => `You are 5-fixer. Bug ${b.bugId} on ${b.page} (${b.route}).
+    prompt: (b) => `Bug ${b.bugId} — ${b.title || b.route}.
 Its ISS cards: ${JSON.stringify(b.cards || [])}
 
-Follow .claude/agents/5-fixer.md exactly:
+Follow your agent definition exactly:
 - Read every card FIRST. Root cause, blast radius and proposed fix are already there — do not
   re-derive them. If a card is WRONG, set escalate: true and stop.
 - Fix the ROOT CAUSE where all callers route through it, not the reported path alone.
@@ -308,10 +310,11 @@ Follow .claude/agents/5-fixer.md exactly:
     entry: ['FIXED'],
     exit: 'CLOSED',
     serial: true, // browser + test runs
-    prompt: (b) => `You are 6-verifier for bug ${b.bugId}. You are the only agent that may say "fixed".
+    prompt: (b) => `Bug ${b.bugId} — ${b.title || b.route}. You are the only agent that may say "fixed".
 Its cards: ${JSON.stringify(b.cards || [])}
+Its original reproduction is under "## ${b.bugId}" in ${REGISTER} — you must re-run it by hand.
 
-Follow .claude/agents/6-verifier.md exactly:
+Follow your agent definition exactly:
 1. If the fixer set restartNeeded, ASK THE USER to restart the backend and stop until it has
    happened — a stale compile_for_run cache makes a green test lie. Never restart it yourself.
    For a pure *.py fix, just confirm :8000/docs answers 200 — --reload already restarted it.
@@ -335,6 +338,7 @@ Numbers come from runs you observed. Never copy the fixer's figures as your own.
 async function pauseRequested() {
   const r = await agent(`Does the file ${PAUSE_FILE} exist? Single check. Do not explore the repo.`, {
     label: 'pause-check',
+    model: 'haiku',
     effort: 'low',
     schema: {
       type: 'object',
@@ -355,18 +359,25 @@ function chunk(list, size) {
   return out
 }
 
+// Reads the INDEX, not the ledger. ledger.md is ~445 KB and parsing it just to
+// build a queue costs ~75k tokens per phase; ledger-index.md is the one-row-per-bug
+// table with exactly the fields scheduling needs. Each worker reads its OWN entry
+// out of the ledger, which is the only part it actually needs.
 async function loadQueue(p) {
   const r = await agent(
-    `Read ${REGISTER} and list every bug eligible for the ${p.title.toUpperCase()} phase.
+    `Read ${INDEX} — the lookup table over the ledger — and list every bug eligible for the
+${p.title.toUpperCase()} phase.
 
-Eligible = its Status is one of ${JSON.stringify(p.entry)}.
+Eligible = its Status column is one of ${JSON.stringify(p.entry)}.
 ${onlyIds ? `Restrict to these ids only: ${JSON.stringify(onlyIds)}.` : ''}
 Also report whether ${PAUSE_FILE} exists.
 
-Return entries exactly as recorded — do not invent, merge or reword them. Include any issue-card
-ids already linked on the entry.`,
+Read ONLY the index. Do not open ${REGISTER} — it is ~445 KB and the workers read their own
+entries from it themselves. Return rows exactly as recorded; do not invent or reword them.`,
     {
-      label: `load:${p.agent}`,
+      label: `load:${p.title.toLowerCase()}`,
+      model: 'haiku',
+      effort: 'low',
       schema: {
         type: 'object',
         required: ['bugs'],
@@ -380,13 +391,9 @@ ids already linked on the entry.`,
               properties: {
                 bugId: { type: 'string' },
                 title: { type: 'string' },
-                page: { type: 'string' },
                 route: { type: 'string' },
                 severity: { type: 'string' },
                 status: { type: 'string' },
-                fingerprint: { type: 'string' },
-                repro: { type: 'string' },
-                evidence: { type: 'string' },
                 cards: { type: 'array', items: { type: 'string' } },
               },
             },
@@ -439,11 +446,16 @@ for (const name of RUN) {
       break
     }
 
+    // agentType is load-bearing: without it the call inherits the orchestrator's
+    // model and the DEFAULT workflow subagent, so the agent definition's model
+    // pin and its whole instruction set are ignored.
     const dispatch = (b) =>
       agent(`${p.prompt(b)}\n${CONTRACT}`, {
         label: `${name}:${b.bugId}`,
         phase: p.title,
         schema: SCHEMA[name],
+        agentType: p.agent,
+        effort: 'max',
       })
 
     if (p.serial) {
@@ -499,7 +511,7 @@ ${paused ? `Say that the run paused on request, and that resuming means deleting
 Finally confirm the register and the cards agree — Status, verification blocks, RELATED edges
 both ways. Report any that do not rather than fixing them silently.
 ${CONTRACT}`,
-  { label: `report:${label}`, phase: 'Report' },
+  { label: `report:${label}`, phase: 'Report', model: 'sonnet', effort: 'max' },
 )
 
 const advanced = ran.reduce((n, r) => n + r.results.filter((x) => x && !x.blocked).length, 0)

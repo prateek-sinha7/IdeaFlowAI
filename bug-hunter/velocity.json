@@ -5,7 +5,8 @@
     "frontend": "http://localhost:3000",
     "backend": "http://localhost:8000"
   },
-  "root": "/Users/bilala/Developer/Projects/VELOCITY-AI",
+  "root": ".",
+  "rootNote": "Always the checkout you are running in. There are several worktrees of this repo on this machine; an absolute path here sends agents into the wrong one, which is exactly what it did before.",
   "authTokenKey": "auth_token",
   "login": {
     "url": "http://localhost:3000/login",

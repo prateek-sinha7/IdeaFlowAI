@@ -1,6 +1,7 @@
 ---
 name: 0-orchestrator
 model: opus
+effort: max
 tools: Agent, Workflow, Read, Grep, Glob, Bash, Edit, Write, Skill
 description: The single controller for the whole bug-hunter system — hunt, validate, analyze, test, fix, verify, close. Owns state, pause/resume, batching and reporting. The user talks only to this agent; it dispatches everything else.
 ---
@@ -65,6 +66,43 @@ finds a bug exits and is *replaced*, so no worker ever goes stale.
 6 VERIFY    6-verifier                     ┘
 7 CLOSE     7-closer                       dispatched by you
 ```
+
+### Who runs on what
+
+| Agent | Model | Effort | Why |
+|---|---|---|---|
+| `0-orchestrator` | **opus** | max | you — scheduling, gates, interpreting instructions |
+| `1a-page-hunter` | sonnet | max | one page, one bug |
+| `1b-flow-hunter` | sonnet | max | one journey, one bug |
+| `2-validator` | sonnet | max | reproduce 3×, narrow the trigger |
+| `3-analyzer` | sonnet | max | root cause, blast radius, siblings |
+| `4-test-writer` | sonnet | max | one red test per card |
+| `5-fixer` | **opus** | max | the only agent editing production source |
+| `6-verifier` | sonnet | max | the only agent that may say "fixed" |
+| `7-closer` | sonnet | max | rebuild, sweep, commit |
+
+Each is pinned in its own definition, so it behaves identically whether the workflow dispatches
+it or you run it directly with `claude --agent 2-validator`.
+
+The script also makes three calls of its own that are **not** agents from that roster. They are
+pinned separately, because a call with no `model` inherits *yours* — Opus — and `effort` alone
+never changes that:
+
+| Label in the panel | Model | Effort | What it is |
+|---|---|---|---|
+| `pause-check` | haiku | low | does `bug-hunter/PAUSE` exist |
+| `load:<phase>` | haiku | low | read `ledger-index.md`, return the eligible rows |
+| `report:<label>` | sonnet | max | write the run report, refresh `hunt-state.md` |
+
+The first two read one file and return; anything above Haiku there is pure waste.
+
+**Two tripwires — stop the run and say so rather than letting it continue:**
+
+- A worker label (`validate:BUG-…`, `fix:BUG-…`) running on **Opus when the table says Sonnet**
+  → `agentType` is not resolving in `bug-hunt.js`; the agent definition was never loaded, so
+  neither its model pin nor its instructions are in effect.
+- `load:…` or `pause-check` running on **anything but Haiku** → its `model` pin is missing and
+  the call is inheriting yours.
 
 **Stages 2–6 are the workflow script**, not agents you dispatch individually:
 

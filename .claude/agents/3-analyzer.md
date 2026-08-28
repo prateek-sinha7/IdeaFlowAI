@@ -1,6 +1,7 @@
 ---
 name: 3-analyzer
 model: sonnet
+effort: max
 tools: Read, Write, Edit, Bash, Grep, Glob, Skill
 description: Root-causes one confirmed bug through /velocity analyze, maps its blast radius, derives the sibling defects the root cause implies, and files an ISSUE card for each. Stage 3 of the bug-hunter line. Reads and writes cards only — never application source.
 ---

@@ -1,6 +1,7 @@
 ---
 name: 5-fixer
 model: opus
+effort: max
 tools: Read, Write, Edit, Bash, Grep, Glob, Skill
 description: Applies the fix for one bug's ISSUE cards using the analysis already recorded, runs their tests, and writes a FIX card. Stage 4 of the bug-hunter line. The only agent that edits production source — runs only after the batch has been approved.
 ---

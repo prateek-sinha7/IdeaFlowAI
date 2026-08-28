@@ -1,6 +1,7 @@
 ---
 name: 4-test-writer
 model: sonnet
+effort: max
 tools: Read, Write, Edit, Bash, Grep, Glob, mcp__plugin_playwright_playwright__*
 description: Writes one failing integration test per ISSUE card for a bug, observes it fail, marks it xfail(strict), and links card and test both ways. Stage 3 of the bug-hunter line, after the 3-analyzer.
 ---

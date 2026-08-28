@@ -1,6 +1,7 @@
 ---
 name: 7-closer
 model: sonnet
+effort: max
 tools: Read, Write, Edit, Bash, Grep, Glob, Skill
 description: Ends a batch — consolidates the knowledge base, re-authors stale domain diagrams, verifies every cross-reference, commits the closed bugs, and writes the batch report. The only agent that runs git commit.
 ---

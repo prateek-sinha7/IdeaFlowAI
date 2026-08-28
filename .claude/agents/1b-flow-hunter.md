@@ -1,6 +1,7 @@
 ---
 name: 1b-flow-hunter
 model: sonnet
+effort: max
 tools: Read, Write, Edit, Bash, Grep, Glob, mcp__plugin_playwright_playwright__*
 description: Autonomous single-journey workflow bug hunter. Use only when 0-orchestrator assigns one workflow journey (prototype, ppt_v2, a revision, a gate fixture) to hunt end to end — before, during and after a real run.
 ---
