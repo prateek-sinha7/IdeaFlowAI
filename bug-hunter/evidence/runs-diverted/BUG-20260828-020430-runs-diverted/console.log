@@ -1,0 +1,6 @@
+[7588ms] [ERROR] Failed to load resource: the server responded with a status of 409 (Conflict) @ http://localhost:8000/api/runs/940ca699-b21b-4666-8e44-3370a08a4561/resume:0
+[7589ms] [ERROR] postResume failed ApiError: {"error":"Run is 'diverted'; only failed, degraded, or cancelled runs are resumable","code":"run_not_resumable","recoverable":false}
+
+--- second diverted run, same shape ---
+[5996ms] [ERROR] Failed to load resource: the server responded with a status of 409 (Conflict) @ http://localhost:8000/api/runs/277bc03a-d2ba-4405-876d-d0aa861bc9ed/resume:0
+[5997ms] [ERROR] postResume failed ApiError: {"error":"Run is 'diverted'; only failed, degraded, or cancelled runs are resumable","code":"run_not_resumable","recoverable":false}

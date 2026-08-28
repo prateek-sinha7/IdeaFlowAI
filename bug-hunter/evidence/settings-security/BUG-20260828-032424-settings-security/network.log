@@ -1,0 +1,6 @@
+GET /api/auth/mfa (qa-admin@flowinqa.com, admin/enterprise, break-glass local account)
+Response 200:
+{"enabled":false,"factors":[],"email_available":false,"totp_available":false,"required":false,"supported":false}
+
+GET /api/auth/me:
+{"id":"6b5d63ea-9b1f-4197-9a62-30f45b16e1a5","email":"qa-admin@flowinqa.com","tier":"enterprise","is_admin":true}

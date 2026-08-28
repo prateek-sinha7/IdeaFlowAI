@@ -1,0 +1,11 @@
+# With agent added, workflow name field EMPTY (placeholder "Untitled workflow"), click "Save workflow":
+# -> NO new network request fires (only pre-existing GET /api/workflows calls from page load remain).
+# -> No toast, no error banner, no red border on the name field; the only observable side-effect
+#    is the name input regaining focus, indistinguishable from any other focus event.
+
+# Immediately after, typed a name ("zz-hunt-savetest") into the same field and clicked
+# "Save workflow" again, with the SAME agent still on canvas:
+# -> [POST] http://localhost:8000/api/user-workflows => [201] Created  (fires immediately)
+
+# Re-cleared the name field back to empty and clicked "Save workflow" a second time (repro #2):
+# -> Again: NO new POST request, NO visible feedback of any kind.

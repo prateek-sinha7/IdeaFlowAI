@@ -1,0 +1,680 @@
+{
+  "target": "velocity",
+  "baseUrl": "http://localhost:3000",
+  "devServers": {
+    "frontend": "http://localhost:3000",
+    "backend": "http://localhost:8000"
+  },
+  "root": "/Users/bilala/Developer/Projects/VELOCITY-AI",
+  "authTokenKey": "auth_token",
+  "login": {
+    "url": "http://localhost:3000/login",
+    "emailSelector": "input[type=\"email\"], input[name=\"email\"]",
+    "passwordSelector": "input[type=\"password\"], input[name=\"password\"]",
+    "submitSelector": "button:has-text(\"Sign in\")",
+    "postLoginUrlPattern": "**/dashboard",
+    "credentialsSource": "backend/scripts/seed_test_users.py (run via scripts/local-dev/setup-backend.sh)",
+    "passwordEnvOverride": "E2E_BASE_PASSWORD",
+    "credentials": [
+      {
+        "email": "qa-admin@flowinqa.com",
+        "password": "flowin-e2e-pass",
+        "tier": "enterprise",
+        "isAdmin": true
+      },
+      {
+        "email": "qa-enterprise@flowinqa.com",
+        "password": "flowin-e2e-pass",
+        "tier": "enterprise",
+        "isAdmin": false
+      },
+      {
+        "email": "qa-pro@flowinqa.com",
+        "password": "flowin-e2e-pass",
+        "tier": "pro",
+        "isAdmin": false
+      },
+      {
+        "email": "qa-basic@flowinqa.com",
+        "password": "flowin-e2e-pass",
+        "tier": "basic",
+        "isAdmin": false
+      }
+    ],
+    "checkAuthSteps": [
+      {
+        "action": "goto",
+        "url": "/dashboard"
+      },
+      {
+        "action": "evaluate",
+        "script": "({ authenticated: !!localStorage.getItem('auth_token'), url: location.href })"
+      }
+    ],
+    "loginSteps": [
+      {
+        "action": "goto",
+        "url": "/login"
+      },
+      {
+        "action": "fill",
+        "selector": "input[type=\"email\"], input[name=\"email\"]",
+        "value": "<email>"
+      },
+      {
+        "action": "fill",
+        "selector": "input[type=\"password\"], input[name=\"password\"]",
+        "value": "<password>"
+      },
+      {
+        "action": "click",
+        "selector": "button:has-text(\"Sign in\")"
+      },
+      {
+        "action": "waitForURL",
+        "pattern": "**/dashboard"
+      }
+    ]
+  },
+  "routes": {
+    "login": "/login",
+    "loginExpired": "/login?expired=true",
+    "register": "/register",
+    "home_dashboard": "/dashboard",
+    "create_catalog": "/create",
+    "createPpt": "/create/ppt",
+    "createPrototype": "/create/prototype",
+    "createApp": "/create/app",
+    "createUserStories": "/create/user-stories",
+    "createWorkflow": "/create/<pipelineType>",
+    "workflows": "/workflows",
+    "workflowNew": "/workflows/new",
+    "workflow": "/workflows/<id>",
+    "workflowEdit": "/workflows/<id>/edit",
+    "workflowRun": "/workflows/<id>/run",
+    "workflowCanvas": "/workflows/<pipelineType>/canvas",
+    "runHistory": "/runs",
+    "runDetail": "/runs/<id>",
+    "runSteps": "/runs/<id>/steps",
+    "runStepsAgent": "/runs/<id>/steps/<agentId>",
+    "runFiles": "/runs/<id>/files",
+    "runWorkspace": "/runs/<id>/workspace",
+    "runAudit": "/runs/<id>/audit",
+    "runStream": "/runs/<id>/stream",
+    "runVersion": "/runs/<id>/versions/<v>",
+    "runPreviewFull": "/runs/<id>/preview/full",
+    "library": "/library",
+    "librarySkills": "/library?tab=skills",
+    "libraryHooks": "/library?tab=hooks",
+    "libraryAgent": "/library/agents/<agentId>",
+    "librarySkill": "/library/skills/<skillId>",
+    "libraryHook": "/library/hooks/<hookId>",
+    "settingsProfile": "/settings/profile",
+    "settingsAiModel": "/settings/ai-model",
+    "settingsUsage": "/settings/usage",
+    "settingsConstitution": "/settings/constitution",
+    "settingsSecurity": "/settings/security",
+    "analytics": "/analytics",
+    "admin": "/admin"
+  },
+  "quirks": [
+    {
+      "id": "rootRedirect",
+      "note": "Bare '/' unconditionally redirects to /login regardless of auth state - routing bug (frontend/src/app/page.tsx), not a logout. Real home is /dashboard. NEVER navigate to bare '/'."
+    },
+    {
+      "id": "viewportUnreliable",
+      "note": "page.setViewportSize() unreliable on this CDP-attached real Chrome window; verify sizing via window.innerWidth/innerHeight + getBoundingClientRect, not screenshot pixel dims."
+    },
+    {
+      "id": "composerRailScreenshot",
+      "note": "Composer/Canvas screenshots can fail to render CanvasConfigRail aside even though present/interactive - verify via querySelectorAll('button[role=\"switch\"]') DOM query, not screenshot."
+    },
+    {
+      "id": "sessionDrop",
+      "note": "Session can drop mid-conversation ('No active session' error) - just re-run ensure-session.sh; localStorage (auth/theme) persists in the same browser profile."
+    },
+    {
+      "id": "toolsToggleTiming",
+      "note": "Composer Tools-tab toggle switches: clicking multiple in one page.evaluate with no waits only keeps the LAST click (React batching race). Click one at a time with a ~400-500ms wait between each."
+    },
+    {
+      "id": "addAgentModalStaysOpen",
+      "note": "Clicking '+ Add' on a card in the 'Add agent' library modal adds the node but does NOT auto-close the modal. Press Escape (or find its close control) before interacting with any post-add UI - the modal's own search input would otherwise shift input/textarea nth-index selectors. Verified 2026-08-19: Escape closes it reliably."
+    },
+    {
+      "id": "multipleIdenticalLabels",
+      "note": "Labels like '+ Add' or 'Workflow actions' are NOT unique on the page - they repeat once per card. A plain clickText/global-selector click on these hits whichever matches first in DOM order, which is often the wrong card. Always scope with clickNear (anchor on the card's unique title text) for any action inside a repeated card, never a bare clickText/selector. Verified 2026-08-19: clickText('+ Add') added the wrong built-in agent instead of the blank Custom Agent template."
+    },
+    {
+      "id": "runOnceNoFeedback",
+      "note": "Composer's top-bar 'Run once' button gives no visible confirmation when clicked (no toast, no nav, panel looks unchanged) even though the run DOES fire successfully in the background - verify via Run History or GET /api/runs, not by watching the button/panel. Verified 2026-08-19."
+    },
+    {
+      "id": "stepsTabRowBlocked",
+      "note": "On a completed run's Steps tab, clicking an agent row (e.g. 'Orchestrator', 'Helper A') to expand its detail is unreliable via automation - Playwright repeatedly reports the click intercepted by button[data-testid='lane-adornments-toggle'] and/or the [role='log'][aria-label='Chat transcript'] div, even though those elements' own bounding rects don't visually overlap the row. Audit tab row-expand works fine by contrast (same page shell, no interception). Worth a manual-browser check - may be a real frontend hit-testing bug, not just an automation quirk. Verified 2026-08-19."
+    },
+    {
+      "id": "runHistoryMenuitem",
+      "note": "'Run History' in the account menu is button[role='menuitem'], not a plain link/div - clickText usually finds it, but if it doesn't, click via evaluate: find [role=\"menuitem\"] with exact textContent 'Run History' and call .click() directly rather than guessing routes like /history (that 404s and can bounce the session to /login)."
+    },
+    {
+      "id": "accountMenuItemClickability",
+      "note": "Account menu items (Account Settings, Analytics, Dark mode, etc.) use [role='menuitem'] elements. clickText sometimes fails to locate them, especially Analytics. Workaround: use evaluate to find the menu item by textContent and call .click() directly. Verified 2026-08-20: JS evaluation approach is more reliable."
+    },
+    {
+      "id": "launchPanelURLChange",
+      "note": "Dashboard launch panels DO change the URL, contrary to earlier 'URL stays /dashboard' note. Verified 2026-08-20: 'Pitch an idea' -> /workflow/create?mode=ppt, 'Generate product requirements' -> client-side, 'Build an interactive prototype' -> /workflow/create?mode=prototype, 'Compose a custom workflow' -> stays /dashboard. Each launch card has distinct routing behavior."
+    },
+    {
+      "id": "darkModeClickTextFail",
+      "note": "Dark mode toggle via clickText('Dark mode') can fail intermittently due to menuitem element type. Workaround: use CSS selector with text matching like button[role='menuitem']:has-text('Dark mode') or JS evaluate approach. Theme persists across page reloads via data-theme attribute on <html>. Verified 2026-08-20."
+    },
+    {
+      "id": "registerRouteExists",
+      "note": "/register returns 200 but is a REDIRECT STUB: register/page.tsx renders 'Redirecting…' and router.replace('/login') on mount. Self-registration is disabled. The route is kept alive so cached external links land cleanly rather than 404. Corrected 2026-08-26 - the earlier note said only that it exists, which read as if it were a real screen."
+    },
+    {
+      "id": "libraryTabBadgeFormatting",
+      "note": "Library page tab labels have badge numbers (e.g., 'Agents  87', 'Skills  185', 'Hooks  8'). Exact-text clickText('Agents') fails - use selector [role=\"tab\"]:nth-child(N) instead. Verified 2026-08-20."
+    },
+    {
+      "id": "clientSideNavStaysOnDashboard",
+      "note": "SUPERSEDED 2026-08-26. Spec 015 shipped real URL routing (ADR-0018): every screen has its own address and cold-loads. My Workflows is /workflows, Run History is /runs, Analytics is /analytics, Library is /library, run tabs are /runs/<id>/<tab>. Any older note claiming 'URL stays /dashboard' is wrong."
+    },
+    {
+      "id": "postLoginLandsOnDashboard",
+      "note": "An admin lands on /dashboard after sign-in, NOT /admin. The admin surface is reached from the account menu. Corrected 2026-08-26."
+    },
+    {
+      "id": "loginExpiredParamMustBeTrue",
+      "note": "/login?expired=true renders 'Your session expired. Please sign in again.' /login?expired=1 renders NO banner - the check is an exact string compare. Always use =true."
+    },
+    {
+      "id": "runDetailHasFiveTabs",
+      "note": "Run detail has FIVE tabs: Preview, Steps, Files, Workspace, Audit - not four. The Steps tab's testid is tab-thinking (legacy). /runs/<id>/workspace renders and cold-loads correctly, but parseViewPath has no 'workspace' case and routes.ts has no builder, so the router classifies a working URL as unknown."
+    },
+    {
+      "id": "createAppShowsUserStories",
+      "note": "/create/app renders the USER STORIES launch panel, not app_builder. initialWorkflowTypeFor (app/[...view]/page.tsx:307) returns a pipelineType only for the create-workflow screen, so /create/app and /create/user-stories reach the panel with no type and fall back to the default. /create/<anything-else> resolves correctly. Live defect as of 2026-08-26."
+    },
+    {
+      "id": "twoLaunchShells",
+      "note": "/create/ppt and /create/prototype render the LEGACY WIZARD (tabs, template gallery, Back/Next, no app nav). /create/app, /create/user-stories and /create/<type> render the simple launch panel (one brief textarea, Advanced, Run workflow, app nav present). Do not share selectors across the two."
+    },
+    {
+      "id": "libraryAgentCardNeedsConfigureClick",
+      "note": "Agent cards do NOT navigate on a card-body click - only the 'Configure →' affordance does. Skill and hook cards DO navigate on a body click."
+    },
+    {
+      "id": "composerSaveLabelIsTheMode",
+      "note": "Save label discriminates the composer's mode: 'Save workflow' on /workflows/new (POST) and /workflows/<id>/edit (PATCH); 'Save as copy' on /workflows/<type>/canvas, because a built-in is a file on disk with no row to write back to (ADR-0014)."
+    },
+    {
+      "id": "composerAlwaysSaysCustom",
+      "note": "/workflows/<id>/edit shows 'CUSTOM · COMPOSER' even for a ppt-based override - ComposerPage hardcodes base_pipeline_type to 'custom' (ISS-183)."
+    },
+    {
+      "id": "exAFixturesInRealCatalog",
+      "note": "Seven spec-014 conditional-gate fixtures (ex_A1_loop, ex_A2_branch, ex_A3_divert, ex_A3_b_spanish, ex_A3_c_dutch, ex_A4_human_gate, ex_A4_human_divert) are user_launchable and entitled to the enterprise tier on both sides, so they appear as ordinary catalog cards and as library categories with a count of 0. Tracked as ISS-187."
+    }
+  ],
+  "selectors": {
+    "accountMenuButton": "button[aria-label='Account menu']",
+    "workflowCardByTitle": "text=\"<title>\"",
+    "addAgentButton": "button[aria-label='Add agent']",
+    "addSubAgentButton": "button[aria-label='Add sub-agent to <NodeName>']",
+    "subAgentLibraryCustomAgent": "[data-testid='library-add-sub-custom-agent']",
+    "toolsToggle": "button[role='switch'][aria-label='<Read files|Write files|Execute commands|Spawn sub-agents|Internet access>']",
+    "skillSearchInput": "input[data-testid='agent-skills-search']",
+    "addSkillButton": "button[aria-label='Add <SkillName>']",
+    "workflowActionsButton": "button[aria-label='Workflow actions'] - NOT unique, one per card; use recipes.deleteWorkflow's clickNear scoping, never click this selector directly",
+    "libraryTabByIndex": "[role=\"tab\"]:nth-child(<N>)",
+    "libraryCard": "div.cursor-pointer.p-4 -- matches EXACTLY the item count; the older .bg-surface-card over-matches (107 nodes for 93 agents) because layout chrome shares the class",
+    "libraryCardLegacy": ".bg-surface-card -- OVER-MATCHES, kept only to explain older reports; prefer libraryCard",
+    "librarySearch": "input[name='library-search']",
+    "historySearch": "input[name='history-search']",
+    "savedWorkflowsSearch": "input[name='saved-workflows-search']",
+    "adminUserSearch": "input[name='admin-user-search']",
+    "adminDeleteUser": "button[aria-label='Delete <email>']",
+    "runTabPreview": "[data-testid='tab-preview']",
+    "runTabSteps": "[data-testid='tab-thinking'] -- NOTE the testid says thinking, the label says Steps; legacy naming, still live",
+    "runTabFiles": "[data-testid='tab-files']",
+    "runTabWorkspace": "[data-testid='tab-workspace']",
+    "runTabAudit": "[data-testid='tab-audit']",
+    "settingsTab": "[data-testid='tab-<profile|model|limits|constitution|security>'] -- testids do NOT match route segments: model↔ai-model, limits↔usage",
+    "composerHeaderSummary": "[data-testid='composer-header-summary']",
+    "canvasNode": "[data-testid='canvas-node-<agentId>']",
+    "canvasMoveEarlier": "[data-testid='canvas-move-earlier-<agentId>']",
+    "canvasMoveLater": "[data-testid='canvas-move-later-<agentId>']",
+    "canvasRename": "[data-testid='canvas-rename-<agentId>']",
+    "briefTextarea": "textarea[name='brief']",
+    "runChatMessage": "textarea[name='run-chat-message']",
+    "pptTemplateSearch": "input[name='ppt-template-search'] -- ppt wizard ONLY",
+    "prototypeTemplateSearch": "input[name='template-search'] -- prototype wizard ONLY; the two wizards do NOT share a search field name"
+  },
+  "recipes": {
+    "openComposerBlank": [
+      {
+        "action": "goto",
+        "url": "/dashboard"
+      },
+      {
+        "action": "clickText",
+        "text": "Compose a custom workflow"
+      }
+    ],
+    "addRootAgentNode": [
+      {
+        "action": "click",
+        "selector": "button[aria-label='Add agent']"
+      },
+      {
+        "action": "clickNear",
+        "anchorText": "Custom Agent",
+        "targetText": "+ Add",
+        "maxHops": 6
+      },
+      {
+        "action": "press",
+        "selector": "body",
+        "key": "Escape"
+      }
+    ],
+    "addSubAgentNode": [
+      {
+        "action": "click",
+        "selector": "button[aria-label='Add sub-agent to <NodeName>']"
+      },
+      {
+        "action": "click",
+        "selector": "[data-testid='library-add-sub-custom-agent']"
+      }
+    ],
+    "selectNode": [
+      {
+        "action": "clickText",
+        "text": "<NodeName>",
+        "maxHops": 6
+      }
+    ],
+    "renameWorkflowAndNode": [
+      {
+        "action": "fill",
+        "selector": "input >> nth=0",
+        "value": "<workflowName>"
+      },
+      {
+        "action": "fill",
+        "selector": "input >> nth=2",
+        "value": "<nodeName>"
+      },
+      {
+        "action": "fill",
+        "selector": "textarea >> nth=0",
+        "value": "<prompt>"
+      }
+    ],
+    "toggleToolsTabSwitch": [
+      {
+        "action": "click",
+        "selector": "button[role='switch'][aria-label='<ToggleLabel>']"
+      },
+      {
+        "action": "waitForTimeout",
+        "ms": 500
+      }
+    ],
+    "attachSkill": [
+      {
+        "action": "fill",
+        "selector": "input[data-testid='agent-skills-search']",
+        "value": "<skillQuery>"
+      },
+      {
+        "action": "click",
+        "selector": "button[aria-label='Add <SkillName>']"
+      }
+    ],
+    "saveWorkflow": [
+      {
+        "action": "evaluate",
+        "script": "(() => { const b = Array.from(document.querySelectorAll('button')).find(b => /save/i.test(b.textContent) && !/saved/i.test(b.textContent)); if (b) { b.click(); return 'clicked'; } return 'not-found'; })()"
+      }
+    ],
+    "openMyWorkflows": [
+      {
+        "action": "goto",
+        "url": "/dashboard"
+      },
+      {
+        "action": "clickText",
+        "text": "My Workflows"
+      }
+    ],
+    "deleteWorkflow": [
+      {
+        "action": "clickNear",
+        "anchorText": "<workflowTitle>",
+        "targetText": "Workflow actions",
+        "maxHops": 8
+      },
+      {
+        "action": "clickText",
+        "text": "Delete"
+      },
+      {
+        "action": "clickText",
+        "text": "Delete"
+      }
+    ],
+    "openAccountMenu": [
+      {
+        "action": "click",
+        "selector": "button[aria-label='Account menu']"
+      }
+    ],
+    "openRunHistory": [
+      {
+        "action": "click",
+        "selector": "button[aria-label='Account menu']"
+      },
+      {
+        "action": "clickText",
+        "text": "Run History"
+      }
+    ],
+    "toggleDarkMode": [
+      {
+        "action": "click",
+        "selector": "button[aria-label='Account menu']"
+      },
+      {
+        "action": "clickText",
+        "text": "Dark mode"
+      }
+    ],
+    "launchWorkflowFromDashboard": [
+      {
+        "action": "goto",
+        "url": "/dashboard"
+      },
+      {
+        "action": "clickText",
+        "text": "<workflowCardTitle>"
+      }
+    ],
+    "openAdvancedModal": [
+      {
+        "action": "clickText",
+        "text": "Advanced"
+      }
+    ],
+    "runComposerWorkflow": [
+      {
+        "action": "evaluate",
+        "script": "(() => { const b = Array.from(document.querySelectorAll('button')).find(b => /run once/i.test(b.textContent)); if (b) { b.click(); return 'clicked'; } return 'not-found'; })()"
+      },
+      {
+        "action": "fill",
+        "selector": "textarea[name='brief']",
+        "value": "<briefText>"
+      },
+      {
+        "action": "click",
+        "selector": "button:has-text('Run once')"
+      }
+    ],
+    "openRunHistoryViaJS": [
+      {
+        "action": "click",
+        "selector": "button[aria-label='Account menu']"
+      },
+      {
+        "action": "evaluate",
+        "script": "(() => { const b = Array.from(document.querySelectorAll('[role=\"menuitem\"]')).find(e => e.textContent.trim() === 'Run History'); if (b) { b.click(); return 'clicked'; } return 'not-found'; })()"
+      }
+    ],
+    "openAnalyticsViaJS": [
+      {
+        "action": "click",
+        "selector": "button[aria-label='Account menu']"
+      },
+      {
+        "action": "evaluate",
+        "script": "(() => { const b = Array.from(document.querySelectorAll('[role=\"menuitem\"]')).find(e => e.textContent.includes('Analytics')); if (b) { b.click(); return 'clicked'; } return 'not-found'; })()"
+      }
+    ],
+    "openLibrary": [
+      {
+        "action": "goto",
+        "url": "/dashboard"
+      },
+      {
+        "action": "clickText",
+        "text": "Library"
+      }
+    ],
+    "switchLibraryTab": [
+      {
+        "action": "click",
+        "selector": "[role=\"tab\"]:nth-child(<tabIndex>)"
+      },
+      {
+        "action": "waitForTimeout",
+        "ms": 300
+      }
+    ]
+  },
+  "pages": {
+    "dashboard": {
+      "nav": [
+        "Home",
+        "Library",
+        "My Workflows"
+      ],
+      "iconButtons": [
+        "Notifications",
+        "Account menu"
+      ],
+      "cards": [
+        "Build an end-to-end application",
+        "Pitch an idea",
+        "Build an interactive prototype",
+        "Generate product requirements",
+        "Compose a custom workflow"
+      ],
+      "comingSoonCards": [
+        ".NET to Azure",
+        "MuleSoft to Spring Boot",
+        "Reverse engineer a codebase",
+        "Sub-agents in parallel"
+      ],
+      "notes": "Most panels use client-side nav (URL stays /dashboard): My Workflows, Run History, Account Settings, Analytics. EXCEPTION: Launch panels have mixed routing - 'Pitch an idea' and 'Build an interactive prototype' navigate to /workflow/create?mode=ppt/prototype respectively; others stay on /dashboard. 'JUMP BACK IN' recent-runs section is below the fold. Verified 2026-08-20."
+    },
+    "myWorkflows": {
+      "openVia": "recipes.openMyWorkflows",
+      "cardFields": [
+        "title",
+        "typeBadge",
+        "agentCount",
+        "createdAgo"
+      ],
+      "cardButtons": [
+        "Workflow actions (aria-label='Workflow actions')",
+        "Run workflow"
+      ],
+      "assertOn": "body text contains 'My Workflows' and 'Your saved custom workflows' - URL does not change"
+    },
+    "accountMenu": {
+      "openVia": "recipes.openAccountMenu",
+      "items": [
+        "Account Settings",
+        "Analytics",
+        "Run History",
+        "Admin Dashboard (is_admin only)",
+        "Dark mode",
+        "Log out"
+      ],
+      "note": "[role='menuitem'] elements; plain text clicks are flaky, worst on Analytics and Dark mode. Locate by role+text and call .click()."
+    },
+    "runHistory": {
+      "openVia": "recipes.openRunHistory",
+      "structure": [
+        "search input",
+        "filter tabs (All/User Stories/Presentation/Prototype/App Builder/Custom)",
+        "sort controls (Newest/Longest/Tokens)",
+        "time-grouped run rows"
+      ],
+      "rowClickOpens": "run detail panel inline, stays /dashboard"
+    },
+    "runDetail": {
+      "tabs": [
+        "Preview",
+        "Steps",
+        "Files",
+        "Workspace",
+        "Audit"
+      ],
+      "tabTestids": [
+        "tab-preview",
+        "tab-thinking",
+        "tab-files",
+        "tab-workspace",
+        "tab-audit"
+      ],
+      "urls": "/runs/<id>, /steps, /files, /workspace, /audit - each cold-loads",
+      "headerActions": [
+        "Version v<n>",
+        "Share",
+        "Download",
+        "Full Screen (deck runs only)"
+      ],
+      "chatLane": "left rail, testid execution-chat-lane; composer textarea run-chat-message",
+      "findSpecificRunById": "GET /api/runs?limit=50 with the bearer token, match id, then navigate directly to /runs/<id> - the URL works, no clicking needed",
+      "agentOutputs": "GET /api/runs/<id> returns agent_outputs as a JSON-STRINGIFIED array (JSON.parse it): agent_id, name, role, output, duration, input_prompt, context_sources, tool_calls, thinking_text, token counts, model_id"
+    },
+    "workflowLaunchPanel": {
+      "openVia": "recipes.launchWorkflowFromDashboard",
+      "fields": [
+        "brief textarea (name='brief')",
+        "template search input (name='ppt-template-search')"
+      ],
+      "buttons": [
+        "+ Attach file",
+        "Voice",
+        "Advanced <N> agents",
+        "template filter pills",
+        "Upload custom"
+      ]
+    },
+    "advancedModal": {
+      "openVia": "recipes.openAdvancedModal",
+      "url": "/workflow/create?mode=<type>",
+      "tabs": [
+        "Agents (N)",
+        "Workflow"
+      ],
+      "canvas": "CanvasView - BRIEF node + agent cards with edit/Validator/Gate/Retry + '+ Sub-agent' buttons",
+      "rightSidebar": [
+        "Workflow/Agent tab selector",
+        "Brief instruction",
+        "Smart planning toggle",
+        "Confirm requirements first toggle",
+        "Deliverable dropdown",
+        "Internet access toggle"
+      ],
+      "footer": [
+        "Cancel",
+        "Save workflow"
+      ],
+      "closeButton": "X top-right, same as Cancel"
+    },
+    "admin": {
+      "shell": "its own - no app nav, no account menu",
+      "columns": [
+        "USER",
+        "PLAN",
+        "RUNS",
+        "ROLE",
+        "JOINED",
+        "ACTIONS"
+      ],
+      "selfGuard": "the signed-in admin's own row has NO delete control",
+      "reachedVia": "account menu → Admin Dashboard (is_admin only)"
+    },
+    "library": {
+      "tabs": [
+        "Agents",
+        "Skills",
+        "Hooks"
+      ],
+      "tabParam": "?tab=skills / ?tab=hooks; agents is the default and is omitted",
+      "cardSelector": "div.cursor-pointer.p-4",
+      "detail": "opens as a DRAWER beside the still-visible list (no role=dialog) and pushes /library/<type>/<id>"
+    },
+    "shell": {
+      "nav": [
+        "Home",
+        "Library",
+        "My Workflows"
+      ],
+      "navAre": "buttons, NOT anchors - the header contains no <a href>",
+      "iconButtons": [
+        "Notifications",
+        "Account menu"
+      ],
+      "runningBadge": "<Workflow> <done>/<total>, present only while a run is live",
+      "absentOn": [
+        "/login",
+        "/register",
+        "/admin",
+        "/workflows/<id>",
+        "/create/ppt",
+        "/create/prototype"
+      ]
+    },
+    "settings": {
+      "tabs": [
+        "Profile",
+        "AI Model",
+        "Usage & Limits",
+        "Constitution",
+        "Security"
+      ],
+      "routes": [
+        "/settings/profile",
+        "/settings/ai-model",
+        "/settings/usage",
+        "/settings/constitution",
+        "/settings/security"
+      ],
+      "testids": [
+        "tab-profile",
+        "tab-model",
+        "tab-limits",
+        "tab-constitution",
+        "tab-security"
+      ],
+      "note": "bare /settings parses to `unknown` by design - it does not redirect"
+    }
+  },
+  "darkMode": {
+    "toggleVia": "recipes.toggleDarkMode",
+    "stateAttribute": "data-theme on <html> ('light'|'dark')",
+    "persistsAcrossReload": true
+  },
+  "notes": [
+    "hello_html pipeline = 3 agents: Emoji Picker -> Writer -> Presenter, strategy: single_shot.",
+    "Built-in workflow launches (hello_html/user_stories/app_builder) use the IdeaInputPage flow, not Composer directly - only pipelineType 'custom' opens Composer directly.",
+    "Composer save: brand-new workflow -> POST /api/user-workflows -> 201 with fresh id + manifest.steps inline; existing workflow -> PATCH /api/user-workflows/{id} -> 200, same body shape.",
+    "New Composer node instance_ids are shaped '<shortUserSegment>-<random6>', never legacy 'agent-N'.",
+    "GET /api/runs/{id} returns agent_outputs as a JSON-STRINGIFIED array (JSON.parse it) - each item has agent_id, name, role, icon, output, duration, input_prompt, context_sources, tool_calls, thinking_text, input_tokens/output_tokens/total_tokens, cache_read_tokens/cache_write_tokens, model_id. Fastest way to inspect a run's thinking/tool-calls/output programmatically without fighting Steps-tab UI clicks.",
+    "Custom-agent Composer runs use Bedrock model id 'eu.anthropic.claude-haiku-4-5-20251001-v1:0' by default (Deliverable 'Default' setting) - thinking_text WAS populated and non-empty for all 3 agents in a 2026-08-19 test run, contradicting an earlier-suspected 'Bedrock reasoning_content ignored' extraction gap; that gap may already be fixed, or only affects a different surface (not this API field). Re-verify before assuming either way.",
+    "Sub-agents in a Composer tree execute SEQUENTIALLY, not in parallel, even though the dashboard's 'Sub-agents in parallel' card is listed as comingSoonCards - confirmed 2026-08-19 by run timing (3 agents, 7s+6s+8s per-agent duration ~= 20s total run duration, no overlap). Parent agents read prior sub-agent outputs via a read_file tool call (sub-agent outputs are exposed as readable files, e.g. 'helper_a', to the orchestrator), not via any message-passing/parallel-dispatch mechanism.",
+    "A brand-new Composer custom agent defaults to Read-files tool ON and locked (disabled toggle, cannot turn off) - Write/Execute-commands default OFF and togglable.",
+    "2026-08-26 screen-inventory sweep: 41 screens captured cold (page.goto, never click-navigated) in real Chrome 151 as qa-admin. Specs and screenshots live in tests/integration/ on branch feat/integration-tests. Read tests/integration/INVENTORY.md for the full route table and DEFECTS-OBSERVED.md for what looked wrong.",
+    "ParsedView declares 37 discriminators (36 screens + unknown); routes.ts is the authority for the whole surface and all screens render behind one catch-all, app/[...view]/page.tsx."
+  ],
+  "updatedAt": "2026-08-26 (FULL SCREEN INVENTORY. Corrected stale routing notes - spec 015 shipped real per-screen URLs, so 'stays /dashboard' is wrong everywhere. postLoginUrlPattern fixed to /dashboard. Added the complete routes map (40 entries), run-detail's fifth tab (Workspace) and its tab-thinking testid quirk, the two distinct launch shells, the library card selector correction (div.cursor-pointer.p-4, not .bg-surface-card), the composer Save-label mode discriminator, and three live defects: /create/app renders user_stories, /runs/<id>/workspace is absent from routes.ts, ?expired=1 shows no banner.)"
+}

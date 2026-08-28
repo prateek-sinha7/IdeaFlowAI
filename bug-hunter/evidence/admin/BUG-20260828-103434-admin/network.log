@@ -1,0 +1,4 @@
+POST http://localhost:8000/api/admin/users (2nd submit, duplicate email) => 409 Conflict
+Response body: {"detail":"A user with this email already exists."}
+Console: "Failed to load resource: the server responded with a status of 409 (Conflict) @ http://localhost:8000/api/admin/users:0"
+No toast, no inline error text, no field-level error rendered anywhere in the DOM after either 409.

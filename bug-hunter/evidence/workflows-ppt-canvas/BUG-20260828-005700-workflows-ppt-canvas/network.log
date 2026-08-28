@@ -1,0 +1,20 @@
+GET /api/workflows/ppt (original built-in) — deliverable + manifest_steps excerpt:
+{
+  "deliverable": {"strategy": "ppt", "name": "presentation.pptx"},
+  "manifest_steps": [
+    {"agent": "ppt-brief-analyst", "tools": {"read_files": true, "write_files": true}, "strategy": "single_shot", "gates": []},
+    {"agent": "ppt-composer", "tools": {"read_files": true, "write_files": true}, "strategy": "single_shot", "gates": []},
+    {"agent": "ppt-validator", "tools": {"read_files": true, "write_files": true}, "strategy": "single_shot", "gates": []}
+  ]
+}
+
+POST /api/user-workflows (repro 1, "Bug Hunter PPT Copy Test") => 201 Created:
+{"id":"530055a4-902f-41fc-b4b6-43a14aa840bc","name":"Bug Hunter PPT Copy Test","base_pipeline_type":"custom","agent_ids":["ppt-brief-analyst","ppt-composer","ppt-validator"],"manifest":null,"overrides_pipeline_type":null,"override_enabled":false}
+
+POST /api/user-workflows (repro 2, "Bug Hunter PPT Copy Repro2") => 201 Created:
+{"id":"e8b3cbe7-5af0-4e6c-84de-b2f38f0b51f4","name":"Bug Hunter PPT Copy Repro2","base_pipeline_type":"custom","agent_ids":["ppt-brief-analyst","ppt-composer","ppt-validator"],"manifest":null,"overrides_pipeline_type":null,"override_enabled":false}
+
+GET /api/workflows/ppt after both copies — confirms built-in itself remains pristine (immutability holds):
+{"deliverable": {"strategy": "ppt", "name": "presentation.pptx"}}
+
+Both test copies deleted after investigation via DELETE /api/user-workflows/{id} => 204.
