@@ -27,7 +27,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, ShieldCheck, Check } from "lucide-react";
 import type { AgentDef } from "@/types/index";
-import { Pill } from "@/components/ui/Pill";
 
 interface ReviewGatesSectionProps {
   /** The current pipeline's agents (e.g. LIBRARY_AGENTS filtered by type). */
@@ -38,8 +37,6 @@ interface ReviewGatesSectionProps {
   initialGateIds?: string[];
 }
 
-const isDefaultGated = (a: AgentDef): boolean => a.gate === "Human_Gate";
-
 export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewGatesSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const [touched, setTouched] = useState(false);
@@ -49,11 +46,10 @@ export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewG
   const agentsKey = useMemo(() => agents.map((a) => a.id).join("|"), [agents]);
 
   // Selected (checked) agent ids. Seeded from saved initialGateIds when provided,
-  // otherwise from static defaults. Re-seeds and clears `touched` on pipeline switch.
+  // otherwise empty — no gates pre-checked by default. The user opts in explicitly.
+  // Re-seeds and clears `touched` on pipeline switch.
   const [checkedIds, setCheckedIds] = useState<Set<string>>(
-    () => initialGateIds
-      ? new Set(initialGateIds)
-      : new Set(agents.filter(isDefaultGated).map((a) => a.id)),
+    () => initialGateIds ? new Set(initialGateIds) : new Set(),
   );
 
   // Re-seed the selection to the new defaults (and clear `touched`) whenever the
@@ -68,7 +64,7 @@ export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewG
       setTouched(true); // mark touched so the saved selection is sent on run
       initialGateIdsRef.current = undefined;
     } else {
-      setCheckedIds(new Set(agents.filter(isDefaultGated).map((a) => a.id)));
+      setCheckedIds(new Set());
       setTouched(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -125,8 +121,7 @@ export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewG
       {expanded && (
         <div className="border-t border-line-divider px-3 py-2.5 space-y-1">
           <p className="text-[10px] text-ink-400 leading-relaxed mb-1.5">
-            Checked agents pause the pipeline for your review after they finish. Pre-set to the
-            recommended defaults — adjust as needed.
+            Checked agents pause the pipeline for your review after they finish.
           </p>
           {agents.map((agent) => {
             const checked = checkedIds.has(agent.id);
@@ -159,11 +154,7 @@ export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewG
                     {agent.role}
                   </span>
                 </span>
-                {isDefaultGated(agent) && (
-                  <Pill className="flex-shrink-0 bg-brand-fill border-brand-border text-brand text-[9px] font-medium px-1.5 py-0.5">
-                    default
-                  </Pill>
-                )}
+
               </label>
             );
           })}

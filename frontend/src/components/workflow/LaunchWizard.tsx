@@ -240,7 +240,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   >(undefined);
 
   const selectionsRef = useRef<Record<string, Record<string, unknown>>>({});
-  const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: false });
+  const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: true });
 
   // Save-workflow state.
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -544,7 +544,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     setCustomTemplateBody(null);
     setPipelineAgents(defaultAgentsFor(libraryAgents, nextMode));
     selectionsRef.current = {};
-    gateSelectionRef.current = { ids: [], touched: false };
+    gateSelectionRef.current = { ids: [], touched: true };
   }, [libraryAgents, deckMode]);
 
   const handleAddAgent = useCallback((agent: AgentDef, insertBeforeId?: string) => {

@@ -4,7 +4,6 @@ consumes:
 - prototype-revision-feature-specify
 context_from:
 estimated_duration: 15.0
-gate: Human_Gate
 guardrails: []
 icon: "🗂️"
 id: prototype-plan

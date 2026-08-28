@@ -48,16 +48,13 @@ seed_files: {}
 steps:
 - agent: prototype-specify
   strategy: single_shot
-  gates:
-  - human
+  gates: []
 - agent: prototype-plan
   strategy: single_shot
-  gates:
-  - human
+  gates: []
 - agent: prototype-analyze
   strategy: single_shot
-  gates:
-  - human
+  gates: []
 - agent: prototype-build
   tools: {read_files: true, write_files: true}
   strategy: task_loop

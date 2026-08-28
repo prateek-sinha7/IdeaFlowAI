@@ -909,7 +909,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   // and so `handleRun` always reads the latest value. Untouched ⇒ we omit
   // `gate_agent_ids` (backend uses its static default); touched ⇒ we send the
   // explicit array (even when empty = "no gates").
-  const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: false });
+  const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: true });
   const handleGatesChange = useCallback((ids: string[], touched: boolean) => {
     gateSelectionRef.current = { ids, touched };
   }, []);

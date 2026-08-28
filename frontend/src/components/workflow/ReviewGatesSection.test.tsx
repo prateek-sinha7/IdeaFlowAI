@@ -99,40 +99,39 @@ describe("ReviewGatesSection — prototype pipeline", () => {
     expect(screen.getAllByRole("checkbox")).toHaveLength(prototypeAgents.length);
   });
 
-  it("pre-checks ONLY prototype-specify + prototype-plan + prototype-analyze", async () => {
+  it("starts with NO checkboxes pre-checked", async () => {
     await renderExpanded();
-    // Checkboxes render in pipeline order; map them back to ids.
+    // Checkboxes render in pipeline order; none should be pre-checked.
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     const checkedById: Record<string, boolean> = {};
     prototypeAgents.forEach((agent, i) => {
       checkedById[agent.id] = checkboxes[i].checked;
     });
     expect(checkedById).toEqual({
-      "prototype-specify": true,
-      "prototype-plan": true,
-      "prototype-analyze": true,
+      "prototype-specify": false,
+      "prototype-plan": false,
+      "prototype-analyze": false,
       "prototype-build": false,
       "prototype-validate": false,
     });
   });
 
-  it("the pre-checked set equals the gate===Human_Gate set", async () => {
+  it("the initial checked set is empty (user opts in explicitly)", async () => {
     await renderExpanded();
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     const checkedIds = prototypeAgents
       .filter((_, i) => checkboxes[i].checked)
       .map((a) => a.id);
-    const humanGateIds = prototypeAgents.filter(isHumanGate).map((a) => a.id);
-    expect(checkedIds).toEqual(humanGateIds);
+    expect(checkedIds).toEqual([]);
   });
 
-  it("first onChange reports the default gate ids with touched=false", () => {
+  it("first onChange reports empty gate ids with touched=false (no pre-selection by default)", () => {
     const onChange = vi.fn();
     render(<ReviewGatesSection agents={prototypeAgents} onChange={onChange} />);
     // The initial report fires on mount (no expand needed).
     expect(onChange).toHaveBeenCalled();
     const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
-    expect(ids).toEqual(["prototype-specify", "prototype-plan", "prototype-analyze"]);
+    expect(ids).toEqual([]);
     expect(touched).toBe(false);
   });
 
