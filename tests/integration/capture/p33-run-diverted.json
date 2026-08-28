@@ -1,0 +1,31 @@
+{
+  "url": "http://localhost:3000/runs/940ca699-b21b-4666-8e44-3370a08a4561",
+  "status": "Diverted",
+  "tabs": [
+    "Preview",
+    "Steps",
+    "Files",
+    "Workspace",
+    "Audit"
+  ],
+  "btn": [
+    "Home",
+    "Library",
+    "My Workflows",
+    "Pitch an idea (v2) 0/4",
+    "@Notifications",
+    "@Account menu",
+    "Back to history",
+    "Open in Steps",
+    "Start a new run",
+    "Version v1",
+    "Share",
+    "Download",
+    "Preview",
+    "Steps",
+    "Files",
+    "Workspace",
+    "Audit"
+  ],
+  "text": "VelocityAI\nHome\nLibrary\nMy Workflows\nPitch an idea (v2)\n0/4\nBack to history\nEX A4 HUMAN DIVERT\nDiverted\nGreet me\n2/3 agents\n·\n7.1K tokens\nRun started\nOpen in Steps\nReview approved — build continues\nStart a new run\nVersion v1\nShare\nDownload\nPreview\nSteps\nFiles\nWorkspace\nAudit\nOutput will appear here"
+}

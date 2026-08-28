@@ -1,0 +1,41 @@
+{
+  "url": "http://localhost:3000/create/prototype",
+  "inputs": [
+    "textarea[brief]",
+    "input[file]",
+    "input[design-system-search]"
+  ],
+  "btn": [
+    "+ Attach file",
+    "Voice",
+    "Advanced 2 agents",
+    "Template",
+    "Design System",
+    "Discovery",
+    "Upload custom",
+    "All",
+    "AI & LLM",
+    "Automotive",
+    "Backend & Data",
+    "Bold & Expressive",
+    "Creative & Artistic",
+    "Design & Creative",
+    "Developer Tools",
+    "E-Commerce & Retail",
+    "Editorial & Print",
+    "Editorial / Personal / Publication",
+    "Editorial · Studio",
+    "Fintech & Crypto",
+    "Layout & Structure",
+    "Media & Consumer",
+    "Modern & Minimal",
+    "Morphism & Effects",
+    "Productivity & SaaS",
+    "Professional & Corporate",
+    "Retro & Nostalgic",
+    "Social & Messaging",
+    "Starter",
+    "Themed & Unique"
+  ],
+  "text": "NEW PROTOTYPE\nConfigure your prototype\nDescribe what you're building\n+ Attach file\nVoice\nAdvanced\n2 agents\nTemplate\nDesign System\nDiscovery\nChoose a design system\nSets the brand tokens — colors, typography, density. Click any card to preview the full spec.\nDesign System Inspired by Apple\nUpload custom\nAll\nAI & LLM\nAutomotive\nBackend & Data\nBold & Expressive\nCreative & Artistic\nDesign & Creative\nDeveloper Tools\nE-Commerce & Retail\nEditorial & Print\nEditorial / Personal / Publication\nEditorial · Studio\nFintech & Crypto\nLayout & Structure\nMedia & Consumer\nModern & Minimal\nMorphism & Effects\nProductivity & SaaS\nProfessional & Corporate\nRetro & Nostalgic\nSocial & Messaging\nStarter\nThemed & Unique\nCustom\nAI & LLM\n15\nDesign System Inspired by Claude (Anthropic)\nAI & LLM\nDesign System Inspired by Cohere\nAI & LLM\nDesign System Inspired by ElevenLabs\nAI & LLM\nDesign System Inspired by Hugging Face\nAI & LLM\nDesign System Inspired by MiniMax\nAI & LLM\nDesign System Inspired by Mistral AI\nAI & LLM\nDesign System Inspired by Ollama\nAI & LLM\nDesign System Inspired by OpenAI\nAI & LLM\ncomponents\nDesign System Inspired by OpenCode\nAI & LLM\nDesign System Inspired by Perplexity AI\nAI & LLM\nDesign System Inspired by Replicate\nAI & LLM\nDesign System Inspired by Runway\nAI & LLM\nDesign System Inspired by Together AI\nAI & LLM\nDesign System Inspired by VoltAgent\nAI & LLM\nDesign System Inspired by xAI\nAI & LLM\nAUTOMOTIVE\n7\nDesign System Inspired by BMW\nAutomotive\nDesign System Inspired by BMW M\nAutomotive\nDesign System Inspired by Bugatti\nAutomotive\nDesign System Inspired by Ferrari\nAutomotive\nDesign S"
+}

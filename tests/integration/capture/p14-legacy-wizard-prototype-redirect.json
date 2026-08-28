@@ -1,0 +1,15 @@
+{
+  "asked": "/workflow/create?mode=prototype",
+  "landedOn": "/create/prototype",
+  "eyebrow": "NEW PROTOTYPE",
+  "headings": ["Configure your prototype", "Describe what you're building", "Review gates"],
+  "tabs": ["Template", "Design System", "Discovery"],
+  "categories": ["All", "Design", "Marketing", "Operations", "Engineering", "Product", "Finance & HR", "Custom"],
+  "controls": ["+ Attach file", "Voice", "Advanced 2 agents", "Upload custom"],
+  "notes": [
+    "CORRECTION to the sweep-1 spec: the FR-007/T17 redirect HAS landed. /workflow/create?mode=prototype does NOT render the legacy wizard — it redirects to /create/prototype.",
+    "same for ?mode=ppt (p13). The routes.ts comment saying the redirect is pending is stale.",
+    "16-pages-outside-routes.feature.md asserted the wizard renders in place; that scenario is wrong and is corrected."
+  ],
+  "screenshot": "screenshots/03-create/p14-legacy-wizard-prototype-redirect.png"
+}

@@ -1,0 +1,12 @@
+{
+  "url": "http://localhost:3000/dashboard",
+  "menuitems": [
+    "Account Settings",
+    "Analytics",
+    "Run History",
+    "Admin Dashboard",
+    "Dark mode",
+    "Log out"
+  ],
+  "menus": 1
+}

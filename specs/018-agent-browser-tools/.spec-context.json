@@ -5,5 +5,6 @@
   "selectedAt": "2026-08-27T00:02:37.407Z",
   "currentStep": "plan",
   "status": "planned",
-  "history": []
+  "history": [],
+  "telemetryInstanceId": "24cc123f-574e-414e-b461-9e07ddb534f6"
 }

@@ -1,0 +1,4 @@
+test-runs/
+e2e/.venv/
+e2e/.pytest_cache/
+e2e/__pycache__/

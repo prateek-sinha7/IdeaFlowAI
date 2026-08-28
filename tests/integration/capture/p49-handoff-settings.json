@@ -1,0 +1,35 @@
+{
+  "url": "/handoff/settings",
+  "h1": "Handoff integrations",
+  "subtitle": "Install the slash command, save your GitHub PAT, manage VelocityAI API keys.",
+  "sections": [
+    {
+      "h": "Install the /flowin-handoff slash command",
+      "body": "Run on each machine where you use Claude Code. Idempotent — safe to re-run to pull updates.",
+      "command": "curl -fsSL http://localhost:8000/install/flowin-handoff | bash",
+      "control": "Copy"
+    },
+    {
+      "h": "GitHub access token",
+      "body": "Needs repo scope. Encrypted at rest, never returned by any API.",
+      "emptyState": "No GitHub token saved yet.",
+      "input": {"name": "github-pat", "type": "password", "placeholder": "github_pat_..."},
+      "control": "Save"
+    },
+    {
+      "h": "VelocityAI API keys",
+      "body": "Used by the slash command / MCP client. Plaintext shown once.",
+      "emptyState": "No API keys yet.",
+      "input": {"name": "api-key-name", "type": "text", "placeholder": "Key name (e.g. Laptop)"},
+      "control": "Create key"
+    }
+  ],
+  "shell": "own chrome — no app nav rendered",
+  "notes": [
+    "the PAT field is type=password, so the value is masked in the DOM but still readable via .value",
+    "install command points at the backend origin (localhost:8000), not the frontend",
+    "most security-sensitive surface in the product; not described by routes.ts"
+  ],
+  "is404": false,
+  "screenshot": "screenshots/10-handoff/p49-handoff-settings.png"
+}

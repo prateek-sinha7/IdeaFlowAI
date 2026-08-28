@@ -1,0 +1,21 @@
+{
+  "url": "http://localhost:3000/login",
+  "title": "VelocityAI",
+  "h": [
+    "H2:Ship faster with your agent workforce.",
+    "H1:Welcome back"
+  ],
+  "btn": [
+    "Sign in"
+  ],
+  "tabs": [],
+  "sw": [],
+  "inp": [
+    "input[email]",
+    "input[password]"
+  ],
+  "tid": [
+    "login-brand-panel"
+  ],
+  "text": "VelocityAI\nAI DELIVERY, ORCHESTRATED\nShip faster with your agent workforce.\nCompose, run, and review delivery workflows — every step traceable, every artifact yours.\nAudit trail\nRole-based access\nInvitation-only\nWelcome back\nSign in to continue building with your AI delivery agents.\nEMAIL\nPASSWORD\nSign in\nAccess is by invitation. Contact your administrator for an account."
+}

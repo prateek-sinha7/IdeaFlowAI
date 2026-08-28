@@ -11,10 +11,10 @@ member_count: 17
 modules_spanned:
 - MOD-backend-agents
 watched_files: 23
-code_signature: a143fd2cef68
-symbols_signature: 8eadd80d35f6
-prose_signature: a143fd2cef68
-prose_symbols_signature: 8eadd80d35f6
+code_signature: f8f1e3575f50
+symbols_signature: c5c1dc0b2f3e
+prose_signature: f8f1e3575f50
+prose_symbols_signature: c5c1dc0b2f3e
 last_synced: '2026-08-27'
 ---
 
@@ -55,7 +55,7 @@ last_synced: '2026-08-27'
 - [backend/app/api/workflows.py](../../backend/app/api/workflows.py)
 - [backend/app/main.py](../../backend/app/main.py)
 
-### Imports, from outside this domain (62)
+### Imports, from outside this domain (63)
 - [backend/agents/__init__.py](../../backend/agents/__init__.py)
 - [backend/agents/artifact_store/__init__.py](../../backend/agents/artifact_store/__init__.py)
 - [backend/agents/artifact_store/store.py](../../backend/agents/artifact_store/store.py)
@@ -81,7 +81,7 @@ last_synced: '2026-08-27'
 - [backend/agents/capabilities/validators/severity.py](../../backend/agents/capabilities/validators/severity.py)
 - [backend/agents/factory.py](../../backend/agents/factory.py)
 - [backend/agents/loader.py](../../backend/agents/loader.py)
-- …and 37 more
+- …and 38 more
 
 ### External
 botocore, langchain_anthropic, langchain_core

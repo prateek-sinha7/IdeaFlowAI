@@ -15,10 +15,10 @@ member_count: 17
 modules_spanned:
 - MOD-backend-agents
 watched_files: 27
-code_signature: 401b0906ec3f
-symbols_signature: a26ba54bdfc3
-prose_signature: 401b0906ec3f
-prose_symbols_signature: a26ba54bdfc3
+code_signature: 3914ea36ea1d
+symbols_signature: e000525040af
+prose_signature: 3914ea36ea1d
+prose_symbols_signature: e000525040af
 last_synced: '2026-08-27'
 ---
 

@@ -1,0 +1,24 @@
+{
+  "url": "/runs/{completed}/versions/1",
+  "renders": "the full run-detail shell with the artifact pinned to that version",
+  "chrome": ["Back to history", "EX A4 HUMAN GATE", "Done", "Share", "Download"],
+  "tabs": ["Preview", "Steps", "Files", "Workspace", "Audit"],
+  "versionControl": "Version v1",
+  "rendererModes": ["Auto", "HTML", "Markdown", "Bundle"],
+  "deliverable": "greeting.md — 'Hola, mundo!'",
+  "nonexistentVersion": {
+    "url": "/runs/{completed}/versions/99",
+    "is404": false,
+    "shows": "Version v1",
+    "rendersDeliverable": true,
+    "defect": "D-12 — a version that does not exist silently falls back to v1. The URL still reads /versions/99, the picker reads v1, and nothing tells the user the version they asked for is not the one they got."
+  },
+  "notes": [
+    "CORRECTION to the sweep-2 manifest: this route was marked 'no multi-version run exists' and left uncaptured. It renders fine with a single-version run — only a version SWITCH is unobservable.",
+    "the version number is not in any heading; read it from the 'Version vN' control"
+  ],
+  "screenshots": [
+    "screenshots/05-runs/p34-run-version-v1.png",
+    "screenshots/11-errors/p56-run-version-nonexistent.png"
+  ]
+}

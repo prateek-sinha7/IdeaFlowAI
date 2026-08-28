@@ -1,0 +1,81 @@
+{
+  "sweep": "5 — the last four popups MANIFEST listed as unreachable",
+  "capturedAt": "2026-08-26",
+  "user": "qa-admin@flowinqa.com",
+  "method": "traced each component's mount point in source, then drove the exact path to it",
+
+  "C20_WorkflowDialog": {
+    "verdict": "NOT a separate overlay — it IS the catalog inspect dialog, already captured as 49",
+    "mountedBy": "components/catalog/HomeLaunchGrid.tsx:362 — {inspectId && <WorkflowDialog …>}",
+    "openedBy": "the 'Inspect <title> details' control on a catalog card",
+    "note": "the manifest listed C6 'catalog inspect dialog' and C20 'workflow/WorkflowDialog' as two rows. They are one component. Double-counted since sweep 2.",
+    "screenshot": "screenshots/12-overlays/49-modal-inspect-workflow.png"
+  },
+
+  "C19_SkillManager": {
+    "verdict": "UNREACHABLE — its only host page cannot produce the node that opens it",
+    "mountChain": [
+      "app/workflow/page.tsx:58        → WorkflowView",
+      "components/workflow/WorkflowView.tsx:493 → PipelineGraph",
+      "components/workflow/PipelineGraph.tsx:90 → AgentNode",
+      "components/workflow/AgentNode.tsx:197    → SkillManager"
+    ],
+    "trigger": "button[aria-label='Manage skill'] on an AgentNode, rendered only when agent.status === 'idle'",
+    "onlyHostPage": "/workflow — the orphaned legacy builder (p21), linked from nowhere in the app",
+    "whyUnreachable": "the legacy builder starts with 0 agents, and its 'Add Agent' picker returns 'No agents found' for EVERY category (All, User Stories, Presentation, Prototype, App Builder, Custom). With no node, there is no 'Manage skill' button, so SkillManager cannot be opened by any user.",
+    "categoriesChecked": {
+      "All": "No agents found",
+      "User Stories": "No agents found",
+      "Presentation": "No agents found",
+      "Prototype": "No agents found",
+      "App Builder": "No agents found",
+      "Custom": "No agents found"
+    },
+    "defect": "D-17",
+    "screenshot": "screenshots/12-overlays/86-modal-legacy-builder-add-agent-empty.png"
+  },
+
+  "C13_WorkflowPickerModal": {
+    "verdict": "CAPTURED — it was never unreachable, only mislocated",
+    "whereItActuallyIs": "the composer CONFIG RAIL, not the canvas node",
+    "path": "/workflows/ex_A3_divert/canvas → click the ROUTE node (Pick Language) → rail tab 'Agent' → sub-tab 'Config' → an outcome whose Type is 'Workflow' → its Target button",
+    "trigger": "button[data-testid='workflow-target-button'] (aria-label='Target')",
+    "heading": "(none — 'Pick a workflow' is plain text)",
+    "subtitle": "This outcome stops the current run and hands off to the workflow you choose.",
+    "search": "input[aria-label='Search workflows'], placeholder 'Search all workflows…'",
+    "groupChips": {"All": 51, "System": 13, "Revision": 7, "Yours": 31},
+    "rowShape": "<name> | <TYPE SLUG> | <description> | <n> steps",
+    "buttons": ["Close", "Pick workflow"],
+    "notes": [
+      "it is a MODAL ON TOP OF A MODAL — overlayCount was 2 when open",
+      "the rail must be scrolled to reach the target button; it is below the fold",
+      "the picker offers 51 workflows including revision variants, deliberately (see WorkflowTargetPicker's comment)",
+      "when the workflow fetch fails the component degrades to a free-text input with 'Couldn't load workflows — enter the target id directly.' — a second state worth testing"
+    ],
+    "screenshot": "screenshots/12-overlays/87-modal-workflow-divert-picker.png"
+  },
+
+  "C11_PrototypePreview": {
+    "verdict": "NOT CAPTURABLE against this run — the preview never mounts, and that is itself a defect",
+    "run": "d9693cbe-cd42-48ca-8f99-b1d2f250ef13 (Prototype, Done, 2 agents)",
+    "controlsThatShouldExist": [
+      "title='Zoom out' / 'Reset zoom (100%)' / 'Zoom in'",
+      "title='Open tweaks panel' / 'Close tweaks'",
+      "title='View source' / 'Hide source'",
+      "title='Open in new tab'",
+      "aria-label='Revision instructions'"
+    ],
+    "sourceRef": "components/preview/PrototypePreview.tsx:514-552",
+    "whatActuallyRenders": "'Output (text format):' followed by the raw <spec> markdown as plain text. Zero iframes. None of the controls above are in the DOM.",
+    "rendererModes": ["Auto", "Prototype"],
+    "filesTabSays": "4 files available · 1 deliverable — FINAL OUTPUT prototype.html, HTML (.html) · 11.8 KB · validated",
+    "contradiction": "the deliverable prototype.html exists, is 11.8 KB and is marked 'validated', but the Preview tab renders the spec agent's markdown instead of it. Clicking Preview on the file row itself does not fix it.",
+    "defect": "D-18",
+    "screenshot": "screenshots/13-states/88-prototype-preview-renders-spec-text.png"
+  },
+
+  "newRendererModeFound": {
+    "mode": "Prototype",
+    "note": "a fifth renderer mode not in the manifest's list (Auto, HTML, Markdown, Bundle, Slides). A prototype deliverable offers Auto + Prototype only — not the four seen on a .md."
+  }
+}

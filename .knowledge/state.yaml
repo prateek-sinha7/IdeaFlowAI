@@ -6,7 +6,7 @@ cards_by_type:
   adr: 34
   bug: 44
   fix: 334
-  issue: 186
+  issue: 187
 cards_by_kind:
   event: 558
   state: 34

@@ -27,8 +27,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
-from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import tool
@@ -45,14 +43,6 @@ _BROWSER_DIR = ".browser"
 _SANDBOX: Any = None
 _AGENT_ID: str = "unknown"  # Bound by bind_sandbox, used for per-agent browser context isolation.
 
-# One background loop, started lazily on first use and reused for the life of
-# the process. Every Playwright coroutine below is submitted here rather than
-# run with `asyncio.run()`, which would open (and immediately tear down) a new
-# loop per call and orphan the browser/context/page objects a prior call
-# created on the old one.
-_BRIDGE_LOOP: asyncio.AbstractEventLoop | None = None
-_BRIDGE_LOCK = threading.Lock()
-
 
 def bind_sandbox(sandbox: Any, agent_id: str = "unknown") -> None:
     """Point the tools at this run's sandbox. Called by the factory, not the model.
@@ -66,19 +56,16 @@ def bind_sandbox(sandbox: Any, agent_id: str = "unknown") -> None:
     _AGENT_ID = agent_id
 
 
-def _bridge_loop() -> asyncio.AbstractEventLoop:
-    """Return the dedicated background event loop, starting it on first use."""
-    global _BRIDGE_LOOP
-    with _BRIDGE_LOCK:
-        if _BRIDGE_LOOP is None:
-            _BRIDGE_LOOP = asyncio.new_event_loop()
-            threading.Thread(target=_BRIDGE_LOOP.run_forever, daemon=True).start()
-        return _BRIDGE_LOOP
-
-
 def _run(coro: Any) -> Any:
-    """Run a Playwright coroutine on the bridge loop and block for its result."""
-    return asyncio.run_coroutine_threadsafe(coro, _bridge_loop()).result()
+    """Run a Playwright coroutine on the shared bridge loop and block for its result.
+
+    The bridge loop itself lives in ``app.agents.playwright_session`` — shared with
+    every other module that touches a session, since Playwright's async objects are
+    bound to whichever loop created them (two independent loops would fault the
+    moment two agents in one run shared a session).
+    """
+    from app.agents.playwright_session import run_sync
+    return run_sync(coro)
 
 
 def _get_session(run_id: str) -> Any:
@@ -89,20 +76,8 @@ def _get_session(run_id: str) -> Any:
 
 def _get_run_id() -> str | None:
     """Extract the run_id from the current context (injected by the runner)."""
-    # The run_id is passed as ambient state through the runner's context.
-    # For now, we extract it via the sandbox if available.
-    if _SANDBOX is None:
-        return None
-    # The sandbox's run_id is accessible via its path or metadata.
-    # Typically the path is /app/runs/{user_id}/{run_id}.
-    try:
-        # Extract run_id from the sandbox's root path
-        parts = Path(_SANDBOX.root).parts
-        if len(parts) >= 2:
-            return parts[-1]  # Assuming /app/runs/{user_id}/{run_id}
-    except Exception:  # noqa: BLE001 — best-effort extraction
-        pass
-    return None
+    from app.agents.playwright_session import run_id_from_sandbox
+    return run_id_from_sandbox(_SANDBOX)
 
 
 @tool

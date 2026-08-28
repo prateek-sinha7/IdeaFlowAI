@@ -1,0 +1,81 @@
+{
+  "url": "http://localhost:3000/dashboard",
+  "menuitems": [
+    "Account Settings",
+    "Analytics",
+    "Run History",
+    "Dark mode",
+    "Log out"
+  ],
+  "hasAdminEntry": false,
+  "locked": [
+    {
+      "card": "Build an end-to-end application",
+      "lock": null
+    },
+    {
+      "card": "Retry Until It Passes",
+      "lock": null
+    },
+    {
+      "card": "Branch by Language",
+      "lock": null
+    },
+    {
+      "card": "Spanish Greeter",
+      "lock": null
+    },
+    {
+      "card": "Dutch Greeter",
+      "lock": null
+    },
+    {
+      "card": "Hand Off to Another Workflow",
+      "lock": null
+    },
+    {
+      "card": "Ask a Human, Then Hand Off",
+      "lock": null
+    },
+    {
+      "card": "Ask a Human, Then Decide",
+      "lock": null
+    },
+    {
+      "card": "Pitch an idea",
+      "lock": null
+    },
+    {
+      "card": "Pitch an idea (v2)",
+      "lock": null
+    },
+    {
+      "card": "Build an interactive prototype",
+      "lock": null
+    },
+    {
+      "card": "Generate product requirements",
+      "lock": null
+    },
+    {
+      "card": "Compose a custom workflow",
+      "lock": null
+    },
+    {
+      "card": ".NET to Azure",
+      "lock": null
+    },
+    {
+      "card": "MuleSoft to Spring Boot",
+      "lock": null
+    },
+    {
+      "card": "Reverse engineer a codebase",
+      "lock": null
+    },
+    {
+      "card": "Sub-agents in parallel",
+      "lock": null
+    }
+  ]
+}

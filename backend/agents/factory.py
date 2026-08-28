@@ -997,6 +997,7 @@ def _compose_injection(spec, ctx: AgentContext, injects: list[str]) -> str:
 
 _PPTX_TOOL_KEYS = frozenset({
     "render_pptx", "verify_pptx_layout", "extract_pptx_shapes", "screenshot_pptx",
+    "extract_computed_styles",
 })
 
 _PLAYWRIGHT_TOOL_KEYS = frozenset({

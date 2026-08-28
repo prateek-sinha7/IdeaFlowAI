@@ -253,3 +253,32 @@ def test_the_evidence_never_becomes_part_of_the_deliverable(sandbox):
     out = serialize_sandbox_deliverable(sandbox)
     assert ".verify/" not in out
     assert "attempt-01.js" not in out
+
+
+class TestExtractComputedStyles:
+    """Ground-truth extraction (Option A): a headless render + DOM walk that gives
+    the code-generator real measured values instead of estimates from HTML text.
+    Live-browser success path is exercised manually (same convention as
+    test_playwright_tools.py, which never launches a real browser in the unit
+    suite either) — these cover the failure/refusal paths only.
+    """
+
+    def test_no_sandbox_bound(self):
+        pptx_tools._SANDBOX = None
+        out = pptx_tools.extract_computed_styles.invoke({})
+        assert "no run sandbox is bound" in out
+
+    def test_html_missing(self, sandbox):
+        out = pptx_tools.extract_computed_styles.invoke({})
+        assert pptx_tools.DECK_NAME in out
+        assert "does not exist" in out
+
+    def test_rotation_regex_matches_css_degrees_only(self):
+        html = (
+            '<div style="transform: rotate(-12deg);">a</div>'
+            '<div style="transform: rotate(15deg);">b</div>'
+            '<script>el.setAttribute("transform", "rotate(10 40 40)");</script>'
+        )
+        # The SVG-attribute form `rotate(10 40 40)` (no "deg") must NOT count —
+        # that is a coordinate-space rotation, not a CSS design motif.
+        assert len(pptx_tools._HTML_ROTATE.findall(html)) == 2

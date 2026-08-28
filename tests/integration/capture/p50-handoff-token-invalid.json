@@ -1,0 +1,14 @@
+{
+  "url": "/handoff/invalid-token-abc123",
+  "h1": "Handoff not found",
+  "body": "Handoff not found",
+  "links": [{"text": "Back to dashboard", "href": "/dashboard"}],
+  "buttons": [],
+  "is404": false,
+  "notes": [
+    "not the generic 404 — its own error surface, HTTP 200",
+    "heading and body are the same string, so a text assertion matches twice",
+    "one console error is logged when the token lookup fails"
+  ],
+  "screenshot": "screenshots/10-handoff/p50-handoff-token-invalid.png"
+}

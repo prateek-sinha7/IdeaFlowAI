@@ -1,0 +1,36 @@
+{
+  "url": "http://localhost:3000/create/prototype",
+  "inputs": [
+    "textarea[brief]",
+    "input[file]",
+    "input[anything-to-avoid?]"
+  ],
+  "btn": [
+    "+ Attach file",
+    "Voice",
+    "Advanced 2 agents",
+    "Template",
+    "Design System",
+    "Discovery",
+    "Desktop web",
+    "Mobile web",
+    "Tablet",
+    "Native mobile feel",
+    "Developers",
+    "Operators / ops",
+    "End consumers",
+    "Executives",
+    "Mixed",
+    "Professional",
+    "Playful",
+    "Editorial",
+    "Brutalist",
+    "Minimal",
+    "Small team (1–20)",
+    "Mid-sized (20–500)",
+    "Enterprise (500+)",
+    "Not applicable",
+    "Back"
+  ],
+  "text": "NEW PROTOTYPE\nConfigure your prototype\nDescribe what you're building\n+ Attach file\nVoice\nAdvanced\n2 agents\nTemplate\nDesign System\nDiscovery\nA few quick details\nOptional, but they steer the agent significantly. Skip any that don't apply.\nSurface\nDesktop web\nMobile web\nTablet\nNative mobile feel\nAudience\nDevelopers\nOperators / ops\nEnd consumers\nExecutives\nMixed\nTone\nProfessional\nPlayful\nEditorial\nBrutalist\nMinimal\nScale\nSmall team (1–20)\nMid-sized (20–500)\nEnterprise (500+)\nNot applicable\nAnything to avoid?\ne.g. \"no animations\", \"no purple\", \"no stock photos\"\nBack\nNext\nReview gates\nOptionally pause the pipeline for your review after specific agents.\nReview gates\n1 agent pause for review\nAdd a brief\nSave workflow\nSave as my version\nContinue"
+}

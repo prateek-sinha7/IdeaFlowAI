@@ -1,0 +1,21 @@
+{
+  "url": "/analytics",
+  "h1": ["Analytics"],
+  "subtitle": "Token usage · Cost · Pipeline performance",
+  "rangeButtons": ["Today", "3d", "7d", "30d", "90d", "All"],
+  "pipelineFilter": ["All pipelines", "User Stories", "Presentation", "Prototype", "App Builder", "Custom"],
+  "kpis": ["TOTAL TOKENS", "EST. COST", "AVG / RUN", "TOTAL RUNS"],
+  "sections": ["Daily Activity", "SUCCESS RATE", "By Pipeline Type"],
+  "byPipelineTypeLabels": [
+    "APP BUILDER", "PROTOTYPE", "PPT_V2", "CUSTOM", ".NET MIGRATION", "MULESOFT MIGRATION",
+    "PRESENTATION", "PROTOTYPE", "USER STORIES", "EX_A1_LOOP", "SAMPLE_CONDITIONAL_BRANCH_NEW",
+    "EX_A2_BRANCH", "EX_A4_HUMAN_GATE", "SAMPLE_CONDITIONAL_PREVIOUS_STEP", "EX_A3_DIVERT",
+    "EX_A4_HUMAN_DIVERT", "EX_A3_B_SPANISH"
+  ],
+  "defects": [
+    "D-11: PROTOTYPE listed twice with different figures (12 runs / 11.4M vs 8 runs / 2.4M)",
+    "D-11: PPT_V2, EX_A1_LOOP, SAMPLE_CONDITIONAL_* shown as raw slugs next to formatted neighbours"
+  ],
+  "is404": false,
+  "screenshot": "screenshots/08-analytics/p47-analytics.png"
+}
