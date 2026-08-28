@@ -13,7 +13,7 @@ flowchart LR
     subgraph LINE["2-4 · THE LINE — bug-hunt.js"]
         direction LR
         B[2-validator] --> C[3-analyzer] --> D[4-test-writer]
-        D -.->|batch gate| E[5-fixer] --> F[6-verifier]
+        D --> E[5-fixer] --> F[6-verifier]
     end
     S1 -->|"Open bugs"| B
     F -->|"green + healthy"| Closed([CLOSED])
@@ -53,7 +53,8 @@ then talk to it: *"start from validation"*, *"run the high ones"*, *"pause"*, *"
 ```
 Workflow({ name:"bug-hunt", args:{ phase:"validate" } })        one phase alone
 Workflow({ name:"bug-hunt", args:{ stage:"triage" } })          validate → analyze → test
-Workflow({ name:"bug-hunt", args:{ stage:"repair" } })          fix → verify, after approval
+Workflow({ name:"bug-hunt", args:{ stage:"repair" } })          fix → verify
+Workflow({ name:"bug-hunt", args:{ stage:"all" } })             the whole line, then Close commits
 Workflow({ name:"bug-hunt", args:{ bugIds:[...], wave:3 } })    a specific set, batches of 3
 ```
 
@@ -395,9 +396,10 @@ Picks a `TESTED` bug and fans out **one `5-fixer` per issue card** — but only 
 touch **disjoint files**. Two fixers editing one file is a lost edit. Group cards by their
 `applies_to.globs`; overlapping groups run serially, disjoint groups run concurrently.
 
-**Human gate before any source edit.** Phase 4 is the first phase that changes production code.
-The `repair` run presents the fix plan — cards, files, proposed change per card — and waits for
-an explicit go. It never answers its own gate.
+**No gate before source edits.** Phase 4 is the first phase that changes production code, and it
+runs unattended like every other. The user removed the gate deliberately: they are not sitting
+there to answer it, and a gate nobody answers is a stalled run. What protects the source instead
+is the card — the fixer works only from an analysed root cause with a red test already proving it.
 
 ### `5-fixer` (Opus)
 
@@ -526,7 +528,7 @@ Filled in above; listed here so nothing looks like it was invented quietly.
    `xfail(strict=True)`.
 9. **File-collision safety in phase 4.** One 5-fixer per card is only safe when the cards' globs
    are disjoint; otherwise serialize.
-10. **A human gate before source edits**, and no commits anywhere in the pipeline.
+10. **No gate before source edits, and Close commits at the end of a COMPLETE run.**
 11. **Backend restart before verification** — `compile_for_run` is `lru_cache`d.
 12. **Manual re-verification of the original repro**, because a green test only proves the case
     the test writer imagined.
@@ -542,9 +544,8 @@ Filled in above; listed here so nothing looks like it was invented quietly.
   `(2)` suffix on a same-minute clash, repaired by the validation pass.
 - **Linking** — full markdown links, `[ISS-194](20260828-1130-ISS-194.md)`, inside the
   `<!-- RELATED -->` block, both directions.
-- **Approval** — **one gate per batch**, not per bug. `triage` (validate → analyze → test) runs
-  unattended because it writes only cards and tests; `repair` (fix → verify) needs the go-ahead
-  because it is the first thing to touch production source.
+- **Approval** — none. The whole line runs unattended, source edits and the closing commit
+  included. The only stop-and-ask left is `1b-flow-hunter`, because real Bedrock runs cost money.
 - **Real runs** — `1b-flow-hunter` may drive real Bedrock runs. Keep each one **hello-world scale**:
   the shortest brief that still exercises the journey end to end. The point is to reach every
   run state, not to generate a good deliverable.
@@ -554,17 +555,25 @@ Filled in above; listed here so nothing looks like it was invented quietly.
 
 ## The line
 
-Stages 2–4 are an assembly line, not four batch phases: each bug flows validate → analyze →
-test → fix → verify → close independently, and a bug that fails validation leaves the line
-without holding anyone up. `.claude/workflows/bug-hunt.js` is that line — its `pipeline()` runs
-each bug through every stage with no barrier between them.
+Stages 2–6 are an assembly line, not five batch phases. A **batch of `wave` bugs** (3 by default)
+goes all the way through validate → analyze → test → fix → verify and closes, while the batch
+behind it starts. A bug that fails validation leaves the line without holding anyone up.
+
+The overlap is bounded by one thing: the **single shared Chrome**. `validate`, `test` and
+`verify` queue on an app lease, so exactly one agent is ever in the browser. `analyze` and `fix`
+are code-only, so a batch sitting in either RELEASES the app and the batch behind it validates in
+that gap. Three batches run in flight; more would only queue on the same lease.
 
 ```
-bug A  ├─validate─┤├──analyze──┤├─test─┤   │gate│  ├─fix─┤├─verify─┤  CLOSED
-bug B     ├─validate─┤├─analyze─┤├─test─┤  │    │   ├─fix─┤├verify┤   CLOSED
-bug C  ├─validate─┤ UNREPRODUCIBLE            (left the line)
-bug D        ├──validate──┤├─analyze─┤├test┤│    │  ├fix┤├─verify─┤   REOPENED
+batch 1  ├─validate─┤├──analyze──┤├─test─┤├─fix─┤├─verify─┤  CLOSED
+batch 2            ├──validate──┤├─analyze─┤├test┤├fix┤├verify┤  CLOSED
+batch 3                        ├──validate──┤├──analyze──┤ ...
+                    ↑ browser free while batch 1 analyses
 ```
+
+Batches are ordered **furthest-along first**: a bug already at `CONFIRMED` is three phases from
+closing, so it runs before any fresh `Open` one. Ordering them the other way is the waterfall
+again — nothing reaches `CLOSED` until every bug has been validated.
 
 Hunting (stage 1) stays agent-driven rather than scripted: its control flow is convergence
 detection plus pages discovered mid-run, which a script cannot predetermine.

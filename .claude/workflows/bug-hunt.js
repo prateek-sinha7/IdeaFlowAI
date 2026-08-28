@@ -1,8 +1,8 @@
 export const meta = {
   name: 'bug-hunt',
-  description: 'The bug line: validate -> analyze -> test -> fix -> verify, driven off the register. Any phase can run alone.',
+  description: 'The bug line: an assembly line, not a waterfall. A batch of bugs goes validate -> analyze -> test -> fix -> verify and closes, while the batch behind it validates in the gap. Driven off the register.',
   whenToUse:
-    'Dispatched by 0-orchestrator. args.phase runs ONE phase (validate|analyze|test|fix|verify). args.stage runs a group: triage (validate+analyze+test) or repair (fix+verify). args.bugIds limits the set; args.wave sets the batch/pause granularity (default 3).',
+    'Dispatched by 0-orchestrator. args.stage runs a group: all (the whole line, then Close commits), triage (validate+analyze+test) or repair (fix+verify). args.phase runs ONE phase alone. args.bugIds limits the set; args.wave is how many bugs travel the line together, and the pause granularity (default 3). Batches overlap, capped by the single shared browser.',
   phases: [
     { title: 'Validate', detail: 'reproduce 3x from cold, mint the root ISS card' },
     { title: 'Analyze', detail: 'root cause, blast radius, sibling ISS cards' },
@@ -77,6 +77,11 @@ ${UI}
 - The register is ${REGISTER}. Its Status field IS the pipeline state — write the next Status
   back before you return, on EVERY path including failures. A phase that does not update Status
   is re-run from scratch next time.
+- REPLACE the existing "- **Status:** <x>" line in place. Never append a second one — an entry
+  with two Status lines is ambiguous and the loader picks whichever it sees first.
+- Write that Status in BOTH places: your bug's entry in ${REGISTER}, and its row in ${INDEX}.
+  The scheduler reads the INDEX, not the ledger — leave the index stale and the next phase sees
+  the old status and re-runs work that is already done. Same value in both, every time.
 - Cards go in .knowledge/cards/ via /velocity book-keeping. IDs: per-family max from the card
   store, +1, matching the family's digit padding. Never fill a gap below the max.
 - Cross-references are FULL markdown links inside the <!-- RELATED --> block:
@@ -408,45 +413,75 @@ entries from it themselves. Return rows exactly as recorded; do not invent or re
   return r || { bugs: [] }
 }
 
-// --- run the phases --------------------------------------------------------
+// --- run the line ----------------------------------------------------------
+//
+// ASSEMBLY LINE, not a waterfall. A batch of WAVE bugs goes all the way through
+// RUN and closes. It is NOT "validate all 92, then analyze all 92" — that way
+// nothing at all is fixed until every bug has been through every earlier phase,
+// which is most of a day before the first line of source changes.
+//
+// Batches overlap. The only hard constraint is the ONE shared Playwright Chrome,
+// so a batch sitting in a code-only phase (analyze, fix) releases the app and the
+// batch behind it validates in the gap. That gap IS the parallelism; everything
+// else is bounded by the browser.
 
 const ran = []
 let halt = null
 let paused = false
 
-for (const name of RUN) {
-  if (halt || paused) break
+// The app lease. Every serial phase — for every batch — queues on this one chain,
+// so exactly one agent is ever in the browser or running a Playwright test.
+let appLease = Promise.resolve()
+const withApp = (fn) => {
+  const turn = appLease.then(fn, fn)
+  appLease = turn.then(
+    () => {},
+    () => {},
+  )
+  return turn
+}
 
-  const p = PHASE[name]
-  if (!p) {
-    log(`Unknown phase "${name}" — skipping. Valid: ${Object.keys(PHASE).join(', ')}`)
-    continue
-  }
+// A bug moves to the next phase only if its worker actually got it there.
+// validate is the one phase whose success is narrower than "not blocked":
+// FLAKY / UNREPRODUCIBLE / DUPLICATE all end the line for that bug.
+const moved = (name, r) => !!r && !r.blocked && (name !== 'validate' || r.verdict === 'CONFIRMED')
 
-  phase(p.title)
-  const loaded = await loadQueue(p)
+// Load ONCE, across every entry status in RUN, so a resume picks up bugs already
+// mid-line (a CONFIRMED bug rejoins at analyze, not at validate).
+const ALL_ENTRY = [...new Set(RUN.flatMap((n) => PHASE[n].entry))]
+const loaded = await loadQueue({ title: 'line', entry: ALL_ENTRY })
 
-  if (loaded.pauseFilePresent) {
-    paused = true
-    log(`${PAUSE_FILE} is present — delete it before resuming.`)
-    break
-  }
+if (loaded.pauseFilePresent) {
+  paused = true
+  log(`${PAUSE_FILE} is present — delete it before resuming.`)
+}
 
-  const queue = loaded.bugs || []
-  if (!queue.length) {
-    log(`${p.title}: nothing at ${p.entry.join('/')} — skipping.`)
-    ran.push({ phase: name, queued: 0, results: [] })
-    continue
-  }
+// Group by where each bug joins the line, so a batch is homogeneous and every
+// bug in it runs the same phases.
+const startOf = (status) => RUN.findIndex((n) => PHASE[n].entry.includes(status))
+const groups = new Map()
+for (const b of loaded.bugs || []) {
+  const i = startOf(b.status || 'Open')
+  if (i < 0) continue
+  if (!groups.has(i)) groups.set(i, [])
+  groups.get(i).push(b)
+}
 
-  log(`${p.title}: ${queue.length} bug(s), ${p.serial ? 'SERIAL (app lease)' : 'parallel'}, batches of ${WAVE}`)
+// Furthest along FIRST. A bug already at CONFIRMED is three phases from closing;
+// starting a fresh one ahead of it means nothing reaches CLOSED for hours, which
+// is the waterfall failure again wearing a different hat.
+const batches = []
+for (const [from, list] of [...groups.entries()].sort((a, b) => b[0] - a[0]))
+  for (const bugs of chunk(list, WAVE)) batches.push({ from, bugs })
 
-  const results = []
-  for (const batch of chunk(queue, WAVE)) {
-    if (await pauseRequested()) {
-      paused = true
-      log(`Paused after ${results.length} of ${queue.length} in ${p.title}.`)
-      break
+async function runBatch(batch, n) {
+  let live = batch.bugs
+  for (const name of RUN.slice(batch.from)) {
+    if (halt || paused || !live.length) break
+    const p = PHASE[name]
+    if (!p) {
+      log(`Unknown phase "${name}" — skipping. Valid: ${Object.keys(PHASE).join(', ')}`)
+      continue
     }
 
     // agentType is load-bearing: without it the call inherits the orchestrator's
@@ -461,24 +496,54 @@ for (const name of RUN) {
         effort: p.effort || 'medium',
       })
 
-    if (p.serial) {
-      // One at a time: every agent in this phase drives the shared Chrome or
-      // runs a Playwright test. Two at once collide and invent findings.
-      for (const b of batch) results.push(await dispatch(b))
-    } else {
-      results.push(...(await parallel(batch.map((b) => () => dispatch(b)))))
+    const results = p.serial
+      ? // Under the lease, and one at a time inside it: two agents in the same
+        // Chrome navigate over each other and manufacture phantom findings.
+        await withApp(async () => {
+          const out = []
+          for (const b of live) out.push(await dispatch(b))
+          return out
+        })
+      : await parallel(live.map((b) => () => dispatch(b)))
+
+    ran.push({ phase: name, batch: n, queued: live.length, results })
+
+    const h = authHalt(results)
+    if (h) {
+      halt = h
+      log(`HALT — Bedrock auth failure: ${h.blocker}`)
+      return
     }
 
-    halt = authHalt(results)
-    if (halt) {
-      log(`HALT — Bedrock auth failure: ${halt.blocker}`)
-      break
-    }
+    const next = live.filter((b, i) => moved(name, results[i]))
+    log(`batch ${n} ${p.title}: ${next.length}/${live.length} advanced`)
+    live = next
   }
+  if (live.length) log(`batch ${n}: ${live.length} bug(s) reached the end of the line.`)
+}
 
-  const ok = results.filter((r) => r && !r.blocked).length
-  log(`${p.title}: ${ok}/${queue.length} advanced`)
-  ran.push({ phase: name, queued: queue.length, results })
+if (!batches.length) {
+  log(`Nothing at ${ALL_ENTRY.join('/')} — nothing to run.`)
+} else if (!paused) {
+  // LANES batches in flight at once. More than a few buys nothing: they all
+  // queue on the same browser lease, and each one holds a live agent context.
+  const LANES = Math.min(3, batches.length)
+  log(`${batches.length} batch(es) of up to ${WAVE}, ${LANES} in flight, phases ${RUN.join(' → ')}`)
+
+  let cursor = 0
+  await parallel(
+    Array.from({ length: LANES }, () => async () => {
+      while (cursor < batches.length && !halt && !paused) {
+        const i = cursor++
+        if (await pauseRequested()) {
+          paused = true
+          log(`Paused — ${batches.length - i} batch(es) not started.`)
+          break
+        }
+        await runBatch(batches[i], i + 1)
+      }
+    }),
+  )
 }
 
 // --- report ----------------------------------------------------------------

@@ -154,3 +154,13 @@ NOTE: <anything the 5-fixer should know — a card that resisted a test, a condi
 
 `BLOCKED` with the precise reason if the environment stops you writing or running the test. Do
 not return `TESTS_WRITTEN` with `OBSERVED_RED: false` unless you explain why.
+
+## Writing the register Status
+
+Two rules, both learned the hard way:
+
+- **REPLACE the existing `- **Status:** <x>` line** in the ledger entry. Never append a second
+  one — an entry with two Status lines is ambiguous and the loader takes whichever it sees first.
+- **Write the same value into `bug-hunter/ledger-index.md`**, in your bug's row. The scheduler
+  builds its queue from the INDEX, not from the 445 KB ledger; leave the index stale and the next
+  phase reads the old status and re-does work that is already done.

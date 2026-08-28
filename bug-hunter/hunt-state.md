@@ -1,17 +1,20 @@
 # Hunt state
 
-## RUN — validate phase (started 2026-08-28 13:5x CEST)
+## RUN — full line, stage=all (restarted 2026-08-28 15:24 CEST)
 
-RUN         started 2026-08-28 · workflow wf_c6765e3d-ee9 · status RUNNING
-BUGS        92 Open (21 High / 50 Medium / 21 Low) · 0 CONFIRMED · entry status for validate = Open
-IN FLIGHT   Workflow({name:"bug-hunt", args:{phase:"validate"}}) — all 92 Open bugs, SERIAL (app lease), waves of 3
-NEXT        on return: report CONFIRMED/FLAKY/UNREPRODUCIBLE/DUPLICATE counts, then analyze phase
-PRECHECKS   :3000/dashboard 200 · :8000/docs 200 · no PAUSE file
-NOTE        2 ledger entries flagged STALE above (library-skills-id 030430, library-skills-r2 091300) —
+RUN         started 2026-08-28 15:24 · status RUNNING
+PRIOR       wf_8b3c47d7-92a (15:09) ended status=killed at 15:16, 0 agents completed — nothing landed
+BUGS        89 Open · 3 CONFIRMED · entry status for validate = Open
+IN FLIGHT   Workflow({name:"bug-hunt", args:{stage:"all"}}) — validate -> analyze -> test -> fix -> verify -> Close
+            SERIAL browser stages (app lease), waves of 3; analyze/fix parallel (code-only)
+NEXT        on return: report per-stage counts, escalations, Close/commit outcome
+PRECHECKS   :3000 200 · :8000/docs 200 · no PAUSE · browser lease free (prior wf dead)
+NOTE        2 ledger entries flagged STALE (library-skills-id 030430, library-skills-r2 091300) —
             validator must not "confirm" them without fresh evidence.
 
+Tree: /Users/bilala/Developer/Projects/VELOCITY-AI (branch feat/bug-hunter) — servers confirmed
+      watching this checkout. The old "VELOCITY-AI-feat-bug-hunter" path does not exist.
 
-Tree: /Users/bilala/Developer/Projects/VELOCITY-AI-feat-bug-hunter (branch feat/bug-hunter)
 Started: 2026-08-27 UTC · scaled to full registry 2026-08-27 22:20 UTC
 CLEAN_STREAK_REQUIRED = 2
 PAGE_REGISTRY = 55 pages (p33 /runs/<diverted> RESTORED 03:13 — 15 diverted runs exist, hidden behind the /runs 50-row cap; p56 is a state of p34, not a page)

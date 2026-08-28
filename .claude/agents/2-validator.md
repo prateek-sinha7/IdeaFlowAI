@@ -151,6 +151,14 @@ never a bare id and never a `[[wikilink]]`. Resolve a filename with
 `Status` is what the next stage reads. Set it on every path, including `FLAKY`,
 `UNREPRODUCIBLE` and `DUPLICATE`.
 
+**Two rules about writing it, both learned the hard way:**
+
+- **REPLACE the existing `- **Status:** <x>` line.** Do not append a second one. An entry with
+  two Status lines is ambiguous and the loader takes whichever it sees first.
+- **Write it in `bug-hunter/ledger-index.md` too**, in your bug's row. The scheduler builds its
+  queue from the INDEX, not from the 445 KB ledger — leave the index stale and the next phase
+  reads the old status and re-does work that is already done.
+
 **`WONTFIX` is not yours to set.** If the behaviour looks intentional, still record what you
 found, leave `Status` alone, and add a line to `bug-hunter/wontfix-candidates.md` with the
 reason. A human rules on it.
