@@ -10,6 +10,7 @@ export const meta = {
     { title: 'Fix', detail: 'fix the root cause, write the FIX card' },
     { title: 'Verify', detail: 'green test, manual repro gone, healthy build, close' },
     { title: 'Report', detail: 'write the run report and refresh hunt-state.md' },
+    { title: 'Close', detail: 'sync, prime, diagrams, cross-ref check, commit the closed bugs' },
   ],
 }
 
@@ -231,6 +232,7 @@ Then follow your agent definition exactly:
   analyze: {
     title: 'Analyze',
     agent: '3-analyzer',
+    effort: 'max',
     entry: ['CONFIRMED'],
     exit: 'ANALYZED',
     serial: false, // reads code, writes cards — never touches the app
@@ -280,6 +282,7 @@ Follow your agent definition exactly:
   fix: {
     title: 'Fix',
     agent: '5-fixer',
+    effort: 'max',
     entry: ['TESTED', 'REOPENED'],
     exit: 'FIXED',
     serial: false, // edits disjoint files; never drives the app
@@ -455,7 +458,7 @@ for (const name of RUN) {
         phase: p.title,
         schema: SCHEMA[name],
         agentType: p.agent,
-        effort: 'max',
+        effort: p.effort || 'medium',
       })
 
     if (p.serial) {
@@ -511,8 +514,39 @@ ${paused ? `Say that the run paused on request, and that resuming means deleting
 Finally confirm the register and the cards agree — Status, verification blocks, RELATED edges
 both ways. Report any that do not rather than fixing them silently.
 ${CONTRACT}`,
-  { label: `report:${label}`, phase: 'Report', model: 'sonnet', effort: 'max' },
+  { label: `report:${label}`, phase: 'Report', model: 'sonnet', effort: 'medium' },
 )
+
+// --- close -----------------------------------------------------------------
+// Runs unattended, commit included. Consolidation was never the risky part;
+// gating the whole agent behind an approval meant sync, prime, diagrams and the
+// cross-reference check never ran either. Skipped when nothing actually closed,
+// or when the run halted or paused mid-flight -- committing half a batch buries
+// what still needs picking up.
+const closedAny = ran.some((r) => r.phase === 'verify' && r.results.some((x) => x && !x.blocked))
+
+if (closedAny && runStatus === 'COMPLETE') {
+  phase('Close')
+  await agent(
+    `The batch is verified and CLOSED. Consolidate the knowledge base, then commit.
+
+Phases run: ${JSON.stringify(RUN)}
+Results per phase: ${JSON.stringify(ran)}
+
+Run /velocity sync, then /velocity prime, then /velocity diagrams for any DOMAIN card whose code
+moved. Confirm every card this run wrote resolves both ways -- the RELATED edge and the reciprocal
+**Referenced by:** line on the card it points at.
+
+Then commit in ONE commit with --no-verify: the cards, ${REGISTER}, ${STATE}, the tests and the
+source fixes. The message names each bug closed and what changed for it. NEVER push.
+
+If the cross-reference check fails, do NOT commit. Report what is inconsistent and stop.
+${CONTRACT}`,
+    { label: `close:${label}`, phase: 'Close', agentType: '7-closer', effort: 'medium' },
+  )
+} else if (closedAny) {
+  log(`Close skipped -- run is ${runStatus}, not COMPLETE. Nothing committed.`)
+}
 
 const advanced = ran.reduce((n, r) => n + r.results.filter((x) => x && !x.blocked).length, 0)
 log(`${label.toUpperCase()} ${runStatus} — ${advanced} bug-phases advanced across ${ran.length} phase(s)`)
@@ -536,6 +570,6 @@ return {
         : RUN.includes('test')
           ? 'Approve the batch, then run {stage:"repair"}.'
           : RUN.includes('verify')
-            ? 'Dispatch 7-closer to consolidate knowledge and commit.'
+            ? 'Closed and committed by 7-closer.'
             : 'Run the next phase.',
 }

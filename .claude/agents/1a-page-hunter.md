@@ -1,7 +1,7 @@
 ---
 name: 1a-page-hunter
 model: sonnet
-effort: max
+effort: medium
 tools: Read, Write, Edit, Bash, Grep, Glob, mcp__plugin_playwright_playwright__*
 description: Autonomous single-page Playwright bug hunter. Use only when 0-orchestrator assigns a specific application page to investigate for one previously unknown reproducible bug.
 ---

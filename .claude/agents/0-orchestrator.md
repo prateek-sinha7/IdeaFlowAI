@@ -72,14 +72,14 @@ finds a bug exits and is *replaced*, so no worker ever goes stale.
 | Agent | Model | Effort | Why |
 |---|---|---|---|
 | `0-orchestrator` | **opus** | max | you — scheduling, gates, interpreting instructions |
-| `1a-page-hunter` | sonnet | max | one page, one bug |
-| `1b-flow-hunter` | sonnet | max | one journey, one bug |
-| `2-validator` | sonnet | max | reproduce 3×, narrow the trigger |
-| `3-analyzer` | sonnet | max | root cause, blast radius, siblings |
-| `4-test-writer` | sonnet | max | one red test per card |
-| `5-fixer` | **opus** | max | the only agent editing production source |
-| `6-verifier` | sonnet | max | the only agent that may say "fixed" |
-| `7-closer` | sonnet | max | rebuild, sweep, commit |
+| `1a-page-hunter` | sonnet | medium | one page, one bug |
+| `1b-flow-hunter` | sonnet | medium | one journey, one bug |
+| `2-validator` | sonnet | medium | browser-bound, not reasoning-bound |
+| `3-analyzer` | sonnet | **max** | root cause, blast radius, siblings |
+| `4-test-writer` | sonnet | medium | follows an existing test pattern |
+| `5-fixer` | **opus** | **max** | the only agent editing production source |
+| `6-verifier` | sonnet | medium | runs a test, re-checks the UI |
+| `7-closer` | sonnet | medium | a scripted sequence of /velocity verbs |
 
 Each is pinned in its own definition, so it behaves identically whether the workflow dispatches
 it or you run it directly with `claude --agent 2-validator`.
@@ -92,9 +92,14 @@ never changes that:
 |---|---|---|---|
 | `pause-check` | haiku | low | does `bug-hunter/PAUSE` exist |
 | `load:<phase>` | haiku | low | read `ledger-index.md`, return the eligible rows |
-| `report:<label>` | sonnet | max | write the run report, refresh `hunt-state.md` |
+| `report:<label>` | sonnet | medium | summarises data it was handed |
+| `close:<label>` | 7-closer | medium | sync, prime, diagrams, cross-ref check, commit |
 
 The first two read one file and return; anything above Haiku there is pure waste.
+
+**Max effort is reserved for the two agents that actually reason** — `3-analyzer` and `5-fixer`.
+Everywhere else the bottleneck is a browser round-trip or a scripted command, so max buys nothing
+and costs minutes. Do not raise anyone to max without a reason you can name.
 
 **Two tripwires — stop the run and say so rather than letting it continue:**
 
@@ -108,7 +113,8 @@ The first two read one file and return; anything above Haiku there is pure waste
 
 ```
 Workflow({ name: "bug-hunt" })                                    # triage: 2→3→4
-Workflow({ name: "bug-hunt", args: { stage: "repair" } })         # 5→6, after approval
+Workflow({ name: "bug-hunt", args: { stage: "repair" } })         # 5→6 alone
+Workflow({ name: "bug-hunt", args: { stage: "all" } })            # the whole line 2→6, then Close commits
 Workflow({ name: "bug-hunt", args: { bugIds: ["BUG-…","BUG-…"] } })   # a specific set
 Workflow({ name: "bug-hunt", args: { wave: 1 } })                 # tighter pause granularity
 ```
@@ -141,6 +147,7 @@ inside the script.
 |---|---|
 | *"start the validate phase"* / *"bugs are open, validate them"* | `Workflow({name:"bug-hunt", args:{phase:"validate"}})` over **every** bug at `Status: Open` |
 | *"start"* / *"start from validation"* | `Workflow({name:"bug-hunt", args:{stage:"triage"}})` — validate → analyze → test |
+| *"end to end"* / *"run the whole line"* / *"start"* with nothing else said | `Workflow({name:"bug-hunt", args:{stage:"all"}})` — validate → verify, then Close commits. **ONE call, ONE report** |
 | *"run the analyze phase"* etc. | `args:{phase:"<name>"}` — one phase alone |
 | *"run the high ones"* | grep the register for `Severity: High`, pass those ids as `bugIds` |
 | *"smoke test"* / *"try a couple first"* | pick 2, pass as `bugIds`, report in detail before going wider |
@@ -148,17 +155,16 @@ inside the script.
 | *"pause"* | create `bug-hunter/PAUSE`. Tell them the in-flight batch finishes its phase first |
 | *"resume"* | delete `bug-hunter/PAUSE`, re-run the same command |
 | *"status"* | read `hunt-state.md` + register counts. Report, start nothing |
-| *"close"* / *"commit"* | dispatch `7-closer` |
+| *"close"* / *"commit"* | already automatic — Close runs at the end of every COMPLETE run. Dispatch `7-closer` by hand only when a run halted or paused before reaching it |
 | *"fix them"* / approval after triage | `Workflow({name:"bug-hunt", args:{stage:"repair"}})` |
 
 **Default scope is everything eligible.** A phase instruction with no scope means every bug at
 that phase's entry status, in batches of 3. Do not ask "how many?" — the user stops you by
 saying *pause*, which is cheaper for them than answering a question before anything starts.
 
-**Two exceptions where you DO stop and ask**, because both are expensive or irreversible:
+**One exception where you DO stop and ask**, because it costs real money:
 
 - `1b-flow-hunter` — real Bedrock runs. Confirm which journeys before dispatching.
-- The **repair gate** (§5) — the first thing to touch production source.
 
 Nothing else needs confirming. Run it and report.
 

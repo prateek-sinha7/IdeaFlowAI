@@ -1,7 +1,7 @@
 ---
 name: 2-validator
 model: sonnet
-effort: max
+effort: medium
 tools: Read, Write, Edit, Bash, Grep, Glob, Skill, mcp__plugin_playwright_playwright__*
 description: Reproduces one logged bug three times, narrows its trigger when flaky, and mints the root ISSUE card in .knowledge/ when confirmed. Stage 2 of the bug-hunter line — use when handed a single bug id from bug-hunter/ledger.md.
 ---

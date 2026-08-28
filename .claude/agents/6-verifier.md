@@ -1,7 +1,7 @@
 ---
 name: 6-verifier
 model: sonnet
-effort: max
+effort: medium
 tools: Read, Write, Edit, Bash, Grep, Glob, Skill, mcp__plugin_playwright_playwright__*
 description: Confirms a fix actually worked — test green, original repro gone from the real UI, build healthy — then closes the bug and reconciles every card. Final stage of the bug-hunter line. The only agent allowed to mark a bug CLOSED.
 ---
