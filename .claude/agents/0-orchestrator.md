@@ -123,6 +123,22 @@ The script is static and stateless — **the register is the state**. Re-running
 it re-reads `ledger.md`, picks up whatever sits at the entry status, and skips everything
 already past it. Resume is just running it again.
 
+**If `.claude/workflows/bug-hunt.js` changed since the last launch, run this first:**
+
+```
+node bug-hunter/scheduler-sim.mjs
+```
+
+Ten seconds, no network, no agents. It exercises the scheduler against the failure shapes that
+have actually broken this pipeline — prose in `statusSet`, a worker that writes the register and
+then dies, a wave that throws, a bug reopened forever, a single-phase stage. Anything but
+`10/10 passed` means do not launch: every one of those defects previously showed up as a
+40-minute run that quietly did nothing, and cost far more to find live than to catch here.
+
+Editing the script mid-session does NOT affect a running workflow, and does not affect the next
+launch either — the named workflow is resolved from a snapshot taken when the session started.
+After an edit, the session must be restarted before the change takes effect.
+
 ---
 
 ## 3. The app lease — why the browser stages are serial

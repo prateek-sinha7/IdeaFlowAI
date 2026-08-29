@@ -27,9 +27,10 @@ export const meta = {
 //        token fails every later worker identically, so continuing would only
 //        burn dispatches and flood the register with false blockers.
 //
-// CONCURRENCY. Every browser-driving agent shares ONE Playwright MCP Chrome,
-// and two at once navigate over each other and manufacture phantom findings.
-// So app-touching phases run SERIAL; code-only phases run PARALLEL.
+// CONCURRENCY. Browser phases take one of the LANES in .mcp.json -- each its own
+// Playwright MCP server, its own real Chrome, its own profile -- so up to LANES.length
+// of them run at once without navigating over each other. Code-only phases (analyze,
+// fix) need no lane and run WAVE-wide.
 // ===========================================================================
 
 const WAVE = (args && args.wave) || 3
@@ -78,7 +79,12 @@ ${UI}
   back before you return, on EVERY path including failures. A phase that does not update Status
   is re-run from scratch next time.
 - REPLACE the existing "- **Status:** <x>" line in place. Never append a second one — an entry
-  with two Status lines is ambiguous and the loader picks whichever it sees first.
+  with two Status lines is ambiguous and the loader picks whichever it sees first. That line
+  carries the BARE WORD only: "- **Status:** CONFIRMED". Cycles, conditions, root cause and
+  file:line go on their own "- **Validated:**" / "- **Root cause:**" lines underneath.
+- Your result's "statusSet" field is the BARE STATUS WORD and nothing else - "CONFIRMED",
+  not "CONFIRMED - written to the ledger (row 22)". The scheduler routes your bug to the next
+  phase by matching that value exactly; one extra word and the bug drops off the line.
 - Write that Status in BOTH places: your bug's entry in ${REGISTER}, and its row in ${INDEX}.
   The scheduler reads the INDEX, not the ledger — leave the index stale and the next phase sees
   the old status and re-runs work that is already done. Same value in both, every time.
@@ -106,14 +112,39 @@ const blocked = {
   blockerKind: { type: 'string', enum: ['auth', 'env', 'app', 'none'] },
   blocker: { type: 'string' },
 }
-const base = { bugId: { type: 'string' }, statusSet: { type: 'string' }, note: { type: 'string' } }
+// statusSet is REQUIRED on every phase result: it is the register Status the worker actually
+// wrote, and the scheduler routes the bug to the next phase by it. No guessing from which
+// phase just ran — verify writes CLOSED or REOPENED, and only the worker knows which.
+const base = { bugId: { type: 'string' }, note: { type: 'string' } }
+
+// statusSet used to be a free-text string, and every worker filled it with prose --
+// "CONFIRMED - written to bug-hunter/ledger.md (row 22)". routeTo() matches it against a
+// phase's entry[] EXACTLY, so all of those failed to route and the bug silently left the
+// line while the register showed it advanced. `verdict` never had this problem because it
+// carried an enum, so statusSet gets one too: the bare word, per phase, nothing else.
+const EXIT = {
+  validate: ['CONFIRMED', 'FLAKY', 'UNREPRODUCIBLE', 'DUPLICATE', 'Open'],
+  analyze: ['ANALYZED', 'DUPLICATE', 'ESCALATED'],
+  test: ['TESTED', 'ESCALATED'],
+  fix: ['FIXED', 'ESCALATED'],
+  verify: ['CLOSED', 'REOPENED', 'ESCALATED'],
+}
+// Longest first: 'REOPENED' is a prefix of 'REOPENED-VALIDATE'.
+const SEED_STATUSES = ['REOPENED-VALIDATE', 'UNREPRODUCIBLE', 'CONFIRMED', 'ESCALATED', 'DUPLICATE', 'REOPENED', 'ANALYZED', 'TESTED', 'LOGGED', 'FIXED', 'CLOSED', 'FLAKY', 'Open']
+
+const statusSet = (phase) => ({
+  type: 'string',
+  enum: EXIT[phase],
+  description: 'the bare Status word you wrote to the register - no prose, no file names, no row numbers',
+})
 
 const SCHEMA = {
   validate: {
     type: 'object',
-    required: ['bugId', 'verdict'],
+    required: ['bugId', 'verdict', 'statusSet'],
     properties: {
       ...base,
+      statusSet: statusSet('validate'),
       verdict: { type: 'string', enum: ['CONFIRMED', 'FLAKY', 'UNREPRODUCIBLE', 'DUPLICATE'] },
       attempts: { type: 'string', description: 'e.g. "3/3 from cold start"' },
       trigger: { type: 'string' },
@@ -125,9 +156,10 @@ const SCHEMA = {
   },
   analyze: {
     type: 'object',
-    required: ['bugId', 'rootCause', 'cards'],
+    required: ['bugId', 'rootCause', 'cards', 'statusSet'],
     properties: {
       ...base,
+      statusSet: statusSet('analyze'),
       rootCause: { type: 'string' },
       rootCauseEvidence: { type: 'string', description: 'file:line actually read' },
       confidence: { type: 'string', enum: ['CONFIRMED', 'INFERRED'] },
@@ -153,9 +185,10 @@ const SCHEMA = {
   },
   test: {
     type: 'object',
-    required: ['bugId', 'tests'],
+    required: ['bugId', 'tests', 'statusSet'],
     properties: {
       ...base,
+      statusSet: statusSet('test'),
       tests: {
         type: 'array',
         items: {
@@ -175,9 +208,10 @@ const SCHEMA = {
   },
   fix: {
     type: 'object',
-    required: ['bugId', 'cards', 'filesTouched'],
+    required: ['bugId', 'cards', 'filesTouched', 'statusSet'],
     properties: {
       ...base,
+      statusSet: statusSet('fix'),
       cards: { type: 'array', items: { type: 'string' } },
       fixCards: { type: 'array', items: { type: 'string' } },
       filesTouched: { type: 'array', items: { type: 'string' } },
@@ -189,9 +223,10 @@ const SCHEMA = {
   },
   verify: {
     type: 'object',
-    required: ['bugId', 'passed'],
+    required: ['bugId', 'passed', 'statusSet'],
     properties: {
       ...base,
+      statusSet: statusSet('verify'),
       passed: { type: 'boolean' },
       testsGreen: { type: 'array', items: { type: 'string' } },
       xfailRemoved: { type: 'array', items: { type: 'string' } },
@@ -206,7 +241,7 @@ const SCHEMA = {
 // --- phase definitions -----------------------------------------------------
 // entry: the register Status a bug must carry to be admitted
 // exit:  the Status the worker writes on success
-// serial: touches the app (browser or a Playwright test run) -> one at a time
+// serial: needs a browser -> takes one of the LANES for the length of the bug
 
 const PHASE = {
   validate: {
@@ -214,7 +249,7 @@ const PHASE = {
     agent: '2-validator',
     entry: ['Open', 'LOGGED', 'REOPENED-VALIDATE'],
     exit: 'CONFIRMED',
-    serial: true,
+    serial: true, // drives Chrome
     prompt: (b) => `Bug ${b.bugId} — ${b.title || '(untitled)'} (${b.route}), severity ${b.severity || '?'}.
 
 FIRST: read this bug's own entry in ${REGISTER}. Find the section headed
@@ -361,12 +396,6 @@ function authHalt(results) {
   return results.filter(Boolean).find((r) => r.blocked && r.blockerKind === 'auth')
 }
 
-function chunk(list, size) {
-  const out = []
-  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size))
-  return out
-}
-
 // Reads the INDEX, not the ledger. ledger.md is ~445 KB and parsing it just to
 // build a queue costs ~75k tokens per phase; ledger-index.md is the one-row-per-bug
 // table with exactly the fields scheduling needs. Each worker reads its OWN entry
@@ -379,6 +408,13 @@ ${p.title.toUpperCase()} phase.
 Eligible = its Status column is one of ${JSON.stringify(p.entry)}.
 ${onlyIds ? `Restrict to these ids only: ${JSON.stringify(onlyIds)}.` : ''}
 Also report whether ${PAUSE_FILE} exists.
+
+For EVERY row you return, copy its Status column value verbatim — "Open", "CONFIRMED",
+"ANALYZED", "TESTED", "FIXED", "REOPENED". Never leave status out and never guess it: it decides
+which phase the bug joins at, so a wrong or missing one re-runs work that is already finished.
+
+Return ONLY the structured result. Do not restate the table, or any part of it, in your reply —
+it is read from the structured fields, and echoing 90+ rows costs a minute and 40k tokens a call.
 
 Read ONLY the index. Do not open ${REGISTER} — it is ~445 KB and the workers read their own
 entries from it themselves. Return rows exactly as recorded; do not invent or reword them.`,
@@ -395,7 +431,10 @@ entries from it themselves. Return rows exactly as recorded; do not invent or re
             type: 'array',
             items: {
               type: 'object',
-              required: ['bugId'],
+              // status is REQUIRED. It decides where the bug joins the line; omit it
+              // and the bug silently defaults to the first phase, so CONFIRMED work
+              // gets re-validated and the whole line degrades to a waterfall.
+              required: ['bugId', 'status'],
               properties: {
                 bugId: { type: 'string' },
                 title: { type: 'string' },
@@ -415,136 +454,383 @@ entries from it themselves. Return rows exactly as recorded; do not invent or re
 
 // --- run the line ----------------------------------------------------------
 //
-// ASSEMBLY LINE, not a waterfall. A batch of WAVE bugs goes all the way through
-// RUN and closes. It is NOT "validate all 92, then analyze all 92" — that way
-// nothing at all is fixed until every bug has been through every earlier phase,
-// which is most of a day before the first line of source changes.
+// FIVE PHASE LOOPS, ALL RUNNING AT ONCE, FED BY HANDOFF — not by polling.
 //
-// Batches overlap. The only hard constraint is the ONE shared Playwright Chrome,
-// so a batch sitting in a code-only phase (analyze, fix) releases the app and the
-// batch behind it validates in the gap. That gap IS the parallelism; everything
-// else is bounded by the browser.
+//   validate  Open / LOGGED / REOPENED-VALIDATE  ─┐
+//   analyze   CONFIRMED                           │  concurrently, the browser
+//   test      ANALYZED                            ├─ being the only contention
+//   fix       TESTED / REOPENED                   │
+//   verify    FIXED                              ─┘
+//
+// A worker returns statusSet — the register Status it actually wrote — and the
+// scheduler hands the bug straight to whichever phase admits that status. No
+// downstream poll, no wait: the moment analyze finishes a bug, it is in test's
+// queue. The register is still the truth, but re-reading it after every wave was
+// costing a ~36k-token loader call per phase per pull, to learn something the
+// worker had just told us.
+//
+// ONE load at the start seeds the queues; ONE reconciliation load per phase
+// before it exits catches anything the handoff missed (a status written by hand,
+// or a worker that routed somewhere unexpected). That is 6 loads a run instead of
+// hundreds.
+//
+// Three earlier shapes were wrong; naming them so nobody rebuilds one:
+//
+//   1. Phase-first ("validate all 92, then analyze all 92") — nothing reached
+//      CLOSED until every bug had cleared every earlier phase.
+//   2. Batches of 3 travelling the line together — a batch where one bug confirmed
+//      ran analyze with one bug and two empty seats, and a bug knocked back to
+//      REOPENED belonged to no batch, so nothing picked it up.
+//   3. Per-phase polling — correct, but every phase paid a slow loader call to
+//      rediscover what the upstream worker already knew.
 
 const ran = []
 let halt = null
 let paused = false
 
-// The app lease. Every serial phase — for every batch — queues on this one chain,
-// so exactly one agent is ever in the browser or running a Playwright test.
-let appLease = Promise.resolve()
-const withApp = (fn) => {
-  const turn = appLease.then(fn, fn)
-  appLease = turn.then(
-    () => {},
-    () => {},
-  )
-  return turn
+// BROWSER LANES. Each lane is its own Playwright MCP server (see .mcp.json) driving
+// its own real Chrome with its own profile, so agents holding different lanes cannot
+// navigate over each other. That was the whole reason browser phases used to run one
+// at a time: a single shared Chrome, and two agents in it manufacture phantom bugs.
+//
+// A lane is held for one bug and released, so validate / test / verify all draw from
+// the same pool — at most LANES browser agents anywhere in the run.
+//
+// NOT solved by lanes: the app itself is shared. Separate profiles mean separate
+// logins and localStorage, but the backend is one database. Two agents creating or
+// deleting the same workflow still collide.
+// ONE POOL PER PHASE, so validate and verify never wait on each other. Sharing a
+// single pool meant whichever phase asked first owned every browser, and validate —
+// which feeds the entire line — could sit behind a phase holding two bugs.
+//
+// Sizes are the tuning knob and the only thing to edit: each lane is a live Chrome
+// plus a node process, so 7 lanes is ~7 browsers on top of the dev servers.
+const POOLS = {
+  validate: ['lane1', 'lane2', 'lane3'],
+  verify: ['lane4', 'lane5', 'lane6'],
+  test: ['lane7', 'lane8', 'lane9'],
 }
 
-// A bug moves to the next phase only if its worker actually got it there.
-// validate is the one phase whose success is narrower than "not blocked":
-// FLAKY / UNREPRODUCIBLE / DUPLICATE all end the line for that bug.
-const moved = (name, r) => !!r && !r.blocked && (name !== 'validate' || r.verdict === 'CONFIRMED')
+const pool = (names) => {
+  const free = [...names]
+  const waiting = []
+  return {
+    take: () => (free.length ? Promise.resolve(free.shift()) : new Promise((r) => waiting.push(r))),
+    give: (l) => {
+      const w = waiting.shift()
+      if (w) w(l)
+      else free.push(l)
+    },
+  }
+}
 
-// Load ONCE, across every entry status in RUN, so a resume picks up bugs already
-// mid-line (a CONFIRMED bug rejoins at analyze, not at validate).
+const LANES = Object.fromEntries(Object.entries(POOLS).map(([k, v]) => [k, pool(v)]))
+
+// Downstream phases wake on this instead of polling. A phase that writes new
+// statuses bumps it; a phase idling on an empty queue is waiting for that bump.
+const waiters = []
+let version = 0
+const bump = () => {
+  version++
+  waiters.splice(0).forEach((r) => r())
+}
+const changed = () => new Promise((r) => waiters.push(r))
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+const finished = new Set()
+const busy = new Set()
+
+// Each phase's in-memory inbox, and the routing table over them.
+const inbox = new Map(RUN.map((n) => [n, []]))
+const routeTo = (status) => RUN.find((n) => PHASE[n] && PHASE[n].entry.includes(status))
+
+// The line is NOT a straight chain: verify writes REOPENED, which routes BACKWARDS
+// into fix. So "every phase before me has finished" is the wrong stop condition —
+// fix would exit while verify was still running and about to hand it work.
+//
+// The right one is global quiescence: nothing queued anywhere and nothing in
+// flight. A push only ever happens inside runWave, which holds `busy`, so if no
+// inbox has items and no phase is busy, nothing can appear and everyone can stop.
+const quiescent = () => busy.size === 0 && RUN.every((n) => inbox.get(n).length === 0)
+
+// fix ↔ verify can bounce a bug forever. Two rounds, then it stops and a human
+// looks at it — the same cap 6-verifier applies to its own escalation.
 const ALL_ENTRY = [...new Set(RUN.flatMap((n) => PHASE[n].entry))]
-const loaded = await loadQueue({ title: 'line', entry: ALL_ENTRY })
 
-if (loaded.pauseFilePresent) {
-  paused = true
-  log(`${PAUSE_FILE} is present — delete it before resuming.`)
+const MAX_REOPENS = 2
+const reopens = new Map()
+const stuck = []
+
+// Capped, unroutable, or CLOSED — off the line for good. Without this the poller re-reads
+// the register every cycle, sees the same REOPENED bug the cap just rejected, and offers it
+// again forever: the log repeats and `stuck` fills with duplicates.
+const retired = new Set()
+
+// A status nobody admits is either the end of the road or a mistake, and those must not
+// look alike. TERMINAL is the end of the road; anything else that fails to route is a
+// defect and gets named, in the log and in the report.
+const TERMINAL = new Set(['CLOSED', 'UNREPRODUCIBLE', 'DUPLICATE', 'FLAKY', 'ESCALATED', 'WONTFIX'])
+// Every status SOME phase admits, whether or not that phase is in this run. With
+// args.phase="validate" the line is one phase long, so a perfectly good CONFIRMED routes
+// nowhere -- that is the stage ending, not a defect, and must not be reported as one.
+const ADMITTED_ANYWHERE = new Set(Object.values(PHASE).flatMap((x) => x.entry))
+const dropped = []
+const blockedBugs = []
+
+// Every bug currently queued in some inbox or in flight. The poller below skips these, so
+// re-reading the register can never dispatch a bug that is already moving.
+const onLine = new Set()
+
+// Set once, by the poller, when the register has nothing left. The ONLY way a phase exits.
+let lineDone = false
+
+// Hand a finished bug to whoever admits its new status. A status nobody admits —
+// CLOSED, UNREPRODUCIBLE, DUPLICATE, FLAKY — means the bug has left the line.
+// The enum should make this unnecessary, but a worker that still returns prose would
+// silently drop its bug off the line -- the exact failure this run hit. Take the LAST
+// status word in the string: "Status CONFIRMED -> ANALYZED" means ANALYZED.
+// Take the FIRST of the phase's own legal statuses that appears. Workers lead with the
+// answer ("CONFIRMED - written to..."), and scoping to the phase settles the rest: an
+// analyze result reading "CONFIRMED -> ANALYZED" can only mean ANALYZED, because analyze
+// never writes CONFIRMED. Unscoped last-match got that one right and then read
+// 'UNREPRODUCIBLE ... replacing the prior "Open" line' as Open.
+function normStatus(raw, phase) {
+  const t = String(raw || '')
+  let best = null
+  let at = Infinity
+  for (const k of EXIT[phase] || SEED_STATUSES) {
+    const i = t.indexOf(k)
+    if (i >= 0 && i < at) {
+      at = i
+      best = k
+    }
+  }
+  return best
 }
 
-// Group by where each bug joins the line, so a batch is homogeneous and every
-// bug in it runs the same phases.
-const startOf = (status) => RUN.findIndex((n) => PHASE[n].entry.includes(status))
-const groups = new Map()
-for (const b of loaded.bugs || []) {
-  const i = startOf(b.status || 'Open')
-  if (i < 0) continue
-  if (!groups.has(i)) groups.set(i, [])
-  groups.get(i).push(b)
+function handOff(b, raw, phase) {
+  const status = normStatus(raw, phase)
+  if (!status) {
+    dropped.push({ bugId: b.bugId, status: String(raw).slice(0, 120), from: phase || 'seed' })
+    log(`${b.bugId}: unreadable statusSet ${JSON.stringify(String(raw).slice(0, 120))} — off the line.`)
+    return false
+  }
+  const next = routeTo(status)
+  if (!next) {
+    retired.add(b.bugId)
+    // Unreachable with today's tables -- every status in EXIT is terminal or admitted
+    // somewhere, and bug-hunter/scheduler-sim.mjs asserts that. It goes live the moment
+    // someone adds a status to EXIT without giving a phase an entry for it, which is
+    // exactly when a silent drop would otherwise start.
+    if (!TERMINAL.has(status) && !ADMITTED_ANYWHERE.has(status)) {
+      dropped.push({ bugId: b.bugId, status, from: phase || 'seed' })
+      log(`${b.bugId}: status ${JSON.stringify(status)} routes to no phase — off the line. Check ${INDEX}.`)
+    }
+    return false
+  }
+  if (status === 'REOPENED' || status === 'REOPENED-VALIDATE') {
+    const n = (reopens.get(b.bugId) || 0) + 1
+    reopens.set(b.bugId, n)
+    if (n > MAX_REOPENS) {
+      stuck.push(b.bugId)
+      retired.add(b.bugId)
+      log(`${b.bugId}: reopened ${n}x — off the line, needs a human.`)
+      return false
+    }
+  }
+  inbox.get(next).push({ ...b, status })
+  onLine.add(b.bugId)
+  return true
 }
 
-// Furthest along FIRST. A bug already at CONFIRMED is three phases from closing;
-// starting a fresh one ahead of it means nothing reaches CLOSED for hours, which
-// is the waterfall failure again wearing a different hat.
-const batches = []
-for (const [from, list] of [...groups.entries()].sort((a, b) => b[0] - a[0]))
-  for (const bugs of chunk(list, WAVE)) batches.push({ from, bugs })
+async function runWave(name, p, batch) {
+  // agentType is load-bearing: without it the call inherits the orchestrator's
+  // model and the DEFAULT workflow subagent, so the agent definition's model pin
+  // and its whole instruction set are ignored.
+  const laneRule = (lane) => `
+YOUR BROWSER LANE IS ${lane}. Use ONLY the mcp__${lane}__* tools for every browser action —
+navigate, click, snapshot, screenshot, evaluate, all of them. Never call
+mcp__plugin_playwright_playwright__* or another lane's tools: those drive a DIFFERENT Chrome that
+another agent is using right now, and landing in it produces findings that belong to their page,
+not yours.
+`
 
-async function runBatch(batch, n) {
-  let live = batch.bugs
-  for (const name of RUN.slice(batch.from)) {
-    if (halt || paused || !live.length) break
-    const p = PHASE[name]
-    if (!p) {
-      log(`Unknown phase "${name}" — skipping. Valid: ${Object.keys(PHASE).join(', ')}`)
+  const dispatch = (b, lane) =>
+    agent(`${p.prompt(b)}${lane ? laneRule(lane) : ''}\n${CONTRACT}`, {
+      label: `${name}:${b.bugId}`,
+      phase: p.title,
+      schema: SCHEMA[name],
+      agentType: p.agent,
+      effort: p.effort || 'medium',
+    })
+
+  const lanes = p.serial ? LANES[name] : null
+
+  const results = lanes
+    ? // One lane each, held for the length of the bug and handed straight to whoever
+      // is waiting. The wave runs in parallel now; the cap is this phase's own pool,
+      // so validate never waits on verify.
+      await parallel(
+        batch.map((b) => async () => {
+          const lane = await lanes.take()
+          try {
+            return await dispatch(b, lane)
+          } finally {
+            lanes.give(lane)
+          }
+        }),
+      )
+    : await parallel(batch.map((b) => () => dispatch(b)))
+
+  ran.push({ phase: name, queued: batch.length, results })
+
+  const h = authHalt(results)
+  if (h) {
+    halt = h
+    log(`HALT — Bedrock auth failure: ${h.blocker}`)
+    return
+  }
+
+  let passed = 0
+  batch.forEach((b, i) => {
+    const r = results[i]
+    // Release the claim FIRST, unconditionally. Leaving it set on a blocked or empty
+    // result strands the bug for the rest of the run: the poller skips anything in
+    // onLine, so nothing can ever offer it again. handOff re-claims it if it routes.
+    onLine.delete(b.bugId)
+    if (!r || r.blocked || !r.statusSet) {
+      const why = !r ? 'no result' : r.blocked ? `blocked (${r.blockerKind || '?'}): ${r.blocker || ''}` : 'no statusSet'
+      blockedBugs.push({ bugId: b.bugId, phase: name, why })
+      log(`${b.bugId}: ${name} returned ${why} — left at its current status for the next run.`)
+      return
+    }
+    if (handOff(b, r.statusSet, name)) passed++
+  })
+
+  const ok = results.filter((r) => r && !r.blocked).length
+  log(`${p.title}: ${ok}/${batch.length} done, ${passed} handed on`)
+  bump()
+}
+
+// Push handoff is the fast path; it is not the truth. The register is. A worker that returns
+// a status the scheduler cannot route -- or dies before returning at all -- still WROTE its
+// Status to the index, and then vanished from the line. runPhase only re-reads the index once
+// the whole line has gone quiet, so a phase downstream of a busy one waits out the entire run:
+// that is exactly how 40 CONFIRMED piled up on disk while analyze sat idle. This poller closes
+// that hole. One for the line, not one per phase -- it reads the index once and routes every
+// row by the row's own Status, so it costs a single haiku call per cycle.
+const POLL_MS = 120000
+
+async function reconcile() {
+  try {
+    while (!halt && !paused) {
+      await sleep(POLL_MS)
+      if (halt || paused) break
+
+      // Sampled BEFORE the read: a bug that arrives while we are reading must not be
+      // mistaken for "nothing left". Both samples have to be quiet to end the run.
+      const wasQuiet = quiescent()
+
+      const loaded = await loadQueue({ title: 'line', entry: ALL_ENTRY })
+      if (loaded.pauseFilePresent) {
+        paused = true
+        log(`${PAUSE_FILE} is present — delete it before resuming.`)
+        break
+      }
+
+      let found = 0
+      for (const b of loaded.bugs || []) {
+        if (!b.status || onLine.has(b.bugId) || retired.has(b.bugId)) continue
+        if (!ALL_ENTRY.includes(b.status)) continue // the loader is an agent; do not trust its filter
+        if (handOff(b, b.status)) found++
+      }
+      if (found) {
+        log(`reconcile: ${found} bug(s) the handoff missed — back on the line.`)
+        bump()
+        continue
+      }
+
+      if (wasQuiet && quiescent()) break
+    }
+  } catch (e) {
+    log(`reconcile: poller failed (${(e && e.message) || e}) — the line will finish on what it already holds.`)
+  } finally {
+    // Whatever happened -- clean end, pause, or a throw -- the phases must be released,
+    // or they wait on a poller that is never coming back.
+    lineDone = true
+    bump()
+  }
+}
+
+async function runPhase(name) {
+  const p = PHASE[name]
+  if (!p) {
+    log(`Unknown phase "${name}" — skipping. Valid: ${Object.keys(PHASE).join(', ')}`)
+    finished.add(name)
+    return
+  }
+
+  const queue = inbox.get(name)
+  let served = 0
+
+  while (!halt && !paused && !lineDone) {
+    if (queue.length) {
+      // busy goes up BEFORE the first await and comes down in a finally. Set it after
+      // the pause check and the batch is off the inbox while nothing marks the phase
+      // busy -- quiescent() reads true and the poller ends the run mid-wave. Skip the
+      // finally and a throwing wave leaves the phase busy forever, so quiescent() never
+      // comes true again and the run cannot terminate at all.
+      busy.add(name)
+      const batch = queue.splice(0, WAVE)
+      try {
+        if (await pauseRequested()) {
+          paused = true
+          queue.unshift(...batch)
+          log(`${p.title}: paused after ${served} bug(s), ${queue.length} still queued.`)
+          break
+        }
+        await runWave(name, p, batch)
+        served += batch.length
+      } catch (e) {
+        // One wave failing is not the run failing. Release the claims so the poller can
+        // offer these bugs again, say what happened, and keep the line moving.
+        batch.forEach((b) => onLine.delete(b.bugId))
+        log(`${p.title}: wave threw (${(e && e.message) || e}) — ${batch.length} bug(s) released back to the register.`)
+      } finally {
+        busy.delete(name)
+      }
       continue
     }
 
-    // agentType is load-bearing: without it the call inherits the orchestrator's
-    // model and the DEFAULT workflow subagent, so the agent definition's model
-    // pin and its whole instruction set are ignored.
-    const dispatch = (b) =>
-      agent(`${p.prompt(b)}\n${CONTRACT}`, {
-        label: `${name}:${b.bugId}`,
-        phase: p.title,
-        schema: SCHEMA[name],
-        agentType: p.agent,
-        effort: p.effort || 'medium',
-      })
-
-    const results = p.serial
-      ? // Under the lease, and one at a time inside it: two agents in the same
-        // Chrome navigate over each other and manufacture phantom findings.
-        await withApp(async () => {
-          const out = []
-          for (const b of live) out.push(await dispatch(b))
-          return out
-        })
-      : await parallel(live.map((b) => () => dispatch(b)))
-
-    ran.push({ phase: name, batch: n, queued: live.length, results })
-
-    const h = authHalt(results)
-    if (h) {
-      halt = h
-      log(`HALT — Bedrock auth failure: ${h.blocker}`)
-      return
-    }
-
-    const next = live.filter((b, i) => moved(name, results[i]))
-    log(`batch ${n} ${p.title}: ${next.length}/${live.length} advanced`)
-    live = next
+    // Idle. Woken the moment anything is handed on, or the poller ends the run; the
+    // timer is only a backstop so a missed bump cannot wedge the loop.
+    await Promise.race([changed(), sleep(30000)])
   }
-  if (live.length) log(`batch ${n}: ${live.length} bug(s) reached the end of the line.`)
+
+  finished.add(name)
+  log(`${p.title}: done, ${served} bug(s) served.`)
+  bump()
 }
 
-if (!batches.length) {
-  log(`Nothing at ${ALL_ENTRY.join('/')} — nothing to run.`)
-} else if (!paused) {
-  // LANES batches in flight at once. More than a few buys nothing: they all
-  // queue on the same browser lease, and each one holds a live agent context.
-  const LANES = Math.min(3, batches.length)
-  log(`${batches.length} batch(es) of up to ${WAVE}, ${LANES} in flight, phases ${RUN.join(' → ')}`)
-
-  let cursor = 0
-  await parallel(
-    Array.from({ length: LANES }, () => async () => {
-      while (cursor < batches.length && !halt && !paused) {
-        const i = cursor++
-        if (await pauseRequested()) {
-          paused = true
-          log(`Paused — ${batches.length - i} batch(es) not started.`)
-          break
-        }
-        await runBatch(batches[i], i + 1)
-      }
-    }),
-  )
+const seed = await loadQueue({ title: 'line', entry: ALL_ENTRY })
+if (seed.pauseFilePresent) {
+  paused = true
+  log(`${PAUSE_FILE} is present — delete it before resuming.`)
 }
+let seeded = 0
+for (const b of seed.bugs || []) {
+  if (!b.status) {
+    log(`${b.bugId}: loader returned no Status — skipped. Check ${INDEX}.`)
+    continue
+  }
+  if (handOff(b, b.status)) seeded++
+}
+
+log(
+  `${RUN.length} phase loop(s) in parallel: ${RUN.join(' · ')} — up to ${WAVE} per wave. ` +
+    `Seeded ${seeded}: ${RUN.map((n) => `${n} ${inbox.get(n).length}`).join(', ')}`,
+)
+if (!paused) await parallel([...RUN.map((name) => () => runPhase(name)), () => reconcile()])
 
 // --- report ----------------------------------------------------------------
 
@@ -568,9 +854,13 @@ each was observed red, and — for fix/verify — what changed and what verifica
 Refresh ${STATE} so a resume knows where to pick up: counts per register Status, which bugs are
 where, the run status above, and the reason when it is not COMPLETE.
 
+${stuck.length ? `TAKEN OFF THE LINE after ${MAX_REOPENS} failed verifications — these need a human: ${JSON.stringify(stuck)}` : ''}
+${blockedBugs.length ? `BLOCKED — the worker could not finish and the bug stayed at its current status. Say so per bug, with the reason: ${JSON.stringify(blockedBugs)}` : ''}
+${dropped.length ? `DROPPED OFF THE LINE — the status these workers reported routes to no phase. This is a SCHEDULER-VISIBLE DEFECT, not a normal outcome: list each one, its reported status, and the phase that reported it, under its own heading: ${JSON.stringify(dropped)}` : ''}
+
 Under a clear "Needs a human" heading list everything a person must rule on — UNREPRODUCIBLE
-entries, FLAKY ones with no named trigger, fixer escalations, verifications that reopened, and
-any bug worth proposing as WONTFIX. Mirror WONTFIX candidates into
+entries, FLAKY ones with no named trigger, fixer escalations, verifications that reopened, the
+bugs listed above as taken off the line, and any bug worth proposing as WONTFIX. Mirror WONTFIX candidates into
 bug-hunter/wontfix-candidates.md with their reasons. An agent never SETS wontfix; it proposes.
 
 ${halt ? 'Say prominently at the top that the run halted on expired Bedrock credentials, that the user must renew them, and that resuming is re-running the same command.' : ''}
@@ -588,7 +878,15 @@ ${CONTRACT}`,
 // cross-reference check never ran either. Skipped when nothing actually closed,
 // or when the run halted or paused mid-flight -- committing half a batch buries
 // what still needs picking up.
-const closedAny = ran.some((r) => r.phase === 'verify' && r.results.some((x) => x && !x.blocked))
+// Actually CLOSED — not merely "verify ran without blocking". A verify that
+// REOPENED every bug it saw is a run with nothing to commit.
+const closedAny = ran.some(
+  (r) =>
+    r.phase === 'verify' &&
+    // normStatus, not ===: a verifier that returns "CLOSED - written to the ledger" would
+    // otherwise skip the commit silently, which is the same defect that broke the handoff.
+    r.results.some((x) => x && !x.blocked && normStatus(x.statusSet, 'verify') === 'CLOSED'),
+)
 
 if (closedAny && runStatus === 'COMPLETE') {
   phase('Close')
@@ -614,7 +912,12 @@ ${CONTRACT}`,
 }
 
 const advanced = ran.reduce((n, r) => n + r.results.filter((x) => x && !x.blocked).length, 0)
-log(`${label.toUpperCase()} ${runStatus} — ${advanced} bug-phases advanced across ${ran.length} phase(s)`)
+log(
+  `${label.toUpperCase()} ${runStatus} — ${advanced} bug-phases advanced across ${ran.length} phase(s)` +
+    `${blockedBugs.length ? `, ${blockedBugs.length} blocked` : ''}` +
+    `${dropped.length ? `, ${dropped.length} DROPPED (scheduler defect — see the report)` : ''}` +
+    `${stuck.length ? `, ${stuck.length} off the line` : ''}`,
+)
 
 return {
   ran: RUN,
@@ -627,13 +930,16 @@ return {
     blocked: r.results.filter((x) => x && x.blocked).length,
   })),
   haltReason: halt ? halt.blocker : null,
+  stuck,
+  blocked: blockedBugs,
+  dropped,
   next:
     runStatus === 'HALT_AUTH'
       ? 'Renew Bedrock credentials, then re-run the same command.'
       : runStatus === 'PAUSED'
         ? `Delete ${PAUSE_FILE} and re-run the same command.`
         : RUN.includes('test')
-          ? 'Approve the batch, then run {stage:"repair"}.'
+          ? 'Run {stage:"repair"} to fix and verify what is TESTED.'
           : RUN.includes('verify')
             ? 'Closed and committed by 7-closer.'
             : 'Run the next phase.',

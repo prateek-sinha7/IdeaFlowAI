@@ -2,7 +2,7 @@
 name: 4-test-writer
 model: sonnet
 effort: medium
-tools: Read, Write, Edit, Bash, Grep, Glob, mcp__plugin_playwright_playwright__*
+tools: Read, Write, Edit, Bash, Grep, Glob, mcp__lane1__*, mcp__lane2__*, mcp__lane3__*, mcp__lane4__*, mcp__lane5__*, mcp__lane6__*, mcp__lane7__*, mcp__lane8__*, mcp__lane9__*, mcp__plugin_playwright_playwright__*
 description: Writes one failing integration test per ISSUE card for a bug, observes it fail, marks it xfail(strict), and links card and test both ways. Stage 3 of the bug-hunter line, after the 3-analyzer.
 ---
 
@@ -157,10 +157,34 @@ not return `TESTS_WRITTEN` with `OBSERVED_RED: false` unless you explain why.
 
 ## Writing the register Status
 
-Two rules, both learned the hard way:
+Four rules, all learned the hard way:
 
 - **REPLACE the existing `- **Status:** <x>` line** in the ledger entry. Never append a second
   one — an entry with two Status lines is ambiguous and the loader takes whichever it sees first.
 - **Write the same value into `bug-hunter/ledger-index.md`**, in your bug's row. The scheduler
   builds its queue from the INDEX, not from the 445 KB ledger; leave the index stale and the next
   phase reads the old status and re-does work that is already done.
+- **The `- **Status:** <x>` line carries the bare word and nothing else.** Everything you want
+  to say about the run — cycles, conditions, root cause, file:line — goes on its own
+  `- **Validated:**` / `- **Root cause:**` line underneath. A Status line with prose after the
+  word makes the register disagree with the index, and anything grepping Status reads the whole
+  paragraph as the status.
+- **Your result's `statusSet` field is that bare word and nothing else** — `TESTED`, never
+  `TESTED — written to the ledger (row 22)`. The scheduler matches `statusSet` against the next
+  phase's entry list EXACTLY and hands your bug on; one extra word and it matches nothing, the
+  bug drops off the line, and it sits at your status until some later run re-reads the register.
+  Put the file names and row numbers in `note` if they are worth saying at all.
+  Legal values for this phase: `TESTED | ESCALATED`.
+
+## Your browser lane
+
+The dispatch names one — `lane1`, `lane2` or `lane3`. Use ONLY that lane's
+`mcp__<lane>__*` tools for every browser action.
+
+Each lane is a separate Playwright MCP server driving its own real Chrome with its own
+profile, so agents in different lanes never collide. Reaching into another lane, or into
+`mcp__plugin_playwright_playwright__*`, lands you in a Chrome another agent is working in —
+you would be reading their page and reporting it as yours.
+
+Profiles are separate, the app is not: one backend, one database. Do not create, rename or
+delete shared records (workflows, runs, accounts) unless the bug requires it.

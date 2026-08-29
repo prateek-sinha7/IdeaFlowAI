@@ -17,6 +17,22 @@ CONSISTENCY tools/knowledge/validate_links.py: 12,121/12,123 links resolve. The 
               introduced by this run. Register vs. card Status spot-checked across all 7
               ESCALATED bugs — no drift found (root cards genuinely resolved+passed; the bug
               stays escalated only because a documented sibling card is still open).
+INFRA FAULT (orchestrator-observed, not visible to any worker)
+            **`pause-check` was blocked by the safety classifier on all 21 of its calls this
+              run** — its prompt trips the classifier, so bug-hunter/PAUSE was never actually
+              read. A pause request during this run would have been silently ignored and the
+              run would have continued to completion regardless. Fix the pause probe's prompt
+              in .claude/workflows/bug-hunt.js before the next long unattended run.
+            One `load:line` call also died with "API Error: Connection lost mid-response".
+              The scheduler absorbed it cleanly — the run reported dropped[], stuck[],
+              blocked[] all empty, so no bug was lost — but that is a second known failure
+              mode of that call worth hardening.
+            Run cost, for calibration: 562 agents (540 done / 22 errored), 58.6M subagent
+              tokens, 20,991 tool calls, ~8h45m wall clock.
+UNCOMMITTED After Close's commit d027f16bd (854 files, +62,928/-1,240, not pushed): the 6
+              agent definitions, .claude/workflows/bug-hunt.js, .pre-commit-config.yaml, plus
+              untracked worker screenshots (*.png) and .mcp.json remain uncommitted. Close
+              deliberately committed only the bug work.
 NEXT        Human review of the 7 ESCALATED decisions in the report (each names 2 concrete
               options). No further autonomous work queued — the register has nothing left to
               validate/analyze/test/fix/verify. A fresh hunt pass would need new bug reports or
