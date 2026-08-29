@@ -273,3 +273,43 @@ describe("AnalyticsPage — signed prompt-cache delta (ISS-034)", () => {
     ).toBeInTheDocument();
   });
 });
+
+/**
+ * ISS-369 — Daily Activity chart tooltip formatting parity.
+ *
+ * Every other number on the page is routed through formatTokens() (K/M
+ * abbreviation) before display. The Daily Activity bar chart's per-bar
+ * tooltip is the one series AnalyticsPage never assigns a `tip` to, so it
+ * falls through to BarChart's raw-number default and renders the bare JS
+ * integer instead.
+ */
+describe("AnalyticsPage — Daily Activity tooltip number formatting (ISS-369)", () => {
+  it("ISS-369 — formats the per-bar tooltip with K/M abbreviation, not the raw integer", async () => {
+    mockGetAnalyticsSummary.mockReset();
+    mockGetAnalyticsSummary.mockResolvedValue(
+      summary({
+        daily: [
+          {
+            date: "2026-08-24",
+            total: 3,
+            completed: 3,
+            failed: 0,
+            input_tokens: 1_500_000,
+            output_tokens: 864_478,
+            total_tokens: 2_364_478,
+          },
+        ],
+      }),
+    );
+    render(<AnalyticsPage onBack={() => {}} />);
+    await waitFor(() =>
+      expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
+    );
+
+    // Expected: formatTokens(2364478) === "2.4M", matching every other number
+    // on the page (KPI tiles, By Pipeline Type, By Model).
+    expect(await screen.findByText("Aug 24: 2.4M")).toBeInTheDocument();
+    // The raw unformatted integer must NOT appear anywhere.
+    expect(screen.queryByText(/2364478/)).not.toBeInTheDocument();
+  });
+});

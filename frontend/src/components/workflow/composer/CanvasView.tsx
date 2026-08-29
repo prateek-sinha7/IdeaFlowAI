@@ -148,6 +148,23 @@ function flattenDescendants(agent: AgentDef): AgentDef[] {
   return out;
 }
 
+// ISS-340 — ONE label per deliverable strategy. The <option> texts in the rail's
+// "Deliverable strategy" select below AND ComposerPage's read-only "Deliverable
+// type" field both read this, so the Canvas and Simple tabs cannot describe the
+// same workflow differently ("Streamed text" vs a hardcoded "Custom").
+export const DELIVERABLE_STRATEGY_LABEL: Record<string, string> = {
+  streamed_text: "Streamed text — agent's raw output",
+  single_file: "Single file — one file from the workspace",
+  serialized_sandbox: "Serialized sandbox — zip the workspace",
+};
+
+// A strategy outside the map is DECLARED by a workflow and not user-grantable
+// (`ppt`) — name it honestly instead of mislabelling it as one of the three.
+export function deliverableStrategyLabel(strategy?: string): string {
+  const s = strategy ?? "streamed_text";
+  return DELIVERABLE_STRATEGY_LABEL[s] ?? `${s} — declared by this workflow`;
+}
+
 /**
  * 41-05 — the Composer's CANVAS view: a HAND-ROLLED node-graph visual designer
  * (D-04 / CMPUI-03), design-matched to `composer-canvas-proposal.html` (ND-AJ —
@@ -1505,11 +1522,13 @@ export function CanvasView({
     on,
     label,
     disabled = false,
+    describedBy,
     onToggle,
   }: {
     on: boolean;
     label: string;
     disabled?: boolean;
+    describedBy?: string;
     onToggle: () => void;
   }) => (
     <button
@@ -1517,6 +1536,7 @@ export function CanvasView({
       role="switch"
       aria-checked={on}
       aria-label={label}
+      aria-describedby={describedBy}
       disabled={disabled}
       onClick={onToggle}
       className={`relative h-5 w-[34px] flex-none rounded-full transition-colors disabled:opacity-40 ${
@@ -1608,8 +1628,24 @@ export function CanvasView({
     : deliverableName;
   const formatLocked = formatOptions.length <= 1;
 
+  // ISS-246 — these controls are read-only wherever the host forwards no change
+  // callback (AgentsPopup, which shows the workflow's own DECLARED run config
+  // and never accepts an edit). The `disabled` attribute alone is indistinguish-
+  // able from a broken control, so every gated one points at a single visible
+  // reason — the same "disabled + explanation" pairing CanvasConfigRail's
+  // "Execute commands" toggle already uses.
+  const LOCKED_NOTE_ID = "workflow-settings-locked-note";
+  const runConfigLockedNote = onRunConfigChange ? undefined : LOCKED_NOTE_ID;
+  const capabilitiesLockedNote = onCapabilitiesChange ? undefined : LOCKED_NOTE_ID;
+
   const workflowSettingsSection = (
     <div className="flex flex-col gap-3.5 border-t border-line-divider px-[18px] py-3.5">
+      {(runConfigLockedNote || capabilitiesLockedNote) && (
+        <p id={LOCKED_NOTE_ID} className="font-serif text-[10px] leading-relaxed text-ink-300">
+          Read-only — these run settings come from this workflow&apos;s own configuration and cannot
+          be changed here.
+        </p>
+      )}
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 font-sans text-[12.5px] font-semibold text-ink-900">
           <OnOffHint
@@ -1622,6 +1658,7 @@ export function CanvasView({
           on={plannerOn}
           label="Smart planning"
           disabled={!onRunConfigChange}
+          describedBy={runConfigLockedNote}
           onToggle={() => patchRunConfig({ planner: plannerOn ? "skip" : "run" })}
         />
       </div>
@@ -1637,6 +1674,7 @@ export function CanvasView({
           on={clarifyOn}
           label="Confirm requirements first"
           disabled={!onRunConfigChange}
+          describedBy={runConfigLockedNote}
           onToggle={() =>
             patchRunConfig({
               clarify: clarifyOn ? { mode: "skip", defaults: [] } : { mode: "auto", defaults: [] },
@@ -1666,6 +1704,7 @@ export function CanvasView({
           name="deliverable-strategy"
           value={deliverableStrategy}
           disabled={!onRunConfigChange}
+          aria-describedby={runConfigLockedNote}
           onChange={(e) => {
             const strategy = e.target.value;
             const nextExt = (FORMAT_OPTIONS[strategy] ?? FORMAT_OPTIONS.streamed_text)[0].value;
@@ -1675,9 +1714,11 @@ export function CanvasView({
           }}
           className="w-full rounded-[8px] border border-line-control bg-surface-white px-2 py-1.5 font-sans text-[11.5px] text-ink-900 focus:border-brand focus:outline-none"
         >
-          <option value="streamed_text">Streamed text — agent&apos;s raw output</option>
-          <option value="single_file">Single file — one file from the workspace</option>
-          <option value="serialized_sandbox">Serialized sandbox — zip the workspace</option>
+          {Object.entries(DELIVERABLE_STRATEGY_LABEL).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
           {/* A DECLARED strategy the composer cannot offer. The three options
               above are exactly the `user_allowed=True` deliverable resolvers; a
               file-backed workflow may declare one that is not user-grantable
@@ -1689,7 +1730,7 @@ export function CanvasView({
               user could not have picked this value in the first place. */}
           {!KNOWN_STRATEGIES.has(deliverableStrategy) && (
             <option value={deliverableStrategy}>
-              {deliverableStrategy} — declared by this workflow
+              {deliverableStrategyLabel(deliverableStrategy)}
             </option>
           )}
         </select>
@@ -1701,6 +1742,7 @@ export function CanvasView({
             name="output-filename"
             value={deliverableBaseName}
             disabled={!onRunConfigChange}
+            aria-describedby={runConfigLockedNote}
             onChange={(e) =>
               patchRunConfig({
                 deliverable: {
@@ -1717,6 +1759,7 @@ export function CanvasView({
             name="output-format"
             value={currentFormat}
             disabled={!onRunConfigChange || formatLocked}
+            aria-describedby={runConfigLockedNote}
             onChange={(e) =>
               patchRunConfig({
                 deliverable: {
@@ -1748,6 +1791,7 @@ export function CanvasView({
           on={!!capabilities?.internet}
           label="Internet access"
           disabled={!onCapabilitiesChange}
+          describedBy={capabilitiesLockedNote}
           onToggle={() =>
             onCapabilitiesChange?.({ ...capabilities, internet: !capabilities?.internet })
           }
@@ -2247,6 +2291,12 @@ export function CanvasView({
                 onCapabilitiesChange?.({ ...capabilities, internet: false });
               }}
               disabled={!onRunConfigChange && !onCapabilitiesChange}
+              // ISS-368 — this button sits in the tab header, outside
+              // `workflowSettingsSection`, but is gated the same way, so it
+              // points at the same read-only note.
+              aria-describedby={
+                !onRunConfigChange && !onCapabilitiesChange ? LOCKED_NOTE_ID : undefined
+              }
               className="flex-none font-sans text-[11px] font-semibold text-ink-400 transition-colors hover:text-ink-700 disabled:opacity-40"
             >
               Reset to default

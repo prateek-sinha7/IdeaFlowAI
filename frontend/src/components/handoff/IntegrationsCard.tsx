@@ -14,6 +14,7 @@ import {
   Eye,
 } from "lucide-react";
 
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 import { getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import {
@@ -69,13 +70,19 @@ export function IntegrationsCard({
     const base = ENV.API_URL.replace(/\/$/, "");
     return `curl -fsSL ${base}/install/flowin-handoff | bash`;
   }, []);
-  const [installCopied, setInstallCopied] = useState(false);
+  const {
+    copied: installCopied,
+    failed: installFailed,
+    copy: copyInstall,
+  } = useClipboardCopy();
   const handleCopyInstall = useCallback(() => {
-    navigator.clipboard.writeText(installCommand).then(() => {
-      setInstallCopied(true);
-      setTimeout(() => setInstallCopied(false), 2000);
-    });
-  }, [installCommand]);
+    void copyInstall(installCommand);
+  }, [copyInstall, installCommand]);
+  const {
+    copied: keyCopied,
+    failed: keyFailed,
+    copy: copyKey,
+  } = useClipboardCopy();
 
   const refresh = useCallback(async () => {
     const token = getToken();
@@ -144,7 +151,7 @@ export function IntegrationsCard({
     setKeyBusy(true);
     setKeyMessage(null);
     try {
-      const created = await createApiKey(token, keyName || "Default");
+      const created = await createApiKey(token, keyName.trim() || "Default");
       setNewlyMinted(created);
       setKeyName("Default");
       await refresh();
@@ -204,6 +211,11 @@ export function IntegrationsCard({
               <>
                 <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
                 Copied
+              </>
+            ) : installFailed ? (
+              <>
+                <AlertCircle className="h-3.5 w-3.5 text-red-600" />
+                Copy failed
               </>
             ) : (
               <>
@@ -314,12 +326,22 @@ export function IntegrationsCard({
             <div className="flex items-center gap-2 font-mono break-all text-[11px]">
               <span className="flex-1">{newlyMinted.token}</span>
               <button
-                onClick={() =>
-                  navigator.clipboard.writeText(newlyMinted.token).then(() => {})
-                }
+                onClick={() => void copyKey(newlyMinted.token)}
                 className="flex items-center gap-1 rounded-md px-2 py-1 text-blue-700 hover:bg-blue-100"
               >
-                <Copy className="h-3 w-3" />
+                {keyCopied ? (
+                  <>
+                    <CheckCircle2 className="h-3 w-3 text-green-600" />
+                    Copied
+                  </>
+                ) : keyFailed ? (
+                  <>
+                    <AlertCircle className="h-3 w-3 text-red-600" />
+                    Copy failed
+                  </>
+                ) : (
+                  <Copy className="h-3 w-3" />
+                )}
               </button>
             </div>
             <button

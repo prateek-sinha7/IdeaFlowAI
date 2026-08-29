@@ -6,8 +6,9 @@
  * Lists every agent in the current pipeline as a checkbox. A checked agent
  * pauses the pipeline for a Human review gate after it completes (the same
  * `review_gate_*` flow `ReviewGatePanel` renders). Each agent is pre-checked
- * iff its static frontmatter declares `gate === "Human_Gate"` — i.e. the
- * section opens reflecting exactly the backend's static default.
+ * iff its static frontmatter declares `gate === "Human_Gate"` OR the workflow's
+ * manifest declares a human-review gate on that step (`selections[id].gates`) —
+ * i.e. the section opens reflecting exactly what the backend already declares.
  *
  * Wiring contract (see plan.md §5 "Gate mechanism"):
  *   - `onChange(gateAgentIds, touched)` fires whenever the selection or the
@@ -27,6 +28,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, ShieldCheck, Check } from "lucide-react";
 import type { AgentDef } from "@/types/index";
+import type { SelectionsMap, StepSelection } from "./AgentsPopup";
 import { Pill } from "@/components/ui/Pill";
 
 interface ReviewGatesSectionProps {
@@ -36,11 +38,71 @@ interface ReviewGatesSectionProps {
   onChange: (gateAgentIds: string[], touched: boolean) => void;
   /** Seed the initial checked ids from a saved workflow (overrides static defaults). */
   initialGateIds?: string[];
+  /**
+   * ISS-247 — the live per-step selections map and its writer: the SAME
+   * `selections[agentId].gates` store the Advanced modal's per-agent Gate
+   * combobox (`CanvasConfigRail`) reads and writes. Checking an agent here also
+   * declares the `human` gate on that step, so the two controls stop reporting
+   * contradictory state for one agent in one session. Absent ⇒ the checklist
+   * reports through `onChange` only, exactly as before.
+   */
+  selections?: SelectionsMap;
+  onSelectionsChange?: (next: SelectionsMap) => void;
 }
 
 const isDefaultGated = (a: AgentDef): boolean => a.gate === "Human_Gate";
 
-export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewGatesSectionProps) {
+/**
+ * The registered gate this checklist owns — the same name `CanvasConfigRail`
+ * labels "Human gate". The engine dedupes it against the per-run
+ * `gate_agent_ids` selection (engine `_evaluate_gates` / WR-02), so a step may
+ * carry both without arming two pauses on one gate_key.
+ */
+const HUMAN_GATE = "human";
+
+/**
+ * The gates that mean "this step pauses for a person" — the two ADR-0013 split
+ * apart: `human` reviews a step's OWN output after it runs, `before-human`
+ * reviews the previous step's output before it runs. Different gates, both human
+ * review, so both render this checkbox checked. `conditional`, `approval` and
+ * `security` belong to other levers and are NOT human review — reading them here
+ * would re-merge exactly what ADR-0013 separated. Read-only: `withHumanGate`
+ * below still writes `HUMAN_GATE` alone, so this control's ownership is unchanged.
+ */
+const HUMAN_REVIEW_GATES = [HUMAN_GATE, "before-human"];
+
+/**
+ * Is this agent gated on load? The static per-AGENT.md default, OR a human-review
+ * gate the workflow's own manifest declares on that step (surfaced through the
+ * shared `selections` map). A `custom-agent` step has no AGENT.md and therefore no
+ * static `gate` field at all — `gates: [...]` is its ONLY declaration, so without
+ * the second half it can never render checked no matter what the manifest says.
+ */
+const isSeedGated = (a: AgentDef, selections?: SelectionsMap): boolean =>
+  isDefaultGated(a) ||
+  (selections?.[a.id]?.gates ?? []).some((g) => HUMAN_REVIEW_GATES.includes(g));
+
+/** `selections` with `human` added to / removed from one step's gate list. */
+function withHumanGate(
+  selections: SelectionsMap,
+  agentId: string,
+  gated: boolean,
+): SelectionsMap {
+  const { gates: declared = [], ...rest } = selections[agentId] ?? {};
+  // Only `human` is this control's to write — `validation`, `conditional` and
+  // `before-human` belong to the levers that own them and are carried through.
+  const gates = declared.filter((g) => g !== HUMAN_GATE);
+  if (gated) gates.push(HUMAN_GATE);
+  const step: StepSelection = gates.length > 0 ? { ...rest, gates } : rest;
+  const next = { ...selections };
+  // An empty step drops out of the map — the same rule AgentsPopup's
+  // `handleCanvasSelection` applies, so an untouched step adds nothing.
+  if (Object.keys(step).length > 0) next[agentId] = step;
+  else delete next[agentId];
+  return next;
+}
+
+export function ReviewGatesSection({ agents, onChange, initialGateIds, selections, onSelectionsChange }: ReviewGatesSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const [touched, setTouched] = useState(false);
 
@@ -48,12 +110,20 @@ export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewG
   // default selection when the pipeline (and thus its agents) changes.
   const agentsKey = useMemo(() => agents.map((a) => a.id).join("|"), [agents]);
 
+  // The ids that seed as checked, and an identity-stable key of that set. Both
+  // sources move: the agent list on a pipeline switch, the declared gates when
+  // the workflow fetch resolves (which is AFTER mount, and after `agentsKey`
+  // settles — hence the second effect below).
+  const seededIds = useMemo(
+    () => agents.filter((a) => isSeedGated(a, selections)).map((a) => a.id),
+    [agents, selections],
+  );
+  const seedKey = seededIds.join("|");
+
   // Selected (checked) agent ids. Seeded from saved initialGateIds when provided,
-  // otherwise from static defaults. Re-seeds and clears `touched` on pipeline switch.
+  // otherwise from the defaults. Re-seeds and clears `touched` on pipeline switch.
   const [checkedIds, setCheckedIds] = useState<Set<string>>(
-    () => initialGateIds
-      ? new Set(initialGateIds)
-      : new Set(agents.filter(isDefaultGated).map((a) => a.id)),
+    () => initialGateIds ? new Set(initialGateIds) : new Set(seededIds),
   );
 
   // Re-seed the selection to the new defaults (and clear `touched`) whenever the
@@ -68,11 +138,28 @@ export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewG
       setTouched(true); // mark touched so the saved selection is sent on run
       initialGateIdsRef.current = undefined;
     } else {
-      setCheckedIds(new Set(agents.filter(isDefaultGated).map((a) => a.id)));
+      setCheckedIds(new Set(seededIds));
       setTouched(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentsKey]);
+
+  // The manifest's declared gates land in `selections` AFTER the effect above has
+  // already run — the workflow fetch resolves later than the agent list, and the
+  // parent effect that merges them runs after this child's. Re-seed when the
+  // declared set itself changes, or a step the manifest declares gated stays
+  // unchecked forever. Display-only: it never sets `touched`, and a set the user
+  // has already touched is left alone, so an untouched launch payload still omits
+  // `gate_agent_ids` entirely (INV-3). The ref makes this a no-op on mount, where
+  // the initializer above has already applied the same seed.
+  const seedKeyRef = useRef(seedKey);
+  useEffect(() => {
+    if (seedKey === seedKeyRef.current) return;
+    seedKeyRef.current = seedKey;
+    if (touched || initialGateIdsRef.current) return;
+    setCheckedIds(new Set(seededIds));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedKey]);
 
   // Report the current selection + touched flag upward. Runs on mount and on
   // every change; the initial (untouched) report is harmless because the caller
@@ -86,6 +173,7 @@ export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewG
   }, [checkedIds, touched, agentsKey]);
 
   const toggle = useCallback((id: string) => {
+    const gated = !checkedIds.has(id);
     setTouched(true);
     setCheckedIds((prev) => {
       const next = new Set(prev);
@@ -93,7 +181,10 @@ export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewG
       else next.add(id);
       return next;
     });
-  }, []);
+    // ISS-247 — write the same choice into the shared selections map, so the
+    // Advanced modal's Gate combobox for this agent reports it too.
+    onSelectionsChange?.(withHumanGate(selections ?? {}, id, gated));
+  }, [checkedIds, selections, onSelectionsChange]);
 
   // Graceful: nothing to gate.
   if (agents.length === 0) return null;

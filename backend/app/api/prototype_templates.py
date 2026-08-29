@@ -386,4 +386,7 @@ async def fetch_url_for_template(
         )
     except Exception as exc:
         logger.warning("fetch-url failed for %s: %s", url, exc)
-        raise HTTPException(status_code=502, detail=f"URL fetch failed: {exc}")
+        raise HTTPException(
+            status_code=502,
+            detail="Could not reach that URL. Check the address and try again.",
+        )

@@ -141,6 +141,48 @@ describe("RunChatLane — terminal states", () => {
     expect(screen.queryByTestId("chat-terminal-failed")).toBeNull();
   });
 
+  // ISS-221 / ISS-233 (BUG-20260828-020430-runs-diverted): relaunchError is
+  // computed by handleResumeRun and passed down as this prop; the
+  // plain-terminal and degraded branches call the shared relaunch() helper,
+  // which now renders it via the banner moved into that helper (FIX-329).
+  it(
+    "ISS-221: plain terminal (no marker, e.g. a diverted run) renders relaunchError",
+    () => {
+      renderWithProviders(
+        <RunChatLane
+          {...baseProps({
+            pipelineState: pipeline(),
+            relaunchError: "Could not resume the run — please try again.",
+          })}
+        />,
+      );
+      expect(
+        screen.getByText(/Could not resume the run/i),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it(
+    "ISS-233: degraded branch's 'Run again' renders relaunchError",
+    () => {
+      renderWithProviders(
+        <RunChatLane
+          {...baseProps({
+            pipelineState: pipeline({
+              degraded: true,
+              degradedFailedAgents: ["style"],
+              agents: [agent("style", "Style Agent", { status: "error" })],
+            }),
+            relaunchError: "Could not resume the run — please try again.",
+          })}
+        />,
+      );
+      expect(
+        screen.getByText(/Could not resume the run/i),
+      ).toBeInTheDocument();
+    },
+  );
+
   it("SC-001: the terminal render path carries no workflow-name literal", () => {
     const src = readFileSync(
       join(process.cwd(), "src/components/chat/RunChatLane.tsx"),

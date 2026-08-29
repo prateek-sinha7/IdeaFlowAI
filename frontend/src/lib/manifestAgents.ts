@@ -67,6 +67,15 @@ function normaliseRoute(
   return {
     ...r,
     outcomes,
+    // The decision source is a step reference too, authored bare ("ask") exactly
+    // like a target (ADR-0017). Every consumer compares it against node ids —
+    // CanvasConfigRail's Prompt User toggle against `prev.id` — so unnormalised
+    // it never matches and the one control that surfaces `before-human` reads
+    // OFF for a step that genuinely declares it. An already-normalised id is not
+    // in the map and falls through unchanged.
+    condition_agent: r.condition_agent
+      ? (nodeIdOf.get(r.condition_agent) ?? r.condition_agent)
+      : r.condition_agent,
     default_next: r.default_next
       ? (nodeIdOf.get(r.default_next) ?? r.default_next)
       : r.default_next,

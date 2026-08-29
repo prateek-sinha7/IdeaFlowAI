@@ -7,16 +7,16 @@ import {
   Presentation, Layout, Settings2, Mic, MicOff, GitBranch,
   Save, Check, Image as ImageIcon, Sparkles, Plus,
 } from "lucide-react";
-import { AgentsPopup } from "./AgentsPopup";
+import { AgentsPopup, type SelectionsMap } from "./AgentsPopup";
 import { ReviewGatesSection } from "./ReviewGatesSection";
 import { useAgentLibrary } from "@/hooks/useAgentLibrary";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
-import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflows";
-import { createUserWorkflow, getToken, getWorkflowDetail, setWorkflowOverrideEnabled, extractFileText } from "@/lib/api";
+import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate, overrideDescription } from "@/store/api/userWorkflows";
+import { createUserWorkflow, getToken, getWorkflowDetail, isNotFoundError, setWorkflowOverrideEnabled, extractFileText } from "@/lib/api";
 import { agentsFromManifest } from "@/lib/manifestAgents";
-import { ATTACH_MAX_CHARS } from "@/lib/constants";
+import { ATTACH_MAX_CHARS, truncateAttachmentText } from "@/lib/constants";
 import { resizeImage } from "@/lib/resizeImage";
 import { agentMatchesPipelineType } from "@/lib/workflowIcons";
 import { AnimatePresence } from "motion/react";
@@ -517,7 +517,7 @@ export function useBriefAttachments() {
           const content = (ev.target?.result as string) ?? "";
           setAttachedFileContents((p) => [
             ...p,
-            { name: f.name, content: content.slice(0, ATTACH_MAX_CHARS) },
+            { name: f.name, content: truncateAttachmentText(content) },
           ]);
         };
         reader.readAsText(f);
@@ -934,9 +934,19 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   // EXACT compact shape 22-04 persists in manifest_json; `onRun`/launch stay
   // pure data (SC-001).
   const selectionsRef = useRef<Record<string, Record<string, unknown>>>(cleanSelections ?? {});
+  // ISS-247 — the LIVE map the Advanced modal renders from. AgentsPopup used to
+  // own this privately (a mount-once useState seed), so a gate checked in the
+  // Review-gates checklist beside it was invisible inside it. Seeded exactly
+  // where that seed came from (`mergedInitialSelections`) and written by the one
+  // handler below. `selectionsRef` stays the launch-payload source, so an
+  // untouched run still omits `selections` entirely (INV-3).
+  const [liveSelections, setLiveSelections] = useState<SelectionsMap>(
+    (cleanSelections ?? {}) as SelectionsMap,
+  );
   const handleSelectionsChange = useCallback(
-    (selections: Record<string, Record<string, unknown>>) => {
+    (selections: SelectionsMap) => {
       selectionsRef.current = selections;
+      setLiveSelections(selections);
     },
     [],
   );
@@ -992,12 +1002,21 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   >(undefined);
   const [showOverride, setShowOverride] = useState(false);
 
+  // ISS-374/ISS-375 — why the manifest fetch below has nothing to show. The catch
+  // used to swallow every failure into "nothing declared", which is right for the
+  // capability strip but not for the roster: with no library agents for this type
+  // the roster stays [] and Save/Save-as/Run are disabled forever, with the 404
+  // visible only in the console. Carries WHICH failure it was, because a slug that
+  // does not exist and a workflow that could not be loaded want different copy.
+  const [loadError, setLoadError] = useState<"not-found" | "failed" | null>(null);
+
   useEffect(() => {
     if (!workflowId) {
       setDeclaredCapabilities(undefined);
       setManifestAgents(undefined);
       setManifestSelections(undefined);
       setManifestRawSteps(undefined);
+      setLoadError(null);
       return;
     }
     let cancelled = false;
@@ -1007,11 +1026,13 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       setManifestAgents(undefined);
       setManifestSelections(undefined);
       setManifestRawSteps(undefined);
+      setLoadError(null);
       return;
     }
     getWorkflowDetail(jwt, workflowId)
       .then((detail) => {
         if (cancelled) return;
+        setLoadError(null);
         // Map each compiled step to its declared capabilities, sourced entirely
         // from the projection (strategy + gates + validators + compaction +
         // task_source kind) — no hardcoded names. Steps with zero declared caps
@@ -1089,6 +1110,15 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
             return {
               ...r,
               outcomes,
+              // Same for the decision source — a step reference authored bare
+              // ("ask", ADR-0017) that CanvasConfigRail's Prompt User toggle
+              // compares against a node id. Unnormalised it never matches, so
+              // the toggle reads OFF for a step declaring `before-human`.
+              // Duplicated from manifestAgents.ts's normaliseRoute, which this
+              // copy predates; both must carry it until this one retires.
+              condition_agent: r.condition_agent
+                ? (nodeIdOf.get(r.condition_agent) ?? r.condition_agent)
+                : r.condition_agent,
               default_next: r.default_next
                 ? (nodeIdOf.get(r.default_next) ?? r.default_next)
                 : r.default_next,
@@ -1169,7 +1199,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
           );
         }
       })
-      .catch(() => {
+      .catch((e) => {
         // Unknown id (404) or transient error ⇒ treat as "nothing declared":
         // leave it undefined so the strip simply does not render (no noisy UI).
         if (!cancelled) {
@@ -1177,6 +1207,9 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
           setManifestAgents(undefined);
           setManifestSelections(undefined);
           setManifestRawSteps(undefined);
+          // ISS-374/ISS-375 — still no strip, but the failure is no longer
+          // invisible: this same swallow is what leaves the roster empty.
+          setLoadError(isNotFoundError(e) ? "not-found" : "failed");
         }
       });
     return () => {
@@ -1194,6 +1227,14 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         : cleanSelections,
     [manifestSelections, cleanSelections],
   );
+
+  // ISS-247 — fold the manifest's declared gates into the live map when the
+  // fetch lands, under anything already there. Same precedence as
+  // `mergedInitialSelections`, which is what the modal seeded from before.
+  useEffect(() => {
+    if (!manifestSelections) return;
+    setLiveSelections((prev) => ({ ...(manifestSelections as SelectionsMap), ...prev }));
+  }, [manifestSelections]);
 
 
   useEffect(() => {
@@ -1461,10 +1502,24 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     setSaveError(null);
     const jwt = getToken();
     if (!jwt || !workflowId) { setSaveError("Not authenticated."); return; }
+    // ISS-225/ISS-254 — `selectionsRef` is seeded only from `cleanSelections` and
+    // mutated only by an explicit user edit, so an UNTOUCHED manifest-opened step
+    // serialised with `gates: []` even though the manifest — and the canvas, which
+    // reads `mergedInitialSelections` — declares them. `buildWorkflowManifest` takes
+    // its gates from here, so a step declaring `route:` went out missing
+    // `gates: [conditional]` and the backend's R-03 cross-field check 422'd every
+    // route-declaring built-in. Same precedence as `mergedInitialSelections` above:
+    // manifest-declared gates first, the ref second, so a user edit still wins.
+    // Merged HERE rather than into the ref itself — `handleRun` relies on the ref
+    // being empty to omit `selections` from an untouched launch payload (INV-3).
+    const saveSelections = { ...(manifestSelections ?? {}), ...selectionsRef.current };
     try {
       const saved = await createUserWorkflow(jwt, {
         name: `My ${workflowId}`,
-        description: "Your saved version of this workflow.",
+        // ISS-280 — was a hardcoded literal, so the saved row carried no trace
+        // of the brief, even though the sibling `handleSaveWorkflow` above
+        // already persists `ideaInput` for its own save.
+        description: overrideDescription({ brief: ideaInput }),
         base_pipeline_type: workflowId,
         agent_ids: pipelineAgents.map((a) => a.id),
         // `manifest`, never `selections`: the override resolve reads
@@ -1472,20 +1527,20 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         manifest: buildWorkflowManifest(
           pipelineAgents,
           undefined,
-          selectionsRef.current,
+          saveSelections,
         ) as unknown as Record<string, unknown>,
         overrides_pipeline_type: workflowId,
       });
       setOverrideInfo({ id: saved.id, enabled: true });
       setOverrideAgents(pipelineAgents);
-      setOverrideSelections(selectionsRef.current);
+      setOverrideSelections(saveSelections);
       setShowOverride(true);
       setSavedConfirm(true);
       setTimeout(() => setSavedConfirm(false), 2500);
     } catch (e) {
       setSaveError((e as Error)?.message ?? "Failed to save your version.");
     }
-  }, [workflowId, pipelineAgents]);
+  }, [workflowId, pipelineAgents, ideaInput, manifestSelections]);
 
   // KAN-112: for custom, there are no "default" agents — every agent is optional.
   // The optional-agent count and add/remove limits are all relative to an empty baseline.
@@ -1686,6 +1741,20 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
               }
             />
 
+            {/* ISS-374/ISS-375 — the manifest fetch failed AND left nothing to
+                run, so "Add agents first" is the screen's only signal and it
+                points at the wrong thing. Shown here, beside the disabled
+                buttons it explains. `migration` is excluded: it is the one
+                WorkflowType with no workflow of its own (it 404s by design) and
+                its recovery is picking a sub-path, not reloading. */}
+            {loadError && pipelineAgents.length === 0 && !isMigrationMeta && (
+              <div className="px-4 pb-3 -mt-1 text-[11px] text-red-600">
+                {loadError === "not-found"
+                  ? `Workflow "${workflowId}" not found — go back and pick one from the dashboard.`
+                  : "Failed to load this workflow. Reload the page to retry."}
+              </div>
+            )}
+
             {saveError && (
               <div className="px-4 pb-3 -mt-1 text-[11px] text-red-600">{saveError}</div>
             )}
@@ -1861,7 +1930,13 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
             transition={{ delay: 0.24 }}
             className="w-full mt-3"
           >
-            <ReviewGatesSection agents={pipelineAgents} onChange={handleGatesChange} initialGateIds={initialGateIds} />
+            <ReviewGatesSection
+              agents={pipelineAgents}
+              onChange={handleGatesChange}
+              initialGateIds={initialGateIds}
+              selections={liveSelections}
+              onSelectionsChange={handleSelectionsChange}
+            />
           </motion.div>
         )}
 
@@ -1915,6 +1990,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         onSelectionsChange={handleSelectionsChange}
         initialModelOverrides={initialModelOverrides}
         initialSelections={mergedInitialSelections}
+        selections={liveSelections}
         debugLabel={`${effectiveType}:${manifestSelections ? "seeded" : "pending"}`}
         declaredCapabilities={declaredCapabilities}
       />

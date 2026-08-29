@@ -7,6 +7,8 @@ import {
   FileText, FileCode, FileJson, Settings, Globe,
   RefreshCw, FolderDown, Maximize2,
 } from "lucide-react";
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
+import { utf8Bytes } from "@/lib/byteSize";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -96,6 +98,17 @@ function buildTree(files: ParsedFile[]): TreeNode[] {
   return root;
 }
 
+// ─── Search matching ──────────────────────────────────────────────────────────
+
+function fileMatchesQuery(name: string, query: string): boolean {
+  return !query || name.toLowerCase().includes(query.toLowerCase());
+}
+
+function hasMatchingDescendant(node: TreeNode, query: string): boolean {
+  if (node.type === "file") return fileMatchesQuery(node.name, query);
+  return (node.children || []).some(child => hasMatchingDescendant(child, query));
+}
+
 // ─── Syntax highlighting (highlight.js — GitHub light theme) ─────────────────
 
 declare global {
@@ -162,11 +175,12 @@ function FileTreeNode({
   onToggle: (path: string) => void;
   searchQuery: string;
 }) {
-  const isExpanded = expandedPaths.has(node.path);
+  const isExpanded = expandedPaths.has(node.path) || !!searchQuery;
   const isActive = node.type === "file" && activeFile === node.path;
   const indent = depth * 14;
 
   if (node.type === "folder") {
+    if (!hasMatchingDescendant(node, searchQuery)) return null;
     return (
       <div>
         <button
@@ -199,8 +213,7 @@ function FileTreeNode({
   }
 
   const Icon = getFileIcon(node.file?.ext || "");
-  const matchesSearch = !searchQuery || node.name.toLowerCase().includes(searchQuery.toLowerCase());
-  if (!matchesSearch) return null;
+  if (!fileMatchesQuery(node.name, searchQuery)) return null;
 
   return (
     <button
@@ -224,7 +237,7 @@ function FileTreeNode({
 
 function CodeViewer({ file }: { file: ParsedFile | null }) {
   const [highlighted, setHighlighted] = useState("");
-  const [copied, setCopied] = useState(false);
+  const { copied, failed, copy } = useClipboardCopy();
   const [hlReady, setHlReady] = useState(hlLoaded);
 
   useEffect(() => {
@@ -238,11 +251,7 @@ function CodeViewer({ file }: { file: ParsedFile | null }) {
   }, [file, hlReady]);
 
   const handleCopy = () => {
-    if (file) {
-      navigator.clipboard.writeText(file.content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    if (file) void copy(file.content);
   };
 
   const handleDownload = () => {
@@ -285,7 +294,7 @@ function CodeViewer({ file }: { file: ParsedFile | null }) {
             className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium text-ink-500 hover:text-ink-800 hover:bg-line-faint-row border border-line-control transition-all"
           >
             {copied ? <Check className="h-3 w-3 text-status-done" /> : <Copy className="h-3 w-3" />}
-            {copied ? "Copied" : "Copy"}
+            {copied ? "Copied" : failed ? "Copy failed" : "Copy"}
           </button>
           <button
             onClick={handleDownload}
@@ -341,6 +350,10 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
   const dragRef = useRef<number>(0);
 
   const tree = useMemo(() => buildTree(files), [files]);
+  const visibleFiles = useMemo(
+    () => (searchQuery ? files.filter(f => fileMatchesQuery(f.name, searchQuery)) : files),
+    [files, searchQuery],
+  );
 
   // Auto-expand top-level folders, select first file
   useEffect(() => {
@@ -536,7 +549,9 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
 
           {/* File tree */}
           <div className="flex-1 overflow-y-auto py-1">
-            {tree.map(node => (
+            {searchQuery && visibleFiles.length === 0 ? (
+              <p className="px-3 py-2 text-[11px] text-ink-400">No files match your search</p>
+            ) : tree.map(node => (
               <FileTreeNode
                 key={node.path}
                 node={node}
@@ -553,7 +568,7 @@ export function AppBuilderPreview({ files, onRevise, projectName = "Project" }: 
           {/* Footer stats */}
           <div className="px-3 py-2 border-t border-line-divider bg-surface-warm">
             <p className="text-[9px] text-ink-400">
-              {files.length} files · {(files.reduce((s, f) => s + f.content.length, 0) / 1024).toFixed(1)} KB total
+              {visibleFiles.length} files · {(visibleFiles.reduce((s, f) => s + utf8Bytes(f.content), 0) / 1024).toFixed(1)} KB total
             </p>
           </div>
         </div>

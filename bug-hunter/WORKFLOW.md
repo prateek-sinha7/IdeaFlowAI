@@ -60,6 +60,33 @@ Workflow({ name:"bug-hunt", args:{ bugIds:[...], wave:3 } })    a specific set, 
 
 ---
 
+## Before you launch: the scheduler harness
+
+```
+node bug-hunter/scheduler-sim.mjs      # 10/10 passed, or do not launch
+```
+
+`scheduler-sim.mjs` replays the scheduler — routing, claims, lane pools, termination — with the
+agents replaced by instant fakes, against the failure shapes that have actually broken this
+pipeline:
+
+| it asserts | the defect it was written for |
+|---|---|
+| the line pipelines | reconcile sat behind `quiescent()`, so analyze could not start until validate had finished all 73 bugs |
+| prose in `statusSet` still routes | `statusSet` was free text; workers wrote `"CONFIRMED — written to the ledger (row 22)"` and 40 bugs fell off the line |
+| a worker that writes the register then dies is recovered | push handoff never sees it; only a poller reading the register can |
+| a wave that throws does not wedge the run | `busy` was never cleared, so `quiescent()` could not come true and the run never ended |
+| a blocked worker does not strand its bug | the claim stayed set, so the poller skipped that bug for the rest of the run |
+| the reopen cap fires and the run still ends | fix ↔ verify can bounce a bug forever |
+| a single-phase stage reports nothing as dropped | `{phase:"validate"}` ends with CONFIRMED routing nowhere — normal, not a defect |
+| no status in `EXIT` is orphaned | add one without a phase entry and bugs reaching it leave the line silently |
+
+Every one of those was found by a live run instead, each costing 40 minutes and a lot of tokens.
+The harness duplicates the scheduler core rather than importing it (a workflow script is
+self-contained and needs the `agent()`/`parallel()` globals), so **when you change routing or
+termination in `bug-hunt.js`, change it here too.**
+
+
 ## The bug lifecycle
 
 Every entry in `ledger.md` carries a `Status`. This is the only thing that tells a

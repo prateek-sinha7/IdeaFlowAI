@@ -59,6 +59,12 @@ describe("BUG-030 — run tab switching stays shallow", () => {
     expect(start).toBeGreaterThan(-1);
     const branch = pageSource.slice(start, pageSource.indexOf("\n    }", start));
     expect(branch).toContain("reopenTabFor(parsedView.screen)");
-    expect(branch).toContain("runTabDeepLink.requestOpenTab(openTab)");
+    // ISS-277 widened the seam: the request now also carries the agent the path
+    // names (`/runs/{id}/steps/{agentId}`). The guard is unchanged in intent —
+    // this branch must still mint the deep link for the URL's tab — the call it
+    // pins simply grew that second argument.
+    expect(branch).toContain(
+      "runTabDeepLink.requestOpenTab(openTab, deepLinkAgentIdFor(parsedView))",
+    );
   });
 });

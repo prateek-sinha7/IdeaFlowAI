@@ -230,8 +230,12 @@ describe("ComposerPage — full-page Composer Simple view (41-04)", () => {
 
     // Deliverable-type is read-only text (ND-AH) — the resolved label shows and
     // there is NO editable deliverable control (no combobox / select for it).
+    // ISS-340: that label is DERIVED from `runConfig.deliverable.strategy`
+    // through the same lookup Canvas's combobox uses (a from-scratch mount is
+    // the `streamed_text` default) — it was a hardcoded "Custom" before, which
+    // is what made every built-in's Simple tab contradict its Canvas tab.
     const deliverable = screen.getByTestId("composer-deliverable-type");
-    expect(deliverable).toHaveTextContent("Custom");
+    expect(deliverable).toHaveTextContent("Streamed text — agent's raw output");
     expect(deliverable.querySelector("select")).toBeNull();
     expect(deliverable.querySelector("input")).toBeNull();
   });

@@ -14,6 +14,7 @@ import re
 
 HEADING = "Analytics"
 PIPELINE_FILTER = 'select[name="pipeline-filter"]'
+MODEL_FILTER = 'select[name="model-filter"]'
 CHART = '[aria-label^="Daily token usage"]'
 BAR = '[data-testid="bar-chart-bar"]'
 SUCCESS_RATE = '[aria-label^="Success rate"]'
@@ -117,3 +118,16 @@ def runs_by_pipeline(page) -> dict[str, float]:
     ):
         out.setdefault(label.strip(), number(runs))
     return out
+
+
+def model_runs(page, model_label: str) -> float:
+    """The run count shown for one model in the "By Model" breakdown.
+
+    ISS-288/289 — that panel is a simple `<label>\n<n> runs · ...` pair per
+    model (unlike the pipeline breakdown, it carries no duplicate rows), so a
+    direct regex against the model's own label is enough.
+    """
+    text = page.evaluate("() => document.body.innerText")
+    m = re.search(rf"{re.escape(model_label)}\D*?(\d[\d,]*)\s+runs?\b", text)
+    assert m, f"{model_label!r} not found in the By Model breakdown"
+    return number(m.group(1))

@@ -20,7 +20,9 @@ real Claude-Code skill format. ``title``/``source``/``sourceLabel``/
 ``category``/``tags`` are UI-filter metadata the
 frontend catalog historically assigned; present when a skill has been fully
 migrated (see backend/skills/global/{accessibility,api-design,brainstorming,
-systematic-debugging} for the pattern), optional/blank otherwise.
+systematic-debugging} for the pattern), optional otherwise — an absent or
+blank ``category`` loads as ``uncategorized`` so the skill still has a pill
+of its own to be filtered by (ISS-329).
 
 ``display_name`` mirrors the workflow catalog's ``display_name`` field
 (app/api/workflows.py) — the UI label, distinct from ``name`` (the real
@@ -109,7 +111,11 @@ def _load_one(skill_dir: Path) -> GlobalSkillEntry:
         display_name=metadata.get("display_name", metadata["name"]),
         description=metadata["description"],
         content=post.content,
-        category=metadata.get("category", ""),
+        # ISS-329: an absent (or blank) category used to become "", which
+        # app/api/skills.py drops out of the pill list it derives — the card
+        # then renders a blank badge and no category pill can ever select it.
+        # A real value keeps every skill reachable through a pill of its own.
+        category=metadata.get("category") or "uncategorized",
         isBeta=metadata.get("isBeta", False),
         tags=list(metadata.get("tags", [])),
         compatible_agents=list(metadata.get("compatible_agents", [])),

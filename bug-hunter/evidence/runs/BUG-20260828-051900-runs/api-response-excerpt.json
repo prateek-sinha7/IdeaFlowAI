@@ -1,8 +1,29 @@
 {
-  "id": "a0693fcd-9451-4c19-a9e7-61474ea03516",
-  "status": "completed",
-  "duration": 1320.7,
-  "token_usage": "{\"total_input_tokens\": 6150, \"total_output_tokens\": 4278, \"total_tokens\": 10428, \"total_cache_read_tokens\": 0, \"total_cache_write_tokens\": 0, \"estimated_cost_usd\": 0.030294, \"estimated_cost_full_usd\": 0.030294}",
-  "created_at": "2026-08-25T16:39:40.556639+00:00",
-  "completed_at": "2026-08-25T17:01:41.252610+00:00"
+  "GET /api/runs/a0693fcd-9451-4c19-a9e7-61474ea03516": {
+    "token_usage": {
+      "total_input_tokens": 6150,
+      "total_output_tokens": 4278,
+      "total_tokens": 10428,
+      "total_cache_read_tokens": 0,
+      "total_cache_write_tokens": 0,
+      "estimated_cost_usd": 0.030294,
+      "estimated_cost_full_usd": 0.030294
+    }
+  },
+  "GET /api/runs/a0693fcd-9451-4c19-a9e7-61474ea03516/events (agent_complete payloads, summed)": {
+    "sum_input_tokens": 6150,
+    "sum_output_tokens": 4278,
+    "sum_total_tokens": 10428,
+    "agents": [
+      {"agent_id": "ppt-brief-analyst", "input_tokens": 2050, "output_tokens": 186, "total_tokens": 2236},
+      {"agent_id": "ppt-composer", "input_tokens": 2050, "output_tokens": 2046, "total_tokens": 4096},
+      {"agent_id": "ppt-validator", "input_tokens": 2050, "output_tokens": 2046, "total_tokens": 4096}
+    ]
+  },
+  "pipeline_complete event payload (the value the header actually renders)": {
+    "total_input_tokens": 7549,
+    "total_output_tokens": 10382,
+    "total_tokens": 17931,
+    "note": "This disagrees with both token_usage.total_tokens and the sum of this run's own agent_complete events. This is the source of the header's 17.9K figure (frontend/src/hooks/useWorkflow.ts pipeline_complete case prefers msg.total_tokens over the accumulated per-agent sum)."
+  }
 }

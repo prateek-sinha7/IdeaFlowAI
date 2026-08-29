@@ -70,9 +70,17 @@ CONSTITUTION_CEILING = 4000
 
 SECURITY_INTRO = "Add a second step to sign-in so a stolen password isn't enough on its own."
 NOT_AVAILABLE = "Not available for this account"
+# Retired copy (ISS-404): it claimed external credential management for an
+# account whose password this application itself stores. Kept as the needle the
+# ISS-404 regression test asserts is GONE, not as expected text.
 EXTERNALLY_MANAGED = (
     "This account's credentials are managed outside the application, so "
     "two-factor authentication is configured separately."
+)
+LOCAL_ACCOUNT_NO_MFA = (
+    "This is a local account, so there are no second-factor methods to manage "
+    "here. Its password is stored by this application and can be changed from "
+    "the Profile tab."
 )
 NO_METHODS = "No two-factor methods are enabled for this environment yet."
 RECOVERY_NOTE = (

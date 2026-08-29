@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from app.core import auth_events, cognito
@@ -128,7 +128,7 @@ class UpdateRoleRequest(BaseModel):
 
 
 class CreateUserRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
     tier: str = "basic"
     is_admin: bool = False
@@ -558,8 +558,9 @@ def reset_user_password(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "This account's password is managed outside the application and "
-                "cannot be reset here."
+                "This is a local break-glass account and cannot be reset here. "
+                "Its password is changed from the account's own profile "
+                "settings, or through the break-glass runbook."
             ),
         )
 

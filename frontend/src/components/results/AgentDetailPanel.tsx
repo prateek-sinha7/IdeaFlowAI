@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { AgentRunState, ContextSource, ToolCallEntry, ValidationIssue, WaveGroup, AttachedSkillEntry, AttachedHookEntry } from "@/types/index";
 import { formatDuration, formatTokenCount } from "@/lib/runStats";
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 import { discriminateArtifact, AnalysisPreview, parseSpecSections, parseSpecOverview, parseTasks } from "./artifactPreview";
 import { ArtifactVersionPicker } from "./ArtifactVersionPicker";
 import { ReadOnlyVersionBanner } from "@/components/preview/ReadOnlyVersionBanner";
@@ -378,6 +379,14 @@ export function AttachedHooksSection({ hooks }: { hooks: AttachedHookEntry[] }) 
 }
 
 // ─── Tool calls (card, collapsed) ─────────────────────────────────────────────
+// ISS-355: arg values are not always strings — bare String(v) yields "[object Object]"
+// for objects/arrays. JSON-encode non-strings before truncating (same shape as
+// AuditTab's argvSummary).
+function argPreview(v: unknown): string {
+  if (typeof v === "string") return v;
+  try { return JSON.stringify(v) ?? String(v); } catch { return String(v); }
+}
+
 export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [sectionOpen, setSectionOpen] = useState(toolCalls.length <= 5);
@@ -409,7 +418,7 @@ export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) 
                 </span>
                 <span className="text-[12.5px] font-medium text-ink-800">{tc.tool}</span>
                 <span className="text-[12px] text-ink-300 truncate flex-1 min-w-0">
-                  {Object.entries(tc.args || {}).map(([k, v]) => `${k}: ${String(v).slice(0, 24)}`).join(", ") || "no args"}
+                  {Object.entries(tc.args || {}).map(([k, v]) => `${k}: ${argPreview(v).slice(0, 24)}`).join(", ") || "no args"}
                 </span>
                 <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full flex-none ${tc.result != null ? "bg-brand-fill text-brand" : "bg-status-amber-fill text-status-amber animate-pulse"}`}>
                   {tc.result != null ? "ok" : "…"}
@@ -442,12 +451,8 @@ export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) 
 // ─── Full input prompt (paper) ────────────────────────────────────────────────
 export function InputPromptSection({ prompt }: { prompt: string }) {
   const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(prompt);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
+  const { copied, failed, copy } = useClipboardCopy(1500);
+  const handleCopy = () => void copy(prompt);
   return (
     <div className="mt-2.5 bg-surface-paper border border-line-divider rounded-[11px] overflow-hidden">
       <button onClick={() => setOpen(v => !v)} aria-expanded={open} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
@@ -464,7 +469,7 @@ export function InputPromptSection({ prompt }: { prompt: string }) {
           <div className="flex items-center justify-end px-3.5 pt-1">
             <button onClick={handleCopy} className="flex items-center gap-1 text-[9px] text-ink-400 hover:text-ink-600 transition-colors">
               {copied ? <Check className="h-3 w-3 text-brand" /> : <Copy className="h-3 w-3" />}
-              {copied ? "Copied" : "Copy"}
+              {copied ? "Copied" : failed ? "Copy failed" : "Copy"}
             </button>
           </div>
           <pre className="m-0 px-11 pb-3 text-[12px] leading-[1.6] text-ink-500 whitespace-pre-wrap font-[Heebo] max-h-[500px] overflow-y-auto">{prompt}</pre>

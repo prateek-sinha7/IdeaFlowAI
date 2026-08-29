@@ -27,13 +27,12 @@ export function TokenUsageSummary({ pipelineState, modelId }: TokenUsageSummaryP
   const cacheRead = cacheReadTokens ?? 0;
   const cacheWrite = cacheWriteTokens ?? 0;
 
-  // Uncached input = prompt tokens actually billed at full rate
-  // (gross input includes cache_read + cache_write per ChatBedrockConverse convention).
-  const uncachedInput = Math.max(0, input - cacheRead - cacheWrite);
   const hasCaching = cacheRead > 0 || cacheWrite > 0;
 
-  // Steps tab: compact single line — total · input (uncached when caching active) · output.
-  // Cache breakdown is surfaced on the Analytics page, not here.
+  // Steps tab: compact single line — total · input · output. `input` is the FULL
+  // prompt total `total` was derived from (gross: uncached + cache_read + cache_write
+  // per ChatBedrockConverse convention), so the two visible parts reconstruct the
+  // stated total. Cache breakdown is surfaced on the Analytics page, not here.
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
@@ -53,7 +52,7 @@ export function TokenUsageSummary({ pipelineState, modelId }: TokenUsageSummaryP
         className="text-[10px] text-gray-500 flex-shrink-0"
         title={hasCaching ? `Total context sent: ${formatTokens(input)} (${formatTokens(cacheRead)} cached)` : undefined}
       >
-        {formatTokens(hasCaching ? uncachedInput : input)} input
+        {formatTokens(input)} input
       </span>
       <span className="text-[10px] text-gray-400 flex-shrink-0">·</span>
       <span className="text-[10px] text-gray-500 flex-shrink-0">

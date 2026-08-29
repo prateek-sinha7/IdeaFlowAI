@@ -381,6 +381,58 @@ def test_the_deliverable_reports_its_own_validation_state(page, shot):
     assert "validated" in final.lower(), f"no validation state: {final[:200]!r}"
 
 
+# A seeded ppt_v2 run (4 agents: strategist, engineer, QA, PPTX Code Generator)
+# whose backend already confirms two legitimate deliverable candidates —
+# GET /api/runs/<id> deliverable_filename="presentation.html", and
+# GET /api/runs/<id>/sandbox lists presentation.pptx (binary, deliverable:true)
+# — used by ISS-199/ISS-215 below. BUG-20260828-012900-runs-id-files.
+PPT_V2_RUN_ID = "b9feac1c-ec21-4531-8ba7-bb391786993e"
+
+
+@pytest.mark.issue("ISS-199")
+def test_a_ppt_v2_runs_final_output_is_the_declared_deliverable_not_a_tmp_scratch_file(page, shot):
+    """ISS-199 — Files tab's Final output must be the backend-declared
+    deliverable (presentation.html), never a mid-pipeline tmp/ scratch file
+    picked up because the last agent to stream happens to match its content."""
+    with shot("ppt-v2-final-output", 'When I cold-load the ppt_v2 run\'s Files tab'):
+        open_run(page, PPT_V2_RUN_ID, "/files")
+
+    # The seeded run's own sandbox listing is the ground truth: presentation.pptx
+    # (binary) and presentation.html are both flagged deliverable:true, and
+    # tmp/kindred-pitch-deck.html is a scratch file also flagged deliverable:true
+    # (the bug's whole premise — the flag alone can't disambiguate).
+    listing = api.json_body(page, "GET", f"/api/runs/{PPT_V2_RUN_ID}/sandbox")
+    paths = {f["path"] for f in listing["files"]}
+    assert "presentation.pptx" in paths and "tmp/kindred-pitch-deck.html" in paths, (
+        f"fixture drifted — expected both the real deliverable and the tmp scratch file on disk: {sorted(paths)}"
+    )
+
+    body = page.evaluate("() => document.body.innerText")
+    final = body.split(L.FINAL_OUTPUT, 1)[1].split(L.AGENT_OUTPUTS, 1)[0]
+    assert "tmp" not in final.lower(), f"Final output still names the tmp/ scratch file: {final[:200]!r}"
+    assert "presentation" in final.lower(), (
+        f"Final output does not name the declared deliverable (presentation.html): {final[:200]!r}"
+    )
+
+
+@pytest.mark.issue("ISS-276")
+def test_header_relative_age_is_not_frozen_on_just_now_for_a_completed_run(page, shot):
+    """ISS-276 — a cold load of a long-completed run's detail page must show the
+    header's real relative age (e.g. "1d ago"), not a hydration-time-stamped
+    "just now". This fixture run (`b9feac1c-ec21-4531-8ba7-bb391786993e`)
+    finished well over 45s ago (BUG-20260828-011700-runs-id validated it at
+    11h+, later 1d+), so "just now" can only mean the header is deriving its
+    age from client load time instead of the run's real created_at/completed_at
+    — exactly what the version picker in the same header row gets right."""
+    with shot("header-relative-age", 'When I cold-load a long-completed run\'s detail page'):
+        open_run(page, PPT_V2_RUN_ID)
+
+    meta_text = page.locator(L.RUN_META).inner_text()
+    assert "just now" not in meta_text.lower(), (
+        f"header still reads 'just now' for a run completed long ago: {meta_text!r}"
+    )
+
+
 # ── Workspace ────────────────────────────────────────────────────────────────
 
 

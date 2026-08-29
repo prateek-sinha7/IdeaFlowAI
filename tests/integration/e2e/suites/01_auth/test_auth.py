@@ -181,6 +181,26 @@ def test_the_bare_root_branches_on_whether_a_token_exists(page, shot, page_as):
         expect(signed_in).to_have_url(re.compile(r"/dashboard"))
 
 
+@pytest.mark.issue("ISS-191")
+def test_an_authenticated_user_on_plain_login_is_redirected_to_dashboard(page, shot, page_as):
+    """ISS-191 — an already-signed-in user landing on plain /login must be
+    bounced to /dashboard, not shown the sign-in form."""
+    signed_in = page_as("admin")
+    with shot("plain-login-redirected", 'Given signed in, "/login" lands on /dashboard'):
+        signed_in.goto("/login")
+        expect(signed_in).to_have_url(re.compile(r"/dashboard"))
+
+
+@pytest.mark.issue("ISS-191")
+def test_an_authenticated_user_on_expired_login_is_redirected_to_dashboard(page, shot, page_as):
+    """ISS-191 — an already-signed-in user landing on /login?expired=true must
+    be bounced to /dashboard, not shown the stale "session expired" form."""
+    signed_in = page_as("admin")
+    with shot("expired-login-redirected", 'Given signed in, "/login?expired=true" lands on /dashboard'):
+        signed_in.goto("/login?expired=true")
+        expect(signed_in).to_have_url(re.compile(r"/dashboard"))
+
+
 @pytest.mark.scenario("S-01-10")
 def test_an_unauthenticated_cold_load_of_a_protected_screen_is_bounced(page, shot):
     """Scenario: An unauthenticated cold load of a protected screen is bounced"""
@@ -282,3 +302,32 @@ def test_signing_out_clears_the_session(page, shot):
         expect(page).to_have_url(re.compile(r"/login"))
 
     assert not has_token(page), "logged out but the auth token survived in localStorage"
+
+
+# ── ISS-245: duplicate submissions from rapid repeated clicks ───────────────
+
+
+@pytest.mark.issue("ISS-245")
+def test_rapid_repeated_clicks_on_sign_in_fire_only_one_login_request(page, shot):
+    """ISS-245 — the Sign in button must gate synchronous rapid clicks so only
+    one POST /api/auth/login is sent per submit attempt."""
+    with shot("sign-in-form", 'When I cold-load "/login"'):
+        page.goto("/login")
+        page.fill(L.EMAIL, accounts.ADMIN)
+        page.fill(L.PASSWORD, accounts.PASSWORD)
+
+    login_requests = []
+    page.on("request", lambda req: login_requests.append(req)
+             if req.method == "POST" and "/auth/login" in req.url else None)
+
+    with shot("rapid-triple-click", "When I click Sign in three times synchronously"):
+        page.eval_on_selector(
+            L.SIGN_IN,
+            "btn => { btn.click(); btn.click(); btn.click(); }",
+        )
+        expect(page).to_have_url(re.compile(r"/dashboard"))
+
+    assert len(login_requests) == 1, (
+        f"expected exactly 1 POST /api/auth/login from a rapid triple-click, "
+        f"got {len(login_requests)}"
+    )

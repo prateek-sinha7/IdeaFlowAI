@@ -145,6 +145,20 @@ class WorkflowRunResponse(BaseModel):
         return v.isoformat()
 
 
+def _iso_utc(v: Optional[datetime]) -> Optional[str]:
+    """UTC-promote then ISO-format a stored datetime (KAN-113).
+
+    The free-function twin of the response models' ``_serialize_dt`` field
+    serializer, for plain-dict projections that have no Pydantic model to hang one
+    on. Same rule: a naive stamp is ``Date.parse``'d as LOCAL time in the browser.
+    """
+    if v is None:
+        return None
+    if v.tzinfo is None:
+        v = v.replace(tzinfo=timezone.utc)
+    return v.isoformat()
+
+
 class WorkflowRunListResponse(BaseModel):
     """Slim run data for the history list endpoint (KAN-131).
 
@@ -1087,6 +1101,16 @@ async def get_run_events(
                 "event_id": r.event_id,
                 "type": r.type,
                 "payload_json": r.payload_json,
+                # ISS-358: surface the row's own write time. The app-layer chat
+                # types (chat_message/chat_reply, run_commands.py) persist no
+                # timestamp in their payload, so this column is the ONLY send time
+                # a replayed turn has — without it the transcript re-dates every
+                # historical message to page-load time. Projected here, at the
+                # shared durable reader, so EVERY event type gets it at once
+                # rather than per-consumer. UTC-promoted for the same KAN-113
+                # reason _serialize_dt is: a naive stamp is Date.parse'd as LOCAL
+                # time in the browser, which is the very defect being fixed.
+                "created_at": _iso_utc(r.created_at),
             }
             for r in rows
         ],

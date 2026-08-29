@@ -224,6 +224,16 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # than regenerating) keeps all 5 event goldens byte-untouched — mirroring the
         # deliverable_mimetype / redoable / cache_* / resume_offset precedents.
         "estimated_cost_full_usd",
+        # ── Additive-but-parity-neutral pipeline_start key (ISS-276) ─────────────
+        # The engine now stamps the run's real ``created_at`` on ``pipeline_start``
+        # so a durable REST replay of that frame is distinguishable from a live one
+        # (the FE reducer previously fell back to "now" and dated a day-old run to
+        # page-load time). It is a per-run wall-clock stamp — the most volatile kind
+        # of value there is — and ``_REQUIRED_DATA_KEYS`` has no ``pipeline_start``
+        # entry at all, so it is metadata-only and STRIPPED here, exactly like its
+        # ``resume_offset`` sibling above, keeping all 5 event goldens byte-untouched
+        # (INV-3).
+        "created_at",
     }
 )
 

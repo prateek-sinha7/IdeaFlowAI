@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   Download, FileText, Presentation, Layout, Code, Package,
@@ -10,8 +10,13 @@ import {
 import { exportUserStories } from "@/lib/exporters/storyExporter";
 import { ENV } from "@/lib/env";
 import { parseRunInput } from "@/lib/runInput";
+import { isPlausibleFilePath } from "@/lib/parsers/filePath";
 import { renderClarificationsMarkdown } from "@/lib/clarifications";
+import { utf8Bytes } from "@/lib/byteSize";
 import type { WorkflowType, GenericDeliverable, ClarifyRound } from "@/types/index";
+// Type-only (erased at build) — the runtime reads of @/lib/api stay dynamic
+// imports, the idiom this file already uses everywhere it talks to the API.
+import type { SandboxFile } from "@/lib/api";
 
 interface FilesTabProps {
   workflowType: WorkflowType;
@@ -37,7 +42,9 @@ interface FilesTabProps {
   parentRunId?: string | null;
   /** The run on screen, for the PPTX export. Without it the export guesses the
    *  most recent `type=ppt` run — wrong for a reopened deck, and never a match
-   *  for `ppt_v2` (spec 017). */
+   *  for `ppt_v2` (spec 017). ISS-199 — also what lets the deliverable row be
+   *  reconciled against the run's own workspace instead of guessed from the text
+   *  the last agent streamed; threading no run id keeps the old derived row. */
   runId?: string | null;
   parentVersionNumber?: number;
   // Workstream C2 (POR §5 D7) — "Run input" section. The raw run input (parsed
@@ -94,7 +101,7 @@ function runInputFileRows(runInput?: string, clarifications?: ClarifyRound[]): F
       format: "Markdown (.md)",
       content: primary,
       mimeType: "text/markdown",
-      size: formatSize(primary.length),
+      size: formatSize(utf8Bytes(primary)),
     });
   }
   if (clarifications?.length) {
@@ -107,7 +114,7 @@ function runInputFileRows(runInput?: string, clarifications?: ClarifyRound[]): F
       format: "Markdown (.md)",
       content: md,
       mimeType: "text/markdown",
-      size: formatSize(md.length),
+      size: formatSize(utf8Bytes(md)),
     });
   }
   return rows;
@@ -143,6 +150,11 @@ interface FileItem {
   // avatar node (derived from the source agent name). Present only on per-agent
   // rows; undefined for deliverable / run-input / code rows.
   code?: string;
+  // ISS-199 — the run-workspace file this row IS, once the row has been
+  // reconciled against the run's own listing (resolveRunDeliverable). Present →
+  // name/size came off disk and Download fetches those bytes, so a binary
+  // (presentation.pptx) survives; absent → the legacy content-derived row.
+  workspace?: { runId: string; path: string };
 }
 
 // ─── Phase 39-03 — agent initials for the timeline avatar node ────────────────
@@ -208,6 +220,9 @@ function parseCodeFiles(markdown: string): FileItem[] {
   const addFile = (filePath: string, content: string) => {
     filePath = filePath.trim();
     if (!filePath || !content.trim() || seen.has(filePath)) return;
+    // ISS-323: a prose heading ("### Via Node.js") matches the heading/bold
+    // regexes as well as a real path does — a real file path has no whitespace.
+    if (!isPlausibleFilePath(filePath)) return;
     const name = filePath.split("/").pop() || filePath;
     const hasDot = name.includes(".");
     const isKnownExtensionless = /^(Dockerfile|Makefile|Procfile|Gemfile|Rakefile)$/i.test(name);
@@ -219,7 +234,7 @@ function parseCodeFiles(markdown: string): FileItem[] {
       name,
       type: filePath,
       icon: iconMap[ext] || FileText,
-      size: formatSize(content.length),
+      size: formatSize(utf8Bytes(content)),
       format: ext.toUpperCase(),
       content,
       mimeType: mimeMap[ext] || "text/plain",
@@ -376,7 +391,7 @@ function deriveDeliverableFiles(
     let name = "user-stories";
     const h = userStoryContent.match(/^#\s+(.+)/m);
     if (h) name = h[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-    files.push({ id: "user-stories-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(userStoryContent.length), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
+    files.push({ id: "user-stories-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(utf8Bytes(userStoryContent)), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
   }
 
   // ── Custom ────────────────────────────────────────────────────────────────
@@ -384,19 +399,24 @@ function deriveDeliverableFiles(
     let name = "custom-output";
     const h = userStoryContent.match(/^#\s+(.+)/m);
     if (h) name = h[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-    files.push({ id: "custom-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(userStoryContent.length), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
+    files.push({ id: "custom-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(utf8Bytes(userStoryContent)), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
   }
 
   // ── PPT ───────────────────────────────────────────────────────────────────
-  // Every ppt run produces an HTML deck — never a .pptx binary.
-  if ((workflowType === "ppt" || workflowType === "ppt_revision") && pptContent) {
+  // Every ppt run produces an HTML deck — the .pptx, when a run also writes one,
+  // arrives through the workspace resolution below (never re-derived here).
+  // ISS-214/ISS-215 — `ppt_v2` belongs in this slot exactly as PreviewPanel.tsx
+  // :578's renderType folds it into "ppt"; without it a ppt_v2 run (or a ppt_v2
+  // BASE version, which reaches this helper with its raw type) matched no branch
+  // and the section rendered zero rows.
+  if ((workflowType === "ppt" || workflowType === "ppt_v2" || workflowType === "ppt_revision") && pptContent) {
     let name = "presentation";
     const t = pptContent.match(/<title>([^<]+)<\/title>/i);
     const h1 = pptContent.match(/<h1[^>]*>([^<]+)<\/h1>/i);
     if (t && t[1] !== "Presentation") name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
     else if (h1) name = h1[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
     // All variants produce an HTML deck — one HTML download only.
-    files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(pptContent.length), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
+    files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(utf8Bytes(pptContent)), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
   }
 
   // ── Prototype ─────────────────────────────────────────────────────────────
@@ -404,10 +424,31 @@ function deriveDeliverableFiles(
     let name = "prototype";
     const t = prototypeContent.match(/<title>(.+?)<\/title>/i);
     if (t) name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-    files.push({ id: "prototype-html", name: `${name}.html`, type: "HTML Prototype", icon: Layout, size: formatSize(prototypeContent.length), format: "HTML (.html)", content: prototypeContent, mimeType: "text/html" });
+    files.push({ id: "prototype-html", name: `${name}.html`, type: "HTML Prototype", icon: Layout, size: formatSize(utf8Bytes(prototypeContent)), format: "HTML (.html)", content: prototypeContent, mimeType: "text/html" });
   }
 
   return files;
+}
+
+// ─── ISS-199 — the derived row, corrected by the file the run actually wrote ──
+// deriveDeliverableFiles names its row by regex-parsing the content it was handed,
+// and that content is `run.output` = `ctx.last_streamed` — the LAST agent's stream,
+// which for a ppt_v2 deck is neither the declared deliverable nor the .pptx (it
+// matched a mid-pipeline tmp/ scratch file). Once resolveRunDeliverable has found
+// the run's real file, the row takes ITS name, ITS byte size, and ITS bytes on
+// Download. The format is derived from the resolved EXTENSION — never a workflow
+// name (SC-001); the row keeps its own icon.
+function withWorkspaceFile(row: FileItem, runId: string, file: SandboxFile): FileItem {
+  const name = file.path.split("/").pop() || file.path;
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  return {
+    ...row,
+    name,
+    size: formatSize(file.size),
+    format: ext ? `${ext.toUpperCase()} (.${ext})` : row.format,
+    workspace: { runId, path: file.path },
+  };
 }
 
 export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable, runId, parentRunId, parentVersionNumber, runInput, clarifications, onOpenPreview, runStatus, isRunning, buildingTaskIndex, buildingTaskTotal, buildingFilename }: FilesTabProps) {
@@ -439,6 +480,17 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
           prototypeContent: parentRun.output,
         });
         setBaseFiles(rows);
+        // ISS-215 — same reconciliation as the current run's row: the base
+        // version's own workspace decides its name/size/bytes. Its own try, so a
+        // swept (or unlistable) parent workspace leaves the derived rows standing
+        // instead of emptying the section.
+        try {
+          const { resolveRunDeliverable } = await import("@/lib/api");
+          const hit = rows.length > 0
+            ? await resolveRunDeliverable(getToken() || "", parentRunId, parentRun.deliverableFilename)
+            : null;
+          if (hit) setBaseFiles([withWorkspaceFile(rows[0], parentRunId, hit), ...rows.slice(1)]);
+        } catch { /* the derived rows stand */ }
       } catch {
         setBaseFiles([]);
       } finally {
@@ -446,6 +498,32 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
       }
     }
   }, [baseOpen, parentRunId]);
+
+  // ─── ISS-199 — the current run's deliverable, read from its workspace ────────
+  // ONE fetch when the run has settled — no polling, mirroring the header
+  // Download's gate (PreviewPanel, FIX-318). Without a runId (a live lane, a
+  // preview with no run behind it) nothing is fetched and the derived row stands
+  // exactly as before, so every caller that threads no run id is unchanged.
+  const [workspaceDeliverable, setWorkspaceDeliverable] = useState<SandboxFile | null>(null);
+
+  useEffect(() => {
+    setWorkspaceDeliverable(null);
+    if (!runId || isRunning) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { resolveRunDeliverable, getToken } = await import("@/lib/api");
+        const token = getToken();
+        if (!token) return;
+        const hit = await resolveRunDeliverable(token, runId);
+        if (hit && !cancelled) setWorkspaceDeliverable(hit);
+      } catch {
+        // A workspace that cannot be listed leaves the derived row in place —
+        // the honest state; we cannot rename a row after a file we never saw.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [runId, isRunning]);
 
   // ── App Builder: split agent outputs into docs + code files (memoized) ───
   const { appBuilderDocFiles, appBuilderCodeFiles } = useMemo(() => {
@@ -466,7 +544,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
             name: meta?.filename || `${idx}-${slug}.md`,
             type: agent.role || agent.name,
             icon: meta?.icon || FileText,
-            size: formatSize(agent.output.length),
+            size: formatSize(utf8Bytes(agent.output)),
             format: "Markdown (.md)",
             content: agent.output,
             mimeType: "text/markdown",
@@ -492,7 +570,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
           name: `${idx}-${slug}.md`,
           type: a.role || "Agent output",
           icon: FileText,
-          size: formatSize(a.output.length),
+          size: formatSize(utf8Bytes(a.output)),
           format: "Markdown (.md)",
           content: a.output,
           mimeType: "text/markdown",
@@ -536,7 +614,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
       let name = "app-blueprint";
       const h = userStoryContent.match(/^#\s+(.+)/m);
       if (h) name = h[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-      files.push({ id: "project-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(userStoryContent.length), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
+      files.push({ id: "project-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(utf8Bytes(userStoryContent)), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
     }
   }
 
@@ -544,7 +622,16 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
   // Extracted to the module-level deriveDeliverableFiles helper (INV-12
   // net-negative). Mutually exclusive with the app_builder branch above, so the
   // resulting files array is byte-identical to the pre-extraction body.
-  files.push(...deriveDeliverableFiles(workflowType, { userStoryContent, pptContent, prototypeContent }));
+  //
+  // ISS-199 — the run's own workspace has the last word on the row's name, size
+  // and bytes: the derivation above can only guess from the text it was handed.
+  // Scoped to THIS helper's rows on purpose — the app_builder ZIP is assembled
+  // client-side from parsed code blocks and has no single file on disk to match.
+  const derivedFiles = deriveDeliverableFiles(workflowType, { userStoryContent, pptContent, prototypeContent });
+  if (workspaceDeliverable && runId && derivedFiles.length > 0) {
+    derivedFiles[0] = withWorkspaceFile(derivedFiles[0], runId, workspaceDeliverable);
+  }
+  files.push(...derivedFiles);
 
   // ── ISS-021 (18-03) — generic deliverable row ─────────────────────────────
   // ONE row for any pipeline_type that matched no known branch above. Reuses
@@ -560,7 +647,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
       name,
       type: "Deliverable",
       icon,
-      size: formatSize(genericDeliverable.content.length),
+      size: formatSize(utf8Bytes(genericDeliverable.content)),
       format,
       content: genericDeliverable.content,
       mimeType: genericDeliverable.mimetype || "application/octet-stream",
@@ -568,7 +655,25 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
   }
 
   const handleDownload = useCallback(async (file: FileItem) => {
-    if (file.id === "user-stories-md" && userStoryContent) {
+    // ISS-199 — a row that IS a workspace file serves that file's bytes, over the
+    // same reader the Workspace tab and the header Download use (FIX-316/318).
+    // FIRST, so a resolved row never falls through to a content re-render: the
+    // .pptx this workflow exists to produce cannot be rebuilt from the deck text.
+    if (file.workspace) {
+      setDownloadingId(file.id);
+      try {
+        const { getRunSandboxFileBlob, getToken } = await import("@/lib/api");
+        const blob = await getRunSandboxFileBlob(getToken() || "", file.workspace.runId, file.workspace.path);
+        const url = URL.createObjectURL(blob);
+        // downloadBlob passes a `blob:` string straight through to the anchor.
+        downloadBlob(url, file.name, blob.type);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      } catch {
+        alert(`Could not download ${file.name}.`);
+      } finally {
+        setDownloadingId(null);
+      }
+    } else if (file.id === "user-stories-md" && userStoryContent) {
       exportUserStories(userStoryContent, file.name.replace(".md", ""));
     } else if (file.id === "project-zip" && userStoryContent) {
       setDownloadingId(file.id);

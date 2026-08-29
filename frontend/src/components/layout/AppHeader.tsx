@@ -25,6 +25,7 @@ import { useTheme } from "@/hooks/useTheme";
 import type { Tier } from "@/lib/entitlements";
 import { TIER_LABELS } from "@/lib/entitlements";
 import type { SettingsSection } from "@/components/settings/AccountSettings";
+import { UpgradePlanModal } from "@/components/settings/UpgradePlanModal";
 import type { WorkflowRun } from "@/types/index";
 
 // Status label + dot colour map for live runs — mirrors HomeLaunchGrid's
@@ -123,6 +124,7 @@ export function AppHeader({
   const router = useRouter();
   const getWorkflowLabel = useWorkflowLabels();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   // KAN-132: dropdown state for the multi-pipeline running badge
   const [runningDropdownOpen, setRunningDropdownOpen] = useState(false);
@@ -518,7 +520,7 @@ export function AppHeader({
                     </div>
                     {userTier === "basic" && (
                       <button
-                        onClick={() => { setProfileOpen(false); onNavigate("settings"); }}
+                        onClick={() => { setProfileOpen(false); setUpgradeOpen(true); }}
                         className="text-[11px] font-semibold text-brand hover:underline leading-none"
                       >
                         Upgrade
@@ -608,6 +610,8 @@ export function AppHeader({
           </AnimatePresence>
         </div>
       </div>
+
+      {upgradeOpen && <UpgradePlanModal tier={userTier} onClose={() => setUpgradeOpen(false)} />}
     </header>
   );
 }

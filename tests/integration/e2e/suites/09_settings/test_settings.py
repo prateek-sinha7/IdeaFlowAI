@@ -17,6 +17,8 @@ run, so a leftover fixture value would contaminate the live tier.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from playwright.sync_api import expect
 
@@ -183,6 +185,29 @@ def test_changing_the_password_requires_the_current_one_and_a_confirmation(page,
     expect(page.get_by_text("Password changed successfully")).to_have_count(0)
 
 
+@pytest.mark.issue("ISS-338")
+def test_confirm_new_password_has_a_show_hide_toggle_like_its_siblings(page, shot):
+    """ISS-338 — "Confirm new password" must offer the same show/hide toggle
+
+    as its "Current password" and "New password" siblings on the same form.
+    Today `AccountSettings.tsx` wires a `showCurrent`/`showNew` boolean and an
+    eye-icon button to those two fields but never adds a matching `showConfirm`
+    for Confirm new password, so it has no toggle button and can never be
+    revealed — reproduced 3/3 on a cold /settings/profile load, no other axis
+    needed.
+    """
+    with shot("confirm-password-toggle", 'When I cold-load "/settings/profile"'):
+        open_settings(page)
+
+    confirm_field = page.locator(L.CONFIRM_PASSWORD)
+    expect(confirm_field).to_be_visible()
+    # A sibling toggle button, the same shape the Current/New password fields
+    # have — asserted by DOM adjacency rather than a specific selector, since
+    # the fix may add any `<button>` sibling.
+    sibling_button = confirm_field.locator("xpath=following-sibling::button[1]")
+    expect(sibling_button).to_be_visible()
+
+
 # ── AI Model ─────────────────────────────────────────────────────────────────
 
 
@@ -254,6 +279,51 @@ def test_saving_a_model_preference_persists_it(page, shot):
         # try block failed BEFORE the save, the preference is already `original`
         # and Save is disabled — restoring unconditionally would then time out
         # and bury the real failure under a teardown error.
+        open_model_tab(page)
+        if page.locator(L.MODEL_SELECT).input_value() != original:
+            save_model(page, original)
+
+
+@pytest.mark.issue("ISS-292")
+@pytest.mark.destructive
+@pytest.mark.role("basic")
+def test_basic_tier_cannot_persist_a_powerful_model(page, shot):
+    """ISS-292 — a basic-tier account must not be able to select and persist
+    a "powerful"-tier (premium) model such as Claude Opus 4.6.
+
+    Assertion is on the OUTCOME (does the selection survive a reload) rather
+    than on any specific rejection UI, since the fix may reject at save time,
+    hide the option entirely, or something else — all of those leave the
+    basic-tier account's `preferred_model` unchanged.
+    """
+    open_model_tab(page)
+    original = page.locator(L.MODEL_SELECT).input_value()
+
+    options = page.locator(f"{L.MODEL_SELECT} option").evaluate_all(
+        "opts => opts.map(o => ({value: o.value, text: o.textContent}))"
+    )
+    opus = next((o for o in options if "Opus" in (o["text"] or "")), None)
+    assert opus, f"no Opus (powerful-tier) option offered at all: {options}"
+
+    try:
+        with shot(
+            "basic-opus-blocked",
+            "When a basic-tier account selects a powerful model and saves",
+        ):
+            page.select_option(L.MODEL_SELECT, opus["value"])
+            expect(page.locator(L.SAVE_MODEL)).to_be_enabled(timeout=10_000)
+            page.click(L.SAVE_MODEL)
+            page.wait_for_timeout(settings.SETTLE_MS)
+
+        with shot("basic-opus-reload", "And I reload the page"):
+            page.reload()
+            expect(page.locator(L.MODEL_SELECT)).to_be_visible()
+
+        assert page.locator(L.MODEL_SELECT).input_value() != opus["value"], (
+            "a basic-tier account's powerful-tier model selection "
+            f"({opus['value']}) survived a reload — no tier gating enforced"
+        )
+    finally:
         open_model_tab(page)
         if page.locator(L.MODEL_SELECT).input_value() != original:
             save_model(page, original)
@@ -366,6 +436,109 @@ def test_a_saved_constitution_persists_across_a_reload(page, shot):
             expect(page.get_by_text("Constitution cleared")).to_be_visible()
 
 
+@pytest.mark.issue("ISS-320")
+@pytest.mark.xfail(reason="ISS-320 unfixed", strict=True)
+@pytest.mark.destructive
+def test_clear_constitution_requires_confirmation_before_deleting(page, shot):
+    """ISS-320 — "Clear" must not delete the saved constitution on a single,
+
+    unconfirmed click. Today `handleDelete` fires `DELETE
+    /api/settings/constitution` synchronously with no confirm dialog and no
+    dependency on "Save constitution" — a misclick permanently destroys the
+    standing instructions prepended to every future agent run. The correct
+    behaviour requires an explicit confirmation step before the delete
+    reaches the backend; dismissing that confirmation must leave the
+    persisted value untouched.
+    """
+    open_settings(page, "/settings/constitution")
+    editor = page.locator(L.CONSTITUTION)
+    expect(editor).to_be_visible()
+    original = editor.input_value()
+
+    marker = "E2E ISS-320: do not delete me without asking."
+    try:
+        with shot("iss320-saved", "When I save a constitution"):
+            editor.fill(marker)
+            page.click(L.SAVE_CONSTITUTION)
+            expect(page.get_by_text("Constitution saved")).to_be_visible()
+
+        with shot("iss320-clear-clicked", "And I click Clear without confirming"):
+            # A future confirm step is expected to surface as a native dialog;
+            # dismiss it the way a user backing out of a destructive action
+            # would, and prove the persisted value survived.
+            page.on("dialog", lambda dialog: dialog.dismiss())
+            page.click(L.CLEAR_CONSTITUTION)
+            page.wait_for_timeout(settings.SETTLE_MS)
+
+        res = api.request(page, "GET", "/api/settings/constitution")
+        body = json.loads(res["body"])
+        assert body.get("content") == marker, (
+            "Clear deleted the saved constitution with no confirmation gate — "
+            f"expected an unconfirmed Clear to leave the persisted value "
+            f"untouched, got {body!r}"
+        )
+    finally:
+        # The bug under test leaves "Save constitution" disabled after a
+        # Clear (its own repro notes this), so restoring via the UI's Save
+        # button is unreliable here — go straight to the API, the same way
+        # the app's own PUT does, and reload to confirm.
+        if original.strip():
+            api.request(page, "PUT", "/api/settings/constitution", {"content": original})
+        else:
+            api.request(page, "DELETE", "/api/settings/constitution")
+        page.goto("/settings/constitution")
+        expect(page.locator(L.CONSTITUTION)).to_have_value(original)
+
+
+@pytest.mark.issue("ISS-293")
+@pytest.mark.destructive
+def test_the_constitution_editor_rejects_content_over_its_stated_limit(page, shot):
+    """ISS-293 — the "X / 4000 chars" counter is styled as a hard cap; content
+
+    well over 4000 chars must not save and persist un-truncated. Today the
+    textarea has no `maxLength`, Save never disables past the ceiling, and the
+    backend accepts and persists the full payload verbatim (1 MiB cap, not
+    4000) — so a save of over-limit content survives a reload at full length.
+    """
+    open_settings(page, "/settings/constitution")
+    editor = page.locator(L.CONSTITUTION)
+    expect(editor).to_be_visible()
+    original = editor.input_value()
+
+    over_limit = "M" * (L.CONSTITUTION_CEILING + 500)
+    try:
+        with shot("constitution-over-limit", "When I enter content past the stated limit"):
+            editor.fill(over_limit)
+            page.click(L.SAVE_CONSTITUTION)
+            expect(page.get_by_text("Constitution saved")).to_be_visible()
+
+        with shot("constitution-over-limit-reload", "And I reload the page"):
+            page.reload()
+            expect(page.locator(L.CONSTITUTION)).to_be_visible()
+            # The fetched value lands after the initial paint; wait for it to
+            # actually arrive (short placeholder text is not the loaded state)
+            # rather than reading whatever is in the textarea at reload-instant.
+            page.wait_for_function(
+                "document.querySelector('textarea[name=\"constitution\"]').value.length > 50"
+            )
+
+        persisted_length = len(page.locator(L.CONSTITUTION).input_value())
+        assert persisted_length <= L.CONSTITUTION_CEILING, (
+            f"saved constitution is {persisted_length} chars, over the stated "
+            f"{L.CONSTITUTION_CEILING}-char limit — the counter's cap is not enforced"
+        )
+    finally:
+        page.goto("/settings/constitution")
+        page.locator(L.CONSTITUTION).wait_for()
+        page.locator(L.CONSTITUTION).fill(original)
+        if original.strip():
+            page.click(L.SAVE_CONSTITUTION)
+            expect(page.get_by_text("Constitution saved")).to_be_visible()
+        else:
+            page.click(L.CLEAR_CONSTITUTION)
+            expect(page.get_by_text("Constitution cleared")).to_be_visible()
+
+
 # ── Security ─────────────────────────────────────────────────────────────────
 
 
@@ -381,7 +554,7 @@ def test_mfa_is_unavailable_for_an_externally_managed_account(page, shot):
         pytest.skip("this pool reports MFA as supported — see S-09-14 for that branch")
 
     expect(page.get_by_text(L.NOT_AVAILABLE)).to_be_visible()
-    expect(page.get_by_text(L.EXTERNALLY_MANAGED)).to_be_visible()
+    expect(page.get_by_text(L.LOCAL_ACCOUNT_NO_MFA)).to_be_visible()
     expect(page.get_by_text(L.EMAIL_CODES)).to_have_count(0)
     expect(page.get_by_text(L.AUTHENTICATOR)).to_have_count(0)
 

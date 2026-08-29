@@ -1,19 +1,63 @@
 # Hunt state
 
-## RUN — full line, stage=all (restarted 2026-08-28 15:24 CEST)
+## RUN — full line, stage=all (8th launch 2026-08-28 20:26 CEST) — COMPLETE
 
-RUN         started 2026-08-28 15:24 · status RUNNING
-PRIOR       wf_8b3c47d7-92a (15:09) ended status=killed at 15:16, 0 agents completed — nothing landed
-BUGS        89 Open · 3 CONFIRMED · entry status for validate = Open
-IN FLIGHT   Workflow({name:"bug-hunt", args:{stage:"all"}}) — validate -> analyze -> test -> fix -> verify -> Close
-            SERIAL browser stages (app lease), waves of 3; analyze/fix parallel (code-only)
-NEXT        on return: report per-stage counts, escalations, Close/commit outcome
-PRECHECKS   :3000 200 · :8000/docs 200 · no PAUSE · browser lease free (prior wf dead)
-NOTE        2 ledger entries flagged STALE (library-skills-id 030430, library-skills-r2 091300) —
-            validator must not "confirm" them without fresh evidence.
+RUN         started 2026-08-28 20:26 CEST · closed 2026-08-29 03:03 UTC ·
+              status **COMPLETE** — every one of the 92 register bugs reached a terminal
+              status this run: 79 CLOSED, 7 ESCALATED, 4 DUPLICATE, 2 UNREPRODUCIBLE.
+REGISTER    92 bugs, 0 remaining in a working phase (no Open/CONFIRMED/ANALYZED/TESTED/FIXED
+              rows left — everything is CLOSED or a terminal non-CLOSED disposition).
+REPORT      bug-hunter/reports/20260829-030330-all.md — full per-bug index, the 7 ESCALATED
+              decisions a human needs to make, the 4 DUPLICATEs, 2 UNREPRODUCIBLE, 3 bugs that
+              REOPENED once mid-run and were re-fixed/re-verified CLOSED, and the WONTFIX
+              mirror (bug-hunter/wontfix-candidates.md — its one entry is now stale/superseded,
+              the bug it describes was actually fixed, see the report's WONTFIX section).
+CONSISTENCY tools/knowledge/validate_links.py: 12,121/12,123 links resolve. The 2 broken are
+              both pre-existing (ISS-217→BUG-20260827-232305-root, ISS-328→ISS-341) and not
+              introduced by this run. Register vs. card Status spot-checked across all 7
+              ESCALATED bugs — no drift found (root cards genuinely resolved+passed; the bug
+              stays escalated only because a documented sibling card is still open).
+NEXT        Human review of the 7 ESCALATED decisions in the report (each names 2 concrete
+              options). No further autonomous work queued — the register has nothing left to
+              validate/analyze/test/fix/verify. A fresh hunt pass would need new bug reports or
+              a wider surface sweep to have anything to work on.
+
+### What this run did (8th launch through close)
+
+Picked up from the 7th launch's pause (~20 Open bugs, 1 fixed-pending-verify) and ran the
+full validate→analyze→test→fix→verify assembly line to completion. Roughly 60+ card-minting
+agents ran concurrently across the run; card-ID allocation races were frequent (a dozen+
+self-detected collisions, all repaired in place — see "Card-ID concurrency" below) but no
+card content was lost. Backend AWS/Bedrock credentials, which were broken at the start of the
+7th launch, were valid throughout this run, so live-pipeline surfaces (real agent runs, the
+`/stream` view, live gates) were testable for the first time this hunt.
+
+Highlights, not exhaustive — see the report for the full per-bug index:
+- Every remaining CONFIRMED/ANALYZED bug from the 7th launch's backlog was carried through
+  test→fix→verify to CLOSED, except the 13 that landed on a terminal non-CLOSED status.
+- Several root-cause corrections happened mid-run: an analyzer would re-derive a root cause
+  that contradicted an earlier validator/analyzer's card (e.g. ISS-232 correcting ISS-... on
+  the library-skills cold-mount race; ISS-363 correcting ISS-258's route-editor mechanism;
+  ISS-374 correcting ISS-253's file attribution). Corrections are recorded on the corrected
+  card, not silently overwritten.
+- Three bugs reopened once during verify (see report) and were successfully re-fixed.
+- Two fixers ESCALATED rather than build an unrequested backend persistence surface the
+  4-test-writer's shipped test implicitly demanded (the two `library-agents-id` "fake save"
+  bugs) — flagged as a product decision, not guessed at.
+
+### Card-ID concurrency (worth fixing before the next large parallel wave)
+
+Recurred constantly this run: two+ concurrent agents both read the card-store max, both
+compute the same next id, both write — one silently overwrites (rare, self-detected via a
+re-check) or both self-detect via `ls` and renumber. Every instance this run was caught and
+repaired without data loss, but it cost real time across dozens of phase results. Worth adding
+a locking/reservation step (e.g. an atomic mkdir-based lock on the id, or a central allocator)
+before the next run that dispatches this many parallel card-minting agents at once.
 
 Tree: /Users/bilala/Developer/Projects/VELOCITY-AI (branch feat/bug-hunter) — servers confirmed
-      watching this checkout. The old "VELOCITY-AI-feat-bug-hunter" path does not exist.
+      watching this checkout throughout.
+
+---
 
 Started: 2026-08-27 UTC · scaled to full registry 2026-08-27 22:20 UTC
 CLEAN_STREAK_REQUIRED = 2

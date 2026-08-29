@@ -229,6 +229,8 @@ async def _iter_sse_frames(
         # event_id (present on both the durable row and the live event dict — stamped
         # once, at the source, engine.py) is safe either way: a never-persisted event's id
         # is never in this set, so it is never filtered.
+        from app.api.runs import _iso_utc  # ISS-358: shared KAN-113 UTC promotion
+
         rows = await store.read_events(run_id, after_seq=after_seq)
         for r in rows:
             # The row's ``event_id``/``seq`` COLUMNS are the authoritative identity and
@@ -240,8 +242,21 @@ async def _iter_sse_frames(
             # the four app-layer types persisted with no embedded identity — chat_reply,
             # chat_message, chat_usage, run_resuming — which without this reach the
             # client anonymous and get re-keyed (and so re-rendered) by the consumer.
+            # ISS-358: the row's ``created_at`` rides as a FALLBACK, merged FIRST so
+            # any payload-embedded timestamp still wins (FIX-354's ``pipeline_start``
+            # stamps the RUN's created_at, which a resumed run's row write time would
+            # otherwise clobber). Mirrors the REST twin so both durable readers hand
+            # the consumer the same send time; without it a replayed chat turn folds
+            # with no timestamp and the transcript falls back to the client clock.
             yield _sse_frame(
-                r.seq, r.type, {**(r.payload_json or {}), "event_id": r.event_id, "seq": r.seq}
+                r.seq,
+                r.type,
+                {
+                    "created_at": _iso_utc(r.created_at),
+                    **(r.payload_json or {}),
+                    "event_id": r.event_id,
+                    "seq": r.seq,
+                },
             )
             replayed_through_seq = r.seq
             replayed_event_ids.add(r.event_id)

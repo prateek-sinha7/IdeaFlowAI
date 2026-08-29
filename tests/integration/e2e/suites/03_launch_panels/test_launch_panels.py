@@ -16,6 +16,7 @@ import pytest
 from playwright.sync_api import expect
 
 from framework.locators import launch_panels as L
+from framework.locators import composer as C
 
 
 def agent_count(page) -> int:
@@ -340,3 +341,85 @@ def test_save_as_my_version_creates_a_user_override_of_a_built_in(page, shot):
         expect(
             page.get_by_text(re.compile(r"saved|my version|revert|original", re.I)).first
         ).to_be_visible(timeout=15_000)
+
+
+@pytest.mark.issue("ISS-247")
+def test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal(page, shot):
+    """ISS-247 — checking an agent in the "Review gates" checklist must be
+    reflected as that same agent's Gate in the Advanced modal's Config tab.
+
+    ReviewGatesSection writes a separate `gateAgentIds` ref; CanvasConfigRail's
+    Gate combobox reads only `agent.gates`. The two never sync.
+    """
+    with shot("fresh", 'Given a fresh "/create/app" load'):
+        page.goto("/create/app")
+        expect(page.locator(L.REVIEW_GATES)).to_contain_text("no gates")
+
+    with shot("checked", 'When I check "Domain Discovery Agent" in Review gates'):
+        page.click(L.REVIEW_GATES)
+        page.get_by_text("Domain Discovery Agent", exact=True).click()
+        expect(page.locator(L.REVIEW_GATES)).to_contain_text("1 agent")
+        page.keyboard.press("Escape")
+
+    with shot("advanced-config", 'Then its Advanced modal Gate combobox is not "No gate"'):
+        page.click(L.ADVANCED)
+        page.click(C.node("domain-analyst"))
+        page.get_by_text("Config", exact=True).first.click()
+        gate = page.locator('select[aria-label="Gate"]')
+        expect(gate).to_be_visible()
+        assert gate.input_value() != "", (
+            "Review gates checklist marked Domain Discovery Agent as gated, but "
+            "the Advanced modal's Config tab still shows Gate = 'No gate'"
+        )
+
+
+@pytest.mark.issue("ISS-306")
+def test_seeded_before_human_gate_shows_in_review_gates_checklist_on_fresh_load(page, shot):
+    """ISS-306 — a manifest-seeded before-human gate must be visible in the
+    "Review gates" checklist on a completely fresh load, zero interaction.
+
+    /create/ex_A4_human_gate's "Pick Language" step declares
+    gates: [before-human, conditional] server-side, but ReviewGatesSection's
+    checkedIds seed never reads a custom-agent step's manifest gates — only a
+    saved run's initialGateIds or a static per-AGENT.md `gate` field, neither
+    of which this fixture has. The pill reads "no gates" instead.
+    """
+    with shot("fresh", 'Given a fresh "/create/ex_A4_human_gate" load'):
+        page.goto("/create/ex_A4_human_gate")
+        expect(page.locator(L.REVIEW_GATES)).to_be_visible()
+
+    with shot("checklist", 'Then "Pick Language" is checked in Review gates'):
+        page.click(L.REVIEW_GATES)
+        assert page.get_by_role("checkbox", name="Pick Language").is_checked(), (
+            "manifest declares Pick Language gates: [before-human, conditional], "
+            "but the Review gates checklist shows it unchecked on fresh load"
+        )
+
+
+@pytest.mark.issue("ISS-306")
+def test_seeded_before_human_gate_activates_prompt_user_toggle_on_fresh_load(page, shot):
+    """ISS-306 — the "Prompt User" toggle, the control built to represent a
+    before-human gate, must be active for a step carrying one on fresh load.
+
+    normaliseRoute() maps outcomes[*].target/default_next through nodeIdOf but
+    never route.condition_agent itself, so the bare manifest value ("ask")
+    never equals the normalized comparison id ("custom-agent:ask") and
+    promptUser is always false, even though the manifest genuinely declares
+    condition_agent: ask and gates: [before-human, ...] for this step.
+    """
+    with shot("fresh", 'Given a fresh "/create/ex_A4_human_gate" load'):
+        page.goto("/create/ex_A4_human_gate")
+
+    with shot("config", 'When I open the Advanced modal on "Pick Language"'):
+        page.click(L.ADVANCED)
+        page.click(C.node("custom-agent:pick-language"))
+        page.get_by_role("tab", name="Config").click()
+
+    with shot("prompt-user", 'Then "Prompt User" is on'):
+        toggle = C.switch(page, "Prompt User")
+        expect(toggle).to_be_visible()
+        assert toggle.get_attribute("aria-checked") == "true", (
+            "Pick Language declares gates: [before-human, ...] and "
+            "route.condition_agent: ask, but the Prompt User toggle — the "
+            "control meant to represent before-human — is off on fresh load"
+        )

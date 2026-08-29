@@ -18,11 +18,34 @@ function buildQueryString(params?: Record<string, string | number | boolean | un
   return qs ? `?${qs}` : '';
 }
 
+type LibraryParams = {
+  tab?: 'agents' | 'skills' | 'hooks';
+  category?: string;
+  search?: string;
+};
+
+// Shared by the /library list route and the three item-detail routes below:
+// `agents` is the default tab and `all` the default category, so neither is
+// emitted.
+function libraryQuery(params?: LibraryParams): string {
+  return buildQueryString({
+    tab: params?.tab === 'agents' ? undefined : params?.tab,
+    category: params?.category === 'all' ? undefined : params?.category,
+    search: params?.search,
+  });
+}
+
 export const routes = {
   // ─────────────────────────────────────────────────────────────
   // Auth & root
   // ─────────────────────────────────────────────────────────────
-  login: (params?: { expired?: boolean }): string => {
+  // ISS-322: `redirect` carries the protected route a mid-session expiry bounced
+  // the user off (api.ts's handleSessionExpiry), so re-login returns there
+  // instead of the /dashboard default. It goes through buildQueryString like
+  // every other param, so a target carrying its own query string
+  // (/analytics?range=7d) is percent-encoded into ONE value rather than leaking
+  // out as top-level /login params.
+  login: (params?: { expired?: boolean; redirect?: string }): string => {
     return `/login${buildQueryString(params)}`;
   },
 
@@ -62,18 +85,27 @@ export const routes = {
     return `/runs${buildQueryString(params)}`;
   },
 
-  runDetail: (id: string): string => `/runs/${id}`,
+  // ISS-230: every run-tab route takes the pinned version as an OPTIONAL
+  // second argument, so a tab switch made while `/runs/{id}/versions/{v}` is
+  // on screen keeps the pin instead of collapsing back to the root run.
+  // Omitting it yields the un-versioned route these builders always returned.
+  runDetail: (id: string, version?: string): string =>
+    version ? `/runs/${id}/versions/${version}` : `/runs/${id}`,
 
-  runSteps: (id: string): string => `/runs/${id}/steps`,
+  runSteps: (id: string, version?: string): string =>
+    version ? `/runs/${id}/versions/${version}/steps` : `/runs/${id}/steps`,
 
   runStepsAgent: (id: string, agentId: string): string =>
     `/runs/${id}/steps/${agentId}`,
 
-  runFiles: (id: string): string => `/runs/${id}/files`,
+  runFiles: (id: string, version?: string): string =>
+    version ? `/runs/${id}/versions/${version}/files` : `/runs/${id}/files`,
 
-  runWorkspace: (id: string): string => `/runs/${id}/workspace`,
+  runWorkspace: (id: string, version?: string): string =>
+    version ? `/runs/${id}/versions/${version}/workspace` : `/runs/${id}/workspace`,
 
-  runAudit: (id: string): string => `/runs/${id}/audit`,
+  runAudit: (id: string, version?: string): string =>
+    version ? `/runs/${id}/versions/${version}/audit` : `/runs/${id}/audit`,
 
   runStream: (id: string): string => `/runs/${id}/stream`,
 
@@ -103,17 +135,21 @@ export const routes = {
   // screens (agents/skills/hooks) collapsed from 3 path segments into ONE
   // path with the tab as a query param — see spec.md Clarifications,
   // Session 2026-08-21. Item-DETAIL routes below are unaffected.
-  library: (params?: { tab?: 'agents' | 'skills' | 'hooks'; category?: string }): string => {
-    const tab = params?.tab === 'agents' ? undefined : params?.tab;
-    const category = params?.category === 'all' ? undefined : params?.category;
-    return `/library${buildQueryString({ tab, category })}`;
-  },
+  library: (params?: LibraryParams): string => `/library${libraryQuery(params)}`,
 
-  libraryAgent: (slug: string): string => `/library/agents/${slug}`,
+  // ISS-360/592/593/594: an item-detail navigation changes the [...view]
+  // catch-all's own segments, which remounts the page (see that file's T6
+  // comment) and reinitializes every LibraryPage state hook. The list's
+  // tab/category/search ride along on the detail URL so the fresh mount can
+  // seed them straight back off it.
+  libraryAgent: (slug: string, params?: LibraryParams): string =>
+    `/library/agents/${slug}${libraryQuery(params)}`,
 
-  librarySkill: (slug: string): string => `/library/skills/${slug}`,
+  librarySkill: (slug: string, params?: LibraryParams): string =>
+    `/library/skills/${slug}${libraryQuery(params)}`,
 
-  libraryHook: (slug: string): string => `/library/hooks/${slug}`,
+  libraryHook: (slug: string, params?: LibraryParams): string =>
+    `/library/hooks/${slug}${libraryQuery(params)}`,
 
   // ─────────────────────────────────────────────────────────────
   // Settings, analytics, admin
@@ -167,12 +203,15 @@ export type ParsedView =
   | { screen: 'workflow-canvas'; pipelineType: string }
   | { screen: 'workflow-new' }
   | { screen: 'run-history'; type?: string; sort?: string }
-  | { screen: 'run-detail'; runId: string }
-  | { screen: 'run-steps'; runId: string }
-  | { screen: 'run-steps-agent'; runId: string; agentId: string }
-  | { screen: 'run-files'; runId: string }
-  | { screen: 'run-workspace'; runId: string }
-  | { screen: 'run-audit'; runId: string }
+  // ISS-230: `version` is the `/versions/{v}` pin the path carries, present on
+  // every run tab that can be reached while pinned (`/runs/{id}/versions/{v}/{tab}`)
+  // and undefined on the plain, un-pinned form of the same route.
+  | { screen: 'run-detail'; runId: string; version?: string }
+  | { screen: 'run-steps'; runId: string; version?: string }
+  | { screen: 'run-steps-agent'; runId: string; agentId: string; version?: string }
+  | { screen: 'run-files'; runId: string; version?: string }
+  | { screen: 'run-workspace'; runId: string; version?: string }
+  | { screen: 'run-audit'; runId: string; version?: string }
   | { screen: 'run-stream'; runId: string }
   | { screen: 'run-version'; runId: string; version: string }
   | { screen: 'run-preview-full'; runId: string }
@@ -216,7 +255,11 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
     return { screen: 'login' };
   }
 
-  if (head === 'register') {
+  // ISS-238: the `segments.length === 1` guard is load-bearing. Without it any
+  // /register/<sub-path> also resolved to { screen: 'register' }, and since
+  // [...view]/page.tsx has no branch for that screen it fell through to the
+  // default dashboard render instead of the `unknown` -> notFound() gate below.
+  if (head === 'register' && segments.length === 1) {
     return { screen: 'register' };
   }
 
@@ -299,32 +342,47 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
       return { screen: 'run-detail', runId };
     }
 
-    const subpath = segments[2];
+    // ISS-230: a `/versions/{v}` pin sits BETWEEN the run id and the tab
+    // (`/runs/{id}/versions/{v}/{tab}`) so a tab switch can carry it. Lift it
+    // out here and parse what follows exactly as the un-pinned form, rather
+    // than duplicating every tab arm below. A bare pin with no tab after it
+    // stays its own screen (`run-version`), unchanged.
+    let version: string | undefined;
+    let tail = segments;
+    if (segments[2] === 'versions') {
+      version = segments[3];
+      if (segments.length <= 4) {
+        return { screen: 'run-version', runId, version };
+      }
+      tail = [segments[0], runId, ...segments.slice(4)];
+    }
+
+    const subpath = tail[2];
 
     // /runs/{id}/steps
     if (subpath === 'steps') {
-      if (segments.length === 3) {
-        return { screen: 'run-steps', runId };
+      if (tail.length === 3) {
+        return { screen: 'run-steps', runId, version };
       }
 
       // /runs/{id}/steps/{agentId}
-      const agentId = segments[3];
-      return { screen: 'run-steps-agent', runId, agentId };
+      const agentId = tail[3];
+      return { screen: 'run-steps-agent', runId, agentId, version };
     }
 
     // /runs/{id}/files
     if (subpath === 'files') {
-      return { screen: 'run-files', runId };
+      return { screen: 'run-files', runId, version };
     }
 
     // /runs/{id}/workspace
     if (subpath === 'workspace') {
-      return { screen: 'run-workspace', runId };
+      return { screen: 'run-workspace', runId, version };
     }
 
     // /runs/{id}/audit
     if (subpath === 'audit') {
-      return { screen: 'run-audit', runId };
+      return { screen: 'run-audit', runId, version };
     }
 
     // /runs/{id}/stream
@@ -332,14 +390,8 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
       return { screen: 'run-stream', runId };
     }
 
-    // /runs/{id}/versions/{v}
-    if (subpath === 'versions') {
-      const version = segments[3];
-      return { screen: 'run-version', runId, version };
-    }
-
     // /runs/{id}/preview/full
-    if (subpath === 'preview' && segments[3] === 'full') {
+    if (subpath === 'preview' && tail[3] === 'full') {
       return { screen: 'run-preview-full', runId };
     }
 
@@ -354,14 +406,24 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
     // read at the call site via useSearchParams — parseViewPath only sees path
     // segments, matching every other query-bearing screen in this file, e.g.
     // login/runHistory/analytics above) is now the unified list screen itself,
-    // not an unknown/redirect stub. The legacy 2-segment list shape
-    // (/library/agents, /library/skills, /library/hooks with no slug) is
-    // intercepted by next.config.ts redirects before it ever reaches here.
+    // not an unknown/redirect stub.
     if (segments.length === 1) {
       return { screen: 'library' };
     }
 
     const type = segments[1];
+
+    // ISS-572: the legacy 2-segment list shape (/library/agents,
+    // /library/skills, /library/hooks with no slug). next.config.ts's
+    // redirects() sends these to /library server-side, but that rule only
+    // runs for a full/document navigation — a client-side history transition
+    // reaches this parser directly, so the destination screen is mirrored
+    // here too. (The ?tab= half of the skills/hooks destinations is a query
+    // param, which parseViewPath structurally never sees — same convention
+    // as the bare /library case above.)
+    if (segments.length === 2 && (type === 'agents' || type === 'skills' || type === 'hooks')) {
+      return { screen: 'library' };
+    }
 
     // Item-DETAIL routes only — unchanged from before this amendment.
     if (segments.length >= 3) {
@@ -379,8 +441,12 @@ export function parseViewPath(segments: string[] | undefined): ParsedView {
   // ─────────────────────────────────────────────────────────────
   if (head === 'settings') {
     if (segments.length === 1) {
-      // /settings with no tab — could redirect to profile, but we'll parse as unknown
-      return { screen: 'unknown' };
+      // ISS-339: /settings with no tab. next.config.ts's redirects() sends it
+      // to /settings/profile server-side, but that rule only runs for a
+      // full/document navigation — a client-side history transition reaches
+      // this parser directly, so the same destination is mirrored here rather
+      // than dead-ending at unknown -> 404.
+      return { screen: 'settings-profile' };
     }
 
     const tab = segments[1];

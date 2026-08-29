@@ -337,6 +337,13 @@ export interface DashboardLayoutProps {
    * below), so no re-sync effect is needed the way `initialMainView` needs one.
    */
   initialSettingsSection?: SettingsSection;
+  /**
+   * ISS-230: the `/versions/{v}` pin `parseViewPath` resolved from the URL on
+   * this render, from page.tsx — the single source of truth for WHICH version
+   * is on screen. Threaded straight through to PreviewPanel, and re-applied to
+   * every tab route below so a tab switch cannot silently drop it.
+   */
+  pinnedVersion?: string;
 }
 
 export type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows" | "composer";
@@ -464,20 +471,30 @@ export function DashboardLayout({
   builtinCanvasType,
   initialSavedComposition,
   initialSettingsSection,
+  pinnedVersion,
 }: DashboardLayoutProps) {
   const router = useRouter();
 
   // Handle tab selection in PreviewPanel by syncing to the URL
-  const handlePreviewPanelTabSelect = useCallback((tab: string) => {
+  const handlePreviewPanelTabSelect = useCallback((tab: string, version?: string | null) => {
     if (!contentSourceRunId) return;
 
-    // Map PreviewPanel tab ids to routes
+    // ISS-296: an explicit `version` argument is the Version menu changing WHICH
+    // version is pinned (a number to pin, `null` for back-to-live) — it wins over
+    // whatever the URL carries, so the menu writes the pin instead of leaving it
+    // in one component's memory. Omitted, the current pin rides along unchanged.
+    const pin = version === undefined ? pinnedVersion : (version ?? undefined);
+
+    // Map PreviewPanel tab ids to routes. The pin rides along on every one of
+    // them (ISS-230): a tab is a view switch, not a change of WHICH version is
+    // being viewed, so dropping it here silently reverted the URL, the fetches
+    // and the rendered data to the root run (v1).
     const routeMap: Record<string, string> = {
-      "preview": routes.runDetail(contentSourceRunId),
-      "thinking": routes.runSteps(contentSourceRunId),
-      "files": routes.runFiles(contentSourceRunId),
-      "workspace": routes.runWorkspace(contentSourceRunId),
-      "audit": routes.runAudit(contentSourceRunId),
+      "preview": routes.runDetail(contentSourceRunId, pin),
+      "thinking": routes.runSteps(contentSourceRunId, pin),
+      "files": routes.runFiles(contentSourceRunId, pin),
+      "workspace": routes.runWorkspace(contentSourceRunId, pin),
+      "audit": routes.runAudit(contentSourceRunId, pin),
     };
 
     const targetRoute = routeMap[tab];
@@ -495,7 +512,7 @@ export function DashboardLayout({
     // updates usePathname (Next patches it, app-router.js:252) without
     // touching the router tree, so nothing remounts and nothing refetches.
     window.history.pushState(null, "", targetRoute);
-  }, [contentSourceRunId]);
+  }, [contentSourceRunId, pinnedVersion]);
 
   // The app-level SSE connection — the sole run transport (44-06). Commands ride
   // its REST up-channel; useRunStream owns Last-Event-ID replay.
@@ -1681,7 +1698,26 @@ export function DashboardLayout({
   // home, so Back returns to wherever the user actually came from. Falls back
   // to handleGoHome only when there's no prior in-app entry to go back to
   // (e.g. a direct/shared URL landed straight on this screen).
+  //
+  // ISS-275 — Back is also the one control that throws away whatever the screen
+  // it is leaving never persisted. The mounted page reports that through
+  // `handleUnsavedChange` (a ref, so the guard reads the live value without
+  // re-creating this callback) and Back confirms before discarding it. Kept
+  // here, in the one handler all five page mounts already route through,
+  // rather than as a per-page `confirm()` in five separate onClicks.
+  const hasUnsavedWork = useRef(false);
+  const handleUnsavedChange = useCallback((dirty: boolean) => {
+    hasUnsavedWork.current = dirty;
+  }, []);
+
   const handleBackNav = useCallback(() => {
+    if (
+      hasUnsavedWork.current &&
+      typeof window !== "undefined" &&
+      !window.confirm("You have unsaved changes. Leave anyway? Your work will be lost.")
+    ) {
+      return;
+    }
     setQuestionnaireQuestions([]);
     setQuestionnaireLoading(false);
     setPendingPipelineRun(null);
@@ -2148,13 +2184,34 @@ export function DashboardLayout({
   // the bare workflowType state — same staleness handleChainPipeline already
   // guards against (workflowType can still be a previous run's type when
   // viewing a history-reopened run of a different type).
+  // ISS-218 / ISS-235: actually carry the brief across. This handler navigated
+  // with NO payload at all, so the composer it opens showed whatever its own
+  // prefill slot already held — nothing (blank, ISS-218), or a value left over
+  // from an earlier navigation (a foreign brief, ISS-235). Seed it with the
+  // VIEWED run's own brief (same source as runHeaderTitleFull below), writing
+  // BOTH slots the push can land in, since `createRouteForType` has two
+  // possible destinations: `/create/{ppt|ppt_v2|prototype}` renders LaunchWizard
+  // (page.tsx's `wizardModeFor` early-return, OUTSIDE this component), which
+  // seeds its brief from the same one-shot `*.draft` hand-off handleLaunchSaved
+  // already writes; every other type stays in this component's "input" view,
+  // where IdeaInputPage's `initialInput` reads `pendingHomeBrief`.
   const handleEditBrief = useCallback(() => {
     if (!isPipelineRunning && onResetPipeline) onResetPipeline();
     setResumeError(null);
     setQuestionnaireQuestions([]);
+    const editedBrief =
+      recentRuns?.find((r) => r.id === contentSourceRunId)?.input || submittedBrief || "";
+    setPendingHomeBrief(editedBrief || undefined);
+    const reviseBase = baseWorkflowType(effectiveReviseType);
+    if (selectWorkflowWizardPath(reviseBase)) {
+      sessionStorage.setItem(
+        reviseBase === "prototype" ? "prototype.draft" : "ppt.draft",
+        JSON.stringify({ brief: editedBrief }),
+      );
+    }
     setMainView("input");
     router.push(createRouteForType(effectiveReviseType));
-  }, [isPipelineRunning, onResetPipeline, effectiveReviseType, router]);
+  }, [isPipelineRunning, onResetPipeline, effectiveReviseType, router, recentRuns, contentSourceRunId, submittedBrief]);
 
   const activeReviseHandler =
     (effectiveReviseType === "ppt" || effectiveReviseType === "ppt_revision") ? handleRevisePpt :
@@ -2906,6 +2963,7 @@ export function DashboardLayout({
                 key={savedComposition?.id ?? "new"}
                 workflowType={workflowType}
                 onBack={handleBackNav}
+                onUnsavedChange={handleUnsavedChange}
                 // 41-06 (D-05 / D-CMP-RUN) — Run-once launches the composed workflow
                 // through the EXISTING onStartPipeline → startPipeline seam, mirroring
                 // the revision launch sites (reset → onStartPipeline with the SAME arg
@@ -3093,6 +3151,7 @@ export function DashboardLayout({
                       reopenedAgentNameById={reopenedAgentNameById}
                       runFamily={runFamily}
                       liveRunId={contentSourceRunId ?? null}
+                      pinnedVersion={pinnedVersion}
                       runInput={submittedBrief}
                       deepLinkTarget={deepLinkTarget}
                       onTabSelect={handlePreviewPanelTabSelect}

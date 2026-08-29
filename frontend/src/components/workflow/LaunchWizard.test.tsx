@@ -30,6 +30,10 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/api", () => ({
   getToken: () => "test-token",
+  // ISS-321 — the wizard now reads the signed-in tier to gate an
+  // unentitled launch. Entitled here, so every assertion below stays on
+  // the un-gated path these tests were written for.
+  getMe: vi.fn().mockResolvedValue({ id: "u1", email: "qa@flowinqa.com", tier: "enterprise" }),
   extractFileText: vi.fn(),
   createUserWorkflow: (...args: unknown[]) => createUserWorkflowMock(...args),
   saveUserWorkflow: (...args: unknown[]) => saveUserWorkflowMock(...args),

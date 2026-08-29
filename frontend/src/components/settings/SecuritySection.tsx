@@ -235,8 +235,9 @@ function SecurityPanel({
       <Card className="p-[22px] shadow-[var(--elevation-raised)]">
         <p className="text-[14px] font-semibold text-ink-900">Not available for this account</p>
         <p className="mt-1 text-[13px] leading-relaxed text-ink-500">
-          This account&apos;s credentials are managed outside the application, so
-          two-factor authentication is configured separately.
+          This is a local account, so there are no second-factor methods to
+          manage here. Its password is stored by this application and can be
+          changed from the Profile tab.
         </p>
       </Card>
     );

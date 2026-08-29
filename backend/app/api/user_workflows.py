@@ -42,7 +42,7 @@ from datetime import datetime
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user
@@ -243,6 +243,17 @@ class SaveUserWorkflowRequest(BaseModel):
     # changed since you customised it" notice has something to compare against.
     base_version: int | None = None
 
+    # ISS-601: ``min_length=1`` counts RAW characters, so a whitespace-only name
+    # passes validation and persists a row with no visible label. Normalise here
+    # so the uniqueness check and the stored row both see the trimmed name.
+    @field_validator("name")
+    @classmethod
+    def _strip_name(cls, v: str) -> str:
+        name = v.strip()
+        if not name:
+            raise ValueError("name must not be blank")
+        return name
+
     @model_validator(mode="after")
     def _reject_manifest_and_selections(self) -> SaveUserWorkflowRequest:
         return _reject_both(self)
@@ -272,6 +283,17 @@ class UpdateUserWorkflowRequest(BaseModel):
     # by construction (nothing looks the row up without
     # `overrides_pipeline_type`), so it needs no extra guard.
     override_enabled: bool | None = None
+
+    # ISS-601 — see SaveUserWorkflowRequest._strip_name.
+    @field_validator("name")
+    @classmethod
+    def _strip_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        name = v.strip()
+        if not name:
+            raise ValueError("name must not be blank")
+        return name
 
     @model_validator(mode="after")
     def _reject_manifest_and_selections(self) -> UpdateUserWorkflowRequest:

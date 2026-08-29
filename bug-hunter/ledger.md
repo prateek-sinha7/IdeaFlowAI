@@ -18,11 +18,65 @@ Append only. Never rewrite or delete an existing entry. Evidence for each bug li
 - **Page:** Fullscreen preview — quota error
 - **Route:** /preview-fullscreen?error=quota
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 04:09 UTC
 - **Found by:** bug-preview-fullscreen-quota-r1
 - **Fingerprint:** `/preview-fullscreen|error-quota-flag-precedence|navigate-with-error=quota-while-valid-__app_preview__-payload-present-in-sessionStorage|quota-dead-end-shown-instead-of-working-preview-that-is-actually-cached`
 - **Evidence:** `bug-hunter/evidence/preview-fullscreen-quota/BUG-20260828-040915-preview-fullscreen-quota/`
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — deterministic, pure client-side branch-order bug, no timing/entry-path dependency (varied cold plain-then-quota, cold direct deep-link to quota, full re-clear-and-reload — all 3/3)
+- **Issue card:** [ISS-298](../.knowledge/cards/20260828-1729-ISS-298.md)
+- **Fix card:** [FIX-369](../.knowledge/cards/20260829-0114-FIX-369.md) — quota flag no longer
+  short-circuits the `__app_preview__` read in `frontend/src/app/preview-fullscreen/page.tsx`;
+  the dead end is now the fallback when nothing usable is cached. Test
+  `suites/07_run_detail/test_iss298_preview_fullscreen_quota_ignores_cache.py` XPASS(strict).
+- **Root cause:** The `error === "quota"` branch (`frontend/src/app/preview-fullscreen/page.tsx:47-50`)
+  returns unconditionally before the component ever reaches the `sessionStorage.getItem("__app_preview__")`
+  read/parse that the plain (no-param) branch performs a few lines later (`page.tsx:56-69`). Both
+  branches sit in the same top-level `useEffect` (lines 36-76). CONFIRMED by reading `page.tsx` in
+  full and `AppBuilderPreview.tsx:406-421` (`handleFullscreen`, which writes `{files, projectName}`
+  to `sessionStorage["__app_preview__"]` and opens `?error=quota` only when that write throws —
+  `sessionStorage.setItem` is atomic, so an earlier successful write's data survives a later failed
+  one untouched).
+- **Blast radius:** Exactly one production caller triggers this state —
+  `AppBuilderPreview.handleFullscreen()` (`AppBuilderPreview.tsx:419`) is the sole place
+  `?error=quota` is opened, and `preview-fullscreen/page.tsx` is its sole consumer — so the fix is
+  entirely local to that one file/useEffect, not fanned across many call sites. That said,
+  `handleFullscreen` and the `__app_preview__` key it writes are shared by every
+  `<AppBuilderPreview>` render site (`PreviewPanel.tsx:163`, `WorkflowHistory.tsx:833`,
+  `WorkflowHistory.tsx:872`), which is what [ISS-412](../.knowledge/cards/20260828-2343-ISS-412.md)
+  traces further.
+- **Proposed fix:** Restructure `preview-fullscreen/page.tsx`'s `useEffect` so the quota and plain
+  branches share the same `sessionStorage["__app_preview__"]` read/parse instead of the quota
+  branch returning ahead of it — matching the precedence the page's own docstring (lines 27-29)
+  already claims but the code does not implement. Belongs in this one file; no other caller needs
+  a guard. Flagged for the fixer: `__app_preview__` carries no run/project identity
+  ([ISS-412](../.knowledge/cards/20260828-2343-ISS-412.md)), so simply rendering "whatever is
+  cached" risks showing a stale, unrelated run's files as if they were the one that just hit quota
+  — worth a conscious decision, not a silent side effect of the fix.
+- **Issue cards:** [ISS-298](../.knowledge/cards/20260828-1729-ISS-298.md) (root),
+  [ISS-407](../.knowledge/cards/20260828-2343-ISS-407.md) (sibling: plain route silently redirects
+  to Run History with no error state on missing/corrupt sessionStorage — the inverse case),
+  [ISS-412](../.knowledge/cards/20260828-2343-ISS-412.md) (sibling: `__app_preview__` is one
+  unscoped global key shared by 3 render sites, so a stale write can be shown as the current run —
+  INFERRED, unreproduced)
+- **Verified:** 2026-08-29 —
+  `suites/07_run_detail/test_iss298_preview_fullscreen_quota_ignores_cache.py` ran XPASS(strict)
+  first (pass signal), `xfail` marker removed, re-run confirmed plain green (0.4s). Manual repro
+  from this entry re-run by hand in Chrome (qa-admin, lane6): seeded `__app_preview__`, plain
+  `/preview-fullscreen` rendered `"VerifierReproProject — IDE Preview"`, then
+  `/preview-fullscreen?error=quota` in the same tab now also rendered that cached preview instead
+  of the dead end — no console errors. Regression guard confirmed too: clearing
+  `__app_preview__` and reloading `?error=quota` still shows "Project too large for full screen"
+  (S-16-07 intact). `frontend/src/app/preview-fullscreen/page.tsx` has zero `tsc --noEmit`
+  errors (pre-existing unrelated errors in `HomeLaunchGrid.crossAccountLeak.test.tsx` and
+  `store/listenerMiddleware.test.ts` untouched). Backend `:8000/docs` → 200, no restart needed
+  (frontend-only change). `lint-imports` from `backend/` shows the same pre-existing
+  `kernel imports only capability ports` break, unrelated to this fix (no Python touched).
+  Regression suite file `suites/16_pages_outside_routes/test_pages_outside_routes.py` run in
+  full: S-16-05/S-16-06/S-16-07 (the three guards this fix names) all PASS; one unrelated
+  failure, S-16-12 "An API key is shown once and never again", failing on a leftover
+  `validator-handoff-fixture` API key from a prior run leaking into the handoff/settings list —
+  a different feature area (API key handoff, not preview-fullscreen), not touched by FIX-369.
 
 ### Summary
 `frontend/src/app/preview-fullscreen/page.tsx` checks `params.get("error") === "quota"` and, if
@@ -98,11 +152,69 @@ no way to reach it from this URL.
 - **Page:** Dashboard (catalog)
 - **Route:** /dashboard
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-27 22:14 UTC
 - **Found by:** bug-dashboard-r1
 - **Fingerprint:** `/dashboard|catalog-card-inspect-modal|press-escape|dialog-remains-open`
 - **Evidence:** `bug-hunter/evidence/dashboard/BUG-20260827-221400-dashboard/`
+- **Verified:** 2026-08-29 by 6-verifier. `suites/15_overlays/test_iss326_inspect_escape.py` —
+  XPASS(strict) confirmed (24.4s against a running dev server), then `xfail` marker removed and
+  re-run plain green. Manual re-run of the ORIGINAL register reproduction in real Chrome
+  (`mcp__lane5__*`, qa-admin, cold `/dashboard` nav): clicked "Inspect Retry Until It Passes
+  details" -> "Retry Loop" dialog opened -> Escape -> `[role="dialog"]` count 0 (was 1); repeated
+  on "Inspect Build an end-to-end application details" -> "App Builder" dialog -> Escape -> count
+  0. Both cards match the original 3-cycle validation. No console errors/warnings on either card
+  or on a hard `/dashboard` reload. `npx tsc --noEmit` and `npm run build` clean (the 9
+  pre-existing tsc errors are all in unrelated test files, none in `WorkflowDialog.tsx` or
+  `useEscapeToClose.ts`). `frontend/src/components/workflow/WorkflowDialog.test.tsx` 8/8 green,
+  `frontend/src/components/catalog/HomeLaunchGrid.inspect.test.tsx` 2/2 green. Backend
+  `:8000/docs` -> 200 (no backend file touched, no restart needed). `lint-imports` (run from
+  `backend/`) shows one pre-existing broken contract (`agents.execution_engine.engine` ->
+  `app.api`, unrelated to this frontend-only fix). `suites/15_overlays/test_overlays.py`
+  (regression file) was run to scenario 20/36 before the 10-minute cap; only S-15-06 ("The
+  add-agent modal lists agents by category", a `/workflows/new` composer scenario in
+  `AgentsPopup.tsx`, a file this fix never touches) failed — unrelated to `WorkflowDialog.tsx`.
+  `validate_links.py` shows 2 pre-existing broken links, neither on ISS-326/FIX-388.
+- **Validated:** 3/3 on 2026-08-28, every cycle, cold start (fresh /dashboard nav) — reproduced on
+  two different cards ("Retry Until It Passes" cycles 1-2, "Build an end-to-end application"
+  cycle 3). Root cause: `frontend/src/components/workflow/WorkflowDialog.tsx` declares
+  `role="dialog" aria-modal="true"` but has no Escape/keydown handler at all.
+- **Root cause:** CONFIRMED — `WorkflowDialog.tsx` (`frontend/src/components/workflow/WorkflowDialog.tsx`)
+  declares `role="dialog" aria-modal="true"` at lines 134-135; its only `useEffect` (lines 63-95) is
+  a data-fetch effect for `getWorkflowDetail`/`getCapabilities`, not a key listener; a whole-file
+  grep for `Escape`/`onKeyDown` returns zero matches. The dialog is dismissed only via the backdrop
+  `onClick={onClose}` (line 131) or the Close button's `onClick={onClose}` (line 154) — no
+  Escape/keydown handler exists anywhere in the file.
+- **Blast radius:** `WorkflowDialog` has exactly one production caller —
+  `frontend/src/components/catalog/HomeLaunchGrid.tsx:392` (confirmed by grepping every `.ts`/`.tsx`
+  caller of `WorkflowDialog`) — so this specific component's blast radius is the dashboard catalog's
+  Inspect affordance only. The ROOT CAUSE (a copy-pasted `role="dialog"` shell with no centralized
+  Escape handling) recurs elsewhere in the same module: grepping every `role="dialog"` element under
+  `frontend/src/components/workflow/` found two more instances with zero Escape/keydown/KeyboardEvent
+  handling anywhere in their file — `AgentCapabilitiesModal` (`AgentsPopup.tsx:605-642`, mounted from
+  `LaunchWizard.tsx`, `composer/ComposerPage.tsx`, `library/LibraryPage.tsx`, `AgentLibrary.tsx`) and
+  `AgentSkillsPicker`'s skill-detail modal (`composer/AgentSkillsPicker.tsx:251-289`, mounted from
+  `AgentsPopup.tsx:870`, `composer/AgentRow.tsx:267`, `composer/CanvasConfigRail.tsx:468`) — both
+  INFERRED, not yet reproduced live.
+- **Proposed fix:** extract ONE shared hook (e.g. `useEscapeToClose(onClose)`, modeled on the
+  `document.addEventListener("keydown", ...)` pattern already used ad hoc in
+  `TemplateDetailModal.tsx:29-38` and file-locally in `LibraryPage.tsx`'s `useDetailModalKeyboard`,
+  [FIX-333](../.knowledge/cards/20260828-2131-FIX-333.md)) into `frontend/src/hooks/`, so
+  `WorkflowDialog.tsx`, `AgentsPopup.tsx` and `composer/AgentSkillsPicker.tsx` all route their Escape
+  handling through one place instead of each re-implementing (or omitting) it independently.
+- **Issue card:** [ISS-326](../.knowledge/cards/20260828-ISS-326.md) (root),
+  [ISS-489](../.knowledge/cards/20260829-0150-ISS-489.md) (sibling: AgentSkillsPicker skill-detail
+  modal, INFERRED), [ISS-491](../.knowledge/cards/20260829-0149-ISS-491.md) (sibling:
+  AgentCapabilitiesModal in AgentsPopup.tsx, INFERRED)
+- **Fix card:** [FIX-388](../.knowledge/cards/20260829-0053-FIX-388.md) — new shared
+  `frontend/src/hooks/useEscapeToClose.ts`, called as `useEscapeToClose(onClose, open)` from
+  `WorkflowDialog.tsx`; `HomeLaunchGrid.tsx` needed no change (it already passes a correct
+  `onClose`). Test `suites/15_overlays/test_iss326_inspect_escape.py` XPASS(strict). The sibling
+  INFERRED cards ISS-489/ISS-491 are NOT fixed — their files are outside this card's globs; the
+  hook they need now exists. The stale `@pytest.mark.defect` test in
+  `suites/15_overlays/test_overlays.py::test_inspecting_a_catalog_workflow_describes_it_without_launching`
+  now fails on its Escape half BY DESIGN (it asserts the old wrong behaviour) — left untouched
+  for 6-verifier.
 
 ### Summary
 Clicking the "Inspect <card> details" button on any dashboard catalog card opens a dialog
@@ -148,11 +260,67 @@ Escape has no effect; the dialog remains open indefinitely until the user explic
 - **Page:** Library (Agents / Skills / Hooks catalog)
 - **Route:** /library, /library?tab=skills, /library?tab=hooks
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-27 22:17 UTC
 - **Found by:** bug-library-r1
+- **Verified:** 2026-08-28 — ran
+  `tests/integration/e2e/suites/08_library/test_iss231_search_empty_state.py` (.venv pytest,
+  chrome channel, base-url http://localhost:3000): all 3 XPASS(strict) before the xfail markers
+  were removed (agents/skills/hooks, 2.2s/2.0s/1.2s), then 3 passed plain-green after removal
+  (1.9s/1.3s/0.8s). Re-ran the ORIGINAL reproduction by hand in real Chrome (lane4, qa-admin,
+  light theme, cold /library -> /library?tab=skills -> /library?tab=hooks navigations, same
+  non-matching queries as the register): Agents shows "No agents match "qqqqnomatch12345"" +
+  Clear search, Skills shows "No skills match "zzzznonexistentquery"" + Clear search, Hooks
+  shows "No hooks match "xyznohooksmatch999"" + Clear search — all three tabs now render the
+  empty state instead of a blank grid. No console errors on any of the three loads. Backend
+  /docs -> 200 (no Python touched, no restart needed). `npx tsc --noEmit` in frontend/: same 8
+  pre-existing errors in HomeLaunchGrid.crossAccountLeak.test.tsx and listenerMiddleware.test.ts,
+  none in LibraryPage.tsx. `npx vitest run src/components/library/LibraryPage.test.tsx`: 9
+  passed. `lint-imports` from backend/: 3 kept / 1 broken, identical pre-existing contract break
+  (agents.execution_engine -> app.api via kernel_services/revision_analyzer), unrelated to this
+  fix. After-screenshots saved next to the original evidence:
+  `bug-hunter/evidence/library/BUG-20260827-221730-library/05-after-agents-empty-state.png`,
+  `06-after-skills-empty-state.png`, `07-after-hooks-empty-state.png`.
 - **Fingerprint:** `/library|search-input|type-nonmatching-query|blank-results-no-empty-state`
 - **Evidence:** `bug-hunter/evidence/library/BUG-20260827-221730-library/`
+- **Validated:** 3/3 on 2026-08-28, every cycle, cold start (fresh /dashboard -> /library nav
+  each time) — Agents tab default route, Skills tab via deep link, Hooks tab via deep link. No
+  trigger conditions needed; reproduces unconditionally.
+- **Issue card:** [ISS-231](../.knowledge/cards/20260828-1630-ISS-231.md)
+- **Root cause:** `LibraryPage.tsx`'s three result grids (Agents/Skills/Hooks) each render via a
+  ternary that special-cases only `*Status === "loading"` (lines 732, 793/815, 893/911); every
+  other branch falls to a bare `.map()` over the filtered array (`filteredAgents.map` line 735,
+  `activeSkills.map` line 818, `filteredHooks.map` line 914) with no `length === 0` case, so an
+  empty result — from search, category filter, or a failed fetch — renders nothing at all. The
+  header count (line 645/668) is a static unfiltered total, giving no signal a filter even ran.
+- **Blast radius:** contained to `frontend/src/components/library/LibraryPage.tsx` — one mount
+  point (`DashboardLayout.tsx:10`, `mainView === "library"`), all 3 in-file grids share the flaw
+  (matches the hunter's 3/3 repro across tabs). Checked every other search/filter component in
+  the frontend (Sidebar, AuditTab, WorkflowPickerModal, DesignSystemPicker, TemplateGallery,
+  PPTTemplateGallery, WorkflowHistory, AppBuilderPreview, SavedWorkflowsPage, AgentLibrary,
+  AgentsPopup, AgentSkillsPicker) — all already have their own empty-state branch; LibraryPage.tsx
+  is the sole outlier (same anti-pattern was fixed once before elsewhere, in `AgentsPopup.tsx`,
+  see [FIX-081](../.knowledge/cards/20260721-FIX-081.md)).
+- **Proposed fix location:** inside `LibraryPage.tsx`, one local helper called from all 3 grid
+  sites (735/818/914), keyed on the filtered array's `length`, not on whether a search string is
+  present — no new shared component needed (every sibling component in this codebase already
+  solves this locally, and the module's own architecture card documents single-file as
+  proportionate here).
+- **Issue cards:** [ISS-231](../.knowledge/cards/20260828-1630-ISS-231.md) (root, holds the full
+  blast-radius + fix-location analysis), [ISS-335](../.knowledge/cards/20260828-2040-ISS-335.md)
+  (sibling, INFERRED: category/event filter alone reaches the same unguarded map, no search text
+  needed), [ISS-330](../.knowledge/cards/20260828-2041-ISS-330.md) (sibling, INFERRED: a failed
+  agents/skills/hooks fetch renders the identical blank grid with zero error messaging)
+- **Fix card:** [FIX-342](../.knowledge/cards/20260828-2238-FIX-342.md) — one local
+  `EmptyGridState` (`LibraryPage.tsx:180`) called from a third ternary branch at all three grids
+  (`filteredAgents.length === 0` `:805`, `filteredSkills.length === 0` `:891`,
+  `filteredHooks.length === 0` `:993`), keyed on the array's length rather than on whether the
+  search box holds text, so the category/event-filter path lands there too. Integration test
+  `tests/integration/e2e/suites/08_library/test_iss231_search_empty_state.py` — 3 failed, all
+  three `[XPASS(strict)]`, i.e. the pass signal (xfail markers left for the verifier); sibling
+  `LibraryPage.test.tsx` 9 passed and `LibraryPage.reskin.test.tsx` 5 passed. ISS-335
+  (category-only trigger) and ISS-330 (failed fetch, which now reads "No agents found" — wrong
+  messaging for an error) were not verified here and stay open.
 
 ### Summary
 Typing a search term into the library search box (`input[name='library-search']`) that matches
@@ -202,11 +370,58 @@ all three library tabs.
 - **Page:** Settings · Profile (Account Settings)
 - **Route:** /settings/profile
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-27 22:23 UTC
 - **Found by:** bug-settings-profile-r1
 - **Fingerprint:** `/settings/profile|change-password-form|edit-confirm-field-after-mismatch-submit|stale-do-not-match-error-persists`
 - **Evidence:** `bug-hunter/evidence/settings-profile/BUG-20260827-222300-settings-profile/`
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduced on every cold-start cycle (fresh
+  `/dashboard` -> `/settings/profile` nav each time), including one cycle typed via
+  `pressSequentially` to rule out an event-wiring artifact. No narrowing needed.
+- **Root cause:** `message` state (`AccountSettings.tsx:99`) is written only inside
+  `handleChangePassword` (`AccountSettings.tsx:148-174`, mismatch branch at `:158-159`); the
+  Current/New/Confirm password `onChange` handlers (`AccountSettings.tsx:284,296,307`) update
+  only their own field and never call `setMessage(null)` or re-validate, so any banner set at
+  submit time — success or error — survives every later edit until the next submit click.
+  CONFIRMED by direct read of the cited lines.
+- **Blast radius:** No shared function is called elsewhere — this is a component-local
+  anti-pattern, not a shared-code defect. Grepped the whole frontend for every password-match
+  check (`do not match` / `confirmPassword` / `ConfirmPassword`): exactly 2 hits exist.
+  `AccountSettings.tsx` (this report) is one; `frontend/src/app/login/page.tsx`'s `ChallengeForm`
+  (Cognito `NEW_PASSWORD_REQUIRED` step) independently reimplements the identical shape — its
+  `error` state is written only inside `handleChangePassword`'s sibling `handleChallengeSubmit`
+  (`login/page.tsx:98-121`, mismatch branch `"Passwords do not match."` at `:105-108`) and never
+  cleared by any of its 4 field `onChange`s (`:453,469,495,514`). No third instance exists.
+- **Fix location:** Belongs in each component's own field `onChange` handlers (or a shared
+  "clear validation message on edit" hook introduced to cover both at once) — `AccountSettings.tsx`
+  and `login/page.tsx` are separate component trees with separate state, so one shared-function
+  guard cannot reach both; two call sites need the fix (or one shared hook both adopt).
+- **Issue cards:** [ISS-244](../.knowledge/cards/20260828-1634-ISS-244.md) (root, CONFIRMED),
+  [ISS-342](../.knowledge/cards/20260828-2059-ISS-342.md) (sibling: login.tsx ChallengeForm,
+  INFERRED — unreproduced, same mechanism confirmed by code read only)
+- **Fix card:** [FIX-341](../.knowledge/cards/20260828-2236-FIX-341.md) — `setMessage(null)` now
+  runs in all three password `onChange` handlers (`AccountSettings.tsx:284,296,307`), so the
+  submit-time banner cannot outlive the field values it asserts. Frontend test:
+  `AccountSettings.password-mismatch.test.tsx` — `it.fails()` now reports "Expect test to fail"
+  = 1 failed, i.e. the XPASS pass signal (marker left in place for the verifier); sibling
+  `AccountSettings.render.test.tsx` 8 passed and `AccountSettings.test.tsx` 4 passed. ISS-342
+  (login `ChallengeForm`) is a different file, outside ISS-244's globs, and stays open.
+- **Verified:** `AccountSettings.password-mismatch.test.tsx` re-run — XPASS confirmed
+  ("Error: Expect test to fail" = 1 failed, the pass signal), then `it.fails` marker removed and
+  re-run for a plain green (1 passed). Regression files re-run clean:
+  `AccountSettings.render.test.tsx` 8 passed, `AccountSettings.test.tsx` 4 passed. Manual repro
+  by hand in Chrome (lane5) as qa-admin on `/settings/profile`: submitted New=`SecondTry999` /
+  Confirm=`DifferentValue1`, "New passwords do not match" appeared; edited Confirm only to
+  `SecondTry999` (DOM read confirmed both password fields byte-identical) and the banner cleared
+  immediately, no submit click needed. No console errors on the page. `npx tsc --noEmit` clean
+  for `AccountSettings.tsx` and the test file (pre-existing unrelated errors in
+  `HomeLaunchGrid.crossAccountLeak.test.tsx` / `listenerMiddleware.test.ts` from other in-flight
+  work, not touched by this fix). Backend `:8000/docs` and frontend `:3000` both 200
+  (frontend-only fix, no restart needed). `lint-imports` (run from `backend/`) shows 1
+  pre-existing broken contract (`agents.execution_engine.engine` -> `app.api`, kernel-layering)
+  unrelated to this change — not touched here. Evidence:
+  `bug-hunter/evidence/settings-profile/BUG-20260827-222300-settings-profile/04-after-fix-mismatch-shown.png`,
+  `05-after-fix-banner-cleared.png`.
 
 ### Summary
 On the Password card of /settings/profile, entering a New password and a Confirm new password
@@ -262,11 +477,79 @@ that no longer exists until the user clicks submit again.
 - **Page:** Login (sign-in form)
 - **Route:** /login
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-27 22:27 UTC
 - **Found by:** bug-login-r1
 - **Fingerprint:** `/login|sign-in-button|rapid-repeated-click-with-valid-credentials|duplicate-login-requests-fired`
 - **Evidence:** `bug-hunter/evidence/login/BUG-20260827-222750-login/`
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — synchronous rapid triple-click reproduces every
+  cold-start cycle (cleared localStorage, fresh nav to /login); `disabled={isLoading}` never
+  gates the click because React's state commit lands after the synchronous clicks, not before.
+- **Issue card:** [ISS-245](../.knowledge/cards/20260828-1631-ISS-245.md)
+- **Root cause (CONFIRMED, `frontend/src/app/login/page.tsx:76-93,306-313`):** the only guard on
+  the Sign-in submit is `disabled={isLoading}`, a React-state prop; `setIsLoading(true)` is a
+  state update, not a synchronous DOM mutation, so the button's real `disabled` attribute does
+  not flip until React commits — a tick later than a same-task synchronous click. Any click that
+  lands in that pre-commit window independently re-invokes `handleSubmit`, each firing its own
+  `POST /api/auth/login`. There is no `useRef` (or other synchronous) lock closing the window.
+- **Blast radius:** grepped every caller of `login()` and `respondToLoginChallenge()`
+  (`frontend/src/lib/api.ts`) across `frontend/src/` — exactly one caller each, both in this same
+  file, so the broken function itself has no other consumer. The FLAW (a mutating submit gated
+  only by a React state `disabled` prop, no ref-based synchronous guard) independently recurs by
+  the same code shape on 3 other controls read and confirmed during analysis: `ChallengeForm`'s
+  Continue button (same file, `handleChallengeSubmit`), Composer's Save button
+  (`ComposerPage.tsx` `handleSave` — worse consequence: persists a duplicate workflow row, not
+  just a duplicate request), and Account Settings' email-MFA toggle (`SecuritySection.tsx`
+  `toggleEmailMfa` — worse consequence: an out-of-order response can leave displayed MFA state
+  wrong). Filed as siblings, all INFERRED pending their own reproduction.
+- **Proposed fix — where it belongs:** a synchronous `useRef<boolean>` guard
+  (check-and-set before `setIsLoading(true)`, cleared in `finally`) added directly inside
+  `handleSubmit` AND `handleChallengeSubmit` in `frontend/src/app/login/page.tsx` — both handlers
+  funnel every click for their respective forms, so the guard belongs there, not per-caller (there
+  is only one caller of each). The 3 sibling components need the identical local guard in their
+  own handlers; there is no shared submit hook in this codebase to centralize it in instead.
+- **Fixed:** 2026-08-28 by 5-fixer. `frontend/src/app/login/page.tsx` only — a synchronous
+  `submittingRef` check-and-set now gates `handleSubmit` (after `e.preventDefault()`, before
+  `setIsLoading(true)`) and `handleChallengeSubmit` (after its validation early-returns, so a
+  validation failure cannot latch the ref), both cleared in the existing `finally` beside
+  `setIsLoading(false)`. `disabled={isLoading}` is kept for the visible pending label; the ref
+  carries the correctness, because a ref mutates synchronously and a state commit does not.
+  Tests: `tests/integration/e2e/suites/01_auth/test_auth.py` → 1 failed, 16 passed, 9 skipped
+  in 41.41s, the one failure being `[XPASS(strict)] ISS-245 unfixed` on
+  `test_rapid_repeated_clicks_on_sign_in_fire_only_one_login_request` — the strict-xfail pass
+  signal; marker left in place for the verifier. The 9 skips are every ChallengeForm scenario
+  ("fixture: no account parked in a Cognito challenge state") — pre-existing, so the
+  `handleChallengeSubmit` half of the guard has no test behind it.
+  `frontend/src/app/login/login.reskin.test.tsx`
+  9/9 green (vitest). `npx tsc --noEmit` shows only the pre-existing HomeLaunchGrid/
+  listenerMiddleware test-type errors, neither file touched here. Frontend-only: no backend
+  restart needed, no migration, no engine or import-linter surface involved.
+- **Fix card:** [FIX-345](../.knowledge/cards/20260828-2250-FIX-345.md) — resolves
+  [ISS-245](../.knowledge/cards/20260828-1631-ISS-245.md) (status: resolved,
+  verification: passed). The same edit also closes the code gap behind
+  [ISS-352](../.knowledge/cards/20260828-2101-ISS-352.md) (ChallengeForm Continue, same file,
+  named in ISS-245's own proposed fix); ISS-352 stays `open` because it was never reproduced
+  and carries no test of its own. [ISS-353](../.knowledge/cards/20260828-2102-ISS-353.md)
+  (Composer Save) and [ISS-354](../.knowledge/cards/20260828-2103-ISS-354.md) (Settings MFA
+  toggle) live in other files and are UNTOUCHED — still open.
+- **Issue cards:** [ISS-245](../.knowledge/cards/20260828-1631-ISS-245.md) (root),
+  [ISS-352](../.knowledge/cards/20260828-2101-ISS-352.md) (sibling: ChallengeForm Continue
+  button), [ISS-353](../.knowledge/cards/20260828-2102-ISS-353.md) (sibling: Composer Save
+  button), [ISS-354](../.knowledge/cards/20260828-2103-ISS-354.md) (sibling: Account Settings
+  MFA toggle)
+- **Verified:** 2026-08-28 by 6-verifier. `tests/integration/e2e/suites/01_auth/test_auth.py`:
+  `test_rapid_repeated_clicks_on_sign_in_fire_only_one_login_request` ran XPASS(strict)
+  pre-fix-confirmation (1 failed, 16 passed, 9 skipped), `xfail` marker removed (`@pytest.mark.issue`
+  kept), re-run plain green (17 passed, 9 skipped, 0 failed). `frontend/src/app/login/login.reskin.test.tsx`
+  9/9 green (vitest). Manual re-run of the original register repro in real Chrome (lane6, qa-admin,
+  cold nav, `localStorage.clear()` then fresh `/login`): instrumented `window.fetch` and triple-clicked
+  the "Sign in" button synchronously (same technique the hunter used) — exactly 1 `POST /api/auth/login`
+  fired (confirmed independently via `browser_network_requests`), landed cleanly on `/dashboard`, no
+  new console errors. Health: backend `/docs` 200 (frontend-only fix, no restart needed); `npx tsc
+  --noEmit` shows only the pre-existing `HomeLaunchGrid.crossAccountLeak.test.tsx`/`listenerMiddleware.test.ts`
+  errors, neither touched here; `lint-imports` (run from `backend/`) shows the one pre-existing
+  `kernel imports only capability ports` break, confirmed unrelated (this fix is frontend-only, no
+  backend diff). Evidence: `bug-hunter/evidence/login/BUG-20260827-222750-login/04-after-fix-verified-single-login-request.png`.
 
 ### Summary
 On the sign-in form, filling in valid credentials and clicking "Sign in" multiple times in
@@ -319,7 +602,46 @@ extra click before the response returns fires its own independent `POST /api/aut
 - **Page:** Login (session-expired variant)
 - **Route:** /login?expired=true (also reproduces on plain /login)
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-28 by 6-verifier. `tests/integration/e2e/suites/01_auth/test_auth.py`
+  ran XPASS(strict) on both ISS-191 cases pre-fix-confirmation, `xfail` markers removed,
+  re-run plain green (25 collected, all pass/skip, 0 fail). `frontend/src/app/login/login.reskin.test.tsx`
+  9/9 green (vitest). Manual re-run of the original register repro in real Chrome
+  (qa-admin, cold nav): corrupt-token -> 401 auto-redirect to `/login?expired=true` ->
+  sign back in -> Back-navigation stays on `/dashboard` (no form flash) -> fresh direct
+  nav to `/login?expired=true` settles on `/dashboard` -> fresh direct nav to plain
+  `/login` settles on `/dashboard` -> `/register` hop (ISS-193) settles on `/dashboard`
+  too. No console errors on the affected page. `npx tsc --noEmit` and `lint-imports`
+  (run from `backend/`) both show pre-existing, unrelated failures only (HomeLaunchGrid/
+  listenerMiddleware test-type errors, the documented kernel/app.api contract break from
+  FIX-224's history) — none touch `frontend/src/app/login/page.tsx`. Evidence:
+  `bug-hunter/evidence/login-expired-true/BUG-20260827-223300-login-expired-true/04-after-fix-verified-redirects-to-dashboard.png`.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduces on fresh cold-start navigation to /login?expired=true or plain /login while authenticated, no timing dependency
+- **Root cause:** `frontend/src/app/login/page.tsx`'s `LoginForm` never imports or calls
+  `useEffect` — no mount-time check for an existing `auth_token` exists before it renders
+  the sign-in form unconditionally (CONFIRMED, full-file read). The inverse guard already
+  exists elsewhere (`frontend/src/app/page.tsx:9-18` for `/`, `[...view]/page.tsx:805-811`
+  for every protected screen) — only `/login`'s own "already signed in" case was never
+  built.
+- **Blast radius:** every code path that can land a browser on `/login` funnels through
+  this one broken render — direct nav, Back-navigation (both already validated), and
+  `frontend/src/app/register/page.tsx:12`, which redirects to `/login` unconditionally
+  with no `getToken()` check (CONFIRMED read), unlike every other login-redirect call site
+  in the codebase (`admin/page.tsx`, `handoff/settings/page.tsx`, `HandoffWorkflow.tsx`,
+  `LaunchWizard.tsx`, `[...view]/page.tsx`, all of which gate on `!token` first).
+- **Proposed fix:** add a mount-time `useEffect` in `LoginForm` (`frontend/src/app/login/page.tsx`)
+  that calls `getToken()` and, if present, `router.replace(resolveRedirectTarget(searchParams.get("redirect")))`
+  — reusing the file's own existing `goToDestination()`/`resolveRedirectTarget` primitives
+  — gated behind a `checked` render-state (`handoff/settings/page.tsx`'s `authed` pattern)
+  so the form does not flash before redirecting. Single-file fix; no shared hook needed,
+  matching this codebase's existing per-page auth-check convention.
+- **Issue cards:** [ISS-191](../.knowledge/cards/20260828-1330-ISS-191.md) (root — CONFIRMED
+  root cause + blast radius + proposed fix), [ISS-193](../.knowledge/cards/20260828-1554-ISS-193.md)
+  (sibling, INFERRED/unreproduced: an authenticated user on the literal `/register` route
+  is bounced into this same missing-guard `/login` page)
+- **Fix card:** [FIX-323](../.knowledge/cards/20260828-1629-FIX-323.md) — mount-time
+  `getToken()` guard + `checked` render gate in `frontend/src/app/login/page.tsx`;
+  ISS-191 and ISS-193 both resolved by that single file, no `register/page.tsx` change
 - **Found at:** 2026-08-27 22:33 UTC
 - **Found by:** bug-login-expired-true-r1
 - **Fingerprint:** `/login|auth-guard|navigate-to-login-while-authenticated|login-form-shown-instead-of-redirect`
@@ -390,11 +712,80 @@ navigation.
 - **Page:** Register (redirect stub) — unmatched sub-routes
 - **Route:** /register/anything, /register/abc123xyz (any nonexistent sub-path under /register)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-28 (lane4). `frontend/src/lib/routes.test.ts` re-run: XPASS
+  confirmed (`it.fails` reported "Expect test to fail" — 1 failed/58 passed), marker
+  removed and re-run plain green (59/59). Manual repro re-driven in real Chrome as
+  qa-admin (authenticated): `/register/anything` and `/register/abc123xyz` now both
+  render an actual "Not found" page with `location.href` staying on the bogus URL
+  (no dashboard fallthrough), no console errors. Exact `/register` (authenticated)
+  still redirects to `/dashboard`, unaffected (regression check). `npx tsc --noEmit`
+  clean on routes.ts/routes.test.ts. Backend `:8000/docs` → 200 (frontend-only change,
+  no restart required). Regression file `suites/01_auth/test_auth.py` — 17 scenarios,
+  all PASS including S-01-08 (register redirect stub). Evidence:
+  `bug-hunter/evidence/register/BUG-20260827-231407-register/04-verified-fix-notfound-anything.png`.
+  ISS-348/ISS-349/ISS-350 (login/admin/analytics siblings) remain open, unaffected by
+  this fix — not in scope for this bug's card set.
+- **Validated:** 3/3 on 2026-08-28, cold start each cycle (`/register/anything`,
+  `/register/abc123xyz`, `/register/deep/nested/path`) — no axis variation needed; the
+  trigger is simply authenticated + any `/register/<extra-segment(s)>` URL. Root cause:
+  `routes.ts:219` `head === 'register'` matches any depth, and `[...view]/page.tsx` has
+  no branch for `screen: 'register'`, so it falls through to the default dashboard render.
+- **Root cause:** `frontend/src/lib/routes.ts:231-233` — the `register` branch of
+  `parseViewPath` matches `head === 'register'` alone with no `segments.length === 1` guard
+  (unlike the sibling `create`/`workflows`/`runs`/`library`/`settings` branches, which all
+  check it), so `parseViewPath(['register', <anything>])` returns `{screen: 'register'}` for
+  any depth. `frontend/src/app/[...view]/page.tsx` has zero branches anywhere checking
+  `parsedView.screen === "register"` (confirmed by grep), so it never reaches the file's one
+  hard-404 gate, `if (parsedView.screen === "unknown") { notFound(); }` at line 3724.
+  `initialMainViewFor` (page.tsx:107-174) has no `case "register":` and falls to
+  `default: return undefined;` (line 171-172); that `undefined` becomes the `initialMainView`
+  prop DashboardLayout receives, and `DashboardLayout.tsx:515-530`'s `useState<MainView>`
+  initializer defaults to `return "home";` when `initialMainView` is falsy and no
+  wizard-pending sessionStorage flag is set — the exact line that renders dashboard content
+  under the bogus URL. CONFIRMED by reading all three files directly.
+- **Blast radius:** `parseViewPath` (routes.ts) is called from `[...view]/page.tsx` (the sole
+  render consumer), `error.tsx`/`global-error.tsx` (error-boundary screen-label telemetry
+  only), and `LibraryPage.tsx` (its own scoped call). The identical missing-depth-guard shape
+  also exists on the `login` (routes.ts:224-229) and `admin` (routes.ts:423-425) branches —
+  both have zero branches in page.tsx either (grep-confirmed), so `/login/<sub-path>` and
+  `/admin/<sub-path>` authenticated fall through to the dashboard via the exact same mechanism
+  (INFERRED, not yet reproduced — see ISS-348/ISS-349). The `analytics` branch
+  (routes.ts:418-420) has the same missing guard but page.tsx DOES have an explicit
+  `initialMainViewFor` case for it, so a bogus `/analytics/<sub-path>` renders the real
+  Analytics page instead of the dashboard (INFERRED — see ISS-350). Nothing else in the
+  frontend reads these screen discriminants (`grep -rn 'screen === "register"' frontend/src`
+  and the login/admin/analytics equivalents all return zero hits outside `routes.ts`/`page.tsx`
+  itself), so the fix is fully contained to `parseViewPath`.
+- **Proposed fix:** add the same `segments.length === 1` guard already used by
+  `create`/`workflows`/`runs`/`library`/`settings` to the `register`, `login`, and `admin`
+  branches in `parseViewPath` (`routes.ts`), falling through to the function's existing
+  `{screen: 'unknown'}` return otherwise — this is the single shared function every caller
+  routes through, so one guard there (not a patch in `page.tsx` or `DashboardLayout.tsx`) fixes
+  all three, and the existing `screen === "unknown"` → `notFound()` gate at page.tsx:3724
+  handles the 404 with no new page-component branch needed. `analytics` has the same parser
+  flaw but a milder consequence (a real screen renders, not the dashboard) — worth the same
+  guard for consistency with ADR-0018, but is a product call rather than a hard defect.
+- **Issue cards:** [ISS-238](../.knowledge/cards/20260828-1633-ISS-238.md) (root — `/register/<sub-path>`, CONFIRMED),
+  [ISS-348](../.knowledge/cards/20260828-2102-ISS-348.md) (sibling: `/login/<sub-path>`, INFERRED),
+  [ISS-349](../.knowledge/cards/20260828-2102-ISS-349.md) (sibling: `/admin/<sub-path>`, INFERRED),
+  [ISS-350](../.knowledge/cards/20260828-2102-ISS-350.md) (sibling: `/analytics/<sub-path>` renders the wrong-but-real screen, INFERRED)
+- **Fix card:** [FIX-344](../.knowledge/cards/20260828-2046-FIX-344.md) — one conjunct on the
+  `register` branch of `parseViewPath` (`frontend/src/lib/routes.ts:231-236`,
+  `head === 'register' && segments.length === 1`), so `/register/<sub-path>` falls through to
+  the function's terminal `{ screen: 'unknown' }` and `page.tsx:3724`'s existing `notFound()`
+  gate — no branch added to `page.tsx` or `DashboardLayout.tsx`. Frontend test
+  `frontend/src/lib/routes.test.ts` — 59 tests, 1 failed / 58 passed; the one failure is the
+  `it.fails('ISS-238: …')` case reporting "Expect test to fail", i.e. vitest's XPASS and the
+  pass signal (marker left in place for the verifier). `npx tsc --noEmit` clean on routes.ts.
+  ISS-348 / ISS-349 / ISS-350 (login, admin, analytics — same missing guard, all INFERRED,
+  no tests, not in this fixer's card set) are deliberately LEFT OPEN; any fix for them edits
+  this same file and must be serialized against FIX-344.
 - **Found at:** 2026-08-27 23:14 UTC
 - **Found by:** bug-register-r1
 - **Fingerprint:** `/register/<sub-path>|route-resolution|authenticated-user-navigates-to-unmatched-register-subroute|url-shows-register-subpath-but-dashboard-content-renders`
-- **Evidence:** `bug-hunter/evidence/register/BUG-20260827-231407-register/`
+- **Evidence:** `bug-hunter/evidence/register/BUG-20260827-231407-register/`, validator
+  scratch: `bug-hunter/evidence/register/_scratch/`
 
 ### Summary
 `/register` itself is a known, intentional redirect stub (out of scope here). But a nonexistent
@@ -461,7 +852,8 @@ persists across hard reloads and is stable, not a transient loading flash.
 - **Page:** Root entry point (redirect stub)
 - **Route:** `/`
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** DUPLICATE
+- **Duplicate of:** [ISS-217](../.knowledge/cards/20260828-1649-ISS-217.md) — validated 3/3 on 2026-08-28 (cycle 3 landed on `/dashboard` instead of `/` due to an extra history entry from a fresh login redirect, but the blank-body / `navType: back_forward` / `transferSize: 0` / no-hydration signature was identical in all three cycles); ISS-217 already documents this exact mechanism (React never hydrates on a `back_forward` navigation replay when bfcache is unavailable) reproducing on every route including `/login`, which has no auth gate at all — so this bug's `/` case is not a distinct defect, just another route hitting the same cause.
 - **Found at:** 2026-08-27 23:23 UTC
 - **Found by:** bug-root-r1
 - **Fingerprint:** `/|root-redirect|browser-back-after-corrupt-token-bounce-chain|blank-page-stuck-forever-no-redirect`
@@ -528,13 +920,21 @@ manual reload or new navigation.
 - State/URL: `location.href` stays `http://localhost:3000/` indefinitely; `auth_token` is
   confirmed `null` throughout; a manual `location.reload()` on the same URL immediately redirects
   to `/login`, isolating the defect to the Back-triggered load path specifically.
+- **Issue card:** none minted — DUPLICATE of [ISS-217](../.knowledge/cards/20260828-1649-ISS-217.md).
 
 ## BUG-20260827-234030-create — "Jump back in" recent-runs cache is not scoped per user, leaking a previous account's run history into a different signed-in user's session
 
 - **Page:** Create (catalog)
 - **Route:** /create (reproduces identically on /dashboard — same underlying `HomeLaunchGrid` component)
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
+- **Validated:** 3/3 on 2026-08-28, cycle 1 (deterministic, every cycle) — sign in as qa-admin, sign in as qa-basic without clearing sessionStorage, qa-basic's confirmed-empty live `/api/runs` response is still overridden by qa-admin's cached recents
+- **Verified:** 2026-08-28 by verifier. Ran `frontend/src/components/catalog/HomeLaunchGrid.crossAccountLeak.test.tsx` (ISS-188, ISS-201) and `frontend/src/store/listenerMiddleware.test.ts` (ISS-200) individually — both XPASS'd (`it.fails` reported "Expect test to fail"), `it.fails` markers removed, re-run confirmed plain green (3/3 passed). Regression: `HomeLaunchGrid.test.tsx` (8 passed) + `HomeLaunchGrid.inspect.test.tsx` (2 passed), no failures. Health: `npm run build` compiled clean, `curl :8000/docs` → 200 (backend untouched by this fix, no restart needed), `lint-imports` from `backend/` → 3 kept / 1 broken, identical pre-existing break unrelated to this change. Manual re-run of the ORIGINAL repro in real Chrome via Playwright MCP: signed in qa-admin on `/create`, confirmed the recents cache is now written under a per-user key (`vlc_home_recents_v1:<jwt-sub>`, not the old global key); cleared only `localStorage.auth_token`, signed in qa-basic; confirmed live `GET /api/runs?limit=50` for qa-basic returns `count: 0`; navigated to `/create` — no "Jump back in" leak, none of qa-admin's run titles ("Say hello in one sentence.", "Smoke test run for bug hunt round 2") found anywhere on the page, sessionStorage held only qa-admin's own scoped key, no console errors/warnings. Screenshot: `bug-hunter/evidence/create/BUG-20260827-234030-create/04-verified-fixed-qa-basic-no-leak.png`.
+- **Root cause:** `CACHE_KEY_RECENTS = "vlc_home_recents_v1"` (`frontend/src/components/catalog/HomeLaunchGrid.tsx:37`) is a single global `sessionStorage` key with no user/account/token component. The `recents` `useState` initializer (`HomeLaunchGrid.tsx:135-139`) falls back to `readCache(CACHE_KEY_RECENTS)` whenever both `recentRunsProp` and `reduxRecentRuns` are empty at mount — always true for an instant on every fresh sign-in. Neither of the two effects that can overwrite it (`:149-155`, `:159-166`) has an "else" branch, so a genuinely-empty live fetch can never clear a previously-cached non-empty value from a different account. `readCache`/`writeCache`/`CACHE_KEY_RECENTS` are private to this one file (confirmed via grep — no other caller), so the fix belongs entirely in `HomeLaunchGrid.tsx`: scope the key per user and/or add the missing empty-clears-cache branch to both effects.
+- **Blast radius:** `HomeLaunchGrid.tsx` is the sole owner of this cache (no other file imports `readCache`/`writeCache`), so there are no sibling *callers* of the broken function — but the same missing-invalidation-on-account-switch shape recurs one layer up in Redux: `store/listenerMiddleware.ts`'s `signedIn` listener (:17-47) guards `fetchRecentRuns`/`fetchWorkflows` (and, identically, the Library's `fetchAgentLibrary`/`fetchSkills`/`fetchHooks`) on fetch *status* alone, never on user identity, and `authSlice.ts`'s `signedIn` reducer (:24-28) sets the new token unconditionally with no prior-token comparison — so a token swap that isn't preceded by `handleLogout`'s explicit `signedOut()` dispatch or `handleSessionExpiry`'s hard reload (the only two paths that reset this state) leaves Redux itself serving the previous account's data (ISS-200, INFERRED). Separately, the same 3-line fallback in `HomeLaunchGrid.tsx` is not conditioned on the new account being empty — it fires on every account switch, so even a newly-signed-in account with genuine run history gets at least one paint of the previous account's cards before its own fetch resolves (ISS-201, INFERRED).
+- **Issue cards:** [ISS-188](../.knowledge/cards/20260828-1300-ISS-188.md) (root, CONFIRMED/validated),
+  [ISS-200](../.knowledge/cards/20260828-1605-ISS-200.md) (sibling: Redux preload guard leaks the same way one layer up, INFERRED),
+  [ISS-201](../.knowledge/cards/20260828-1607-ISS-201.md) (sibling: the same fallback flashes non-zero accounts too, INFERRED)
 - **Found at:** 2026-08-27 23:40 UTC
 - **Found by:** bug-create-r1
 - **Fingerprint:** `/create|home-launch-grid-jump-back-in|sign-in-as-different-user-after-prior-session-cached-recents|stale-foreign-user-run-data-rendered-despite-empty-api-response`
@@ -617,11 +1017,12 @@ that ever clears it once the live API genuinely returns zero results.
 - **Page:** PPT wizard shell (New presentation)
 - **Route:** /create/ppt
 - **Severity:** High
-- **Status:** Open
+- **Status:** DUPLICATE
 - **Found at:** 2026-08-27 23:46 UTC
 - **Found by:** bug-create-ppt-r1
 - **Fingerprint:** `/create/ppt|template-gallery-select-investment-banking-pitch-book|select-template-and-fill-brief|continue-permanently-disabled-no-design-system-ui-exists`
 - **Evidence:** `bug-hunter/evidence/create-ppt/BUG-20260827-234600-create-ppt/`
+- **Issue card:** [ISS-189](../.knowledge/cards/20260828-1457-ISS-189.md) (already covers this exact reproduction, root cause, and expected/actual; card body traces back to this register entry)
 
 ### Summary
 On the PPT wizard's Template step, selecting the "Investment Banking Pitch Book" template (via
@@ -691,11 +1092,67 @@ permanently blocking the wizard's Continue action for that template.
 - **Page:** Prototype wizard shell
 - **Route:** /create/prototype
 - **Severity:** High
-- **Status:** Open
+- **Status:** ESCALATED
 - **Found at:** 2026-08-27 23:54 UTC
 - **Found by:** bug-create-prototype-r1
 - **Fingerprint:** `/create/prototype|wizard-shell|browser-back-then-forward|blank-page-no-hydration`
 - **Evidence:** `bug-hunter/evidence/create-prototype/BUG-20260827-235402-create-prototype/`
+- **Validated:** 3/3 on 2026-08-28, cold start every cycle — Back-then-Forward sequence, not Back alone
+- **Root cause:** `frontend/src/app/[...view]/page.tsx`'s single catch-all `DashboardPage` gates
+  ALL rendering behind `if (!mounted || !isAuthenticated) return null` (`:3701`) — the FIRST
+  render-level return in the whole 4107-line file. Both flags are set exactly once by mount-only
+  `useEffect`s (`:416`/`:490-492` and `:431`/`:806-827`, the latter deps `[router, dispatch]`,
+  stable for the SPA session) that never fire again once true, and `grep`ing the whole frontend
+  for `pageshow`/`popstate`/`bfcache`/`back_forward` returns zero matches — nothing recovers a
+  bfcache-style restore anywhere (CONFIRMED, file:line read + grep). Forward is the only step
+  that reproduces the bug because it is the only one that re-initializes `DashboardPage` back to
+  its `false`/`false` defaults without the mount effects ever re-running to flip them; which
+  Next.js/browser mechanism does that (Router Cache miss vs. genuine bfcache restore) is
+  INFERRED, not readable from this repo — see ISS-190's diagnostic for how to settle it.
+- **Blast radius:** every one of the 34 `[...view]` screens shares this exact gate (ADR-0018),
+  so Back-then-Forward to ANY route is exposed, not only `/create/prototype` (INFERRED, unverified
+  on a second route). Two SEPARATE, independently-implemented copies of the identical anti-pattern
+  also exist: `frontend/src/components/workflow/LaunchWizard.tsx` (`authChecked`, `:161`/
+  `:259-270`/`:806`), which guards the actively-used legacy route `/workflow/create?mode=
+  ppt|prototype` (call sites: `CreationHub.tsx:31,35`, `DashboardLayout.tsx:1530,1557`) WITHOUT
+  going through `page.tsx`'s gate at all; and `frontend/src/app/handoff/settings/page.tsx`
+  (`authed`, `:21`/`:32`). A `page.tsx`-only fix covers neither.
+- **Proposed fix:** belongs in `frontend/src/app/[...view]/page.tsx`'s `DashboardPage` — the ONE
+  catch-all every screen already routes through, not duplicated per-route. Candidate: register a
+  `pageshow` listener once near the top of the component that forces `window.location.reload()`
+  when `event.persisted` or `performance.getEntriesByType('navigation')[0]?.type ===
+  'back_forward'` fires on an already-mounted instance (matches the manually-confirmed
+  100%-reliable reload recovery). Alternative: derive `mounted`/`isAuthenticated` synchronously
+  via a lazy `useState` initializer instead of a mount-only effect — needs care re: the
+  SSR-hydration-mismatch tradeoff `:413`'s comment says the current code deliberately chose.
+  `LaunchWizard.tsx`'s independent `authChecked` gate needs the SAME fix applied separately
+  (see ISS-197).
+- **5-fixer (2026-08-28): ESCALATED, no code changed.** The diagnostic ISS-190 itself asked for
+  was run before editing anything, and it disproves the recorded root cause. Measured in real
+  Chrome: the same Back-then-Forward sequence blanks EVERY route tried — `/dashboard`,
+  `/handoff/settings`, and `/login` (which has no auth gate, no `mounted` flag and renders
+  unconditionally) — so `page.tsx:3701`'s gate is not the mechanism. In the failure state
+  `document` carries no `__reactContainer$*` key and `document.body` no `__reactFiber$*`: React
+  never hydrates the app root, so `DashboardPage`/`LaunchWizard` never mount and NEITHER proposed
+  fix (an in-component `pageshow` listener, a lazy `useState` initializer) can execute. `pageshow`
+  reports `persisted: false`; the navigation is `type: "back_forward"` with `transferSize: 0` and
+  a body size identical to the fresh load (`/login`: 18826 B == `curl … | wc -c`), i.e. a complete
+  document replayed from Chrome's HTTP cache whose React streaming boundaries are never filled.
+  With Chrome's back/forward cache ENABLED (Playwright disables it by default via
+  `--disable-back-forward-cache`) the identical sequence renders correctly, `persisted: true` —
+  Back `/dashboard` innerText 2749, Forward `/create/prototype` innerText 1481. Full evidence and
+  the disposition questions a human must rule on:
+  [ISS-217](../.knowledge/cards/20260828-1649-ISS-217.md). ISS-190 set to `superseded`; ISS-195's
+  every-screen prediction is confirmed but wider than stated; ISS-197's `Loading…`-forever
+  prediction is disproven. The xfail test is untouched and still red (1 xfailed).
+- **Issue cards:** [ISS-190](../.knowledge/cards/20260828-1501-ISS-190.md) (root — CONFIRMED
+  mechanism, INFERRED trigger + blast radius + proposed fix),
+  [ISS-195](../.knowledge/cards/20260828-1558-ISS-195.md) (sibling, INFERRED/unreproduced: same
+  gate blocks all 34 `[...view]` screens, not just `/create/prototype`),
+  [ISS-197](../.knowledge/cards/20260828-1559-ISS-197.md) (sibling, INFERRED/unreproduced:
+  `LaunchWizard.tsx` + `handoff/settings/page.tsx` independently copy the identical anti-pattern),
+  [ISS-217](../.knowledge/cards/20260828-1649-ISS-217.md) (correction — the root cause above is
+  disproven by measurement)
 
 ### Summary
 Landing on `/create/prototype` normally, then pressing the browser **Back** button (returns to
@@ -762,7 +1219,7 @@ RSC payload, with no error, no loading indicator, and no way to recover except a
 - **Page:** Create app (simple launch panel — mislabeled as User Stories per known D-01)
 - **Route:** /create/app
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 00:01 UTC
 - **Found by:** bug-create-app-r1
 - **Fingerprint:** `/create/app|review-gates-checklist-vs-advanced-config-gate-dropdown|check-agent-in-review-gates-popover|advanced-modal-per-agent-gate-still-reads-no-gate`
@@ -831,16 +1288,217 @@ session.
   panel's `<select>`/combobox value for the checked agent is confirmed "No gate" via the
   accessibility tree, not just a screenshot read.
 
+### Validation
+- **Validated:** 3/3 on 2026-08-28, cold start each cycle — no timing/tier/theme variation
+  needed; a structural state disconnect, not a race. Root cause: `ReviewGatesSection.tsx`
+  writes `gateAgentIds` (submitted at launch as top-level `gate_agent_ids`), while
+  `CanvasConfigRail.tsx`'s per-agent Gate combobox reads/writes an unrelated `agent.gates`
+  array — the two are never synchronized.
+- **Issue card:** [ISS-247](../.knowledge/cards/20260828-1637-ISS-247.md)
+
+### Analysis
+- **Root cause (CONFIRMED):** Two disjoint state stores back "does this agent pause for human
+  review," with zero synchronization code in either direction. `ReviewGatesSection.tsx:36,83-86`
+  reports checked ids upward via `onChange(gateAgentIds, touched)`, landing in a plain ref
+  (`IdeaInputPage.tsx:912-915` `gateSelectionRef`) read only at submit time
+  (`IdeaInputPage.tsx:1343` `gate_agent_ids`). `CanvasConfigRail.tsx`'s `Gate` combobox derives
+  `chosenGate` purely from `sel.gates ?? []` (`CanvasConfigRail.tsx:248,253`) and its `selectGate`
+  writes back only via `patch` -> `onSelection(agent.id, next)` (`CanvasConfigRail.tsx:354-357`)
+  into the `selections` map `AgentsPopup.tsx`/`CanvasView.tsx` own — a field `ReviewGatesSection`
+  never reads and never writes. Confirmed the render chain from the "Advanced" button
+  (`IdeaInputPage.tsx:1841`) to the Gate combobox: `AgentsPopup.tsx:12` imports `CanvasView`,
+  which imports and renders `CanvasConfigRail` (`CanvasView.tsx:11,2291`).
+- **Blast radius:** `ReviewGatesSection` is rendered in exactly 2 places —
+  `IdeaInputPage.tsx:1864` (this bug's `/create/app`, and every other non-ppt/prototype pipeline
+  type it serves) and `LaunchWizard.tsx:1046` (ppt, prototype) — both wire the identical
+  ref-then-submit-only pattern into the identical `AgentsPopup`->`CanvasView`->`CanvasConfigRail`
+  chain (`LaunchWizard.tsx:243,583-584,1112-1125`). `ComposerPage.tsx`'s full-canvas mode does not
+  render `ReviewGatesSection` at all (confirmed by ISS-247), so it is not affected — it never
+  shows the checklist to disagree with the combobox in the first place. Backend-side,
+  `gate_agent_ids` is genuinely honored at run time for these two launch flows (see
+  `backend/app/api/run_commands.py`, `backend/CLAUDE.md:180`), so this is a display/consistency
+  defect, not a silent failure of the human-gate feature itself for the reported flow.
+- **Fix belongs in:** the shared `ReviewGatesSection.tsx` component's state model — it should
+  derive/report checked state from the same `selections[agentId].gates` field
+  `CanvasConfigRail.tsx` reads/writes, rather than each of its 2 callers maintaining a parallel,
+  never-synced `gateSelectionRef`. One change in the shared component routes both callers
+  through it; patching `IdeaInputPage.tsx` alone leaves `LaunchWizard.tsx` (ppt, prototype)
+  broken.
+- **Fixed:** 2026-08-28 by 5-fixer. Four frontend files, one mechanism — the per-step
+  `selections` map moves out of `AgentsPopup`'s private mount-once `useState` up to the two
+  launch panels, and the shared `ReviewGatesSection` writes into it. `ReviewGatesSection.tsx`
+  gains optional `selections`/`onSelectionsChange` props plus a pure `withHumanGate()` helper,
+  so `toggle` now also patches `selections[id].gates` (only `human` is added/removed —
+  `validation`, `conditional` and `before-human` are carried through; an emptied step is
+  deleted, the rule `handleCanvasSelection` already applies). `AgentsPopup.tsx` takes an
+  optional controlled `selections` prop (`controlledSelections ?? ownSelections`) — absent, it
+  behaves exactly as before. `IdeaInputPage.tsx` holds the live map as state seeded where the
+  popup's private seed came from (`cleanSelections` + a `useEffect` folding `manifestSelections`
+  in UNDER it, the precedence `mergedInitialSelections` had); `selectionsRef` is untouched as
+  the launch-payload source, so an untouched run still omits `selections` (INV-3).
+  `LaunchWizard.tsx` gets the same lift for ppt/prototype, with all six `selectionsRef.current =`
+  writers routed through the one `handleSelectionsChange`. The checklist's local `checkedIds`
+  seed and its `onChange(ids, touched)` contract are deliberately UNCHANGED — that is what keeps
+  `gate_agent_ids` byte-identical on an untouched run. Sending both is safe: engine.py:6382-6405
+  (WR-02) already skips a declared `human` gate when the inline `_should_gate` path fires for the
+  same step, so there is no second pause on the shared `gate_key`.
+  Tests: `tests/integration/e2e/suites/03_launch_panels/test_launch_panels.py::test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal`
+  → `[XPASS(strict)] ISS-247 unfixed` on 6 of 6 standalone runs — the strict-xfail pass signal;
+  marker left in place for the verifier. Whole file, `-m "not live and not destructive"`:
+  15 passed, 2 deselected, 1 xfailed in 97.22s — that one xfail is the SAME test losing a
+  read race under suite load, NOT the fix failing: it reads `gate.input_value()` immediately,
+  while `chosenGate` stays `""` until the async `/api/capabilities` fetch populates
+  `gateOptions` (`CanvasConfigRail.tsx:118,250-253`), and that run's own failure screenshot
+  (`tests/integration/test-runs/2026-08-28T23-05-fix-iss-247-regress4/03-launch_panels/UNMARKED-checking-a-review-gate-sets-that-agents-gate-in-the-advanced-modal/03-advanced-config-FAILED.png`)
+  shows Gate = "Human gate". The test was NOT edited — `expect(gate).not_to_have_value("")`
+  would settle it, but that is the verifier's call.
+  Vitest: ReviewGatesSection 12, AgentsPopup.reskin 14, IdeaInputPage.selections 4,
+  LaunchWizard 19, CanvasConfigRail 31, AdvancedExpander 11, IdeaInputPage.modelOverrides 2 —
+  all green. `npx tsc --noEmit` byte-identical to the pre-change baseline (9 lines, all in
+  HomeLaunchGrid.crossAccountLeak/listenerMiddleware tests, neither touched). Frontend-only:
+  no backend restart, no migration, no engine or import-linter surface involved.
+- **Fix card:** [FIX-346](../.knowledge/cards/20260828-2314-FIX-346.md) — resolves
+  [ISS-247](../.knowledge/cards/20260828-1637-ISS-247.md) (status: resolved, verification:
+  passed). The same shared-component change also carries
+  [ISS-361](../.knowledge/cards/20260828-2120-ISS-361.md) (LaunchWizard / ppt / prototype),
+  which stays `open` because it was INFERRED, never reproduced, and carries no test — the
+  ppt/prototype checklist was not driven here.
+  [ISS-362](../.knowledge/cards/20260828-2121-ISS-362.md) (the INVERSE direction: setting
+  Gate=Human in the modal does not tick the checklist) is UNTOUCHED and still open — deriving
+  `checkedIds` from `selections` would change the untouched-default seeding that
+  `ReviewGatesSection.test.tsx` pins and that `gate_agent_ids`' `touched` contract depends on,
+  which is a design decision, not this fix.
+- **Issue cards:** [ISS-247](../.knowledge/cards/20260828-1637-ISS-247.md) (root, pre-existing),
+  [ISS-361](../.knowledge/cards/20260828-2120-ISS-361.md) (INFERRED sibling: `LaunchWizard.tsx`
+  path, ppt/prototype, same mechanism unverified on those routes),
+  [ISS-362](../.knowledge/cards/20260828-2121-ISS-362.md) (INFERRED sibling: inverse direction —
+  setting Gate=Human in Advanced does not check the Review-gates checklist either).
+- **Verified:** 2026-08-28 by 6-verifier. `suites/03_launch_panels/test_launch_panels.py::test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal`
+  ran standalone: `[XPASS(strict)] ISS-247 unfixed` (confirmed the pass signal), then the
+  `xfail` marker was removed and it re-ran plain green (1 passed). Whole-file regression run:
+  16 passed, 1 deselected, 1 pre-existing failure
+  (`test_the_advanced_control_opens_the_agent_roster` — "Advanced says 6 agents but the canvas
+  renders 7 nodes"; confirmed pre-existing and unrelated by stashing the fix's 4 touched files
+  and re-running that one test standalone — identical `7 == 6` failure with the fix absent, so
+  it is the documented D-05/D-10 agent-count defect, not a regression from this change).
+  Manual re-run of the original repro in the browser (qa-admin, fresh `/create/app` load,
+  checked "Domain Discovery Agent" in Review gates, pill read "1 agent pause for review",
+  opened Advanced, selected the same node, Config tab): `Gate` combobox now shows
+  `option "Human gate" [selected]` — matches the checklist. No console errors/warnings on the
+  page (0/0). `npx tsc --noEmit`: 9 pre-existing lines (HomeLaunchGrid.crossAccountLeak /
+  listenerMiddleware tests, untouched by this fix) — unchanged from the fixer's baseline.
+  Backend `:8000/docs` → 200 (frontend-only fix, no restart needed). `lint-imports` (run from
+  `backend/`): 1 pre-existing broken contract (`agents.execution_engine.engine` -> `app.api`
+  via `kernel_services`/`revision_analyzer`) — unrelated to this frontend change, not
+  introduced by it. After screenshot:
+  `bug-hunter/evidence/create-app/BUG-20260828-000100-create-app/04-after-fix-advanced-config-shows-human-gate.png`.
+
 ## BUG-20260828-000600-create-user-stories — The Advanced modal's Workflow-level settings (Smart planning, Confirm requirements first, Deliverable strategy, Internet access) are permanently disabled with no explanation
 
 - **Page:** User-stories launch panel (Advanced Workflow Configuration modal)
 - **Route:** /create/user-stories
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 00:06 UTC
 - **Found by:** bug-create-user-stories-r1
 - **Fingerprint:** `/create/user-stories|advanced-modal-workflow-tab|open-workflow-tab-no-node-selected|all-workflow-level-controls-permanently-disabled-no-affordance`
 - **Evidence:** `bug-hunter/evidence/create-user-stories/BUG-20260828-000600-create-user-stories/`
+- **Validated:** 3/3 on 2026-08-28, cycle 1 every attempt — cold nav to /create/user-stories,
+  open Advanced modal, all 6 Workflow-tab controls disabled via DOM read; root cause in
+  `frontend/src/components/workflow/LaunchWizard.tsx:234-240` (declaredRunConfig documented as
+  read-only, no onRunConfigChange/onCapabilitiesChange forwarded) gating
+  `frontend/src/components/workflow/composer/CanvasView.tsx`'s six controls.
+- **Issue card:** [ISS-246](../.knowledge/cards/20260828-1657-ISS-246.md)
+
+### Analysis
+- **Root cause (CONFIRMED):** `frontend/src/components/workflow/AgentsPopup.tsx`'s own props
+  interface (`AgentsPopupProps`, lines 43-146) never declares `onRunConfigChange`/
+  `onCapabilitiesChange` at all — documented as deliberate at lines 71-80 ("Read-only here — no
+  `onRunConfigChange` is forwarded, so the rail's controls stay disabled exactly as before").
+  `AgentsPopup.tsx:2449-2469` renders `<CanvasView runConfig={runConfig} .../>` with no way to
+  forward either callback, so inside `CanvasView.tsx` all six controls
+  (`disabled={!onRunConfigChange}` at lines 1624/1639/1668/1703/1719,
+  `disabled={!onCapabilitiesChange}` at line 1750) render unconditionally disabled. None of the
+  six carries a lock icon/tooltip/`title` keyed off that condition — confirmed by contrast against
+  `CanvasConfigRail.tsx:600-610`, which disables its own "Execute commands" toggle the identical
+  way but DOES pair it with `<InfoHint>Not available to custom workflows.</InfoHint>` plus visible
+  sub-text — proof the codebase already has the "disabled + reason" pattern, just never applied
+  here.
+- **Blast radius:** Every production render of `<CanvasView>` (`grep -rn "<CanvasView"
+  frontend/src/`): (1) `AgentsPopup.tsx:2449` — reached via `LaunchWizard.tsx:1112` (every
+  built-in `/create/<mode>` launch, not just user-stories) AND `IdeaInputPage.tsx:1870` (the
+  compose-from-scratch entry) — both hit the identical no-explanation disabled state, since the
+  gap is structural in `AgentsPopupProps`, not per-caller. (2) `ComposerPage.tsx:1111` — the only
+  OTHER caller — unconditionally forwards both callbacks (`onCapabilitiesChange={setCapabilities}`
+  line 1135, `onRunConfigChange={setRunConfig}` line 1137), so the full-canvas Composer is NOT
+  affected. Traced the inverse case (does an edit that IS accepted actually take effect for a
+  built-in override, per ADR-0027's "steps only" invariant) and ruled it out: ComposerPage's
+  "Save as copy" for a `builtinCanvasType` forces a full manifest send
+  (`needsFullManifestOnSave`, ComposerPage.tsx:93-105), so edited workflow-level fields DO persist
+  and take effect on the new copy — not a second defect.
+- **Fix belongs in:** `CanvasView.tsx`'s `workflowSettingsSection` (defined once at line 1611,
+  rendered once at line 2288) — the single block every caller routes through. Adding the
+  `InfoHint`/sub-text pattern already used by `CanvasConfigRail.tsx`'s "Execute commands",
+  conditioned on `!onRunConfigChange`/`!onCapabilitiesChange`, there fixes both current callers
+  (LaunchWizard's and IdeaInputPage's `AgentsPopup`) and any future one for free. Patching
+  `AgentsPopup.tsx` alone would still leave `IdeaInputPage.tsx`'s identical usage unexplained.
+  NOTE: the "Reset to default" button (`CanvasView.tsx:2249`) sits in the same right rail but
+  OUTSIDE `workflowSettingsSection` (it's in the tab header, not the settings block) — the fixer
+  should confirm the fix's reach covers it too, or add it separately (see ISS-368).
+- **Issue cards:** [ISS-246](../.knowledge/cards/20260828-1657-ISS-246.md) (root, pre-existing),
+  [ISS-368](../.knowledge/cards/20260828-1927-ISS-368.md) (INFERRED sibling: the "Reset to
+  default" button shares the identical disabled-with-no-explanation flaw, outside ISS-246's
+  verified 6-control scope).
+- **Fixed:** 2026-08-28 by 5-fixer. `frontend/src/components/workflow/composer/CanvasView.tsx`
+  only, +31 lines, no deletions. The rail's read-only state now names itself: two derived
+  constants next to `formatLocked` (`runConfigLockedNote`/`capabilitiesLockedNote`, each the
+  shared id `workflow-settings-locked-note` or `undefined`), a visible note at the head of
+  `workflowSettingsSection` when either is set ("Read-only — these run settings come from this
+  workflow's own configuration and cannot be changed here"), and `aria-describedby` pointing at
+  it from all six controls (a new optional `describedBy` prop on the local `Toggle` carries it
+  for the three switches) PLUS the tab-header "Reset to default" button, which the analysis
+  flagged as sitting outside the settings block. Placed in `CanvasView` because that is where
+  the `disabled` gate itself lives, so `IdeaInputPage`'s composer popup gets the same
+  explanation from one edit; forwarding the callbacks from `AgentsPopup` instead would have made
+  a built-in's workflow-level config editable from the launch panel, which ADR-0027 rules out —
+  the read-only behaviour is deliberate and is unchanged. `ComposerPage` passes both callbacks,
+  so both constants are `undefined` there and the full-page Composer renders identically.
+  Tests: `suites/03_launch_panels/test_advanced_modal_workflow_settings_disabled_explanation.py`
+  → XPASS(strict) ("[XPASS(strict)] ISS-246 unfixed", 1 failed of 1) — the pass signal; marker
+  left in place for the verifier. Vitest `CanvasView.test.tsx` 24/24 green. `npx tsc --noEmit`
+  reports nothing in CanvasView.tsx (the 6 remaining errors are in
+  HomeLaunchGrid.crossAccountLeak/listenerMiddleware tests, untouched). `npx eslint` on the file:
+  0 errors, 14 pre-existing `react-hooks/static-components` warnings. Frontend-only: no backend
+  restart, no migration, no engine or import-linter surface involved.
+- **Fix card:** [FIX-348](../.knowledge/cards/20260828-2321-FIX-348.md) — resolves
+  [ISS-246](../.knowledge/cards/20260828-1657-ISS-246.md) (status: resolved, verification:
+  passed). The same edit also covers
+  [ISS-368](../.knowledge/cards/20260828-1927-ISS-368.md)'s "Reset to default" button, but that
+  card stays `open`: it was INFERRED, never reproduced, carries no test, and was not this
+  fixer's assigned card — the verifier should read that button's `.disabled` +
+  `aria-describedby` while it is already in the modal and close it if confirmed.
+- **Verified:** 2026-08-28 by 6-verifier. Ran
+  `suites/03_launch_panels/test_advanced_modal_workflow_settings_disabled_explanation.py` alone
+  (venv `tests/integration/e2e/.venv`) — first pass confirmed
+  `[XPASS(strict)] ISS-246 unfixed` (the pass signal), removed the `xfail` marker (kept
+  `@pytest.mark.issue("ISS-246")`), re-ran: plain green (1 passed, 12.3s). Manual re-run of the
+  ORIGINAL repro by hand in Chrome (lane6, qa-admin, cold nav `/dashboard` → `/create/user-stories`
+  → "Advanced 7 agents"): all six Workflow-tab controls (3 switches, 2 selects, 1 input) remain
+  `disabled === true` (deliberate, per ADR-0027 — unchanged), but every one now carries
+  `aria-describedby="workflow-settings-locked-note"`, and that element's text reads "Read-only —
+  these run settings come from this workflow's own configuration and cannot be changed here." The
+  "Brief instruction" textarea control stayed non-disabled throughout, ruling out a page-wide
+  rendering fluke. Also confirmed the tab-header "Reset to default" button (ISS-368's scope, not
+  this bug's assigned card) now carries the same `aria-describedby`. 0 console errors on the page.
+  `npx tsc --noEmit` in `frontend/`: 0 errors in `CanvasView.tsx` (6 remaining errors are
+  pre-existing, in `HomeLaunchGrid.crossAccountLeak.test.tsx`/`listenerMiddleware.test.ts`,
+  untouched by this fix). `npx vitest run src/components/workflow/composer/CanvasView.test.tsx`:
+  24/24 green. `backend/` `lint-imports`: 1 pre-existing broken contract
+  (`agents.execution_engine.engine` → `app.api`, unrelated `kernel_services`/
+  `revision_analyzer` import boundary) — confirmed pre-existing (no backend files touched by this
+  fix, contract violation is in files this change never edits). Frontend-only fix, no backend
+  restart required; `:8000/docs` confirmed 200. After-screenshot:
+  `bug-hunter/evidence/create-user-stories/BUG-20260828-000600-create-user-stories/04-after-verified-locked-note.png`.
 
 ### Summary
 Opening the "Advanced" modal and viewing its right-rail "Workflow" tab (the default view when no
@@ -908,7 +1566,7 @@ why, blocking a user from ever changing "Smart planning", "Confirm requirements 
 - **Page:** Branch by Language launch panel (Advanced Workflow Configuration modal)
 - **Route:** /create/ex_A2_branch
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 00:11 UTC
 - **Found by:** bug-create-ex-a2-branch-r1
 - **Fingerprint:** `/create/ex_A2_branch|advanced-modal-conditional-gate-route-editor|change-outcome-type-and-target-then-click-cancel|edit-persists-across-modal-close-and-reopen`
@@ -985,16 +1643,215 @@ within the same page session, even though nothing was ever saved to the backend.
   step 9 correctly reset the panel, isolating the defect to the modal's Cancel handler rather
   than a backend persistence bug.
 
+- **Issue card:** [ISS-258](../.knowledge/cards/20260828-1650-ISS-258.md)
+- **Root cause:** The embedded route/outcome editor writes through `onRouteChange`
+  (`CanvasConfigRail.tsx:295`) → `onTreeChange` (`CanvasView.tsx:748-751`, wired at `:2302`) →
+  the host's `onReorder` prop (`AgentsPopup.tsx:2462`) → `setPipelineAgents`
+  (`IdeaInputPage.tsx:1540-1542`), the React state the canvas renders from. Cancel
+  (`AgentsPopup.tsx:2492-2493`, `onClick={onClose}`) only flips `showAgents`
+  (`IdeaInputPage.tsx:1882`, `() => setShowAgents(false)`) and never restores `pipelineAgents` —
+  no snapshot of it is ever taken when the modal opens. This corrects ISS-258's own root-cause
+  attribution (`AgentsPopup.tsx:2242-2248`'s `handleSelectionsChange`/`onSelectionsChange`/
+  `selectionsRef`), which is real code with the identical defect shape but is wired to a
+  different edit surface (the flat per-agent levers, not the route/outcome editor) — see ISS-364.
+- **Blast radius:** both production callers of `AgentsPopup` — `IdeaInputPage.tsx:1870`
+  (`/create/<id>`, this bug's own route) and `LaunchWizard.tsx:1112` (`/workflow/create` and the
+  ppt/prototype branch of `/workflows/{id}/run`) — confirmed via
+  `grep -rn "<AgentsPopup" frontend/src/ --include="*.tsx"` (2 production hits + 4 in
+  `AgentsPopup.reskin.test.tsx`). Every other edit that funnels through the same `onTreeChange`/
+  `onReorder` chain (add/remove/reorder agent) shares the identical un-restored Cancel, as does
+  every edit through the adjacent `onSelectionsChange`/`selectionsRef` chain (Model/Validators/
+  Gates/Retry levers).
+- **Fix belongs in:** `AgentsPopup.tsx` itself, once — not in either host page. It already takes
+  a one-time mount snapshot for `liveSelections` (`:2233-2241`); the same staged-copy-with-
+  restore-on-Cancel needs to cover `agents`/`pipelineAgents`, with Cancel (`:2492-2493`)
+  resetting both staged copies and re-emitting them to the host before calling `onClose`. One
+  diff in the shared component fixes both hosts and every edit channel; patching either host
+  page alone, or patching `handleSelectionsChange` alone per ISS-258's original fix sketch,
+  would leave the reported route-editor case unfixed.
+- **Issue cards:** [ISS-258](../.knowledge/cards/20260828-1650-ISS-258.md) (original — repro and
+  evidence stand; root-cause mechanism superseded),
+  [ISS-363](../.knowledge/cards/20260828-2129-ISS-363.md) (root — corrected mechanism),
+  [ISS-364](../.knowledge/cards/20260828-2130-ISS-364.md) (sibling, INFERRED: flat-lever edits
+  via `selectionsRef`),
+  [ISS-365](../.knowledge/cards/20260828-2131-ISS-365.md) (sibling, INFERRED: add/remove/reorder-
+  agent edits),
+  [ISS-366](../.knowledge/cards/20260828-2132-ISS-366.md) (sibling, INFERRED: same defect via
+  `LaunchWizard`'s `AgentsPopup` instance)
+- **Fix card:** [FIX-349](../.knowledge/cards/20260828-2324-FIX-349.md)
+- **Fixed:** `frontend/src/components/workflow/AgentsPopup.tsx` — the modal now snapshots the
+  host's `agents` + `liveSelections` on the `isOpen` edge and re-emits that snapshot
+  (`onReorder?.(snapshot.agents)` + `handleSelectionsChange(snapshot.selections)`) before
+  `onClose()`, from a new `handleCancel` wired to the Cancel button, the header X and the
+  backdrop. The post-save `onClose()` in `handleSaveWorkflow` is untouched. One diff in the
+  shared component, so both hosts and every edit channel are covered.
+- **Test:** `tests/integration/e2e/suites/03_launch_panels/test_iss258_advanced_modal_cancel_discards_route_edit.py`
+  → **1 xfailed, NOT the XPASS a clean fix produces.** The remaining failure is entirely
+  test-side: line 63 asserts `to_have_value("Step")` but the markup is
+  `<option value="step">Step</option>` (`CanvasConfigRail.tsx:843`), so the value is `step`.
+  Everything the bug is about passed on the same run — steps 1-3 ok, and the line-57
+  `DIVERT_NODE count == 0` assertion passed, i.e. the cancelled route edit's divert node is
+  gone after Cancel + reopen. Verifier: correct that one literal to `"step"` (a fixer does not
+  edit a test to make it pass) and it XPASSes.
+- **Verified (REOPENED):** Ran
+  `suites/03_launch_panels/test_iss258_advanced_modal_cancel_discards_route_edit.py` with
+  `--runxfail` three times (offline tier, real Chrome via pytest-playwright). Result was flaky
+  across runs, not the single test-side label mismatch the fixer reported: 1/3 failed exactly as
+  FIX-349 described (line 63 `to_have_value("Step")` vs actual `"step"`); the other 2/3 failed
+  because the reopened modal showed **`0 agents`** and no `Pick Language` node at all — the
+  divert-node edit was gone, but so was every other agent, not just the cancelled edit.
+  Screenshot evidence:
+  `tests/integration/test-runs/2026-08-28T23-39-local/03-launch_panels/UNMARKED-advanced-modal-cancel-discards-a-conditional-gate-route-edit/03-cancel-and-reopen.png`
+  and the `2026-08-28T23-31-local` run's equivalent shot both show "0 AGENTS" on reopen. Root
+  cause confirmed by reading `AgentsPopup.tsx:2377-2379`: `openSnapshot`'s `useEffect` depends
+  only on `[isOpen]` and snapshots the live `agents`/`liveSelections` the instant `isOpen` flips
+  true — if the modal is opened before the host's `pipelineAgents` has finished loading from its
+  own async fetch (steps.json for the `23-39` run shows the "advanced-open" step completing only
+  352ms after `page.goto`), the snapshot captures the still-empty initial array. `handleCancel`
+  then calls `onReorder?.(snapshot.agents)` with that empty array, wiping every real agent from
+  `pipelineAgents` — a regression strictly worse than the original bug (data loss vs. an
+  un-discarded edit). A manual re-run in the browser with a deliberate wait for "5 agents" to
+  render before opening the modal did NOT reproduce this (correctly showed 5 agents, no divert
+  node, Type reset to "Step" on Cancel + reopen) — the defect is a load-order race, not
+  present-100%-of-the-time, which is exactly why it survived FIX-349's own 3-run manual
+  verification but shows up 2/3 in the faster automated test. xfail marker left in place; cards
+  left `resolved`/`active` unchanged pending a real fix (snapshot must wait for `agents` to be
+  populated, not just `isOpen`, before restoring on Cancel).
+- **Re-fix card:** [FIX-365](../.knowledge/cards/20260829-0045-FIX-365.md) — the reopened
+  regression, fixed in the same file FIX-349 touched
+  (`frontend/src/components/workflow/AgentsPopup.tsx`, no other file). `openSnapshot` is no
+  longer taken on the `isOpen` edge; it is STAGED by the first modal-initiated write, via a
+  `stageEdit()` that reads the live `agents`/`liveSelections` at that moment. The
+  `[isOpen]` effect now only CLEARS on close. Every in-modal write to host state routes
+  through it: a new `handleTreeChange` wrapping `onReorder` (what `<CanvasView
+  onTreeChange=…>` now receives — route/outcome editor, rename, reorder, reparent, the
+  detach reconciler and `addSubAgent`), `handleSelectionsChange` (the flat levers),
+  `handleRemove`, and the `AgentLibrary` add closure. A snapshot can therefore never capture
+  a roster that has not arrived — a user cannot edit a tree that is not rendered — so the
+  empty-array wipe is structurally impossible. `handleCancel` is unchanged apart from
+  clearing the ref LAST (the restore runs through `handleSelectionsChange`, which would
+  otherwise re-arm it), and `if (snapshot)` now means "nothing was edited, re-emit nothing".
+  The post-save `onClose()` and "Open in full canvas" still keep their edits.
+- **Re-verified:** `suites/03_launch_panels/test_iss258_advanced_modal_cancel_discards_route_edit.py`
+  run 4x from `tests/integration/e2e` (offline tier, real Chrome). `--runxfail` x3: 3/3 failed
+  at line 63 and ONLY line 63 — `AssertionError: Locator expected to have Value 'Step' /
+  Actual value: step`, aria snapshot `combobox "Type": option "Step" [selected]`. The 2/3
+  "0 agents" wipe is GONE: every run resolved `canvas-node-custom-agent:language` after the
+  reopen and passed the line-57 `DIVERT_NODE count == 0` assertion. Plain run
+  (`2026-08-29T00-42-local`): 1 xfailed, all three shot-steps ok; its
+  `03-cancel-and-reopen.png` shows "5 AGENTS · EX_A2_BRANCH", all five nodes, the
+  english/spanish/dutch route edges and no divert node. The remaining red line is still the
+  test-side `to_have_value("Step")` vs the `<option value="step">` markup
+  (`CanvasConfigRail.tsx:829`) — left for the verifier to correct, as a fixer does not edit a
+  test to make it pass; xfail marker left in place. Regression guards:
+  `AgentsPopup.reskin.test.tsx` 14/14 green; `tsc --noEmit` 6 errors, the identical
+  pre-existing set FIX-349 recorded, zero in AgentsPopup.tsx; `eslint AgentsPopup.tsx`
+  0 errors / 10 warnings, none in the changed region. Frontend-only — no backend restart, no
+  migration, no engine or import-linter surface touched.
+- **Verified:** 2026-08-29 by 6-verifier. Corrected the test-side literal on
+  `suites/03_launch_panels/test_iss258_advanced_modal_cancel_discards_route_edit.py:63`
+  from `to_have_value("Step")` to `to_have_value("step")` (matches
+  `<option value="step">`, `CanvasConfigRail.tsx:829` — a fixer does not edit a test, so
+  this was left for the verifier per FIX-365's own note). `--runxfail` x3: 3/3 XPASS clean
+  (no failure at all, including the fast-open race that broke FIX-349). Removed the
+  `xfail` marker, kept `@pytest.mark.issue("ISS-258")`, re-ran plain: 1 passed, 3 shots,
+  9.4s. Manual re-run of the original repro by hand in the browser (qa-admin,
+  `lane4`, fresh `/create/ex_A2_branch`): opened Advanced (5 agents, no divert node),
+  changed the `english` outcome's Type to Workflow, picked "Spanish Greeter" — the
+  "Spanish Greeter — Diverts run" node appeared as expected — clicked Cancel, reopened
+  Advanced: canvas shows all 5 original agents, no divert node, "Route 3 outcomes" pill,
+  and the `english` outcome's Config-tab Type combobox is back to `option "Step"
+  [selected]`. No console errors/warnings (`browser_console_messages`: 0/0).
+  Evidence: `bug-hunter/evidence/create-ex-a2-branch/BUG-20260828-001100-create-ex-a2-branch/04-verified-after-cancel-reopen-english-type-step.png`.
+  Health: `frontend/tsc --noEmit` — same 6 pre-existing errors as FIX-365 recorded
+  (`HomeLaunchGrid.crossAccountLeak.test.tsx` x4, `listenerMiddleware.test.ts` x2), zero
+  in `AgentsPopup.tsx`. `backend` `:8000/docs` → 200 (no backend restart needed,
+  frontend-only fix). `backend/ lint-imports` shows one broken contract
+  (`agents.execution_engine.engine` → `app.api.*`), but it is entirely inside backend
+  Python files this fix never touched (`AgentsPopup.tsx` is the fix's only diff) —
+  unrelated to this bug, not evaluated further here. Regression:
+  `frontend npx vitest run AgentsPopup.reskin.test.tsx` 14/14 green;
+  `suites/03_launch_panels/test_launch_panels.py` whole-file run — the one FAILED
+  (`test_the_advanced_control_opens_the_agent_roster`, "Advanced says 6 agents but the
+  canvas renders 7 nodes" on `/create/user-stories`) is the documented pre-existing
+  D-05/D-10 agent-count defect (already confirmed pre-existing via a stash test by the
+  2026-08-28 ISS-247 verification above); the two ISS-306 xfails in that file are also
+  pre-existing/unrelated. No regression traced to this fix.
+
 ## BUG-20260828-001420-workflow-create-ppt — `/workflow/create` never redirects when `mode` is absent or empty, leaving the legacy URL live and uncanonicalized
 
 - **Page:** Legacy wizard entry URL (redirect stub)
 - **Route:** /workflow/create (no query string), /workflow/create?mode= (empty value)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 00:14 UTC
 - **Found by:** bug-workflow-create-ppt-r1
 - **Fingerprint:** `/workflow/create|legacy-wizard-redirect|navigate-with-no-mode-param-or-empty-mode-value|no-redirect-fires-legacy-url-serves-live-prototype-content`
 - **Evidence:** `bug-hunter/evidence/workflow-create-ppt/BUG-20260828-001420-workflow-create-ppt/`
+- **Validated:** 3/3 from cold start on 2026-08-28 — every cycle (bare URL, empty `mode=`, bare
+  URL again) reproduced identically, no axis narrowing needed. Root cause:
+  `frontend/src/app/workflow/create/page.tsx` `CreateRoute()` never calls `router.replace`
+  for missing/empty `mode` — it only canonicalizes `raw === "ppt" || raw === "ppt_v2"` and
+  silently renders the prototype wizard in place for everything else.
+- **Root cause (analyzer, CONFIRMED):** `frontend/src/proxy.ts:8` — `if (mode) { return
+  NextResponse.redirect(new URL(\`/create/${mode}\`, request.url)); }` else fall through
+  unchanged (line 12's own comment: "If mode is missing, pass the request through
+  unchanged"). This edge middleware (`matcher: ["/workflow/create"]`), not `page.tsx`, is
+  the actual canonicalization layer — [ISS-227](../.knowledge/cards/20260828-1554-ISS-227.md)'s
+  browser reproduction already proved this exact redirect fires for any truthy `mode`,
+  which is why `?mode=ppt`/`?mode=prototype` do canonicalize. `searchParams.get("mode")`
+  returns `null` (key absent) or `""` (key present, empty) — both falsy, both take the
+  passthrough branch with zero fallback destination. `page.tsx`'s `CreateRoute()` is not
+  itself a broken redirect stub; it is the passthrough content renderer for whatever
+  `proxy.ts` declines to redirect, and never receives a truthy `raw` in current shipped
+  behavior. `next.config.ts` (read in full) carries no `/workflow/create` rule — a comment
+  in `[...view]/page.tsx:3583-3592` attributing the redirect to "next.config.ts's T17
+  redirect" is stale documentation, not a functional issue.
+- **Blast radius:** every in-app caller of `/workflow/create` (`CreationHub.tsx:31,35`,
+  `DashboardLayout.tsx:1547,1574`, `globalSlice.ts`'s `WIZARD_ROUTES`) always passes a
+  hardcoded truthy mode, so none can trigger the falsy branch — the only route in is
+  external (bookmark/hand-typed/stale link), matching the hunter's direct-navigation repro
+  method. Inverse direction (`/create/{mode}` redirecting back) checked and is fine — a
+  deliberate non-redirect per `[...view]/page.tsx:3773-3774`'s own comment. No
+  tier/theme/viewport dependency (edge-layer check, runs before auth/render).
+- **Proposed fix location:** `frontend/src/proxy.ts` — extend the SAME mechanism already
+  used for every other `mode` value (default the mode before building the redirect target)
+  rather than adding a second, divergent client-side redirect path in `page.tsx`. See
+  [ISS-227](../.knowledge/cards/20260828-1554-ISS-227.md) for the neighboring defect in the
+  same function (truthy branch's destination is unsanitized) — do not reintroduce that gap
+  while adding the default.
+- **Issue cards:** [ISS-250](../.knowledge/cards/20260828-1645-ISS-250.md) (root — validator's
+  original card, extended in this pass with the `proxy.ts` mechanism, blast radius and fix
+  location), [ISS-376](../.knowledge/cards/20260828-2152-ISS-376.md) (sibling, INFERRED:
+  `CreateRoute()` has no canonicalization fallback of its own — depends entirely on
+  `proxy.ts` having already redirected before it renders; unreproduced, see card for what
+  would confirm it)
+- **Fix card:** [FIX-347](../.knowledge/cards/20260828-2318-FIX-347.md) — resolves
+  [ISS-250](../.knowledge/cards/20260828-1645-ISS-250.md) (status: resolved, verification:
+  passed). One line in `frontend/src/proxy.ts`: the `if (mode)` branch is gone and `mode`
+  defaults — `searchParams.get("mode") || "prototype"` — before the destination is built,
+  so every request matching `matcher: ["/workflow/create"]` now redirects (bare and
+  `?mode=` both land on `/create/prototype`, the same wizard `page.tsx` rendered in place).
+  The ISS-227 `encodeURIComponent` traversal guard on the truthy path is untouched; the
+  default is a literal, not query input. Verified: `npx vitest run src/proxy.test.ts` from
+  `frontend/` — both `it.fails` guards XPASS ("Error: Expect test to fail", 2 failed of 2),
+  the marker left in place for the verifier. `npx eslint src/proxy.ts` clean.
+  `frontend/src/app/workflow/create/page.tsx` deliberately NOT touched — that is
+  [ISS-376](../.knowledge/cards/20260828-2152-ISS-376.md), INFERRED and unreproduced, still
+  `open`. Frontend-only: no backend restart, no migration, no engine or import-linter
+  surface involved.
+- **Verified:** `cd frontend && npx vitest run src/proxy.test.ts` — both cases observed XPASS
+  first ("Error: Expect test to fail", 2 failed of 2, confirming the pre-fix `it.fails`
+  markers), then the `it.fails` wrappers removed and re-run: 1 file / 2 tests passed, plain
+  green. Regression: `npx vitest run src/lib/routes.test.ts` — 59 passed. `npx tsc --noEmit`
+  shows only pre-existing unrelated errors in `HomeLaunchGrid.crossAccountLeak.test.tsx` and
+  `listenerMiddleware.test.ts` (neither touched by this fix). `npx eslint src/proxy.ts
+  src/proxy.test.ts` clean. Backend `:8000/docs` → 200 (frontend-only fix, no restart
+  needed). Manual re-run of the original repro in Chrome (lane5, qa-admin, signed in): bare
+  `http://localhost:3000/workflow/create` now lands on `http://localhost:3000/create/prototype`;
+  `?mode=` (empty) also lands on `/create/prototype`; baseline `?mode=ppt` still lands on
+  `/create/ppt` (unchanged). No console errors/warnings on any of the three navigations.
+  After-screenshot: `bug-hunter/evidence/workflow-create-ppt/BUG-20260828-001420-workflow-create-ppt/04-verified-bare-url-now-redirects-to-create-prototype.png`.
 
 ### Summary
 C-1/the documented redirect behavior covers `/workflow/create?mode=ppt` and
@@ -1062,11 +1919,77 @@ identity for the same feature instead of ever being canonicalized away.
 - **Page:** Legacy wizard entry URL for the prototype mode
 - **Route:** /workflow/create?mode=nonsense (any unrecognized, non-empty `mode` value)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 00:17 UTC
 - **Found by:** bug-workflow-create-prototype-r1
 - **Fingerprint:** `/workflow/create|mode-param-redirect|navigate-with-unrecognized-nonempty-mode-value|redirects-to-generic-0-agent-composer-permanently-disabled-no-error-shown`
+- **Tests:** [ISS-374](../.knowledge/cards/20260828-2146-ISS-374.md) →
+  `tests/integration/e2e/suites/03_launch_panels/test_iss374_unrecognized_slug_dead_end.py`;
+  [ISS-375](../.knowledge/cards/20260828-2147-ISS-375.md) →
+  `tests/integration/e2e/suites/03_launch_panels/test_iss375_transient_fetch_failure_dead_end.py`
+  (both observed red, xfail strict pending fix)
 - **Evidence:** `bug-hunter/evidence/workflow-create-prototype/BUG-20260828-001720-workflow-create-prototype/`
+- **Fixed:** 2026-08-28 by 5-fixer. [FIX-351](../.knowledge/cards/20260828-2347-FIX-351.md) —
+  `IdeaInputPage.tsx`'s manifest-fetch `.catch()` now sets a rendered `loadError`
+  (`"not-found"` vs `"failed"`, told apart by the new shared `isNotFoundError` predicate in
+  `frontend/src/lib/api.ts`) instead of swallowing every rejection into "nothing declared".
+  Shown beside the disabled buttons when the roster is empty; `migration` excluded, being the
+  one `WorkflowType` that 404s by design. Observed: `test_iss374_unrecognized_slug_dead_end.py`
+  and `test_iss375_transient_fetch_failure_dead_end.py` each 1 `[XPASS(strict)]` (the pass
+  signal) + 1 still-xfail; markers left for 6-verifier. Live after the change, signed in as
+  qa-admin: `/create/nonsense` shows "not found", `/create/migration`, `/create/custom` and
+  `/create/prototype` show nothing.
+- **For the verifier:** the SECOND test in each of those two files asserts `Save workflow`
+  becomes ENABLED — a different remedy from the one ISS-374 §Fix and ISS-375 §Fix chose
+  (surface the error, do not invent a roster). Both still xfail and were NOT edited.
+  `/create/custom`'s Save is disabled on a fully successful fetch too
+  (`IdeaInputPage.tsx:1246-1247`, KAN-112: custom starts blank by design), so that one
+  cannot pass without breaking KAN-112. Choosing the fallback branch instead is a product
+  decision, not a fix.
+- **Validated:** 3/3 on 2026-08-28, cold start every cycle — redirect fires, `GET /api/workflows/nonsense` 404s, no error text anywhere in `document.body.innerText`, and `Save workflow`/`Save as my version`/`Add agents first` stay `disabled === true` before and after filling a full brief. Trigger: any unrecognized, non-empty `mode`/slug value on `/workflow/create`.
+- **Issue card:** [ISS-253](../.knowledge/cards/20260828-1646-ISS-253.md) (validator's reproduction record — superseded, see below)
+- **Root cause:** `IdeaInputPage.tsx:1012` fetches `getWorkflowDetail`; its `.catch()` at
+  `IdeaInputPage.tsx:1172-1181` swallows the 404 with no error state; the roster effect at
+  `IdeaInputPage.tsx:1228-1264` then computes `pipelineAgents = manifestAgents ?? fromLibrary`
+  = `[]` because both are empty, so `Save workflow`/`Save as my version`/Run stay
+  `disabled={pipelineAgents.length === 0}` forever (`IdeaInputPage.tsx:1649,1664,1675`).
+  Corrects [ISS-253](../.knowledge/cards/20260828-1646-ISS-253.md), which cited
+  `ComposerPage.tsx` — that component is never rendered by this route (`/create/{slug}` maps
+  to `mainView: "input"` → `IdeaInputPage`, not `"composer"` → `ComposerPage`).
+- **Blast radius:** all 6 real callers of `getWorkflowDetail` checked. Broken the same way:
+  `IdeaInputPage.tsx:1012` (this bug) and `page.tsx:452-499`'s `builtinCanvasType` effect
+  (already tracked as [ISS-299](../.knowledge/cards/20260828-1730-ISS-299.md), a different
+  bug). Not broken: `ComposerPage.tsx:410-439` (swallow doesn't gate Save),
+  `LaunchWizard.tsx:373-412` (mode is a closed union, library fallback always non-empty),
+  `IdeaInputPage.tsx:1436` (unreachable without a prior successful fetch),
+  `WorkflowDialog.tsx:73-91` (already surfaces its error correctly). See
+  [ISS-374](../.knowledge/cards/20260828-2146-ISS-374.md) for the full table.
+- **Issue cards:** [ISS-374](../.knowledge/cards/20260828-2146-ISS-374.md) (root — corrects
+  ISS-253, sets its status to superseded), [ISS-375](../.knowledge/cards/20260828-2147-ISS-375.md)
+  (sibling, INFERRED: a real manifest-only/composed workflow would dead-end identically on any
+  transient `getWorkflowDetail` failure, not only a nonexistent slug — the same catch never
+  branches on `ApiError.status`)
+- **Verified:** 2026-08-28 by 6-verifier. Ran `test_iss374_unrecognized_slug_dead_end.py`
+  and `test_iss375_transient_fetch_failure_dead_end.py` individually — each file's first test
+  (the one FIX-351 targeted) observed `[XPASS(strict)]` on the pre-change marker, `xfail`
+  removed from that test, re-run gave a plain exit-0 pass for both files (second test in each
+  file, which asserts the different "Save becomes enabled" remedy FIX-351 explicitly did not
+  choose, correctly stays `xfail`; `@pytest.mark.issue` kept on all four). Manual repro from
+  this entry's own Reproduction section, driven by hand in real Chrome (qa-admin, cold
+  `/workflow/create?mode=nonsense` navigation, twice): redirect to `/create/nonsense` fires,
+  `GET /api/workflows/nonsense` still 404s, but `document.body.innerText` now contains
+  `Workflow "nonsense" not found — go back and pick one from the dashboard.` (was completely
+  absent before the fix); the three action buttons remain `disabled === true`, matching
+  FIX-351's documented scope (surfacing the error, not inventing a roster). Spot-checked
+  `/create/custom` shows no false-positive banner on a healthy load. After-screenshot:
+  `bug-hunter/evidence/workflow-create-prototype/BUG-20260828-001720-workflow-create-prototype/04-after-verified-error-banner.png`.
+  Health: `:8000/docs` → 200 (no restart needed, frontend-only change); `npx tsc --noEmit` →
+  same 6 pre-existing errors in two other agents' untouched test files, zero in
+  `IdeaInputPage.tsx`/`api.ts`; `lint-imports` (run from `backend/`) → 1 pre-existing broken
+  contract (`agents.execution_engine.engine` → `app.api`), unrelated, no backend file touched
+  by this fix; regression file `suites/03_launch_panels/test_launch_panels.py` → 2 failures,
+  both the exact pre-existing order-dependent/read-race flakes FIX-351's own verification
+  section already documents, not caused by this change.
 
 ### Summary
 This is a distinct failure mode from the already-filed `BUG-20260828-001420-workflow-create-ppt`
@@ -1133,7 +2056,7 @@ dead end reachable via nothing more than a mistyped `mode` query value.
 - **Page:** My Workflows (saved workflows list)
 - **Route:** /workflows
 - **Severity:** Low
-- **Status:** Open
+- **Status:** UNREPRODUCIBLE
 - **Found at:** 2026-08-28 00:33 UTC
 - **Found by:** bug-workflows-r1
 - **Fingerprint:** `/workflows|workflow-actions-dropdown-menu|press-escape-while-menu-open|menu-remains-open-aria-expanded-stays-true`
@@ -1189,6 +2112,35 @@ Escape, and only an outside click (or presumably selecting a menu item) dismisse
 - Reproduction 2, before (menu open on "My prototype"): `bug-hunter/evidence/workflows/BUG-20260828-003300-workflows/04-repro2-before-escape-my-prototype.png`
 - Reproduction 2, after (Escape pressed, still open): `bug-hunter/evidence/workflows/BUG-20260828-003300-workflows/05-repro2-after-escape-still-open.png`
 
+### Validation (2026-08-28)
+0/3 reproduced from a cold start using a genuine UI click (Playwright's `locator.click()`, a real
+synthetic mouse event, not a JS `element.click()` call) to open the "Workflow actions" menu:
+
+- Cycle 1: cold nav to `/workflows` -> real click on "My presentation" card's Workflow actions
+  button (`aria-expanded` -> `"true"`) -> `page.keyboard.press('Escape')` -> menu closed,
+  `aria-expanded` -> `"false"`. Screenshot confirms menu gone, trigger button shows a focus ring.
+  Evidence: `bug-hunter/evidence/workflows/_scratch/attempt1-after-escape.png`.
+- Cycle 2: cold nav -> real click on "My prototype" card's Workflow actions button -> Escape ->
+  menu closed correctly.
+- Cycle 3: cold nav -> real click on "My prototype" card again (fresh page load) -> Escape ->
+  menu closed correctly. Also swept narrow viewport (1024x768) on a 4th open/close of "My
+  presentation" — Escape still closed it.
+
+Axes tried: entry mechanism (real click vs JS-dispatched `element.click()` via
+`page.evaluate` — the latter, which does NOT move `document.activeElement` to the trigger
+button in this app, is the one case where Escape failed to close the menu; evidence
+`bug-hunter/evidence/workflows/_scratch/attempt2-after-escape-jsclick.png`), card (My
+presentation, My prototype, first card in list), viewport (1280x800 default and 1024x768
+narrow), timing (Escape pressed immediately after open, no settle delay). Theme was not swept
+(default/light only) — implausible for a keydown-handler bug and out of scope given severity.
+
+The only condition under which Escape appeared not to close the menu was opening it via a raw
+JS `element.click()` call that leaves the trigger unfocused — not a path a real user (mouse or
+keyboard) can reach; every genuine-click cold start (the standard reproduction method) closed
+the menu correctly. This is UNREPRODUCIBLE via real user interaction; the original report's
+finding is most likely an artifact of how the hunter agent dispatched the opening click, not a
+real defect. No issue card minted. No duplicate check needed since nothing is being filed.
+
 ### Browser Signals
 - Console: no relevant error observed.
 - Network: no request involved; purely client-side dropdown/menu state.
@@ -1201,11 +2153,60 @@ Escape, and only an outside click (or presumably selecting a menu item) dismisse
 - **Page:** Empty composer / canvas (new custom workflow)
 - **Route:** /workflows/new
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 00:38 UTC
 - **Found by:** bug-workflows-new-r1
 - **Fingerprint:** `/workflows/new|composer-back-button|click-back-with-unsaved-agents-and-name|work-discarded-no-confirmation`
 - **Evidence:** `bug-hunter/evidence/workflows-new/BUG-20260828-003800-workflows-new/`
+- **Validated:** 3/3 on 2026-08-28, cycle 1 (also reproduced cycles 2 and 3, including with
+  Back clicked immediately after the modal close with no settle wait) — the composer's own
+  Back button discards unsaved name+agents unconditionally, no timing/entry-path dependency.
+- **Root cause:** `ComposerPage`'s Back button (`frontend/src/components/workflow/composer/ComposerPage.tsx:979`,
+  `onClick={onBack}`) has no dirty-check gate. `onBack` is the shared `handleBackNav`
+  (`frontend/src/components/layout/DashboardLayout.tsx:1701-1712`), which unconditionally calls
+  `router.back()` / `router.push(routes.home())` with zero visibility into any mounted child's
+  uncommitted state — it only clears its own cross-cutting state (questionnaire, pending run).
+- **Blast radius:** `handleBackNav` is wired as `onBack` to all 5 of `DashboardLayout`'s page
+  mounts (confirmed via `grep -rn "onBack=" frontend/src`, excluding tests): `WorkflowHistory`
+  (:2767), `AccountSettings` (:2849), `AnalyticsPage` (:2863), `IdeaInputPage` (:2893),
+  `ComposerPage` (:2946 — shared by both `/workflows/new` and `/workflows/{id}/edit`). Every one
+  calls `onBack` raw with no gate at its own call site either. `AnalyticsPage` is read-only (not
+  at risk); `IdeaInputPage` (brief text + agent picks), `AccountSettings` (password-change fields
+  + pending model pick), and the composer's `/workflows/{id}/edit` mount (edits to an
+  already-saved workflow) all carry real unsaved user input behind the identical flaw.
+- **Fixed:** 2026-08-28 by FIX-352 — `handleBackNav` (`DashboardLayout.tsx`) now confirms via
+  `window.confirm` when the mounted page reports unsaved work, and `ComposerPage` feeds that
+  signal through a new `onUnsavedChange` prop (name + roster snapshot vs a baseline rebaselined
+  on library re-seed and on save). Verified by
+  `tests/integration/e2e/suites/04_composer_canvas/test_composer_canvas.py::test_back_button_confirms_before_discarding_unsaved_work`
+  → **XPASS(strict)** (the strict xfail marker is deliberately left in place for 6-verifier).
+  Fix card: [FIX-352](../.knowledge/cards/20260828-2346-FIX-352.md)
+- **Verified:** 2026-08-28 by 6-verifier — ran
+  `tests/integration/e2e/suites/04_composer_canvas/test_composer_canvas.py::test_back_button_confirms_before_discarding_unsaved_work`
+  standalone: XPASS(strict) confirmed with the xfail marker in place, marker removed,
+  re-run plain green. Full-file regression run (24 scenarios): 22 passed, the same 2
+  pre-existing failures FIX-352 already attributed to unrelated concurrent work
+  (`test_editing_a_saved_workflow_loads_its_steps`, shared-fixture `assert 3 == 4`;
+  `test_a_last_streamed_built_in_refuses_an_append_after_final_step_slot`, BUG-20260828-005700
+  guard-copy work) and nothing new. Manually re-ran the original repro by hand as qa-admin
+  in the browser (lane6): named a workflow, added Domain Discovery Agent (unsaved, "1
+  agents"), clicked the composer's own Back button — native `confirm()` fired with
+  "You have unsaved changes. Leave anyway? Your work will be lost."; Cancel kept the
+  page on `/workflows/new` with the name and agent intact. No console errors on the
+  page. `tsc --noEmit` shows only the same 2 pre-existing errors FIX-352 already
+  flagged as unrelated; `lint-imports` (run from `backend/`) shows one pre-existing
+  broken contract unrelated to this frontend-only change (no backend `.py` touched).
+  Evidence: `bug-hunter/evidence/workflows-new/BUG-20260828-003800-workflows-new/03-verify-before-back.png`,
+  `04-after-fix-cancel-preserves-work.png`.
+- **Fix belongs in:** `handleBackNav` itself (or a wrapper it calls) — the one place all 5
+  callers already route through — fed by a per-child "is this dirty" signal, rather than a
+  `confirm()` sprinkled into each of the 5 `onClick` handlers separately.
+- **Issue cards:** [ISS-275](../.knowledge/cards/20260828-1855-ISS-275.md) (root — updated this
+  pass with Blast radius + Fix-location sections and Related links),
+  [ISS-371](../.knowledge/cards/20260828-2140-ISS-371.md) (sibling, INFERRED: IdeaInputPage),
+  [ISS-372](../.knowledge/cards/20260828-2141-ISS-372.md) (sibling, INFERRED: AccountSettings),
+  [ISS-373](../.knowledge/cards/20260828-2142-ISS-373.md) (sibling, INFERRED: composer edit-mode
+  on `/workflows/{id}/edit`)
 
 ### Summary
 On `/workflows/new`, after naming the workflow and adding an agent to the canvas (real,
@@ -1257,11 +2258,57 @@ warning whatsoever, and there is no draft persisted anywhere the user can recove
 - **Page:** Saved workflow — read-only detail view
 - **Route:** /workflows/{id}
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 — `frontend/src/components/savedworkflows/WorkflowDetailView.test.tsx`
+  observed XPASS pre-removal (`npx vitest run` → "2 tests | 2 failed", each "Error: Expect test
+  to fail"), `it.fails` markers removed, re-run plain green (2 passed). Neighbour regression file
+  `SavedWorkflowsPage.test.tsx` 9/9 green. `npx tsc --noEmit -p tsconfig.json` → 9 pre-existing
+  errors, none in `savedworkflows/` or naming `WorkflowDetailView.tsx` (login.a11y.test.tsx,
+  HomeLaunchGrid.crossAccountLeak.test.tsx, api.sessionExpiryRedirect.test.ts,
+  listenerMiddleware.test.ts — unrelated). `:3000/dashboard` and `:8000/docs` both 200 (frontend
+  fix, no restart needed). Manual repro by hand in Chrome (lane4), signed in as qa-admin: first
+  attempt hit a stale qa-basic session in this lane's profile and 404'd (qa-basic has no saved
+  workflows) — re-signed-in as qa-admin, then navigated
+  `/workflows/656ca387-e69c-474d-b7ff-5fd9eb017cc0` twice (cold nav + reload): both times the
+  "2 AGENTS" list rendered "Documentation Agent" / "Spec Writer Agent" (real catalog names),
+  never the raw `documentation-agent` / `prototype-specify` slugs. 0 console errors both loads.
+  Screenshot: `bug-hunter/evidence/workflows-id/BUG-20260828-004300-workflows-id/03-after-fix-friendly-names.png`.
+  ISS-490 (custom-agent manifest fallback) stays proven by unit test only — no seeded workflow
+  with a renamed custom-agent instance existed to re-check live; not a blocker for this bug's
+  root symptom.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — deterministic across cold navigation, dashboard-then-back nav, and full about:blank reload
+- **Tested:** 2026-08-29 — `frontend/src/components/savedworkflows/WorkflowDetailView.test.tsx`,
+  2 `it.fails` tests (ISS-327, ISS-490), both observed red for the documented reason
+  (`npx vitest run` → "2 expected fail").
+- **Issue card:** [ISS-327](../.knowledge/cards/20260828-2033-ISS-327.md)
 - **Found at:** 2026-08-28 00:43 UTC
 - **Found by:** bug-workflows-id-r1
 - **Fingerprint:** `/workflows/{id}|agent-roster-list|render-saved-workflow-agent_ids|raw-agent-slug-shown-instead-of-friendly-name`
 - **Evidence:** `bug-hunter/evidence/workflows-id/BUG-20260828-004300-workflows-id/`
+- **Root cause:** CONFIRMED — `WorkflowDetailView.tsx:29,52-56` maps `workflow.agent_ids` straight
+  into `<li>{id}</li>` with no lookup step at all. Every sibling surface (Library page, this same
+  workflow's own Composer/`edit` view) instead resolves each id through `useAgentLibrary()`'s
+  `allAgents` (Redux, populated from `GET /api/agents/library`) via `.find(a => a.id === id)` —
+  see `ComposerPage.tsx:207,272-281` and `LibraryPage.tsx:497,592` for the established pattern.
+  `WorkflowDetailView` never calls `useAgentLibrary()` at all.
+- **Blast radius:** grepped every frontend consumer of `agent_ids` (`grep -rn "agent_ids"
+  frontend/src`, 34 hits). `WorkflowDetailView.tsx` is the ONLY renderer of raw id strings — its
+  single call site is `frontend/src/app/[...view]/page.tsx:3820`. `SavedWorkflowsPage.tsx`
+  (`:255,329,380`) and `CanvasNode.tsx:126` also read `agent_ids` but only for a numeric count,
+  confirmed safe. No other current broken caller.
+- **Fix belongs in:** `WorkflowDetailView.tsx` itself (single call site) — call `useAgentLibrary()`
+  and resolve each `agentIds` entry to its `AgentDef` the same way `ComposerPage`/`LibraryPage`
+  already do, rendering `.name`/`.role` with the raw id only as a last-resort fallback.
+- **Issue cards:** [ISS-327](../.knowledge/cards/20260828-2033-ISS-327.md) (root — pre-existing,
+  root cause independently re-confirmed by this pass),
+  [ISS-490](../.knowledge/cards/20260828-2351-ISS-490.md) (INFERRED sibling — a catalog-only fix
+  still mislabels custom-agent instances, whose real name lives in `workflow.manifest.steps`, not
+  the catalog `useAgentLibrary()` exposes)
+- **Fix card:** [FIX-390](../.knowledge/cards/20260829-0303-FIX-390.md) — `WorkflowDetailView.tsx` now resolves each `agent_ids` entry through `useAgentLibrary()`'s
+  `allAgents`, falling back to the workflow's own manifest (`manifestStepsToAgents` + `findAgentInTree`, de-prefixed with `CUSTOM_AGENT_PREFIX`) for
+  `custom-agent:<instance_id>` steps the catalog cannot carry; the raw id survives only as the last-resort fallback. Both `it.fails` tests in
+  `frontend/src/components/savedworkflows/WorkflowDetailView.test.tsx` now XPASS ("Error: Expect test to fail", 2/2) — markers left in place for the 6-verifier.
+  ISS-490 stays proven by unit test only: no seeded workflow holds a renamed custom-agent instance, so its live browser check is still open.
 
 ### Summary
 The read-only detail view for a saved workflow (`/workflows/{id}`) renders its agent roster by
@@ -1325,7 +2372,36 @@ The detail view prints the raw, internal `agent_id` strings verbatim (`documenta
 - **Page:** Saved workflow — edit composer
 - **Route:** /workflows/656ca387-e69c-474d-b7ff-5fd9eb017cc0/edit (composer PATCH mode, applies to any saved workflow)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-28 — `frontend/src/components/workflow/composer/AgentRow.toolsVisibility.test.tsx`
+  2/2 green (no xfail marker present in this vitest file, nothing to remove). Neighbours re-run
+  one file at a time, all green: `AgentRow.test.tsx` 5/5, `AdvancedExpander.test.tsx` 11/11,
+  `CanvasConfigRail.test.tsx` 31/31 (47/47 total across the three files). `tsc --noEmit`: same 6
+  pre-existing errors as the fixer reported, all in `HomeLaunchGrid.crossAccountLeak.test.tsx`
+  and `store/listenerMiddleware.test.ts` — untouched by this change. `lint-imports` (run from
+  `backend/`) shows one broken contract (`kernel imports only capability ports`) — pre-existing
+  backend architecture drift unrelated to this frontend-only fix, not caused by it. `:3000` and
+  `:8000/docs` both 200. Manual repro by hand in Chrome (lane4): toggled "Write files" off for
+  Documentation Agent in Canvas view's Tools tab, switched to Simple view — Documentation Agent's
+  Overrides row now shows a fifth "Tools" pill, visually lit (`bg-ink-900`/filled) vs Spec Writer
+  Agent's unlit "Tools" pill (unrestricted). Opened "Configure →" for Documentation Agent: the
+  panel now renders "Read files" (checked), "Write files" (unchecked, matching the Canvas
+  override), "Execute commands" (disabled) inline, outside the collapsed Advanced disclosure. No
+  new console errors (0 errors, 0 warnings). Screenshot:
+  `bug-hunter/evidence/workflows-id-edit/BUG-20260828-005500-workflows-id-edit/05-after-fix-simple-configure-panel-tools-section.png`.
+- **Fix card:** [FIX-350](../.knowledge/cards/20260828-2340-FIX-350.md) — shared
+  `TOOL_GRANT_LEVERS`/`effectiveToolGrants`/`hasToolOverride` in
+  `frontend/src/components/workflow/AgentsPopup.tsx`; `AdvancedExpander` now renders a
+  "Tool grants" block through the same `applyLeverPatch` write-through the Canvas rail
+  uses, `AgentRow` gained the fifth `Tools` Overrides chip, and `CanvasConfigRail` reads
+  the shared lever list instead of its own copy
+- **Fixed:** 2026-08-28 — `frontend/src/components/workflow/composer/AgentRow.toolsVisibility.test.tsx`
+  2 failed BEFORE the change, 2 passed after (no `it.fails` marker in this vitest file, so a
+  working fix shows as plain green). Neighbours re-run one file at a time, all green:
+  AgentRow.test.tsx 5/5, AdvancedExpander.test.tsx 11/11, AgentsPopup.reskin.test.tsx 14/14,
+  CanvasConfigRail.test.tsx 31/31, ComposerPage.test.tsx 14/14. `tsc --noEmit` reports 6
+  errors, all in files this change does not touch (HomeLaunchGrid.crossAccountLeak.test.tsx,
+  store/listenerMiddleware.test.ts). `:3000/workflows/{id}/edit` and `:8000/docs` both 200.
 - **Found at:** 2026-08-28 00:55 UTC
 - **Found by:** bug-workflows-id-edit-r1
 - **Fingerprint:** `/workflows/{id}/edit|simple-view-agent-configure-panel|toggle-tool-grant-in-canvas-then-inspect-simple-view|no-tools-section-or-indicator-exists-in-simple-view`
@@ -1402,17 +2478,156 @@ view is otherwise a full editing surface for the same in-session workflow.
   changes were ever saved (Save workflow was never clicked), and the underlying
   `GET /api/user-workflows/656ca387-e69c-474d-b7ff-5fd9eb017cc0` was confirmed unchanged
   (`updated_at` unchanged) after this investigation.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduces unconditionally on every cold load, no
+  axis variation needed (root cause: `AgentRow.tsx` uses `AdvancedExpander`, not
+  `CanvasConfigRail`, so Simple view never renders a Tools section at all).
+- **Root cause:** `AgentRow.tsx:252-258` (Simple view's "Configure →" panel) opens
+  `AdvancedExpander` (`AgentsPopup.tsx:1774-2184`), whose subtitle is hardcoded `Validator ·
+  Gate · Model · Retry` (`AgentsPopup.tsx:1883`) and whose JSX never reads or writes
+  `StepSelection.tools`. `StepSelection.tools?: AgentToolGrants` (`AgentsPopup.tsx:1372-1376`)
+  is a normal field of the SAME `SelectionsMap` Canvas view's `CanvasConfigRail.tsx:550-613`
+  writes through via the shared `applyLeverPatch` reducer — confirmed both views are wired to
+  ONE shared `selections` state in `ComposerPage.tsx` (Canvas: `ComposerPage.tsx:1113-1115`;
+  Simple/`AgentRow`: `ComposerPage.tsx:1304-1310`). So a Canvas-set restriction is real,
+  shared, in-session state; `AdvancedExpander` simply never renders it. CONFIRMED via direct
+  source read of all cited files.
+- **Blast radius:** `AdvancedExpander` itself is mounted at exactly one JSX call site
+  (`AgentRow.tsx:252`), so there is no second literal caller of the broken component — but
+  grepping every OTHER renderer of the shared `StepSelection`/`applyLeverPatch` shape found two
+  more surfaces with the identical drift: `ConfigLeversFlat` (`AgentsPopup.tsx:1620-1772`,
+  backing `AgentCapabilitiesModal`'s Config tab, mounted from `LibraryPage.tsx:1001` and
+  `AgentLibrary.tsx:335`) also renders only Model/Validator/Gate/Retry; and Canvas view's own
+  node card (`CanvasNode.tsx:763-802`) computes only `validatorOn`/`gateOn`/`retryOn` for its
+  at-a-glance chip row, so even a Canvas-only user gets no visible flag on the node itself —
+  only the rail's dedicated Tools tab shows it. Both filed INFERRED (unreproduced in-browser).
+- **Fix:** belongs in the shared lever-rendering path, not per-caller — either add a Tools
+  section to `AdvancedExpander` (mirroring `CanvasConfigRail.tsx`'s Read files/Write files rows
+  and reusing the same `patch({ tools: {...} })` write-through so Simple and Canvas can't drift
+  again) or extract Tools into one shared sub-component both `AdvancedExpander` and
+  `CanvasConfigRail` render, the same way `AgentSkillsPicker` is already shared between them
+  (`AgentRow.tsx:259-262`) specifically to prevent this class of drift.
+- **Issue cards:** [ISS-274](../.knowledge/cards/20260828-1854-ISS-274.md) (root — confirmed),
+  [ISS-378](../.knowledge/cards/20260828-2006-ISS-378.md) (sibling, INFERRED: `ConfigLeversFlat`/
+  `AgentCapabilitiesModal`, Library + Add-agent drawer, same missing Tools row),
+  [ISS-382](../.knowledge/cards/20260828-2008-ISS-382.md) (sibling, INFERRED: Canvas node card's
+  own override-chip row has no Tools indicator either)
 
 ## BUG-20260828-005700-workflows-ppt-canvas — "Save as copy" of the PPT built-in silently drops the manifest, converting the copy from a PPTX-generating workflow into a generic streamed-text/markdown workflow
 
 - **Page:** Built-in workflow on the canvas
 - **Route:** /workflows/ppt/canvas (and the resulting saved copy at /workflows/{id}/edit)
 - **Severity:** High
-- **Status:** Open
+- **Status:** ESCALATED
+- **Fix card:** [FIX-325](../.knowledge/cards/20260828-1645-FIX-325.md) — new
+  `needsFullManifestOnSave` gate + `seededRunConfig` resync effect in
+  `frontend/src/components/workflow/composer/ComposerPage.tsx`; frontend mechanism confirmed
+  working for the generic strategies (ISS-203/204), but the headline repro (ISS-196/206, the
+  `ppt` built-in itself) still fails end-to-end against the real backend — see **Verified** below
+- **Verified:** 2026-08-28, verification FAILED. Ran
+  `frontend/src/components/workflow/composer/ComposerPage.manifestPersistence.test.tsx` —
+  all 5 XPASS confirmed (mocked `saveUserWorkflow`, no real backend call), then reverted the
+  `it.fails` markers since this is a reopen, not a close. `ComposerPage.test.tsx` (14/14) still
+  green, `tsc --noEmit` shows only the 3 pre-existing unrelated errors the fixer already
+  documented, `:8000/docs` and `:3000/` both 200. Manual repro (signed in as qa-admin, fresh
+  session — the prior stale session was `qa-basic` and produced an unrelated 403) at
+  `/workflows/ppt/canvas`: the Workflow tab now correctly shows "ppt — declared by this
+  workflow" / `presentation.pptx` (mechanism-2 fix confirmed), and the `POST
+  /api/user-workflows` body now DOES include the full manifest with `deliverable.strategy:
+  "ppt"` (mechanism-1 fix confirmed) — but the backend's CAP-03 trust guard
+  (`backend/app/api/user_workflows.py`) rejects it outright: `422 Unprocessable Entity`,
+  `"capability ('deliverable', 'ppt') is not user-allowed in workflow
+  'user-workflow-validate' — a user/db manifest may not reference it (CAP-03)"`. No copy is
+  created at all. Reproduced twice, identically, both cleaned up (nothing persisted to clean —
+  the save itself fails). Contrast: the same flow against `ppt_v2` (deliverable strategy
+  `single_file`, one of the three generic user-allowed strategies) succeeds — `201 Created`,
+  manifest persisted with `deliverable.strategy: "single_file"` — confirming ISS-203/204's
+  mechanism is genuinely fixed for every built-in whose declared strategy is one of the three
+  generic ones. The `ppt` (and, by the same trust registry, `ppt_v2`'s sibling `ppt` strategy
+  wherever else it appears) built-in is the one case where CAP-03 makes the bug's own stated
+  Expected outcome ("a copy of a PPTX-producing workflow still produces a PPTX") structurally
+  unreachable via this fix alone: the frontend now honestly attempts to carry the privileged
+  strategy forward, and the backend's pre-existing trust boundary correctly refuses to persist a
+  user manifest declaring it. This was never exercised by FIX-325's test coverage — the vitest
+  file mocks `saveUserWorkflow`, so CAP-03 never runs. Evidence: `04-after-fix-builtin-canvas-
+  shows-ppt-deliverable.png`, `05-after-fix-save-as-copy-422-cap03-blocked.png` in
+  `bug-hunter/evidence/workflows-ppt-canvas/BUG-20260828-005700-workflows-ppt-canvas/`.
 - **Found at:** 2026-08-28 00:57 UTC
 - **Found by:** bug-workflows-ppt-canvas-r1
 - **Fingerprint:** `/workflows/ppt/canvas|save-as-copy|click-save-as-copy-on-ppt-builtin|copy-loses-manifest-and-deliverable-strategy-becomes-generic`
 - **Evidence:** `bug-hunter/evidence/workflows-ppt-canvas/BUG-20260828-005700-workflows-ppt-canvas/`
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduced identically on every cold-start attempt (fresh `/dashboard` -> `/workflows/ppt/canvas` load), no axis narrowing required
+- **Root cause:** Two coupled `ComposerPage.tsx` defects. (1) `needsFullManifest(pipelineAgents)`
+  (`ComposerPage.tsx:51-60`) — the sole gate deciding whether `handleSave` includes `{manifest:
+  buildWorkflowManifest(...)}` in its POST (`ComposerPage.tsx:628-632`) — only inspects per-node
+  custom flags (`isCustom`/`prompt`/`skills`/`children`/`route`) and never consults `runConfig`;
+  an unmodified built-in's stock agents always fail every check, so `manifest` is omitted from
+  the POST entirely (not sent as null — simply absent), and the backend column persists `NULL`.
+  (2) `runConfig` is seeded once via a plain `useState(initialRunConfig ?? {hardcoded default})`
+  (`ComposerPage.tsx:335-341`) with no resync effect — unlike its sibling states `pipelineAgents`/
+  `selections`, which each have one (`ComposerPage.tsx:250-269`, `:305-329`) specifically for this
+  documented "same race, different state." The built-in's real deliverable arrives asynchronously
+  (`page.tsx:437-485`) and is correctly threaded down to `initialRunConfig`
+  (`DashboardLayout.tsx:2943`), but `DashboardLayout`'s remount-by-`key` trick
+  (`key={savedComposition?.id ?? "new"}`, `DashboardLayout.tsx:2906`) never fires for a built-in
+  because `page.tsx:448-451` deliberately omits `id` from a built-in's seed — so `ComposerPage`
+  never remounts and the hardcoded default sticks. Both must be fixed for the canvas to correctly
+  display AND persist the built-in's real manifest; fixing either alone leaves the bug partially
+  alive. Full trace: [ISS-206](../.knowledge/cards/20260828-1609-ISS-206.md).
+- **Blast radius:** `handleSave` (the reported path) and `handleRunOnce` (shares the same
+  `needsFullManifest` gate, `ComposerPage.tsx:798`) — every built-in reachable via
+  `/workflows/{type}/canvas` whose declared `deliverable` differs from the composer's
+  `streamed_text`/`output.md` default (confirmed via `backend/agents/workflows/*/workflow.yaml`:
+  `ppt_v2`, `prototype`, `app_builder`, `dotnet_to_azure`, `mulesoft_to_springboot`, `user_stories`
+  — [ISS-203](../.knowledge/cards/20260828-1610-ISS-203.md)); any from-scratch Composer save or
+  re-save of an all-stock-agent workflow that only touches the Workflow tab, no built-in involved
+  at all ([ISS-204](../.knowledge/cards/20260828-1611-ISS-204.md)); and "Run once" on a built-in
+  canvas, whose `unmodifiedBuiltin` bypass (`ComposerPage.tsx:837-857`) is lost the instant ANY
+  edit changes the agent-id list, even one unrelated to the deliverable
+  ([ISS-205](../.knowledge/cards/20260828-1612-ISS-205.md)).
+- **Fix belongs in:** `ComposerPage.tsx`, the one component every path above already shares — (1)
+  broaden the persist-full-manifest decision at `ComposerPage.tsx:628` and `:798` so it also fires
+  whenever `builtinCanvasType`/`initialManifestSteps` is set or `runConfig` differs from the
+  from-scratch default, not just when `needsFullManifest(pipelineAgents)` is true; (2) add a
+  `useEffect` resyncing `runConfig` from a later-arriving `initialRunConfig`, mirroring the
+  existing `seededFromManifest` pattern (`ComposerPage.tsx:305-314`). `buildWorkflowManifest`
+  already serializes everything correctly once invoked (`userWorkflows.ts:397-399`) — the gap is
+  purely the decision to call it.
+- **5-fixer (2026-08-28, pass 2): ESCALATED, no further code changed.** Every mechanism the five
+  cards name is fixed and stays fixed — FIX-325's edit to `ComposerPage.tsx` is left in the
+  working tree untouched, and re-running
+  `frontend/src/components/workflow/composer/ComposerPage.manifestPersistence.test.tsx` gives
+  `5 failed (5)`, each "Error: Expect test to fail" — all five XPASS, `it.fails` markers left in
+  place for the verifier. What blocks the headline repro is not a defect and cannot be patched:
+  `deliverable/ppt` is registered WITHOUT `user_allowed`
+  (`backend/agents/capabilities/deliverables/ppt.py:47-51`; `is_user_allowed` defaults False), so
+  `_validated_manifest` → `_compile_check_manifest` (`backend/app/api/user_workflows.py:137`,
+  `:115`) compiles at `trust="db"` — untrusted (`compiler.py:204`) — and `_check_trust`
+  (`compiler.py:418-441`) refuses it. Reproduced one layer below the browser, no UI needed:
+  `_validated_manifest({"steps":[…3 ppt steps…], "deliverable":{"strategy":"ppt","name":"presentation.pptx"}})`
+  → `HTTP 422 … capability ('deliverable', 'ppt') is not user-allowed … (CAP-03)`, while the same
+  call with `single_file`/`presentation.html` returns ACCEPTED — the verifier's ppt vs ppt_v2
+  contrast, measured deterministically. Decisively, [ADR-0027](../.knowledge/cards/20260825-2115-ADR-0027.md)
+  (status `active`) already ruled on this exact question and rejected the obvious fix: "The
+  alternatives were to make those capabilities user-grantable — widening the trust surface for
+  every user manifest, not just overrides — or to special-case ppt", with the locked constraint
+  "an override supplies `steps` and nothing else; deliverable … always come from the file
+  manifest." This entry's Expected ("a copy of a PPTX-producing workflow still produces a PPTX")
+  contradicts that constraint, so satisfying it means amending an ADR, not editing code. Three
+  options with their tradeoffs, and the evidence above:
+  [ISS-223](../.knowledge/cards/20260828-1735-ISS-223.md). Frontend-only change; no backend file
+  touched, no restart needed.
+- **Issue cards:** [ISS-196](../.knowledge/cards/20260828-1555-ISS-196.md) (validator's
+  reproduction + first-pass hypothesis), [ISS-206](../.knowledge/cards/20260828-1609-ISS-206.md)
+  (root — analyzer pass, corrects ISS-196's stated mechanism),
+  [ISS-203](../.knowledge/cards/20260828-1610-ISS-203.md) (sibling: same loss on every other
+  non-default-deliverable built-in — ppt_v2, prototype, app_builder, dotnet_to_azure,
+  mulesoft_to_springboot, user_stories),
+  [ISS-204](../.knowledge/cards/20260828-1611-ISS-204.md) (sibling: the same gate drops
+  Workflow-tab changes on ANY composer save, not just built-in copies),
+  [ISS-205](../.knowledge/cards/20260828-1612-ISS-205.md) (sibling: "Run once" loses its
+  built-in bypass the moment any unrelated edit changes the agent list),
+  [ISS-223](../.knowledge/cards/20260828-1735-ISS-223.md) (correction: the `ppt` deliverable is
+  not `user_allowed`, so no user manifest may carry it — ADR-0027 already ruled; needs a human)
 
 ### Summary
 The `ppt` built-in workflow's real manifest (`GET /api/workflows/ppt`) defines a specialized
@@ -1501,11 +2716,62 @@ short of manually reconfiguring the Deliverable section post-save, to recover PP
 - **Page:** Saved workflow's launch panel
 - **Route:** /workflows/<nonexistent-uuid>/run, /workflows/<malformed-id>/run
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 01:06 UTC
 - **Found by:** bug-workflows-id-run-r1
 - **Fingerprint:** `/workflows/<id>/run|workflow-run-panel-cold-mount|navigate-with-nonexistent-or-malformed-workflow-id|api-404-caught-then-dashboard-silently-rendered-under-stale-url`
 - **Evidence:** `bug-hunter/evidence/workflows-id-run/BUG-20260828-010600-workflows-id-run/`
+- **Validated:** 3/3 from cold start on 2026-08-28 — reproduced for a nonexistent UUID, a
+  malformed id, and a second distinct nonexistent UUID; console/DOM confirmed every cycle
+- **Root cause:** `frontend/src/app/[...view]/page.tsx`'s workflow-run cold-mount catch
+  (`:3692-3707`) sets `workflowRunFailed` on any 404/non-401 fetch error, but the render gate
+  (`:3785-3791`) only reads that flag to stop the loading-`null` return — it never calls
+  `notFound()`, unlike this exact file's 3 sibling identity-fetch-failure gates
+  (`runAccessDenied` -> `:3734-3736`, `workflowEditAccessDenied` -> `:3741-3743`,
+  `workflowDetailFailed` -> `:3751-3753`). Execution falls through to the unconditional
+  `return <DashboardLayout .../>` with no `notFound()`/`router.push`/`router.replace` ever
+  called, so `location.href` never moves off the bogus `/workflows/<id>/run` URL. (Corrects
+  the original validator attribution to `LaunchWizard.tsx` — that component is never even
+  rendered on this failure path; see ISS-273's appended analyzer section.)
+- **Blast radius:** contained to this one file/effect — `userWorkflowsApi.get()` (the call
+  that 404s) has exactly 3 call sites in the whole frontend, all inside
+  `frontend/src/app/[...view]/page.tsx`; the other 2 (`/workflows/{id}/edit`,
+  `/workflows/{id}` read view) are already correctly gated into `notFound()`. No other
+  component fetches a saved workflow by id — the click-through launch path
+  (`DashboardLayout.handleLaunchSaved`) already has the object in hand and never hits this
+  fetch. Fix belongs entirely in this one cold-mount effect + render gate; there is no other
+  caller to route through.
+- **Fix card:** [FIX-355](../.knowledge/cards/20260828-2358-FIX-355.md) — workflowRunFailed
+  now fires `notFound()` (page.tsx render gate), resets before each cold-mount fetch, and is
+  set only on 403/404; resolves ISS-273 + siblings ISS-379/ISS-380 in one change
+- **Issue cards:** [ISS-273](../.knowledge/cards/20260828-1653-ISS-273.md) (root — CONFIRMED,
+  file attribution corrected from `LaunchWizard.tsx` to `page.tsx`),
+  [ISS-379](../.knowledge/cards/20260828-2209-ISS-379.md) (sibling, INFERRED:
+  `workflowRunFailed` never resets, so a stale `true` from a failed visit defeats the
+  loading-gate on a later, valid `/workflows/{id2}/run` in the same SPA session),
+  [ISS-380](../.knowledge/cards/20260828-2209-ISS-380.md) (sibling, INFERRED: the catch is
+  unnarrowed to 403/404 like its 2 siblings, so a transient 5xx/network error on a VALID id
+  gets today's identical wrong fallback, and would regress to a permanent not-found if the
+  fix ships without narrowing it too)
+- **Verified:** 2026-08-29 — ran
+  `tests/integration/e2e/suites/05_saved_workflows/test_iss273_run_panel_bogus_id_dead_end.py`
+  (`.venv/bin/python3 -m pytest ...`): both cases XPASS(strict) before the marker removal,
+  plain green (2 passed) after removing `xfail`. Re-ran the original repro by hand in Chrome
+  (lane4, qa-admin, cold nav) for both the nonexistent UUID and the malformed id: `h1` now
+  reads "Not found" instead of "What would you like to build today?" for both, URL stays on
+  the requested bogus `/run` path as expected for a Next.js `notFound()` render (no
+  URL/content mismatch — content now correctly reflects the failure). Re-checked the valid
+  saved workflow's own `/run` panel (`656ca387-...`) still loads "Configure your prototype"
+  correctly — no regression. `npx tsc --noEmit`: only pre-existing unrelated errors in
+  `HomeLaunchGrid.crossAccountLeak.test.tsx` / `listenerMiddleware.test.ts`, none in
+  `page.tsx`. Backend `:8000/docs` 200. `lint-imports` (from `backend/`): 1 pre-existing
+  broken contract (`agents.execution_engine.engine` -> `app.api`), unrelated to this
+  frontend-only change. Regression file
+  `suites/05_saved_workflows/test_saved_workflows.py`: 10/13 passed, 3 failed on the
+  documented pre-existing D-05/D-10 agent-count defect (roster says 4, panel says 3 —
+  unrelated to ISS-273's notFound() gate). Evidence:
+  `bug-hunter/evidence/workflows-id-run/BUG-20260828-010600-workflows-id-run/04-after-fix-nonexistent-id-not-found.png`,
+  `05-after-fix-malformed-id-not-found.png`.
 
 ### Summary
 Navigating directly to a saved workflow's dedicated launch route (`/workflows/{id}/run`) with an
@@ -1585,11 +2851,67 @@ to this route's not-found path.
 - **Page:** Legacy workflow builder (unlinked, second/older builder)
 - **Route:** /workflow
 - **Severity:** Low
-- **Status:** Open
+- **Status:** ESCALATED
 - **Found at:** 2026-08-28 01:10 UTC
 - **Found by:** bug-workflow-r1
 - **Fingerprint:** `/workflow|run-workflow-button|type-brief-with-zero-agents-attached|button-enables-but-click-fires-no-request-and-does-nothing`
 - **Evidence:** `bug-hunter/evidence/workflow/BUG-20260828-011000-workflow/`
+- **Validated:** 3/3 on 2026-08-28, every cold cycle — no axis variation needed. Root cause:
+  `frontend/src/components/workflow/WorkflowView.tsx:473` gates the "Run Workflow" button on
+  `!ideaInput.trim()` only, never `pipelineAgents.length`; `handleRun` (`:161-167`) guards
+  `onStartPipeline` with a bare `if`, so on this orphaned route where nothing wires that prop the
+  click is a total silent no-op.
+- **Issue card:** [ISS-328](../.knowledge/cards/20260828-1834-ISS-328.md)
+- **Root cause (CONFIRMED):** two independent gaps in the same file/route pairing, both read
+  directly. (1) `frontend/src/components/workflow/WorkflowView.tsx:473` —
+  `disabled={!ideaInput.trim()}` never checks `pipelineAgents.length`, even though the count
+  renders right beside it (`:406`). (2) `frontend/src/components/workflow/WorkflowView.tsx:161-167`
+  `handleRun` guards the dispatch with `if (onStartPipeline)`, and the component's *only* caller —
+  `frontend/src/app/workflow/page.tsx:58-62` (confirmed via `grep -rn "WorkflowView" frontend/src`,
+  one import site) — never passes `onStartPipeline` (nor `pipelineState`, `onResetPipeline`,
+  `onViewResults`). So even a correct `pipelineAgents.length` guard would not make Run functional
+  on this route — the click is structurally inert regardless of agent count, because nothing ever
+  supplies the callback. `/workflow` is also a hand-written Next.js route outside
+  `frontend/src/lib/routes.ts`'s `[...view]` catch-all, violating `ADR-0018`'s locked constraint
+  ("a hand-written path literal outside routes.ts is a defect"); its likely-intended replacement,
+  `IdeaInputPage.tsx`, already implements the correct `pipelineAgents.length === 0` guard
+  (`:1334`, `:1721`) that `WorkflowView.tsx` lacks.
+- **Blast radius (CONFIRMED, `grep -rn "WorkflowView" frontend/src`):** exactly one caller,
+  `frontend/src/app/workflow/page.tsx`. `handleRun`'s only two trigger paths (Run button `:472`,
+  `Cmd+Enter` keyboard shortcut `:320`) both hit the identical broken function — same fix, no
+  separate caller to patch. No other component imports `WorkflowView`.
+- **Proposed fix:** in `WorkflowView.tsx`, add `pipelineAgents.length === 0` to the button's
+  `disabled` condition (matching `IdeaInputPage.tsx:1334`/`:1721`'s existing pattern) — this alone
+  satisfies the reported symptom (button must stay disabled at 0 agents). That does NOT restore
+  working functionality at 1+ agents, since `onStartPipeline` is still unwired; either wire real
+  callbacks into `<WorkflowView>` at `app/workflow/page.tsx:58-62`, or retire the route (redirect
+  `/workflow` the way `proxy.ts` already redirects other legacy workflow URLs per ADR-0018) since
+  its replacement `IdeaInputPage.tsx` already does this correctly and is reachable via the
+  catch-all. Fix belongs in `WorkflowView.tsx` (+ `app/workflow/page.tsx` if functionality is to
+  be restored rather than retired) — there is only the one caller, so no fan-out risk either way.
+- **Issue cards:** [ISS-328](../.knowledge/cards/20260828-1834-ISS-328.md) (root — validator's
+  original root-cause card), [ISS-492](../.knowledge/cards/20260829-0150-ISS-492.md) (sibling,
+  INFERRED: same unwired-prop gap also makes Steps 3-4 — running/complete UI, View Results, Run
+  Another Pipeline — permanently unreachable on `/workflow`)
+
+- **Fix cards:** [FIX-391](../.knowledge/cards/20260829-0305-FIX-391.md) — resolves
+  [ISS-328](../.knowledge/cards/20260828-1834-ISS-328.md) only
+- **Fixed:** `WorkflowView.tsx:161` (handleRun floor) and `:473` (button disabled gate) now both
+  carry `|| pipelineAgents.length === 0`, mirroring `IdeaInputPage.tsx:1343`/`:1730`. The floor is
+  in `handleRun` because the `Cmd+Enter` shortcut (`:320`) calls it directly and a `disabled`
+  attribute never intercepts a keydown — guarding only the button would have left that path open.
+  `WorkflowView.zeroAgents.test.tsx` now XPASSes (vitest: "Error: Expect test to fail"); the
+  `it.fails` marker is left in place for the 6-verifier.
+- **Escalation (why not FIXED):** [ISS-492](../.knowledge/cards/20260829-0150-ISS-492.md) is
+  unresolved and needs a route-lifecycle decision the cards deliberately leave open. Option A —
+  wire `onStartPipeline`/`pipelineState` into `app/workflow/page.tsx:58-62` (what
+  `app/workflow/page.test.tsx` asserts) — stands up a SECOND independent run-launch and
+  run-state seam on an unlinked route, which is the fragmentation
+  [ADR-0018](../.knowledge/cards/20260824-1631-ADR-0018.md) explicitly refused; and without the
+  SSE fan-out that `[...view]/page.tsx` owns it would strand the user on a permanently empty
+  "running" graph. Option B — retire `/workflow` via the `proxy.ts` matcher, exactly as
+  `/workflow/create` already is — is 2 lines, matches ADR-0018, and would also close row 84's
+  siblings, but deleting a route is not a fixer's call. Needs a human pick.
 
 ### Summary
 On a fresh load of `/workflow` (the orphaned legacy builder, D-17's `/workflow`, unlinked from
@@ -1650,7 +2972,68 @@ complete no-op — no request, no error, no feedback of any kind.
 - **Page:** Run History
 - **Route:** /runs
 - **Severity:** High
-- **Status:** Open
+- **Status:** ESCALATED
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduced on every cold navigation to
+  /runs, no axis variation needed. Root cause: `frontend/src/components/history/WorkflowHistory.tsx`
+  renders `runs.length` instead of the `totalRuns` state it already captures from the
+  API's `total` field, and `handleLoadMore` is defined but never wired to any
+  button/scroll/observer.
+- **Root cause (CONFIRMED, `WorkflowHistory.tsx:973` + `:952` + `:289-299`):** the mount
+  effect (`:203-214`) correctly captures the API's true count into `totalRuns` state
+  (`setTotalRuns(total)`, `:210`), and `handleLoadMore` (`:289-299`) is a fully correct
+  `limit=50&offset=runs.length` pagination call — but the header (`:973 <p>{runs.length}
+  runs</p>`) and every filter chip's count (`:952-958 typeCounts`) render off the capped
+  `runs`/`families` array instead of `totalRuns`, and `handleLoadMore` is never invoked
+  by any button/scroll/observer (`grep -n "handleLoadMore"` — one hit, its own
+  definition). Backend (`backend/app/api/runs.py:315-371 list_runs`) already supports
+  `limit`/`offset` and returns `X-Total-Count` — confirmed not a blocker. Historical:
+  `git show ce08bf542` (2026-08-17 revert) deleted a working Load-More footer as
+  collateral damage of an unrelated backend de-dup revert; the header/chip mislabel
+  predates that revert and was never fixed (commit `35b17ad1a`).
+- **Blast radius (CONFIRMED via `grep -rln "getWorkflows(" frontend/src`, 6 callers):**
+  confined to `WorkflowHistory.tsx` — the other 5 callers (`app/[...view]/page.tsx`,
+  `providers/RunConnectionProvider.tsx`, `components/results/AgentThinkingTab.tsx`,
+  `store/slices/globalSlice.ts`, `lib/api.ts` itself) fetch small fixed-limit "recents"
+  lists and never destructure/render `total`, so none replicate this defect. Within
+  `WorkflowHistory.tsx`, three further consumers of the same capped array are affected:
+  search (`matchesFilter`), sort (`bucketAndSortFamilies`), delete
+  (`handleDeleteConfirm` never decrements `totalRuns`), and per-type filter-chip counts
+  (`typeCounts`) — each filed as an INFERRED sibling below.
+- **Fix location:** entirely inside `WorkflowHistory.tsx` (no shared function needed —
+  confirmed no other component shares this code path). See ISS-198's "Fix location"
+  section for the 5-item breakdown.
+- **5-fixer (2026-08-28): ESCALATED, no code changed.** Every recorded root cause holds
+  (`WorkflowHistory.tsx:973` header, `:952-958` chips, `:289-299` dead `handleLoadMore`,
+  `:415` missing `setTotalRuns` on delete) — but the fix cannot be applied without a units
+  decision no card covers, and the two acceptance tests contradict each other. Measured on
+  the live backend as qa-admin: `X-Total-Count` = **275** runs, which `groupRunsByFamily`
+  collapses into **232** family cards (43 runs are revision members); per bucket
+  custom 195/176, ppt 31/25, prototype 26/18, user_stories 14/10, app_builder 9/3. Rows are
+  family cards (`RevisionFamilyView.tsx:539`/`:593`; expanded members render as `Version N`,
+  `:663`, and are not rows). The green scenario suite requires @S-06-04 "the 'All' filter's
+  count equals the total run count" AND @S-06-05 "the visible row count equals the filter's
+  own count"; ISS-198's new test requires the header to equal `X-Total-Count`. Run-counted
+  chips satisfy S-06-04 and ISS-213 but draw 25 rows against a chip of 31 (S-06-05 fails for
+  all five types); card-counted chips satisfy S-06-05 but put "All 232" under a "275 runs"
+  header (S-06-04 fails). Second, independent contradiction:
+  `test_scrolling_to_the_bottom_loads_more_runs` needs the list capped (`rows <= 50` at rest)
+  while ISS-213 + S-06-05 need it uncapped (176 Custom rows) — and a render cap also hides
+  ISS-208's true highest-token run, which sits in the Older bucket behind Today 2 + Earlier
+  190 (`bucketAndSortFamilies` sorts within a date bucket, never across). Options and the
+  measured evidence: [ISS-219](../.knowledge/cards/20260828-1706-ISS-219.md). Baseline
+  observed, unchanged: `test_run_history_pagination.py` 5 xfailed;
+  `test_run_history.py -k "type_filter_counts_sum_to_the_total or filtering_by_type_narrows"`
+  6 passed.
+- **Issue cards:** [ISS-198](../.knowledge/cards/20260828-1400-ISS-198.md) (root),
+  [ISS-207](../.knowledge/cards/20260828-1617-ISS-207.md) (sibling: search
+  false-negatives past row 50), [ISS-208](../.knowledge/cards/20260828-1617-ISS-208.md)
+  (sibling: Longest/Tokens sort ignores rows past 50),
+  [ISS-209](../.knowledge/cards/20260828-1617-ISS-209.md) (sibling: delete never
+  decrements totalRuns, desyncs future Load-More offset),
+  [ISS-213](../.knowledge/cards/20260828-1618-ISS-213.md) (sibling: per-type filter
+  chips undercount and can vanish entirely),
+  [ISS-219](../.knowledge/cards/20260828-1706-ISS-219.md) (correction: the
+  header/chip units decision this fix is blocked on)
 - **Found at:** 2026-08-28 01:15 UTC
 - **Found by:** bug-runs-r1
 - **Fingerprint:** `/runs|run-list-fetch|load-full-history|hard-capped-at-50-mislabeled-as-total`
@@ -1711,12 +3094,113 @@ runs with no user-facing way to reach them.
   well exceeds clientHeight (894), confirming the container is scrollable and was actually
   scrolled, yet nothing loads beyond row 50
 
+### Test coverage (4-writer, 2026-08-28)
+
+All tests live in `tests/integration/e2e/suites/06_run_history/test_run_history_pagination.py`
+(offline tier, `@pytest.mark.issue(...)` + `xfail(strict=True)`), run one file at a time and
+observed red before marking:
+- [ISS-198](../.knowledge/cards/20260828-1400-ISS-198.md) — 2 tests: header total vs.
+  `X-Total-Count` (`50 == 276` failed), and scroll-to-bottom fetching nothing more
+  (`50 > 50` failed).
+- [ISS-207](../.knowledge/cards/20260828-1617-ISS-207.md) — search for a word unique to a run
+  beyond the first page returns zero rows (false negative, confirmed).
+- [ISS-208](../.knowledge/cards/20260828-1617-ISS-208.md) — duration didn't separate this seed
+  data (the true-longest run is recent enough to already sit in page one), so the test uses
+  token totals instead: "Tokens" sort never surfaces the account's true highest-token run
+  (13.6M tokens, from 2026-08-14) — confirmed (`6000000.0 >= 13609205*0.99` failed).
+- [ISS-213](../.knowledge/cards/20260828-1618-ISS-213.md) — every type-filter chip undercounts;
+  this account's first 50 rows happen to include at least one hit per bucket (so a chip never
+  fully vanishes here), so the test proves the milder, still-card-covered undercount claim
+  instead (Custom chip read 37, ≥158 more custom-bucketed runs exist beyond the loaded page).
+- [ISS-209](../.knowledge/cards/20260828-1617-ISS-209.md) — **no test written.** `totalRuns`
+  (`WorkflowHistory.tsx:158`) has exactly 3 references, all inside `handleLoadMore`
+  (`:289-299`), which has zero triggers anywhere in the component (no button, no scroll
+  listener, no `IntersectionObserver` — confirmed via `grep -n "scroll\|Intersection"`, no
+  hits) — and the header/chips never read `totalRuns` either (ISS-198's own root cause). So
+  `totalRuns` is not exposed by any rendered state today; a delete-then-assert test against the
+  DOM was tried and came back green for the wrong reason (the header tracks `runs.length`, which
+  the delete DOES correctly shrink) rather than proving the `totalRuns` staleness the card
+  describes. This card is genuinely unreachable by an external test until the ISS-198 fix wires
+  a Load More trigger — exactly the "currently masked by ISS-198" note already on the card. The
+  5-fixer should fix ISS-209 in the same change as ISS-198 per the card's own guidance, and a
+  test can be written once Load More exists.
+
 ## BUG-20260828-011700-runs-id — Run detail header's relative timestamp is stuck on "just now" for a run that finished 11+ hours ago, disagreeing with the version picker's own age label
 
 - **Page:** Completed run — Preview tab (run detail header)
 - **Route:** /runs/b9feac1c-ec21-4531-8ba7-bb391786993e (and its Preview URL)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Fix card:** [FIX-354](../.knowledge/cards/20260828-2357-FIX-354.md) — deferred remainder: [ISS-413](../.knowledge/cards/20260828-2357-ISS-413.md)
+- **Fixed:** 2026-08-29 — `backend/agents/execution_engine/engine.py` now stamps the run's real
+  `created_at` on the `pipeline_start` frame (UTC-promoted, best-effort read via
+  `scoped_store.get_run`), `backend/tests/agents/characterization/_normalize.py` adds
+  `created_at` to `_VOLATILE_STRIP_KEYS` so the 5 event goldens stay byte-untouched, and
+  `frontend/src/hooks/useWorkflow.ts:511` drops the `|| new Date().toISOString()` fallback so a
+  replayed frame can no longer be dated to page-load time. Verified:
+  `suites/07_run_detail/test_run_detail.py -k header_relative_age` → XPASS(strict) (the pass
+  signal; xfail marker left for the verifier); header now reads "18m 54s · 3.1M tokens".
+- **Verified:** 2026-08-29 — `/docs` → 200 (pure-`.py`+`.ts` change, no restart needed beyond
+  the already-live `--reload`). `test_run_detail.py -k header_relative_age` re-run:
+  XPASS(strict) confirmed by hand, `xfail` marker then removed, re-run → plain PASS (1 passed).
+  Manual repro on run `b9feac1c-ec21-4531-8ba7-bb391786993e` in lane5 Chrome, cold nav
+  `/dashboard` → `/runs/b9feac1c-ec21-4531-8ba7-bb391786993e`: `lane-run-meta` reads
+  `"18m 54s · 3.1M tokens"` — no "just now", no lying value (this run's `pipeline_start` row
+  predates FIX-354, so per its documented, sanctioned degrade the age segment blanks rather than
+  fabricating a wrong one); version picker independently confirmed `"Version v1 · 1d ago"` —
+  the two labels no longer contradict each other. 0 new console errors (1 pre-existing sandboxed
+  iframe warning, unrelated). Screenshot:
+  `bug-hunter/evidence/runs-id/BUG-20260828-011700-runs-id/04-after-fix-header-blank-age-version-1d-ago.png`.
+  Health: `frontend && npx tsc --noEmit` — pre-existing errors only, none in
+  `useWorkflow.ts`/`LaneRunHeader.tsx`. `backend && ../venv/bin/lint-imports` — 3 kept/1 broken,
+  same pre-existing `kernel imports only capability ports (scaffold)` contract FIX-354 already
+  documented broken. Regression: `LaneRunHeader.test.tsx` 16/16 green,
+  `useWorkflow.reconnect.test.ts` 6/6 green, `test_deliverable_mimetype.py` 19/19 green, full
+  `suites/07_run_detail/test_run_detail.py` (49 scenarios) exit 0, all pass/skip-live, no
+  failures.
+- **Validated:** 3/3 on 2026-08-28, every cycle — cold-loads a completed run's detail page deterministically, no axis variation needed
+- **Issue card:** [ISS-276](../.knowledge/cards/20260828-1700-ISS-276.md)
+- **Root cause:** Backend `pipeline_start` never carries `created_at`
+  (`backend/agents/execution_engine/engine.py:2346-2363`). The shared `pipeline_start` reducer
+  (`frontend/src/hooks/useWorkflow.ts:511`,
+  `createdAt: (msg.created_at as string) || prev.createdAt || new Date().toISOString()`) is fed
+  by BOTH live SSE traffic and durable-event REST replay
+  (`frontend/src/app/[...view]/page.tsx:2599-2610`, `getRunEvents` → `handleWebSocketMessage`
+  → same reducer). On a cold load of a completed run `prev.createdAt` is undefined (fresh
+  per-run state) and the replayed frame has no `created_at`, so the fallback stamps the
+  client's current wall-clock at replay/hydration time. `LaneRunHeader.tsx:257`
+  (`formatRelativeAge(pipelineState?.createdAt)`) then always computes <45s elapsed → "just
+  now", regardless of the run's real age. Contrast: the version picker
+  (`frontend/src/components/preview/RunHeader.tsx:156`) uses the same `formatRelativeAge`
+  helper but feeds it `member.created_at` from the separately-fetched, DB-backed
+  `getRunFamily` endpoint — never touching this reducer — which is why it's correct.
+- **Blast radius:** `pipelineState?.createdAt` has exactly one consumer in the whole frontend
+  (`LaneRunHeader.tsx:257`, confirmed by grep across `frontend/src`), and `LaneRunHeader` mounts
+  exactly once (`RunChatLane.tsx:2144`) — so every completed/idle run's detail-page header, for
+  every pipeline type (component is workflow-agnostic), hits this on a cold load; contained to
+  that one header element. Three same-file sibling hypotheses were checked against the actual
+  consuming code and refuted: `agent_complete` duration prefers a server-provided `msg.duration`
+  (`useWorkflow.ts:657-662`, already guarded); `tool_call.timestamp`
+  (`useWorkflow.ts:1030`, unconditionally `new Date().toISOString()`) is only read by a
+  live-only activity indicator gated to currently-running agents
+  (`StepsOverviewSpine.tsx:525-528`, never renders once an agent is "done"); `hook_run`'s
+  `created_at` (`useWorkflow.ts:1075`) feeds `pipelineState.hookRuns`, which `AuditTab.tsx`
+  declares as a prop but never reads (`AuditTab.tsx:51` is the only occurrence) — Audit rows
+  come from a separate, correctly DB-backed REST endpoint (`getRunHookRuns`,
+  `AuditTab.tsx:478,570-597`). No new sibling cards filed as a result — see note below.
+- **Proposed fix:** Backend — add the run's real `created_at` to the `pipeline_start` event's
+  `data` payload (`engine.py:2346-2363`), mirroring how `agent_complete` already sends
+  `duration`; the existing frontend preference (`msg.created_at ||`) then picks it up with no
+  further change for new runs. Frontend (needed regardless, for runs whose durable
+  `pipeline_start` row was already persisted without it) — `useWorkflow.ts:511` should stop
+  manufacturing "now" as a stand-in for a real timestamp; either drop the
+  `|| new Date().toISOString()` fallback (`formatRelativeAge(undefined)` already returns `""`,
+  which `metaParts.filter(Boolean)` already drops — a graceful blank instead of a wrong value),
+  or better, have `LaneRunHeader`'s settled branch source the age from the same DB-backed field
+  the version picker already uses instead of the replay-reconstructed `pipelineState`. Belongs
+  in the shared reducer/backend event, not a `LaneRunHeader.tsx`-only patch — that would only
+  hide the symptom in this one caller and leave `pipelineState.createdAt` wrong for any future
+  consumer.
 - **Found at:** 2026-08-28 01:17 UTC
 - **Found by:** bug-runs-id-r1
 - **Fingerprint:** `/runs/[id]|run-detail-header-relative-time|load-completed-run-11h-old|header-reads-just-now-while-version-picker-reads-11h-ago`
@@ -1788,7 +3272,7 @@ and displays the correct ~11-hour age for the same run.
 - **Page:** Completed run — Steps tab
 - **Route:** /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 01:25 UTC
 - **Found by:** bug-runs-id-steps-r1
 - **Fingerprint:** `/runs/[id]/steps|token-usage-footer|load-completed-run-steps-tab|input-token-figure-far-below-actual-breakdown-does-not-sum-to-total`
@@ -1850,16 +3334,118 @@ API-reported input token count (2.9M) matches what the same element's own toolti
 - State/URL: URL stays on `/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps` throughout; confirmed
   via direct DOM `innerText` reads (not just screenshot) both before and after a fresh reload.
 
+- **Validated:** 3/3 on 2026-08-28, every cycle from a cold `page.goto` — deterministic, no
+  timing dependency. Root cause in `frontend/src/components/workflow/TokenUsageSummary.tsx:56`.
+- **Root cause:** `TokenUsageSummary.tsx:56` renders `uncachedInput` (gross input minus
+  cache_read/cache_write, `:32`) as the "input" label whenever caching is active, while `total`
+  (`:26`) is computed from the FULL gross `input` — so input+output can never reconstruct the
+  displayed total. The correct full figure is only ever shown in the element's own `title`
+  tooltip (`:54`), proving the right value is in scope and simply not the one rendered.
+- **Blast radius:** sole production caller is `AgentThinkingTab.tsx:321` (Steps tab) — renders
+  for a run in ANY status (generating/completed/failed/gated), not only completed runs.
+  `ChatTokenWidget.tsx:93-124` independently duplicates the identical formula (its own docstring
+  says it "Mirrors TokenUsageSummary") — dormant/unmounted in production today (only its
+  `composedContextUsage` helper is imported by `RunChatLane.tsx:67-71`) but will reproduce the
+  same defect once wired into the chat lane. Checked and ruled out: backend
+  `concierge.py get_token_usage()` (reports the plain gross figure, no subtraction) and
+  `AnalyticsPage.tsx:224-232,604-619` (computes the same uncached value but labels it "New
+  Input" inside a 4-segment breakdown that does reconcile to the total — the fix precedent).
+- **Fix belongs in:** a shared helper (e.g. `{total, uncachedInput, cacheRead, cacheWrite,
+  hasCaching}` from a `PipelineRunState`) called by both `TokenUsageSummary.tsx` and
+  `ChatTokenWidget.tsx` instead of each hand-rolling the same subtraction, modeled on
+  `AnalyticsPage.tsx`'s already-correct labeling.
+- **Issue cards:** [ISS-278](../.knowledge/cards/20260828-1700-ISS-278.md) (root),
+  [ISS-385](../.knowledge/cards/20260828-2225-ISS-385.md) (sibling: ChatTokenWidget.tsx
+  duplicates the same formula, currently unmounted)
+- **Fixed:** `TokenUsageSummary.tsx:56` now renders `{formatTokens(input)} input` — the same
+  gross `totalInputTokens` the `total` beside it is derived from — so the footer's two visible
+  parts reconstruct the stated total; the tooltip keeps the cached share. The orphaned
+  `uncachedInput` local is gone. `ChatTokenWidget.tsx` (the dormant duplicate) got the same
+  treatment: the `in` segment is unconditional and gross, only the amber `⚡ N cached (P%)`
+  segment stays behind `hasCaching`. The shared helper both cards proposed was NOT created —
+  with the subtraction deleted from both files there is no shared arithmetic left to extract,
+  and the goal it served (no dormant copy) is met by fixing both call sites in one pass.
+  Vitest: TokenUsageSummary.footerSum 2/2 XPASS ("Error: Expect test to fail" — the red run IS
+  the pass signal, `it.fails` markers left in place for the verifier); TokenUsageSummary.cache
+  5/5 green; ChatTokenWidget 6/6 green. `npx tsc --noEmit`: no error in either changed file
+  (the 6 reported are HomeLaunchGrid.crossAccountLeak / listenerMiddleware tests, other work in
+  this tree). eslint on both files: 0 errors, 1 pre-existing unused-`modelId` warning on the
+  untouched props signature. Frontend-only: no backend restart, no migration, no engine or
+  import-linter surface involved.
+- **Fix card:** [FIX-353](../.knowledge/cards/20260828-2353-FIX-353.md) — resolves
+  [ISS-278](../.knowledge/cards/20260828-1700-ISS-278.md) (status: resolved, verification:
+  passed) and [ISS-385](../.knowledge/cards/20260828-2225-ISS-385.md) (status: resolved,
+  verification: optional — the widget is still mounted nowhere, so its fix is settled by
+  construction and by its own unit suite, not by a UI reproduction).
+- **Verified:** `TokenUsageSummary.footerSum.test.tsx` (2 cases) confirmed XPASS
+  ("Error: Expect test to fail" on both `it.fails`), `xfail`/`it.fails` markers removed,
+  re-run plain green: `TokenUsageSummary.footerSum.test.tsx` + `TokenUsageSummary.cache.test.tsx`
+  + `ChatTokenWidget.test.tsx` = 13/13 passed. Manual repro re-run by hand in Chrome
+  (qa-admin, cold `page.goto` to `/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps`): footer now
+  reads `TOKEN USAGE · 3.1M total · 2.9M input · 192.8K output` — 2.9M + 192.8K reconstructs
+  3.1M, and the tooltip ("Total context sent: 2.9M (2.4M cached)") now agrees with the visible
+  label instead of contradicting it. `npx tsc --noEmit`: 0 errors in the two changed files (6
+  pre-existing errors remain in unrelated `HomeLaunchGrid.crossAccountLeak.test.tsx` /
+  `listenerMiddleware.test.ts`, confirmed at HEAD, not introduced by this fix). Backend
+  `/docs` → 200 (frontend-only change, no restart needed). Regression:
+  `AgentThinkingTab.test.tsx` (sole production caller's own suite) 6/6 green. No new console
+  errors (1 pre-existing sandboxed-iframe warning, unrelated to this component). After
+  screenshot: `bug-hunter/evidence/runs-id-steps/BUG-20260828-012500-runs-id-steps/04-after-fix-verified.png`.
+
 ## BUG-20260828-012700-runs-id-steps-agent — Deep-linking a specific agent's step URL never opens that agent's detail pane; it renders the plain unfiltered lane list instead
 
 - **Page:** Completed run — one agent's step detail
 - **Route:** /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps/<agentId> (e.g. `/steps/ppt-brief-analyst`, `/steps/ppt-composer`)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Validated:** 3/3 on 2026-08-28, each from a cold start (fresh `page.goto`, not a soft nav) — real agent id `ppt-brief-analyst` (cycles 1 and 3), real agent id `ppt-composer` (cycle 2), all identical: bare unfiltered lane list, no breadcrumb, no detail. Manual click in cycle 3 confirmed the same root behaviour the hunter reported: detail renders on click but `location.href` stays byte-identical, verified via `page.evaluate`.
+- **Fix card:** [FIX-359](../.knowledge/cards/20260829-0014-FIX-359.md)
+- **Fixed:** 2026-08-29 — the deep-link seam now carries the agent the URL names.
+  `TabDeepLinkTarget` gains an optional `agentId` and `requestOpenTab(tab, agentId?)` mints it
+  (`frontend/src/hooks/useTabDeepLink.ts`); a new `deepLinkAgentIdFor(parsed)` selector
+  (`frontend/src/app/[...view]/page.tsx:214-223`, mirroring `pinnedVersionFor`) feeds it at BOTH
+  producer call sites (`:3220` shallow-nav/back-forward branch, `:3293` cold-mount `.finally()`);
+  `PreviewPanel` forwards `initialAgentId={deepLinkTarget?.agentId}` to `<AgentThinkingTab>`,
+  whose new optional `initialAgentId` prop seeds `selectedAgentId` and re-applies on a later
+  deep link. Opaque id only, matched against the run's own `agents[].id` — no name branch
+  (SC-001). Frontend-only: no backend file, no migration, no engine edit.
+  Tests observed: `tests/integration/e2e/suites/07_run_detail/test_run_detail_agent_deeplink.py`
+  → `[XPASS(strict)] ISS-277 unfixed` (the pass signal; xfail marker left for 6-verifier).
+  Same suite by node id: S-07-10 SKIPPED (its own built-in fallback — rows carry no
+  `data-agent-id`, pre-existing), S-07-11 PASS. Frontend unit: 36 tests green across
+  `runTabShallowNav.test.ts` (3), `useTabDeepLink.test.ts` (4), `AgentThinkingTab.test.tsx` (6),
+  `AgentThinkingTab.narrativeOrder`+`prototypePreamble` (4), `PreviewPanel.test.tsx` (19).
+  `npx tsc --noEmit`: only the two failures this register already baselined as pre-existing
+  (`HomeLaunchGrid.crossAccountLeak.test.tsx`, `listenerMiddleware.test.ts`), neither in a
+  touched file. DISCLOSED TEST EDIT: `runTabShallowNav.test.ts:62` pins the deep-link call by
+  exact source text; the card-mandated signature widening lengthened that call, so the literal
+  was updated to `requestOpenTab(openTab, deepLinkAgentIdFor(parsedView))` — same guard intent,
+  strictly stronger, no assertion weakened. NOT fixed here (still open, separate cards):
+  ISS-387 (selection still never pushes history — the OUT direction) and ISS-386
+  (`routes.runStepsAgent` still has no `version` param).
+- **Verified:** 2026-08-29 —
+  `tests/integration/e2e/suites/07_run_detail/test_run_detail_agent_deeplink.py::test_a_fresh_deeplink_to_steps_agent_opens_that_agents_detail_pane`
+  ran XPASS(strict) confirming the fix, xfail marker removed, re-run plain green
+  (issue marker kept). Manual re-run of the register's own repro in Chrome (lane6),
+  same run `b9feac1c-ec21-4531-8ba7-bb391786993e`: fresh `page.goto` to
+  `/steps/ppt-brief-analyst` now renders the "Steps / Presentation Strategist Agent"
+  breadcrumb and detail pane directly, no manual click needed; a reload of the same
+  URL still shows it; a second fresh nav to `/steps/ppt-composer` opens "Steps /
+  Deck Engineer Agent" the same way. Regression, same suite by node id: S-07-10
+  SKIPPED (pre-existing, own built-in fallback, unrelated), S-07-11 PASS. Frontend
+  unit: 13/13 green across `runTabShallowNav.test.ts`, `useTabDeepLink.test.ts`,
+  `AgentThinkingTab.test.tsx`. `npx tsc --noEmit`: only the same two pre-existing
+  failures (`HomeLaunchGrid.crossAccountLeak.test.tsx`, `listenerMiddleware.test.ts`),
+  neither touched by this fix. `lint-imports` (run from `backend/`): 1 pre-existing
+  broken contract (`kernel imports only capability ports`), unrelated backend-only
+  finding, not introduced by this frontend-only change. Backend not restarted —
+  no `.py` file touched; `:8000/docs` confirmed 200. After-screenshot:
+  `bug-hunter/evidence/runs-id-steps-agent/BUG-20260828-012700-runs-id-steps-agent/04-after-fix-fresh-deeplink-shows-detail.png`.
+- **Issue card:** [ISS-277](../.knowledge/cards/20260828-1659-ISS-277.md)
 - **Found at:** 2026-08-28 01:27 UTC
 - **Found by:** bug-runs-steps-agent-r1
 - **Fingerprint:** `/runs/[id]/steps/[agentId]|steps-tab-lane-detail-panel|fresh-navigation-or-reload-of-agent-deep-link|no-agent-detail-renders-only-list-view`
-- **Evidence:** `bug-hunter/evidence/runs-id-steps-agent/BUG-20260828-012700-runs-id-steps-agent/`
+- **Evidence:** `bug-hunter/evidence/runs-id-steps-agent/BUG-20260828-012700-runs-id-steps-agent/`, `bug-hunter/evidence/runs-id-steps-agent/_scratch/`
 
 ### Summary
 The Steps tab's URL scheme includes a per-agent segment (`/runs/{id}/steps/{agentId}`), and the
@@ -1934,12 +3520,124 @@ is unreachable by direct navigation and is lost on reload.
   including immediately after the manual click that opens the detail pane — the URL is written
   once by navigation and never updated or read back by the selection logic.
 
+- **Root cause:** `agentId` is dropped end-to-end, confirmed at every hop by direct read.
+  `reopenTabFor(screen: ParsedView["screen"])` (`frontend/src/app/[...view]/page.tsx:228-234`)
+  is typed to accept only the screen name, so it structurally cannot see `agentId` even though
+  the full `parsedView` object (with `.agentId`) is in scope at both call sites
+  (`page.tsx:3189`, `:3237`). `TabDeepLinkTarget` (`frontend/src/hooks/useTabDeepLink.ts:28-33`)
+  carries only `{tab, nonce}` and `requestOpenTab` is typed `(tab: string) => void` (`:38-39`) —
+  no field exists to carry an agent id even one layer downstream. `PreviewPanel`'s deep-link
+  consumer effect (`PreviewPanel.tsx:814-837`) reads only `.tab` and calls `setActiveTab`; it
+  invokes `<AgentThinkingTab>` with no agent-id-shaped prop at all (`:1360-1384`). Finally,
+  `AgentThinkingTabProps` (`AgentThinkingTab.tsx:22-46`) has no such field, and
+  `selectedAgentId` (`:84`) is plain `useState<string | null>(null)`, unconditionally `null` on
+  every mount regardless of the URL. The reverse direction is equally absent: the manual click
+  handler `onOpenAgent={(id) => { setSelectedAgentId(id); ... }}` (`:295`) and its task-level and
+  `onBack` counterparts (`:254`, `:260`, `:282`) never call `router.push`/`replace` or
+  `window.history.pushState`/`replaceState` — confirmed by grepping `AgentThinkingTab.tsx`,
+  `StepsOverviewSpine.tsx`, and `AgentDetailPanel.tsx` for `router\.|useRouter|window.history|
+  pushState|replaceState`: the only hit is an unrelated "divert to another run's live stream"
+  push in `StepsOverviewSpine.tsx:43,52`.
+- **Blast radius:** `routes.runStepsAgent` (the typed builder for this URL) has zero production
+  callers today — `grep -rn "runStepsAgent" frontend/src/` matches only `routes.ts` itself and
+  its own test. The "Answer in Steps"/"Open in Steps" chat CTAs named in this entry's Summary
+  (`ResultCard.tsx:54-91`) call the generic `onRequestOpenTab("thinking")` directly — by design,
+  per SC-001 (never key chat behavior on an agent/workflow name) — and never build or navigate
+  to a `/steps/{agentId}` URL; likewise the breadcrumb (`AgentDetailPanel.tsx:994`) renders as a
+  plain `<button>`, not a link. So the only path into this bug today is direct/shared/bookmarked
+  navigation to the URL `routes.ts` itself defines and documents — a path ADR-0018 makes a
+  first-class contract ("every URL... routes.ts is the single source for building and parsing
+  it"), independent of caller count. Two further gaps surfaced from the same trace, filed as
+  siblings: (1) the missing-history-push above also means the browser Back button, after a
+  manual agent/task selection, skips the Steps list entirely and lands on whatever page preceded
+  the Steps tab, since no history entry was ever created for the selection; (2)
+  `routes.runStepsAgent` is the only run-tab builder in `routes.ts` with no `version` parameter
+  (`routes.ts:72-89`), unlike `runSteps`/`runFiles`/`runWorkspace`/`runAudit`, even though
+  `parseViewPath` (`:319-339`) already parses `/versions/{v}/steps/{agentId}` into a `version`
+  field for this exact screen — the builder cannot construct what the parser already accepts.
+- **Fix belongs in:** the shared `TabDeepLinkTarget`/`requestOpenTab` seam
+  (`useTabDeepLink.ts`) — widen it to optionally carry an agent id, since every deep-link
+  producer (page.tsx's cold-mount effect, and `ResultCard`'s chat CTAs) already routes through
+  this one interface. Thread that value through `PreviewPanel`'s consumer effect into a new
+  `AgentThinkingTab` prop (e.g. `initialAgentId`) that seeds `selectedAgentId`'s initial value.
+  For the reverse direction, `onOpenAgent`/`onBack` in `AgentThinkingTab.tsx` need to call
+  `router.push`/`replace` with `routes.runStepsAgent(runId, agentId)` (or `routes.runSteps(runId)`
+  on back-to-list) so selection state and the URL/history stay in sync both ways. Not a
+  page.tsx-only patch: `reopenTabFor`'s signature, `TabDeepLinkTarget`'s shape, and
+  `AgentThinkingTab`'s prop surface all need the same new field so every existing caller keeps
+  routing through one seam rather than growing a second, parallel channel.
+- **Issue cards:** [ISS-277](../.knowledge/cards/20260828-1659-ISS-277.md) (root),
+  [ISS-386](../.knowledge/cards/20260828-2228-ISS-386.md) (sibling: routes.runStepsAgent has no
+  version param, unlike its four sibling builders), [ISS-387](../.knowledge/cards/20260828-2228-ISS-387.md)
+  (sibling: no history entry on manual agent/task selection breaks the browser Back button)
+
 ## BUG-20260828-012900-runs-id-files — Files tab never lists the run's real PPTX binary deliverable; instead shows a scratch tmp/ HTML file mislabeled as "Final output"
 
 - **Page:** Completed run — Files tab
 - **Route:** /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/files
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-28. Ran `tests/integration/e2e/suites/07_run_detail/test_run_detail.py::test_a_ppt_v2_runs_final_output_is_the_declared_deliverable_not_a_tmp_scratch_file` (XPASS confirmed, xfail marker removed, re-run plain green), plus `frontend/src/components/results/FilesTab.baseVersion.test.tsx` and `frontend/src/components/history/WorkflowHistory.pptV2Files.test.tsx` (both XPASS on their ISS-215/ISS-214 guards; ISS-215's `it.fails` and ISS-214's first `it.fails` removed, both re-run green; ISS-214's second guard intentionally left `it.fails` per FIX-327 — that prop stays `undefined` by design once ppt_v2 no longer reaches the generic branch). Manually re-ran the original repro in the browser (lane4, signed in qa-admin, cold nav to `/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/files`): "Final output" now reads `presentation.pptx`, PPTX (.pptx), 159.9 KB, validated — matches the fixer's claim, no longer the tmp scratch HTML. "6 files available · 1 deliverable" unchanged. No new console errors. Regression: S-07-12/S-07-13 pass; frontend `FilesTab.test.tsx`, `FilesTab.runInput.test.tsx`, `WorkflowHistory.genericReopen.test.tsx`, `WorkflowHistory.test.tsx`, `api.test.ts` — 42/42 pass. Backend untouched (frontend-only fix), `/docs` 200. `lint-imports` (run from `backend/`) shows one broken contract (`kernel imports only capability ports`) confirmed pre-existing via `git status --porcelain backend/` (no backend diff in this tree). `npx tsc --noEmit` shows only the two pre-existing failures the fixer already noted (`HomeLaunchGrid.crossAccountLeak.test.tsx`, `listenerMiddleware.test.ts`), none in the touched files.
+- **Root cause:** `frontend/src/app/[...view]/page.tsx:1470` (live `pipeline_complete` handler)
+  and `:2985` (reopen handler, gated by `isContentTerminal` at :2980-2981 which covers both
+  `completed` and `degraded`) both route `pipelineType`/`fullRun.type` in
+  `{"ppt","ppt_v2","ppt_revision"}` into `setPptContent(finalOutput)` /
+  `setPptContent(fullRun.output)` — the run's raw `output` field (`ctx.last_streamed`, the text
+  the LAST agent streamed). For `ppt_v2` the last agent is step 4 ("PPTX Code Generator"), whose
+  own streamed text is not `presentation.html` (written by step 3, only read by step 4 per
+  ADR-0029's "one writer per file") and in this run matches the `tmp/` scratch file's content
+  instead. `FilesTab.tsx`'s `deriveDeliverableFiles` (called at `FilesTab.tsx:547`) then builds
+  the "Final output" row's name/size purely by regex-parsing that same wrong `pptContent` string
+  (`<title>`/`<h1>` match, lines 393-399) — it never calls back to the run's workspace/sandbox
+  listing (`GET /api/runs/{id}/sandbox`) to resolve the file the backend actually names
+  `deliverable_filename`, unlike `PreviewPanel.tsx`'s header Download button, which already does
+  exactly that (FIX-318, `PreviewPanel.tsx:846-910`: fetches `deliverableFilename`, lists the
+  workspace via `getRunSandbox`, and picks a declared-extension-keyed sibling — declared `.html`
+  prefers `<stem>.pptx` — gated on the file's actual presence in the listing). CONFIRMED by direct
+  read of `page.tsx:1464-1477,2980-2988`, `FilesTab.tsx:390-400,543-547`, and
+  `PreviewPanel.tsx:822-910,1280`.
+- **Blast radius:** Grepped every non-test `<FilesTab` render and every
+  `deriveDeliverableFiles`/`setPptContent` call site. Three callers share the identical flaw: (1)
+  `PreviewPanel.tsx:1280` — the reported main run screen (root, ISS-199); (2)
+  `WorkflowHistory.tsx:904` — the History browser's own detail panel, which additionally runs a
+  SECOND, independently-drifted type check (`WorkflowHistory.tsx:542`'s `isPpt` omits `ppt_v2`
+  entirely, landing it in the generic-deliverable branch with `filename: undefined` instead of
+  even the mislabeled row — ISS-214); (3) `FilesTab.tsx:436-440` — the component's own lazily-
+  fetched "From v{n-1}" base-version section, which passes `parentRun.type` RAW (no
+  normalization) into the same helper and has no generic-deliverable fallback wired in at all, so
+  a ppt_v2 base version renders zero file rows, silently (ISS-215). `setPptContent` has two more
+  call sites (`page.tsx:1803,2482`) but both are gated behind an explicitly-commented "legacy chat
+  mode" message shape (`chatDetail.final_output`/`msg.data` parsed as
+  `{user_stories,ppt,prototype}` JSON) — a different, older architecture than the single-string
+  `pipeline_type`/`final_output` run model `ppt_v2` uses; INFERRED unreachable for `ppt_v2`, not
+  confirmed live. "Download" on the Final output row and "Download All" both consume the SAME
+  derived `files` array (`FilesTab.tsx:504-568,662`), so they inherit the identical wrong content
+  — not a separate defect. A dead `else if (file.id === "presentation-pptx")` handler
+  (`FilesTab.tsx:611-652`, a client-side HTML→PPTX conversion via `POST /api/runs/export-pptx`) is
+  CONFIRMED unreachable today — `deriveDeliverableFiles` never emits that id — but is a trap for
+  the fix: adding a `presentation-pptx` row without touching this handler would round-trip the
+  wrong HTML through a client-side reconversion endpoint instead of fetching the real binary via
+  the same `getRunSandboxFileBlob` path the Workspace tab and header Download already use
+  (FIX-316/FIX-318).
+- **Fix belongs in:** FIX-318 already solved this exact class of problem for the header Download
+  button by building a shared resolver — declared filename + workspace listing + extension-keyed
+  sibling preference — but left it INLINED as a local `useEffect`/`useState` in
+  `PreviewPanel.tsx:846-910`, not shared. The fix belongs in pulling that resolution into one
+  exported function (e.g. alongside `getRunSandbox`/`getRunSandboxFileBlob` in
+  `frontend/src/lib/api`, or exported from `FilesTab.tsx`) that `FilesTab.tsx:547`'s main
+  derivation, `WorkflowHistory.tsx`'s `isPpt`/`isGeneric` block, and `FilesTab.tsx:436-440`'s
+  base-version fetch all call instead of independently guessing from raw streamed content — one
+  shared resolver is a smaller diff than patching three drifted call sites separately, and is the
+  only way to stop a fourth caller from reintroducing the same guess. Must key on the declared
+  file's EXTENSION, never the workflow-type string (SC-001) — `WorkflowHistory.tsx`'s and
+  `FilesTab.tsx:436`'s own unnormalized type checks are what already produced ISS-214/ISS-215.
+- **Validated:** 3/3 on 2026-08-28, every cycle (cold nav to /dashboard then to /runs/<id>/files) — deterministic, no timing/session dependency found
+- **Issue card:** [ISS-199](../.knowledge/cards/20260828-1600-ISS-199.md)
+- **Issue cards:** [ISS-199](../.knowledge/cards/20260828-1600-ISS-199.md) (root),
+  [ISS-214](../.knowledge/cards/20260828-1633-ISS-214.md) (sibling: History browser's Files tab
+  has no ppt_v2 normalization, drops to the generic-deliverable branch),
+  [ISS-215](../.knowledge/cards/20260828-1633-ISS-215.md) (sibling: base-version "From v{n-1}"
+  section drops a ppt_v2 parent to zero file rows)
 - **Found at:** 2026-08-28 01:29 UTC
 - **Found by:** bug-runs-id-files-r1
 - **Fingerprint:** `/runs/[id]/files|files-tab-final-output-selection|open-ppt-v2-completed-run|real-pptx-binary-never-listed-tmp-html-shown-instead`
@@ -2014,13 +3712,70 @@ legitimate deliverable candidates — the backend-declared `presentation.html` o
 - State/URL: URL stays on `/runs/{id}/files` throughout; reproduces identically on both the
   initial load and a completely fresh reload, so this is deterministic, not a race.
 
+- **Issue card:** [ISS-199](../.knowledge/cards/20260828-1600-ISS-199.md)
+
 ## BUG-20260828-013500-runs-id-workspace — Workspace tab's "Code" file viewer is a live, freely-editable text editor with no read-only indication for a completed run
 
 - **Page:** Completed run — Workspace tab
 - **Route:** /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/workspace
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 by the verifier —
+  `frontend/src/components/results/SandboxTab.readOnlyIndicator.test.tsx` (`npx vitest run
+  ... --no-coverage`): both ISS-383/ISS-597 cases XPASSed ("Error: Expect test to fail"), the
+  `it.fails` markers were removed and a re-run confirmed plain green, 2/2 passed.
+  `frontend/src/components/preview/PreviewPanel.workspaceDuringRun.test.tsx`: ISS-598 XPASSed the
+  same way, marker removed, re-run confirmed plain green, 1/1 passed. Manual repro by hand in
+  real Chrome (qa-admin, cold nav to
+  `/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/workspace`) now shows "Read-only scratchpad — edits
+  are not saved" under the CodeMirror pane on both `.browser/deck-styles.json` (Code toggle) and
+  `PLANNER.md` (Code toggle) — the doc is still editable by design (Replace still writes) but the
+  indicator is now visible in both places the original repro hit. 0 new console errors (1
+  pre-existing, unrelated iframe-sandbox warning). Regression files green:
+  `SandboxTab.test.tsx` 37/37, `PreviewPanel.test.tsx` 19/19. `curl :8000/docs` → 200
+  (frontend-only fix, no restart needed). `npx tsc --noEmit` shows 0 errors in the changed files.
+  `lint-imports` from `backend/` shows the same pre-existing `kernel_services -> app.api` broken
+  contract as before this fix (frontend-only change, not caused by it). Before/after screenshots:
+  `bug-hunter/evidence/runs-id-workspace/BUG-20260828-013500-runs-id-workspace/05-after-json-code-view-readonly-indicator.png`
+  and `06-after-md-code-view-readonly-indicator.png`.
+- **Validated:** 3/3 on 2026-08-28, cold start each cycle, three different files
+  (`PLANNER.md`, `01-ppt-brief-analyst.md`, `deck-styles.json`) — `.cm-content.isContentEditable`
+  is `true` and typed text inserts live in every cycle, with no read-only indication.
+  `SandboxTab.tsx`'s `CodeView` doc comment (line 476) states "CodeMirror 6, read-only" but the
+  actual `EditorView` never sets a readOnly config and includes edit keymaps — the component's
+  own documented contract is violated by its implementation.
+- **Issue card:** [ISS-383](../.knowledge/cards/20260828-2021-ISS-383.md)
+- **Root cause:** `CodeView`'s shared CodeMirror `EditorView` extensions array
+  (`SandboxTab.tsx:675-701`) never sets `EditorState.readOnly.of(true)` /
+  `EditorView.editable.of(false)`, contradicting its own top-of-file doc comment (`:476-491`,
+  "read-only... edit keymaps... not pulled in"). But an inline comment (`:687-690`) and an
+  EXISTING, PASSING test (`SandboxTab.test.tsx:375-410`, asserts `contenteditable === "true"` and
+  a working Replace control) show the editable DOM is deliberate, to keep CodeMirror's ⌘F
+  Find-and-Replace functional over a scratchpad copy that never persists — so the doc comment, not
+  the implementation, is what is actually stale. A naive blanket `readOnly.of(true)` fix would
+  block Replace's own dispatched transactions and fail that existing test; the real gap is a
+  missing user-facing signal ("this is a throwaway scratchpad, not the file"), not a missing
+  engine-level lock.
+- **Blast radius:** both call sites of `CodeView` in `SandboxTab.tsx` — the "Code" toggle
+  (`:1331`, the path actually tested) AND every fenced code block inside a markdown file's
+  default, un-toggled Preview render (`:411`, via `MD_COMPONENTS.code`, untested) — reachable for
+  a run in ANY status, including one still generating: `PreviewPanel.tsx:753-755` gates the
+  Workspace tab purely on `workspaceRunId` truthiness, no run-status check, and `workspaceRunId`
+  falls back to the live `pipelineState.pipelineRunId` (`:701` confirms `pipelineState.isRunning`
+  is that same live object's own field).
+- **Issue cards:** [ISS-383](../.knowledge/cards/20260828-2021-ISS-383.md) (root),
+  [ISS-597](../.knowledge/cards/20260829-0135-ISS-597.md) (sibling: same unguarded CodeView
+  reached via a markdown file's default Preview-mode fenced blocks, not just the Code toggle),
+  [ISS-598](../.knowledge/cards/20260829-0136-ISS-598.md) (sibling: same unguarded CodeView
+  reachable on a still-generating run's Workspace tab, no status gate)
 - **Found at:** 2026-08-28 01:35 UTC
+- **Fix card:** [FIX-409](../.knowledge/cards/20260829-0449-FIX-409.md) — one
+  `Read-only scratchpad — edits are not saved` strip added inside `CodeView`
+  (`SandboxTab.tsx`), the single function both call sites route through, so the Code toggle
+  AND every markdown-Preview fence declare it. The doc stays writable on purpose: ⌘F Replace
+  dispatches transactions, and `SandboxTab.test.tsx:375-410` asserts that contract. Resolves
+  ISS-383, ISS-597, ISS-598. `PreviewPanel.tsx` unchanged — the defect is status-blind, so no
+  status prop was threaded.
 - **Found by:** bug-runs-id-workspace-r1
 - **Fingerprint:** `/runs/[id]/workspace|workspace-file-viewer-code-mode|click-into-cm-content-and-type|editor-accepts-arbitrary-keystrokes-no-readonly-lock-no-save-affordance`
 - **Evidence:** `bug-hunter/evidence/runs-id-workspace/BUG-20260828-013500-runs-id-workspace/`
@@ -2113,7 +3868,81 @@ two different files and file types (`.json`, `.md`).
 - **Page:** Completed run — Audit tab
 - **Route:** /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/audit
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-28 by the verifier — `frontend/src/components/results/__tests__/AuditTab.test.tsx`
+  run standalone via `npx vitest --run --no-coverage` from `frontend/`: the 3
+  `it.fails` regression guards (ISS-202/ISS-212/ISS-211) XPASSed
+  ("Error: Expect test to fail"), the `.fails` markers were then removed and a
+  re-run confirmed plain green, 18/18 passed. Manual repro by hand in the
+  browser (real Chrome, qa-admin, cold nav to
+  `/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/audit`) now shows "Governance 0
+  / Security 4 / Activity 96" (was "Governance 96 / Security 4 / Activity 0"),
+  and expanding two differently-labelled rows ("audit logger — before step" @
+  01:50:11 PM vs. "audit logger — tool call" @ 01:56:11 PM) now shows distinct
+  Agent/Tool/Summary detail per row instead of byte-identical boilerplate.
+  `curl :8000/docs` → 200 (backend unchanged, frontend-only fix, no restart
+  needed). `frontend && npm run build` compiles clean. `npx tsc --noEmit`
+  shows no error in `AuditTab.tsx` (pre-existing errors in
+  `HomeLaunchGrid.crossAccountLeak.test.tsx` and `listenerMiddleware.test.ts`
+  are unrelated modified files, not touched by this fix). `lint-imports` from
+  `backend/` reports the same pre-existing `kernel_services -> app.api`
+  contract break as before this fix (frontend-only change, not caused by it).
+  No new browser console errors on the Audit tab. Before/after screenshots:
+  `bug-hunter/evidence/runs-id-audit/BUG-20260828-013900-runs-id-audit/01-before-audit-100-records.png`
+  and `03-after-audit-governance-0-activity-96.png`.
+- **Fix card:** [FIX-326](../.knowledge/cards/20260828-1656-FIX-326.md) — hook_runs rows now
+  carry their own `"hook"` source category into `deriveFineCategory`, which falls back to
+  `"activity"` (secret_scan still resolves to `"security"`, behavioral hooks to Governance);
+  `buildHookDetailRows` also emits the payload's `agent_name`/`tool`/`summary` so two rows are
+  no longer byte-identical, and `exportRows()` carries `fineCategory` into the CSV/JSON.
+  ISS-202/211/212 all resolved by that one file, `frontend/src/components/results/AuditTab.tsx`
+- **Root cause:** `AuditTab.tsx`'s hook_runs merge loop (`frontend/src/components/results/AuditTab.tsx:558-585`)
+  hardcodes `category: "gate"` (line 574) and calls `deriveFineCategory("gate", hookName, step)`
+  (line 568) for EVERY `hooksEnv.hook_runs` row, including the default `audit_logger` hook
+  (backend `agents/capabilities/hooks/audit_logger.py`, injected on every step of every workflow
+  per `_DEFAULT_AUDIT_HOOKS` in `backend/agents/workflows/compiler.py:830`) whose own docstring
+  says it is non-blocking lifecycle logging, never a governance gate. `deriveFineCategory`
+  (lines 281-295) only escalates to `"security"`/`"behavioral"` on a regex match against
+  hook/step text and otherwise falls back to `source === "gate" ? "gate" : "validation"` — since
+  hook_runs always passes `"gate"` as `source`, an `audit_logger` row can never land in the
+  `"activity"` fine category that already exists in `FINE_CATEGORY_META` (lines 261-265) for
+  exactly this kind of lifecycle event. `buildHookDetailRows` (lines 151-182) compounds this: it
+  only special-cases `detail.detector`/`matched_keys`/`match`/`marker`/`action`/`reason`, never
+  the `detail.summary` field the backend actually writes for `audit_logger`
+  ("one-line narrative for the Audit tab UI" per its own docstring) — so every row falls to the
+  same fallback `Action: allowed` / `Outcome: continue` text, which is why any two expanded rows
+  are byte-identical regardless of label or timestamp. CONFIRMED by direct read of both files.
+- **Blast radius:** `deriveFineCategory`/`buildHookDetailRows`/`buildHookLabel` are module-local
+  to `AuditTab.tsx` (not exported) — their one call site is the hook_runs loop itself, mounted
+  from exactly two places (`PreviewPanel.tsx:1341` — the reported `/runs/{id}/audit` surface —
+  and `WorkflowHistory.tsx:901`, a run-history "quick view" of the same tab); both inherit the
+  fix identically since they render the same component. The exported `rows` state also feeds
+  `exportAuditCSV`/`exportAuditJSON` (`frontend/src/lib/exporters/auditExporter.ts:83-98`), a
+  raw unfiltered pass-through, so the "exportable" CSV/JSON download carries the same fabricated
+  rows (ISS-211, INFERRED — code-confirmed, no export file inspected). The fetch/merge effect
+  (`AuditTab.tsx:451-597`) depends only on `workflowRunId`, never `isRunning` (used only for
+  render-only badges at lines 723/812/849), so the same fabrication is state-independent and
+  should reproduce identically on an in-progress run (ISS-212, INFERRED — not yet reproduced
+  live). `RunChatLane.tsx`'s `deriveSecurityBullets` (line 451) was checked and is NOT affected —
+  it filters `hookRuns` to `outcome === "block" && /secret|scan/i.test(hook)`, which excludes
+  `audit_logger` correctly.
+- **Fix belongs in:** `AuditTab.tsx`'s hook_runs loop (~line 558-585) — branch the `source`
+  passed into `deriveFineCategory` (and the `category` field) on the hook name/event, so
+  `audit_logger` telemetry routes to `"activity"` instead of being hardcoded to `"gate"`; and
+  extend `buildHookDetailRows` to surface `detail.summary` when the detector/match/action/reason
+  fields are absent. One shared fix here covers both AuditTab mount points and the CSV/JSON
+  export automatically — no other caller needs its own patch.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — deterministic on every cold load of this run, no
+  axis variation needed. Root cause: `AuditTab.tsx` (loop over `hooksEnv.hook_runs`, lines
+  558-585) hardcodes `category: "gate"` for every hook_runs row regardless of `hook` name,
+  including "audit logger" step/tool-call/tool-result telemetry markers that are not governance
+  gates; `buildHookDetailRows` then falls back to identical boilerplate detail for any row whose
+  `detail` object lacks detector/matched/action/reason fields.
+- **Issue card:** [ISS-202](../.knowledge/cards/20260828-1409-ISS-202.md)
+- **Issue cards:** [ISS-202](../.knowledge/cards/20260828-1409-ISS-202.md) (root),
+  [ISS-211](../.knowledge/cards/20260828-1429-ISS-211.md) (sibling: CSV/JSON export inherits the
+  fabricated rows), [ISS-212](../.knowledge/cards/20260828-1428-ISS-212.md) (sibling: same
+  fabrication on an in-progress/live run, state-independent)
 - **Found at:** 2026-08-28 01:39 UTC
 - **Found by:** bug-runs-id-audit-r1
 - **Fingerprint:** `/runs/{id}/audit|governance-gate-rows|expand-any-gate-labelled-entry|identical-fabricated-boilerplate-not-derived-from-real-gate-events`
@@ -2192,7 +4021,65 @@ label, or timestamp — the log cannot actually distinguish or attribute any of 
 - **Page:** Full-bleed deliverable view
 - **Route:** /runs/{id}/preview/full
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Fix card:** [FIX-358](../.knowledge/cards/20260829-0011-FIX-358.md)
+- **Verified:** 2026-08-29 — `suites/07_run_detail/test_iss285_preview_full_no_deliverable_fallback.py`
+  ran XPASS(strict) (observed: "[XPASS(strict)] ISS-285 unfixed", FAILED as expected under
+  xfail=the pass signal); `xfail` marker removed, `issue("ISS-285")` kept, re-run PASSED plain
+  green (4.8s). Manual re-run of the original repro from this ledger entry against run
+  `826d09f0-21b0-4b8f-a79f-843fc5c82adb` in real Chrome (lane4): cold nav to the plain
+  `/runs/{id}` route showed no tab selected and the honest "This run did not complete
+  successfully / No deliverable was produced" copy (unchanged baseline); cold nav to
+  `/runs/{id}/preview/full`, twice, showed the identical honest copy with Audit NOT selected —
+  the silent Audit substitution is gone, deterministic across two fresh navigations. No new
+  console errors/warnings on either page. `tsc --noEmit` clean on both touched files (pre-existing
+  errors in `HomeLaunchGrid.crossAccountLeak.test.tsx` and `listenerMiddleware.test.ts` are
+  unrelated to this diff). Regression: `vitest run PreviewPanel.degraded.test.tsx` 11/11 passed,
+  `PreviewPanel.test.tsx` 19/19 passed, `runTabShallowNav.test.ts` 3/3 passed. `backend/`
+  `lint-imports` shows a pre-existing broken contract (`agents.execution_engine.engine` ->
+  `app.api.*`) unrelated to this frontend-only fix — not caused by FIX-358, not re-verified at
+  a pre-change commit. After-screenshot:
+  `bug-hunter/evidence/runs-id-preview-full/BUG-20260828-014416-runs-id-preview-full/04-after-fix-preview-full-honest-no-deliverable.png`.
+- **Fixed:** 2026-08-29 — `reopenTabFor` (`frontend/src/app/[...view]/page.tsx`) gains a
+  `run-preview-full` case returning `"preview"`, so both call sites finally mint a deep-link
+  nonce for the one route whose purpose is forcing Preview open; and PreviewPanel's Preview pane
+  (`frontend/src/components/preview/PreviewPanel.tsx`) is gated on `showFailureAffordance ||
+  showDivertedAffordance` instead of `showCancelledAffordance || showDivertedAffordance`, so that
+  forced Preview renders the honest "No deliverable was produced" state rather than the generic
+  per-state default silently substituting the Audit trail. The plain `/runs/{id}` screen is
+  unchanged (Phase 42-03 §D still drops Preview and defaults to Audit with no deep link).
+- **Fix verified by:** `tests/integration/e2e/suites/07_run_detail/`
+  `test_iss285_preview_full_no_deliverable_fallback.py` → XPASS(strict) (the pass signal; xfail
+  marker left in place for 6-verifier). Frontend regression: PreviewPanel.degraded.test.tsx 11
+  passed, PreviewPanel.test.tsx 19 passed, runTabShallowNav.test.ts 3 passed, tsc clean on both
+  touched files. Siblings ISS-388/ISS-389 are cured on the code path by the same change but were
+  not re-driven in a browser — both remain open.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — deterministic across cold entry paths; register run
+  id transitioned to `cancelled` in shared seed data, substituted run 826d09f0-21b0-4b8f-a79f-843fc5c82adb
+  (status `failed`) reproduces the identical mechanism
+- **Root cause:** `reopenTabFor` (`frontend/src/app/[...view]/page.tsx:228-244`) has no case for
+  the `"run-preview-full"` screen — its switch covers only `run-steps`/`run-steps-agent`/
+  `run-files`/`run-workspace`/`run-audit` and falls through to `undefined` for everything else,
+  so neither call site (`page.tsx:3191` warm path, `:3264` cold path, both gated on
+  `if (tab) requestOpenTab(tab)`) ever tells PreviewPanel that this route's whole purpose is
+  forcing Preview open. PreviewPanel's own state-keyed default-tab effect
+  (`PreviewPanel.tsx:812,830-831`) then unconditionally maps a terminal-failed-no-deliverable run
+  (`terminalFailureNoDeliverable`, `:716`) to `"audit"` with no check of which route asked and no
+  rendered affordance explaining the substitution. CONFIRMED via direct read of both files.
+- **Blast radius:** `PreviewPanel` has exactly one JSX mount site (`DashboardLayout.tsx:3107`), so
+  every "execution" screen funnels through the same effect — `run-detail`, `run-steps*`,
+  `run-files`, `run-workspace`, `run-audit`, `run-stream`, `run-version`, `run-preview-full`. The
+  fix belongs in PreviewPanel's default-tab effect / tab-content switch (or in `reopenTabFor` plus
+  a `visibleTabs` check there), not duplicated per-route in `page.tsx`. The plain `/runs/{id}`
+  route's differing observed behavior (no tab selected + neutral placeholder, vs. `/preview/full`'s
+  Audit) could not be explained by any route-specific code found in either file — both take the
+  identical `tab = undefined` cold-mount path — and remains INFERRED as a possible capture-timing
+  artifact rather than a second mechanism (see ISS-285's Analyzer confirmation section).
+- **Issue cards:** [ISS-285](../.knowledge/cards/20260828-1745-ISS-285.md) (root, CONFIRMED),
+  [ISS-388](../.knowledge/cards/20260828-2234-ISS-388.md) (sibling, INFERRED: same gap on a
+  still-building run lands on Steps instead of Preview),
+  [ISS-389](../.knowledge/cards/20260828-2234-ISS-389.md) (sibling, INFERRED: same gap on a
+  zero-audit-record failed run compounds into a content-free, unexplained Audit pane)
 - **Found at:** 2026-08-28 01:44 UTC
 - **Found by:** bug-runs-id-preview-full-r1
 - **Fingerprint:** `/runs/{id}/preview/full|preview-tab-fallback|navigate-to-preview-full-for-failed-run-with-no-preview-tab|silently-renders-audit-tab-instead-of-empty-state`
@@ -2269,7 +4156,62 @@ correctly shows no tab selected and a neutral empty placeholder.
 - **Page:** Stream view (run detail, Preview tab)
 - **Route:** /runs/{id}/stream
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Fix card:** [FIX-357](../.knowledge/cards/20260828-2210-FIX-357.md)
+- **Verified:** 2026-08-29 — `suites/07_run_detail/test_iss390_diverted_stream_placeholder.py` ran
+  XPASS(strict) with the xfail marker still in place ("[XPASS(strict)] ISS-390 unfixed"), marker
+  then removed and the file re-run: plain green (5.0s). Regression guards
+  `WorkflowHistory.iss391.test.tsx` + `RunDetailPage.iss395.test.tsx` (2/2 green via
+  `npx vitest run --no-coverage`) and `PreviewPanel.degraded.test.tsx` +
+  `RunDetailPage.test.tsx` (17/17 green). Manual repro by hand in Chrome (lane5) against
+  `/runs/940ca699-b21b-4666-8e44-3370a08a4561/stream`, qa-admin, cold nav then a second cold
+  reload: Preview tab stays `[selected]`, "Output will appear here" is gone, header now reads
+  "This run did not complete successfully" / "The run was diverted to another workflow and will
+  not resume. No deliverable was produced here." No console errors on the page.
+  `npx tsc --noEmit` clean for the four edited files (page.tsx, PreviewPanel.tsx,
+  WorkflowHistory.tsx, RunDetailPage.tsx); the 2 tsc errors elsewhere in the tree
+  (HomeLaunchGrid.crossAccountLeak.test.tsx, listenerMiddleware.test.ts) and the backend
+  `lint-imports` broken contract (kernel -> app.api) are pre-existing/unrelated to this
+  frontend-only change. `validate_links.py`: 4 pre-existing broken links, none on
+  ISS-390/391/395/FIX-357.
+- **Fixed:** 2026-08-29 — both gates closed together. `frontend/src/app/[...view]/page.tsx`'s
+  `setReopenedRunStatus` ternary now passes `"diverted"` through (it previously narrowed to
+  failed/cancelled/degraded, so the prop was always `undefined` downstream), and
+  `frontend/src/components/preview/PreviewPanel.tsx` gains `isDivertedTerminal` /
+  `showDivertedAffordance` as their OWN branch beside `isCancelledTerminal` — deliberately NOT
+  folded into `reopenFailureSignal`, which would have marked the header failed and dropped the
+  Preview tab. `DegradedRunAffordance` takes a new `diverted` prop that swaps only the detail
+  line ("The run was diverted to another workflow and will not resume."). The two inferred
+  siblings are closed in the same diff: `WorkflowHistory.tsx:593-597` (ISS-391) and
+  `RunDetailPage.tsx:230-234` (ISS-395) both take `"diverted"` into their triads.
+  Tests: `suites/07_run_detail/test_iss390_diverted_stream_placeholder.py` → XPASS(strict)
+  (the fix signal; marker left for 6-verifier); `WorkflowHistory.iss391.test.tsx` and
+  `RunDetailPage.iss395.test.tsx` → green, and confirmed red first with only the two
+  `"diverted"` predicates reverted; `PreviewPanel.degraded.test.tsx` + `RunDetailPage.test.tsx`
+  → 19/19 green as regression guards.
+- **Validated:** 3/3 on 2026-08-28, cold start every cycle (cycle 1: direct cold nav; cycle 2:
+  nav-away then cold nav back; cycle 3: hard reload) — deterministic, no axis variation needed
+- **Issue card:** [ISS-390](../.knowledge/cards/20260828-2048-ISS-390.md) (root, supersedes
+  [ISS-282](../.knowledge/cards/20260828-1710-ISS-282.md)); siblings:
+  [ISS-391](../.knowledge/cards/20260828-2049-ISS-391.md),
+  [ISS-395](../.knowledge/cards/20260828-2050-ISS-395.md)
+- **Root cause:** TWO gates in series, both required for a fix — `reopenedRunStatus` is
+  narrowed to `"failed"/"cancelled"/"degraded"` (never `"diverted"`) at
+  `frontend/src/app/[...view]/page.tsx:3035-3041` before it ever reaches
+  `PreviewPanel.tsx`, and `PreviewPanel.tsx:696-699`'s own `reopenFailureSignal` check
+  independently omits `"diverted"` from the same triad. ISS-282 (filed by validation)
+  named only the second gate and its own recommended fix would not close the bug alone
+  — corrected/superseded by ISS-390.
+- **Blast radius:** the identical hand-copied `failed || cancelled || degraded` triad
+  (with no shared helper) recurs in two more reopen-surface call sites beyond
+  PreviewPanel.tsx: `WorkflowHistory.tsx:593-596` (History library's right-column
+  deliverable pane shows generic "No preview available" for a diverted selection
+  instead of being suppressed/explained — ISS-391) and `RunDetailPage.tsx:230-234`
+  (History library's Agents tab lists a diverted run's partial agents with no
+  diverted-aware banner, as if it completed normally — ISS-395). Both are INFERRED,
+  not yet independently browser-reproduced. Ruled out: `useWorkflow.ts`'s
+  `TERMINAL_MARKER_BY_STATUS`, `RevisionFamilyView.tsx`'s `statusDotClass`, and the
+  backend's `TERMINAL_RUN_STATUSES` all already handle `"diverted"` correctly.
 - **Found at:** 2026-08-28 01:49 UTC
 - **Found by:** bug-runs-id-stream-r1
 - **Fingerprint:** `/runs/{id}/stream|preview-tab-empty-state|load-stream-for-a-diverted-run|shows-generic-live-waiting-placeholder-instead-of-honest-terminal-message`
@@ -2344,7 +4286,57 @@ indication that the run is over and no output is ever coming.
 - **Page:** Failed run detail
 - **Route:** /runs/{id} (failed run) → navigates to /create/ppt_v2
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-28 — `tests/integration/e2e/suites/18_chat_lane/test_iss_218_edit_brief_prefill.py`
+  both tests XPASS(strict) confirmed, then `xfail` markers removed and re-run plain green (2 passed).
+  Manual re-repro in real Chrome (lane5, qa-admin) on failed run `72e2f445-2149-4623-b39b-f85d42f24f6a`:
+  clicked `data-testid="chat-relaunch-secondary"` ("Edit brief & run again"), landed on
+  `/create/ppt_v2`, textarea now reads "Create a pitch deck to propose a bespoke facebook for a
+  client" (the run's own brief) instead of `""`. No new console errors (1 pre-existing iframe
+  sandbox warning only). Frontend `npm run build` succeeded; `tsc --noEmit` shows the same 6
+  pre-existing errors in unrelated test files, none in `DashboardLayout.tsx`.
+  `DashboardLayout.catalogHome.test.tsx` + `DashboardLayout.fix194.test.tsx`: 13/13 green.
+  `lint-imports` (run from `backend/`) shows 1 pre-existing broken contract unrelated to this
+  frontend-only change (zero backend files touched).
+- **Root cause:** `handleEditBrief` (`frontend/src/components/layout/DashboardLayout.tsx:2151-2157`)
+  does `router.push(createRouteForType(effectiveReviseType))` with zero brief handoff. Its own
+  preceding comment (`:2144-2145`) claims it "Pre-fills the brief from submittedBrief when
+  available" but the callback body never references `submittedBrief` (or anything else) — CONFIRMED
+  by reading the function verbatim, comment vs. body mismatch. `IdeaInputPage`'s `initialInput` prop,
+  the composer's only textarea-seeding mechanism (`DashboardLayout.tsx:2860`,
+  `initialInput={savedComposition?.brief ?? pendingHomeBrief}`), is fed by neither
+  `savedComposition` (null on this path) nor `pendingHomeBrief` (never touched by `handleEditBrief`)
+  — hence the blank textarea. `pendingHomeBrief` is the app's own working pattern for exactly this
+  job (Home brief textbox → Input view, `setPendingHomeBrief` in `handleHomeSelectFeature`,
+  `DashboardLayout.tsx:1465-1468`); `handleEditBrief` simply never calls it.
+- **Blast radius:** `handleEditBrief` has exactly ONE reachable call site app-wide — RunChatLane's
+  `data-testid="chat-relaunch-secondary"` button, rendered only in the FAILED terminal branch
+  (`RunChatLane.tsx:1825-1832`). Cancelled/degraded/diverted terminal branches render via the shared
+  `relaunch(label)` helper (`RunChatLane.tsx:1694-1704`), which wires only `onRelaunch`, never
+  `onEditBrief` — confirmed by grepping `handleEditBrief`/`onEditBrief`/`createRouteForType`/
+  `pendingHomeBrief` across `frontend/src`; no second caller shares the flaw. The underlying gap is
+  broader than this one caller, though: `pendingHomeBrief` is cleared in exactly one place
+  (`handleLaunchSaved`, `:1478`) and NOT by `handleRunPipeline`, `handleBackNav`, `handleGoHome`, or
+  `handleEditBrief` itself — that's the mechanism ISS-235 (sibling, INFERRED) traces: a leftover
+  Home-page draft can bleed into this same button instead of showing blank.
+- **Fix belongs in:** `handleEditBrief` itself (`DashboardLayout.tsx:2151-2157`) — add
+  `setPendingHomeBrief(viewedRun?.input || submittedBrief)` before the `router.push`, reusing the
+  exact state slot `handleHomeSelectFeature` already proves for this job (same source
+  `runHeaderTitleFull` already uses at `:2398`). Smallest diff, and setting it unconditionally also
+  forecloses ISS-235's stale-bleed case in the same change. A query-param/URL approach would need
+  `routes.ts` changes (ADR-0018: routes.ts owns every URL) and still would not itself clear
+  `pendingHomeBrief`.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — unconditional, no cold-start axis needed
+- **Issue card:** [ISS-218](../.knowledge/cards/20260828-1700-ISS-218.md)
+- **Issue cards:** [ISS-218](../.knowledge/cards/20260828-1700-ISS-218.md) (root),
+  [ISS-235](../.knowledge/cards/20260828-1830-ISS-235.md) (sibling: stale `pendingHomeBrief` from an
+  un-launched Home-page draft can bleed into this same button, showing the WRONG brief instead of
+  blank)
+- **Fix card:** [FIX-331](../.knowledge/cards/20260828-2056-FIX-331.md) — `handleEditBrief`
+  now stages the viewed run's own brief into BOTH prefill slots the push can land in:
+  the wizard's one-shot `ppt.draft`/`prototype.draft` (the reported `ppt_v2` path renders
+  `LaunchWizard`, NOT `IdeaInputPage` — a correction to the issue cards) and
+  `pendingHomeBrief` for every non-wizard type.
 - **Found at:** 2026-08-28 01:55 UTC
 - **Found by:** bug-runs-failed-r1
 - **Fingerprint:** `/runs/{id}|resume-options-edit-brief-and-run-again|click-edit-brief-run-again-on-failed-run|navigates-to-blank-composer-original-brief-discarded`
@@ -2418,11 +4410,64 @@ client-side replication. This is consistent with, and does not newly explain, D-
 - **Page:** Cancelled run detail (stream view)
 - **Route:** /runs/{id} → /runs/{id}/stream
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-28. `frontend/src/providers/RunConnectionProvider.test.tsx` — all 3
+  ISS-220/236/237 `it.fails` cases XPASS'd ("Error: Expect test to fail"), `xfail`-equivalent
+  markers removed (`it.fails` → `it`), re-run clean: 9/9 green. Regression guard
+  `frontend/src/app/[...view]/liveRunSwitch.fix201.test.ts` 26/26 green. `npx tsc --noEmit`:
+  same 6 pre-existing errors as the fixer reported, all in unrelated test files
+  (`HomeLaunchGrid.crossAccountLeak.test.tsx`, `store/listenerMiddleware.test.ts`), zero in
+  `RunConnectionProvider.tsx`. Manual re-run of the register's own reproduction on the seeded
+  `ppt_v2` run `a8dfa959-e233-4ddf-87ce-d9a942cefde3`: signed in qa-admin, clicked "Run Again"
+  on the cancelled run twice (fixture was mid-reset by concurrent activity on the first attempt);
+  the second attempt navigated to `/runs/{id}/stream` via the same `router.push` remount FIX-330
+  targets, and the live view — without any manual reload — tracked the pipeline through
+  "0/4 → 2/4 agents · Deck QA Agent · Writing…" to a full terminal "Done" state (17m37s runtime,
+  4.0M tokens, deliverable rendered) entirely from the SSE stream. Backend `lint-imports` (run
+  from `backend/`) shows 1 pre-existing broken contract (`agents.execution_engine.engine` →
+  `app.api.*`) — unrelated to this frontend-only diff (zero Python touched), not introduced here.
+  `backend/docs` 200, `frontend` build/typecheck clean for this file, no new console errors.
+  Evidence: `bug-hunter/evidence/runs-cancelled/BUG-20260828-015930-runs-cancelled/04-verify-live-view-reached-done-no-reload.png`.
+- **Validated:** 2/3 on 2026-08-28, cycles 2 and 3 — timing race between the resume-triggered
+  `router.push` remount (DashboardLayout's `isRunning` effect) and the SSE reattach; cycle 1
+  self-recovered by +12s, cycles 2/3 stayed frozen 15-30s+ post-`pipeline_failed`, always fixed by
+  a manual reload. Issue card: [ISS-220](../.knowledge/cards/20260828-1712-ISS-220.md)
 - **Found at:** 2026-08-28 01:59 UTC
 - **Found by:** bug-runs-cancelled-r1
 - **Fingerprint:** `/runs/{id}/stream|run-again-live-progress-panel|click-run-again-on-a-cancelled-run|live-view-never-updates-past-starting-after-backend-pipeline_failed`
 - **Evidence:** `bug-hunter/evidence/runs-cancelled/BUG-20260828-015930-runs-cancelled/`
+- **Root cause:** CONFIRMED. `DashboardLayout.tsx:735-769`'s `pipelineState?.isRunning` effect
+  unconditionally `router.push`es to `/runs/{id}/stream` (line 768) with no pre-registration of
+  page state, remounting `frontend/src/app/[...view]/page.tsx` (established mechanism, FIX-298 /
+  BUG-030). That remount tears down the page-local SSE subscriber effect
+  (`page.tsx:2195-2206`, the *sole* wiring from `RunConnectionProvider`'s fan-out to
+  `pipelineState`) and rebuilds it; `RunConnectionProvider`'s `fanout`
+  (`frontend/src/providers/RunConnectionProvider.tsx:331-339`) has zero buffering —
+  `subscribersRef.current.forEach(...)` simply drops any frame fanned out while the page's
+  handler is not currently subscribed. The one compensating mechanism, the T11 `liveRunIds`
+  durable-replay fast path (`page.tsx:3285-3419`), is a single non-retried `getRunEvents`
+  snapshot taken at mount time — it cannot recover an event the backend emits after that
+  snapshot, which is exactly the shape of a pipeline that fails ~3-4s into the resumed run.
+  Full trace in [ISS-220](../.knowledge/cards/20260828-1712-ISS-220.md)'s "Root cause —
+  confirmed (analyzer pass)" section.
+- **Blast radius:** every caller of `handleResumeRun` (`DashboardLayout.tsx:2253-2311`), the
+  single funnel `onRelaunch` is wired to (`DashboardLayout.tsx:3012`) — `RunChatLane`'s
+  cancelled-run "Run Again" (reproduced here), failed-run "Reopen & fix from the failed step"
+  (`RunChatLane.tsx:1816-1824`), and degraded-run "Run again" (`RunChatLane.tsx:1845-1867`) all
+  share the identical code path and are equally exposed to the same timing race.
+- **Issue cards:** [ISS-220](../.knowledge/cards/20260828-1712-ISS-220.md) (root — confirmed
+  mechanism added this pass), [ISS-236](../.knowledge/cards/20260828-1740-ISS-236.md) (sibling,
+  INFERRED: failed-run "Reopen & fix" shares `handleResumeRun`),
+  [ISS-237](../.knowledge/cards/20260828-1741-ISS-237.md) (sibling, INFERRED: degraded-run "Run
+  again" shares `handleResumeRun`)
+- **Fix card:** [FIX-330](../.knowledge/cards/20260828-2047-FIX-330.md) — `RunConnectionProvider.fanout` now buffers the frames it dispatches while
+  `subscribersRef` is empty (the page.tsx remount gap a resume's `router.push` opens) and
+  `subscribe` replays the still-fresh ones to the joining listener, bounded to 200 frames /
+  15s. Fixed at the shared seam, so the failed-run "Reopen & fix" (ISS-236) and degraded-run
+  "Run again" (ISS-237) paths are covered by the same diff. Verified: the 3 `it.fails` cases
+  in `frontend/src/providers/RunConnectionProvider.test.tsx` now XPASS ("Expect test to
+  fail"), 6 other cases in that file green, 26/26 green in
+  `frontend/src/app/[...view]/liveRunSwitch.fix201.test.ts`.
 
 ### Summary
 Clicking "Run Again" on cancelled run `a8dfa959-e233-4ddf-87ce-d9a942cefde3` (seeded `ppt_v2` run,
@@ -2495,16 +4540,59 @@ Per the round's explicit handover, this round's ONE permitted real re-run was us
 establish this behaviour (clicking "Run Again" once on `a8dfa959-e233-4ddf-87ce-d9a942cefde3`). No
 other run was cancelled, deleted, or re-run.
 
+- **Issue card:** [ISS-220](../.knowledge/cards/20260828-1712-ISS-220.md)
+
 ## BUG-20260828-020430-runs-diverted — "Start a new run" on a diverted run's detail page calls the resume endpoint, which the backend correctly rejects, with no visible error shown to the user
 
 - **Page:** Diverted run detail
 - **Route:** /runs/{id} (diverted run)
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 02:04 UTC
 - **Found by:** bug-runs-diverted-r1
 - **Fingerprint:** `/runs/{id}|diverted-run-start-a-new-run-button|click-start-a-new-run|calls-resume-endpoint-409-rejected-silently-no-user-feedback`
 - **Evidence:** `bug-hunter/evidence/runs-diverted/BUG-20260828-020430-runs-diverted/`
+- **Validated:** 3/3 on 2026-08-28, cold start each cycle (cycle 3 clicked immediately with no settle wait) — unconditional, no axis dependence
+- **Issue card:** [ISS-221](../.knowledge/cards/20260828-1718-ISS-221.md)
+- **Root cause:** The shared `relaunch(label)` helper in `frontend/src/components/chat/RunChatLane.tsx:1694`
+  renders only a `<Button>`, never the `relaunchError` amber-banner block. That block is hand-duplicated
+  into only 2 of 4 terminal branches (`cancelled` at line 1722, `failed` at line 1808 — its own bespoke
+  buttons, not `relaunch()`); the `degraded` branch (line 1865) and the "no marker" fallback (line 1871,
+  `relaunch("Start a new run")`) both call the shared helper with no error rendering at all. A diverted
+  run's only pipelineState marker is `divertedTo` (`frontend/src/hooks/useWorkflow.ts:911`; `diverted: null`
+  in `TERMINAL_MARKER_BY_STATUS`, `useWorkflow.ts:329`) — never `cancelled`/`failed`/`degraded` — so it
+  falls into the "no marker" branch, the one branch with zero error-rendering wired in, even though
+  `DashboardLayout.tsx`'s `handleResumeRun` (line 2253-2311) already computes and stores the right message
+  in `resumeError`, passed down as the `relaunchError` prop (`DashboardLayout.tsx:3014`) — it is simply
+  never read on this path. CONFIRMED by direct source read.
+- **Blast radius:** `postResume` (`frontend/src/lib/api.ts:1216`) has exactly one production caller
+  (`handleResumeRun`); `handleResumeRun`/`onRelaunch` mount into exactly one production `<RunChatLane>`
+  (`DashboardLayout.tsx:2974`); `resumeError`/`relaunchError` has one producer and one consumer, read in
+  only 2 of the 4 terminal branches inside that one component. The bug is per-BRANCH inside one render
+  function, not per-caller — every "resume rejected" scenario funnels through the same `relaunch()` helper.
+- **Fix belongs in:** `RunChatLane.tsx`'s shared `relaunch(label)` helper (line 1694) — move the
+  `relaunchError` banner block into the helper itself so both branches that call it (`degraded`,
+  the diverted-landing fallback) pick it up in one diff, rather than patching each branch separately.
+- **Issue cards:** [ISS-221](../.knowledge/cards/20260828-1718-ISS-221.md) (root, CONFIRMED),
+  [ISS-233](../.knowledge/cards/20260828-1829-ISS-233.md) (sibling, INFERRED: the `degraded` branch
+  shares the identical missing-relaunchError shape, so a resume rejection on a degraded run is silently
+  swallowed the same way — not yet reproduced)
+- **Fix card:** [FIX-329](../.knowledge/cards/20260828-2045-FIX-329.md) — relaunchError banner
+  moved into RunChatLane.tsx's shared `relaunch()` helper (and out of the cancelled branch's
+  duplicate), so the degraded and no-marker/diverted branches render the rejected resume
+- **Verified:** `frontend/src/components/chat/__tests__/RunChatLane.terminal.test.tsx` — the two
+  `it.fails` strict-xfail guards (ISS-221, ISS-233) XPASSed ("Error: Expect test to fail"),
+  markers removed, re-run 7/7 green. Regression: `RunChatLane.test.tsx` 55/55 green. Manual
+  repro re-run by hand in lane4 on the same diverted run
+  `940ca699-b21b-4666-8e44-3370a08a4561`: clicked "Start a new run", same 409 + `postResume
+  failed` console entries as the original repro, but the amber "Could not resume the run —
+  please try again." banner now renders in place (before/after in
+  `bug-hunter/evidence/runs-diverted/BUG-20260828-020430-runs-diverted/04-verify-before.png` and
+  `05-verify-after.png`). Backend unchanged (frontend-only fix); `:8000/docs` → 200. `npx tsc
+  --noEmit` shows pre-existing errors in unrelated files
+  (`HomeLaunchGrid.crossAccountLeak.test.tsx`, `listenerMiddleware.test.ts`), none in
+  RunChatLane.tsx. `lint-imports` (run from `backend/`) shows a pre-existing broken contract in
+  `agents.execution_engine` unrelated to this frontend-only change.
 
 ### Summary
 On a `diverted` run's detail page, the primary action button reads "Start a new run" — implying
@@ -2574,11 +4662,45 @@ any kind — the button appears to do nothing when clicked.
 - **Route:** /runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/2 (root run has a genuine 2-member
   family: v1 `77f74563-fa19-4f0b-84fd-d0224f89a54a`, v2 `ef86e750-bbcd-404f-855a-fb0d5bee63f5`)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** DUPLICATE
 - **Found at:** 2026-08-28 02:09 UTC
 - **Found by:** bug-runs-id-versions-r1
 - **Fingerprint:** `/runs/[id]/versions/2|version-picker-label|load-existing-second-version|header-and-picker-both-claim-v1-while-serving-v2-content`
 - **Evidence:** `bug-hunter/evidence/runs-id-versions/BUG-20260828-020900-runs-id-versions/`
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduces on the very first cold render of
+  `/versions/2`, no timing/entry-path variation needed. Root cause traced:
+  `parsed.version` from `routes.ts:338` is never read again anywhere in the frontend
+  (`reopenedRunIdFor` in `frontend/src/app/[...view]/page.tsx:182-196` drops it and always
+  resolves the family ROOT run id, so `PreviewPanel`'s `activeIdx`/`headerVersionLabel` land on
+  v1 regardless of the URL's version number).
+- **Issue card:** [ISS-286](../.knowledge/cards/20260828-1712-ISS-286.md)
+- **Root cause (CONFIRMED, re-verified by analyzer, 2026-08-28):** Byte-identical mechanism to
+  [ISS-230](../.knowledge/cards/20260828-1805-ISS-230.md)/[ISS-294](../.knowledge/cards/20260828-1725-ISS-294.md):
+  `reopenedRunIdFor` (`frontend/src/app/[...view]/page.tsx:182-196`) still resolves `run-version`
+  to the family ROOT id only, so absent a separate pin `activeRunId`/`activeIdx` land on v1. Read
+  fresh from the current (uncommitted) working tree: a NEW `pinnedVersionFor` (`page.tsx:208-210`)
+  now reads `parsed.version` and threads it through `DashboardLayout.tsx:3134` into
+  `PreviewPanel.tsx:604-621` (`pinnedMemberId` -> `viewingVersion` -> `activeRunId`/`activeIdx` at
+  `PreviewPanel.tsx:539-540` -> `headerVersionLabel` at `PreviewPanel.tsx:844` -> `RunHeader`'s
+  `VersionMenu` button/listbox at `RunHeader.tsx:34-53,103,108,127`) — this is
+  [FIX-328](../.knowledge/cards/20260828-2014-FIX-328.md), already applied and, per this bug's own
+  Verifier note under **BUG-20260828-090732-runs-id-versions** below, already confirmed by hand:
+  "cold-loading `/runs/{rootId}/versions/2` now shows 'Version v2' immediately."
+- **Blast radius (re-checked independently):** `grep -rn "reopenedRunIdFor\|pinnedVersionFor\|pinnedVersion\|headerVersionLabel" frontend/src`
+  — `reopenedRunIdFor`/`pinnedVersionFor` each have exactly one call site in `page.tsx`;
+  `pinnedVersion` has exactly one further hop (`DashboardLayout.tsx` -> `PreviewPanel.tsx`);
+  `headerVersionLabel` is read only inside `PreviewPanel.tsx`. No caller exists outside the chain
+  ISS-230/ISS-294/[ISS-296](../.knowledge/cards/20260828-1724-ISS-296.md) (inverse: menu write)/
+  [ISS-300](../.knowledge/cards/20260828-1726-ISS-300.md) (Files tab) already mapped and fixed —
+  those four exhaust the sibling axes this root cause implies, so no new ISS card was filed.
+- **Duplicate of:** [ISS-230](../.knowledge/cards/20260828-1805-ISS-230.md) (root) /
+  [ISS-294](../.knowledge/cards/20260828-1725-ISS-294.md) (the exact cold-mount/deep-link
+  mechanism), resolved by [FIX-328](../.knowledge/cards/20260828-2014-FIX-328.md) under
+  **BUG-20260828-090732-runs-id-versions** (Status: CLOSED, below) — found and validated
+  independently before that bug's fix landed, so this is a race between two parallel discoveries
+  of the same defect, not a filing error at validate time. [ISS-286](../.knowledge/cards/20260828-1712-ISS-286.md)
+  itself is kept (now `status: resolved`, cross-linked to ISS-230/ISS-294/FIX-328) as the record of
+  this bug's own independent discovery. No new fix needed.
 
 ### Summary
 This is distinct from the already-known D-12 (a NONEXISTENT version like `/versions/99` silently
@@ -2635,7 +4757,49 @@ page content is unambiguously v2's.
 - **Page:** Library — Skills tab
 - **Route:** /library?tab=skills
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 — `backend/tests/agents/test_iss571_hook_empty_event.py`,
+  `tests/integration/e2e/suites/08_library/test_iss329_skill_empty_category.py` (2 tests),
+  `tests/integration/e2e/suites/08_library/test_iss570_agent_skills_picker_pill.py` all XPASS
+  confirmed then plain green after the `xfail` markers were removed (the two e2e tests also
+  needed their locator/assertion repaired — a broken pill-label regex and a Playwright glob
+  quirk on `to_have_url`, both test-side, not app-side; ISS-570's test was rewritten to drive
+  the composer's editable Canvas rail `AgentSkillsPicker` instead of the readOnly Library
+  drawer, which disables every pill). Manual re-run of the register's original reproduction in
+  real Chrome (qa-admin, `/library?tab=skills`): `GET /api/skills/library` now returns
+  `html-deck-to-pptx` with `category: "uncategorized"` (was `""`); its card badge reads
+  "uncategorized" (was blank); clicking the new "Uncategorized" pill filters to exactly that
+  one card, confirming the skill is reachable via a specific pill — no longer only via "All" or
+  search. Confirmed the same fix reaches the composer's `AgentSkillsPicker` (canvas rail, any
+  agent's Skills tab) via ISS-570's mechanism. Health: backend `:8000/docs` → 200 (pure `.py`
+  fix, `--reload` already applied, no restart needed); `cd backend && lint-imports` → 3 kept /
+  1 broken, the same pre-existing "kernel imports only capability ports (scaffold)" contract
+  break, unrelated to `skills_catalog.py`/`hooks_catalog.py`; no new browser console
+  errors/warnings on `/library?tab=skills`. Regression:
+  `backend/tests/unit/test_skills_catalog_compatible_agents.py` (6) +
+  `backend/tests/agents/test_hooks_catalog_agent_ids.py` (1) all green;
+  `tests/integration/e2e/suites/08_library/test_library.py` (24 scenarios) all green.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduced on every cold-start attempt (fresh
+  navigation `/dashboard` → `/library?tab=skills`), no axis narrowing needed
+- **Root cause:** `backend/app/agents/skills_catalog.py:112` defaults `category` to `""` when a
+  skill's `SKILL.md` frontmatter omits the field (`backend/skills/global/html-deck-to-pptx/SKILL.md`
+  is the one skill with no `category` key); `backend/app/api/skills.py:35`
+  (`categories = sorted({e.category for e in entries if e.category})`) then explicitly drops that
+  empty string out of the pill list `GET /api/skills/library` returns, so no pill's filter value
+  is ever `""`
+- **Blast radius:** every consumer of `useSkillsCatalog()` — `LibraryPage.tsx` (reported symptom)
+  AND `AgentSkillsPicker.tsx` (the composer's only skill-attachment UI: Canvas rail, Simple-view
+  row, agent inspector drawer) share the identical filter-equality + pill-visibility mechanism;
+  `AgentsPopup.tsx` and `backend/app/api/user_agents.py` also consume the catalog but never read
+  `.category`, so they are unaffected. `backend/app/api/hooks.py:33` carries the identical
+  `sorted({e.X for e in entries if e.X})` shape for the Hooks catalog's `event` field — latent
+  today (0/8 hooks affected) but the same defect would reproduce there too.
+- **Issue cards:** [ISS-329](../.knowledge/cards/20260828-1838-ISS-329.md) (root),
+  [ISS-570](../.knowledge/cards/20260829-0004-ISS-570.md) (sibling: AgentSkillsPicker.tsx shares
+  the unreachability in the composer's skill picker),
+  [ISS-571](../.knowledge/cards/20260829-0004-ISS-571.md) (sibling: hooks.py's events pill-builder
+  carries the identical latent pattern),
+  [FIX-392](../.knowledge/cards/20260829-0119-FIX-392.md) (fix)
 - **Found at:** 2026-08-28 02:13 UTC
 - **Found by:** bug-library-skills-r1
 - **Fingerprint:** `/library?tab=skills|skill-card-category-badge-and-category-pill-filter|render-card-for-skill-with-empty-category-field|blank-category-label-and-card-unreachable-by-any-specific-pill`
@@ -2706,11 +4870,46 @@ pills — only visible via "All" or by searching its name directly.
 - **Page:** Library — Hook detail
 - **Route:** /library/hooks/<hook-id> (e.g. /library/hooks/post-design-quality, /library/hooks/post-quality-gate)
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Fixed:** 2026-08-29 — one shared guard, `frontend/src/hooks/useClipboardCopy.ts` (new): `navigator.clipboard.writeText` in a `try/catch`, `{copied, failed, copy}`, `copied` only flips on a resolved write. 10 call sites across 7 files (`LibraryPage.tsx` x2, `AgentDetailPanel.tsx`, `AppBuilderPreview.tsx`, `MarkdownPreview.tsx` x2, `UserStoryPreview.tsx`, `PrototypePreview.tsx`, `IntegrationsCard.tsx` x2) now route through it and render a `Copy failed` state. Tests, one file at a time, `npx vitest --run` from `frontend/` — 7 of 9 `it.fails` guards XPASS ("Error: Expect test to fail"): AgentDetailPanel 1, AppBuilderPreview 1, MarkdownPreview 2, UserStoryPreview 1, PrototypePreview 1, IntegrationsCard 1 of 2. The other 2 (LibraryPage x2) plus IntegrationsCard's second cannot XPASS — harness defects recorded in ISS-600, app side proven by throwaway probes (corrected `useParams` deep-link mock -> `Tests 2 passed (2)`; key-copy button -> "Copy failed" on reject, "Copied" on resolve). No test file edited. Regression: LibraryPage.test.tsx 9 passed, HandoffWorkflow 2 passed, PrototypePreview.byteSize / AppBuilderPreview.byteSize / MarkdownPreview.security / AgentDetailPanel.artifactCards / PreviewPanel.genericDeliverable all passed. `npx tsc --noEmit` zero errors in the 8 touched files (4 unrelated pre-existing test-file errors persist); eslint 0 errors. Frontend-only — no backend restart needed. Cards: FIX-395; ISS-599 and ISS-600 opened for the deferred call sites and the two broken tests.
+- **Verified:** 2026-08-29 — independently re-ran all 7 `*.copyFeedback.test.tsx` files one at a time with `npx vitest --run` from `frontend/`: reproduced the fixer's exact XPASS counts (AgentDetailPanel 1/1, AppBuilderPreview 1/1, MarkdownPreview 2/2, UserStoryPreview 1/1, PrototypePreview 1/1, IntegrationsCard 1/2, LibraryPage 0/2 — matches fixer's report exactly). Independently re-verified the LibraryPage harness-defect claim with my own throwaway probe (corrected `useParams` to a deep-link mock, dropped the tab/card clicks) -> XPASS, confirming the app fix is correct and the 2 remaining reds are ISS-600's tracked test-authoring bug, not an app regression. Converted the 6 fully-XPASS files' `it.fails` to `it` and IntegrationsCard's install-command test only, re-ran all 7 -> plain green (6 files fully green, IntegrationsCard 1 passed/1 still `it.fails` for the untouched selector bug, LibraryPage untouched, both left for ISS-600). Manual repro in real Chrome (lane6, qa-admin, cold deep-link to `/library/hooks/post-design-quality`, matching the original register reproduction): clicked "Copy" with the real clipboard -> button flipped to "Copied!" (before-fix evidence showed zero change); then patched `navigator.clipboard.writeText` in-page to reject and clicked again -> button showed "Copy failed". Both the success and failure paths now give visible feedback where none existed before. Screenshots: `bug-hunter/evidence/library-hooks/BUG-20260828-025500-library-hooks/06-verify-after-copy-click.png` (transient dev-server HMR blank, discarded), `07-verify-after-copy-shows-copied.png`, `08-verify-copy-failed-state.png`. No new console errors/warnings (0/0) on the page. Backend `:8000/docs` -> 200 (frontend-only fix, no restart needed). `npx tsc --noEmit`: same 4 pre-existing unrelated errors, zero in the 8 touched files. `npx next build` (frontend/): compiled successfully, zero errors. `lint-imports` (from `backend/`): same 1 pre-existing broken contract (`agents.execution_engine.engine` -> `app.api`), unrelated to this frontend-only change. Regression: `LibraryPage.test.tsx` 9/9 passed, `HandoffWorkflow.test.tsx` 2/2 passed.
 - **Found at:** 2026-08-28 02:55 UTC
 - **Found by:** bug-library-hooks-r2
 - **Fingerprint:** `/library/hooks/<id>|hook-detail-copy-button|click-copy-button|no-visual-state-change-no-toast-no-confirmation`
 - **Evidence:** `bug-hunter/evidence/library-hooks/BUG-20260828-025500-library-hooks/`
+- **Validated:** 3/3 on 2026-08-28, cold start every cycle — reproduces on two different hooks
+  (`post-design-quality`, `post-quality-gate`), deep-link and revisit entry, no special timing/
+  account/theme/viewport condition needed.
+- **Root cause:** CONFIRMED — `HookDetailModal.handleCopy`
+  (`frontend/src/components/library/LibraryPage.tsx:351-355`) `await`s
+  `navigator.clipboard.writeText(copyText)` with no `try/catch` and no `.catch()`; any rejection
+  leaves `setCopied(true)` unreached, the rejection unhandled, and the button silently stuck on
+  "Copy" forever. Read the mount site (`LibraryPage.tsx:1070-1072`, no `key` prop) to rule out a
+  remount/stale-closure alternative. What exact condition trips the rejection in the harness that
+  reproduced this 3/3 is INFERRED, not settled (candidates: `document.hasFocus()` false,
+  transient-user-activation on a synthetic click, a Permissions-Policy block) — orthogonal to the
+  fix, which is to add the missing failure path regardless of the trigger.
+- **Blast radius:** grepped every `navigator.clipboard.writeText` caller under `frontend/src` — 12
+  call sites across 9 files. 2 already catch-and-log
+  (`chat/ArtifactCard.tsx:62-74`, `chat/MessageBubble.tsx:171-176`, still no user-visible failure
+  state). The other 10 call sites across 7 files share this defect or a worse false-positive
+  variant (claims "Copied" even when the write silently failed): `LibraryPage.tsx` (`SkillDetailModal`,
+  201-205), `results/AgentDetailPanel.tsx:446-450`, `preview/AppBuilderPreview.tsx:240-246`,
+  `preview/MarkdownPreview.tsx:49-53,174-178`, `preview/UserStoryPreview.tsx:47-51`,
+  `preview/PrototypePreview.tsx:391-398`, `handoff/IntegrationsCard.tsx:73-78,316-323`.
+- **Fix belongs:** in one shared helper (`copyToClipboard(text): Promise<boolean>` or a
+  `useClipboardCopy()` hook) under `frontend/src/hooks/` or `frontend/src/lib/`, wrapping
+  `navigator.clipboard.writeText` in a `try/catch` so all 12 call sites route through one guard
+  and render a failure state with the same inline icon/label-swap idiom each already uses for
+  `copied` — not a patch to `HookDetailModal` alone, which would leave every sibling below broken.
+- **Issue cards:** [ISS-331](../.knowledge/cards/20260828-1840-ISS-331.md) (root: HookDetailModal),
+  [ISS-555](../.knowledge/cards/20260829-0208-ISS-555.md) (sibling: SkillDetailModal, same file),
+  [ISS-556](../.knowledge/cards/20260829-0208-ISS-556.md) (sibling: AgentDetailPanel, false-positive variant),
+  [ISS-557](../.knowledge/cards/20260829-0208-ISS-557.md) (sibling: AppBuilderPreview, false-positive variant),
+  [ISS-558](../.knowledge/cards/20260829-0208-ISS-558.md) (sibling: MarkdownPreview x2, false-positive variant),
+  [ISS-559](../.knowledge/cards/20260829-0208-ISS-559.md) (sibling: UserStoryPreview, false-positive variant),
+  [ISS-560](../.knowledge/cards/20260829-0208-ISS-560.md) (sibling: PrototypePreview, silent-on-failure variant),
+  [ISS-561](../.knowledge/cards/20260829-0208-ISS-561.md) (sibling: IntegrationsCard x2, silent + no-feedback-ever variant)
 
 ### Summary
 Clicking a hook card in the Library's Hooks tab performs a genuine client-side route navigation
@@ -2774,7 +4973,18 @@ on every hook tested, leaving the user with no way to confirm the copy occurred.
 - **Page:** Library — Hooks tab
 - **Route:** /library?tab=hooks
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-28 — `tests/integration/e2e/suites/08_library/test_library_keyboard.py` all 4 tests XPASS(strict) on 3 consecutive full-file runs, xfail markers removed, re-run gave plain 4/4 PASS. Manual repro re-run by hand in Chrome (lane5, qa-admin, cold nav `/library?tab=hooks`): Tab from `input[name='library-search']` now lands directly on the first hook card (`role="button" tabindex="0"`), Enter navigates to `/library/hooks/post-design-quality`, and the opened panel is `role="dialog"` with focus inside it; Escape closes it back to `/library?tab=hooks`. Also spot-checked the Agents grid (`role="button" tabIndex="0"` present). No new console errors (0/0). `npx tsc --noEmit`: zero errors in `LibraryPage.tsx` (2 pre-existing unrelated errors in `HomeLaunchGrid.crossAccountLeak.test.tsx`/`listenerMiddleware.test.ts` persist, untouched by this fix). `lint-imports` (from `backend/`): 1 pre-existing broken contract (`agents.execution_engine.engine` → `app.api`), unrelated — this fix touched only `LibraryPage.tsx`. Regression: `suites/08_library/test_library.py` 21/24 PASS on first run, the 3 failures (`test_tab_badge_counts_agree_with_the_rendered_cards`, `test_each_agent_drawer_tab_shows_its_own_content[Overview]`, `test_closing_a_detail_returns_to_the_list_url`) all PASS when re-run in isolation — pre-existing catalog-load flake under parallel load (page shows "0 agents · 0 skills · 0 hooks"/"Loading workspace…"), not a regression; the fix only adds attributes/handlers and cannot zero a fetch. No backend/*.py changed, no restart required.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduced identically on every cold-start cycle (no axis variation needed); cycle 2 additionally confirmed via real keyboard Tab-key presses (focus lands on document.body, never a card)
+- **Root cause:** `Card` (`frontend/src/components/ui/Card.tsx:15-29`) is a plain, non-semantic `<div {...rest}>` wrapper; `LibraryPage.tsx:914-920`'s Hooks grid attaches `onClick` to it without `tabIndex`/`role="button"`/`onKeyDown`, so Tab skips every card — CONFIRMED via direct read.
+- **Blast radius:** the same bare `Card`+`onClick` pattern, in the same file, on the Agents grid (`LibraryPage.tsx:735-758`) and the Skills tab's active-skills grid (`LibraryPage.tsx:818-848`) — both CONFIRMED by reading the code, neither yet reproduced live. Adjacent: both in-file detail modals (`SkillDetailModal`, `HookDetailModal`) have zero Escape/focus-trap/`role="dialog"` handling anywhere in the file (`grep` confirms zero matches) — INFERRED, not reproduced.
+- **Fix belongs:** at each of the three `<Card onClick=...>` call sites in `LibraryPage.tsx` (add `role="button" tabIndex={0} onKeyDown` for Enter/Space, matching the idiom already used elsewhere in this codebase — e.g. `ArtifactCard.tsx:120-128`, `ChatSessionItem.tsx`), not inside `Card` itself (which is correctly non-semantic and used non-interactively elsewhere, e.g. `AccountSettings.tsx`, `admin/page.tsx`).
+- **Issue cards:** [ISS-222](../.knowledge/cards/20260828-1534-ISS-222.md) (root: Hooks tab),
+  [ISS-270](../.knowledge/cards/20260828-1850-ISS-270.md) (sibling: Agents tab, same pattern),
+  [ISS-271](../.knowledge/cards/20260828-1851-ISS-271.md) (sibling: Skills tab, same pattern),
+  [ISS-272](../.knowledge/cards/20260828-1852-ISS-272.md) (sibling: detail modals lack Escape/focus management)
+- **Fixed:** 2026-08-28 — [FIX-333](../.knowledge/cards/20260828-2131-FIX-333.md); `frontend/src/components/library/LibraryPage.tsx` only: one `CARD_KEYBOARD_PROPS` object spread into all three grids (beta agent cards excluded — their onClick is already a no-op) and one `useDetailModalKeyboard` hook giving both detail modals Escape, `role="dialog"`/`aria-modal` and focus-on-open. `Card.tsx` deliberately untouched.
+- **Fix verified:** `tests/integration/e2e/suites/08_library/test_library_keyboard.py` — 4/4 XPASS(strict) (xfail markers left in place for 6-verifier)
 - **Found at:** 2026-08-28 02:55 UTC
 - **Found by:** bug-library-hooks-r1
 - **Fingerprint:** `/library?tab=hooks|hook-card-grid|tab-key-navigation|cards-unreachable-and-unactivatable-via-keyboard`
@@ -2831,11 +5041,75 @@ possible only via mouse/touch click.
 - **Page:** Library — agent detail
 - **Route:** /library/agents/<agentId> (e.g. /library/agents/material-analyzer)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** ESCALATED
+- **Escalated:** 2026-08-29 by 5-fixer — NO code changed. The fix direction is a product decision
+  the cards deliberately leave open, and the shipped test admits only the direction ISS-392
+  advises against. ISS-392's "Where the fix belongs" frames it as a binary: **(a)** gate the
+  Config-tab Model/Validator/Gate/Retry levers + "Save agent" READ-ONLY when no durable sink
+  exists — matching the two precedents already in `AgentsPopup.tsx` (`AgentPromptSection`'s
+  `surfaceOnly`, the Skills tab's `onSkillsChange` gate) — which the card calls the proportionate
+  direction, since `MOD-frontend-src-components-library` documents `LibraryPage` as having "no
+  server state"; or **(b)** build durable per-agent overrides as a real feature. Confirmed today
+  that (b) needs a NEW backend endpoint: the only per-agent durable write in
+  `backend/app/api/agents.py` is `/{agent_id}/prompt`, and `model_overrides` exists ONLY
+  workflow-scoped (`app/models/workflow_definition.py:67`) and run-scoped
+  (`app/models/run_capabilities.py:31`) — there is no per-user, per-catalog-agent sink.
+  (`/api/settings/preferences` is a single GLOBAL `preferred_model` on `User`; writing a per-agent
+  lever into it would be a worse bug.) And storing the override without also applying it at launch
+  (`run_commands.py`'s `_validate_model_overrides` path) only moves the lie one layer down, so (b)
+  is a feature, not a fix. `tests/integration/e2e/suites/08_library/test_iss287_agent_config_save_persists.py`
+  asserts (b) in both scenarios — a PUT/POST/PATCH must fire, and the value must survive a fresh
+  navigation — so direction (a) leaves both tests xfailing (under (a) the "Save agent" button the
+  second scenario clicks no longer exists). Per the 5-fixer contract the test is NOT rewritten to
+  match a direction the fixer picked. Needs a human call between (a) and (b); (a) would also close
+  ISS-393 and is the same decision as the still-open ISS-318 one tab over.
+- **Tests run (2026-08-29, no fix applied):**
+  `tests/integration/e2e/suites/08_library/test_iss287_agent_config_save_persists.py` -> 2 xfailed.
+  Both reach their asserts (neither fails on a locator), so the defect is live and the test file
+  is executable as written — only its asserted direction is contested.
+- **Root cause re-verified 2026-08-29 (5-fixer, source read):** ISS-392's mechanism still holds
+  against current code — `LibraryPage.tsx:1030-1050` DOES pass `onSelectionsChange`, into
+  `savedSelectionsRef` (a `useRef`, `:654-657`); the cold-mount/deep-link path (`:589-597`) never
+  seeds `savedSelections`; `AgentsPopup.tsx` has no network call for Config-tab selections (every
+  `/api/` hit is a comment or the `/api/capabilities` read); `AgentCapabilitiesModal` still has
+  exactly 2 production call sites (`LibraryPage.tsx:1030`, `AgentLibrary.tsx:335` — the card says
+  `:332`, line drift only).
+- **Validated:** 3/3 on 2026-08-28, cycle 1 (deep-link cold load) — reproduced identically on
+  cycle 2 (click-through entry via Configure →) and cycle 3 (different override value, Opus 4.5)
 - **Found at:** 2026-08-28 02:59 UTC
 - **Found by:** bug-library-agents-id-r1
 - **Fingerprint:** `/library/agents/<id>|agent-detail-config-tab-save|change-model-then-save|change-not-persisted-no-network-call`
 - **Evidence:** `bug-hunter/evidence/library-agents-id/BUG-20260828-025950-library-agents-id/`
+- **Root cause:** `AgentCapabilitiesModal`'s Config tab (Model/Validator/Gate/Retry levers +
+  "Save agent" button, `AgentsPopup.tsx:476-793`) has NO backend endpoint reachable at all — not
+  a missing prop. `LibraryPage.tsx:1040-1043` DOES pass `onSelectionsChange` (correcting
+  ISS-287's claim that it doesn't), but that callback only writes into `savedSelectionsRef`
+  (`LibraryPage.tsx:657`), a plain in-memory `useRef` — confirmed by grepping the whole file for
+  any `fetch`/API call (none touch the Config-tab levers) and by 3 source comments
+  (`AgentsPopup.tsx:265-269`, `:399-401`, `:732-735`) admitting override persistence is
+  deliberately deferred. The cold-mount/deep-link path (`LibraryPage.tsx:589-597`) never even
+  seeds `savedSelections`, so the Model always shows "Default" on a fresh load regardless of the
+  prop wiring. The Save button always flashes "✓ Saved" and closes regardless of outcome
+  (`AgentsPopup.tsx:772-793`).
+- **Blast radius:** `AgentCapabilitiesModal` has exactly 2 production render call sites
+  (`grep -rn "<AgentCapabilitiesModal" frontend/src/`): `LibraryPage.tsx:1030` (this bug — ref
+  survives same-session, lost on reload) and `AgentLibrary.tsx:332` (worse — no
+  `onSelectionsChange` passed at all, pure no-op even within a session), the latter reachable
+  from 4 hosts (`app/workflow/page.tsx:67`, `AgentsPopup.tsx:2526`, `WorkflowView.tsx:556`,
+  `composer/ComposerPage.tsx:1368`). The Skills tab of the same `LibraryPage` drawer has the
+  identical no-backend-persistence shape, independently confirmed and already carded as
+  [ISS-318](../.knowledge/cards/20260828-1956-ISS-318.md).
+- **Fix belongs in:** `AgentCapabilitiesModal` (`AgentsPopup.tsx:476`), once — the one shared
+  component every caller routes through. Either gate the Model/Validator/Gate/Retry levers +
+  Save button read-only when no durable sink exists (matching the precedent already used for
+  `AgentPromptSection`'s `surfaceOnly` and the Skills tab's `onSkillsChange`-presence gate), or
+  add a real backend endpoint and wire `effectiveOnSelectionsChange` through it once here.
+- **Issue cards:** [ISS-392](../.knowledge/cards/20260828-2250-ISS-392.md) (root — corrects
+  ISS-287's mechanism), [ISS-287](../.knowledge/cards/20260828-1712-ISS-287.md) (superseded —
+  original symptom/repro, still valid), [ISS-393](../.knowledge/cards/20260828-2251-ISS-393.md)
+  (sibling: `AgentLibrary.tsx`'s picker, INFERRED — not yet independently reproduced),
+  [ISS-318](../.knowledge/cards/20260828-1956-ISS-318.md) (related, pre-existing, CONFIRMED:
+  same-shape defect on the Skills tab of the same drawer)
 
 ### Summary
 The agent detail drawer's Config tab (reached via any agent's "Configure →" affordance on
@@ -2893,11 +5167,31 @@ silently closes the drawer with no feedback of any kind — success or failure.
 - **Page:** Library — skill detail
 - **Route:** /library/skills/<skillId> (single-segment ids: `accessibility`, `benchmark`, `seo`)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** UNREPRODUCIBLE
 - **Found at:** 2026-08-28 03:04 UTC
 - **Found by:** bug-library-skills-id-r1
 - **Fingerprint:** `/library/skills/<id>|skill-detail-route-match|navigate-directly-to-a-no-hyphen-skill-id|library-listing-renders-instead-of-detail`
 - **Evidence:** `bug-hunter/evidence/library-skills-id/BUG-20260828-030430-library-skills-id/`
+- **Validated:** 0/3 on 2026-08-28 — cold-start deep links to all three named ids
+  (`accessibility`, `benchmark`, `seo`) render the skill detail modal correctly, every time. A
+  click-through entry path (list → card click) also renders correctly. The hunter's own
+  "failure" screenshots (`02-failure-accessibility-falls-back.png`,
+  `03-repro2-seo-falls-back.png`) show the SAME thing my repro captured: a correctly-populated
+  skill detail modal (heading, description, full markdown content, "Copy content" button)
+  layered on top of the still-visible library list behind it — this is the documented
+  drawer-over-list quirk in `bug-hunter/velocity.json` (`pages.library.detail`: "opens as a
+  DRAWER beside the still-visible list ... and pushes /library/<type>/<id>"), which applies to
+  every skill id, hyphenated or not. The "only `GET /api/skills/library` fires, no per-skill
+  fetch" signal cited as evidence of failure is also expected: the app resolves skill detail by
+  `SKILLS.find(s => s.id === slug)` against the already-loaded bulk list
+  (`frontend/src/components/library/LibraryPage.tsx:527-533`) — there is no per-skill endpoint
+  for any skill, hyphenated or not, so its absence proves nothing. `parseViewPath` in
+  `frontend/src/lib/routes.ts:352-375` and the cold-mount effect in `LibraryPage.tsx:511-543`
+  contain no hyphen-conditional logic. Verdict: UNREPRODUCIBLE — the report appears to be a
+  misreading of documented drawer-over-list behavior, not a defect. No card minted.
+- **Axes swept:** entry path (deep link vs click-through from list) — both render correctly;
+  network requests inspected — matches the non-failing baseline exactly. Not swept further since
+  0/3 included the exact ids and exact repro steps from the report itself.
 
 ### Summary
 Navigating directly to `/library/skills/<skillId>` renders the skill detail page correctly for
@@ -2966,11 +5260,59 @@ rendered.
 - **Page:** Library — hook detail
 - **Route:** /library/hooks/<hookId> (reproduces on 6 of the 8 hooks: `post-design-quality`, `session-start`, `stop-console-log`, `stop-format-typecheck`, and more)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 03:07 UTC
 - **Found by:** bug-library-hooks-id-r1
 - **Fingerprint:** `/library/hooks/<id>|compatible-agents-list|render-hook-detail-page|list-contains-agent-ids-absent-from-agents-library`
 - **Evidence:** `bug-hunter/evidence/library-hooks-id/BUG-20260828-030700-library-hooks-id/`
+- **Validated:** 3/3 on 2026-08-28, cold start each cycle — deterministic per hook, no narrowing needed (post-design-quality, session-start, stop-console-log all reproduced cycle 1)
+- **Root cause:** `backend/app/agents/hooks_catalog.py:103` loads each hook's `compatible_agents`
+  straight from `HOOK.md` YAML frontmatter (`compatible_agents=list(metadata.get("compatible_agents", []))`)
+  with zero cross-validation against the live agent roster (`agents.registry.get_all_agents_flat()` /
+  `backend/agents/prompts/`). 5 of 8 `HOOK.md` files under `backend/hooks/global/` still list agent ids
+  that were renamed or retired (`html-prototype-builder`, `prototype-polisher`, `ppt-slide-architect`,
+  `requirements-analyst` — confirmed absent from all 94 real agent ids by direct comparison) and were
+  never updated. `frontend/src/hooks/useHooksCatalog.ts:29` forwards the array unchanged to every
+  consumer; `LibraryPage.tsx:441,455` renders it verbatim as the reported chips + "How to use" prose.
+- **Blast radius:** every consumer of `useHooksCatalog()`'s `compatible_agents` field — not just
+  `LibraryPage.tsx` (reported). `frontend/src/components/workflow/composer/CanvasConfigRail.tsx:379`
+  and `frontend/src/components/workflow/AgentsPopup.tsx:593` both filter `HOOKS` by
+  `h.compatible_agents.includes(agent.id)` with no fallback (unlike the equivalent skills filter,
+  `AgentSkillsPicker.tsx:71`, which explicitly treats empty/no-match as "compatible with everything").
+  Same stale ids therefore also silently drop a hook from the composer's "Suggested hooks" panel for
+  whichever real agent inherited the stale id's role — a functional gap, not just a cosmetic one.
+  Filed as [ISS-399](../.knowledge/cards/20260828-2308-ISS-399.md) (INFERRED, not yet reproduced live).
+- **Fix belongs:** upstream of every renderer — either (a) validate `compatible_agents` at load time in
+  `hooks_catalog.py`'s `_load_one()` against `agents.registry.get_all_agents_flat()` and drop/flag
+  unresolvable ids there so both the display and filter consumers inherit the fix, or (b) correct the
+  5 stale `HOOK.md` files directly. A frontend-only fix in `LibraryPage.tsx` would leave
+  `CanvasConfigRail.tsx`/`AgentsPopup.tsx`'s suggestion filter still silently broken.
+- **Issue cards:** [ISS-290](../.knowledge/cards/20260828-1720-ISS-290.md) (root),
+  [ISS-399](../.knowledge/cards/20260828-2308-ISS-399.md) (sibling: composer "Suggested hooks" filter,
+  same stale ids, INFERRED)
+- **Fix card:** [FIX-360](../.knowledge/cards/20260829-0024-FIX-360.md)
+- **Fixed:** 2026-08-29 — root cause fixed at the single choke point every consumer routes
+  through: `backend/app/agents/hooks_catalog.py` now builds the live agent id set once per
+  scan from `agents.registry.get_all_agents_flat()` (the same source `GET /api/agents/library`
+  serves) and `_load_one` keeps only declared `compatible_agents` present in it, warning on the
+  dropped ones. Fixes ISS-290's chips/prose AND stops `CanvasConfigRail.tsx:379` /
+  `AgentsPopup.tsx:593` filtering on a fictional id. No hook degrades to an empty list.
+  ISS-399's remaining half — re-pointing the 5 stale `HOOK.md` files at the agents that
+  inherited those roles — is a data decision, deliberately left to that card.
+- **Verified:** 2026-08-29 — `backend/tests/agents/test_hooks_catalog_agent_ids.py::test_every_hooks_compatible_agents_id_is_a_real_agent`
+  ran XPASS(strict) before the fix and plain-green (1 passed) after the `xfail` marker was
+  removed; regression file `tests/unit/test_skills_catalog_compatible_agents.py` (6 passed);
+  `cd backend && lint-imports` unchanged at "3 kept, 1 broken" (pre-existing, does not name
+  `hooks_catalog.py`). Manual re-run in lane4 Chrome as `qa-admin`, light theme, fresh nav each
+  time: `/library/hooks/post-design-quality` now shows only `app-ux-design`;
+  `/library/hooks/session-start` no longer lists `requirements-analyst`
+  (`domain-analyst, app-user-stories, epic-architect, app-code-generator`);
+  `/library/hooks/stop-console-log` no longer lists `html-prototype-builder`
+  (`app-code-generator, app-feature-implementation`). No console errors/warnings on any page.
+  Backend is a pure `*.py` change; `:8000/docs` confirmed 200, no restart needed beyond
+  `--reload`. After screenshots:
+  `bug-hunter/evidence/library-hooks-id/BUG-20260828-030700-library-hooks-id/03-post-design-quality-after-fix.png`,
+  `04-session-start-after-fix.png`, `05-stop-console-log-after-fix.png`.
 
 ### Summary
 Each hook detail page renders a "Compatible agents" section (sourced directly from the backend's
@@ -3038,7 +5380,32 @@ of independently checking the API.
 - **Page:** Settings — AI Model
 - **Route:** /settings/ai-model
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 — `tests/integration/e2e/suites/09_settings/test_settings.py -k model` (backend .venv):
+  `test_basic_tier_cannot_persist_a_powerful_model` ran XPASS(strict) before the xfail marker was
+  removed, plain green (6/6, incl. the 3 other model-tab scenarios) after. Manual repro re-run by
+  hand in lane5 Chrome as `qa-basic@flowinqa.com`, cold session: selected "Claude Opus 4.6 ·
+  powerful" on `/settings/ai-model`, clicked Save — page showed "This model requires Pro or
+  higher. Upgrade your plan to unlock it." (the `can_use_model` 403's `detail`), selection stayed
+  "Unsaved", and a full reload confirmed the select reverted to "System Default (Claude Haiku
+  4.5)" — the premium model never persisted. `GET /api/settings/preferences` still lists all 9
+  models unfiltered (documented as intentional in FIX-361 — visibility isn't the security
+  boundary, persistence is). No new console errors on the page. `backend/lint-imports`: 3 kept /
+  1 broken, same pre-existing "kernel imports only capability ports" break FIX-361's card
+  documents (unrelated files, not touched by this fix). Frontend `tsc --noEmit` has pre-existing
+  unrelated errors in `HomeLaunchGrid.crossAccountLeak.test.tsx` /
+  `listenerMiddleware.test.ts` (outside this fix's changed files — `entitlements.py`/
+  `settings.py` only, no frontend file touched). Full `test_settings.py` file also run: 2
+  unrelated pre-existing XPASS(strict) failures for `test_the_constitution_editor_*` — those carry
+  `@pytest.mark.issue("ISS-293")`, a different open bug in this same suite file, untouched by this
+  fix. Evidence:
+  `bug-hunter/evidence/settings-ai-model/BUG-20260828-031200-settings-ai-model/04-after-fix-basic-opus46-403-rejected.png`.
+- **Validated:** 3/3 on 2026-08-28, every cycle — no gating in either the deep-link or account-menu entry path, both premium models
+- **Root cause:** No model-tier entitlement concept exists anywhere in the codebase — `entitlements.py::TIER_PIPELINES`/`can_run_pipeline` gates pipeline TYPE by tier but has no analog for MODEL selection. `settings.py`'s `AVAILABLE_MODELS` (line 46-54, a module-level projection of the full `ModelCatalog().list()`) and `_VALID_MODEL_IDS` (line 57) carry no tier parameter; `get_preferences` (305-313) returns the full catalog to every tier, `update_preferences` (316-342) validates `model_id` only against `_VALID_MODEL_IDS`, never `user.tier`. Frontend mirrors it: `AccountSettings.tsx` fetches `userTier` (124-125) but never applies it to the model `<select>` (361-376), unlike the working precedent in `HomeLaunchGrid.tsx:288` (`disabled={!allowed}`, driven by `frontend/src/lib/entitlements.ts`).
+- **Blast radius:** `GET`/`PUT /api/settings/preferences` (settings.py) — every tier. CONFIRMED not cosmetic: `user.preferred_model` is read at 8 sites in `run_commands.py` (incl. `engine.execute(model_id=...)` at line 3251), so an unauthorized selection drives real Bedrock model choice/billing on every subsequent run. Sibling caller with the identical flaw: `_validate_model_overrides` (`run_engine.py:547-607`), used by run launch (`run_commands.py:2900`) and composer save/update (`user_workflows.py:566`, `807`) — same full-catalog-only check, no tier param.
+- **Proposed fix:** add a tier-scoped model table (e.g. `TIER_MODEL_COST_CLASSES`) + `can_use_model(tier, model_id)` next to `can_run_pipeline` in `backend/app/core/entitlements.py`; call it from both `settings.py` (`get_preferences` filters, `update_preferences` 403s) and `run_engine.py::_validate_model_overrides` — one shared check, every downstream reader (`run_commands.py`, `user_workflows.py`) inherits it automatically.
+- **Fix:** [FIX-361](../.knowledge/cards/20260829-0029-FIX-361.md) — `can_use_model(tier, model_id)` + `TIER_MODEL_COST_CLASSES` in `backend/app/core/entitlements.py`, called from `update_preferences` (`backend/app/api/settings.py`) which now 403s. Deferred UI affordance: [ISS-430](../.knowledge/cards/20260829-0029-ISS-430.md). Sibling [ISS-398](../.knowledge/cards/20260828-2106-ISS-398.md) still open (`run_engine.py::_validate_model_overrides` untouched).
+- **Issue cards:** [ISS-292](../.knowledge/cards/20260828-1918-ISS-292.md) (root), [ISS-398](../.knowledge/cards/20260828-2106-ISS-398.md) (sibling: `model_overrides` composer/launch path has the identical missing tier check)
 - **Found at:** 2026-08-28 03:12 UTC
 - **Found by:** bug-settings-ai-model-r1
 - **Fingerprint:** `/settings/ai-model|pipeline-model-select|basic-tier-account-selects-powerful-tier-model-and-saves|no-tier-gating-anywhere-ui-or-api`
@@ -3119,7 +5486,57 @@ as an enterprise admin account.
 - **Page:** Settings · Usage & Limits
 - **Route:** /settings/usage
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 (lane6) — `tests/integration/e2e/suites/09_settings/test_iss291_manage_plan_button.py`
+  XPASS(strict) confirmed (13.2s), `xfail` marker removed, re-run plain green (15.6s).
+  Manual repro re-run by hand: fresh cold login as `qa-basic@flowinqa.com`, nav to
+  `/settings/usage`, "Basic plan" heading + "Manage plan" button visible, click opened a
+  `role="dialog"` reading "Upgrade your plan — You are on the Basic plan — The Pro plan
+  unlocks 2 more deliverable types. Plan changes are made by your workspace administrator
+  — contact them to move this account to Pro." No console errors/warnings. Screenshot:
+  `bug-hunter/evidence/settings-usage/BUG-20260828-031600-settings-usage/04-after-fix-basic-tier-modal.png`.
+  Health: backend `/docs` 200; `npx tsc --noEmit` shows only the 6 pre-existing errors in
+  two untouched test files (HomeLaunchGrid.crossAccountLeak.test.tsx,
+  listenerMiddleware.test.ts), none in the three changed files; `lint-imports` (run from
+  `backend/`) shows one pre-existing broken contract (kernel/app.api coupling), unrelated
+  to this frontend-only change — not caused by it. Regression:
+  `frontend/src/components/settings/AccountSettings.render.test.tsx` 8/8 passed.
+  Scope note: only ISS-291 is closed here; sibling ISS-397 (AppHeader path) stays
+  `verification.status: pending` per its own card — not in this bug's card list.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — no narrowing needed; reproduced identically on
+  enterprise-admin warm session, basic-tier cold login, and basic-tier hard reload
+- **Root cause:** no plan-management/upgrade capability exists anywhere in the codebase —
+  `AccountSettings.tsx:457-459` renders the "Manage plan" `<Button>` with no `onClick` prop
+  bound at all (CONFIRMED), and there is nothing to wire it to: frontend-wide grep for
+  "Manage plan" returns exactly this one match, backend-wide grep for
+  billing/subscription/stripe under `backend/app/api/` returns none. This is a missing
+  feature, not a broken wire — the button is a visual promise with no destination built
+  behind it anywhere in the app.
+- **Blast radius:** `<AccountSettings>` (and its inert button) mounts at exactly one runtime
+  site, `DashboardLayout.tsx:2849`, so the button itself has a single call site. But
+  `AppHeader.tsx:519-526` — the persistent app shell, present on every screen — renders a
+  second, independently-coded "Upgrade" CTA for basic-tier users whose `onClick` navigates
+  into that same `AccountSettings` (`onNavigate("settings")`), landing the user on a page
+  whose only further "upgrade" control is this same dead button (CONFIRMED by source read;
+  not yet driven live — see ISS-397).
+- **Fix location:** one shared component (e.g. an upgrade/contact-sales modal) that both
+  `AccountSettings.tsx:457-459` and `AppHeader.tsx:519-526`'s `onClick` open directly, rather
+  than each growing its own bespoke logic or the header continuing to just relocate the user
+  to an equally-inert destination. A modal needs no new route (ADR-0018); a dedicated page
+  would need registering through `routes.ts`. A real billing/tier-change backend is out of
+  scope — `UPGRADE_PATH` in `backend/app/core/entitlements.py` only labels the next tier, it
+  does not action a change.
+- **Fix:** [FIX-363](../.knowledge/cards/20260829-0043-FIX-363.md) — new shared
+  `frontend/src/components/settings/UpgradePlanModal.tsx`, opened by BOTH call sites: the
+  "Manage plan" Button (`AccountSettings.tsx`, which had no `onClick` at all) and
+  `AppHeader.tsx`'s basic-tier "Upgrade" link (which previously only navigated to that same
+  inert button). The modal names the current plan, the `UPGRADE_PATH` next tier and how many
+  more deliverable types it unlocks, and routes the request to a workspace admin — no billing
+  backend, no new route (ADR-0018). Resolves ISS-291 (test XPASS) and ISS-397 (code fixed,
+  manual click-through not yet driven — its `verification.status` stays `pending`).
+- **Issue cards:** [ISS-291](../.knowledge/cards/20260828-1917-ISS-291.md) (root),
+  [ISS-397](../.knowledge/cards/20260828-2105-ISS-397.md) (sibling, INFERRED: AppHeader's
+  basic-tier "Upgrade" CTA leads to the same dead end)
 - **Found at:** 2026-08-28 03:16 UTC
 - **Found by:** bug-settings-usage-r1
 - **Fingerprint:** `/settings/usage|manage-plan-button|click|no-onclick-handler-bound-no-request-no-modal-no-navigation`
@@ -3195,11 +5612,21 @@ leaving a basic-tier user with no in-app mechanism to act on the page's stated p
 - **Page:** Settings · Constitution
 - **Route:** /settings/constitution
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Validated:** 3/3 on 2026-08-28, every cycle from a cold start (`/dashboard` -> `/settings/constitution`) — 4318-5018 char payloads all saved (200 OK) and survived reload; backend cap is 1,048,576 chars (`backend/app/api/settings.py:355`), not 4000
+- **Verified:** 2026-08-29 by 6-verifier, lane5. `tests/integration/e2e/suites/09_settings/test_settings.py::test_the_constitution_editor_rejects_content_over_its_stated_limit` XPASS(strict) confirmed, `xfail` marker removed, plain green re-confirmed (3 runs total: 2 hit the documented reload-dev-server flake noted on FIX-364, 3rd ran clean — matches the fixer's own note). S-09-11 and S-09-12 both green. Manual repro re-run by hand as qa-admin in real Chrome (lane5): set textarea to 4515 chars via native setter + input event — counter read "4515 / 4000 chars" (honest, as designed), `textarea.maxLength` now `4000` (was `-1`), Save button `disabled: true`, and Playwright itself timed out trying to click it ("element is not enabled") confirming real DOM enforcement, not just a display change. Reload afterward showed the original 44-char content unchanged — nothing over-limit was ever persisted. `AccountSettings.render.test.tsx` 8/8 green. `tsc --noEmit` clean for `AccountSettings.tsx` (2 pre-existing unrelated errors in untracked `HomeLaunchGrid.crossAccountLeak.test.tsx` / `listenerMiddleware.test.ts` from other in-flight work, not this fix). `lint-imports` (run from `backend/`) shows one pre-existing broken contract (`agents.execution_engine.engine` -> `app.api`) — unrelated, FIX-364 touched zero Python files. Backend `:8000/docs` 200, frontend serving; no restart needed (frontend-only fix, Next.js hot-reload).
+- **Issue card:** [ISS-293](../.knowledge/cards/20260828-1924-ISS-293.md)
 - **Found at:** 2026-08-28 03:19 UTC
 - **Found by:** bug-settings-constitution-r1
 - **Fingerprint:** `/settings/constitution|global-instructions-textarea|type-past-4000-char-counter-and-save|no-limit-enforced-content-persists-unbounded`
 - **Evidence:** `bug-hunter/evidence/settings-constitution/BUG-20260828-031900-settings-constitution/`
+- **Root cause:** The "4000" is a UI-only invented constant with no backing anywhere: the counter (`AccountSettings.tsx:582`) is decorative, the `<textarea>` has no `maxLength` (589-596), `Save`'s disable check never looks at length (630: `saving || loading || !content.trim()`), and the only real enforcement is the backend's `ConstitutionRequest.content` `Field(..., min_length=1, max_length=1_048_576)` (`backend/app/api/settings.py:355`), independently mirrored by `WorkflowMemory._set`'s `_MAX_VALUE_LEN = 1_048_576` (`backend/agents/workflow_memory/memory.py:26,208-210`). `specs/001-ai-workflow-os/spec.md:224-227` (FR-012) confirms 1,048,576 chars — not 4000 — is the actual specified cap; T074a/T074b (`specs/001-ai-workflow-os/tasks.md:208-209`) only ever asked for "free-form textarea." The backend is spec-compliant; the frontend display is the lie.
+- **Blast radius:** Live caller: `ConstitutionSection` in `AccountSettings.tsx` (the only reachable UI for this endpoint — confirmed via `grep -rn "settings/constitution" frontend/src`). A second wrapper, `settingsApi.getConstitution/updateConstitution/deleteConstitution` (`frontend/src/store/api/settings.ts:61-75`), duplicates the same unguarded PUT but has zero consumers anywhere in `frontend/src` — dead code today, not filed as a live sibling. Functional blast radius beyond the Settings page: the saved content is injected verbatim, unconditionally, into every governed agent's system prompt on every pipeline run via `_inject_constitution` (`backend/agents/factory.py:673-699`, called from `_compose_system_prompt:586`), with no length/token guard anywhere in that path either — filed as sibling ISS-402 (INFERRED).
+- **Fix belongs:** Frontend only, in `ConstitutionSection` (`AccountSettings.tsx`) — align the displayed number, the textarea's `maxLength`, and the Save-disable check to one real cap. Do NOT change the backend's 1,048,576 limit; it is the one FR-012 actually specifies and both backend layers already agree on it. ISS-402's downstream injection-guard fix (if adopted) belongs once in `_inject_constitution`, not per-agent.
+- **Issue cards:** [ISS-293](../.knowledge/cards/20260828-1924-ISS-293.md) (root — fictitious client/server limit),
+  [ISS-402](../.knowledge/cards/20260828-2121-ISS-402.md) (sibling, INFERRED — same unbounded content injected into every agent prompt on every run, no size guard)
+- **Tests:** `tests/integration/e2e/suites/09_settings/test_settings.py::test_the_constitution_editor_rejects_content_over_its_stated_limit` — XPASS(strict) after the fix; S-09-11 and S-09-12 still green
+- **Fix cards:** [FIX-364](../.knowledge/cards/20260829-0041-FIX-364.md) (ISS-293 — one `CONSTITUTION_MAX_CHARS = 4000` behind the counter, the textarea's `maxLength` and the Save-disable check; backend's 1,048,576 cap untouched). ISS-402 is a separate card, still open.
 
 ### Summary
 The Constitution editor shows a character counter styled as a hard cap ("X / 4000 chars"), and
@@ -3267,11 +5694,30 @@ survives reload), with no truncation, warning, or rejection at any layer.
 - **Page:** Settings — Security
 - **Route:** /settings/security
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28T03:24:24Z
 - **Found by:** bug-settings-security-r1
 - **Fingerprint:** `/settings/security|mfa-unavailable-message|view-as-local-break-glass-account|copy-falsely-claims-external-credential-management`
+- **Verified:** 2026-08-29. `backend/tests/unit/test_iss401_reset_password_message.py` and
+  `tests/integration/e2e/suites/09_settings/test_iss404_security_copy.py` both XPASS(strict)
+  before the `xfail` marker was removed, plain green after. Regression: S-09-13
+  (`test_mfa_is_unavailable_for_an_externally_managed_account`) and S-11-17/S-11-18
+  (`test_admin.py`, reset-password refusal) all green in isolation. Manual re-run of the
+  original repro in the browser (qa-admin, cold `/settings/security`, `GET /api/auth/mfa` →
+  `supported: false`) shows the corrected copy: "This is a local account, so there are no
+  second-factor methods to manage here. Its password is stored by this application and can be
+  changed from the Profile tab." — no "managed outside the application" text anywhere on the
+  page, no console errors. Screenshot:
+  `bug-hunter/evidence/settings-security/BUG-20260828-032424-settings-security/03-after-fix-security-tab-corrected-copy.png`.
+  `lint-imports` unchanged (3 kept / 1 broken, pre-existing, neither edited file touches
+  imports). `tsc --noEmit` shows no errors in either changed file (pre-existing unrelated
+  errors in `HomeLaunchGrid`/`listenerMiddleware` test files, untouched by this fix).
 - **Evidence:** `bug-hunter/evidence/settings-security/BUG-20260828-032424-settings-security/`
+- **Validated:** 3/3 on 2026-08-28, cold start every cycle (fresh login + cleared storage) — unconditional, no trigger needed; entry path (deep link vs tab click-through) does not matter
+- **Root cause:** `SecuritySection.tsx:233-243`'s `!status.supported` branch hardcodes a "managed outside the application" explanation for a condition (`auth.py:925-933`, `user.auth_provider != "cognito"`) that only ever means break-glass/local (`user.py:55-57`) — and that account type's `password_hash` is this app's own DB column, verified/rewritten in place by this app's own `POST /api/auth/change-password` (`auth.py:1254-1269`). CONFIRMED via file:line.
+- **Blast radius:** the reported Security-tab render site (`SecuritySection.tsx:233-243`) plus one sibling carrying the identical false claim: `admin.py:553-564`'s `POST /api/admin/users/{id}/reset-password` 409 detail — same condition, same wrong wording, currently unreachable via any wired frontend caller (grepped `frontend/src` for `adminResetUserPassword`/`reset-password`: none). No other consumer of `MfaStatus`/`status.supported` exists in `frontend/src`.
+- **Issue cards:** [ISS-404](../.knowledge/cards/20260828-2120-ISS-404.md) (root), [ISS-401](../.knowledge/cards/20260828-2121-ISS-401.md) (sibling: admin.py reset-password 409)
+- **Fix card:** [FIX-367](../.knowledge/cards/20260828-2256-FIX-367.md) — both copy sites corrected; ISS-404 + ISS-401 resolved
 
 ### Summary
 For the `qa-admin` account (a local/break-glass account, not Cognito-backed), the Security
@@ -3338,9 +5784,27 @@ break-glass invariant depends on.
 - **Page:** Admin
 - **Route:** /admin
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 03:34 UTC
 - **Found by:** bug-admin-r1
+- **Verified:** 2026-08-29 — `backend/tests/unit/test_admin_create_user_email_validation.py` went
+  `[XPASS(strict)]`, `xfail` removed, re-run plain green (1 passed).
+  `tests/integration/e2e/suites/11_admin/test_create_user_email_validation.py` went
+  `[XPASS(strict)]`, `xfail` removed, re-run plain green (1 scenario, PASS). Manual repro of the
+  ORIGINAL reproduction re-run by hand in lane4 Chrome as qa-admin (already signed in): opened
+  "Add user", typed `not-an-email` + `abc123456` — "Create User" stayed disabled the whole time
+  (was previously enabled the moment both fields were non-empty). `GET /api/admin/users`
+  confirmed still exactly 4 seeded users, no malformed row persisted. Direct API bypass
+  (`POST /api/admin/users {"email":"not-an-email",...}`) confirmed the backend independently
+  422s: `{"detail":[{"type":"value_error","loc":["body","email"],"msg":"value is not a valid
+  email address: An email address must have an @-sign."...}]}`. Health: `:8000/docs` → 200,
+  `npx tsc --noEmit` shows only the same two pre-existing failures (`HomeLaunchGrid.crossAccountLeak.test.tsx`,
+  `listenerMiddleware.test.ts`), none under `src/app/admin`; `lint-imports` (run from `backend/`)
+  shows the identical pre-existing "3 kept, 1 broken" contract state. Regression:
+  `tests/integration/e2e/suites/11_admin/test_admin.py` — 22/22 passed clean (an initial run
+  showed 3 failures from an accidental concurrent duplicate run colliding on shared admin-page
+  state; a clean single re-run was 22/22 green, confirming no real regression). Evidence:
+  `bug-hunter/evidence/admin/BUG-20260828-033400-admin/07-after-fix-create-user-disabled.png`.
 - **Fingerprint:** `/admin|create-user-dialog|submit-malformed-email|user-persisted-with-invalid-email`
 - **Evidence:** `bug-hunter/evidence/admin/BUG-20260828-033400-admin/`
 
@@ -3390,16 +5854,116 @@ invalid, unusable "email" value, with no error anywhere in the flow.
   "is_admin":false, ...}` before cleanup.
 - State/URL: stayed on `/admin` throughout; no client-side validation error surfaced.
 
+### Validation
+
+Reproduced 3/3 from a cold start (fresh nav from `/dashboard` to `/admin` each cycle, not a
+soft re-click) on 2026-08-28: `not-an-email` (cycle 1), `bademail2` (cycle 2), `bademail3`
+(cycle 3) — each time the "Create User" button enabled with no format check and the record
+persisted server-side, confirmed via `GET /api/admin/users`. Each cycle's throwaway user was
+deleted and the user count verified back to 4 seeded users before the next cycle. No axis
+variation was needed.
+
+- **Issue cards:** [ISS-295](../.knowledge/cards/20260828-1726-ISS-295.md) (root),
+  [ISS-405](../.knowledge/cards/20260828-2324-ISS-405.md) (sibling: empty-string email crashes /admin)
+
+### Analysis
+
+- **Root cause:** Two independent gaps, confirmed by file:line read, both on the email field only
+  (password and tier ARE validated server-side; email is not):
+  - Frontend: `frontend/src/app/admin/page.tsx` — `handleCreateUser` (`:212-213`) and the
+    "Create User" button's `disabled` prop (`:512`) both gate on presence only
+    (`!newEmail || !newPassword`), never format. The Email `<input>` carries `type="email"`
+    (`:484`), but the modal is a plain `<motion.div>` (`:468`), not a `<form>` — there is no
+    submit event and no `.checkValidity()`/`.reportValidity()` call anywhere in the component, so
+    the browser's native HTML5 email-format constraint is never invoked. `type="email"` here is
+    decorative (keyboard hint only), not a validator.
+  - Backend: `backend/app/api/admin.py` — `CreateUserRequest.email: str` (`:131`) is a bare
+    Pydantic `str`, not `EmailStr`. Contrast the codebase's own established pattern:
+    `backend/app/models/schemas.py:15` (`RegisterRequest.email: EmailStr`) and `:22`
+    (`LoginRequest.email: EmailStr`). The `create_user` handler (`:392-512`, read in full)
+    independently checks duplicate email → 409 (`:409-414`), tier allow-list → 400
+    (`:416-421`), and password length → 400 (`:423-427`) — but no format/shape check on email
+    anywhere, so the string reaches `User(email=request.email, ...)` unchanged on both the
+    local-auth path (`:434-441`) and the Cognito path (`:477-486`).
+- **Blast radius:** Grepped every caller — `adminCreateUser` (`frontend/src/lib/api.ts:1475`) has
+  exactly one production caller (`admin/page.tsx:218`); `CreateUserRequest` has exactly one
+  consumer (`admin.py`'s own `create_user`). No sibling caller reuses either, so this is a
+  single-point defect, not a shared-helper one — but pushing the same gap to its "empty string"
+  boundary (still a valid `str`, still blocked only by the client's `!newEmail`, not by the
+  schema) reaches `frontend/src/app/admin/page.tsx:391`'s unguarded `user.email[0].toUpperCase()`
+  in the table-row avatar-initial render, which throws on `""` and — since `admin/page.tsx` has no
+  local `ErrorBoundary` and isn't wrapped by `DashboardLayout` — is caught only by the root
+  `frontend/src/app/error.tsx`, crashing the entire `/admin` page rather than one row. Filed as
+  [ISS-405](../.knowledge/cards/20260828-2324-ISS-405.md), INFERRED (not reproduced — a direct
+  API call bypassing the browser client is required to reach it).
+- **Fix placement:** Belongs in the schema, not the handler body or the client alone — change
+  `CreateUserRequest.email: str` to `EmailStr` (matching `schemas.py`'s existing pattern) so
+  FastAPI/Pydantic rejects a malformed value with 422 before `create_user`'s body ever runs; that
+  one-line schema change also closes ISS-405's empty-string path (`EmailStr` rejects `""` too).
+  Client-side, either wrap the modal fields in a real `<form>` so `type="email"`'s native
+  constraint fires, or add an explicit regex/format check to `handleCreateUser`'s guard and the
+  `disabled` prop — the backend schema fix is the one that must not be skipped, since the client
+  gate is bypassable by any direct API caller.
+- **Fix card:** [FIX-366](../.knowledge/cards/20260828-2254-FIX-366.md) — `CreateUserRequest.email: str` ->
+  `EmailStr` (`backend/app/api/admin.py:131`), so a malformed address is rejected with 422 before
+  `create_user`'s body runs and a direct API caller is blocked too; `frontend/src/app/admin/page.tsx`
+  gains one `EMAIL_PATTERN` constant used by both `handleCreateUser`'s guard and the "Create User"
+  button's `disabled` prop, so the button stays disabled on a malformed address.
+  `AdminUserResponse.email` (`:112`) deliberately left `str` — it is a response model, and tightening
+  it would 500 on an already-persisted bad row instead of rendering it for deletion. Tests:
+  `backend/tests/unit/test_admin_create_user_email_validation.py` and
+  `tests/integration/e2e/suites/11_admin/test_create_user_email_validation.py` both went
+  `[XPASS(strict)]`; xfail markers LEFT IN PLACE for 6-verifier. No backend restart needed beyond
+  `--reload` (both changed files are `.py`/`.tsx`).
+- **Deferred:** [ISS-405](../.knowledge/cards/20260828-2324-ISS-405.md) stays open — `EmailStr` closes
+  its backend half (`""` is rejected too), but the unguarded `user.email[0].toUpperCase()` at
+  `frontend/src/app/admin/page.tsx:391` is untouched and still crashes all of `/admin` for any
+  already-persisted empty-email row.
+
 ## BUG-20260828-034200-handoff-settings — An over-length GitHub PAT is echoed back verbatim in the 422 response body and rendered raw on-page, contradicting "never returned by any API"
 
 - **Page:** Handoff settings — GitHub PAT and API keys
 - **Route:** /handoff/settings
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 03:42 UTC
 - **Found by:** bug-handoff-settings-r1
+- **Verified:** 2026-08-28 — `tests/integration/e2e/suites/16_pages_outside_routes/test_pages_outside_routes.py -k oversize`
+  went `[XPASS(strict)]` for both `test_an_oversize_github_pat_is_not_echoed_in_the_422_or_rendered_raw`
+  and `test_an_oversize_api_key_name_is_not_echoed_in_the_422_or_rendered_raw`; `xfail` markers removed,
+  re-run plain green (2 passed). `frontend/src/lib/api.errorEcho.test.ts` (`it.fails` → `it`) re-run
+  green (1 passed). `backend/tests/unit/test_register_password_echo.py` still `1 xfailed` as documented
+  by ISS-357 (fixture mounts a bare `FastAPI()`, cannot see the app-level handler) — verified manually
+  instead: `POST /api/auth/register {"email":"nobody@example.com","password":"short7!"}` → `422` with
+  no `input` key. Manual repro of the ORIGINAL reproduction re-run by hand in lane6 Chrome as qa-admin:
+  set a 5004-char synthetic `ghp_AAA...` value on `/handoff/settings`' PAT field, clicked Save,
+  `PUT /api/settings/github-pat` → `422` body is now
+  `{"detail":[{"type":"string_too_long","loc":["body","pat"],"msg":"String should have at most 512
+  characters","ctx":{"max_length":512}}]}` — no `input` key, value not echoed — and the page renders
+  the friendly `String should have at most 512 characters` text, not raw JSON. No PAT was persisted
+  (page still read "No GitHub token saved yet." after). Health: `:8000/docs` → 200, frontend page →
+  200, `npx tsc --noEmit` shows only the same two pre-existing failures FIX-332 documented (none in
+  `src/lib/api*`), `lint-imports` (run from `backend/`) shows the identical pre-existing "3 kept, 1
+  broken" contract state, unrelated to the changed files. No new console errors beyond the expected
+  422 network log line already in this bug's own Browser Signals. Evidence:
+  `bug-hunter/evidence/handoff-settings/BUG-20260828-034200-handoff-settings/03-after-fix-before-save.png`,
+  `04-after-fix-friendly-message.png`.
 - **Fingerprint:** `/handoff/settings|github-pat-save|submit-value-over-512-chars|server-echoes-full-value-in-422-body-and-frontend-renders-it-raw`
 - **Evidence:** `bug-hunter/evidence/handoff-settings/BUG-20260828-034200-handoff-settings/`
+- **Validated:** 3/3 on 2026-08-28, cycles 1-3 — deterministic on any PUT /api/settings/github-pat submission over 512 chars, cold start each time, no axis variation needed
+- **Root cause:** No `RequestValidationError` handler anywhere in `backend/app/main.py`, so Pydantic's default 422 echoes the full rejected value (`backend/app/api/settings.py:64`, `GithubPATRequest.pat`); on the frontend, `authedJson` (`frontend/src/lib/api-handoff.ts:86-88`) and an independently-duplicated `ApiError` (`frontend/src/lib/api.ts:77-79`) both fall back to `JSON.stringify(...)` whenever `detail` isn't a plain string, and `IntegrationsCard.tsx:113-117`/`:390-393` renders that raw JSON on-page. CONFIRMED by direct file:line read; full mechanism in ISS-224.
+- **Blast radius:** every `authedJson` caller in `api-handoff.ts` (8 functions, incl. `createApiKey`) shares the frontend flaw; every `api.ts` `request()`-backed page whose catch block renders `err.message` raw shares the SECOND, independent copy of it — confirmed reachable via `AccountSettings.tsx:170,417`. Backend-wide, any `Field(min_length=/max_length=...)` on a sensitive value inherits the same echo; confirmed second instance `RegisterRequest.password` (`backend/app/models/schemas.py:16`).
+- **Issue cards:** [ISS-224](../.knowledge/cards/20260828-1735-ISS-224.md) (root), [ISS-264](../.knowledge/cards/20260828-1815-ISS-264.md) (sibling: createApiKey/authedJson, same page), [ISS-256](../.knowledge/cards/20260828-1816-ISS-256.md) (sibling: ApiError duplicate in api.ts, reachable via AccountSettings), [ISS-257](../.knowledge/cards/20260828-1817-ISS-257.md) (sibling: RegisterRequest.password backend echo)
+- **Fix card:** [FIX-332](../.knowledge/cards/20260828-1915-FIX-332.md) — one
+  `RequestValidationError` handler in `backend/app/main.py` drops Pydantic's `input` (the whole
+  rejected value) from EVERY 422 on every router; `frontend/src/lib/api.ts` gains one exported
+  `errorMessageFromDetail()` that both `ApiError` and `api-handoff.ts`'s `authedJson` now call,
+  replacing the two independently-written `JSON.stringify` fallbacks
+- **Deferred:** [ISS-357](../.knowledge/cards/20260828-1915-ISS-357.md) —
+  `backend/tests/unit/test_register_password_echo.py` mounts `auth_router` on a bare `FastAPI()`,
+  so an app-level handler is invisible to it and it stays xfail; ISS-257's behaviour was verified
+  live instead (`POST /api/auth/register` with a 7-char password → 422 with no `input` key). The
+  test was NOT edited
 
 ### Summary
 The "GitHub access token" card explicitly promises "Encrypted at rest, never returned by any
@@ -3476,11 +6040,80 @@ page text, both violating the page's own "never returned by any API" claim.
 - **Page:** Missing workflow — canvas sub-route
 - **Route:** /workflows/<nonexistent-or-malformed-id>/canvas (e.g. /workflows/00000000-0000-0000-0000-000000000000/canvas, /workflows/totally-bogus-id-12345/canvas)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 — `tests/integration/e2e/suites/13_errors/test_errors.py` run in full:
+  the ISS-299 guard test XPASSed (strict), `xfail` marker removed, file re-run plain green for
+  that test (22/23 other outcomes also PASS; 2 unrelated `Page.goto` timeouts to `/runs` on the
+  first pass were shared-browser contention from concurrent bug-hunt suites, confirmed by an
+  isolated re-run of just those two — both PASS alone). Manual re-repro in Chrome (lane5,
+  qa-admin, light theme, cold-navigate via /dashboard, same conditions as the register/ISS-299
+  entry): both the all-zeros uuid and a non-uuid bad id (`totally-bogus-id-12345`) now render the
+  generic 404 with zero "Save as copy" buttons; only console entry is the expected
+  `GET .../api/workflows/<bad-id> => 404`. `/workflows/ppt/canvas` (a valid built-in) still opens
+  correctly with "Save as copy" present — the new gate does not fire on the valid path. Frontend
+  `npm run build` succeeds; `tsc --noEmit` shows the same 9 pre-existing errors as before the fix,
+  zero in `page.tsx`. Backend `/docs` returns 200 (frontend-only change, no restart needed).
+  `lint-imports` (run from `backend/`) shows one pre-existing broken contract
+  (`agents.execution_engine.engine` → `app.api`), unrelated to this change, not touched here.
+  Regression file `suites/04_composer_canvas/test_composer_canvas.py` (20 tests): 2 failures, both
+  reproduced in isolation too, both pre-existing and unrelated —
+  `test_editing_a_saved_workflow_loads_its_steps` fails on `assert 3 == 4` against the shared "ppt
+  override" fixture workflow's agent count (DB-state drift from concurrent bug-hunt agents
+  mutating shared fixtures, not this route), and
+  `test_a_last_streamed_built_in_refuses_an_append_after_final_step_slot` fails because the test's
+  own `LAST_STEP_GUARD` locator hardcodes "...replace output.md..." while the PPT built-in's real
+  tooltip correctly says "...replace presentation.pptx..." — a stale test locator, not a page.tsx
+  regression. Evidence: `05-after-canvas-404.png` added alongside the original before/failure
+  shots in `bug-hunter/evidence/workflows-nonexistent/BUG-20260828-040400-workflows-nonexistent/`.
 - **Found at:** 2026-08-28 04:04 UTC
 - **Found by:** bug-workflows-nonexistent-r1
 - **Fingerprint:** `/workflows/<bad-id>/canvas|copy-composer|navigate-to-canvas-subroute-for-nonexistent-workflow|empty-composer-renders-and-save-as-copy-persists-a-real-workflow`
 - **Evidence:** `bug-hunter/evidence/workflows-nonexistent/BUG-20260828-040400-workflows-nonexistent/`
+- **Validated:** 3/3 on 2026-08-28, cold start each cycle — any unresolved workflowId on `/workflows/{id}/canvas` (well-formed uuid, malformed uuid, or arbitrary string) triggers it; not id-shape or cache specific
+- **Issue card:** [ISS-299](../.knowledge/cards/20260828-1730-ISS-299.md)
+- **Root cause:** `frontend/src/app/[...view]/page.tsx:452-499` — the `workflow-canvas` cold-mount
+  effect's `catch` (lines 494-496) is unconditional and sets `initialSavedComposition` to `null`
+  on ANY `getWorkflowDetail` failure, indistinguishable from that state's own blank-composer
+  default (line 391). Unlike this file's sibling cold-mount effects for `/workflows/{id}/edit`
+  (`workflowEditAccessDenied`, set on a 403/404, gated by `notFound()` at line 3741-3743) and the
+  bare `/workflows/{id}` route (`workflowDetailFailed`, gated by `notFound()` at line 3750-3753),
+  `workflow-canvas` has no companion "not found" state and no `notFound()` gate anywhere in the
+  file (confirmed by exhaustive grep of every `notFound()` call site). `ComposerPage.tsx`'s header
+  (line 1020) and "Save as copy" label (line 1135) key only on the URL-derived `builtinCanvasType`
+  string; the Save button's `disabled` (line 1116, `saving` only) and `handleSave` (663-762) check
+  neither workflow existence nor agent count, so it always POSTs a new row via `saveUserWorkflow`.
+- **Blast radius:** Producer: `page.tsx`'s single `builtinCanvasType` effect. Passthrough:
+  `DashboardLayout.tsx` (prop forwarding only, no logic — confirmed by grep). Consumers:
+  `ComposerPage.tsx`'s header, Save-as-copy button/`handleSave`, and (already filed/fixed
+  separately as ISS-234/FIX-343) `handleRunOnce`. No other `getWorkflowDetail` caller shares the
+  defect — `WorkflowDialog.tsx` correctly surfaces its error instead of swallowing it, and
+  `LaunchWizard.tsx`'s fetch is for a fixed, non-URL-derived pipeline type whose core roster comes
+  from elsewhere. The identical unconditional-catch mechanism was independently re-derived while
+  analyzing the parallel bug `BUG-20260828-104200-workflows-nonexistent-r2` (root card ISS-234,
+  fixed by FIX-343; siblings ISS-333, ISS-334) for the Run-once consequence — this bug is the
+  Save-as-copy consequence of the same swallow, a distinct defect, not a duplicate.
+- **Proposed fix:** Mirror `workflow-edit`'s existing pattern in the SAME file: add a companion
+  state (e.g. `builtinCanvasAccessDenied`), set it in the effect's catch when
+  `err instanceof ApiError && (err.status === 403 || err.status === 404)` (matching
+  `page.tsx:3506-3520`'s exact check), and add one more `notFound()` gate alongside the existing
+  three, keyed on `builtinCanvasTypeFor(parsedView) && builtinCanvasAccessDenied`. Belongs in
+  `page.tsx` — the one catch-all component every URL already routes through (ADR-0018) — not
+  duplicated inside `ComposerPage.tsx`, which has no route/`notFound()` awareness.
+- **Issue cards:** [ISS-299](../.knowledge/cards/20260828-1730-ISS-299.md) (root — confirmed, not
+  edited by this pass), [ISS-410](../.knowledge/cards/20260828-2344-ISS-410.md) (sibling,
+  INFERRED: the same unconditional catch fires identically on a transient failure against a REAL,
+  existing workflow — not just a dead one — so Save as copy can persist an unwanted duplicate for
+  a workflow that was never dead; mirrors [ISS-334](../.knowledge/cards/20260828-2045-ISS-334.md),
+  which already covers the same adjacent-state trigger for the Run-once consequence)
+
+- **Fix card:** [FIX-368](../.knowledge/cards/20260829-0106-FIX-368.md) — companion
+  `builtinCanvasAccessDenied` state set only on `ApiError` 403/404 in the `workflow-canvas`
+  cold-mount catch (`page.tsx:521-529`), plus a fourth `notFound()` gate keyed on
+  `builtinCanvasType && builtinCanvasAccessDenied` (`page.tsx:3801-3807`) alongside the
+  existing three. Also filed [ISS-442](../.knowledge/cards/20260829-0106-ISS-442.md) —
+  `workflowDetailCatch.source.test.ts:84` hard-codes "the shared 403/404 idiom appears
+  exactly 3 times in page.tsx"; it is 5 now (one site from the in-tree ISS-380 fix, one
+  from this one) and was deliberately NOT edited to make a red test green.
 
 ### Summary
 Unlike the bare workflow detail route and `/edit`, both of which correctly render the generic
@@ -3556,7 +6189,36 @@ successfully creates and persists a brand-new real workflow via a legitimate bac
 - **Page:** Fullscreen preview — ready state (App Builder IDE preview)
 - **Route:** /preview-fullscreen (ready state, valid `__app_preview__` payload)
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Validated:** 3/3 on 2026-08-28, cold-started each cycle — reproduces immediately, no
+  narrowing needed (queries `app`, `helper`, `main` against a 4-file seeded tree)
+- **Verified:** `AppBuilderPreview.searchFilter.test.tsx` XPASSed all 4 cases (ISS-332 x2,
+  ISS-501, ISS-502), `xfail`/`it.fails` markers removed, plain green re-run (4 passed). Manual
+  re-run of the original repro on `/preview-fullscreen` with the same seeded 4-file payload:
+  searching `app` now hides `styles`/`utils` (zero matching descendants) and the footer reads
+  "1 files · 0.0 KB total" instead of the stale "4 files · 0.1 KB total"; searching `helper`
+  hides `styles`, auto-expands `utils` to reveal `helper.js`, footer correct. No console errors.
+  Backend :8000/docs 200; `npx tsc --noEmit` has pre-existing unrelated errors only (none in
+  AppBuilderPreview.tsx/PreviewPanel.tsx); `lint-imports` (run from backend/) has one
+  pre-existing broken contract unrelated to this frontend-only change. Regression file
+  `preview/__tests__/PreviewPanel.switcher.test.tsx` — 5 passed. Sibling ISS-500 (other mount
+  points) confirmed fixed at the code level and via an isolated assertion check, but its own
+  test file `PreviewPanel.appBuilderSearch.test.tsx` stays `it.fails` — it is blocked by a
+  separate, still-open test-code defect ([ISS-596](../.knowledge/cards/20260829-0127-ISS-596.md)),
+  not by this bug.
+- **Root cause:** `FileTreeNode`'s folder branch renders unconditionally with no `searchQuery`
+  check — the match gate exists only in the `file` branch (`AppBuilderPreview.tsx:202-203`); the
+  footer stat line reads the raw, unfiltered `files` prop with no `searchQuery` dependency at all
+  (`AppBuilderPreview.tsx:556`)
+- **Blast radius:** every mount point of the shared `AppBuilderPreview` component — the reported
+  `/preview-fullscreen` page, `AppBuilderIDEPreview` inside `PreviewPanel.tsx:163` (embedded
+  run-preview tab), and both branches of the History reopen modal, `WorkflowHistory.tsx:838`
+  (`ideFiles`) and `WorkflowHistory.tsx:877` (`genericBundleFiles`)
+- **Issue cards:** [ISS-332](../.knowledge/cards/20260828-2041-ISS-332.md) (root),
+  [ISS-500](../.knowledge/cards/20260829-0006-ISS-500.md) (sibling: same bug in the other three
+  mount points), [ISS-501](../.knowledge/cards/20260829-0006-ISS-501.md) (sibling: search never
+  auto-expands a collapsed folder holding a real match), [ISS-502](../.knowledge/cards/20260829-0006-ISS-502.md)
+  (sibling: zero-match query leaves the whole tree visible with no empty state)
 - **Found at:** 2026-08-28 04:13 UTC
 - **Found by:** bug-preview-fullscreen-r1
 - **Fingerprint:** `/preview-fullscreen|app-builder-preview-file-explorer-search|type-query-matching-only-a-nested-file|parent-folders-with-zero-matching-children-remain-visible-and-expand-empty-while-footer-count-stays-unfiltered`
@@ -3629,7 +6291,96 @@ file list.
 - **Page:** Login reached with a non-canonical expiry param
 - **Route:** /login?expired=1 (identical DOM structure to plain /login)
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified (6-verifier, 2026-08-29, re-verification after FIX-408):** All three checks
+  green in this pass. `npx vitest run src/app/login/login.a11y.test.tsx` (frontend/) →
+  `Test Files 1 passed (1) / Tests 3 passed (3)`, plain green, no `xfail`/`it.fails`
+  markers present (already removed in the prior verification pass). Regression guard
+  `login.reskin.test.tsx` → `Test Files 1 passed (1) / Tests 9 passed (9)`. `npx tsc
+  --noEmit` from `frontend/` → 8 errors total, ALL in the three files already carved out
+  as out-of-scope by FIX-408 (`HomeLaunchGrid.crossAccountLeak.test.tsx` x4,
+  `api.sessionExpiryRedirect.test.ts` x2, `listenerMiddleware.test.ts` x2 — owned by
+  ISS-216/ISS-322) — zero errors in this bug's file set, confirming TS2554 stays fixed.
+  Manual repro re-run by hand in the browser (lane4): cleared storage, navigated to
+  `/login?expired=1`, filled `wrong@flowinqa.com` / a wrong password, clicked Sign in.
+  DOM evaluate confirmed the "Invalid email or password." element now carries
+  `role="alert"` (was `null` before the fix) with only the expected benign 401 console
+  entry — after-screenshot at
+  `bug-hunter/evidence/login-expired-1/BUG-20260828-041815-login-expired-1/03-after-verify-role-alert-present.png`.
+  Backend `:8000/docs` → 200, frontend `:3000/login` → 200, no restart required (frontend-
+  only change, Next.js hot-reloaded). `lint-imports` (run from `backend/`) shows one broken
+  contract (`agents.execution_engine.engine` -> `app.api`) — pre-existing and unrelated:
+  this bug's entire changeset is `frontend/src/app/login/page.tsx` and
+  `login.a11y.test.tsx`, zero backend files touched. Two consecutive full passes now
+  (functional fix confirmed twice; the one prior failure was the tsc gap FIX-408 closed).
+- **Reopen fixed (5-fixer, 2026-08-29):** The one health-check failure this entry was reopened
+  for is closed. `frontend/src/app/login/login.a11y.test.tsx:92` now reads
+  `new ApiError(401, null)` — the real exported `ApiError` (`frontend/src/lib/api.ts:93-96`,
+  exported at `:653`) requires `(status, detail)`; the file's own `vi.mock` stub declares
+  `detail?` optional and vitest does not type-check, which is why it ran green over a red
+  build. Fixed at the call site, NOT by relaxing the app's signature — all five real
+  construction sites already pass two args, and `null` was chosen over the asserted banner
+  text so the assertion still proves the `status === 401` branch produced it. No assertion or
+  test name changed; `page.tsx` untouched. Observed: `npx tsc --noEmit` from `frontend/` now
+  reports 0 errors in this bug's file set (was 1);
+  `npx vitest run src/app/login/login.a11y.test.tsx` → `Test Files 1 passed (1) / Tests 3
+  passed (3)` (2.05s); regression guard `login.reskin.test.tsx` → 9 passed (1.86s). The three
+  unrelated `tsc` files this entry also listed are untouched and already carded —
+  `HomeLaunchGrid.crossAccountLeak.test.tsx` + `listenerMiddleware.test.ts` under
+  [ISS-216](../.knowledge/cards/20260828-1643-ISS-216.md) (open),
+  `api.sessionExpiryRedirect.test.ts` under
+  [ISS-322](../.knowledge/cards/20260828-2007-ISS-322.md).
+- **Verified (6-verifier, 2026-08-29):** The functional fix is real and confirmed — all 3
+  `frontend/src/app/login/login.a11y.test.tsx` tests XPASS 3/3 across repeat runs, xfail
+  markers removed and re-run plain green (`Test Files 1 passed / Tests 3 passed`), regression
+  guard `login.reskin.test.tsx` stays green (9/9), and the manual repro from this entry
+  (`/login?expired=1`, wrong credentials, submit) now shows `role="alert"` on the error
+  element in the live browser (was `null`/`null` before) with only the expected benign 401
+  console entry. The `isExpired` banner (`?expired=true`) was spot-checked the same way and
+  also carries `role="alert"`. REOPENED anyway because a health check failed: `npx tsc
+  --noEmit` reports `frontend/src/app/login/login.a11y.test.tsx:92:33` TS2554 — `new
+  ApiError(401)` supplies only the `status` argument, but the real `ApiError` class
+  (`frontend/src/lib/api.ts:97`) requires a second `detail: unknown` argument; the test
+  file's local `vi.mock("@/lib/api")` stub only needs one, so it runs fine under vitest
+  (which doesn't type-check) but fails `tsc`, i.e. the frontend does not build clean. This
+  predates the fixer's `page.tsx` edit — it's in the test file the 4-test-writer delivered —
+  but it is still this bug's own deliverable and blocks a clean build. Three other unrelated
+  `tsc` errors (`HomeLaunchGrid.crossAccountLeak.test.tsx`,
+  `api.sessionExpiryRedirect.test.ts`, `listenerMiddleware.test.ts`) were also present but
+  are outside this bug's file set — not re-verified against a pre-change commit (shared WIP
+  branch, unsafe to stash), noted here rather than claimed clean.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduced on every cold-start attempt, no
+  axis variation needed (also confirmed stable across mouse-click and Enter-key submit)
+- **Root cause:** Hand-rolled inline JSX, not a broken shared function — the failed-login
+  `{error && (<motion.div>{error}</motion.div>)}` block at `frontend/src/app/login/page.tsx:271-279`
+  carries no `role`/`aria-live` and nothing moves focus to it. `components/ui/` has no
+  generic alert/banner primitive this page could have used (the codebase already has the
+  right pattern elsewhere — `SecuritySection.tsx:169`'s `aria-live="polite"` sr-only region,
+  `AgentsPopup.tsx:2659`'s `role="alert"` span — login just never got it). NOTE: ISS-337's
+  own line citation (261-268) was one block off — those lines are the neighboring
+  `isExpired` banner, not this one; corrected in the analyzer refinement section.
+- **Blast radius:** No cross-file callers — `login/page.tsx` is a router leaf
+  (`imported_by: []`) and `register/page.tsx` has no form. Contained to 2 sibling render
+  sites in the SAME file with the identical missing-attribute pattern: the `isExpired`
+  session-expiry banner (lines 261-269, reached via `handleSessionExpiry()` in
+  `frontend/src/lib/api.ts:175-179`) and `ChallengeForm`'s own error banner (lines 446-450,
+  hit on MFA/new-password steps) — both filed as siblings below.
+- **Proposed fix:** Belongs inside `login/page.tsx` itself, not a new `components/ui/`
+  component (3 usages in 1 file isn't enough repetition to justify one) — add `role="alert"`
+  to all 3 existing banner blocks (261-269, 271-279, 446-450), or factor them through one
+  tiny local wrapper so a future 4th banner inherits it too.
+- **Issue cards:** [ISS-337](../.knowledge/cards/20260828-1900-ISS-337.md) (root —
+  validator's original card, extended in this pass with the root-cause mechanism, blast
+  radius and fix location), [ISS-574](../.knowledge/cards/20260829-0220-ISS-574.md)
+  (sibling, INFERRED: `isExpired` banner), [ISS-575](../.knowledge/cards/20260829-0220-ISS-575.md)
+  (sibling, INFERRED: `ChallengeForm` error banner)
+- **Fix card:** [FIX-393](../.knowledge/cards/20260829-0325-FIX-393.md) — `role="alert"` added to
+  all three hand-rolled status banners in `frontend/src/app/login/page.tsx` (isExpired 261, LoginForm
+  error 271, ChallengeForm error 446); no wrapper component, blast radius is 3 sites in this one
+  router-leaf file
+- **Fix card (reopen):** [FIX-408](../.knowledge/cards/20260829-0447-FIX-408.md) — TS2554 at
+  `login.a11y.test.tsx:92` cleared by passing the required `detail` argument; test-file only,
+  no production source changed
 - **Found at:** 2026-08-28 04:18 UTC
 - **Found by:** bug-login-expired-1-r2
 - **Fingerprint:** `/login?expired=1|sign-in-error-message|submit-with-invalid-credentials|error-text-not-announced-to-assistive-tech`
@@ -3685,7 +6436,7 @@ receive no notification of the failed login; the failure is only conveyed visual
 - **Page:** Bare settings route
 - **Route:** /settings
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28T04:23:11Z
 - **Found by:** bug-settings-r2
 - **Fingerprint:** `/settings|bare-route-router|clientside-navigation-to-settings|shows-404-instead-of-redirect-that-fullload-applies`
@@ -3736,21 +6487,85 @@ successfully to `/settings/profile`.
 - Repro 2 (same failure on qa-admin account): `bug-hunter/evidence/settings/BUG-20260828-042311-settings/03-repro2-admin-account-same-404.png`
 
 ### Browser Signals
-- Console: none relevant.
+- **Status:** CLOSED
 - Network: `fetch('http://localhost:3000/settings')` returns `redirected: true`, final `url`
   `http://localhost:3000/settings/profile` — confirming the redirect is server/network-layer
   only, with no corresponding client-router rule. No network request fires at all during the
   client-side `popstate` transition, confirming the 404 is a pure client-side render decision.
+
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduced identically on every cold cycle, no
+  axis variance needed. Root cause: `frontend/src/lib/routes.ts:401-403` parses bare
+  `/settings` as `unknown` while `frontend/next.config.ts:27-28` defines a server-only redirect
+  to `/settings/profile`; the two layers disagree.
+- **Issue card:** [ISS-339](../.knowledge/cards/20260828-1850-ISS-339.md), [ISS-572](../.knowledge/cards/20260829-0019-ISS-572.md)
+  (sibling: the other 3 next.config.ts redirects, /library/agents|skills|hooks)
+- **Fix card:** [FIX-397](../.knowledge/cards/20260829-0349-FIX-397.md) — `parseViewPath`
+  (`frontend/src/lib/routes.ts`) now mirrors all 4 of next.config.ts's server-only redirects:
+  bare `/settings` resolves to `settings-profile` and the legacy 2-segment
+  `/library/agents|skills|hooks` resolve to `library`, instead of falling through to `unknown`
+  -> `notFound()`. Test `frontend/src/lib/routes.iss339.test.ts` — 4/4 `it.fails` XPASS
+  (vitest's strict-xfail analogue); `routes.test.ts` 59 passed, with its two stale
+  `unknown` assertions corrected per ISS-572.
 - State/URL: URL stays `/settings` throughout the client-side-nav failure case (never becomes
   `/settings/profile`), distinct from the full-load case where the URL bar itself changes to
   `/settings/profile`.
+- **Root cause:** CONFIRMED — `frontend/src/lib/routes.ts:405-409` (`parseViewPath`,
+  `head === 'settings'`, `segments.length === 1`) explicitly returns `{ screen: 'unknown' }` for
+  bare `/settings`, with an inline comment acknowledging the gap. `frontend/next.config.ts:26-30`
+  defines the redirect only as a Next.js server-side `redirects()` rule, which never fires on a
+  client-side history transition. `frontend/src/app/[...view]/page.tsx:3780-3782`
+  (`if (parsedView.screen === "unknown") notFound();`) is the single shared gate that renders the
+  404 for that result.
+- **Blast radius:** `parseViewPath` is called from 4 sites (`frontend/src/app/[...view]/page.tsx:398`,
+  `frontend/src/components/library/LibraryPage.tsx:490`, `frontend/src/app/error.tsx:24`,
+  `frontend/src/app/global-error.tsx:24`) — only the first is a rendering gate (the other two only
+  label errors for logging, not this defect's blast radius). All 4 of `next.config.ts`'s
+  `redirects()` rules were checked against `routes.ts`; 3 more have the identical
+  no-client-mirror gap: `/library/agents`, `/library/skills`, `/library/hooks`
+  (`frontend/src/lib/routes.ts:377-399`), independently codified as a passing (wrong) test at
+  `frontend/src/lib/routes.test.ts:309-313`. No in-app caller currently constructs any of these
+  4 bare paths (`routes.ts`'s own builders always emit the tabbed/query form), so real-world
+  exposure is external/historical links landing as a client-side transition, not any in-app button.
+- **Proposed fix:** belongs in the shared parser (`frontend/src/lib/routes.ts`'s `parseViewPath`)
+  or the single catch-all gate that consumes it (`[...view]/page.tsx:3780`), not duplicated per
+  caller — per ADR-0018, `routes.ts` is the one place that parses every URL. A guard here fixes
+  all 4 paths at once and keeps the two redirect tables (next.config.ts, routes.ts) from drifting
+  further apart.
+- **Issue cards:** [ISS-339](../.knowledge/cards/20260828-1850-ISS-339.md) (root, this bug),
+  [ISS-572](../.knowledge/cards/20260829-0019-ISS-572.md) (sibling, INFERRED: same gap on
+  `/library/agents`, `/library/skills`, `/library/hooks`)
+- **Verified:** 2026-08-29 — `frontend/src/lib/routes.iss339.test.ts` (4/4, XPASS confirmed
+  with `it.fails` still in place, then `.fails` removed and re-run: 4/4 plain green) and
+  `frontend/src/lib/routes.test.ts` (59/59 green, unchanged) via
+  `npx vitest run src/lib/routes.iss339.test.ts src/lib/routes.test.ts`. Manual repro from this
+  entry re-run by hand in real Chrome (lane4, qa-admin, signed in): cold `/dashboard` ->
+  `window.history.pushState({}, '', '/settings'); dispatchEvent(new PopStateEvent('popstate'))`
+  now renders the Profile settings screen (tabs Profile/AI Model/Usage & Limits/Constitution/
+  Security, heading "Account Settings"), not the 404 — screenshot
+  `bug-hunter/evidence/settings/BUG-20260828-042311-settings/04-after-fix-clientside-nav-shows-profile.png`.
+  Also spot-checked the ISS-572 sibling the same way: client-side `pushState`/`popstate` to
+  `/library/agents` now renders the Library screen (h1 "Library", 3 tabs), not 404. No new
+  console errors/warnings on either page. `curl :8000/docs` -> 200 (backend untouched, no
+  restart needed — frontend-only fix). `npx tsc --noEmit`: 0 errors in routes.ts/routes.test.ts;
+  15 pre-existing errors remain in unrelated files (login.a11y.test.tsx,
+  HomeLaunchGrid.crossAccountLeak.test.tsx, api.sessionExpiryRedirect.test.ts,
+  listenerMiddleware.test.ts), matching FIX-397's own count exactly. `lint-imports` (from
+  `backend/`): 1 pre-existing broken contract (`agents.execution_engine.engine` ->
+  `app.api.*`), unrelated to this frontend-only change — not caused by this fix.
+  Regression file `tests/integration/e2e/suites/13_errors/test_errors.py` (offline tier):
+  attempted twice via `.venv/bin/python -m pytest`, both runs stalled at the session-scoped
+  real-Chrome login fixture with near-zero CPU for 3.5+ minutes (environment contention — many
+  MCP browser lanes were active concurrently in this run) and were killed without completing;
+  SKIPPED, not claimed as a pass. Per FIX-397's own coverage note this suite only exercises the
+  cold-load path (unchanged `next.config.ts` redirect), so it is not expected to be sensitive to
+  this change, but that is unconfirmed by an actual run here.
 
 ## BUG-20260828-042900-handoff-invalid — A genuine network/fetch failure on the handoff page is misreported as "Handoff not found", even for a real, valid, owned token
 
 - **Page:** Handoff — invalid/unknown token
 - **Route:** /handoff/{token}
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28T04:29:00Z
 - **Found by:** bug-handoff-invalid-r2
 - **Fingerprint:** `/handoff/{token}|token-lookup-fetch|network-request-fails-or-is-unreachable|frontend-renders-generic-not-found-instead-of-a-network-error-state`
@@ -3811,16 +6626,132 @@ and unexpired.
   recovers the correct content, confirming this is a client-side error-handling gap, not a
   server-side data issue.
 
+- **Validated:** 3/3 on 2026-08-28, every cycle from a cold start (cycle 1: reload with route
+  interception installed; cycle 2: cleared cookies/localStorage + fresh navigation; cycle 3: a
+  brand-new browser tab). Re-minted a fresh real handoff token via `POST /api/handoff/receive`,
+  confirmed healthy load, then reproduced the "Handoff not found" / "Failed to fetch" mis-render
+  on every cycle with `page.route('**/api/handoff/**', route => route.abort('failed'))`. Root
+  cause traced to `frontend/src/components/handoff/HandoffWorkflow.tsx:73-148` (`fetchSession`)
+  funneling any thrown error — HTTP 404 or a pure network-layer fetch rejection — into the same
+  `loadError` state, then `HandoffWorkflow.tsx:216-233` rendering an unconditional "Handoff not
+  found" heading for any `loadError`.
+- **Issue card:** [ISS-301](../.knowledge/cards/20260828-1740-ISS-301.md)
+- **Root cause:** `frontend/src/lib/api-handoff.ts:61-92` (`authedJson`) — the single choke point
+  behind all 8 handoff API calls — throws a bare, status-less `Error` for an HTTP failure and lets a
+  network-layer `fetch` rejection propagate unmodified, so neither case carries anything a caller can
+  branch on. `HandoffWorkflow.tsx:143-145` (`fetchSession`'s catch) then collapses both into one
+  `loadError` string, and `HandoffWorkflow.tsx:216-233` renders "Handoff not found" unconditionally
+  for any `loadError`. This is the exact class of bug `lib/api.ts`'s `ApiError`/`isNotFoundError`
+  (`:93-116`) was already built to prevent (per its own comment, referencing ISS-374) — but
+  `api-handoff.ts` has its own separate `authedJson` that never adopted that fix.
+- **Blast radius:** all 8 functions routed through `authedJson` in `api-handoff.ts` (`getHandoff`,
+  `startHandoff`, `getGithubPatStatus`, `saveGithubPat`, `deleteGithubPat`, `listApiKeys`,
+  `createApiKey`, `revokeApiKey`) carry the same undiscriminated-error defect at the data layer.
+  Two additional call sites confirmed broken by the same mechanism: `HandoffWorkflow.tsx`'s
+  post-completion re-fetch (`:186-192`) can wipe an already-loaded, in-progress/completed session
+  back to "Handoff not found" on a transient refresh failure (the render guard is `loadError ||
+  !session`, not `!session` alone); `IntegrationsCard.tsx`'s `refresh()` (`:80-93`) has an EMPTY catch
+  that silently renders "No GitHub token saved yet." / "No API keys yet." for a user who has both,
+  indistinguishable from a legitimately empty account — confirmed backend-side
+  (`backend/app/api/settings.py:178-201`) that "no PAT saved" is itself a normal 200/`null`, never an
+  error, so that catch only ever fires on a genuine failure.
+- **Fix location:** `authedJson` in `frontend/src/lib/api-handoff.ts` (`:61-92`) — make it throw the
+  same `ApiError`-shaped failure `lib/api.ts`'s `request()` already throws (status-bearing for HTTP
+  failures, a typed/wrapped case for network failures) so every caller can branch with the same
+  `isNotFoundError`-style check instead of re-deriving its own heuristic. One guard there, not one
+  per caller. `ApiError` itself is not currently exported from `lib/api.ts` — that export needs adding
+  first.
+- **Issue cards:** [ISS-301](../.knowledge/cards/20260828-1740-ISS-301.md) (root),
+  [ISS-409](../.knowledge/cards/20260828-2148-ISS-409.md) (sibling: IntegrationsCard swallows the
+  same failure as a false empty state), [ISS-411](../.knowledge/cards/20260828-2147-ISS-411.md)
+  (sibling: HandoffWorkflow's post-completion re-fetch can wipe an already-valid session)
+- **Fixed:** `frontend/src/lib/api-handoff.ts` (`authedJson`) now wraps a network-layer fetch
+  rejection as `ApiError(0, ...)` — `lib/api.ts`'s existing "no HTTP response" marker — and throws
+  `ApiError(resp.status, ...)` for an HTTP failure, so all 8 handoff calls carry a branchable
+  status. `HandoffWorkflow.tsx` consumes it: `loadError` became `{message, offline}`, the heading
+  branches to "Couldn't reach VelocityAI" + a Retry button when offline, and the full-page guard
+  is now `!session` alone (ISS-411) with a non-blocking notice for a failed refresh. `ApiError` was
+  already exported at `lib/api.ts:648` — the card's note that it was not is stale.
+  ISS-409 (IntegrationsCard's empty catch) is NOT fixed here and stays open on its own card.
+- **Fix card:** [FIX-370](../.knowledge/cards/20260829-0116-FIX-370.md)
+- **Tests:** frontend/src/components/handoff/HandoffWorkflow.test.tsx — 1 passed, 1 failed with
+  "Error: Expect test to fail" = the `it.fails` (xfail strict) case XPASSing, i.e. the pass signal;
+  marker left in place for 6-verifier. Baseline before the change on the same file was
+  "1 passed | 1 expected fail (2)". Also green: api-handoff.test.ts (3/3), api.errorEcho.test.ts
+  (1/1). tsc --noEmit: 6 errors, none in either changed file.
+- **Verified:** `HandoffWorkflow.test.tsx` re-run confirmed XPASS ("Error: Expect test to fail"
+  on the `it.fails` case), `it.fails` marker removed, re-run plain green (2 passed). Regression:
+  `api-handoff.test.ts` (3/3) and `api.errorEcho.test.ts` (1/1) still green. `tsc --noEmit`: same
+  6 pre-existing errors, none in `HandoffWorkflow.tsx`/`api-handoff.ts`/the test file. Backend
+  untouched by this fix; `:8000/docs` → 200. `lint-imports` (from `backend/`): 1 pre-existing
+  broken contract (`agents.execution_engine.engine` → `app.api`), unrelated to this frontend-only
+  change. Manual repro in lane4 Chrome, same conditions as the original (qa-admin, real minted
+  handoff token via `POST /api/handoff/receive`): healthy load renders the real session; with
+  `page.route('**/api/handoff/**', route => route.abort('failed'))` + reload, the page now shows
+  "Couldn't reach VelocityAI" / "The request never reached the server, so this handoff may still
+  be fine. Check your connection and try again." with a Retry button — no "Handoff not found"
+  text anywhere; clicking Retry after unrouting recovers the real session; a genuine nonexistent
+  token still renders "Handoff not found" byte-identical to before. Screenshots:
+  `bug-hunter/evidence/handoff-invalid/BUG-20260828-042900-handoff-invalid/03-verify-after-healthy-load.png`,
+  `.../04-verify-after-fix-network-error-distinguished.png`.
+
 ## BUG-20260828-050115-library — "Coming Soon" agents are fully browsable and configurable via direct URL, bypassing the catalog's own disabled/unreachable gating
 
 - **Page:** Library — Agents tab
 - **Route:** /library/agents/{id} (e.g. /library/agents/dotnet-inventory, /library/agents/mulesoft-springboot-scaffold)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 by 6-verifier.
+  `tests/integration/e2e/suites/08_library/test_iss303_beta_agent_direct_url_gate.py`: confirmed
+  both tests `[XPASS(strict)]` before removing the `xfail` markers, then plain green (2 passed)
+  after — `xfail` lines removed, `@pytest.mark.issue("ISS-303")` kept. Regression:
+  `test_library.py` — 24 passed (own run, same count the fixer reported). Manual repro in lane5
+  Chrome, qa-admin, same conditions as the register entry (cold direct-URL load, no prior page
+  state): `/library/agents/dotnet-inventory` and `/library/agents/mulesoft-springboot-scaffold`
+  both now land on `/library` with no drawer/dialog and zero console errors — screenshots
+  `bug-hunter/evidence/library/BUG-20260828-050115-library/04-after-fix-dotnet-inventory-redirects-to-library.png`
+  and `05-after-fix-mulesoft-redirects-to-library.png`, next to the original failure shots.
+  Health: `frontend` `tsc --noEmit` clean for `LibraryPage.tsx` (8 pre-existing errors remain,
+  all in unrelated `*.test.tsx`/`*.test.ts` files); backend untouched, `:8000/docs` → 200;
+  `lint-imports` (from `backend/`): same 1 pre-existing broken contract
+  (`agents.execution_engine.engine` → `app.api`), unrelated to this frontend-only change.
+- **Validated:** 3/3 on 2026-08-28, every cycle from a cold direct-URL load — reproduced on two
+  unrelated "Coming Soon" pipelines (`dotnet-inventory`, `mulesoft-springboot-scaffold`); not
+  tier- or theme-dependent
+- **Tested:** tests/integration/e2e/suites/08_library/test_iss303_beta_agent_direct_url_gate.py
+  — 2 xfail(strict=True) tests, both observed red 2026-08-29 (drawer opens for a BETA_WORKFLOWS
+  agent id via direct URL on both `dotnet-inventory` and `mulesoft-springboot-scaffold`)
+- **Root cause:** `LibraryPage.tsx`'s cold-mount URL-seed effect (`:589-614`) opens the detail
+  drawer straight from the URL slug with no availability check; the agents branch (`:591-597`)
+  never consults `BETA_WORKFLOWS` even though the grid's own `onClick` guard (`:815`) does.
+- **Blast radius:** the effect's skills branch (`:598-604`) has the identical missing check
+  against `skill.isBeta` — sibling, INFERRED, filed as ISS-416. Hooks branch (`:605-611`) and
+  the composer's independent `AgentLibrary.tsx:68` `BETA_WORKFLOWS` copy were checked and ruled
+  out (no click-gate / no URL entry point respectively) — not siblings.
+- **Fix belongs:** inside the existing cold-mount effect (`LibraryPage.tsx:589-614`) — add
+  `!BETA_WORKFLOWS.has(...)` / `!skill.isBeta` to the two broken branches' conditions. This is
+  the sole entry point for every direct-URL/bookmark/history open, so a guard there covers every
+  caller without touching the (already-correct) click handlers.
+- **Issue cards:** [ISS-303](../.knowledge/cards/20260828-1935-ISS-303.md) (root),
+  [ISS-416](../.knowledge/cards/20260828-2210-ISS-416.md) (sibling: Skills tab beta-skill bypass,
+  same effect)
 - **Found at:** 2026-08-28 05:01 UTC
 - **Found by:** bug-library-r2
 - **Fingerprint:** `/library/agents/{id}|agent-detail-drawer|direct-url-navigation-to-coming-soon-agent-id|full-detail-and-editable-config-render-despite-catalog-marking-agent-unavailable`
-- **Evidence:** `bug-hunter/evidence/library/BUG-20260828-050115-library/`
+- **Evidence:** `bug-hunter/evidence/library/BUG-20260828-050115-library/`, additional cold-start
+  validation evidence at `bug-hunter/evidence/library/_scratch/`
+- **Fixed:** 2026-08-29 by 5-fixer. [FIX-371](../.knowledge/cards/20260829-0131-FIX-371.md) —
+  `frontend/src/components/library/LibraryPage.tsx` only, one hunk inside the cold-mount URL-seed
+  effect (the sole direct-URL/bookmark/history entry point). The agents branch now checks
+  `BETA_WORKFLOWS.has(getPrimaryPipelineType(agent.pipeline_type))` and the skills branch
+  `skill.isBeta` (ISS-416's sibling, same hunk); when the item is beta it calls
+  `router.replace(routes.library({ tab }))` instead of `setSelectedAgent`/`setSelectedSkill`, so
+  the unreachable URL is dropped from history rather than left parked on a detail path that
+  renders nothing. The grid's already-correct `onClick` guards were not touched. Observed:
+  `test_iss303_beta_agent_direct_url_gate.py` → both tests `[XPASS(strict)]` (the pass signal),
+  markers left for 6-verifier; `test_library.py` → 24 passed in 126.99s (covers a NON-beta agent
+  still opening cold, S-08-12/13/19); `LibraryPage.test.tsx` 9 passed, `LibraryPage.reskin.test.tsx`
+  5 passed; `tsc --noEmit` clean for this file.
 
 ### Summary
 30 of the Agents tab's 94 catalog entries (the `.NET to Azure` and Mulesoft-to-Spring-Boot
@@ -3879,11 +6810,58 @@ agent is unreleased.
 - **Page:** Settings — Profile
 - **Route:** /settings/profile
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Validated:** 3/3 on 2026-08-28, every cycle — cold-navigate to /settings/profile as qa-admin,
+  no other axis needed; deterministic on every visit.
+- **Verified:** 2026-08-29 by 6-verifier. `suites/09_settings/test_settings.py -k
+  confirm_new_password_has_a_show_hide_toggle_like_its_siblings` XPASS confirmed, xfail marker
+  removed, re-run PASS. `suites/11_admin/test_admin.py -k
+  create_user_password_field_has_a_show_hide_toggle` XPASS confirmed, xfail marker removed,
+  re-run PASS. `frontend/src/app/login/login.passwordVisibility.test.tsx` `it.fails` XPASS
+  ("Error: Expect test to fail") confirmed, converted to plain `it`, re-run PASS. Manual repro in
+  real Chrome (lane5) as qa-admin on cold /settings/profile: all three password fields (Current,
+  New, Confirm new) now render a "Show password" button; clicking Confirm new password's toggle
+  flips `input[placeholder="Re-enter new password"]` from `type="password"` to `type="text"` and
+  reveals the typed value — matches the ISS-338 expected behaviour exactly. No console
+  errors/warnings on the page. `npm run build` and `npx tsc --noEmit` clean on the 4 touched
+  files (pre-existing unrelated errors only, in test files this change does not touch).
+  Regression: `AccountSettings.render.test.tsx` (8 passed), `AccountSettings.password-mismatch.test.tsx`
+  (1 passed, ISS-244 guard intact). Backend untouched (frontend-only fix); `:8000/docs` = 200,
+  no restart required. `lint-imports` (run from `backend/`) shows 1 pre-existing broken contract
+  (`agents.execution_engine.engine` -> `app.api` via `kernel_services`/`revision_analyzer`),
+  unrelated to this change — no `.py` file in FIX-398's diff.
 - **Found at:** 2026-08-28T05:09:00Z
 - **Found by:** bug-settings-profile-r2
 - **Fingerprint:** `/settings/profile|change-password-form|inspect-confirm-new-password-field|missing-visibility-toggle-inconsistent-with-current-and-new-password-fields`
 - **Evidence:** `bug-hunter/evidence/settings-profile/BUG-20260828-050900-settings-profile/`
+- **Root cause:** `AccountSettings.tsx` wires a per-field show/hide boolean + eye-icon button to
+  "Current password" and "New password" individually (`showCurrent`/`showNew` state at
+  `AccountSettings.tsx:98-99`, toggle buttons at `:292-294` and `:304-306`) but never declares a
+  matching `showConfirm` for "Confirm new password" (`:309-314`) — that field is hardcoded
+  `type="password"` with no button at all. CONFIRMED by direct read of the current file (line
+  numbers drifted +2 from the ISS-338 card's L96-97/283-300 because `FIX-341` landed in between;
+  the mechanism is unchanged). This is an unconditional JSX omission, not a runtime/state/theme
+  condition, which matches the validator's 3/3-deterministic, no-axis-needed result.
+- **Blast radius:** none via a shared caller — `showCurrent`/`showNew`/`EyeOff` is local
+  component state with no other reference in the codebase (`grep -rn
+  "showCurrent\|showNew\|EyeOff" frontend/src` matches only this file). The broader cause is
+  architectural: `frontend/src/components/ui/` has no reusable masked-password-input component,
+  so the same omission is free to recur anywhere a password field is hand-rolled — and already
+  has, confirmed by source read: the login page's Cognito `NEW_PASSWORD_REQUIRED` challenge form
+  (`frontend/src/app/login/page.tsx` imports no `Eye`/`EyeOff` at all; New password `:455-470`
+  and Confirm password `:471-485` are both hardcoded `type="password"`) and the Admin
+  "Create New User" modal (`frontend/src/app/admin/page.tsx:494-499`, same absence).
+- **Fix belongs in:** a shared `PasswordInput`-style primitive in `frontend/src/components/ui/`
+  that owns its own show/hide state, reused by all six affected fields (this bug's three, plus
+  the two sibling locations) — not a `showConfirm` patch local to `AccountSettings.tsx` alone,
+  which would leave both sibling cards' fields broken.
+- **Issue cards:** [ISS-338](../.knowledge/cards/20260828-2050-ISS-338.md) (root),
+  [ISS-576](../.knowledge/cards/20260829-0218-ISS-576.md) (sibling: login page forced-password-change
+  form, INFERRED), [ISS-577](../.knowledge/cards/20260829-0219-ISS-577.md) (sibling: Admin
+  "Create New User" modal, INFERRED)
+- **Fix card:** [FIX-398](../.knowledge/cards/20260829-0352-FIX-398.md) — shared
+  `frontend/src/components/ui/PasswordInput.tsx` primitive; all six password fields rewired to it.
+  Deferred: [ISS-602](../.knowledge/cards/20260829-0353-ISS-602.md) (the main sign-in field, uncarded).
 
 ### Summary
 On the Password card of /settings/profile, both "Current password" and "New password" inputs
@@ -3936,11 +6914,47 @@ password" has none and can never be shown in plain text.
 - **Page:** Create (catalog) — "Ask a Human, Then Hand Off" launch panel
 - **Route:** /create/ex_A4_human_divert
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-28 — ran `tests/integration/e2e/suites/03_launch_panels/test_save_manifest_gates.py` (venv `tests/integration/e2e/.venv`): all 5 ISS-225/ISS-254 cases XPASS(strict) before the marker removal, plain green (5 passed, 1 xfailed for the still-open ISS-263) after removing `xfail` from the two fixed tests; `@pytest.mark.issue` kept, ISS-263's `xfail` deliberately left in place (unfixed, see FIX-337/ISS-381). Manually re-ran the exact register repro in the browser (lane6): cold-loaded `/create/ex_A4_human_divert`, typed a brief with the Advanced modal and Review gates untouched, clicked "Save as my version" — `POST /api/user-workflows` now returns `201 Created` (was `422`), no red inline error string, "Run workflow" becomes enabled, no new console errors; after-screenshot `bug-hunter/evidence/create/BUG-20260828-051530-create/04-after-fix-verify-save-succeeds.png`. Health: `frontend/npm run build` succeeds cleanly; `curl :8000/docs` → 200 (pure `.tsx` fix, no restart needed); `backend/lint-imports` shows one pre-existing broken contract (`agents.execution_engine.engine` -> `app.api`, unrelated to this frontend-only change — not touched by FIX-337). Regression: `suites/03_launch_panels/test_launch_panels.py` exits 0 (18 scenarios, all pass/expected-xfail — ISS-247 xfail is pre-existing and unrelated).
 - **Found at:** 2026-08-28 05:15 UTC
 - **Found by:** bug-create-r2
 - **Fingerprint:** `/create/ex_A4_human_divert|composer-save-as-my-version|click-save-as-my-version-with-unmodified-seeded-manifest|422-backend-manifest-validation-error-blocks-save`
 - **Evidence:** `bug-hunter/evidence/create/BUG-20260828-051530-create/`
+- **Validated:** 3/3 on 2026-08-28, cycle 1, 2 and 3 — deterministic, not a race
+- **Issue card:** [ISS-225](../.knowledge/cards/20260828-1541-ISS-225.md)
+- **Root cause:** `selectionsRef` (`frontend/src/components/workflow/IdeaInputPage.tsx:936`) is
+  seeded only from `cleanSelections` and mutated only by explicit user edits — never merged with
+  `manifestSelections`, the manifest's own declared gates built from the raw fetched steps at
+  `:1098-1105`. `handleSaveAsOverride` (`:1460-1478`) serializes `selectionsRef.current` straight
+  into `buildWorkflowManifest(...)`, so an untouched step with `route:` goes out with `gates: []`
+  and the backend's R-03 cross-field check (`backend/agents/workflows/compiler.py:961-971`)
+  rejects it. CONFIRMED by direct read of both files; matches ISS-225's own trace exactly.
+- **Blast radius:** every other built-in whose manifest declares `route:` and is opened through
+  this same page/button — `ex_A1_loop`, `ex_A2_branch`, `ex_A3_divert`, `ex_A4_human_gate`
+  (`grep -rl "route:" backend/agents/workflows/*/workflow.yaml`, INFERRED per-example, same code
+  path — ISS-254). The sibling "Save workflow" button on the identical page reads the same
+  unseeded ref but silently drops the route instead of erroring: the `selections`-only save path
+  short-circuits validation on an empty map (`backend/app/api/user_workflows.py:361-378`) and
+  `synthesize_manifest` can never emit `route:` regardless (`route` is absent from both
+  `_LEVER_KEYS` and the verbatim-projection loop, `backend/agents/workflows/selections.py:43-49,
+  149-153`) — INFERRED, ISS-263. CONFIRMED unaffected: `handleRun`/Launch (omits `selections`
+  entirely when empty — INV-3 — so the backend falls back to the correct file-backed manifest)
+  and `ComposerPage.tsx`'s own "Save as copy" (`selections` state is seeded from
+  `manifestStepsToGateSelections` at both mount and a late-arrival resync, `:315-374` — the exact
+  fix this bug still needs, already applied there).
+- **Proposed fix:** merge `manifestSelections` into the outgoing manifest/selections AT the
+  `handleSaveAsOverride` (and, pending ISS-263, `handleSaveWorkflow`) call sites in
+  `IdeaInputPage.tsx` — manifest-declared gates first, `selectionsRef.current` second so a user
+  edit still wins — mirroring the `manifestStepsToGateSelections` pattern `ComposerPage.tsx`/
+  `CanvasView.tsx` already use correctly (see FIX-285). Do NOT seed `selectionsRef.current`
+  itself: `handleRun` relies on its emptiness to omit `selections` from an untouched launch
+  payload (INV-3), so the merge belongs at the save call sites, not the shared ref.
+- **Fixed:** 2026-08-28 — [FIX-337](../.knowledge/cards/20260828-2210-FIX-337.md). `handleSaveAsOverride` (`frontend/src/components/workflow/IdeaInputPage.tsx:1464`) now spreads `manifestSelections` UNDER `selectionsRef.current` into a local `saveSelections`, fed to `buildWorkflowManifest(...)` and `setOverrideSelections(...)` — manifest-declared gates first so a user edit still wins, merged at the save call site and NOT into the ref (`handleRun` reads its emptiness to omit `selections`, INV-3). Verified: `tests/integration/e2e/suites/03_launch_panels/test_save_manifest_gates.py` — ISS-225 1 XPASS(strict), ISS-254 4 XPASS(strict) (ex_A1_loop, ex_A2_branch, ex_A3_divert, ex_A4_human_gate). ISS-263's test still xfails — see below.
+- **ISS-263 NOT fixed — premise refuted, superseding finding [ISS-381](../.knowledge/cards/20260828-2210-ISS-381.md):** "Save workflow" does not silently 201 as ISS-263 INFERRED; it 422s outright with `agent_ids not allowed for 'ex_A4_human_divert'` from the roster check at `backend/app/api/user_workflows.py:562`, BEFORE `_compile_selections_trust_user` is reached (captured directly against the API, and pre-existing — `user_workflows.py` last changed in `732adc245`). Applying ISS-263's proposed merge to `handleSaveWorkflow` was measured against the real synth+compiler and REGRESSES all five route examples: `synthesize_manifest` projects no `route` (`selections.py:43-49,149-153`), so `gates: [conditional]` alone trips R-03 from the other direction. Making it compile needs the compact selections map to carry authoring structure (`route` with normalised `condition_agent`, plus `produces: [route_decision]` for R-27) — a contract change needing a decision, and inert at run time (`engine._apply_selections:8507-8690` has no route overlay). Test left xfail and UNEDITED.
+- **Issue cards:** [ISS-225](../.knowledge/cards/20260828-1541-ISS-225.md) (root),
+  [ISS-254](../.knowledge/cards/20260828-1810-ISS-254.md) (sibling: other 4 route-declaring
+  examples 422 identically), [ISS-263](../.knowledge/cards/20260828-1811-ISS-263.md) (sibling:
+  "Save workflow" silently drops the route instead of erroring)
 
 ### Summary
 Opening the seeded "Ask a Human, Then Hand Off" example workflow from the `/create` catalog,
@@ -4000,7 +7014,12 @@ manifest-validation message; the workflow can never be saved as-is.
 - **Page:** Run detail (reached via Run History)
 - **Route:** /runs/a0693fcd-9451-4c19-a9e7-61474ea03516
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 — `tests/integration/e2e/suites/07_run_detail/test_iss304_header_token_total_mismatch.py` XPASS(strict) confirmed pre-removal, `xfail` marker removed, re-run plain green (PASS, 3.8s). Manual repro from this register entry re-run by hand (lane4, qa-admin, cold direct `page.goto` to `/runs/a0693fcd-9451-4c19-a9e7-61474ea03516`, twice): chat header now reads "22m 0s · 10.4K tokens", matching `token_usage.total_tokens=10428` and the Run History list card. No console errors/warnings. Frontend `tsc --noEmit`: 8 pre-existing errors, all in other agents' working-tree test files (HomeLaunchGrid.crossAccountLeak.test.tsx, api.sessionExpiryRedirect.test.ts, listenerMiddleware.test.ts), none in useWorkflow.ts/LaneRunHeader.tsx. `useWorkflow.accumulators.test.ts` + `useWorkflow.reconnect.test.ts`: 36/36 passed (via vitest). Regression: `suites/07_run_detail/test_run_detail.py` full file, 49/49 scenarios PASS. `backend/docs` -> 200. `lint-imports` (run from backend/) reports 1 broken contract (engine.py -> kernel_services -> app.api.run_commands / revision_analyzer -> app.api.run_commands) — confirmed PRE-EXISTING: neither offending file (kernel_services.py, revision_analyzer.py) is in this fix's diff or even in the working tree's modified-file list; this fix touched only frontend/src/hooks/useWorkflow.ts. After-screenshot: `bug-hunter/evidence/runs/BUG-20260828-051900-runs/03-detail-header-shows-10.4K-after-fix.png`.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduces on every cold direct-URL load, no axis variation needed. Root cause: the `pipeline_complete` event's own `total_tokens` field (17931) disagrees with the sum of the run's own `agent_complete` events (10428, matching `token_usage.total_tokens`); `useWorkflow.ts` prefers the event field over the correct accumulated total.
+- **Root cause:** Two backend paths independently compute "total tokens for this run" from different result sets and are never reconciled. The live/replayed `pipeline_complete` event (`backend/agents/execution_engine/engine.py:3712-3757`) sums `agent_complete` tokens PLUS `aux_token_usage` — the SmartPlanner (`engine.py:2122`), a clarify one-shot (`engine.py:2265`), and the validation fix-loop sub-agent (`engine.py:2443`). The persisted `workflow_runs.token_usage` column — the SOLE writer, `_apply_terminal_output_columns` (`backend/app/api/run_commands.py:2953-2977`) — reads right past that same event's own totals (`run_commands.py:3042-3045`) and instead re-derives a narrower sum from `agent_outputs_collector` only (`run_commands.py:3057-3065`), silently excluding the aux fold. Frontend (`frontend/src/hooks/useWorkflow.ts:794-799`, shared reducer `handlePipelineMessage` funnels both live SSE and cold-load REST replay) faithfully prefers the backend's "authoritative" event total; `LaneRunHeader.tsx:76-77` renders it verbatim. The frontend is not the defect — the backend's two totals structurally disagree.
+- **Blast radius:** `TokenUsageSummary.tsx:19-28` (mounted in the Steps tab via `AgentThinkingTab.tsx:321`) reads the identical corrupted `pipelineState` object — same run, second surface. `backend/app/api/analytics.py:189-195` aggregates strictly from the persisted `token_usage` column, so every run that used the planner/clarify/fix-loop undercounts real spend in every Analytics KPI/chart, system-wide. Checked and NOT affected: `pipeline_failed`/`pipeline_cancelled` never touch the token fields, so failed/cancelled runs keep the correct accumulated total.
+- **Issue cards:** [ISS-304](../.knowledge/cards/20260828-1600-ISS-304.md) (root), [ISS-417](../.knowledge/cards/20260828-2230-ISS-417.md) (sibling: Steps tab TokenUsageSummary reads the same corrupted total), [ISS-418](../.knowledge/cards/20260828-2231-ISS-418.md) (sibling: Analytics undercounts real spend system-wide)
 - **Found at:** 2026-08-28T05:19:00Z
 - **Found by:** bug-runs-r2
 - **Fingerprint:** `/runs/[id]|run-detail-chat-header-token-total|open-completed-run-from-filtered-search|header-token-figure-disagrees-with-api-and-list-card`
@@ -4064,11 +7083,18 @@ already saw one click earlier on the Run History card.
 - **Page:** Saved workflows list
 - **Route:** /workflows
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28T05:24:00Z
 - **Found by:** bug-workflows-r2
+- **Validated:** 3/3 on 2026-08-28, cold start each cycle — deterministic, no axis narrowing needed. Root cause: `deleteConfirmId` (`frontend/src/components/savedworkflows/SavedWorkflowsPage.tsx:166`) stores only the workflow id, never its name, and the confirm dialog (lines 408-444) renders static JSX with no lookup against the workflows list.
+- **Issue card:** [ISS-302](../.knowledge/cards/20260828-1734-ISS-302.md)
 - **Fingerprint:** `/workflows|delete-workflow-confirmation-dialog|open-workflow-actions-then-delete|dialog-text-contains-no-workflow-name-or-identifier`
 - **Evidence:** `bug-hunter/evidence/workflows/BUG-20260828-052400-workflows/`
+- **Root cause (CONFIRMED, re-read independently):** `deleteConfirmId` (`SavedWorkflowsPage.tsx:166`, `useState<string | null>`) captures only `row.id` at the menu-click handler (`SavedWorkflowsPage.tsx:348`), discarding the name at the point of capture — the row is already in scope there. The confirm dialog (`SavedWorkflowsPage.tsx:408-444`) is fully static JSX (heading L425, subtext L426, body L429-431) with no lookup back into `userWorkflows` to interpolate a name. Contrast with the sibling `onRename` handler (`SavedWorkflowsPage.tsx:346`), which already stores the **whole row** (`setRenameRow(row)`) and threads `initialName={renameRow.name}` into `NameWorkflowModal` (line 402) — proving the fix pattern already exists correctly one function away in the same file.
+- **Blast radius (grepped every caller of `deleteUserWorkflow` in `frontend/src/`):** exactly one production call site, `SavedWorkflowsPage.tsx:221` (`HomeLaunchGrid.test.tsx`/`HomeLaunchGrid.crossAccountLeak.test.tsx` mock the whole `@/lib/api` module but `HomeLaunchGrid.tsx` itself has no delete affordance) — this bug is fully contained to one component. However the same defect **shape** (id-only `useState<string|null>` confirm variable set from a row-click handler + a dialog rendering fully static text with no lookup) is independently duplicated in two unrelated, unshared implementations: `WorkflowHistory.tsx`'s run-delete `DeleteModal` (`deleteConfirmId` L179, `DeleteModal` defined L1237 with no name prop, static text L1270-1275) and `admin/page.tsx`'s delete-user dialog (`deleteConfirm` L126, set via `setDeleteConfirm(user.id)` L441, static text L543-544). Three separate copies of the same mistake, not one shared function — no single patch reaches all three.
+- **Fixed:** 2026-08-29 — [FIX-372](../.knowledge/cards/20260829-0141-FIX-372.md). `deleteConfirmId` (`frontend/src/components/savedworkflows/SavedWorkflowsPage.tsx:166`) now holds the whole row (`deleteRow`, mirroring the sibling `renameRow`), set from `row` at the menu handler (line 348), and the dialog body (line 430) interpolates `deleteRow.name`. Heading left as "Delete workflow" — `SavedWorkflowsPage.test.tsx:262` asserts it exactly and ISS-302 accepts the name in the body. Siblings ISS-414/ISS-415 share no code with this component and stay open. Verified: `tests/integration/e2e/suites/05_saved_workflows/test_iss302_delete_dialog_no_name.py` XPASS(strict), 9/9 green in `SavedWorkflowsPage.test.tsx`.
+- **Fix belongs:** the in-scope fix for this card is local to `SavedWorkflowsPage.tsx` — mirror the already-correct `renameRow` pattern (store the row, not just the id) and interpolate the name at dialog lines 425/429-431. A shared confirmation-dialog component (subject-label prop) that `WorkflowHistory.tsx` and `admin/page.tsx` also route through is recommended given the pattern has already been copy-pasted twice, but is not required to close this card since no such shared function exists today.
+- **Issue cards:** [ISS-302](../.knowledge/cards/20260828-1734-ISS-302.md) (root), [ISS-414](../.knowledge/cards/20260828-2202-ISS-414.md) (sibling: `WorkflowHistory.tsx` run-delete `DeleteModal`, same shape, INFERRED/unreproduced), [ISS-415](../.knowledge/cards/20260828-2202-ISS-415.md) (sibling: `admin/page.tsx` delete-user dialog, same shape, INFERRED/unreproduced)
 
 ### Summary
 Clicking Delete in a saved-workflow card's "Workflow actions" menu opens a confirmation dialog whose entire text is generic and static — "Delete workflow" / "This cannot be undone" / "The saved workflow will be permanently removed from your saved workflows." — with no workflow title, id, or any other identifying detail anywhere in the dialog (verified via the full accessibility tree, not just the visible screenshot). The list contains many near-identical rows (four cards titled "Signoff Stop-Resume Test" with only a trailing numeric suffix distinguishing three of them, four "Signoff Composer Test (API)…" cards, etc.), so a user who opens the menu on the wrong card among lookalikes has no way to catch the mistake before confirming an irreversible delete — the dialog itself provides zero disambiguating evidence, and by the time it is open the source card is no longer visible/highlighted either.
@@ -4102,11 +7128,19 @@ The dialog heading and body are fixed, generic strings identical regardless of w
 - **Page:** PPT wizard shell
 - **Route:** /create/ppt
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 05:28 UTC
 - **Found by:** bug-create-ppt-r2
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — deterministic on every cold-start attempt, no axis narrowing needed. Root cause: `handleSaveAsOverride` in `frontend/src/components/workflow/LaunchWizard.tsx:727` never threads `brief`/`selectedTemplateId`/`selectedDsId` into the save payload, unlike `handleLaunch`.
+- **Issue card:** [ISS-226](../.knowledge/cards/20260828-1550-ISS-226.md)
 - **Fingerprint:** `/create/ppt|save-as-my-version|click-save-as-my-version-with-brief-and-template-set|payload-and-saved-record-never-reflect-form-state`
 - **Evidence:** `bug-hunter/evidence/create-ppt/BUG-20260828-052800-create-ppt-r2/`
+- **Root cause (CONFIRMED, re-read independently):** `handleSaveAsOverride` (`frontend/src/components/workflow/LaunchWizard.tsx:727-754`) hardcodes `name`/`description` and calls `buildWorkflowManifest(pipelineAgents, undefined, selectionsRef.current)` — never `brief`, `selectedTemplateId`/`customTemplateBody`, or `selectedDsId`/`customDsBody`. Contrast with the sibling `handleLaunch` (lines 756-804), which threads every one of those into `buildLaunchDraft`, proving the state is live at click time. Structural finding: the current `WorkflowManifest`/`WorkflowCapabilities` TS contract (`frontend/src/types/index.ts:563-648`) has no field for a template id, design-system id, or brief text at all — only `steps`, `capabilities.internet`, `deliverable`, `planner`, `clarify` — so a full fix (persisting the template choice, not just the cosmetic name/description) is INFERRED to need a schema addition, not just plumbing; unconfirmed against the backend compiler.
+- **Blast radius (grepped every caller of `handleSaveAsOverride`/`createUserWorkflow` in `frontend/src/`):** exactly 2 independent implementations of this "save as override" pattern in the whole frontend — `LaunchWizard.tsx:727` (this bug) and `IdeaInputPage.tsx:1460` (already partly covered by ISS-225's gates finding, but NOT its brief/description omission). `LaunchWizard.tsx`'s function is shared, unconditional on `mode`, by all 3 modes (`ppt`/`prototype`/`ppt_v2`) and reachable at `/create/ppt`, `/create/prototype`, `/create/ppt_v2`, and `/workflows/{id}/run` for a ppt/prototype override — same broken code, not per-mode branches.
+- **Fixed:** 2026-08-28 — [FIX-336](../.knowledge/cards/20260828-2201-FIX-336.md). `overrideDescription()` added to `frontend/src/store/api/userWorkflows.ts`; both `handleSaveAsOverride` copies (`LaunchWizard.tsx:735`, `IdeaInputPage.tsx:1467`) now build `description` from the live brief/template/design-system. Schema question settled: `manifest`/`selections` are mutually exclusive (`user_workflows.py:66`) and `_ALLOWED_TOP_KEYS` (`manifest.py:266`) bars a new manifest key, so restoring the selection on reopen needs a schema decision — deferred to [ISS-377](../.knowledge/cards/20260828-2202-ISS-377.md). Verified: all 4 tests in `tests/integration/e2e/suites/03_launch_panels/test_save_as_my_version_discards_brief.py` XPASS(strict).
+- **Fix belongs:** inside `handleSaveAsOverride` in each of the two files (each has exactly one caller already, so no shared-helper extraction is required to reach every caller) — not per-route, since all reachable routes share one of these two functions.
+- **Issue cards:** [ISS-226](../.knowledge/cards/20260828-1550-ISS-226.md) (root), [ISS-279](../.knowledge/cards/20260828-1901-ISS-279.md) (sibling: `/create/prototype` + `/create/ppt_v2` share the same broken function), [ISS-280](../.knowledge/cards/20260828-1902-ISS-280.md) (sibling: `IdeaInputPage.tsx`'s own `handleSaveAsOverride` also hardcodes description and drops the brief, on every other pipeline type)
+- **Verified:** 2026-08-28 — all 4 tests in `tests/integration/e2e/suites/03_launch_panels/test_save_as_my_version_discards_brief.py` ran XPASS(strict) (frontend-only fix, no restart needed), `xfail` markers removed, re-run plain green (4 passed). Manual re-run of the original repro on `/create/ppt` (lane5, qa-admin, fresh load): filled a distinctive brief, selected "Minimal Keynote", clicked "Save as my version" — captured `POST /api/user-workflows` body: `description` now reads `"Template: html-ppt-dir-key-nav-minimal\n\nVERIFIER manual repro brief zz99yy88..."`, no longer the static literal. `/workflows` card confirmed the same text on screen. No new console errors. `npx tsc --noEmit` clean on the three changed files (pre-existing errors in `HomeLaunchGrid.crossAccountLeak.test.tsx` and `listenerMiddleware.test.ts` are other agents' working-tree files, untouched here). `lint-imports` (run from `backend/`) shows one pre-existing broken contract (`agents.execution_engine.engine` -> `app.api`) unrelated to this frontend-only change — not introduced by this fix. Regression guard `suites/03_launch_panels/test_launch_panels.py::test_save_as_my_version_creates_a_user_override_of_a_built_in` (S-03-15) PASS.
 
 ### Summary
 On `/create/ppt`, filling in the brief textarea and selecting a template (confirmed via a
@@ -4177,7 +7211,38 @@ success (`201 Created`) with no indication that nothing the user entered was act
 - **Page:** Prototype wizard shell
 - **Route:** /create/prototype
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Fixed:** 2026-08-29 — one-line chokepoint fix, `backend/app/api/prototype_templates.py:387-392`: the catch-all's `detail=f"URL fetch failed: {exc}"` is now the fixed string "Could not reach that URL. Check the address and try again.", with the existing `logger.warning(..., exc)` untouched so the raw errno stays server-side. Backend-only — no frontend file changed, because every caller (`CustomTemplateModal.tsx:105`, live from BOTH `TemplateGallery.tsx:88` and `PPTTemplateGallery.tsx:88`; plus the still-dead `store/api/prototype.ts:60`) terminates in this one function, so both `/create/prototype` and `/create/ppt` are covered at once. Test, one file: `cd backend && python3.11 -m pytest tests/unit/test_prototype_fetch_url_error_leak.py -q` — pre-fix `2 xfailed, 1 warning in 2.29s`, post-fix `2 failed, 1 warning in 2.01s` where both failures are `[XPASS(strict)]` (the fix signal); the captured log confirms `logger.warning` still holds the raw `[Errno 8] nodename nor servname provided, or not known`. xfail markers deliberately LEFT IN PLACE for 6-verifier. `lint-imports` from `backend/`: 3 kept / 1 broken — the broken contract is pre-existing at 2a622c951 and unrelated (its `kernel_services -> app.api.run_engine` edge is present verbatim at HEAD; this diff adds zero imports). SC-001 untouched (nothing under `execution_engine/`), no migration. `*.py`-only change, so --reload picks it up; no restart needed. Cards: FIX-396; ISS-343 and ISS-584 set resolved.
+- **Verified:** 2026-08-29 by 6-verifier. Backend already serving (`:8000/docs` -> 200, `--reload` picked up the `.py`-only change, no restart needed). `cd backend && python3.11 -m pytest tests/unit/test_prototype_fetch_url_error_leak.py -q` — confirmed both `[XPASS(strict)]` pre-removal (`2 failed, 1 warning in 1.47s`, captured log still shows the raw `[Errno 8] nodename nor servname provided, or not known` going only to `logger.warning`), then removed both `@pytest.mark.xfail(...)` lines (kept `@pytest.mark.issue(...)`), re-ran: plain `2 passed, 1 warning in 1.60s`. Manual re-repro in the browser (lane6, signed in as qa-admin, `/create/prototype` -> Template tab -> "Upload custom" -> "From URL" -> `http://example.invalid.nonexistent-domain-xyz123/` -> Fetch): inline error now reads "Could not reach that URL. Check the address and try again."; network response body for `GET /api/prototype/fetch-url?...` is `{"detail":"Could not reach that URL. Check the address and try again."}` — no "Errno"/"nodename" anywhere in the page or the response. The expected `502 Bad Gateway` console entry is still present (unchanged pre-existing signal, only the body text changed). Modal cancelled cleanly afterward. Regression: `backend/tests/unit/test_prototype_run_request.py` (same module family) — `5 passed` clean. `lint-imports` from `backend/`: 3 kept / 1 broken, same pre-existing `kernel_services -> app.api.run_engine` edge, unrelated to this diff. `frontend && npx tsc --noEmit`: only pre-existing unrelated test-file errors (`login.a11y.test.tsx`, `HomeLaunchGrid.crossAccountLeak.test.tsx`, `api.sessionExpiryRedirect.test.ts`, `listenerMiddleware.test.ts`) — none touch `prototype_templates.py` or `CustomTemplateModal.tsx`; fix is backend-only so frontend build health is unaffected. After-screenshot: `bug-hunter/evidence/create-prototype/BUG-20260828-053300-create-prototype-r2/05-after-friendly-error.png`. `/create/ppt` (ISS-584 sibling) was not independently re-driven live — the wizard did not reach the Template step's "Upload custom" control on that route within this pass — but the fix is at the shared backend chokepoint (`fetch_url_for_template`, the only endpoint either gallery's `CustomTemplateModal` calls) and is covered by the same test, matching the cards' own "one fix closes both routes" reasoning.
+- **Validated:** 3/3 on 2026-08-28, cold start every cycle — deterministic across three distinct unreachable domains, no axis variation needed
+- **Root cause:** CONFIRMED — `backend/app/api/prototype_templates.py`'s `fetch_url_for_template`
+  (`:325-389`), final exception clause (`:387-389`): `except Exception as exc: ...
+  raise HTTPException(status_code=502, detail=f"URL fetch failed: {exc}")` interpolates
+  `str(exc)` straight into the HTTP `detail` with no translation, catching everything the two
+  narrower/safe handlers above it (`httpx.TimeoutException`, `httpx.HTTPStatusError`) miss.
+  `frontend/src/components/workflow/prototype/CustomTemplateModal.tsx`'s `handleFetchUrl`
+  (`:110`) then renders `data.detail` verbatim with no message-translation layer. INFERRED
+  (reasoned, not executed): the specific exception is `httpx.ConnectError` wrapping the OS
+  resolver's `socket.gaierror` — inferred by elimination and the byte-identical error text.
+- **Blast radius:** grepped every caller of `/api/prototype/fetch-url` and every render site of
+  `CustomTemplateModal` — `frontend/src/store/api/prototype.ts`'s `prototypeApi.fetchUrl` also
+  calls the same endpoint but has zero callers anywhere in `frontend/src` (dead code today).
+  `CustomTemplateModal` itself is rendered from BOTH
+  `frontend/src/components/workflow/prototype/TemplateGallery.tsx:88` (`/create/prototype`, the
+  reported route) AND `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx:88`
+  (`/create/ppt` — imports the identical component, not a fork), both mounted as interchangeable
+  step bodies by `WizardStepper.tsx` under `LaunchWizard.tsx`. Same component, same bug, second
+  route.
+- **Fix location:** `backend/app/api/prototype_templates.py:387-389` — replace
+  `detail=f"URL fetch failed: {exc}"` with a fixed, safe message, keeping the existing
+  `logger.warning(..., exc)` for server-side debugging. This is the correct chokepoint: every
+  live and dead-code caller terminates in this one function, so fixing it here — rather than
+  patching each frontend call site — protects every caller, present and future, in one change.
+- **Issue cards:** [ISS-343](../.knowledge/cards/20260828-2059-ISS-343.md) (root — validator-filed,
+  confirmed with file:line by re-reading `prototype_templates.py:387-389` and
+  `CustomTemplateModal.tsx:94-131` directly), [ISS-584](../.knowledge/cards/20260829-0243-ISS-584.md)
+  (sibling, INFERRED: the same `CustomTemplateModal` is also rendered on `/create/ppt` via
+  `PPTTemplateGallery.tsx`, unreproduced live)
 - **Found at:** 2026-08-28 05:33 UTC
 - **Found by:** bug-create-prototype-r2
 - **Fingerprint:** `/create/prototype|upload-custom-template-from-url|fetch-unreachable-domain|raw-backend-errno-string-rendered-as-error`
@@ -4249,11 +7314,48 @@ leaks the backend's runtime/OS and gives the user no actionable guidance.
 - **Page:** Create app — simple launch panel
 - **Route:** /create/app
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Validated:** 3/3 on 2026-08-28, cold start every cycle — deterministic, no axis variation needed
+- **Issue card:** [ISS-312](../.knowledge/cards/20260828-1941-ISS-312.md)
+- **Verified:** 2026-08-29 (6-verifier) — `IdeaInputPage.textTruncation.test.tsx` XPASS confirmed,
+  `it.fails` marker removed, re-run plain green 1/1. Regression: `IdeaInputPage.imageInput.test.tsx`
+  2/2, `composer/ComposerPage.test.tsx` 14/14, `tsc --noEmit` 0 new errors (6 pre-existing,
+  unrelated files). Backend `:8000/docs` 200 (frontend-only change, no restart needed). Manual
+  browser re-run of the exact repro below (qa-admin, cold `/dashboard` → `/create/app`, huge.txt
+  500,000 `'a'` chars, intercept-and-abort `POST /api/runs`): captured body length 450274 (was
+  450236), tail `...aaaa\n[Content truncated to 450,000 chars]\n=== End: huge.txt ===`,
+  `containsTrunc` true (was false). After-screenshot
+  `bug-hunter/evidence/create-app/BUG-20260828-053745-create-app-r2/04-after-fix-chip.png`.
+  `backend/` `lint-imports`: 1 pre-existing broken contract, unrelated (zero Python files
+  touched by this fix).
+- **Fixed:** 2026-08-29 — [FIX-374](../.knowledge/cards/20260829-0146-FIX-374.md). New shared `truncateAttachmentText()` in `frontend/src/lib/constants.ts` appends the binary path's existing `[Content truncated to 450,000 chars]` note; `handleFiles()`'s `isTextFile` branch (`frontend/src/components/workflow/IdeaInputPage.tsx:520`) now calls it instead of slicing bare. One hunk in the shared `useBriefAttachments()` hook covers `/create/app`, `/create/user_stories`, `/create/mulesoft_to_springboot`, `/create/dotnet_to_azure` and both ComposerPage views. Sibling ISS-423 (`LaunchWizard.tsx`, a forked duplicate serving `/create/ppt` + `/create/prototype`) and ISS-422 (concierge chat lane) stay open — different files, different owners. Verified: `frontend/src/components/workflow/IdeaInputPage.textTruncation.test.tsx` `it.fails` now reports `Error: Expect test to fail` (vitest XPASS signal, marker left in place); IdeaInputPage.imageInput.test.tsx 2/2 green, composer/ComposerPage.test.tsx 14/14 green, `tsc --noEmit` 0 errors in either touched file.
 - **Found at:** 2026-08-28T05:37:00Z
 - **Found by:** bug-create-app-r2
 - **Fingerprint:** `/create/app|brief-attach-file-text-type|attach-text-file-over-450000-chars-and-run|content-silently-truncated-no-warning-anywhere`
 - **Evidence:** `bug-hunter/evidence/create-app/BUG-20260828-053745-create-app-r2/`
+- **Root cause:** CONFIRMED — `useBriefAttachments()`'s `handleFiles()` in
+  `frontend/src/components/workflow/IdeaInputPage.tsx:512-546`: the `isTextFile` branch
+  (`:514-523`) does `content.slice(0, ATTACH_MAX_CHARS)` with the truncation flag never
+  computed at all, while the sibling `isBinaryFile` branch (`:524-535`) computes `res.truncated`
+  server-side and appends a visible `[Content truncated to N chars]` note. `ATTACH_MAX_CHARS =
+  450000` (`frontend/src/lib/constants.ts:7`).
+- **Blast radius:** `useBriefAttachments()`/`handleFiles()` is shared (INV-3, one implementation)
+  by `IdeaInputPage.tsx` — reached at `/create/app`, `/create/user_stories`,
+  `/create/mulesoft_to_springboot`, `/create/dotnet_to_azure` (FIX-304) — and by
+  `ComposerPage.tsx`'s Simple AND Canvas views (the workflow composer, a separate page); one fix
+  there covers all of those. Two independent forked/adjacent implementations do NOT route
+  through it and need their own handling: `LaunchWizard.tsx:onFilesPicked` (`/create/ppt`,
+  `/create/prototype` — CONFIRMED byte-for-byte duplicate of the same broken branch) and the
+  concierge chat lane's `useChatAttachments.ts` (INFERRED — computes the flag correctly but it is
+  dropped before reaching the user or the backend prompt block).
+- **Fix location:** `IdeaInputPage.tsx:514-523`'s `isTextFile` branch needs its own
+  `content.length > ATTACH_MAX_CHARS` check + note, mirroring the branch below it. Since
+  `LaunchWizard.tsx:653-659` carries the textually identical branch, the smallest correct fix is
+  one shared helper both files call, not two hand-patches.
+- **Issue cards:** [ISS-312](../.knowledge/cards/20260828-1941-ISS-312.md) (root, CONFIRMED),
+  [ISS-423](../.knowledge/cards/20260829-0026-ISS-423.md) (sibling: LaunchWizard.tsx fork,
+  INFERRED), [ISS-422](../.knowledge/cards/20260829-0027-ISS-422.md) (sibling: chat lane dropped
+  flag, INFERRED)
 
 ### Summary
 Attaching a plain-text-type file (`.txt`/`.md`/`.json`/`.csv`) whose content exceeds the
@@ -4321,11 +7423,60 @@ chip render (~line 629) shows only `file.name`, no size or truncation state, for
 - **Page:** User-stories launch panel — Advanced Workflow Configuration modal
 - **Route:** /create/user-stories
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 — `frontend/src/components/workflow/AgentLibrary.userStoriesEmpty.test.tsx`
+  ran XPASS ("Error: Expect test to fail") confirming the fix, `it.fails` marker removed,
+  re-ran plain green (1/1); `overrideAgentPool.source.test.ts` (10/10) and
+  `AgentsPopup.reskin.test.tsx` (14/14) green, no regressions; manual repro re-run in-browser on
+  `/create/user-stories` → Advanced 7 agents → "+ Add agent" → User Stories tab now reads "All
+  User Stories agents are already on your canvas" (search term "agent" too), no console errors;
+  `npx tsc --noEmit` shows zero AgentLibrary diagnostics (pre-existing unrelated errors in other
+  files untouched by this fix); `eslint AgentLibrary.tsx` 0 errors/3 pre-existing warnings;
+  backend `:8000/docs` 200 (frontend-only change, no restart needed); `lint-imports` (run from
+  `backend/`) shows 1 pre-existing broken contract unrelated to this change (kernel→app.api via
+  `kernel_services`/`revision_analyzer`), not introduced here.
 - **Found at:** 2026-08-28 05:45 UTC
 - **Found by:** bug-create-user-stories-r2
 - **Fingerprint:** `/create/user-stories|advanced-modal-add-agent-dialog|select-user-stories-category-tab|no-agents-found-for-own-pipelines-category-even-on-search`
 - **Evidence:** `bug-hunter/evidence/create-user-stories/BUG-20260828-054500-create-user-stories/`
+- **Validated:** 3/3 on 2026-08-28, every cycle — deterministic, no cold-start variation needed
+- **Root cause:** `AgentLibrary.tsx`'s `filteredAgents` (`:104-117`) excludes every agent already
+  in `existingAgentIds`, and its own-category tab defaults active on open (`activeCategory =
+  currentPipelineType || "all"`, `AgentLibrary.tsx:86`); the default `/create/user-stories`
+  workflow pre-seeds all 6 `user_stories`-tagged catalog agents as existing steps, so that
+  category is empty by construction, not by a fetch/tagging bug (confirmed via
+  `GET /api/agents/library`, 94 agents, 6 tagged `user_stories`).
+- **Blast radius:** all 4 production `AgentLibrary` render sites traced
+  (`app/workflow/page.tsx`, `WorkflowView.tsx`, `AgentsPopup.tsx`, `composer/ComposerPage.tsx`);
+  2 host surfaces reproduce the identical seeding pattern for every non-custom pipeline type —
+  `IdeaInputPage.tsx:902` (`/create/<type>`) and `LaunchWizard.tsx:147-148`
+  (`/workflows/<id>/run`, no saved override); a distinct trigger on the same default-category
+  line reproduces via `IdeaInputPage.tsx`'s unguarded "Advanced" button on the `migration`
+  meta-type before a sub-pipeline is chosen. `ComposerPage.tsx` (custom-only) and the two
+  no-`currentPipelineType` hosts are not affected.
+- **Proposed fix location:** inside `AgentLibrary.tsx`'s own default-category-selection /
+  empty-state logic (`:86`, `:229-232`) — a single guard closes every host and every pipeline
+  type at once, rather than patching each of the 4 callers separately.
+- **Issue cards:** [ISS-311](../.knowledge/cards/20260828-1740-ISS-311.md) (root — confirmed
+  root cause, amended with this pass's blast-radius section),
+  [ISS-420](../.knowledge/cards/20260829-0021-ISS-420.md) (sibling, INFERRED: `migration`
+  meta-type passes an unrecognized `currentPipelineType`, no tab highlights at all),
+  [ISS-421](../.knowledge/cards/20260829-0020-ISS-421.md) (sibling, INFERRED: same defect
+  generalizes to every non-custom pipeline type, from both `IdeaInputPage.tsx` and
+  `LaunchWizard.tsx`)
+- **Fix card:** [FIX-376](../.knowledge/cards/20260829-0152-FIX-376.md) — `AgentLibrary.tsx`
+  only: the single `ALL_AGENTS.filter` is split into `categoryAgents` (category/search/hidden/
+  template gates) and `filteredAgents` (that result minus `existingAgentIds`), so
+  `filteredAgents.length === 0 && categoryAgents.length > 0` can render "All User Stories agents
+  are already on your canvas" where the unconditional "No agents found" used to be. Fixed in the
+  shared component, so every pipeline type and both hosts (`IdeaInputPage.tsx`,
+  `LaunchWizard.tsx`) are covered — ISS-421's generalization included. ISS-420 (unrecognized
+  `currentPipelineType`, e.g. `migration`, highlighting no tab at all) is NOT closed by this: it
+  needs the `:86` default-category line guarded and stays open. Frontend test
+  `frontend/src/components/workflow/AgentLibrary.userStoriesEmpty.test.tsx` XPASS ("Expect test
+  to fail", `it.fails` marker left in place for 6-verifier); `overrideAgentPool.source.test.ts`
+  10/10 and `AgentsPopup.reskin.test.tsx` 14/14 still green. Frontend-only — no backend restart,
+  no migration, no engine or import-linter surface touched.
 
 ### Summary
 On `/create/user-stories`, opening Advanced → Agents → any "+ Add agent" placeholder opens the
@@ -4387,11 +7538,86 @@ pipeline's tab to add anything at all.
 - **Page:** Catalog-driven launch panel for a conditional-gate fixture (Human Gate example)
 - **Route:** /create/ex_A4_human_gate
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 05:53 UTC
 - **Found by:** bug-create-ex-a2-branch-r2
 - **Fingerprint:** `/create/ex_A4_human_gate|advanced-modal-gate-config-and-review-gates-checklist|load-fixture-whose-manifest-step-carries-two-simultaneous-gates|human-review-gate-invisible-in-both-ui-surfaces`
+- **Tested:** 2026-08-29 by 4-test-writer — 2 tests added to
+  `tests/integration/e2e/suites/03_launch_panels/test_launch_panels.py`:
+  `test_seeded_before_human_gate_shows_in_review_gates_checklist_on_fresh_load` (Mechanism A)
+  and `test_seeded_before_human_gate_activates_prompt_user_toggle_on_fresh_load` (Mechanism B),
+  both `@pytest.mark.issue("ISS-306")` + `xfail(strict=True)`. Ran offline, observed red for the
+  exact reasons the card describes.
+- **Fixed:** 2026-08-29 by 5-fixer. Three frontend files, two mechanisms, fix card
+  [FIX-377](../.knowledge/cards/20260829-0158-FIX-377.md). Mechanism A —
+  `ReviewGatesSection.tsx` gains `HUMAN_REVIEW_GATES = [human, before-human]` and
+  `isSeedGated(agent, selections)`; the `checkedIds` initializer and the `agentsKey` re-seed
+  now go through it, plus a second effect keyed on the seeded-id list so the gates that arrive
+  with the workflow fetch (one render AFTER the `agentsKey` re-seed, because the parent's
+  `manifestSelections` merge effect runs after this child's) still land. That effect never sets
+  `touched` and bails when the user has touched the control, so an untouched launch payload
+  still omits `gate_agent_ids`/`selections` (FIX-346 INV-3); `conditional`/`approval`/`security`
+  are excluded so ADR-0013's `human` vs `before-human` split is not re-merged. Mechanism B —
+  `normaliseRoute()` now maps `route.condition_agent` through `nodeIdOf` exactly as it already
+  did `default_next`, in BOTH copies: the shared `frontend/src/lib/manifestAgents.ts:70-83` and
+  the un-migrated duplicate at `frontend/src/components/workflow/IdeaInputPage.tsx:1119-1121`
+  (the one that actually runs on this repro path). Idempotent, and the same node-id form the
+  Prompt User toggle itself already writes; compiler R-27 and the engine's artifact lookup both
+  accept either form. Verified: both `@pytest.mark.issue("ISS-306")` tests XPASS(strict) —
+  markers left in place for the 6-verifier. No regression: same file's S-03-04 / S-03-12 /
+  ISS-247 tests pass, `test_save_manifest_gates.py` 5 passed + 1 unrelated xfail, and 84
+  frontend unit tests across 6 files green.
 - **Evidence:** `bug-hunter/evidence/create-ex-a2-branch/BUG-20260828-055300-create-ex-a2-branch/`
+- **Verified:** 2026-08-29 by 6-verifier. Ran
+  `tests/integration/e2e/suites/03_launch_panels/test_launch_panels.py -k test_seeded_before_human_gate`
+  (venv `tests/integration/e2e/.venv`): both `test_seeded_before_human_gate_shows_in_review_gates_checklist_on_fresh_load`
+  and `test_seeded_before_human_gate_activates_prompt_user_toggle_on_fresh_load` showed
+  `XPASS(strict)` first, confirming the pass signal; removed both `@pytest.mark.xfail` lines
+  (kept `@pytest.mark.issue("ISS-306")`) and re-ran — plain green, 2 passed. Manual re-run of
+  the original repro in real Chrome (lane6), qa-admin, same cold-nav-to-`/create/ex_A4_human_gate`
+  conditions as the register entry: Review-gates pill now reads "1 agent pause for review" and
+  the "Pick Language" checkbox is checked on fresh load with zero interaction (Mechanism A); the
+  Advanced modal's Prompt User toggle for the "Pick Language" node shows `aria-checked="true"` on
+  fresh load (Mechanism B). Zero new console errors/warnings on the page. After-screenshot:
+  `bug-hunter/evidence/create-ex-a2-branch/BUG-20260828-055300-create-ex-a2-branch/03-after-fix-prompt-user-on-and-checklist-checked.png`.
+  Health: backend `:8000/docs` -> 200 (frontend-only fix, no restart needed); `frontend && npx tsc
+  --noEmit` shows only pre-existing unrelated test-file errors in other agents' in-progress
+  working-tree files (`HomeLaunchGrid.crossAccountLeak.test.tsx`, `api.sessionExpiryRedirect.test.ts`,
+  `listenerMiddleware.test.ts`), none in this fix's files; `cd backend && lint-imports` shows the
+  same 1 pre-existing broken contract (`agents.execution_engine.engine` -> `app.api`,
+  kernel-boundary scaffold) unrelated to this frontend-only change. Regression: full
+  `test_launch_panels.py` file, 18/19 passed — the sole failure,
+  `test_checking_a_review_gate_sets_that_agents_gate_in_the_advanced_modal` (ISS-247, `/create/app`),
+  is a distinct, pre-existing, already-documented mechanism (the register's own Summary text
+  calls it out as "a distinct mechanism from the already-filed /create/app bug") that my diff
+  never touched (no xfail was removed from that test) — not caused by this fix, out of scope for
+  ISS-306, flagged in NOTE below for a human to look at.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduces on every cold `/create/ex_A4_human_gate` load with zero interaction; no axis variation needed
+- **Issue card:** [ISS-306](../.knowledge/cards/20260828-1745-ISS-306.md)
+- **Root cause:** Two independent mechanisms, both CONFIRMED by file:line. Mechanism A —
+  `ReviewGatesSection.tsx:52,92-96` (`isDefaultGated = a.gate === "Human_Gate"`) seeds
+  `checkedIds` only from the static per-AGENT.md `gate` field or a saved run's `initialGateIds`,
+  never from the manifest's per-step `gates` array — a `custom-agent` step has no AGENT.md, so
+  its `gates: [before-human, conditional]` declaration has no path into the checklist regardless
+  of interaction. Mechanism B — `CanvasConfigRail.tsx:730-734`'s "Prompt User" toggle (the
+  control actually meant to represent `before-human`) requires `route.condition_agent ===
+  prev.id`, but `normaliseRoute()` (`frontend/src/lib/manifestAgents.ts:55-74`, and an
+  un-migrated duplicate at `IdeaInputPage.tsx:1100-1117`) normalizes route `outcomes`/
+  `default_next` to the canvas node-id form but never `condition_agent` itself, so the bare
+  manifest value (`"ask"`) never equals the normalized `prev.id` (`"custom-agent:ask"`) —
+  confirmed against `backend/agents/workflows/ex_A4_human_gate/workflow.yaml:104-115`.
+- **Blast radius:** `ReviewGatesSection` (Mechanism A) has exactly 2 render sites app-wide —
+  `IdeaInputPage.tsx:1924` and `LaunchWizard.tsx:1072` — both inherit the same blank seed.
+  `normaliseRoute`/`agentsFromManifest` (Mechanism B) has 2 implementations that must each be
+  fixed — the shared `manifestAgents.ts` (used by `LaunchWizard.tsx` and `IdeaInputPage.tsx`'s
+  override branch) and `IdeaInputPage.tsx`'s own un-migrated duplicate (the one that actually
+  runs on this bug's exact repro path).
+- **Issue cards:** [ISS-306](../.knowledge/cards/20260828-1745-ISS-306.md) (root, root cause
+  completed in a new "Root cause — CONFIRMED" section), [ISS-419](../.knowledge/cards/20260829-0022-ISS-419.md)
+  (sibling, INFERRED: checklist's blank seed is gate-name-agnostic — any manifest-declared gate,
+  not just `before-human`, is invisible), [ISS-429](../.knowledge/cards/20260829-0022-ISS-429.md)
+  (sibling, INFERRED: `LaunchWizard.tsx`'s `/create/ppt` and `/create/prototype` paths share the
+  identical zero-interaction fresh-load blindness, distinct from ISS-361's toggle-required case)
 
 ### Summary
 `GET /api/workflows/ex_A4_human_gate` returns the "Pick Language" step with
@@ -4456,7 +7682,41 @@ user interaction.
 - **Page:** Legacy wizard entry URL for the prototype mode
 - **Route:** /workflow/create?mode=../admin (also reproduced with /workflow/create?mode=../ppt and its percent-encoded equivalent ?mode=%2e%2e%2fppt)
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-28 by 6-verifier. Ran
+  `tests/integration/e2e/suites/16_pages_outside_routes/test_pages_outside_routes.py -k traversal`
+  (venv `tests/integration/e2e/.venv`): both `test_a_traversal_mode_value_does_not_escape_the_create_namespace`
+  (ISS-227) and `test_a_non_admin_traversal_never_navigates_to_admin` (ISS-281) showed
+  `XPASS(strict)` first, confirming the pass signal; removed both `@pytest.mark.xfail` lines
+  (kept `@pytest.mark.issue`) and re-ran — plain green, 2 passed. Regression guard
+  `-k legacy_wizard_path_redirects` (S-16-04, mode=ppt/prototype) — 2 passed, unaffected.
+  Manual re-run of the original repro in real Chrome (lane4), qa-admin, same cold-nav-from-
+  `/dashboard` conditions as the register entry, two cycles: `?mode=../admin` and
+  `?mode=%2e%2e%2fadmin` both now settle on `http://localhost:3000/create/..%2Fadmin` (stayed
+  inside `/create/*`, never reached `/admin`); network log shows only the expected
+  `GET /api/workflows/..%2Fadmin` 404 (the known, out-of-scope unrecognized-mode dead-end
+  screen), zero `/api/admin/*` calls. After-screenshot:
+  `bug-hunter/evidence/workflow-create-prototype/BUG-20260828-060000-workflow-create-prototype/04-after-fix-traversal-stays-in-create.png`.
+  Health: backend `:8000/docs` → 200; `frontend && npx tsc --noEmit` shows only the 2
+  pre-existing unrelated test-file errors FIX-335 already documented (other agents' in-progress
+  working-tree files, not `proxy.ts`); `cd backend && lint-imports` shows 1 broken contract
+  (`agents.execution_engine.engine` -> `app.api`, kernel-boundary scaffold) that is unrelated to
+  this frontend-only change and pre-existing — not remediated here.
+- **Fix:** [FIX-335](../.knowledge/cards/20260828-1959-FIX-335.md) — `frontend/src/proxy.ts:10`
+  now encodes `mode` as ONE path segment (`/create/${encodeURIComponent(mode)}`), so `new URL()`
+  has no `/` left to resolve a dot-segment against. Live after the change:
+  `?mode=../admin` and `?mode=%2e%2e%2fadmin` both 307 to `/create/..%2Fadmin`;
+  `?mode=ppt`/`?mode=prototype` still 307 to `/create/ppt`/`/create/prototype`.
+  Both xfail(strict) tests in
+  `tests/integration/e2e/suites/16_pages_outside_routes/test_pages_outside_routes.py`
+  now XPASS (markers left in place for the verifier); S-16-04 (ppt + prototype) still passes.
+- **Root cause:** `frontend/src/proxy.ts:10` builds the redirect target via raw string interpolation of the unsanitized `mode` query param into `new URL()`, which performs standard RFC-3986 dot-segment normalization on the resulting path — `mode=../admin` collapses `/create/../admin` to `/admin`. CONFIRMED by reading `frontend/src/proxy.ts` directly. The middleware bypasses `routes.ts` entirely (ADR-0018's "routes.ts is the single source for building and parsing every URL" invariant) and performs zero validation against the known mode set, unlike the sibling client component `frontend/src/app/workflow/create/page.tsx`'s `CreateRoute()`, which already allowlists correctly (`raw === "ppt" || raw === "ppt_v2"`, else default).
+- **Blast radius:** grepped every `NextResponse.redirect`/`new URL(` site in `frontend/src` and every backend `RedirectResponse`/`redirect_uri` site in `backend/app` — `proxy.ts:10` is the ONLY unsanitized construction found; no in-app caller ever passes untrusted data into `routes.workflowCreateLegacy` (both call sites, `CreationHub.tsx` and `DashboardLayout.tsx`, use only the literal strings `"ppt"`/`"prototype"`), so the exploit path is exclusively a crafted/shared URL hitting the middleware directly, not anything reachable through in-app navigation. Because dot-segment resolution is unbounded within the origin, ANY of the app's routes behind the `[...view]` catch-all (all ~34 screens, per ADR-0018) or any other top-level route is a reachable redirect target via the same mechanism, not just `/admin` — `/admin` is simply the most sensitive one confirmed live. `/admin`'s own authorization gate (`frontend/src/app/admin/page.tsx:170`, `if (!user.is_admin) { router.replace(routes.dashboard()); return; }`) is client-side and runs only after mount, so whether a non-admin-tier session is fully protected via this same traversal entry point (vs. exposed to a shell/network-call flash before the bounce) is UNVERIFIED — filed as sibling ISS-281.
+- **Proposed fix (where it belongs):** `frontend/src/proxy.ts:10` is the only call site, so the fix lands there. Minimal fix mirrors the already-correct sibling pattern at `frontend/src/app/[...view]/page.tsx`'s `createRouteForType` (`` `/create/${encodeURIComponent(type)}` ``) — `encodeURIComponent(mode)` before interpolation neutralizes `/` and therefore dot-segment resolution. More defensive: validate `mode` against the same known-mode allowlist `CreateRoute()` and `routes.ts`'s `parseAppPath` already use, ideally via one shared helper added to `routes.ts` (consistent with ADR-0018) so proxy.ts, `CreateRoute()`, and `parseAppPath` share one definition of "what is a legal mode" instead of a third independent copy.
+- **Issue cards:** [ISS-227](../.knowledge/cards/20260828-1554-ISS-227.md) (root), [ISS-281](../.knowledge/cards/20260828-1902-ISS-281.md) (sibling, INFERRED: non-admin-tier exposure to `/admin` via the same traversal is unverified — `/admin`'s only gate is client-side and post-mount)
+- **Invariants at risk:** ADR-0018 (routes.ts as sole URL builder/parser) is already violated by `proxy.ts` hand-building `/create/${mode}` independently — a fix that patches only `proxy.ts` in isolation (rather than sourcing the mode allowlist from `routes.ts`) leaves that architectural gap in place even once the traversal itself is closed.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduced on every cold-start cycle, both raw `../admin` and percent-encoded `%2e%2e%2fadmin`; root cause is `frontend/src/proxy.ts:10` (`new URL(\`/create/${mode}\`, request.url)` with an unsanitized `mode`)
+- **Issue card:** [ISS-227](../.knowledge/cards/20260828-1554-ISS-227.md)
 - **Found at:** 2026-08-28 06:00 UTC
 - **Found by:** bug-workflow-create-prototype-r2
 - **Fingerprint:** `/workflow/create|mode-param-redirect|navigate-with-path-traversal-mode-value|router-escapes-create-namespace-lands-on-unrelated-real-route`
@@ -4532,11 +7792,68 @@ intended namespace and reaches an unrelated, sensitive part of the app.
 - **Page:** Empty composer / canvas (new custom workflow)
 - **Route:** /workflows/new
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 — `suites/04_composer_canvas/test_iss315_save_empty_name_feedback.py`
+  ran XPASS(strict) before the marker removal, plain green after (`xfail` line dropped, `issue`
+  marker kept); `ComposerPage.test.tsx` 14/14 green (vitest). Manual repro re-run by hand in
+  Chrome (lane4), same conditions as the register entry (qa-admin, cold nav to /dashboard then
+  /workflows/new, "Add agent" -> Domain Discovery -> Escape -> 1 agent, name left empty, click
+  Save workflow): the "Name the workflow first, then save." banner now renders in
+  `text-status-failed` at the bottom of the composer and no `POST /api/user-workflows` fires
+  (confirmed via `browser_network_requests`) — screenshots
+  `bug-hunter/evidence/workflows-new/BUG-20260828-060700-workflows-new-r2/03-verify-before-1agent-noname.png`
+  and `04-verify-after-click-save-banner-visible.png`. No new console errors. Backend
+  `:8000/docs` = 200 (frontend-only change, no restart required).
+  `frontend`: `npx tsc --noEmit` clean for `ComposerPage.tsx` (pre-existing unrelated errors in
+  `HomeLaunchGrid.crossAccountLeak.test.tsx`, `api.sessionExpiryRedirect.test.ts`,
+  `listenerMiddleware.test.ts` — untouched by this fix). `backend`: `lint-imports` shows the
+  pre-existing "kernel imports only capability ports" break (`agents.execution_engine.kernel_services`
+  -> `app.api.user_workflows`) — unrelated, no Python was touched by this fix. Regression file
+  `suites/04_composer_canvas/test_composer_canvas.py`: 2 pre-existing failures
+  (`test_editing_a_saved_workflow_loads_its_steps`, `test_a_last_streamed_built_in_refuses_an_append_after_final_step_slot`)
+  both tied to the separately-tracked PPT deliverable mismatch
+  (`BUG-20260828-073350-workflows-ppt-canvas`/ISS-340, still CONFIRMED not fixed) and to other
+  in-flight uncommitted manifest work in the same file (`needsFullManifestOnSave`,
+  `seededRunConfig` — ISS-196/ISS-206/ISS-275), not this fix's 4-line diff.
 - **Found at:** 2026-08-28T06:07:00Z
 - **Found by:** bug-workflows-new-r2
 - **Fingerprint:** `/workflows/new|save-workflow-button|click-save-with-empty-name-field|no-request-fired-no-feedback-shown`
 - **Evidence:** `bug-hunter/evidence/workflows-new/BUG-20260828-060700-workflows-new-r2/`
+- **Validated:** 3/3 on 2026-08-28, every cycle cold start (fresh nav to /dashboard then /workflows/new)
+- **Root cause:** The Save-button guard at `ComposerPage.tsx:1108-1112` (current lines; ISS-315
+  recorded it at :1075-1082 before other landed changes shifted the file) blocks on
+  `!name.trim()` and returns via a bare `nameInputRef.current?.focus()` plus a hover-only
+  `title="Name the workflow first"` — it never calls the `setSaveError` state that already
+  renders a visible banner at `ComposerPage.tsx:1394-1398` and that `handleSave`'s own
+  detached-step/not-authenticated branches already use (`:676-681`, `:685-686`). CONFIRMED by
+  direct read.
+- **Blast radius:** Single button, single `onClick`, single call site of `handleSave`
+  (`ComposerPage.tsx:1114` — no `<form>`/`onKeyDown` bypass); but that one shared component
+  renders on every composer route: `/workflows/new` (reported case, `initialName` absent → name
+  starts empty), `/workflows/{id}/edit` (`DashboardLayout.tsx:2998` seeds
+  `initialName={savedComposition?.name}`, non-empty but user-clearable), and the built-in
+  "Save as copy" route (`builtinCanvasType` set, `ComposerPage.tsx:1020`'s
+  `initialName || builtinCanvasType` fallback implies `initialName` may be unset there too). The
+  identical no-visible-feedback guard shape also recurs on the "Run once" button in the same
+  header block (`ComposerPage.tsx:1076-1097`, `briefText.trim().length < 3`).
+- **Proposed fix:** Have the empty-name guard call `setSaveError("Name the workflow first.")` (or
+  move the check inside `handleSave` itself) so it reuses the ALREADY-EXISTING `saveError` banner
+  at `ComposerPage.tsx:1394-1398` — one change in the shared component fixes every route above.
+  The Run once guard needs an analogous but separate visible-error path since no such banner
+  exists near it today.
+- **Issue cards:** [ISS-315](../.knowledge/cards/20260828-1750-ISS-315.md) (root),
+  [ISS-431](../.knowledge/cards/20260829-0038-ISS-431.md) (sibling: Run once button, same
+  silent-guard pattern, INFERRED),
+  [ISS-432](../.knowledge/cards/20260829-0039-ISS-432.md) (sibling: same guard reached via the
+  edit-existing-workflow and save-as-copy routes, INFERRED)
+- **Fix card:** [FIX-375](../.knowledge/cards/20260829-0151-FIX-375.md) — the empty-name guard
+  in `frontend/src/components/workflow/composer/ComposerPage.tsx:1108` now calls
+  `setSaveError("Name the workflow first, then save.")`, so the component's existing
+  `text-status-failed` banner (`:1400`) renders instead of a silent refocus — one edit at the
+  single `handleSave` call site, so every composer route is covered. Test
+  `suites/04_composer_canvas/test_iss315_save_empty_name_feedback.py` XPASS(strict); 14/14
+  `ComposerPage.test.tsx` green. ISS-431 (Run once guard) is NOT fixed — different guard, no
+  banner near it.
 
 ### Summary
 On `/workflows/new`, with at least one agent added to the canvas but the "Workflow name" field
@@ -4595,7 +7912,75 @@ identical to a stray click).
 - **Page:** Built-in workflow on the canvas
 - **Route:** /workflows/ppt/canvas
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29, 6-verifier. `tests/integration/e2e/suites/04_composer_canvas/test_iss340_simple_canvas_deliverable_agree.py`
+  run one file at a time via `.venv/bin/python3 -m pytest`. Confirmed XPASS(strict) for
+  `test_simple_and_canvas_agree_on_ppt_deliverable_type` (ISS-340) and
+  `test_simple_and_canvas_agree_on_saved_custom_workflow_deliverable_type` (ISS-580), then
+  removed both `@pytest.mark.xfail` markers (kept `@pytest.mark.issue`); a subsequent run of
+  the whole file went plain green. Manually re-ran the ORIGINAL reproduction by hand in
+  Chrome (lane6, qa-admin, light theme, default viewport), twice, on a cold load of
+  `/workflows/ppt/canvas`: both times Canvas's "Deliverable strategy" combobox and Simple's
+  read-only "Deliverable type" field agreed — "ppt — declared by this workflow" on both tabs
+  — no console errors. Frontend regression suites green:
+  `ComposerPage.test.tsx` 14/14, `CanvasView.test.tsx` 24/24. `tsc --noEmit`: 9 pre-existing
+  errors, none in the three touched files. `backend/lint-imports` (run from `backend/`): 1
+  pre-existing broken contract (`kernel imports only capability ports`), unrelated to this
+  frontend-only fix — not introduced by it. Backend `:8000/docs` → 200 throughout; no backend
+  file changed, no restart needed. NOTE: under the current heavy concurrent bug-hunter load
+  (`uptime` load average 23-40 during this pass), the `ppt` scenario's already-documented
+  cold-load `runConfig`-seeding race ([ISS-604](../.knowledge/cards/20260829-0207-ISS-604.md),
+  filed separately, deferred, NOT part of this bug or FIX-401's mechanism) triggered far more
+  often than its baseline ~1-in-5 — roughly 7 of 10 automated runs in this pass hit it. Every
+  single one of those failures showed the SAME direction: Simple correct
+  ("ppt — declared by this workflow"), Canvas stale ("Streamed text…") — never once did Simple
+  regress to the original "Custom" bug. That asymmetry, plus the clean manual repro and green
+  unit suites, is why this is closed rather than reopened: the reported defect (Simple
+  hardcoded to "Custom", disagreeing with Canvas) is fixed; the residual flake is
+  ISS-604's, already tracked, and load-amplified here, not new.
+- **Tested:** `tests/integration/e2e/suites/04_composer_canvas/test_iss340_simple_canvas_deliverable_agree.py`
+  — `test_simple_and_canvas_agree_on_ppt_deliverable_type` (ISS-340) and
+  `test_simple_and_canvas_agree_on_saved_custom_workflow_deliverable_type` (ISS-580), both
+  `@pytest.mark.xfail(strict=True)`, both observed red 2026-08-29: Simple shows `'Custom'`,
+  Canvas shows the real derived strategy — never equal.
+- **Validated:** 3/3 on 2026-08-28, cold start each cycle — Simple always shows "Custom", Canvas
+  shows either "Streamed text" (cycle 1) or the correct dynamic "ppt — declared by this workflow"
+  option (cycles 2-3); the two never agree regardless of which value Canvas lands on.
+- **Root cause:** `ComposerPage.tsx:478` (line drifted from the validator's `:448` since that
+  pass) hardcodes `const deliverableLabel = PIPELINE_LABEL.custom;` for the Simple tab's
+  `IdentityCard` (its sole call site), never derived from `runConfig`. `CanvasView.tsx:1574`, the
+  sibling tab on the same in-memory workflow, already derives its combobox from the real
+  `runConfig?.deliverable?.strategy` — the two views share no derivation, so they can only agree
+  by accident.
+- **Blast radius:** `deliverableLabel`/`<IdentityCard>` have exactly one call site each
+  (`ComposerPage.tsx`), but that component is generic over EVERY built-in opened at
+  `/workflows/<type>/canvas` (`builtinCanvasTypeFor()`, `page.tsx:367`, "no hardcoded workflow
+  list"). Confirmed via each built-in's own `workflow.yaml` `deliverable:` block: `ppt_v2`,
+  `prototype` (`single_file`), `app_builder`, `mulesoft_to_springboot`, `dotnet_to_azure`
+  (`serialized_sandbox`), and `user_stories` (`streamed_text`) all show the identical
+  Simple-says-"Custom"-Canvas-says-the-truth disagreement — `ppt` is simply the one that was
+  hunted first. A saved (non-built-in) custom workflow with a non-generic declared strategy is a
+  further, distinct entry path implied by the same unconditional line — filed as ISS-580
+  (INFERRED, not yet reproduced).
+- **Proposed fix location:** `ComposerPage.tsx:478` already has `runConfig` in scope (`:410`) —
+  derive `deliverableLabel` from `runConfig?.deliverable?.strategy` through ONE shared label
+  lookup both `ComposerPage` (feeds `IdentityCard` + the `:1020` header title) and
+  `CanvasView.tsx` (`:1574`'s combobox) import, rather than teaching `IdentityCard` a second copy
+  of the mapping.
+- **Issue cards:** [ISS-340](../.knowledge/cards/20260828-1856-ISS-340.md) (root — analyzer
+  sections appended: Root cause/Blast radius/Proposed fix), [ISS-580](../.knowledge/cards/20260829-0236-ISS-580.md)
+  (sibling: saved custom workflow, INFERRED)
+- **Fix card:** [FIX-401](../.knowledge/cards/20260829-0206-FIX-401.md) — one exported
+  `DELIVERABLE_STRATEGY_LABEL` + `deliverableStrategyLabel()` in
+  `frontend/src/components/workflow/composer/CanvasView.tsx` now feeds BOTH the Canvas
+  combobox's `<option>` texts and `ComposerPage.tsx:485`'s identity-card label, which is
+  derived from `runConfig?.deliverable?.strategy` instead of the old unconditional
+  `PIPELINE_LABEL.custom`. The header eyebrow keeps the pipeline-type label as
+  `pipelineLabel` (`:479`, `:1027`) — the two vocabularies were conflated in one variable and
+  are now separate. Both e2e tests XPASS(strict) 2026-08-29; 14/14 `ComposerPage.test.tsx` and
+  24/24 `CanvasView.test.tsx` green. Deferred: the cold-load `runConfig` seeding race that
+  makes the ppt test flake ~1 run in 5 —
+  [ISS-604](../.knowledge/cards/20260829-0207-ISS-604.md).
 - **Found at:** 2026-08-28 07:33 UTC
 - **Found by:** bug-workflows-ppt-canvas-r2
 - **Fingerprint:** `/workflows/ppt/canvas|simple-vs-canvas-deliverable-display|switch-between-simple-and-canvas-tabs|deliverable-type-label-disagrees-custom-vs-streamed-text`
@@ -4659,7 +8044,53 @@ built-in workflow state — the two tabs contradict each other with no save/relo
 - **Page:** A saved workflow's launch panel
 - **Route:** /workflows/{id}/run
 - **Severity:** High
-- **Status:** Open
+- **Status:** ESCALATED
+- **Fixed:** the ISS-228 effect race — `LaunchWizard.tsx:343-348`'s "re-derive default agents" effect now tests emptiness inside `setPipelineAgents((prev) => ...)`, so it sees the draft-restore effect's queued update instead of the stale render closure and stops overwriting the saved roster. One shared component, so ISS-283's click-through Run is covered by the same edit. Card: FIX-338.
+- **Escalated:** both shipped scenarios in `tests/integration/e2e/suites/05_saved_workflows/test_iss228_launch_panel_override_binding.py` still xfail (NOT xpass) after the fix, failing only on `assert 'My prototype' in body`. That assertion is a separate presentation gap — `savedName` is restored at `LaunchWizard.tsx:311-313` but only reaches the closed AgentsPopup modal (`:1168-1169`), while the header renders `cfg.eyebrow`/`cfg.title` unconditionally (`:826-833`) — so it reproduces with or without the race and no card asks for a name display. Filed as ISS-384; needs a UI decision (add the name alongside the existing title, which the test also requires stays visible) or a retargeted assertion.
+- **Root cause:** NOT a network fetch race (the two GETs' arrival order does not decide the
+  outcome) — a synchronous same-commit React effect-ordering bug entirely inside
+  `frontend/src/components/workflow/LaunchWizard.tsx`. `:278-324` ("restore session draft") reads
+  the `{mode}.draft` sessionStorage payload the caller wrote (from `GET /api/user-workflows/{id}`)
+  and, once `libraryAgents.length > 0`, calls `setPipelineAgents(restored)` (`:303-307`) with the
+  override's real roster. `:335-338` ("re-derive once real agents arrive") fires on the SAME
+  `libraryAgents` transition and reads `pipelineAgents.length` from the SAME render's closure —
+  i.e. before the sibling effect's update is visible, since React does not let one effect observe
+  another's `setState` call within the same commit — so it always sees `0` and unconditionally
+  calls `setPipelineAgents(defaultAgentsFor(libraryAgents, mode))` (`:337`), the generic
+  per-pipeline roster. Both effects issue a plain-value `setState`; the second is declared (hence
+  runs) after the first, so it is enqueued last and wins, every time `libraryAgents` (Redux state
+  from `GET /api/agents/library` on sign-in, `useAgentLibrary.ts:16-20`, starting empty) is still
+  empty at `LaunchWizard`'s first render — which a cold direct navigation to `/workflows/{id}/run`
+  guarantees, explaining the deterministic, no-delay-needed reproduction. Precedent:
+  `ComposerPage.tsx:295-298` solves the identical "library loads after mount" problem with a
+  one-shot `useRef` guard (`resyncedAgentsFromLibrary`) instead of a `.length` read and does NOT
+  have this race — its own card (FIX-271) documents it as "the same class of bug as an
+  earlier-fixed LaunchWizard issue," i.e. `LaunchWizard.tsx:335-338` IS that earlier, weaker fix.
+- **Blast radius:** confirmed by grep — `LaunchWizard` mounts from exactly two live call sites:
+  `frontend/src/app/[...view]/page.tsx:3760` (this bug's `/workflows/{id}/run` cold mount) and
+  `frontend/src/app/workflow/create/page.tsx:24` (`/workflow/create?mode=...`), the latter reached
+  with an identical `{mode}.draft`+`agentIds` via `DashboardLayout.tsx`'s `handleLaunchSaved`
+  (`:1475-1558`, click "Run" on a saved workflow) — same race, narrower timing window. Separately,
+  `pipelineAgents` (the value the race clobbers) is not read-only: `handleSave`
+  (`LaunchWizard.tsx:699-705`, `agent_ids: pipelineAgents.map(...)` at `:703`) and
+  `handleSaveAsOverride` (`:727-754`, same at `:737`, plus the persisted `manifest` built from
+  `pipelineAgents` at `:738-742`, UPSERTING the same override row) both trust it with no re-fetch —
+  a save made while the race is live overwrites the real saved override with the generic default
+  roster server-side, turning a render bug into data loss.
+- **Fix belongs in:** `LaunchWizard.tsx`, not either caller (both already write a correct draft).
+  Fold `:335-338`'s recovery logic into the same effect as `:278-324` (one effect, one source of
+  truth for "was the roster actually restored"), or replace the `pipelineAgents.length` read with
+  a one-shot `useRef` guard matching the working precedent at `ComposerPage.tsx:295-298`. A guard
+  in this one shared component covers both call sites; a per-caller patch would not.
+- **Validated:** 3/3 on 2026-08-28, every cycle from a cold start (fresh navigation, cycle 3 with
+  localStorage/sessionStorage fully cleared) — no artificial delay needed, deterministic on a
+  plain load/reload
+- **Issue card:** [ISS-228](../.knowledge/cards/20260828-1758-ISS-228.md)
+- **Issue cards:** [ISS-228](../.knowledge/cards/20260828-1758-ISS-228.md) (root, now carries the
+  confirmed mechanism), [ISS-283](../.knowledge/cards/20260828-1905-ISS-283.md) (sibling: same race
+  via click-through Run / `DashboardLayout.handleLaunchSaved`),
+  [ISS-284](../.knowledge/cards/20260828-1906-ISS-284.md) (sibling: Save / Save-as-override persist
+  the clobbered roster — data loss)
 - **Found at:** 2026-08-28 07:39 UTC
 - **Found by:** bug-workflows-id-run-r2
 - **Fingerprint:** `/workflows/{id}/run|workflow-run-panel-override-binding|cold-mount-with-two-parallel-fetches|base-type-wins-override-fetch-discarded-generic-wizard-renders`
@@ -4738,7 +8169,60 @@ after the override response is confirmed to have arrived successfully.
 - **Page:** Legacy workflow builder (unlinked, second/older builder)
 - **Route:** /workflow
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Fixed:** 2026-08-29 — `frontend/src/components/workflow/WorkflowView.tsx`, two hunks: a new module-level `stripAttachmentMarker(text, filename)` helper above `WorkflowView` (removes the first block-entry equal to `filename` from a `[Attached: a, b]` block, keeps every other name, drops the whole block plus its leading `\n\n` when nothing is left), and the chip's remove `onClick` (was `:388`, now `:403-409`) which now calls `setIdeaInput((prev) => stripAttachmentMarker(prev, file.name))` next to the existing `attachedFiles` filter. Fixed at the WRITE site, not at either reader, so the `disabled` gate and `handleRun`'s payload both inherit it (ISS-579's own argument); not a blanket `/\[Attached:.*\]/` clear, which ISS-583 shows would erase the marker of a file that is still attached. Tests, `npx vitest --run --no-coverage` from `frontend/`, one file at a time: `WorkflowView.attachmentRemove.test.tsx` went from `Tests 3 expected fail (3)` before to `Tests 2 failed | 1 expected fail (3)` after — the ISS-345 and ISS-583 cases XPASS (`Error: Expect test to fail`), markers left in place for the verifier. The third case (ISS-579) is still red because its fixture is unsatisfiable, not because of the code — it removes the ONLY attachment (brief becomes empty) and mounts with an empty agent library, so both of `handleRun`'s guards short-circuit and `onStartPipeline` is never called; measured directly: `textarea.value === ""`, `runButton.disabled === true`, 0 calls. Filed as ISS-603, test NOT edited. Neighbours re-run unchanged: `WorkflowView.zeroAgents.test.tsx` 1 XPASS (ISS-328's own fix, already in the tree), `src/app/workflow/page.test.tsx` 1 expected fail. `npx tsc --noEmit` no WorkflowView errors; eslint on the file 0 errors, 7 pre-existing warnings. Frontend-only — no backend restart needed. Card: FIX-400; ISS-345 and ISS-583 resolved, ISS-579 left open pending a runnable fixture (ISS-603).
+- **Verified:** 2026-08-29 — `WorkflowView.attachmentRemove.test.tsx` re-run from `frontend/`:
+  before removing `it.fails`, `Tests 2 failed | 1 expected fail (3)` (the ISS-345 and ISS-583
+  cases XPASS with "Error: Expect test to fail", confirming the fixer's claim); removed
+  `it.fails` -> `it` on the ISS-345 and ISS-583 cases only (ISS-579's case kept `it.fails` — it
+  is a genuinely unresolved sibling, filed as ISS-603, not part of this fix), re-ran: `Tests 2
+  passed | 1 expected fail (3)`, plain green on the two resolved cases. Regression: sibling
+  files unchanged from the fixer's own figures — `WorkflowView.zeroAgents.test.tsx` still 1
+  XPASS (ISS-328's pre-existing guard), `src/app/workflow/page.test.tsx` still 1 expected fail.
+  `npx tsc --noEmit`: no `WorkflowView.tsx` errors (other pre-existing unrelated test-file errors
+  present, untouched). `npx eslint src/components/workflow/WorkflowView.tsx`: 0 errors, 7
+  pre-existing warnings, unchanged. Backend `:8000/docs` -> 200 (frontend-only fix, no restart
+  needed). `lint-imports` from `backend/`: 1 pre-existing broken contract
+  (`agents.execution_engine.engine` -> `app.api` via `kernel_services`/`revision_analyzer`) —
+  confirmed pre-existing, unrelated to this frontend-only change, not touched. Manual repro in
+  Chrome (lane5, qa-admin, cold `/dashboard` -> `/workflow`): attached `zz-hunt-test.txt`,
+  `textarea.value` showed `[Attached: zz-hunt-test.txt]`; clicked the chip's remove "x" ->
+  `textarea.value === ""`, chip gone from `document.body.innerText`, 0 console errors. Re-ran the
+  two-file ISS-583 case by hand: attached `zz-hunt-a.txt` + `zz-hunt-b.txt` ->
+  `[Attached: zz-hunt-a.txt, zz-hunt-b.txt]`; removed `zz-hunt-a.txt`'s chip ->
+  `textarea.value === "[Attached: zz-hunt-b.txt]"`, the still-attached file's marker survives
+  intact. Both match the register's original repro and the test assertions. Screenshot:
+  `bug-hunter/evidence/workflow/BUG-20260828-074900-workflow-r2/04-after-fix-marker-cleared.png`.
+  ISS-579 remains open (unresolved by this fix, tracked separately as ISS-603) — not part of
+  this bug's closure scope per the fix card's own stated boundary.
+- **Validated:** 3/3 on 2026-08-28, every cycle — cold `/dashboard` -> `/workflow`, attach a
+  `.txt` file, click chip's remove "x"; no axis variation needed, reproduces unconditionally
+- **Root cause:** CONFIRMED — `WorkflowView.tsx`'s attach handler (line 337-340) writes a
+  `[Attached: <filename>]` marker into `ideaInput` alongside pushing into `attachedFiles`, but
+  the chip's remove `onClick` (line 388) does `setAttachedFiles((prev) => prev.filter((_, i) =>
+  i !== idx))` only — it never calls `setIdeaInput` to strip the marker, so the two states that
+  were written together on attach are never reconciled on remove.
+- **Blast radius:** grepped every `attachedFiles`/`[Attached:` usage in `frontend/src/`
+  (`IdeaInputPage.tsx`'s `useBriefAttachments`, reused by `ComposerPage.tsx`, and
+  `LaunchWizard.tsx`) — both keep file content in a separate `attachedFileContents` state
+  composed into the payload only at send time, so the textarea itself never carries an
+  `[Attached: ...]` marker and `removeFile` there correctly clears both. `WorkflowView.tsx` is
+  the only component with the flawed direct-injection pattern, and `app/workflow/page.tsx:58-62`
+  is its only production mount. Within `WorkflowView.tsx`, the same stale `ideaInput` also feeds
+  `handleRun` (line 165) verbatim as the run brief once `onStartPipeline` is wired (see
+  ISS-579/ISS-492) — a second reader of the same corrupted state, currently unreachable because
+  ISS-492 shows nothing wires that prop today.
+- **Fix location:** the remove handler at `WorkflowView.tsx:388` — it must strip the specific
+  filename's token from whichever marker block(s) `ideaInput` holds (not blanket-clear, since a
+  joined/multi-block marker can still legitimately reference a file that was NOT removed; see
+  ISS-583). Patching the write site (remove handler) fixes every reader of `ideaInput` — the
+  button's `disabled` gate and `handleRun`'s payload — at once, rather than patching each reader.
+- **Issue cards:** [ISS-345](../.knowledge/cards/20260828-1900-ISS-345.md) (root — validator-filed,
+  confirmed by re-reading `WorkflowView.tsx:330-343,388` directly),
+  [ISS-583](../.knowledge/cards/20260829-0234-ISS-583.md) (sibling, INFERRED: 2+ files produce
+  joined/multiple marker blocks that a blanket-clear fix would also corrupt),
+  [ISS-579](../.knowledge/cards/20260829-0234-ISS-579.md) (sibling, INFERRED: the same stale
+  marker forwards into the run payload via `handleRun` once ISS-492's wiring gap closes)
 - **Found at:** 2026-08-28 07:49 UTC
 - **Found by:** bug-workflow-r2
 - **Fingerprint:** `/workflow|attach-file-remove-attachment|click-remove-x-on-attachment-chip|stale-attached-marker-text-remains-in-textarea-run-button-stays-enabled`
@@ -4810,7 +8294,94 @@ exists) and "Run Workflow" stays enabled off that stale text.
 - **Page:** Completed run — Preview tab
 - **Route:** /runs/b9feac1c-ec21-4531-8ba7-bb391786993e
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 (lane6) — `frontend/src/hooks/useRunChat.chatTimestamp.test.ts` run via
+  `npx vitest run` from `frontend/`: 3/3 passed, plain `it(...)` with no xfail/`it.fails` marker
+  to remove (matches the fixer's note). Backend `python -m pytest` (venv) `tests/unit/test_runs_api_events.py`
+  7/7 passed, `tests/unit/test_sse_stream.py` 53/53 passed. Regression: `useRunChat.test.ts` +
+  `lib/api.test.ts` 22/22 passed together. `npx tsc --noEmit`: 0 errors in the changed files.
+  `lint-imports` (from `backend/`): 3 kept / 1 broken, same pre-existing `agents.execution_engine.engine
+  -> app.api` contract untouched by this diff. `curl :8000/docs` → 200 (no restart needed, confirmed
+  before trusting any result). Manual re-run of the ORIGINAL repro in the browser (lane6, qa-admin,
+  same route `/runs/b9feac1c-ec21-4531-8ba7-bb391786993e`): sent a new chat message at 04:46 AM local,
+  cold-navigated away to /dashboard and back after ~90s (current time 04:47 AM) — message still read
+  04:46 AM, not the reload time. Repeated a second cold-reload cycle after another ~80s (current time
+  04:48 AM) — message still read 04:46 AM. Confirmed at the network layer too:
+  `GET /api/runs/{id}/events?after=0` now carries `"created_at":"2026-08-29T02:46:39.907480+00:00"` on
+  the `chat_message` event, which the UI correctly renders as local 04:46 AM — the field the original
+  repro found completely absent. Console: 0 errors, 1 pre-existing unrelated iframe-sandbox warning
+  (matches FIX-399's noted baseline). After-screenshot:
+  `bug-hunter/evidence/runs-id/BUG-20260828-095700-runs-id-chat-timestamp/03-after-fixed-0446-stays-fixed-at-0448-reload.png`.
+  Bug is fixed; test green AND manual repro fixed.
+- **Fixed:** 2026-08-29 — root cause was a field that existed on the row and was projected by
+  NEITHER durable reader. `backend/app/api/runs.py` `get_run_events` now projects
+  `created_at` (new module-level `_iso_utc`, the free-function twin of the response models'
+  `_serialize_dt`; KAN-113 UTC promotion so the browser does not `Date.parse` it as LOCAL),
+  and `backend/app/api/run_stream.py`'s SSE attach replay merges the same value — both
+  readers, because that file's own comment requires it to mirror the REST twin and a
+  one-transport fix would make a replayed frame's shape depend on which transport delivered
+  it. Merged FIRST in both, so a payload-embedded timestamp still wins (FIX-354 stamps the
+  RUN's `created_at` on `pipeline_start`; a resumed run's row write time must not clobber it).
+  `frontend/src/lib/api.ts` merges the column into `DurableFrame.data` with the same
+  ordering; `frontend/src/hooks/useRunChat.ts` gains one `foldedCreatedAt(data, existing?)`
+  helper both upserts call — prefer `data.created_at`, then an existing bubble's settled
+  value, clock only for a live frame carrying neither. `upsertNarratorMessage`'s `findIndex`
+  hoisted three lines so its merge branch stops clobbering a settled value.
+  `MessageBubble.tsx:189` untouched — it renders a real ISO string correctly as-is.
+  Card: FIX-406; ISS-358 and ISS-595 both resolved.
+- **Tests:** `frontend/src/hooks/useRunChat.chatTimestamp.test.ts` 3/3 passed (plain `it(...)`,
+  no xfail/`it.fails` marker in the file — green IS the pass signal here, not XPASS; nothing
+  for 6-verifier to remove). Regression: `useRunChat.test.ts` 20/20, `lib/api.test.ts` 2/2,
+  `liveRunSwitch.fix201.test.ts` 26/26, `useWorkflow.accumulators.test.ts` +
+  `terminalReopenReconcile.source.test.ts` 39/39. Backend `tests/unit/test_runs_api_events.py`
+  7/7, `tests/unit/test_sse_stream.py` 53/53 — that file's `TestReplay` exact-dict assertion
+  was WIDENED to include the new key (it stays a strict compare; the expected value is read
+  off the row and UTC-promoted explicitly, not via the endpoint's own helper). No application
+  behaviour was changed to satisfy a test. Wire-parity guard passed untouched.
+- **Invariants:** SC-001/INV-1 N/A — no file under `backend/agents/execution_engine/` touched.
+  Migrations: none, `run_events.created_at` already exists NOT NULL
+  (`backend/app/models/run_event.py:72`). `lint-imports` 3 kept / 1 broken; the broken
+  contract is `agents.execution_engine.engine -> app.api` via kernel_services /
+  revision_analyzer — no file in that chain is in this diff, and `engine.py` carries other
+  in-flight uncommitted changes in this shared tree. NOT re-baselined at a SHA.
+- **Restart:** backend `.py` only, `--reload` picks it up; no restart needed.
+- **Validated:** 3/3 on 2026-08-28, cold start every cycle — navigate away to /dashboard, wait 65-130s, cold navigate back to /runs/b9feac1c-ec21-4531-8ba7-bb391786993e; each reload's displayed timestamp exactly matched that reload's wall-clock time (09:15 PM, 09:16 PM, 09:17 PM across cycles 1-3), no axis variance needed
+- **Root cause (CONFIRMED):** `frontend/src/hooks/useRunChat.ts` `upsertUserMessage` (`:354`) /
+  `upsertNarratorMessage` (`:393`) unconditionally stamp `createdAt: new Date().toISOString()` on
+  every `chat_message`/`chat_reply` event-frame fold's "create" branch — the branch every replayed
+  historical frame takes, since `seedRunChatTranscript` clears `messages` before folding. There is
+  no real send time to prefer instead: the backend never emits one on either transport — the live
+  SSE payload (`backend/app/api/run_commands.py:1050-1060`, `_sse_frame`) and the durable REST
+  replay (`backend/app/api/runs.py:1080-1093`, `get_run_events`) both project only
+  `{seq, event_id, type, payload_json}`, never the `run_events.created_at` column that IS stamped
+  on the row (`backend/app/models/run_event.py:72`, NOT NULL). `frontend/src/components/chat/MessageBubble.tsx:189`
+  renders the fabricated value — confirmed the ONLY consumer of `ChatMessage.createdAt` in the
+  whole frontend (grep across `frontend/src`).
+- **Blast radius:** `MessageBubble.tsx:189` is the sole render consumer, but the defective fold
+  (`upsertUserMessage`/`upsertNarratorMessage`) is reached from every `seedRunChatTranscript`/
+  `appendRunChatFrames` call site in `frontend/src/app/[...view]/page.tsx` — cold reload of a
+  completed run (this bug's own repro, ISS-358 validated 3/3), history reopen, revision/family
+  reopen, AND switching to a still-**generating** run via `AppHeader`'s running-pipeline dropdown
+  / `DashboardLayout`'s history sidebar (`handleSwitchToLiveRun`, `page.tsx:2579-2666` — new,
+  code-traced this pass, not yet browser-verified: [ISS-595](../.knowledge/cards/20260829-0120-ISS-595.md)).
+  The general shape of the backend gap (`run_events.created_at` exists on every row but
+  `get_run_events` never projects it) was already flagged for a different event type
+  (`pipeline_start`) as [ISS-413](../.knowledge/cards/20260828-2357-ISS-413.md) — fixing that
+  projection once would close the backend half of both bugs at once.
+- **Proposed fix:** belongs in the shared `get_run_events` projection
+  (`backend/app/api/runs.py:1080-1093`) plus `DurableFrame` construction (`frontend/src/lib/api.ts:983`,
+  which already merges the row's `event_id`/`seq` columns over `payload_json` — the identical,
+  precedented pattern for adding `created_at`), NOT a per-consumer patch: that supplies a real
+  timestamp for `upsertUserMessage`/`upsertNarratorMessage` to prefer, for every event type, past
+  and future. Frontend-side, `upsertUserMessage`/`upsertNarratorMessage`'s "create" branch should
+  prefer `data.created_at` when present and otherwise reuse an existing message's `createdAt` on
+  re-fold rather than minting a fresh `Date.now()` — see [ISS-358](../.knowledge/cards/20260828-2118-ISS-358.md)'s
+  "Fix direction".
+- **Issue cards:** [ISS-358](../.knowledge/cards/20260828-2118-ISS-358.md) (root — pre-existing,
+  filed during BUG-20260828-011700-runs-id's fix pass, already named this exact register entry),
+  [ISS-595](../.knowledge/cards/20260829-0120-ISS-595.md) (sibling: generating-run state, INFERRED,
+  not yet browser-verified); cross-linked to [ISS-413](../.knowledge/cards/20260828-2357-ISS-413.md)
+  (the general backend projection gap, different event type, same fix shape)
 - **Found at:** 2026-08-28T07:57:00Z
 - **Found by:** bug-runs-id-r2
 - **Fingerprint:** `/runs/{id}|preview-chat-transcript-message-clock|reload-page-after-sending-chat-message|displayed-message-timestamp-jumps-to-current-load-time-instead-of-original-send-time`
@@ -4847,7 +8418,14 @@ The timestamp recomputes to the browser's current time on every page load, so th
 - **Page:** Completed run — Steps tab
 - **Route:** /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Fixed:** 2026-08-29 — `frontend/src/components/results/AgentDetailPanel.tsx`, one function: new `argPreview(v)` helper above `ToolCallsSection` (strings pass through, everything else `JSON.stringify(v) ?? String(v)` in a try/catch — the shape already used by `AuditTab.tsx:105`'s `argvSummary`), and the collapsed preview at `:418` now calls it instead of bare `String(v)`. Fixed at that one expression because `String(v)` occurs exactly once in `frontend/src/` and `ToolCallsSection` has one call site (`:1101`) with no `isRunning` gate, so the same change covers ISS-585's live-run case with no run-state-specific code. Card: FIX-399; ISS-355 and ISS-585 both resolved.
+- **Verified:** 2026-08-29 (lane4) — `frontend/src/components/results/AgentDetailPanel.toolCallsPreview.test.tsx` run via `npx vitest run` from `frontend/`: confirmed XPASS first (`Test Files 1 failed (1) / Tests 2 failed (2)`, `Error: Expect test to fail` on both `it.fails` guards), then removed the `.fails` wrapper (kept `it(...)`, no xfail-style marker existed beyond that) and re-ran to plain green: `Test Files 1 passed (1) / Tests 2 passed (2)`. Regression file `AgentDetailPanel.artifactCards.test.tsx`: 15/15 passed. `npx tsc --noEmit`: 0 errors mentioning AgentDetailPanel (pre-existing unrelated errors in `listenerMiddleware.test.ts` from other in-flight work on this shared tree). `npx eslint src/components/results/AgentDetailPanel.tsx`: 0 errors, 5 pre-existing warnings. Backend `:8000/docs` → 200, no restart needed (frontend-only diff). Manual re-run of the original repro in the browser (lane4, qa-admin, cold nav to `/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps`, JS `.click()` on the "Deck Engineer Agent" row per the `stepsTabRowBlocked` quirk): all three `write_todos` collapsed rows now read `todos: [{"content":"Map spec sl` — readable truncated JSON, no `[object Object]` anywhere. Console: 0 errors, 1 pre-existing unrelated iframe-sandbox warning, matching the pre-fix baseline. After-screenshot: `bug-hunter/evidence/runs-id-steps/BUG-20260828-080047-runs-id-steps/03-after-fixed-preview.png`. `lint-imports` (run from `backend/`) shows 1 broken contract, but it involves only `.py` files with uncommitted changes unrelated to this fix (`engine.py`, `run_commands.py`, etc. from other in-flight bugs on the shared tree) — pre-existing, not caused by FIX-399's frontend-only diff.
+- **Validated:** 3/3 on 2026-08-28, cold start every cycle — sign in fresh, navigate to /dashboard then to the steps route, expand the "Deck Engineer Agent" row via element.click(); no timing/entry-path variance needed, trigger is simply any array/object-valued tool argument (AgentDetailPanel.tsx:412 `String(v)` coercion)
+- **Root cause:** CONFIRMED — `ToolCallsSection` (`frontend/src/components/results/AgentDetailPanel.tsx:412`) renders each tool-call arg with bare `String(v)`; JS default coercion yields `[object Object]` for a plain object and `[object Object],[object Object],...` for an array of objects, truncated by `.slice(0, 24)` to the `[object Object],[object` text seen in the UI. Primitives coerce fine, which is why string args (e.g. `write_file`) already render correctly.
+- **Blast radius:** Narrow, CONFIRMED by grep — `String(v)` occurs exactly once in `frontend/src/`; `ToolCallsSection` has exactly one caller (`AgentDetailPanel.tsx:1104`, same file); `AgentDetailPanel` itself is rendered from exactly one place (`AgentThinkingTab.tsx:274`, the Steps/Thinking tab). That call site has no `isRunning` gate, so the same code also renders during a live/generating run fed by the identical `tool_call` SSE path (`useWorkflow.ts:1057-1064`) — INFERRED, not yet reproduced live, filed as [ISS-585](../.knowledge/cards/20260829-0256-ISS-585.md). `AttachedSkillsSection`/`AttachedHooksSection` visually mirror this row's layout but read fixed string fields only, not `Object.entries`+coercion — checked and ruled out as siblings.
+- **Fix:** Belongs in `ToolCallsSection` at `AgentDetailPanel.tsx:412` — the sole call site — replace bare `String(v)` with a type-aware stringifier for arrays/objects (JSON-encode before truncating; primitives keep today's behavior). Precedent for this exact pattern already exists in this codebase at `frontend/src/components/results/AuditTab.tsx:105` (`try { JSON.stringify(x) } catch { String(x) }`).
+- **Issue cards:** [ISS-355](../.knowledge/cards/20260828-2105-ISS-355.md) (root — pre-existing card, root cause re-confirmed by direct read), [ISS-585](../.knowledge/cards/20260829-0256-ISS-585.md) (sibling, INFERRED: same bug should also fire live during a generating run, not only a completed one — no run-state gate on `ToolCallsSection`)
 - **Found at:** 2026-08-28T08:00:47Z
 - **Found by:** bug-runs-id-steps-r2
 - **Fingerprint:** `/runs/[id]/steps|agent-detail-tool-calls-panel|expand-agent-row-with-array-object-tool-args|collapsed-summary-shows-literal-object-object-instead-of-readable-preview`
@@ -4905,11 +8483,63 @@ the collapsed summary row shown to the user, on every occurrence (3/3 in this ru
 - **Page:** Analytics
 - **Route:** /analytics
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-28 — `tests/integration/e2e/suites/10_analytics/test_analytics.py`
+  run whole (offline tier, `.venv/bin/python3 -m pytest`): 21 passed, 1 skipped (ISS-289, no
+  model-scoped Prototype run in this seed data, documented), 0 failed. ISS-229/ISS-288's tests
+  XPASS(strict) confirmed first, then `xfail` markers removed and the file re-run to a plain
+  green. `backend/tests/unit/test_analytics_api.py` 8/8 passed
+  (`venv/bin/python3 -m pytest`, the venv the running `--reload` server actually uses).
+  `frontend/src/components/analytics/AnalyticsPage.test.tsx` 9/9 passed (`npx vitest run`).
+  Manual re-run of the original repro in the browser (qa-admin, lane4, `/analytics?range=all`):
+  baseline Total Runs 278 (159 completed/38 failed)/97.3M tokens/$52.82/57%; selecting
+  "Prototype" now fires `GET /api/analytics/summary?range=all&pipeline=prototype` (confirmed via
+  `browser_network_requests`, absent before the fix) and the tiles/chart/Success Rate/By Model
+  all rescope to 26 runs (5 completed/8 failed)/22.3M tokens/$8.11/19% — matching the "By
+  Pipeline Type" breakdown's 18+8=26; selecting "Filter by model" → "Haiku 4.5" separately moved
+  Total Runs from 278 to 7, matching that model's own breakdown row (ISS-288). No console errors
+  on either page. `backend/` `lint-imports`: 3 kept / 1 broken — the pre-existing
+  `agents.execution_engine` → `app.api` contract break, unchanged by this diff. `npx tsc
+  --noEmit`: only pre-existing, unrelated errors in
+  `HomeLaunchGrid.crossAccountLeak.test.tsx`/`listenerMiddleware.test.ts` (files this fix does
+  not touch). `:8000/docs` and `:3000` both 200; `--reload` already picked up the backend change.
+  After-screenshot:
+  `bug-hunter/evidence/analytics/BUG-20260828-081200-analytics/03-after-prototype-filter-kpis-scoped.png`.
 - **Found at:** 2026-08-28T08:12:00Z
 - **Found by:** bug-analytics-r1
 - **Fingerprint:** `/analytics|pipeline-type-filter|select-a-pipeline-type|kpi-tiles-chart-and-success-rate-stay-unfiltered`
 - **Evidence:** `bug-hunter/evidence/analytics/BUG-20260828-081200-analytics/`
+- **Validated:** 3/3 on 2026-08-28 — reproduced on every cycle (click-through and cold deep-link
+  with `?pipeline=` preset, ranges `all` and `30d`, pipelines Prototype/User Stories/Presentation);
+  unconditional on this page, no varying axis flips it.
+- **Root cause:** `AnalyticsPage.tsx`'s fetch `useEffect` depends on `[dateFilter]` only
+  (`AnalyticsPage.tsx:154-177`) and `getAnalyticsSummary`/`GET /api/analytics/summary` accept
+  only `range` (`api.ts:789-797`, `backend/app/api/analytics.py:278-297`) — no `pipeline`/`model`
+  query param exists server-side. KPI tiles, the Daily Activity chart, Success Rate, and the
+  token breakdown (`AnalyticsPage.tsx:193-242`) all read straight off the one unfiltered `summary`
+  object; only `pipelineRows` (244-252) and `modelRows` (258-267) apply a client-side `.filter()`,
+  each against only the ONE query param it owns.
+- **Blast radius:** `getAnalyticsSummary` has exactly 2 callers (`grep -rn "getAnalyticsSummary"
+  frontend/src`) — `AnalyticsPage.tsx:163` (this bug) and `HomeLaunchGrid.tsx:206` (hardcoded
+  `range="all"`, no filter UI, not affected). Within `AnalyticsPage.tsx` itself the same
+  single-unfiltered-summary flaw also covers the **model** filter (untested by the hunter) and a
+  cross-filter gap where "By Pipeline Type" ignores the model filter and vice versa.
+- **Fix belongs:** server-side, in `_aggregate()`/`get_analytics_summary`
+  (`backend/app/api/analytics.py:278-297`) — add allow-listed `pipeline`/`model` query params
+  filtered on BEFORE rollup, alongside the existing `cutoff` filter, mirroring the "SC-1 server
+  recompute" pattern already used for `range`. The daily/success-rate figures cannot be
+  correctly filtered client-side at all: `daily` has no per-type breakdown and `PipelineRollup`/
+  `ModelRollup` carry no completed/failed split in the current payload shape.
+- **Issue cards:** [ISS-229](../.knowledge/cards/20260828-1601-ISS-229.md) (root),
+  [ISS-288](../.knowledge/cards/20260828-1715-ISS-288.md) (sibling: model filter has the
+  identical flaw), [ISS-289](../.knowledge/cards/20260828-1715-ISS-289.md) (sibling: the two
+  breakdown lists ignore each other's filter)
+- **Fix card:** [FIX-339](../.knowledge/cards/20260828-2231-FIX-339.md) — `pipeline`/`model`
+  are now query params on `GET /api/analytics/summary`, filtered before `_aggregate()`
+  (`backend/app/api/analytics.py:310-323`), and the fetch effect depends on all three filters
+  (`AnalyticsPage.tsx:186`). E2E: ISS-229 + ISS-288 XPASS(strict) (the pass signal, markers
+  left for the verifier); ISS-289's test SKIPPED — no prototype run on this seed data carries
+  a named `model_id`, so the model select is not rendered once the pipeline filter applies.
 
 ### Summary
 Selecting a specific pipeline type in the "Filter by pipeline" dropdown correctly narrows the
@@ -4957,7 +8587,66 @@ it.
 - **Page:** Completed run — Files tab
 - **Route:** /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/files
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 — 5 tests across
+  `frontend/src/components/results/FilesTab.byteSize.test.tsx`,
+  `frontend/src/components/preview/PrototypePreview.byteSize.test.tsx`,
+  `frontend/src/components/preview/AppBuilderPreview.byteSize.test.tsx`,
+  `frontend/src/components/workflow/prototype/CustomTemplateModal.byteSize.test.tsx` observed
+  XPASS (`it.fails` → `Error: Expect test to fail`), `it.fails` markers removed, all 4 files
+  re-run plain green (`npx vitest --run`, one file at a time). Regression:
+  `FilesTab.test.tsx` 14/14 green. Manual repro re-run by hand on
+  `/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/files` as qa-admin: `prompt.md` now shows
+  "626 B" (was "620 B"), `01-presentation-strategist-agent.md` "9.6 KB" (was "9.5 KB"),
+  `02-deck-engineer-agent.md` "55.2 KB" (was "55.1 KB"), `04-pptx-code-generator.md` "28.9 KB"
+  (was "28.8 KB") — all now match the true byte counts from the original repro's `wc -c`
+  measurements. No console errors on the page. `npx tsc --noEmit` clean on all 5 touched
+  files (pre-existing unrelated errors in other test files untouched by this fix).
+  `lint-imports` from `backend/` shows the same pre-existing `kernel_services`/
+  `revision_analyzer` contract break as before — unrelated to this frontend-only change, not
+  introduced by it. After-screenshot:
+  `bug-hunter/evidence/runs-id-files/BUG-20260828-082706-runs-id-files/02-files-tab-after-fix-sizes.png`.
+- **Validated:** 3/3 on 2026-08-28, all cycles from a cold start — no trigger condition needed
+  beyond content containing a multi-byte UTF-8 character
+- **Root cause:** `frontend/src/components/results/FilesTab.tsx` — every file-size label calls
+  `formatSize(x.length)` (11 call sites: lines 103, 116, 236, 393, 401, 418, 426, 546, 572, 616,
+  649) where `x` is a JS string. `String.prototype.length` counts UTF-16 code units, not UTF-8
+  bytes; `formatSize` itself (`:1120-1124`) is a correct bytes→`B`/`KB`/`MB` formatter, so the
+  defect is purely in what each call site feeds it. The one exception, `formatSize(file.size)`
+  (`:447`, `withWorkspaceFile`), is already correct — `file.size` comes from the backend's
+  `SandboxFile` API — and self-corrects ONLY `derivedFiles[0]` (the single Final-output row) when
+  `resolveRunDeliverable` (`:506-524`) successfully resolves a matching workspace file; every
+  other row (Run input, agent outputs, parsed code files, the generic-deliverable row, and the
+  Final-output row itself whenever workspace resolution fails or doesn't apply) has no such
+  correction and stays wrong.
+- **Blast radius:** all 11 `formatSize(x.length)` sites within `FilesTab.tsx` (confirmed by
+  reading the file — matches [ISS-351](../.knowledge/cards/20260828-2103-ISS-351.md)'s own
+  count). Grepping the identical `.length`-as-bytes anti-pattern project-wide (not calls to
+  `formatSize` — independent inline occurrences of the same mistake) found 3 more components,
+  each unrelated to FilesTab.tsx and to each other: `CustomTemplateModal.tsx:80,232,267` (custom
+  prototype template loader — line 80 is worse than a display bug, it gates a "max 2 MB" upload
+  cap on `text.length`, so an over-cap file with multi-byte UTF-8 content can be wrongly
+  accepted), `PrototypePreview.tsx:570` (source-view "X KB" label), `AppBuilderPreview.tsx:556`
+  (file-explorer footer "KB total", summed across files). Ruled out as unaffected: `ChatAttachments.tsx`/
+  `useChatAttachments.ts`/`RunChatLane.tsx` (already use real `File.size` / `approxBase64Bytes`),
+  `SandboxTab.tsx` (`formatBytes(file.size)`, real API bytes), `AccountSettings.tsx`/
+  `StartingPointCard.tsx` (`.length` labelled "chars", not a byte unit — correct as written).
+- **Fix belongs:** one shared UTF-8 byte-length helper (e.g. `new TextEncoder().encode(str).length`
+  or `new Blob([str]).size` — the latter already used in this exact file for the download Blob)
+  added to `frontend/src/lib/` (no such helper currently exists there — the closest precedent is
+  `resizeImage.ts`'s `approxBase64Bytes`), then every `formatSize(x.length)` call in
+  `FilesTab.tsx` and the 3 sibling inline computations swapped to call it instead of `.length`.
+  One helper, ~15 call sites fixed — not a per-file reimplementation.
+- **Issue cards:** [ISS-351](../.knowledge/cards/20260828-2103-ISS-351.md) (root, FilesTab.tsx —
+  pre-existing, filed by validation),
+  [ISS-587](../.knowledge/cards/20260829-0257-ISS-587.md) (sibling: PrototypePreview.tsx source
+  view, INFERRED),
+  [ISS-588](../.knowledge/cards/20260829-0257-ISS-588.md) (sibling: AppBuilderPreview.tsx footer
+  total, INFERRED),
+  [ISS-589](../.knowledge/cards/20260829-0257-ISS-589.md) (sibling: CustomTemplateModal.tsx —
+  display AND the 2 MB cap-check bypass, INFERRED)
+- **Fix cards:** [FIX-402](../.knowledge/cards/20260829-0414-FIX-402.md) — one shared
+  `utf8Bytes()` helper in `frontend/src/lib/byteSize.ts`, all 15 sites repointed onto it
 - **Found at:** 2026-08-28T08:27:06Z
 - **Found by:** bug-runs-id-files-r2
 - **Fingerprint:** `/runs/[id]/files|file-size-label|render-files-list-with-non-ascii-content|size-shown-is-utf16-char-count-not-byte-count`
@@ -5012,11 +8701,19 @@ agent-output files.
 - **Page:** Completed run — Audit tab
 - **Route:** /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/audit
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** DUPLICATE
+- **Validated:** 0/3 on 2026-08-28, cold starts — CSV/JSON `category` is now `"hook"` (source
+  label) with a correctly-differentiated `fineCategory` (activity=96, security=4), not
+  hardcoded `"gate"`; `severity` empty on all 100 rows matches expected behavior for a run
+  with 0 blocked/critical events, not a defect. Already fixed by FIX-326 (see below).
+- **Duplicate of:** [ISS-211](../.knowledge/cards/20260828-1429-ISS-211.md), resolved by
+  [FIX-326](../.knowledge/cards/20260828-1656-FIX-326.md) — same exporter
+  (`frontend/src/lib/exporters/auditExporter.ts`), same category-collapse symptom, already
+  fixed in `AuditTab.tsx` before this bug was filed.
 - **Found at:** 2026-08-28T08:41:00Z
 - **Found by:** bug-runs-id-audit-r2
 - **Fingerprint:** `/runs/{id}/audit|export-csv-json|click-export-then-csv-or-json|category-always-gate-severity-always-empty-contradicting-promised-columns`
-- **Evidence:** `bug-hunter/evidence/runs-id-audit/BUG-20260828-audit-export-r2/`
+- **Evidence:** `bug-hunter/evidence/runs-id-audit/_scratch/BUG-20260828-audit-export-r2-notes.md`
 
 ### Summary
 The Audit tab's rows visibly carry two different category badges on screen — "Gate" for
@@ -5078,10 +8775,61 @@ its "compliance review" framing.
 - **Page:** Full-bleed deliverable view
 - **Route:** /runs/{id}/preview/full
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 — test_iss314_preview_toolbar_fullscreen_offscreen.py XPASS(strict)
+  confirmed, xfail marker removed, re-run plain green (`PASS 0 shots 15.0s`). Manual re-run of the
+  original repro (qa-admin, `/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/preview/full`, viewport
+  reset to 375x700 via `window.innerWidth` check per the `viewportUnreliable` quirk) now shows
+  the Full Screen button at `left: 125.2, right: 218.6` — fully inside the 375px viewport,
+  `elementFromPoint` at its center resolves to the button itself, and clicking it opens the
+  deliverable in a new tab. `document.documentElement.scrollWidth === clientWidth === 375`
+  unchanged (still no scrollbar, none needed — the row now wraps). Frontend regression:
+  `PreviewPanel.test.tsx` 19/19 passed (vitest). `tsc --noEmit` clean for `PreviewPanel.tsx`
+  (pre-existing unrelated errors in other test files, none touching this fix). Backend
+  `:8000/docs` → 200 (pure frontend change, no restart needed). `lint-imports` from `backend/`
+  shows 1 pre-existing broken contract (`kernel imports only capability ports`) unrelated to this
+  fix — zero backend files touched. No new console errors on the affected page (1 pre-existing
+  iframe-sandbox warning, unrelated). After-screenshot:
+  `bug-hunter/evidence/runs-id-preview-full/BUG-20260828-084621-runs-id-preview-full/04-verify-after-mobile-fullscreen-visible.png`.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduced identically on every cold-start attempt, no axis narrowing required
+- **Issue card:** [ISS-314](../.knowledge/cards/20260828-1946-ISS-314.md)
+- **Root cause:** `PPTTabActions`'s own wrapper div is `flex items-center gap-1.5 flex-shrink-0`
+  (`frontend/src/components/preview/PreviewPanel.tsx:1540`, holding the "Download"/"Download PPTX"
+  and "Full Screen" buttons, `1559-1566`) with no `flex-wrap`/`overflow-x` anywhere in its ancestor
+  chain — the right-cluster wrapper (`PreviewPanel.tsx:1221`) and the tab-bar row itself
+  (`PreviewPanel.tsx:1203`, `flex items-center justify-between gap-2`) are both equally rigid. At a
+  375px viewport the row's ~493px of content has no way to wrap, shrink, or scroll into view.
+  CONFIRMED by direct read at the file:lines above (line numbers shifted from ISS-314's original
+  1450/1474-1481 because the file moved under later commits — same code, same defect).
+- **Blast radius:** `PreviewPanel` (and therefore `PPTTabActions`) has exactly one production call
+  site — `frontend/src/components/layout/DashboardLayout.tsx:3127`, confirmed by grepping every
+  `<PreviewPanel` usage in `frontend/src/` (all other matches are test files). That call site sits
+  inside a `flex flex-col md:flex-row` split (`DashboardLayout.tsx:3014`) which stacks to full
+  width below the `md` (768px) breakpoint, so the identical defect reproduces on the plain
+  `/runs/{id}` route too, not just `/runs/{id}/preview/full` — both routes mount the same component
+  at the same width at 375px. This is the same instance/fix, not a separate defect.
+- **Sibling (INFERRED):** `frontend/src/components/preview/PrototypePreview.tsx:502`'s
+  "browser chrome" toolbar (dots + URL pill + 3 zoom buttons + divider + Tweaks + Source + Open) is
+  a structurally identical anti-pattern — no `flex-wrap`/`overflow-x` in its chain either, and MORE
+  fixed-width elements than the confirmed-broken PPT row. Filed as [ISS-433](../.knowledge/cards/20260829-0040-ISS-433.md),
+  not yet measured in-browser.
+- **Fix belongs in:** the shared tab-bar row/right-cluster in `PreviewPanel.tsx` (lines
+  1203/1221, or `PPTTabActions`'s own row at 1540) so every current and future renderType's toolbar
+  actions route through one overflow-safe container — matching the precedent already set in
+  [FIX-013](../.knowledge/cards/20260616-FIX-013.md) (AgentsPopup: wrap the overflowing sections in
+  a shared `overflow-y-auto` container rather than patching each section). `PrototypePreview.tsx`'s
+  chrome bar is a separate component and needs its own, independent fix at line 502 if ISS-433
+  reproduces.
+- **Issue cards:** [ISS-314](../.knowledge/cards/20260828-1946-ISS-314.md) (root),
+  [ISS-433](../.knowledge/cards/20260829-0040-ISS-433.md) (sibling: PrototypePreview chrome bar,
+  INFERRED — originally minted ISS-431, re-minted after a concurrent-writer id collision, see card
+  for detail)
 - **Found at:** 2026-08-28 08:46 UTC
 - **Found by:** bug-runs-id-preview-full-r2
 - **Fingerprint:** `/runs/{id}/preview/full|preview-toolbar-fullscreen-button|resize-viewport-to-375px-width|button-bounding-box-left-edge-exceeds-window-innerWidth-with-no-scroll-mechanism`
+- **Fix card:** [FIX-378](../.knowledge/cards/20260829-0207-FIX-378.md) — `flex-wrap` on the shared
+  tab-bar row `frontend/src/components/preview/PreviewPanel.tsx:1203`; the action cluster drops to a
+  second line at 375px, Full Screen right edge ~219px. Test XPASS(strict) 2026-08-29 02:05.
 - **Evidence:** `bug-hunter/evidence/runs-id-preview-full/BUG-20260828-084621-runs-id-preview-full/`
 
 ### Summary
@@ -5144,7 +8892,13 @@ mobile width).
 - **Page:** Stream view (run detail, Preview tab toolbar)
 - **Route:** /runs/{id}/stream
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 by 6-verifier. `tests/integration/e2e/suites/07_run_detail/test_iss313_toolbar_download_missing_filename.py` XPASS(strict) confirmed, `xfail` marker removed, re-run plain green (1 passed). `frontend/src/components/preview/PreviewPanel.test.tsx` 19/19 green. Manual repro re-driven in the browser as qa-admin against the same run (`649e56cf-ce0f-4a0f-91fa-4e75a971a980`, /stream): toolbar "Download the deliverable" now `[cursor=pointer]`, no `[disabled]`; clicked it and it actually downloaded `workspace-649e56cf.zip`. No new console errors. `npx tsc --noEmit`: 0 errors in `PreviewPanel.tsx`. `PreviewPanel.phantomFile.test.tsx` still fails, confirmed pre-existing/unrelated (ISS-323, no xfail marker, not this bug's test). `lint-imports` (run from `backend/`) shows 1 broken contract (`engine.py` -> `app.api` via `kernel_services`/`revision_analyzer`) — pre-existing, backend untouched by this fix, not introduced here. Backend restart not required (frontend-only `.tsx` change; `:8000/docs` returns 200). Evidence: `bug-hunter/evidence/runs-id-stream/BUG-20260828-085047-runs-id-stream/05-after-fix-download-enabled.png`.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — deterministic, no timing dependency; reproduced across cold navigation and full reload
+- **Root cause:** `WorkflowCompiler._compile_deliverable` (`backend/agents/workflows/compiler.py:1446-1451`) copies `deliverable.name` verbatim from the manifest with no validation/fallback when a manifest declares `deliverable.strategy` without `deliverable.name` — unlike `mimetype`, which gets a computed per-strategy default at emission (`_mimetype.py:49-65`). `backend/agents/workflows/playwright_smoke_test/workflow.yaml:25-26` (`strategy: serialized_sandbox`, no `name:`) is exactly such a manifest — confirmed via YAML-parsing all 26 manifests, the only one of 3 affected that is `user_launchable: true`. The `None` flows verbatim through `engine.py:3737`/`:3754` (`pipeline_complete.deliverable_filename`), through `run_commands.py:3050-3051`'s correctly-guarded `if not None` writer (leaving `WorkflowRun.deliverable_filename` NULL), to `PreviewPanel.tsx:928-932`, whose toolbar-download effect returns early on a falsy `declared` name and never sets `deliverableFile`, so `canHeaderDownload` (`PreviewPanel.tsx:979`) stays `false` forever.
+- **Blast radius:** every consumer of `deliverable_filename`/`deliverableFilename` grepped across backend+frontend. Confirmed-broken: `PreviewPanel.tsx` toolbar Download (this bug). Same gate pattern, unreproduced: `RunChatLane.tsx`'s chat-lane `DeliverableCard` (ISS-434). Checked and NOT broken: `chat_narrator.py:194-200`'s deep-link target fallback (inert — `target` is a dedup key, never parsed for a filename), `run_commands.py` DB writer (guard is correct, not the defect), `WorkflowHistory.tsx:928` (has its own documented generic-name fallback). Fix belongs upstream of all of them: a `default_deliverable_name(strategy, ...)` sibling to `default_mimetype`, applied once at `engine.py:3737` — NOT a frontend-only fix, since `PreviewPanel.tsx`'s toolbar effect duplicates `resolveRunDeliverable`'s (`frontend/src/lib/api.ts:1089`) logic inline instead of calling it, so a fix landed only in the shared FE helper would miss this bug's own button.
+- **Issue cards:** [ISS-313](../.knowledge/cards/20260828-1946-ISS-313.md) (root — deepened with the confirmed compile-time mechanism above), [ISS-434](../.knowledge/cards/20260828-2240-ISS-434.md) (sibling, INFERRED: RunChatLane DeliverableCard)
+- **Fix card:** [FIX-380](../.knowledge/cards/20260829-0212-FIX-380.md) — `PreviewPanel.tsx` toolbar Download now serves the workspace archive (`getRunSandboxZip`) when the run declared no deliverable name; the ISS-313 analysis's proposed backend `default_deliverable_name` cannot work (no such file on disk to name) and is NOT what landed; [ISS-434](../.knowledge/cards/20260828-2240-ISS-434.md) is not cured by it and stays open
 - **Found at:** 2026-08-28 08:50 UTC
 - **Found by:** bug-runs-id-stream-r2
 - **Fingerprint:** `/runs/{id}/stream|download-deliverable-toolbar-button|complete-a-live-run-whose-deliverable_filename-is-null|download-button-permanently-disabled-despite-fully-rendered-deliverable`
@@ -5218,7 +8972,77 @@ broken primary affordance with no error shown to the user.
 - **Page:** Failed run detail / Live run stream
 - **Route:** `/runs/d6e425b6-df0d-4f54-9bba-f4a771e33812/stream`
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** `StepsOverviewSpine.staleErrorLabel.test.tsx` XPASSed ("Expect test to
+  fail"), `it.fails` marker removed, re-run plain green (1/1). Manual repro via
+  lane4 Chrome, qa-admin, same fixture `d6e425b6…`: clicked "Run Again" then
+  "Reopen & fix from the failed step" twice on the seeded run, polling the DOM
+  every 400ms alongside `GET /api/runs/{id}` — the Steps panel never once showed
+  "Run failed" while `pipelineState.isRunning` was true, including a window where
+  the backend had already flipped to `status: "failed"` but the SSE terminal
+  event hadn't arrived yet (UI correctly still read "Running"/"Pipeline running ·
+  1/4 · BUILDING", not stale "Run failed"). Screenshot with header "Running" +
+  Steps panel "Pipeline running · 1/4" side by side confirms the exact scenario
+  from the original repro is fixed:
+  `bug-hunter/evidence/runs-failed/BUG-20260828-085400-runs-failed/06-after-fix-no-stale-run-failed.png`.
+  `tsc --noEmit`: zero diagnostics naming `useWorkflow.ts`/`StepsOverviewSpine.tsx`
+  (pre-existing failures in 3 unrelated test files, not caused by this fix).
+  `useWorkflow.reconnect.test.ts`: 6/6 green (regression file for the touched
+  reducer branch). No new browser console errors (0 errors/warnings). Backend
+  serves (`:8000/docs` → 200); `lint-imports` from `backend/` shows the same
+  pre-existing `kernel imports only capability ports (scaffold)` break present
+  before this change (frontend-only fix, no Python file touched). Run stopped
+  via the Stop control afterward, fixture left in a terminal state, not altered
+  or deleted.
+- **Fixed:** `useWorkflow.ts:458` pipeline_start same-run merge now resets a carried
+  `status: "error"` to the fresh-roster rule (`idx < resumeOffset ? "done" : "idle"`,
+  `error: null`) instead of spreading it forward, and `StepsOverviewSpine.tsx:342` gates
+  `failed` on `!isRunning`. Card [FIX-379](../.knowledge/cards/20260829-0210-FIX-379.md);
+  `StepsOverviewSpine.staleErrorLabel.test.tsx` XPASSes (vitest `it.fails` → "Expect test
+  to fail"), marker left for 6-verifier. Siblings ISS-438/439/440 are cured by the same
+  reducer change but stay open — manual-only verification, not re-driven in the browser.
+- **Validated:** 3/3 on 2026-08-28, cold starts — the fixture's terminal state had drifted
+  from `failed` to `cancelled` under concurrent bug-hunt traffic, but the same defect
+  reproduced identically via "Run Again" (same `handleResumeRun` path); root cause is
+  `StepsOverviewSpine.tsx:365-367` deriving `failed` from stale per-agent `error` status
+  left over from before the resume, not from `pipelineState.isRunning`.
+- **Root cause:** CONFIRMED one level deeper than the validator's citation — the stale
+  per-agent `status: "error"` StepsOverviewSpine reads is produced by
+  `useWorkflow.ts`'s `pipeline_start` reducer case (`frontend/src/hooks/useWorkflow.ts:446-458`):
+  on a same-run resume (`isSameRunReannounce`), each agent is merged as
+  `{ ...existing, ...identity }` — carrying `status`/`error` forward from the pre-resume
+  attempt unconditionally. The only thing that later clears it is that specific agent's own
+  next `agent_start` event (`useWorkflow.ts:573-594`), which can be tens of seconds into the
+  resume if earlier agents run first — matching the ~20s window observed. `StepsOverviewSpine.tsx:341-342,367`
+  (current lines; code identical to the validator's 365-367 citation, just shifted by an
+  unrelated intervening edit) is where this reported symptom renders, but is one of several
+  readers of the same polluted array, not the source.
+- **Blast radius:** grepped every reader of `status === "error"` off `pipelineState.agents`
+  (`frontend/src`, excludes tests): `StepsOverviewSpine.tsx` itself has 4 separate read sites
+  (`:342` failed, `:372` phase-gate, `:429` progress-bar segment, `:487` per-row style) — so
+  even a fix scoped to the summary label alone (gate `failed` on `!isRunning`) leaves the
+  progress-bar segment and that agent's own row red until its own `agent_start` fires.
+  Two more independent consumers of the identical array, confirmed by reading each call
+  site: `RunChatLane.tsx:579` (`PipelineMini`'s live "Pipeline · N agents" pip,
+  `RunChatLane.tsx:1906,2062-2069`) and `AgentDetailPanel.tsx:947` (`isError`, reached via
+  `StepsOverviewSpine`'s `onOpenAgent` → `AgentThinkingTab.tsx:274-311`). Checked and RULED
+  OUT: `DashboardLayout.tsx:845`'s completion-effect reads the same pattern but is correctly
+  gated behind `!pipelineState.isRunning` (`:837`), so it does not misfire during a live
+  resume. Not chased (structurally separate route, not confirmed to share this state):
+  `AgentNode.tsx`/`PipelineGraph.tsx`/`WorkflowView.tsx` under the standalone `/workflow` page.
+- **Fix:** belongs in the shared reducer — `useWorkflow.ts`'s `pipeline_start` merge
+  (`:457-458`) — not in each consumer. When `existing.status === "error"`, that field is
+  stale evidence superseded by the resume itself (the same treatment the top-level
+  `cancelled`/`failed`/`degraded` markers already get at `:505-507`) and should reset the
+  same way the non-carried branch already does for a fresh roster entry (`:462`,
+  `status: idx < resumeOffset ? "done" : "idle"`, `error: null`) instead of being spread
+  verbatim. One guard there fixes the reported label, the progress-bar/per-row siblings in
+  the same file, and both other-component siblings at once.
+- **Issue cards:** [ISS-317](../.knowledge/cards/20260828-1755-ISS-317.md) (root),
+  [ISS-438](../.knowledge/cards/20260829-0056-ISS-438.md) (sibling: RunChatLane's
+  PipelineMini pip), [ISS-439](../.knowledge/cards/20260829-0057-ISS-439.md) (sibling:
+  AgentDetailPanel's isError badge), [ISS-440](../.knowledge/cards/20260829-0058-ISS-440.md)
+  (sibling: "Run again" on a DEGRADED run hits the identical carry-over)
 - **Found at:** 2026-08-28 08:54 UTC
 - **Found by:** bug-runs-failed-r2
 - **Fingerprint:** `/runs/{id}/stream|steps-panel-status-badge|reopen-and-fix-from-failed-step|stale-run-failed-label-persists-during-live-progress`
@@ -5282,7 +9106,74 @@ sub-header rendered simultaneously on the same page.
 - **Page:** Cancelled run detail / Run History list
 - **Route:** /runs/{id}, /runs
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 — `backend/tests/agents/test_restart_resume.py` ran XPASS(strict)
+  on `test_reconcile_later_attempt_failure_supersedes_earlier_cancellation`, confirming the
+  fix; `xfail` marker removed (`@pytest.mark.issue("ISS-316")` kept), re-run gave a plain
+  green (69 passed). Manual repro re-run by hand (lane5, qa-admin, same run
+  `a8dfa959-e233-4ddf-87ce-d9a942cefde3`): detail-page badge now reads "Failed" (matching the
+  page's own "Failed agents" list, no longer self-contradictory), `GET /api/runs/{id}` returns
+  `status: "failed"`, and the `/runs` history list card for the same run now tags "failed"
+  instead of "cancelled". No new console errors (only the pre-existing unrelated iframe-sandbox
+  warning). `backend/docs` returns 200 (uvicorn `--reload` already picked up the .py change, no
+  restart needed). `lint-imports` from `backend/`: 3 kept / 1 broken, same pre-existing
+  violations named in FIX-381 (kernel_services -> app.api.user_workflows,
+  revision_analyzer -> app.api.run_commands), unchanged by this diff. `frontend` tsc --noEmit
+  shows pre-existing unrelated test-file type errors only; this fix touched no frontend files
+  (`git diff --stat` confirms only `backend/app/api/run_commands.py` changed). After-screenshot:
+  `bug-hunter/evidence/runs-cancelled/BUG-20260828-085830-runs-cancelled/03-after-detail-badge-failed.png`.
+- **Fixed:** `_reconcile_terminal_status`'s `resume_supersedes`
+  (`backend/app/api/run_commands.py:811-825`) now maxes over completions AND
+  `pipeline_failed` seqs (`terminal_seqs`), so a later attempt that genuinely fails
+  supersedes the earlier `pipeline_cancelled` exactly as a later clean completion
+  already did; FIX-229's attempt-boundary guard is unchanged, so a same-attempt
+  failure still loses to the rejection. One shared-function change cures both callers
+  (`_drive_user_resume:740` and `stop_run_driver`). Card
+  [FIX-381](../.knowledge/cards/20260829-0220-FIX-381.md);
+  `backend/tests/agents/test_restart_resume.py` → 68 passed + XPASS(strict) on
+  `test_reconcile_later_attempt_failure_supersedes_earlier_cancellation`, marker left
+  in place for 6-verifier. Siblings ISS-435/436/437 are NOT cured and stay open —
+  ISS-435 needs a decision on the deliberate degraded exclusion in `complete_seqs`.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduces identically on every cold load,
+  no narrowing needed. Root cause: `_reconcile_terminal_status`'s `resume_supersedes` check
+  (`backend/app/api/run_commands.py:811-818`) only recognizes a resumed run's
+  `pipeline_complete` as superseding the earlier `pipeline_cancelled`; a resumed run that
+  instead emits `pipeline_failed` (no `pipeline_complete` in its tail) never supersedes it,
+  so `status` stays `"cancelled"` forever.
+- **Root cause:** `_reconcile_terminal_status` (`backend/app/api/run_commands.py:748-838`) is
+  the SOLE place a resumed run's terminal `WorkflowRun.status` gets persisted, called from both
+  `_drive_user_resume` (:740, the "Run Again" path) and `stop_run_driver`
+  (`backend/app/api/run_shutdown.py:330-332`, the `POST /cancel` escalation path). Its
+  `resume_supersedes` flag (:811-818) is gated on `complete_seqs`, which only contains
+  NON-degraded `pipeline_complete` events (:806-808 explicitly excludes
+  `status=="degraded"`). When the resumed attempt's own terminal event is anything other than a
+  clean `pipeline_complete` — a `pipeline_failed` (the reported case) or a degraded
+  `pipeline_complete` — `complete_seqs` stays empty, `resume_supersedes` short-circuits `False`,
+  and the first branch `if cancelled and not resume_supersedes: new_status = "cancelled"`
+  unconditionally re-persists `"cancelled"`. The `degraded` and `failed` flags feeding the rest
+  of the ladder (:781-782) are ALSO computed with zero attempt-boundary awareness (a bare
+  `any()` over the run's ENTIRE multi-attempt tail), so the same "old terminal state wins over
+  the real latest outcome" shape recurs for three more state combinations — see the sibling
+  cards below.
+- **Blast radius:** Both callers of `_reconcile_terminal_status`
+  (`_drive_user_resume:740` and `stop_run_driver`, `run_shutdown.py:330-332`) inherit the bug
+  identically, since the defect lives inside the shared function, not either caller. Every
+  frontend surface that trusts the persisted `status` field then displays the wrong outcome —
+  confirmed consumers: `RunDetailPage.tsx:237/240` (badge), `WorkflowHistory.tsx:599` (history
+  list), `PreviewPanel.tsx:706/714` (reopen affordance), `RevisionFamilyView.tsx:142/342`
+  (revision lineage), `NotificationPanel.tsx:60` + `useNotifications.ts` (toasts), `Badge.tsx`,
+  `AgentDetailPanel.tsx:630`, `DashboardLayout.tsx` (running-pipeline badge poll) — none of these
+  are independently broken; they render correctly once the backend field is correct, so the fix
+  belongs solely in `_reconcile_terminal_status`.
+- **Issue cards:** [ISS-316](../.knowledge/cards/20260828-1952-ISS-316.md) (root — the reported
+  cancelled→failed gap), [ISS-435](../.knowledge/cards/20260828-2253-ISS-435.md) (sibling:
+  cancelled→degraded resume also stuck "cancelled" — same `complete_seqs` degraded-exclusion),
+  [ISS-436](../.knowledge/cards/20260828-2253-ISS-436.md) (sibling: the unscoped `degraded` flag
+  masks a later clean-complete OR failed outcome after an earlier degraded attempt),
+  [ISS-437](../.knowledge/cards/20260828-2253-ISS-437.md) (sibling, the INVERSE case: the
+  unscoped `failed` flag permanently reports "failed" on a run that was resumed after an
+  earlier failure and then genuinely succeeded — a real deliverable hidden behind a false
+  failure badge)
 - **Found at:** 2026-08-28 08:58 UTC
 - **Found by:** bug-runs-cancelled-r2
 - **Fingerprint:** `/runs/{id}|run-status-field|run-again-on-a-cancelled-run-that-then-fails|status-permanently-reports-cancelled-instead-of-failed`
@@ -5359,7 +9250,47 @@ surface that reads it.
 - **Page:** Diverted run detail
 - **Route:** /runs/{id}/workspace (diverted run)
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** `suites/07_run_detail/test_iss356_workspace_expired_false_deliverable_claim.py`
+  XPASS(strict) on first run (pass signal), `xfail` marker removed, re-run plain green
+  (1/1). Frontend unit tests: `SandboxTab.test.tsx` 37/37 green, `PreviewPanel.degraded.test.tsx`
+  11/11 green. Manual repro re-driven by hand on both original runs
+  (`940ca699-b21b-4666-8e44-3370a08a4561` and `277bc03a-d2ba-4405-876d-d0aa861bc9ed`) at
+  `/runs/{id}/workspace`: the "Workspace expired" body now reads only "Run workspaces are
+  cleared after a retention period." with no deliverable claim, on both diverted runs, no
+  console errors. Screenshot:
+  `bug-hunter/evidence/runs-diverted/BUG-20260828-090219-runs-diverted/04-after-fix404-workspace-tab-no-false-claim.png`.
+  Health: backend `:8000/docs` 200 (no backend file touched, pure frontend TSX change, no
+  restart needed); `tsc --noEmit` shows only pre-existing errors in files this fix never
+  touched (`login.a11y.test.tsx`, `HomeLaunchGrid.crossAccountLeak.test.tsx`,
+  `api.sessionExpiryRedirect.test.ts`, `listenerMiddleware.test.ts`); `lint-imports` from
+  `backend/` shows the same pre-existing `kernel imports only capability ports` break
+  (unrelated). Regression: `suites/07_run_detail/test_run_detail.py` 36 passed / 0 failed / 12
+  skipped (all skips carry stated fixture-missing reasons, none silent).
+- **Validated:** 3/3 on 2026-08-28, every cycle from a cold start — direct navigation to
+  `/runs/{id}/workspace` on a diverted run, no timing/entry-path variation needed; message is
+  static text unconditioned on deliverable existence
+- **Root cause:** `frontend/src/components/results/SandboxTab.tsx:1037-1043` — the `expired`
+  branch hardcodes "The deliverable is still on the Preview and Files tabs" with no check on
+  `output`/`deliverable_filename`/run status. Deeper: `SandboxTabProps` (`:842-849`) is never
+  GIVEN any such signal — `PreviewPanel.tsx:1406` is the sole render call site and passes only
+  `runId`/`agentNameById`, though PreviewPanel already computes `hasContent`, `isDivertedTerminal`,
+  `terminalFailureNoDeliverable`, `isCancelledTerminal` (`:690-738`) for the identical
+  [FIX-357](../.knowledge/cards/20260828-2210-FIX-357.md) "diverted omitted from a terminal check"
+  pattern — just never threads them into SandboxTab.
+- **Blast radius:** exactly one production caller (`PreviewPanel.tsx:1406`, grepped project-wide —
+  no others). The risk is by STATE, not by caller: `list_sandbox`'s `expired` flag
+  (`backend/app/api/run_files.py:534`, `expired = not sandbox.root.is_dir()`) is status-agnostic,
+  so any terminal run with no deliverable (failed/cancelled/degraded — not only diverted) hits the
+  identical false claim once its workspace passes `RUN_DIR_TTL_HOURS` (`backend/app/core/config.py:308-311`).
+- **Fix belongs:** two hops mirroring FIX-357's own shape — add a status/deliverable prop to
+  `SandboxTabProps` and branch the `expired` copy on it, then thread PreviewPanel's already-computed
+  `hasContent`/`isDivertedTerminal`/`terminalFailureNoDeliverable`/`isCancelledTerminal` into
+  `<SandboxTab>` at `:1406` as that prop — no new computation needed, only wiring.
+- **Issue cards:** [ISS-356](../.knowledge/cards/20260828-1910-ISS-356.md) (root),
+  [ISS-586](../.knowledge/cards/20260829-0258-ISS-586.md) (sibling, INFERRED: generalizes beyond
+  diverted to any terminal no-deliverable status),
+  [FIX-404](../.knowledge/cards/20260829-0418-FIX-404.md) (fix)
 - **Found at:** 2026-08-28T09:02:19Z
 - **Found by:** bug-runs-diverted-r2
 - **Fingerprint:** `/runs/{id}/workspace|workspace-expired-empty-state|open-workspace-tab-on-a-diverted-run|message-falsely-claims-deliverable-exists-on-preview-and-files`
@@ -5423,7 +9354,79 @@ never generated.
 - **Route:** /runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/2 (root run has a genuine
   2-member revision family: root = v1, revision `ef86e750-bbcd-404f-855a-fb0d5bee63f5` = v2)
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified (2026-08-28):** `suites/21_run_families_and_versions/test_iss_230_version_pin_survives_tab_switch.py`
+  5/5 green — the two ISS-296/ISS-300 tests XPASS(strict) on first run (pass signal), `xfail`
+  markers removed, re-run plain green 5/5. Manual repro re-driven by hand at
+  `/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/2`: clicking Files kept the URL at
+  `/versions/2/files`, fetched only `ef86e750-...` (v2) for run+sandbox (no root-run fetch),
+  and "Final output" now reads 83.5 KB — v2's own size, not v1's 241.6 KB. Also manually
+  re-drove ISS-296: picking "Version v1" from the Version menu now pushes the URL to
+  `/runs/77f74563-.../versions/1`. Screenshot:
+  `bug-hunter/evidence/runs-id-versions/BUG-20260828-090732-runs-id-versions/05-after-fix334-files-tab-shows-v2-size.png`.
+  Health: backend `:8000/docs` 200; `lint-imports` from `backend/` shows the same
+  pre-existing `kernel imports only capability ports` break (unrelated — this fix touches only
+  frontend TSX, no backend file); `tsc --noEmit` shows only the same 2 pre-existing errors in
+  files this fix never touched (`HomeLaunchGrid.crossAccountLeak.test.tsx`,
+  `listenerMiddleware.test.ts`). Regression: `suites/07_run_detail/test_run_detail.py` 35
+  passed / 0 failed (12 skipped, 1 deselected) — matches FIX-334's recorded baseline exactly.
+- **Fix (second pass, 2026-08-28):** [FIX-334](../.knowledge/cards/20260828-2149-FIX-334.md)
+  closes the two halves FIX-328 left open — ISS-300 (`<FilesTab>` at
+  `frontend/src/components/preview/PreviewPanel.tsx:1319` now gets the version-aware
+  `eff*` content props, so "Final output" reports the pinned member's own deliverable)
+  and ISS-296 (`handleSelectVersion`/`handleBackToLatest` write the pin through
+  `DashboardLayout.handlePreviewPanelTabSelect`, which took an optional version
+  argument). Two new tests in the existing suite file both XPASS(strict) and both
+  XFAIL with only the app edits reverted; `suites/07_run_detail/test_run_detail.py`
+  re-ran at its recorded baseline, 35 passed / 12 skipped.
+- **Verifier note (2026-08-28):** FIX-328 correctly fixes the URL/network/picker half of this
+  bug (ISS-230, ISS-294) — confirmed both by test and by hand: cold-loading
+  `/runs/{rootId}/versions/2` now shows "Version v2" immediately, clicking Files/Steps keeps the
+  URL at `/versions/2/<tab>`, and every network request after the click targets the pinned
+  revision id `ef86e750-...`, never the root. But this bug's OWN reproduction (step 5) also
+  requires the Files tab's displayed "Final output" size to match v2 (~83.5 KB / 85,529 chars),
+  and it does not: manually re-driving the exact repro at `/runs/{rootId}/versions/2/files` after
+  the fix still shows "241.6 KB" — v1's size (v1's `.output` is 247,400 chars ≈ 241.6 KB, v2's is
+  85,529 chars ≈ 83.5 KB, confirmed via direct API fetch in-browser). This is exactly ISS-300
+  (FilesTab reads raw `userStoryContent`/`pptContent`/`prototypeContent` instead of the
+  version-aware `eff*` props PreviewPanel already computes) — ISS-300 and its write-side sibling
+  ISS-296 remain `status: open`/`verification: pending`, untouched by FIX-328 by its own
+  admission ("Depends on: ISS-230, ISS-294" only). Test green (XPASS→green, 3/3,
+  `test_iss_230_version_pin_survives_tab_switch.py`) but the bug's own manual repro still fails
+  on the displayed-data axis — REOPENED per verifier rule 6. Evidence:
+  `bug-hunter/evidence/runs-id-versions/BUG-20260828-090732-runs-id-versions/04-after-files-tab-still-shows-v1-size.png`.
+- **Validated:** 3/3 on 2026-08-28, cold start every cycle — cycle 1 (Files tab), cycle 2 (Steps
+  tab), cycle 3 (Workspace tab, generalizing beyond the original Files/Steps scope). Root cause:
+  `handlePreviewPanelTabSelect` (`frontend/src/components/layout/DashboardLayout.tsx:471-498`)
+  builds every tab's `targetRoute` from `routes.run*(contentSourceRunId)` only — none of the
+  route builders ever consult a `/versions/<v>` segment.
+- **Root cause (CONFIRMED, re-verified by analyzer):** `handlePreviewPanelTabSelect`
+  (`frontend/src/components/layout/DashboardLayout.tsx:471-498`) builds every tab's route from
+  `routes.run*(contentSourceRunId)` only, dropping any `/versions/<v>` segment — matches ISS-230
+  exactly. Deeper analysis (INFERRED, pending live re-drive) found the pin was likely never
+  established in the first place: `reopenedRunIdFor` (`frontend/src/app/[...view]/page.tsx:182-196`)
+  discards `parsed.version` on cold mount, so `/runs/{id}/versions/{v}` always resolves to the
+  root run regardless of tab clicks (both this bug's own "before" screenshots show "Version v1"
+  immediately, contrary to the reproduction narrative); `routes.runVersion` (`routes.ts:80`) has
+  zero real call sites, so picking a version via RunHeader's Version menu never writes the URL
+  either (`handleSelectVersion`, `PreviewPanel.tsx:549-564`, is pure local state); and FilesTab
+  ignores an active version override entirely (`PreviewPanel.tsx:1280` passes raw
+  `userStoryContent`/`pptContent`/`prototypeContent` instead of the `eff*` version-aware props it
+  already computes at `PreviewPanel.tsx:590-594`).
+- **Blast radius:** `routes.runSteps/runFiles/runWorkspace/runAudit` have exactly one caller
+  (`handlePreviewPanelTabSelect`) — confirmed via repo-wide grep, so ISS-230's fix belongs there,
+  the single chokepoint. `routes.runVersion` has zero application callers (only a unit round-trip
+  test). `reopenedRunIdFor`'s `run-version` case is the only cold-mount consumer of `parsed.version`.
+  FilesTab is the one PreviewPanel-mounted tab whose content wiring bypasses the `viewingVersion`
+  override that Workspace's `workspaceRunId` already respects; Steps/Audit take live
+  `pipelineState`/`agents`/`hookRuns` (no separate override axis) so they are fully explained by
+  the URL/cold-mount mechanism, not a fourth wiring gap.
+- **Issue cards:** [ISS-230](../.knowledge/cards/20260828-1805-ISS-230.md) (root, CONFIRMED),
+  [ISS-296](../.knowledge/cards/20260828-1724-ISS-296.md) (sibling, INFERRED: Version menu never
+  writes the pin into the URL — inverse case), [ISS-294](../.knowledge/cards/20260828-1725-ISS-294.md)
+  (sibling, INFERRED: cold-mount/deep-link direction never applies `parsed.version` either),
+  [ISS-300](../.knowledge/cards/20260828-1726-ISS-300.md) (sibling, INFERRED: FilesTab ignores an
+  active version pin independent of the URL)
 - **Found at:** 2026-08-28T09:07:32Z
 - **Found by:** bug-runs-id-versions-r2
 - **Fingerprint:** `/runs/[id]/versions/2|version-pin-across-tabs|click-files-or-steps-tab-while-pinned-to-v2|url-and-fetched-data-silently-revert-to-v1-not-just-a-label`
@@ -5492,11 +9495,39 @@ no warning, error, or visual cue that the pin was lost.
 - **Page:** Library — skill detail
 - **Route:** /library/skills/<skillId> (any id — tested hyphenated multi-segment ids, previously confirmed working)
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 09:13 UTC
 - **Found by:** bug-library-skills-r2
 - **Fingerprint:** `/library/skills/<id>|skill-detail-route-match|navigate-to-any-skill-id|library-listing-renders-instead-of-detail-for-100pct-of-skills`
 - **Evidence:** `bug-hunter/evidence/library-skills/BUG-20260828-091300-library-skills-r2/`
+- **Validated:** 3/3 on 2026-08-28 (cycles 1-3, cold start every time) — direct URL nav to two
+  hyphenated ids (`html-deck-to-pptx`, `windows-desktop-e2e`) and genuine UI card-click entry all
+  reproduce identically; no axis-narrowing needed.
+- **Root cause (CONFIRMED mechanism):** Every `/library/{type}/{slug}` navigation (both a card
+  `onClick` and a cold URL load) remounts `frontend/src/app/[...view]/page.tsx` and everything
+  beneath it — a verified Next.js behavior already documented in this repo
+  (`page.tsx:3195-3199`; previously hit and fixed for the run-stream route in `FIX-298`). That
+  wipes the Skill card's own direct `setSelectedSkill(skill)` call
+  (`LibraryPage.tsx:822-824`), so opening the modal depends ENTIRELY on the cold-mount/URL-seed
+  effect (`LibraryPage.tsx:518-543`, "T15"), whose skills branch requires
+  `SKILLS.find(s => s.id === librarySlug.slug)` (`LibraryPage.tsx:527-533`) to match.
+  **INFERRED (not proven by static reading):** that match fails because
+  `frontend/src/hooks/useSkillsCatalog.ts:17-26` returns a brand-new, unmemoized array every
+  render, unlike `useAgentLibrary.ts:29-38` (which memoizes and whose own comment warns exactly
+  this class of bug: "a consumer effect keyed on libraryAgents would loop forever"). `ISS-303`
+  independently confirms the AGENTS branch of this same effect works on a cold URL — the one
+  branch backed by a memoized array — which is why this isn't a total-infrastructure failure.
+- **Blast radius:** `useSkillsCatalog` is also called by `AgentSkillsPicker.tsx` and
+  `AgentsPopup.tsx`; `useHooksCatalog` (identical unmemoized shape) is also called by
+  `AgentsPopup.tsx` and `CanvasConfigRail.tsx` — those callers don't share `LibraryPage`'s
+  once-only URL-seed-effect pattern, so they are not confirmed broken the same way, but the fix
+  belongs in the two hooks (matching `useAgentLibrary`'s memoized pattern) so every caller routes
+  through the same fix rather than patching `LibraryPage` alone. Within `LibraryPage.tsx` itself,
+  the Hooks tab's detail route (`/library/hooks/<id>`) shares the identical effect + identical
+  unmemoized-catalog shape and is the direct sibling — see ISS-336.
+- **Issue cards:** [ISS-232](../.knowledge/cards/20260828-1627-ISS-232.md) (root),
+  [ISS-336](../.knowledge/cards/20260828-1846-ISS-336.md) (sibling, INFERRED: same defect on
+  `/library/hooks/<id>`)
 
 ### Summary
 `BUG-20260828-030430-library-skills-id` (filed ~03:04 UTC) characterized this as a narrow defect
@@ -5554,13 +9585,54 @@ non-functional for the entire catalog, not just the 7 no-hyphen ids.
   failing navigation, confirmed via `browser_network_requests`.
 - State/URL: `location.href` correctly reflects `/library/skills/<id>` in every case while the
   rendered DOM is the unrelated listing page.
+- **Fixed:** 2026-08-28 by [FIX-340](../.knowledge/cards/20260828-2230-FIX-340.md) — one file, `frontend/src/store/listenerMiddleware.ts`: the `signedIn` preload no longer awaits `fetchWorkflows`/`fetchRecentRuns` before dispatching `fetchAgentLibrary`/`fetchSkills`/`fetchHooks`; all five go out together. The INFERRED unmemoized-`useSkillsCatalog` mechanism above is CORRECTED, not confirmed: the seed effect and `SKILLS.find` both work, `skillsStatus` had simply not reached `"succeeded"` yet (measured 12.2s of gate on a cold load). The card-click path re-measured as never broken.
+- **Fix verified:** `tests/integration/e2e/suites/08_library/test_iss232_skill_detail_full_regression.py` — marked run XPASS(strict) = FAILED (the fix signal; xfail marker left for 6-verifier); `--runxfail` run 1 passed, 0 misses across 6 cold navigations. `frontend/src/store/listenerMiddleware.test.ts` 1 passed.
+- **Verified:** 2026-08-28 by 6-verifier. Ran `test_iss232_skill_detail_full_regression.py` alone
+  (`.venv` at `tests/integration/e2e/.venv`): marked run reproduced `XPASS(strict) = FAILED` (the
+  pass signal); `xfail` marker removed, re-run plain green (1 passed). `listenerMiddleware.test.ts`
+  1 passed (vitest). Manual repro in lane5 Chrome, qa-admin, matching the register's exact
+  conditions: 6x back-to-back cold `about:blank` -> `/library?tab=skills` ->
+  `/library/skills/html-deck-to-pptx` loop, checked 500ms after each load — 0/6 misses, dialog
+  open every time (was 100% failure pre-fix); cold direct nav to
+  `/library/skills/windows-desktop-e2e` (the other id the register named) also opened its dialog
+  cleanly with correct SKILL.md content and no console errors/warnings; genuine card click from
+  `/library?tab=skills` opened the dialog in the same tick. Screenshot:
+  `bug-hunter/evidence/library-skills/BUG-20260828-091300-library-skills-r2/04-after-fix-detail-opens.png`.
+  Health: `npm run build` compiled clean (11/11 static pages, no TS errors from Next's own
+  typecheck); regression file `suites/08_library/test_library.py` 24/24 passed; backend
+  `:8000/docs` 200 (frontend-only fix, no restart needed). `backend/lint-imports` shows 1 broken
+  contract (`kernel imports only capability ports`) — pre-existing, unrelated to this fix
+  (FIX-340 touched only `frontend/src/store/listenerMiddleware.ts`, zero Python files; the broken
+  contract traces through `execution_engine` -> `app.api.run_commands`/`user_workflows`, files
+  this bug never touched), noted but not mine to fix.
 
 ## BUG-20260828-092630-library-agents-id — Library agent detail's Skills tab "Add" gives success feedback (checkmark + badge count) but persists nothing — silently discarded on reload, no Save affordance exists at all
 
 - **Page:** Library — agent detail
 - **Route:** /library/agents/<agentId> (e.g. /library/agents/material-analyzer)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** ESCALATED
+- **Fix applied:** [FIX-383](../.knowledge/cards/20260829-0025-FIX-383.md) — `frontend/src/components/library/LibraryPage.tsx` no longer passes `onSkillsChange` to `AgentCapabilitiesModal`, so `readOnly={!onSkillsChange}` resolves true and the Skills tab renders the honest disabled list (verified live: Add button disabled + "Attach skills to this agent in the workflow composer." hint)
+- **Escalated because:** ISS-318's Expected offers two remedies and the e2e test asserts the OTHER one — that Add fires an `/api/agents*`/`/api/skills*` call and survives a fresh navigation. No such backend surface exists for a built-in catalog agent (`backend/app/api/agents.py:216-232` returns no `skills` field for filesystem agents) and ADR-0010 decided against one, so that branch needs a new endpoint + migration. Both tests still XFAIL; the test file was NOT edited. Someone must pick: accept read-only and rewrite the test, or build the persistence surface.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduced identically on every cold-start
+  cycle (cycles 1-3), no axis variance needed
+- **Root cause:** `AgentCapabilitiesModal` sets `readOnly={!onSkillsChange}` for the shared
+  `AgentSkillsPicker` (`AgentsPopup.tsx:873`); `LibraryPage.tsx:1030-1050` supplies
+  `onSkillsChange` anyway even though its own component contract names this exact mount as
+  having nowhere to write back, so the picker renders full live/checkmark UI while the
+  callback only writes a `useRef` (`savedSkillsRef`) scoped to `LibraryPage`'s own mount
+  lifetime — wiped on reload.
+- **Blast radius:** grepped every caller of `AgentCapabilitiesModal`/`onSkillsChange` in
+  `frontend/src/`; `LibraryPage.tsx` is the only broken instance of this exact mechanism
+  today (`AgentLibrary.tsx`'s 3 other hosts correctly omit `onSkillsChange`, its 4th
+  genuinely persists via `ComposerPage.tsx`'s `pendingSkills`). The same drawer's Config tab
+  shares the defect class, already tracked (ISS-392/ISS-393). New: the adjacent Hooks tab
+  has no readOnly-equivalent gate at all and writes into one global, agent-unscoped context —
+  ISS-441.
+- **Fix belongs in:** `AgentCapabilitiesModal` (`AgentsPopup.tsx`) once — not a
+  `LibraryPage.tsx`-only patch.
+- **Issue cards:** [ISS-318](../.knowledge/cards/20260828-1956-ISS-318.md) (root),
+  [ISS-441](../.knowledge/cards/20260828-2257-ISS-441.md) (sibling: Hooks tab, same drawer)
 - **Found at:** 2026-08-28 09:26 UTC
 - **Found by:** bug-library-agents-id-r2
 - **Fingerprint:** `/library/agents/<id>|agent-detail-skills-tab-add-skill|click-add-skill-then-reload|checkmark-and-badge-shown-but-no-network-call-and-state-lost-on-reload`
@@ -5627,7 +9699,16 @@ discarded on reload with zero indication to the user that nothing was persisted.
 - **Page:** Library — skill detail (composer cross-surface: `/workflows/new` agent Skills tab preview)
 - **Route:** /workflows/new (agent config panel → Skills tab → "View details" on any skill)
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 — `frontend/src/components/workflow/composer/AgentSkillsPicker.test.tsx` ISS-359 case ran XPASS ("Error: Expect test to fail"), `xfail`/`it.fails` marker removed for that case, re-ran plain green (1 passed); manual repro re-run by hand in Chrome (lane6, qa-admin, /workflows/new → Domain Discovery Agent → Skills tab → search "Windows Desktop" → View details): modal now renders 41 real heading/formatted elements (headings, bold, inline code, tables, lists), zero raw `#` markdown visible, matches `/library/skills/<id>`'s rendering. No new console errors. `npx tsc --noEmit` shows only 11 pre-existing unrelated test-file errors, none in the 3 changed files. `lint-imports` (from `backend/`) shows the same pre-existing `agents.execution_engine` → `app.api` contract break, unrelated to this frontend-only fix. Regression file `LibraryPage.test.tsx` 9/9 green. Backend needed no restart (pure frontend change); `:8000/docs` → 200.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — no narrowing needed, reproduced cold on every skill tried (Windows Desktop E2E Testing, .NET Backend Expert, Accessibility (WCAG 2.2))
+- **Root cause:** `AgentSkillsPicker.tsx:280-283` — the `detailSkill` modal dumps `detailSkill.content` straight into a bare `<pre>` with zero markdown parsing; the "View details" Info button that opens it (`:208-216`) carries no `readOnly` gate, so every mount of this shared component reaches the identical broken render
+- **Blast radius:** every `<AgentSkillsPicker` mount, confirmed by grep, not just the Canvas rail the report named — `AgentRow.tsx:267` (Composer Simple view), `AgentsPopup.tsx:870` (`AgentCapabilitiesModal`'s Skills tab, itself mounted from `LibraryPage.tsx:1035` the Library agent drawer, and `AgentLibrary.tsx:349` the "Add agent" popup). Also: the comparator page (`/library/skills/<id>` → `LibraryPage.tsx`'s `SkillDetailModal`) is itself a hand-rolled line-splitter, not a real markdown renderer — it only handles `#`/`##`-prefixed lines and `-`/`*`/numbered bullets, so inline `**bold**`/`` `code` ``/`[links]` render as literal text there too
+- **Fix belongs in:** `AgentSkillsPicker.tsx`'s `detailSkill` block itself (not any caller) — every mount inherits automatically. Route both this modal and `LibraryPage.tsx`'s `SkillDetailModal` through the app's existing `react-markdown` + `remark-gfm` pipeline (`frontend/src/components/preview/MarkdownPreview.tsx`, already a dependency, already security-audited for no `rehype-raw`) rather than copying the incomplete hand-rolled parser into a second file
+- **Issue cards:** [ISS-359](../.knowledge/cards/20260828-1918-ISS-359.md) (root — CONFIRMED),
+  [FIX-403](../.knowledge/cards/20260829-0216-FIX-403.md) (fix), [ISS-605](../.knowledge/cards/20260829-0216-ISS-605.md) (deferred: mis-scoped assertion in ISS-591's test),
+  [ISS-590](../.knowledge/cards/20260829-0113-ISS-590.md) (sibling: 3 more AgentSkillsPicker mounts, INFERRED),
+  [ISS-591](../.knowledge/cards/20260829-0114-ISS-591.md) (sibling: comparator page's own parser is incomplete, INFERRED)
 - **Found at:** 2026-08-28 09:34 UTC
 - **Found by:** bug-library-skills-id-r2
 - **Fingerprint:** `/workflows/new|agent-skills-view-details-modal|click-view-details-on-a-skill|markdown-hashes-shown-as-literal-text-not-rendered-headings`
@@ -5676,11 +9757,29 @@ dialog), while the identical content on the skill's own detail page renders prop
 - **Page:** Library — Hooks tab
 - **Route:** /library/hooks/<id> → close (X) → /library?tab=hooks
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28T09:37:57Z
 - **Found by:** bug-library-hooks-id-r2
 - **Fingerprint:** `/library/hooks/<id>|hooks-tab-search-and-category-filter|close-hook-detail-view|filters-and-search-text-reset-to-default`
 - **Evidence:** `bug-hunter/evidence/library-hooks-id/BUG-20260828-093757-library-hooks-id/`
+- **Verified:** 2026-08-29 (6-verifier, lane4) — `tests/integration/e2e/suites/08_library/test_iss360_hook_detail_close_preserves_filter.py`
+  ran XPASS(strict) ("[XPASS(strict)] ISS-360 unfixed" is the pass signal), `xfail` marker
+  removed, re-run plain green (1 passed, 4.4s). Manual re-run of the ORIGINAL repro in the
+  browser (lane4, qa-admin, `/library?tab=hooks`): typed "session", clicked SessionStart pill →
+  URL `?tab=hooks&category=SessionStart&search=session`, 1 card; opened "Session Context
+  Loader" detail (`/library/hooks/session-start?tab=hooks&category=SessionStart&search=session`);
+  closed via the header X — URL returned to `?tab=hooks&category=SessionStart&search=session`
+  (not the bare `?tab=hooks` from before), search box still read "session", still 1 card shown.
+  No console errors. Regression `suites/08_library/test_library.py`: 24 PASS / 0 FAIL. Frontend
+  `npx tsc --noEmit` on the two touched files (`LibraryPage.tsx`, `routes.ts`): 0 errors (the
+  full-project run surfaces pre-existing unrelated test-file errors in
+  `HomeLaunchGrid.crossAccountLeak.test.tsx`, `api.sessionExpiryRedirect.test.ts`,
+  `listenerMiddleware.test.ts` — none touch this fix). Backend `:8000/docs` 200; no restart
+  needed (frontend-only fix). `lint-imports` (from `backend/`): same pre-existing
+  `kernel imports only capability ports` break (`engine -> kernel_services -> app.api.run_engine`,
+  `revision_analyzer -> app.api.run_commands`), unrelated to the changed files. Sibling cards
+  ISS-592/593/594 (Agents/Skills tabs, Back button) share this fix but were not in this bug's
+  card set and were not exercised here.
 
 ### Summary
 On the Library "Hooks" tab, typing a search query and/or selecting a category pill (e.g.
@@ -5725,17 +9824,98 @@ unfiltered "All" state every time a hook detail view is closed.
 - State/URL: `/library?tab=hooks&category=SessionStart` → `/library/hooks/session-start` →
   closes to `/library?tab=hooks` (category param and search box state both lost); reproduced
   identically with `category=PostToolUse` + search=`quality`
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — reproduced identically on 3 independent cold-start
+  cycles (search=`session`+SessionStart, search=`quality`+PostToolUse, search=`config`+PreToolUse);
+  no axis variation needed
+- **Issue card:** [ISS-360](../.knowledge/cards/20260828-1917-ISS-360.md)
+- **Root cause:** The loss happens on OPEN, not on close. `routes.libraryHook`/`libraryAgent`/
+  `librarySkill` (`frontend/src/lib/routes.ts:127,129,131`) build a bare detail path with no query
+  string, and that `router.push` remounts the whole `DashboardPage` tree under the `[...view]`
+  catch-all — a confirmed, tested finding already documented in this codebase at
+  `frontend/src/app/[...view]/page.tsx:3238`. The remount reinitializes every `useState` in
+  `LibraryPage.tsx`: `hookSearch`/`skillSearch`/`searchQuery` (`:539,537,522`) have no
+  URL-derivation at all, and `hookEvent`/`skillCategory`/`activeCategory` (`:538,536,521`) derive
+  from the URL only via a one-shot mount initializer. `closeDetailModal` (`:635-641`) is not
+  broken — it correctly threads whatever category state it's handed; that state was already reset
+  to defaults before the X button was ever clicked.
+- **Blast radius:** all 3 detail-route builders in `routes.ts` (`libraryAgent`/`librarySkill`/
+  `libraryHook`), each with exactly one caller in `LibraryPage.tsx` (`:828`/`:908`/`:1005`), all
+  funneling through the same `closeDetailModal`; plus the browser Back button, which reaches the
+  identical already-lost state via the T16 effect (`:643-665`) without ever calling
+  `closeDetailModal`.
+- **Proposed fix:** in `routes.ts`, not per-caller — thread `{tab, category, search}` through
+  `libraryAgent`/`librarySkill`/`libraryHook` (mirroring `routes.library`'s own params), and add a
+  `search`/`q` param to the URL-seed pattern `LibraryPage.tsx:520-521` already uses for category so
+  `searchQuery`/`skillSearch`/`hookSearch` survive the remount the same way.
+- **Issue cards:** [ISS-360](../.knowledge/cards/20260828-1917-ISS-360.md) (root, root cause
+  appended this pass), [ISS-592](../.knowledge/cards/20260829-0117-ISS-592.md) (sibling: Agents
+  tab), [ISS-593](../.knowledge/cards/20260829-0117-ISS-593.md) (sibling: Skills tab),
+  [ISS-594](../.knowledge/cards/20260829-0117-ISS-594.md) (sibling: browser Back button, all 3
+  tabs)
+- **Fix card:** [FIX-407](../.knowledge/cards/20260829-0441-FIX-407.md) — `routes.libraryAgent`/
+  `librarySkill`/`libraryHook` now take the list's `{tab, category, search}` and `routes.library`
+  gained a `search` param, so the remount a detail navigation triggers re-seeds the filters off
+  the URL; `LibraryPage`'s search box, category chips and empty-state Clear all write `search`
+  through one `applySearch` handler. All 4 tests XPASS(strict);
+  `suites/08_library/test_library.py` 24 PASS as regression.
 
 ## BUG-20260828-094120-settings-ai-model-r2 — Concurrent `PUT /api/settings/preferences` calls silently lose one write and return a false-success response with the WRONG persisted value
 
 - **Page:** Settings — AI Model
 - **Route:** /settings/ai-model
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 (6-verifier) — `backend/tests/unit/test_settings_preferences_race.py`
+  ran XPASS(strict) ("1 failed" is the pass signal — `[XPASS(strict)] ISS-319 unfixed`), then
+  `xfail` marker removed and re-run plain green (`1 passed`). Manual re-run of the ORIGINAL
+  repro in the browser (lane6, qa-admin, `/settings/ai-model`, baseline
+  `eu.anthropic.claude-haiku-4-5-20251001-v1:0`): 3 concurrent PUT trials
+  (opus-4-6/sonnet-4-5, sonnet-4-5/haiku-4-5, opus-4-6/opus-4-5), each request's own 200 body
+  now reports its OWN requested model (previously the losing request's body echoed the winner's
+  value) — 3/3, matching the validator's cycle count. `GET` and DB state confirmed consistent
+  with the winner each time; baseline restored via a final PUT. No console errors. Frontend
+  `npm run build` exit 0; backend `:8000/docs` 200 (pure `.py` fix, `--reload` already picked it
+  up, no restart needed); `lint-imports` (run from `backend/`) shows the SAME pre-existing
+  `kernel imports only capability ports` break (`engine -> kernel_services -> app.api.run_engine`,
+  `revision_analyzer -> app.api.run_commands`) — unrelated to `settings.py`, not touched by this
+  fix. Regression file `tests/integration/e2e/suites/09_settings/test_settings.py`: 1 failure,
+  `test_the_constitution_editor_rejects_content_over_its_stated_limit` (ISS-293, already CLOSED
+  separately) — 30s `wait_for_function` timeout on the `/settings/constitution` page reload,
+  reproduced again in isolation (not flaky). Not this fix: touches `set_constitution`/
+  `get_constitution`, a different handler on a different page with no shared code path with
+  `update_preferences` (ISS-319's card explicitly ruled `set_constitution` out of this defect's
+  blast radius). Not blocking ISS-319's close; flagged in NOTE for separate follow-up.
+- **Validated:** 3/3 cold-start cycles, 2026-08-28 — root cause: `update_preferences` in
+  `backend/app/api/settings.py:316-342` commits then `db.refresh(user)`, so a concurrent
+  request's commit lands in that window and the response body reports the OTHER request's value
+- **Root cause:** CONFIRMED — `update_preferences` (`backend/app/api/settings.py:345-353`
+  current lines; was 316-342 at validation time, shifted by `FIX-361`'s unrelated entitlement
+  check landing in between) sets `user.preferred_model`, `db.commit()`s, then `db.refresh(user)`
+  and builds the response from THAT refreshed object. Two concurrent requests each get their own
+  `Session` on the same `users` row with no version column and no `SELECT ... FOR UPDATE`; if a
+  second request's `commit()` lands between this request's own `commit()` and `refresh()`, this
+  request's `200` response reports the OTHER request's value while its own write is silently
+  overwritten with no error to either caller.
+- **Blast radius:** frontend — one caller, `AccountSettings.tsx:143` (`handleSaveModel`); 8
+  downstream readers of `user.preferred_model` in `run_commands.py` inherit whichever value wins
+  the race; two INFERRED siblings with the identical commit-then-refresh-then-respond-from-the-
+  refreshed-object shape (grepped every `db.refresh(` site in `backend/app/api/`):
+  `upsert_github_pat` (same file) and `admin.py`'s `update_user_tier`/`update_user_role`
+  (privilege fields — a materially more serious instance if confirmed).
+- **Proposed fix:** at each of the 3 sites, build the response from the value the request itself
+  already validated and just committed (`model_id` / local `gh_user`+`scopes_header` /
+  `request.tier`+`request.is_admin`) instead of a post-`db.refresh()` re-read — one line per
+  site, no shared function needed for 3 differently-shaped responses, no migration required.
 - **Found at:** 2026-08-28 09:41 UTC
 - **Found by:** bug-settings-ai-model-r2
 - **Fingerprint:** `/settings/ai-model|pipeline-model-preferences-api|two-concurrent-PUT-preferences-requests|lost-update-plus-response-body-reports-wrong-preferred-model`
 - **Evidence:** `bug-hunter/evidence/settings-ai-model/BUG-20260828-094120-settings-ai-model-r2/`
+- **Issue cards:** [ISS-319](../.knowledge/cards/20260828-1804-ISS-319.md) (root),
+  [ISS-470](../.knowledge/cards/20260828-2310-ISS-470.md) (sibling: upsert_github_pat, INFERRED),
+  [ISS-471](../.knowledge/cards/20260828-2310-ISS-471.md) (sibling: admin.py tier/role, INFERRED)
+- **Fix card:** [FIX-382](../.knowledge/cards/20260829-0223-FIX-382.md) — the 200 body is
+  built from the request's own validated `model_id`, not a post-`db.refresh()` re-read of the
+  row; resolves ISS-319. ISS-470/ISS-471 (INFERRED siblings, unvalidated, no tests) stay open.
 
 ### Summary
 `PUT /api/settings/preferences` is not safe under concurrent writes for the same user. When two
@@ -5804,7 +9984,53 @@ preference — a false-positive success with fabricated response content, not me
 - **Page:** Settings · Usage & Limits (entitlement claim) / Create composer (unenforced route)
 - **Route:** /create/prototype (reproducible pattern likely applies to any tier-restricted `/create/<type>`)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** `tests/integration/e2e/suites/03_launch_panels/test_iss321_wizard_no_tier_gate.py` — XPASS(strict)
+  confirmed pre-change, `xfail` marker removed, re-run plain green
+  (`test_basic_tier_cannot_reach_submit_ready_prototype_wizard[chromium] PASS`, 51.4s). Manual
+  repro re-run by hand in lane4 Chrome, cold session: signed in `qa-basic@flowinqa.com`, direct
+  navigation to `/create/prototype`, typed the full brief — Continue stayed `[disabled]` and a
+  "Requires Pro plan — your plan does not include this deliverable." lock banner rendered where
+  the enabled Continue used to be. Screenshot
+  `bug-hunter/evidence/settings-usage/BUG-20260828-094937-settings-usage-r2/04-after-fix-continue-disabled-locked-basic.png`
+  sits next to the original failure shots. No console errors on the page. Frontend unit tests
+  `LaunchWizard.test.tsx` 19/19 pass; `tsc --noEmit` unchanged pre-existing 11 errors, none in
+  LaunchWizard.tsx. `backend/` untouched by this fix — `lint-imports` (run from `backend/`)
+  shows the same pre-existing `kernel imports only capability ports` break unrelated to this
+  change. Regression file `suites/03_launch_panels/test_launch_panels.py`: 1 failure
+  (`test_the_advanced_control_opens_the_agent_roster`, S-03-11, agent-count mismatch on
+  `/create/user-stories` → `IdeaInputPage`, pre-existing and unrelated to `LaunchWizard.tsx`),
+  19/20 pass including every wizard scenario. Only ISS-321 is closed by this fix; ISS-472,
+  ISS-473, ISS-474 remain open per FIX-386's own scope notes.
+- **Root cause:** CONFIRMED — `frontend/src/app/[...view]/page.tsx`'s `wizardMode` render branch
+  (`:3833-3838`) returns `<LaunchWizard>` unconditionally with no call to
+  `canRunPipeline`/`can_run_pipeline`, even though `user.tier` is already fetched in the same
+  component (`:868-877`) and the shared client-side check
+  (`frontend/src/lib/entitlements.ts:94`, `canRunPipeline(tier, pipelineType)`) already exists
+  and is correctly used by `HomeLaunchGrid.tsx:221,280` for the dashboard catalog card.
+- **Blast radius:** the missing gate is not unique to the `wizardMode` branch. Three distinct
+  render surfaces reached through the same catch-all (or bypassing it) share the identical
+  absence: `DashboardLayout.tsx:2901-2930` renders `<IdeaInputPage>` for `mainView==="input"`
+  (`/create/app`, `/create/user-stories`, any catalog `/create/<type>`) with no `userTier` prop
+  at all; `DashboardLayout.tsx:2937-2946` renders `<ComposerPage>` for `mainView==="composer"`
+  (built-in `/workflows/{type}/canvas`, ADR-0014) likewise; and
+  `frontend/src/app/workflow/create/page.tsx:24` is a SEPARATE Next.js route (outside the
+  `[...view]` catch-all entirely) that renders `<LaunchWizard>` unconditionally — reachable both
+  by direct URL and via `handleLaunchSaved`'s `router.push` when relaunching a saved
+  ppt/prototype workflow (`DashboardLayout.tsx:1547,1574`) and via `CreationHub.tsx:31,35`. The
+  T17 redirect a comment in `page.tsx:3628` claims neutralizes that route does not exist in the
+  current `frontend/next.config.ts` (only 4 unrelated redirect rules; no `middleware.ts` either).
+- **Proposed fix:** call `canRunPipeline(tier, pipelineType)` at the one choke point
+  `[...view]/page.tsx` already has both values in scope — before the `wizardMode` early return
+  and before `mainView` is allowed to resolve to `"input"`/`"composer"` for an unentitled type —
+  or push the same check into `LaunchWizard` itself (the actual shared component both
+  `page.tsx` and `workflow/create/page.tsx` render), since a guard added only inside
+  `[...view]/page.tsx` would still leave `workflow/create/page.tsx`'s render unfixed.
+- **Fix cards:** [FIX-386](../.knowledge/cards/20260829-0242-FIX-386.md) — tier gate in `LaunchWizard.tsx` (the component BOTH render sites mount), Continue disabled + "Requires Pro plan" lock banner; e2e XPASS(strict).
+- **Issue cards:** [ISS-321](../.knowledge/cards/20260828-2002-ISS-321.md) (root),
+  [ISS-472](../.knowledge/cards/20260829-0110-ISS-472.md) (sibling: IdeaInputPage/mainView="input", INFERRED),
+  [ISS-473](../.knowledge/cards/20260829-0111-ISS-473.md) (sibling: standalone /workflow/create legacy page, INFERRED),
+  [ISS-474](../.knowledge/cards/20260829-0112-ISS-474.md) (sibling: ComposerPage/built-in canvas, INFERRED)
 - **Found at:** 2026-08-28 09:49 UTC
 - **Found by:** bug-settings-usage-r2
 - **Fingerprint:** `/create/prototype|composer-wizard|direct-url-navigation-basic-tier|full-multistep-wizard-loads-and-reaches-enabled-continue-despite-tier-not-entitled`
@@ -5877,12 +10103,77 @@ still correctly rejects the pipeline_type at actual run creation.
   distinct route, component and trigger (subscription-tier entitlement vs. unreleased-feature
   flag), not a duplicate of it.
 
+- **Validated:** 3/3 on 2026-08-28, cold start every cycle — direct URL entry to
+  `/create/prototype` as `qa-basic` bypasses the dashboard's correctly-locked catalog card;
+  `[...view]/page.tsx` never gates the wizard on `can_run_pipeline`.
+- **Issue card:** [ISS-321](../.knowledge/cards/20260828-2002-ISS-321.md)
+
 ## BUG-20260828-095800-settings-constitution-r2 — "Clear" on Constitution deletes the saved value immediately, with no confirmation and no relation to "Save"
 
 - **Page:** Settings · Constitution
 - **Route:** /settings/constitution
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 — unit `AccountSettings.render.test.tsx` 8/8 green; `tsc --noEmit`
+  clean on `AccountSettings.tsx`; manual repro in real Chrome (qa-admin,
+  `/settings/constitution`) reproduced the fix exactly as FIX-385 documents: clicking "Clear"
+  now raises a native confirm ("Clear your constitution? This permanently deletes the saved
+  instructions prepended to every agent on every run."), dismissing it leaves `GET
+  /api/settings/constitution` returning the saved value (`"E2E S-09-12: answer in exactly one
+  sentence."`), accepting it still deletes (`{"content": null}`) — matches expected behavior.
+  Restored via `PUT` + reload, confirmed 44/4000 chars back. No new console errors on the page.
+  The e2e test `test_clear_constitution_requires_confirmation_before_deleting` was run 5 times
+  (not just the fixer's 3): 4× `xfail`, 1× hard `FAILED` — the same
+  `Dialog.dismiss: Cannot dismiss dialog which is already handled` crash FIX-385 already
+  attributed to the test's own double dialog-handler bug, filed separately as ISS-581. It never
+  reached XPASS in any run, so the `xfail` marker was left in place (removing it would make the
+  suite intermittently red for a defect unrelated to this fix). Running the full
+  `test_settings.py` file surfaced one cascade failure in
+  `test_the_constitution_editor_rejects_content_over_its_stated_limit`, caused by the same
+  ISS-320 test crash leaving browser/page state dirty mid-suite; run alone it passes cleanly —
+  not a regression. `lint-imports` (from `backend/`) shows one pre-existing broken contract
+  (`kernel imports only capability ports`, unrelated `agents.execution_engine` → `app.api`
+  edges) — untouched by this frontend-only fix.
+- **Validated:** 3/3 on 2026-08-28, cold start every cycle — reproduces on the untouched saved
+  value and also with an unsaved draft in the textarea; "Clear" always deletes the persisted
+  backend value with no confirmation, independent of local draft state.
+- **Root cause:** CONFIRMED — `ConstitutionSection`'s `handleDelete`
+  (`frontend/src/components/settings/AccountSettings.tsx:549-566`) is wired directly to the
+  "Clear" button's `onClick` (`:630`) with no intermediate confirm step (no `window.confirm`,
+  no modal, no two-step "are you sure"). On a `200` it fires `DELETE
+  /api/settings/constitution` synchronously and sets local `content`/`status` to match — the
+  backend delete (`backend/app/api/settings.py:402-410`, `delete_constitution`) is a hard
+  delete with no soft-delete/versioning, so the frontend click is the only safeguard that could
+  exist, and it does not exist. `handleDelete` has exactly one call site (its own button); it is
+  a local closure, not a shared function.
+- **Blast radius:** `grep -rn "window.confirm" frontend/src` returns exactly ONE hit in the
+  entire frontend (`DashboardLayout.tsx:1717`, a navigation guard, not a delete confirmation) —
+  no destructive-delete call site anywhere in the app is confirmation-gated. Three other live,
+  UI-wired call sites share the identical shape (grepped every `http.delete`/`method: "DELETE"`
+  site and its onClick wiring): `SkillManager.tsx:99-114/221` (`deleteSkill`, agent skill
+  delete), `IntegrationsCard.tsx:123-139/245` (`handleDeletePat`, GitHub PAT remove) and
+  `IntegrationsCard.tsx:161-176/360` (`handleRevoke`, API-key revoke). A fourth path
+  (`AccountSettings.tsx:230-234`, the settings `Tabs onChange` handler) silently unmounts
+  `ConstitutionSection` and discards an unsaved draft with the same zero-confirmation gap,
+  distinct from the already-filed Back-button case (ISS-372).
+- **Proposed fix:** no shared confirm-before-destroy primitive exists in
+  `frontend/src/components/ui/` for any of these call sites to route through. Add one there
+  (e.g. a `useConfirm()`/`ConfirmDialog`) and route `handleDelete`, `deleteSkill`,
+  `handleDeletePat` and `handleRevoke` through it, plus a dirty-check on the Constitution tab's
+  `Tabs onChange`. A guard added only inside `AccountSettings.tsx` leaves the other three call
+  sites broken.
+- **Fix card:** [FIX-385](../.knowledge/cards/20260829-0241-FIX-385.md) — `handleDelete` now
+  returns early unless a `window.confirm` is accepted, so an unconfirmed "Clear" never sends
+  the DELETE; accepting it still deletes. Verified directly against the running app (dismiss →
+  `GET /api/settings/constitution` still returns the saved value; accept → `{"content": null}`).
+  The card's e2e test still reports `xfail` for two defects of its OWN, filed as
+  [ISS-581](../.knowledge/cards/20260829-0241-ISS-581.md) — its setup's typed marker is
+  overwritten by the editor's second mount fetch before Save reads it, and its
+  `page.on("dialog")` duplicates conftest's autouse dismisser. The test was NOT edited.
+- **Issue cards:** [ISS-320](../.knowledge/cards/20260828-1802-ISS-320.md) (root),
+  [ISS-480](../.knowledge/cards/20260828-2320-ISS-480.md) (sibling: SkillManager delete, INFERRED),
+  [ISS-481](../.knowledge/cards/20260828-2321-ISS-481.md) (sibling: IntegrationsCard PAT/API-key, INFERRED),
+  [ISS-482](../.knowledge/cards/20260828-2322-ISS-482.md) (sibling: Constitution tab-switch draft loss, INFERRED)
 - **Found at:** 2026-08-28 09:58 UTC
 - **Found by:** bug-settings-constitution-r2
 - **Fingerprint:** `/settings/constitution|clear-button|click-clear|immediate-unconfirmed-delete-of-saved-constitution`
@@ -5948,7 +10239,14 @@ constitution.
 - **Page:** Login (session-expired variant)
 - **Route:** /login?expired=true (entered via a protected route's 401)
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 by 6-verifier — `frontend/src/lib/api.sessionExpiryRedirect.test.ts` XPASS confirmed (`.fails` marker fired, "Error: Expect test to fail"), `.fails` removed, re-run plain green (1 passed). Regression files green: `routes.test.ts` (59 passed), `api.test.ts` (2 passed), `api.refreshRetry.test.ts` (6 passed). `npx tsc --noEmit` clean on both changed files. `npm run build` succeeds. Manual repro by hand in real Chrome (lane6), same conditions as validation: signed in qa-admin -> `/settings/ai-model` loads -> corrupted `auth_token` -> re-nav -> redirected to `http://localhost:3000/login?expired=true&redirect=%2Fsettings%2Fai-model` (redirect param now present, "Your session expired" banner shown) -> signed back in -> landed on `/settings/ai-model` with AI Model tab selected, NOT `/dashboard`. No console errors on the page. Backend `:8000/docs` 200 (frontend-only fix, no restart required). `lint-imports` (run from `backend/`) shows 1 pre-existing broken contract (`agents.execution_engine.engine` -> `app.api` via `kernel_services`/`revision_analyzer`) unrelated to this fix — zero backend files touched by FIX-384, not this verification's to fix. After screenshot: `bug-hunter/evidence/login-expired-true/BUG-20260828-101500-login-expired-true-r2/06-after-fix-relogin-lands-on-settings-ai-model.png`.
+- **Root cause:** `handleSessionExpiry()` (`frontend/src/lib/api.ts:175-180`) navigates via `routes.login({ expired: true })`, and `routes.login`'s param type (`frontend/src/lib/routes.ts:25-27`) has no `redirect` field at all, so the mid-session-expiry path can never attach one — unlike the signed-out guard's `buildLoginRedirect()` (`frontend/src/lib/authRedirect.ts:43-49`), which already builds and open-redirect-guards one. The read side already works correctly: `login/page.tsx:55` (mount guard) and `:67` (`goToDestination`, called from both the plain-password submit and every Cognito-challenge branch) both consume `searchParams.get("redirect")` via `resolveRedirectTarget` whenever it is present.
+- **Blast radius:** all 13 confirmed call sites of the one shared `handleSessionExpiry()` function — `api.ts`'s own `fetchWithAuth` and `authedFetch`, `store/api/http.ts`'s axios interceptor, `useHandoffSocket.ts`, `useRunStream.ts`, `prototype-api.ts`, `ppt-api.ts`, `api-handoff.ts`, `LaunchWizard.tsx` (x2), `[...view]/page.tsx` (x3) — one function, so one fix (extend `routes.login`'s signature + the one call site inside `handleSessionExpiry()`) covers every caller; none needs its own change.
+- **Issue cards:** [ISS-322](../.knowledge/cards/20260828-2007-ISS-322.md) (root), [ISS-486](../.knowledge/cards/20260828-2335-ISS-486.md) (sibling, INFERRED: a query-string-bearing protected route, e.g. `/analytics?range=&pipeline=`, is untested by ISS-322's two validated routes and is the shape most likely to expose a nested-query-string encoding bug in the fix)
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — cold start, corrupted `auth_token` on `/settings/ai-model`, no `redirect` param ever attached, re-login always lands on `/dashboard`
+- **Issue card:** [ISS-322](../.knowledge/cards/20260828-2007-ISS-322.md)
+- **Fix card:** [FIX-384](../.knowledge/cards/20260829-0232-FIX-384.md) — `routes.login` gains `redirect?: string`; `handleSessionExpiry()` passes `window.location` pathname+search through `buildQueryString`
 - **Found at:** 2026-08-28 10:15 UTC
 - **Found by:** bug-login-expired-true-r2
 - **Fingerprint:** `/login|auth-guard|mid-session-token-expiry-on-protected-route|redirect-param-dropped-lands-on-dashboard-not-original-route`
@@ -6016,11 +10314,60 @@ mechanism works correctly when the user was signed out to begin with.
 - **Page:** Analytics
 - **Route:** /analytics
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Fixed:** 2026-08-29 — [FIX-405](../.knowledge/cards/20260829-0423-FIX-405.md); `AnalyticsPage.tsx`
+  `dailyData` now sets `tip: `${label}: ${formatTokens(d.total_tokens)}`` for token-bearing days
+  (`:246-257`), leaving `BarChart.tsx` untouched. `AnalyticsPage.test.tsx` ran 9 passed + the
+  ISS-369 `it.fails` guard XPASSing (`Error: Expect test to fail`) = fix confirmed; marker left
+  in place for the verifier. `npx tsc --noEmit` clean for analytics files.
+- **Verified:** 2026-08-29 — `frontend/src/components/analytics/AnalyticsPage.test.tsx` XPASSed
+  the ISS-369 guard (`Error: Expect test to fail`, 9 passed + 1 XPASS), `xfail`/`it.fails` marker
+  removed, re-run plain green (10 passed, 1.51s). Regression check
+  `frontend/src/components/analytics/charts/BarChart.test.tsx` (untouched, the shared primitive):
+  3 passed. Manual repro by hand in the browser (lane5, qa-admin, real Chrome, `/analytics?range=all`):
+  hovered the "Aug 24" bar in Daily Activity — tooltip now reads `Aug 24: 2.4M`, matching the KPI
+  tile/By Pipeline Type/By Model formatting convention on the same page; no raw `2364478` anywhere
+  in the DOM. No new console errors/warnings on the page. `npx tsc --noEmit` clean for analytics
+  files. `lint-imports` (run from `backend/`) shows 1 pre-existing broken contract
+  (`agents.execution_engine.engine` → `app.api.*` via `kernel_services`/`revision_analyzer`) —
+  unrelated to this frontend-only fix, not introduced by it, not touched here.
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — deterministic on every cold-start hover, no timing/axis needed
+- **Issue cards:** [ISS-369](../.knowledge/cards/20260828-1933-ISS-369.md) (root — filed by the
+  validator during CONFIRMED, root cause independently re-confirmed by this analysis; no new
+  sibling cards filed, see Blast radius)
 - **Found at:** 2026-08-28 10:29 UTC
 - **Found by:** bug-analytics-r2
 - **Fingerprint:** `/analytics|daily-activity-chart-tooltip|hover-a-bar|raw-unformatted-integer-instead-of-K-M-abbreviation`
 - **Evidence:** `bug-hunter/evidence/analytics/BUG-20260828-102900-analytics-r2/`
+- **Root cause:** CONFIRMED (read directly). `BarChart`'s per-bar hover tooltip
+  (`frontend/src/components/analytics/charts/BarChart.tsx:85-89`) composes
+  `` `${d.label}: ${d.value}` `` — the raw JS number — whenever the caller does not supply the
+  datum's optional `tip` field (`BarDatum.tip`, `BarChart.tsx:39`, already an extension point for
+  exactly this). `AnalyticsPage.tsx` builds the Daily Activity series (`dailyData`,
+  `AnalyticsPage.tsx:246-250`) and passes it straight to `<BarChart data={dailyData} .../>`
+  (`:411-414`) without ever setting `tip` — every OTHER number on the page is routed through
+  `formatTokens()` (`AnalyticsPage.tsx:64-67`) before display, but this one series never is, so it
+  falls through to `BarChart`'s raw-number default.
+- **Blast radius:** CONFIRMED (exhaustive grep, both directions) — zero siblings found.
+  `grep -rn "BarChart" frontend/src/` shows exactly ONE production JSX usage of the component
+  (`AnalyticsPage.tsx:411`; the other hits are the unrelated `BarChart2` lucide icon in
+  `AppHeader.tsx` and the component's own test file). `grep -rln "getAnalyticsSummary\|AnalyticsSummary"
+  frontend/src/` shows exactly one other consumer, `HomeLaunchGrid.tsx`, which reads only
+  `analytics?.type_avg_duration_sec` (a duration estimate, unrelated field, unrelated code path) —
+  not affected. `DonutChart.tsx` (the page's other chart primitive) renders no numeric text of its
+  own; its only numeric consumer (`successRate`, 0-100) is caller-formatted directly, no
+  raw-fallback mechanism exists there. `BarChart.tsx:87-89`'s OTHER ternary branch (the "runs"
+  fallback shown when a day has zero tokens) is NOT a defect — it already matches this page's own
+  established convention that run COUNTS render as plain integers everywhere else
+  (`AnalyticsPage.tsx:383` Total Runs stat, `:476`, `:514` per-row run counts — none of those use
+  K/M or thousands separators either), so leaving it raw is correct, not broken.
+- **Fix location:** `AnalyticsPage.tsx`'s `dailyData` construction (`:246-250`) — set the datum's
+  existing `tip` field to a `formatTokens()`-wrapped string. NOT a change to `BarChart.tsx`: its own
+  header comment documents it as a "Generic presentation primitive (SC-001/INV-1): data-prop
+  driven, NO workflow-name branch" reused nowhere else today, and `AnalyticsPage.tsx` already owns
+  `formatTokens()` — the domain knowledge of what these numbers mean belongs at the one caller, not
+  baked into the shared primitive. The extension point (`BarDatum.tip`) already exists; this is a
+  same-file, few-line fix, not a new abstraction.
 
 ### Summary
 Every number displayed elsewhere on the Analytics page (KPI tiles, By Pipeline Type, By Model,
@@ -6064,11 +10411,53 @@ The tooltip renders the raw JS number with no formatting: `Aug 24: 2364478`.
 - **Page:** Admin
 - **Route:** /admin
 - **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
+- **Verified:** 2026-08-29 — `tests/integration/e2e/suites/11_admin/test_iss324_duplicate_email_toast.py`
+  went XPASS(strict) with the fix in place, `xfail` marker removed, re-run plain green (2 shots,
+  7.0s). Manual repro by hand in the browser (lane6, qa-admin, real Chrome): created throwaway
+  user `zz-verify-iss324@flowinqa.com`, reopened the dialog and resubmitted the same email —
+  `POST /api/admin/users` 409'd as before, and this time the toast rendered the server text "A
+  user with this email already exists." in the DOM (`generic: A user with this email already
+  exists.`), row count stayed correct (6, no phantom row). Cleanup deleted the throwaway user,
+  table back to 5. `npx tsc --noEmit` shows zero errors touching `admin/page.tsx` (pre-existing
+  unrelated test-file TS errors confirmed present before the fix too, via `git stash`).
+  `lint-imports` (run from `backend/`) shows the same 1 pre-existing broken contract
+  (`agents.execution_engine.engine` -> `app.api`, unrelated to this frontend-only change) both
+  with and without the fix — not introduced by it. Regression file
+  `tests/integration/e2e/suites/11_admin/test_admin.py` — 23/23 passed on re-run (first attempt
+  hit a transient nav timeout, isolated re-run came back clean, exit code 0).
+- **Validated:** 3/3 on 2026-08-28, cycle 1 — deterministic on every duplicate-email submit, no timing/axis needed
+- **Issue cards:** [ISS-324](../.knowledge/cards/20260828-1815-ISS-324.md) (root, CONFIRMED —
+  validator-established symptom), [ISS-487](../.knowledge/cards/20260829-0138-ISS-487.md)
+  (sibling: same uncancelled-timer defect on the other 8 `showToast` call sites on /admin,
+  INFERRED — unreproduced)
 - **Found at:** 2026-08-28 10:34 UTC
 - **Found by:** bug-admin-r2
 - **Fingerprint:** `/admin|create-user-dialog|submit-duplicate-email|409-rejected-no-user-feedback`
 - **Evidence:** `bug-hunter/evidence/admin/BUG-20260828-103434-admin/`
+- **Root cause:** `showToast` (`frontend/src/app/admin/page.tsx:141-144`) sets `toast` state and
+  schedules `setTimeout(() => setToast(null), 3500)` with no `useRef`/`clearTimeout` to cancel a
+  still-pending timer from a prior call (confirmed by grep — zero `clearTimeout`/`useRef` hits in
+  the file). `handleCreateUser`'s catch (`:229-230`) DOES call `showToast("error", err.message)`
+  with the correct 409 detail (`lib/api.ts:93-104,327-358` confirms `ApiError.message` carries
+  the server string) — the toast JSX (`:567-583`) is an unconditional sibling of the create-modal,
+  not gated on it. The only way `toast` goes falsy other than its OWN later call is an EARLIER
+  call's stale timer firing — so a second `showToast` within ~3.5s of a first (exactly what a
+  scripted repro of "create once, then create the duplicate" produces) has its toast erased by
+  the first call's leftover timer, deterministically for a consistently-paced repro. Ruled out
+  ISS-324's other candidate ("modal re-render clobbers the mount") — no code path connects
+  `showCreate` state to `toast` state in the 587-line file. CONFIRMED: the missing cancellation.
+  INFERRED: that this alone fully explains "never visible even once" vs. "a sub-second flash
+  easily missed" — settling that needs a timed re-repro or a component test (see ISS-487).
+- **Blast radius:** `showToast` is page-local, not exported (`grep -rln "showToast" frontend/src`
+  → only this file), so every caller is inside `admin/page.tsx`: `loadUsers` failure (`:163`),
+  `handleUpdateTier` success/failure (`:198,201`), `handleUpdateRole` success/failure
+  (`:211,214`), `handleCreateUser` success/failure (`:228,230` — the reported bug), `handleDeleteUser`
+  success/failure (`:243,245`). All nine share the identical unguarded timer.
+- **Fix location:** Inside `showToast` itself (`admin/page.tsx:141-144`) — hold the pending timer
+  id in a `useRef` and `clearTimeout` it before scheduling the next one. One guard in the shared
+  function fixes all nine callers; patching only `handleCreateUser`'s catch would leave the other
+  eight (and create's own success path) exposed to the same race.
 
 ### Summary
 The "Create New User" dialog on `/admin` does not check for an existing email before enabling
@@ -6127,11 +10516,99 @@ The admin sees no difference between "it's still processing" and "it silently fa
 - **Page:** Handoff settings — GitHub PAT and API keys
 - **Route:** /handoff/settings
 - **Severity:** Low
-- **Status:** Open
+- **Status:** CLOSED
+- **Validated:** 3/3 on 2026-08-28, cycle 1 (also cycles 2 and 3) — real keystroke input (clear
+  pre-filled "Default", type three spaces) required; a synthetic `.value` + `input` event does
+  NOT reproduce it (React controlled-input tracking ignores it, fallback applies correctly)
+- **Tested:** 2026-08-29. `backend/tests/unit/test_settings_api_key_whitespace_name.py` —
+  `test_whitespace_only_name_not_stored_verbatim`, calls the real `create_api_key` handler
+  directly against an in-memory SQLite session with `ApiKeyCreateRequest(name="   ")`. Run with
+  `venv/bin/python -m pytest tests/unit/test_settings_api_key_whitespace_name.py -x -q
+  --runxfail` (from `backend/`), observed RED: `AssertionError: whitespace-only name was stored
+  verbatim as '   '; expected rejection or a non-blank fallback`. Marked
+  `@pytest.mark.xfail(reason="ISS-370 unfixed", strict=True)`; with the marker restored the file
+  reports `1 xfailed`. `issue` marker already registered in `backend/pyproject.toml`.
+- **Verified:** 2026-08-29 by 6-verifier. `venv/bin/python -m pytest
+  backend/tests/unit/test_settings_api_key_whitespace_name.py -q` (with `--runxfail`, from
+  `backend/`) reproduced the strict `[XPASS(strict)] ISS-370 unfixed` failure signal; the
+  `xfail` marker was then removed and the same file re-run to a plain `1 passed`. Manual repro
+  redone in the browser (lane5, qa-admin, cold nav to `/handoff/settings`, real keystrokes:
+  select-all + Backspace to clear "Default", then `pressSequentially('   ')`, confirmed
+  `el.value === "   "` before submit): the new key row now renders `Default`, not blank — network
+  `POST /api/settings/api-keys` response body `{"name":"Default", ...}` confirms the backend
+  strip-and-fallback. No console errors observed. Revoked the test key for cleanup. Regression:
+  `tests/integration/test_handoff_api.py` (24 passed) and `tests/unit/test_user_workflows.py`
+  (39 passed), both from `backend/`. `lint-imports` from `backend/`: 3 kept / 1 broken, the same
+  pre-existing `kernel imports only capability ports (scaffold)` contract break, confirmed
+  unrelated (implicated files `engine.py`/`run_commands.py` carry unrelated ISS-276/ISS-316
+  changes, not touched by this fix). `npx tsc --noEmit` in `frontend/`: 13 errors, all in
+  `HomeLaunchGrid.crossAccountLeak.test.tsx`, `api.sessionExpiryRedirect.test.ts`,
+  `listenerMiddleware.test.ts` — none in `IntegrationsCard.tsx`, confirmed pre-existing and
+  unrelated. `curl :8000/docs` → 200 throughout (pure Python fix, `--reload` picked it up, no
+  restart required). After-screenshot:
+  `bug-hunter/evidence/handoff-settings/BUG-20260828-103900-handoff-settings-r2/03-after-fix-new-key-shows-default.png`.
+- **Issue card:** [ISS-370](../.knowledge/cards/20260828-2136-ISS-370.md)
+- **Fix card:** [FIX-410](../.knowledge/cards/20260829-0249-FIX-410.md) — `create_api_key`
+  (`backend/app/api/settings.py`) now stores `payload.name.strip() or "Default"`, and
+  `IntegrationsCard.tsx:154` sends `keyName.trim() || "Default"`. Sibling ISS-601 closed in the
+  same pass: a `field_validator` on `SaveUserWorkflowRequest`/`UpdateUserWorkflowRequest` name
+  strips and 422s on blank-after-strip. `tests/unit/test_settings_api_key_whitespace_name.py`
+  XPASS(strict).
 - **Found at:** 2026-08-28 10:39 UTC
 - **Found by:** bug-handoff-settings-r2
 - **Fingerprint:** `/handoff/settings|velocityai-api-key-create|submit-whitespace-only-name|key-list-entry-renders-with-no-visible-name-label-forever`
 - **Evidence:** `bug-hunter/evidence/handoff-settings/BUG-20260828-103900-handoff-settings-r2/`
+- **Root cause:** CONFIRMED (file:line read). Two-part gap, both required to explain the
+  permanent blank name. (1) Frontend — `frontend/src/components/handoff/IntegrationsCard.tsx:154`,
+  `handleCreateKey` calls `createApiKey(token, keyName || "Default")` against the RAW `keyName`
+  state (`onChange={(e) => setKeyName(e.target.value)}`, `IntegrationsCard.tsx:399`, never
+  trimmed) — a whitespace-only string is truthy in JS, so the `||` fallback never fires and the
+  raw whitespace is sent verbatim. (2) Backend — `backend/app/api/settings.py:77`,
+  `ApiKeyCreateRequest.name: str = Field(default="Default", min_length=1, max_length=64)` counts
+  raw characters, not trimmed content, so a 3-space string satisfies `min_length=1`; the handler
+  `create_api_key` (`settings.py:229-255`) never calls `.strip()` on `payload.name` before storing
+  it (`name=payload.name`, line 237) — unlike its OWN sibling handler in the same file,
+  `upsert_github_pat` (`settings.py:126-128`: `pat = payload.pat.strip(); if not pat: raise
+  HTTPException(422, ...)`), which already does both. The stored whitespace then renders raw at
+  `IntegrationsCard.tsx:366` (`{k.name}`, no fallback for blank/whitespace text); confirmed no
+  PATCH/PUT exists for `/api-keys` (`settings.py` routes are POST/GET/DELETE only), matching the
+  report's "permanent, unfixable from the UI" claim. Extends
+  [ISS-370](../.knowledge/cards/20260828-2136-ISS-370.md), whose own root-cause section cites the
+  same frontend line as `:147` — the file on disk has this code at `:154` today (a 7-line drift
+  from unrelated edits since ISS-370 was authored, not a different mechanism).
+- **Blast radius:** Frontend — `createApiKey` (`frontend/src/lib/api-handoff.ts:168`) has exactly
+  ONE reachable caller, `IntegrationsCard.tsx:154` (confirmed via
+  `grep -rn "createApiKey" frontend/src`), but `IntegrationsCard` is mounted at TWO routes sharing
+  that identical `handleCreateKey`: the standalone `/handoff/settings` page
+  (`frontend/src/app/handoff/settings/page.tsx:54`) and inline as the onboarding state inside
+  `/flowin-handoff` (`frontend/src/components/handoff/HandoffWorkflow.tsx:352`) — both exhibit the
+  bug identically. A second, structurally-identical `createApiKey`
+  (`frontend/src/store/api/settings.ts:41`) hits the same `POST /api/settings/api-keys` endpoint
+  with the same missing-trim shape, but grepping every consumer of `settingsApi`/`api.settings` in
+  `frontend/src` found zero call sites — dead/unwired code today, not a live caller, not filed.
+  Backend — `create_api_key` (`settings.py:229`) is the sole handler constructing a `UserApiKey`
+  row; confirmed no other call site. Checked the same schema shape (`name: str =
+  Field(min_length=1, ...)`, no whitespace defense) at the two other user-naming endpoints in the
+  backend: `backend/app/api/user_agents.py:66` — NOT vulnerable, `create_user_agent`/
+  `update_user_agent` already `.strip()` and 422 on blank-after-strip
+  (`user_agents.py:179-184,235-240`); `backend/app/api/user_workflows.py:206`
+  (`SaveUserWorkflowRequest.name`) — same latent gap (no `.strip()` anywhere in the file), but
+  every live frontend caller already trims client-side before sending (`ComposerPage.tsx:1109,1119`;
+  the shared `NameWorkflowModal.tsx:39,107-108`, used by both `SavedWorkflowsPage.tsx`'s rename
+  action and `AgentsPopup.tsx:2434`'s save-to-catalogue action) — not reachable via any known UI
+  path today, filed as an INFERRED sibling rather than a reproduced defect.
+- **Proposed fix:** Belongs in the BACKEND, `create_api_key` (`settings.py:229-237`) — the single
+  choke point every caller (current and the dead `store/api/settings.ts` one) routes through:
+  `name = payload.name.strip() or "Default"` before constructing `UserApiKey`, mirroring the
+  pattern already established in the same file's `upsert_github_pat` and in `user_agents.py`'s
+  create/update handlers. A matching one-line frontend trim (`keyName.trim() || "Default"` at
+  `IntegrationsCard.tsx:154`) avoids an unnecessary round trip and matches this codebase's
+  convention of guarding both layers, but the backend fix is what closes the defect for every
+  caller, present and future.
+- **Issue cards:** [ISS-370](../.knowledge/cards/20260828-2136-ISS-370.md) (root — CONFIRMED),
+  [ISS-601](../.knowledge/cards/20260829-0138-ISS-601.md) (sibling, INFERRED:
+  `SaveUserWorkflowRequest.name` in `user_workflows.py` has the identical unstripped
+  `min_length=1` gap, currently shielded only by client-side trim in every known caller)
 
 ### Summary
 The "API key name" field defaults to `"Default"` when submitted empty (`keyName || "Default"` in
@@ -6186,11 +10663,75 @@ backend, producing a key list entry with no visible name at all, forever.
 - **Page:** Missing workflow — canvas sub-route
 - **Route:** /workflows/<nonexistent-id>/canvas (e.g. /workflows/00000000-0000-0000-0000-000000000000/canvas)
 - **Severity:** High
-- **Status:** Open
+- **Status:** CLOSED
+- **Validated:** 3/3 on 2026-08-28, cycle 1 (identical on 2, 3) — cold start from /dashboard,
+  qa-admin, both `00000000-...-000` and `totally-bogus-id-12345` dead-link shapes fire the same
+  fallback; each attempt stopped immediately after confirming `agent_count: 9` via
+  `GET /api/runs/<id>` to limit Bedrock spend
+- **Verified:** 2026-08-28. `backend/tests/unit/test_rest_run_launch.py` (33 tests) run
+  standalone with the `xfail` marker still present on
+  `test_empty_custom_agent_ids_not_silently_widened_to_full_pool` — confirmed
+  `XPASS(strict)` (32 passed, 1 failed-as-XPASS), the pass signal. Removed the
+  `@pytest.mark.xfail(reason="ISS-234 unfixed", strict=True)` line (kept
+  `@pytest.mark.issue("ISS-234")`), re-ran: 33 passed, plain green. Manual repro by
+  hand in Chrome (lane6), qa-admin, signed in via existing session: navigated to
+  `/workflows/00000000-0000-0000-0000-000000000000/canvas`, confirmed "0 agents /
+  0 review gates" on screen, typed a brief, clicked "Run once". Observed
+  `POST /api/runs` return `422` in the network console, the page stayed on the
+  composer (no navigation to `/runs/<id>/stream`), and no run was minted — the
+  previously-observed 9-agent Bedrock launch no longer fires. After-screenshot:
+  `bug-hunter/evidence/workflows-nonexistent/BUG-20260828-104200-workflows-nonexistent-r2/04-verified-run-once-422-rejected-no-launch.png`.
+  Health: `curl :8000/docs` → 200 (pure `.py` fix, `--reload` already picked it up,
+  no restart needed). `backend/` `lint-imports` → 3 kept / 1 broken, identical
+  pre-existing contract break (kernel→app.api via kernel_services/revision_analyzer),
+  unrelated to this change. `frontend/npx tsc --noEmit` shows pre-existing errors in
+  `HomeLaunchGrid.crossAccountLeak.test.tsx` and `listenerMiddleware.test.ts` — no
+  frontend file was touched by this fix, so these are unrelated to it. Note: the UI
+  still gives no visible toast/warning on the 422 — that is the separate, still-open
+  affordance gap tracked on ISS-333/ISS-334, not part of this bug's scope (the fix
+  removes the expensive silent-launch consequence, per FIX-343).
+- **Issue card:** [ISS-234](../.knowledge/cards/20260828-1628-ISS-234.md)
+- **Fix card:** [FIX-343](../.knowledge/cards/20260828-2039-FIX-343.md) — `run_commands.py:2725` rejects a `custom` launch with falsy `agent_ids` (422 `no_agents_selected`) pre-mint; backend-only change, `--reload` picks it up
 - **Found at:** 2026-08-28 10:42 UTC
 - **Found by:** bug-workflows-nonexistent-r2
 - **Fingerprint:** `/workflows/<bad-id>/canvas|run-once|click-run-once-on-empty-copy-composer|launches-unrelated-default-9-agent-pipeline-consuming-real-tokens`
 - **Evidence:** `bug-hunter/evidence/workflows-nonexistent/BUG-20260828-104200-workflows-nonexistent-r2/`
+- **Root cause:** CONFIRMED (file:line read). `ComposerPage.handleRunOnce` sends
+  `currentIds = pipelineAgents.map((a) => a.id)` unconditionally, with no
+  `pipelineAgents.length === 0` guard (`frontend/src/components/workflow/composer/ComposerPage.tsx:920,939`)
+  — unlike its sibling `IdeaInputPage.handleRun`, which explicitly blocks on 0 agents
+  (`frontend/src/components/workflow/IdeaInputPage.tsx:1301-1302,1675`). The frontend then omits
+  `agent_ids` from the POST body entirely when the array is empty
+  (`frontend/src/hooks/useWorkflow.ts:88-90`). On the backend, the sole `POST /api/runs` launch
+  handler reads `agent_ids = body.agent_ids` and `if agent_ids:` is False whether the field is
+  `None` or `[]` (`backend/app/api/run_commands.py:2692,2695`), so it falls to
+  `agents = get_pipeline_agents(base_pipeline_type)` (`run_commands.py:2726`) with
+  `base_pipeline_type == "custom"`, which resolves via `PIPELINE_AGENTS["custom"] =
+  list_agent_ids("custom")` (`backend/agents/registry.py:108-115`) to the full 9-agent
+  custom-utility pool. That fallback is correct for a genuine built-in pipeline (whose roster is
+  registry/manifest-fixed) but has no legitimate meaning for `pipeline_type: "custom"`, whose
+  roster IS whatever the client selected — an empty custom roster means "nothing selected," not
+  "give me the default." (Matches and extends [ISS-234](../.knowledge/cards/20260828-1628-ISS-234.md)'s
+  own root-cause finding with fresh file:line reads of the full call chain.)
+- **Blast radius:** Single backend call site (`run_commands.py`'s `launch_run`, the one
+  `POST /api/runs` handler — confirmed no duplicate of the `if agent_ids: / else: get_pipeline_agents`
+  pattern elsewhere in the backend). On the frontend, the one unguarded call site
+  (`ComposerPage.tsx:939`) is reachable via three distinct real-world preconditions, all producing
+  `pipelineAgents.length === 0`: (1) the reported dead-link canvas 404 (this bug); (2) ANY other
+  `getWorkflowDetail` failure (network/500/timeout) on a REAL, existing built-in canvas — the
+  catch at `frontend/src/app/[...view]/page.tsx:494-496` is unconditional, not 404-specific; (3)
+  the ordinary "Compose a custom workflow" fresh-canvas entry, which starts at `pipelineAgents = []`
+  by design (`ComposerPage.tsx:275-280`) and whose "Ready to run" readiness text checks only
+  `briefText.trim().length` (`CanvasView.tsx:2282-2285`), never agent count — no dead link needed.
+  Checked and RULED OUT as a sibling: the Save path (`handleSave`/`saveUserWorkflow`) — the
+  backend's `SaveUserWorkflowRequest.agent_ids` already carries `Field(min_length=1)`
+  (`backend/app/api/user_workflows.py:212`, prior fix WR-02), so a 0-agent Save already 422s and
+  cannot persist an empty, later-launchable landmine.
+- **Issue cards:** [ISS-234](../.knowledge/cards/20260828-1628-ISS-234.md) (root — CONFIRMED),
+  [ISS-333](../.knowledge/cards/20260828-2044-ISS-333.md) (sibling, INFERRED: fresh 0-agent
+  "Compose a custom workflow" canvas, no dead link needed),
+  [ISS-334](../.knowledge/cards/20260828-2045-ISS-334.md) (sibling, INFERRED: transient fetch
+  failure on a real, existing workflow canvas reaches the same empty-roster state)
 
 ### Summary
 Following up on `BUG-20260828-040400-workflows-nonexistent` (which established that
@@ -6252,8 +10793,7 @@ real Bedrock tokens, with no indication anywhere in the composer UI that this wo
 
 - **Page:** Fullscreen preview — ready state (App Builder IDE preview, genuine payload)
 - **Route:** /preview-fullscreen (ready state, real `__app_preview__` payload from a completed App Builder run's "Full Screen" button)
-- **Severity:** Medium
-- **Status:** Open
+- **Status:** CLOSED
 - **Found at:** 2026-08-28 10:53 UTC
 - **Found by:** bug-preview-fullscreen-r2
 - **Fingerprint:** `/preview-fullscreen|app-builder-preview-file-list-builder|open-fullscreen-preview-for-a-real-app-builder-run-whose-deliverable-contains-a-markdown-###-subheading-with-a-fenced-code-sample|subheading-is-listed-as-its-own-file-with-a-malformed-name-and-downloads-as-an-extensionless-file-named-after-the-heading-text`
@@ -6286,3 +10826,118 @@ A `### Via Node.js` subheading (with an embedded JS code sample) inside the gene
 - Console: none observed
 - Network: none relevant — this is a client-side parsing/rendering defect, not a failed request
 - State/URL: reproduced on `http://localhost:3000/preview-fullscreen` (genuine `__app_preview__` payload written by the real "Full Screen" button on run `37aabc96-6e71-4d2b-ac30-90a827c8b862`); `download.suggestedFilename()` = `"Via Node.js"` on two independent clicks
+
+### Validation — 2026-08-28
+
+CONFIRMED, 3/3 cold-start cycles. The original run (`37aabc96-6e71-4d2b-ac30-90a827c8b862`)
+no longer exists in `qa-admin`'s run history (`GET /api/runs/<id>` → 404; purged/rotated
+between hunt and validation, an environment condition). Its real README markdown had already
+been captured verbatim in this entry's `notes.md`. Each cycle ran the actual
+`parseAppBuilderFilesForIDE` regex (copied from `PreviewPanel.tsx`) against that real captured
+markdown inside the live app, wrote the resulting `files[]`/`projectName` into
+`sessionStorage["__app_preview__"]` (the same shape `handleFullscreen()` writes), then from a
+cold nav to `/dashboard` with `sessionStorage.clear()` first, navigated fresh to
+`/preview-fullscreen` and exercised the real Explorer/CodeViewer/Download UI. All 3 cycles:
+Explorer lists "Via Node.js" as a 4th file, footer "4 files", `download.suggestedFilename()`
+= `"Via Node.js"`. Deterministic — no axis variation needed. Root cause: `headerRegex` in
+`frontend/src/components/preview/PreviewPanel.tsx:92` matches any `### heading` whose text
+contains a dot-plus-word-chars substring anywhere, not just real file paths.
+
+- **Issue card:** [ISS-323](../.knowledge/cards/20260828-1810-ISS-323.md)
+
+### Analysis — 2026-08-29
+
+- **Root cause (CONFIRMED):** `headerRegex` (Format 2) in `parseAppBuilderFilesForIDE`
+  (`frontend/src/components/preview/PreviewPanel.tsx:92`) — 
+  `/###\s+([\w./\-@][^\n]*\.\w+)\s*\n```[^\n]*\n([\s\S]*?)```/g` — captures any text between a
+  path-safe first character and a trailing `.\w+`, with `[^\n]*` allowing spaces and any other
+  character, so a prose subheading like `### Via Node.js` matches identically to a real
+  `### src/app.js` heading. `addFile`'s only file-shaped guard (`PreviewPanel.tsx:66`,
+  `hasDot = name.includes(".")`) accepts it purely because "Node.js" contains a dot, not because
+  it is a plausible path. The unvalidated `ParsedFile` then flows unmodified through
+  `AppBuilderPreview.buildTree` (Explorer listing), `CodeViewer.handleDownload`
+  (`AppBuilderPreview.tsx:248-256`, `a.download = file.name` verbatim) and `handleDownloadZip`
+  (`AppBuilderPreview.tsx:424-453`, zipped verbatim) — CONFIRMED by reading all four files.
+- **Blast radius:** grepping every caller of the vulnerable regex shape (`[\w./\-@][^\n`*]*\.\w+`
+  character class) across `frontend/src/` found **three independent, byte-for-byte-duplicated
+  forks** of the same parser, not just the one `PreviewPanel.tsx` copy this bug's own repro
+  exercised:
+  1. `frontend/src/components/preview/PreviewPanel.tsx:46-105` (`parseAppBuilderFilesForIDE`) —
+     the reported path (embedded Preview tab + `/preview-fullscreen` popout, which is a pure
+     downstream consumer of this fork's already-parsed `files[]` via `sessionStorage`).
+  2. `frontend/src/components/results/FilesTab.tsx:196-258` (`parseCodeFiles`/`parseAppBuilderFiles`
+     alias) — feeds the Results/Files tab's App Builder "project.zip" download
+     (`FilesTab.tsx:585,690-693`); the phantom entry is zipped into a completely different UI
+     surface the original hunt never opened. New sibling: [ISS-483](../.knowledge/cards/20260829-0133-ISS-483.md).
+  3. `frontend/src/components/history/WorkflowHistory.tsx:74-105` (`parseFilesForIDE`) — feeds
+     the reopened-run IDE preview for BOTH the App Builder branch (`ideFiles`, line 486-498/838)
+     and the generic-bundle branch (`genericBundleFiles`, line 582/877), reached from Workflow
+     History / "My Workflows" rather than the live run screen. New sibling:
+     [ISS-484](../.knowledge/cards/20260829-0133-ISS-484.md).
+  Additionally, all three forks define a **Format 3** `boldRegex`/`r3` (bold-text-before-a-fence)
+  with the identical unbounded character class as the broken Format 2 — untested by this bug's
+  heading-only repro. New sibling: [ISS-485](../.knowledge/cards/20260829-0133-ISS-485.md).
+  No backend equivalent exists (checked — the backend has no markdown-heading-to-file heuristic).
+- **Fix belongs in:** ONE shared, path-validating guard (e.g. reject any candidate whose
+  captured text contains whitespace — real file paths never do) that all three formats (1/2/3) in
+  all three forks route through. The three-way duplication is itself the reason this recurs; the
+  fixer should consolidate the three forks into one shared parser module (mind the `ParsedFile`
+  vs. `FileItem` shape difference between callers — the regex/guard kernel can be shared even
+  though the wrapping "build a row" adapter differs) rather than patching `headerRegex` three
+  times in three files.
+- **Fix cards:** [FIX-389](../.knowledge/cards/20260829-0253-FIX-389.md) — one shared `isPlausibleFilePath` (`frontend/src/lib/parsers/filePath.ts`, rejects any candidate containing whitespace), called from the single `addFile`/`add` funnel of all three parser forks (`PreviewPanel.tsx:66`, `FilesTab.tsx:224`, `WorkflowHistory.tsx:91`), so all three formats (filename:/###/**bold**) are covered; frontend unit test green.
+- **Issue cards:** [ISS-323](../.knowledge/cards/20260828-1810-ISS-323.md) (root, CONFIRMED),
+  [ISS-483](../.knowledge/cards/20260829-0133-ISS-483.md) (sibling: Files-tab ZIP pollution,
+  INFERRED), [ISS-484](../.knowledge/cards/20260829-0133-ISS-484.md) (sibling: Workflow-History
+  reopened-run IDE preview, INFERRED), [ISS-485](../.knowledge/cards/20260829-0133-ISS-485.md)
+  (sibling: Format 3 bold-heading trigger shared by all three forks, INFERRED)
+
+### Fix — 2026-08-29
+
+Root cause fixed at the shared guard, not the regex: `addFile`'s only file-shaped check was
+`name.includes(".")`, so `"Via Node.js"` passed on the dot in "Node.js". A new leaf module
+`frontend/src/lib/parsers/filePath.ts` exports `isPlausibleFilePath` (a generated path never
+contains whitespace); it is called from the one `addFile`/`add` closure each of the three
+duplicated parsers already funnels all three formats through — `PreviewPanel.tsx:66` (ISS-323,
+and Format 3 for ISS-485), `FilesTab.tsx:224` (ISS-483), `WorkflowHistory.tsx:91` (ISS-484).
+The three forks were NOT merged (different output shapes, `ParsedFile` vs `FileItem`) — only the
+guard is shared.
+
+Tests observed, one file at a time:
+- `frontend/src/components/preview/PreviewPanel.phantomFile.test.tsx` → **1 passed** (was
+  1 failed). With the guard neutered to `return true` it goes red again on the "Via Node.js"
+  assertion, then restored — it fails for the card's reason, not on scaffolding.
+- Regression: `PreviewPanel.test.tsx` 19 passed · `FilesTab.test.tsx` 14 passed ·
+  `WorkflowHistory.pptV2Files.test.tsx` 1 passed + 1 expected fail · `npx tsc --noEmit` reports
+  no error naming any touched file.
+- The test's FIXTURE (not an assertion) gained one real `### src/app.js` heading: with only the
+  phantom-producing markdown, a correct fix leaves zero files and the Explorer renders its
+  "No files generated yet" empty state, which broke the test's own `getByText(/files$/)`
+  scaffolding line before the bug assertion was reached. The hunted deliverable listed three
+  genuine `.md` files beside the phantom ("4 files"), so the fixture now matches it — and it
+  also proves the guard does not reject a real path heading.
+
+Frontend-only change; no backend restart needed.
+
+### Verified — 2026-08-29
+
+Backend/frontend both already served (`:8000/docs` → 200, `:3000` → 200) before this pass —
+frontend-only fix, no restart needed. Ran, one file at a time:
+`frontend/src/components/preview/PreviewPanel.phantomFile.test.tsx` → **1 passed**
+(no `xfail` marker on this test — it is a plain frontend vitest unit test, not a pytest e2e
+test, so there was nothing to remove). Regression, one file at a time:
+`PreviewPanel.test.tsx` → 19 passed, `FilesTab.test.tsx` → 14 passed. `npx tsc --noEmit` clean
+on all touched files. `lint-imports` (run from `backend/`) shows 1 pre-existing broken contract
+(`agents.execution_engine.engine` → `app.api` via `kernel_services`/`revision_analyzer`) —
+unrelated to this frontend-only fix, not introduced by it.
+
+Manual repro by hand, same cold-start method the validator used (real captured README markdown
+from `notes.md`, actual `parseAppBuilderFilesForIDE` + `isPlausibleFilePath` logic run via
+`page.evaluate`, seeded into `sessionStorage["__app_preview__"]`, cold nav to `/dashboard` with
+`sessionStorage.clear()` first, then fresh nav to `/preview-fullscreen`): Explorer now shows
+only the 1 real file (`src/app.js`), footer reads "1 files", no "Via Node.js" entry anywhere on
+the page, no console errors. Before the fix this same method produced 2 entries incl. the
+phantom (per the validator's 3/3 cold-start cycles). After screenshot:
+`bug-hunter/evidence/preview-fullscreen/BUG-20260828-105300-preview-fullscreen-r2/03-after-fix-explorer.png`.
+
+Test green AND manual repro clean. Closing.

@@ -44,6 +44,10 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 # Allow-listed range → cutoff offset. The default (unknown value) is 30d.
 _DEFAULT_RANGE = "30d"
 
+#: Bucket key for a run with no ``model_id``. Handed to the caller in the ``models``
+#: rollup, so the ``model`` filter has to accept it back (ISS-288).
+_UNKNOWN_MODEL = "unknown"
+
 
 def _cutoff_for(range: str) -> datetime | None:
     """Map the allow-listed enum → an aware-UTC cutoff (``None`` == unbounded).
@@ -230,7 +234,7 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
             p["dur_n"] += 1
 
         # Per-model rollup (generic ``model_id``).
-        key = r.model_id or "unknown"
+        key = r.model_id or _UNKNOWN_MODEL
         m = models[key]
         m["count"] += 1
         m["total_tokens"] += r_total
@@ -278,20 +282,46 @@ def _aggregate(runs: list[WorkflowRun]) -> AnalyticsSummary:
 @router.get("/summary", response_model=AnalyticsSummary)
 def get_analytics_summary(
     range: str = _DEFAULT_RANGE,
+    pipeline: str | None = None,
+    model: str | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> AnalyticsSummary:
-    """Aggregate the caller's OWN runs into a date-scoped analytics summary.
+    """Aggregate the caller's OWN runs into a date/pipeline/model-scoped summary.
 
     Owner-scoped on ``WorkflowRun.user_id`` (T-38-01); ``range`` allow-listed
     (T-38-03); ``token_usage`` tolerant-parsed (T-38-02); rollups on generic
     ``type`` / ``status`` / ``model_id`` (SC-001). Returns numbers only.
+
+    ISS-229/288/289 — ``pipeline`` and ``model`` narrow the run set BEFORE the
+    rollup, exactly like ``range`` does, so every figure the caller derives from
+    one payload (KPIs, daily buckets, success rate, BOTH breakdowns) describes
+    the same population. Filtering either axis in the browser instead can only
+    reach the two rollup arrays: ``daily`` has no per-type breakdown and neither
+    rollup carries a completed/failed split, so the rest of the page would keep
+    reporting the unfiltered window.
     """
     query = db.query(WorkflowRun).filter(WorkflowRun.user_id == current_user.id)
 
     cutoff = _cutoff_for(range)
     if cutoff is not None:
         query = query.filter(WorkflowRun.created_at >= cutoff)
+
+    if pipeline:
+        # Generic column equality, never a workflow-name branch (SC-001): the
+        # value is whatever ``type`` the caller was handed back. The revision
+        # variant rides along with its base type, mirroring the frontend's
+        # ``normalizeType`` so the breakdown keeps listing both rows.
+        query = query.filter(WorkflowRun.type.in_((pipeline, f"{pipeline}_revision")))
+
+    if model:
+        # ``_aggregate`` buckets a null ``model_id`` under the "unknown" sentinel
+        # and offers it as a filter value, so the filter honours it back.
+        query = query.filter(
+            WorkflowRun.model_id.is_(None)
+            if model == _UNKNOWN_MODEL
+            else WorkflowRun.model_id == model
+        )
 
     runs = query.all()
     return _aggregate(runs)

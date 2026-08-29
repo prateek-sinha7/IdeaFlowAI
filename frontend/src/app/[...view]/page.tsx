@@ -196,6 +196,33 @@ function reopenedRunIdFor(parsed: ParsedView): string | undefined {
 }
 
 /**
+ * ISS-230: the `/versions/{v}` pin the route carries — `run-version` itself and
+ * every run tab reachable while pinned (`/runs/{id}/versions/{v}/{tab}`).
+ * `reopenedRunIdFor` above deliberately still returns the ROOT run id: the
+ * shell opens the run the path names and DashboardLayout fetches ITS family;
+ * the version number cannot be resolved to a member id synchronously here (that
+ * needs the family), so it is threaded down as-is and resolved where the family
+ * already lives. Without this the segment was parsed and then discarded, and a
+ * pinned deep link always rendered the root run's own content.
+ */
+function pinnedVersionFor(parsed: ParsedView): string | undefined {
+  return "version" in parsed ? parsed.version : undefined;
+}
+
+/**
+ * ISS-277: the agent the path names (`/runs/{id}/steps/{agentId}`, parsed into
+ * `run-steps-agent`'s `agentId` by `parseView`) — threaded to the Steps tab
+ * through the SAME nonce'd deep-link seam that carries the tab itself, rather
+ * than a second parallel channel. `reopenTabFor` below maps that screen to the
+ * plain "thinking" tab, so without this the segment was parsed and then dropped
+ * and every `/steps/{agentId}` deep link opened the bare, unselected lane list.
+ * Mirrors `pinnedVersionFor` above: a narrow selector off the parsed view.
+ */
+function deepLinkAgentIdFor(parsed: ParsedView): string | undefined {
+  return "agentId" in parsed ? parsed.agentId : undefined;
+}
+
+/**
  * T11 (015-frontend-routing, FR-003/SC-002): the run id carried by the LIVE
  * stream route (`/runs/{id}/stream`) — kept as its own selector rather than a
  * case in `reopenedRunIdFor` above, since that function's doc comment already
@@ -208,13 +235,22 @@ function liveStreamRunIdFor(parsed: ParsedView): string | undefined {
 /**
  * T7: which PreviewPanel tab a reopened route's screen should land on, fed
  * through the existing `useTabDeepLink` seam (the same one chat result-cards
- * use). `run-detail`/`run-version`/`run-preview-full` use the panel's default
- * ("preview") so they return undefined — no deep-link request needed.
+ * use). `run-detail`/`run-version` use the panel's default ("preview") so they
+ * return undefined — no deep-link request needed.
+ *
+ * ISS-285: `run-preview-full` is NOT one of those. `/runs/{id}/preview/full`
+ * exists to FORCE the Preview tab open, and falling through to undefined threw
+ * that intent away — PreviewPanel's generic per-state default won instead, so a
+ * terminal-failed run with no deliverable silently landed on Audit (and a still-
+ * building one on Steps) with nothing on screen saying Preview had been asked
+ * for. Returning the tab here is what tells the panel which route it is serving.
  */
 function reopenTabFor(
   screen: ParsedView["screen"],
-): "thinking" | "files" | "workspace" | "audit" | undefined {
+): "preview" | "thinking" | "files" | "workspace" | "audit" | undefined {
   switch (screen) {
+    case "run-preview-full":
+      return "preview";
     case "run-steps":
     case "run-steps-agent":
       return "thinking";
@@ -435,6 +471,11 @@ export default function DashboardPage({
   // carry, nothing to lose across a remount, and a refresh or shared link rebuilds
   // the same canvas.
   const builtinCanvasType = builtinCanvasTypeFor(parsedView);
+  // ISS-299: sibling of `workflowEditAccessDenied` above — a genuine 403/404 on
+  // the seed fetch below means the URL names no workflow at all, so the gate
+  // further down renders not-found instead of an empty "copy" composer whose
+  // Save as copy would persist a brand-new workflow from a dead link.
+  const [builtinCanvasAccessDenied, setBuiltinCanvasAccessDenied] = useState(false);
   useEffect(() => {
     if (!isAuthenticated || !builtinCanvasType) return;
     let cancelled = false;
@@ -477,8 +518,17 @@ export default function DashboardPage({
             },
           },
         });
-      } catch {
-        if (!cancelled) setInitialSavedComposition(null);
+      } catch (err) {
+        if (cancelled) return;
+        setInitialSavedComposition(null);
+        // ISS-299: same narrowing as the /workflows/{id}/edit catch below —
+        // only a 403/404 is "there is no such workflow". Every other failure
+        // (5xx, network blip, timeout) still falls through to the blank-seed
+        // behaviour rather than turning a transient error into a permanent
+        // not-found.
+        if (err instanceof ApiError && (err.status === 403 || err.status === 404)) {
+          setBuiltinCanvasAccessDenied(true);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -3018,10 +3068,17 @@ export default function DashboardPage({
         // degraded run with NO partial deliverable still surfaces the affordance
         // rather than the neutral empty-state (CONTEXT A2: affordance on BOTH the live
         // and history paths). A completed (success) reopen clears the signal.
+        // ISS-390: "diverted" is threaded through for the same reason — it is
+        // likewise a permanently terminal status with no deliverable and no
+        // auto-resume, and PreviewPanel cannot give it an honest empty state while
+        // this gate keeps the value `undefined`. It is deliberately NOT folded into
+        // PreviewPanel's failure signal there (a divert is a hand-off, not a
+        // failure) — it gets its own branch, the way "cancelled" already does.
         setReopenedRunStatus(
           fullRun.status === "failed" ||
             fullRun.status === "cancelled" ||
-            fullRun.status === "degraded"
+            fullRun.status === "degraded" ||
+            fullRun.status === "diverted"
             ? fullRun.status
             : undefined,
         );
@@ -3174,7 +3231,7 @@ export default function DashboardPage({
       // its state-derived default of Steps).
       const openTab = reopenTabFor(parsedView.screen)
         ?? (parsedView.screen === "run-detail" ? "preview" : undefined);
-      if (openTab) runTabDeepLink.requestOpenTab(openTab);
+      if (openTab) runTabDeepLink.requestOpenTab(openTab, deepLinkAgentIdFor(parsedView));
       return;
     }
 
@@ -3247,7 +3304,7 @@ export default function DashboardPage({
         console.error("cold-mount run fetch failed:", runId, err);
       })
       .finally(() => {
-        if (tab) runTabDeepLink.requestOpenTab(tab);
+        if (tab) runTabDeepLink.requestOpenTab(tab, deepLinkAgentIdFor(parsedView));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewPathKey, isAuthenticated, handleSelectWorkflowRun, runTabDeepLink.requestOpenTab]);
@@ -3609,6 +3666,11 @@ export default function DashboardPage({
     if (!workflowId) return;
 
     let cancelled = false;
+    // ISS-379: clear a prior failure before this fetch resolves — same
+    // reasoning as the /workflows/{id}/edit effect's reset above, so a
+    // stale `true` from an earlier failed id cannot defeat the
+    // loading-`null` gate (or fire not-found) on this fresh, valid one.
+    setWorkflowRunFailed(false);
     userWorkflowsApi
       .get(workflowId)
       .then((saved) => {
@@ -3681,15 +3743,23 @@ export default function DashboardPage({
         // T24 (FR-009) / T33 sweep: same userWorkflowsApi.get()/axios gap as
         // the /workflows/{id}/edit and /workflows/{id} catches above — mirror
         // the shared handleSessionExpiry() call (T22) rather than
-        // reimplementing it inline. A 403/404 (or any other failure) still
-        // falls back to Home, same as before this fix — but now explicitly,
-        // via workflowRunFailed, so the render gate below can tell "failed"
-        // apart from "still loading" instead of treating both the same.
+        // reimplementing it inline. workflowRunFailed lets the render gate
+        // below tell "failed" apart from "still loading" instead of
+        // treating both the same.
         if (err instanceof ApiError && err.status === 401) {
           handleSessionExpiry();
           return;
         }
-        setWorkflowRunFailed(true);
+        // ISS-380: narrowed to 403/404, matching workflowEditAccessDenied's
+        // and workflowDetailFailed's F7 narrowing above — only a genuine 403
+        // (not owned) or 404 (deleted/unknown/malformed id) is an identity
+        // failure. Every other error (5xx, network blip) falls through to the
+        // log-and-continue behavior above, so a transient failure on a
+        // legitimately-owned workflow is not turned into a permanent
+        // not-found by the ISS-273 gate below.
+        if (err instanceof ApiError && (err.status === 403 || err.status === 404)) {
+          setWorkflowRunFailed(true);
+        }
       });
 
     return () => {
@@ -3725,6 +3795,13 @@ export default function DashboardPage({
   // branch — a 403/404 on the /workflows/{id}/edit cold-mount fetch renders
   // not-found instead of the empty Composer shell.
   if (workflowEditIdFor(parsedView) && workflowEditAccessDenied) {
+    notFound();
+  }
+
+  // ISS-299: same shape for `/workflows/{type}/canvas` — a 403/404 on the seed
+  // fetch above renders not-found instead of an empty "copy" composer whose
+  // enabled "Save as copy" POSTs a real new workflow from a dead link.
+  if (builtinCanvasType && builtinCanvasAccessDenied) {
     notFound();
   }
 
@@ -3766,8 +3843,16 @@ export default function DashboardPage({
   // pattern as the T30 `/workflows/{id}` read-view gate above, so a visit
   // (or a hard refresh) of `/workflows/{id}/run` no longer flashes the
   // Dashboard/Home screen before landing on Canvas or the launch panel.
-  // workflowRunFailed lets a genuine fetch failure still fall through to
-  // Home exactly as it did before this gate existed.
+  //
+  // ISS-273: a genuine 403/404 renders not-found here, the same as the
+  // runAccessDenied / workflowEditAccessDenied / workflowDetailFailed gates
+  // above. Before this, workflowRunFailed only released the loading-`null`
+  // return below and execution fell through to the unconditional
+  // <DashboardLayout> — rendering the Dashboard catalog under the unchanged,
+  // unresolvable /workflows/{id}/run URL.
+  if (parsedView.screen === "workflow-run" && workflowRunFailed) {
+    notFound();
+  }
   if (
     parsedView.screen === "workflow-run" &&
     !workflowRunMainView &&
@@ -3880,6 +3965,7 @@ export default function DashboardPage({
       builtinCanvasType={builtinCanvasType}
       initialSavedComposition={initialSavedComposition}
       initialSettingsSection={initialSettingsSectionFor(parsedView)}
+      pinnedVersion={pinnedVersionFor(parsedView)}
       onStartPipeline={(type, message, agentIds, attachedHooks, extraParams) => {
         const isRevision = type.endsWith("_revision");
         // Workstream C1 (POR §1 gap-2): capture the run's input on every launch

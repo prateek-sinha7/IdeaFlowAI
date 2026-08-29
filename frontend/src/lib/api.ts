@@ -70,18 +70,49 @@ export async function logout(token: string): Promise<void> {
 
 // --- HTTP helpers ---
 
+/**
+ * ISS-224/ISS-256 — turn an error body's `detail` into a message safe to show.
+ *
+ * FastAPI sends a *list* of error objects for a 422, and every entry carries an
+ * `input` field holding the ENTIRE rejected value — a PAT, a password. Both of
+ * this app's error paths used to fall through to `JSON.stringify(...)` for
+ * anything that wasn't a plain string, so that value was rendered back onto the
+ * page. Take the human-readable `msg` fields instead, never the raw entry.
+ *
+ * Returns null for any other shape so the caller keeps its own fallback.
+ */
+export function errorMessageFromDetail(detail: unknown): string | null {
+  if (typeof detail === "string") return detail;
+  if (!Array.isArray(detail)) return null;
+  const messages = detail
+    .map((entry) => (entry as { msg?: unknown } | null)?.msg)
+    .filter((msg): msg is string => typeof msg === "string");
+  return messages.join("; ") || "The request was rejected as invalid.";
+}
+
 class ApiError extends Error {
   status: number;
   detail: unknown;
 
   constructor(status: number, detail: unknown) {
-    const message =
-      typeof detail === "string" ? detail : JSON.stringify(detail);
+    const message = errorMessageFromDetail(detail) ?? JSON.stringify(detail);
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
   }
+}
+
+/**
+ * ISS-374 — "this workflow does not exist" vs "it could not be loaded right
+ * now". `ApiError` has carried `status` all along but is not exported, so every
+ * `.catch()` in the app treated a genuine 404 and a transient network/timeout
+ * blip identically. The two want different copy (a 404 has no useful retry, a
+ * transient failure does), so the distinction lives here, once, rather than
+ * being re-derived per call site.
+ */
+export function isNotFoundError(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 404;
 }
 
 // BUG-013 Part B — fail-fast timeout for the REST client. When the browser's
@@ -144,7 +175,12 @@ export function isSessionExpiryExempt(pathOrUrl: string): boolean {
 export function handleSessionExpiry(): void {
   clearToken();
   if (typeof window !== "undefined") {
-    window.location.href = routes.login({ expired: true });
+    // ISS-322: carry the route the user was on (path + its own query string) as
+    // the `redirect` param, so re-login returns there instead of /dashboard —
+    // the same ?redirect= contract the signed-out guard already uses, validated
+    // on arrival by login/page.tsx's resolveRedirectTarget.
+    const { pathname, search } = window.location;
+    window.location.href = routes.login({ expired: true, redirect: `${pathname}${search}` });
   }
 }
 
@@ -782,16 +818,24 @@ export interface AnalyticsSummary {
 }
 
 /**
- * Fetch the owner-scoped, date-scoped analytics summary (38-01). Changing
- * `range` re-queries the server (SC-1 recompute) — no client-side rollup of
- * raw runs. `range` is a UI enum: today|3d|7d|30d|90d|all.
+ * Fetch the owner-scoped, date/pipeline/model-scoped analytics summary (38-01).
+ * Changing ANY of the three re-queries the server (SC-1 recompute) — no
+ * client-side rollup of raw runs. `range` is a UI enum: today|3d|7d|30d|90d|all;
+ * `pipeline` is a run `type` and `model` a `model_id`, both omitted when the
+ * filter is "all" (ISS-229/288/289 — the server scopes every figure, not just
+ * the two breakdown arrays a caller could narrow in memory).
  */
 export async function getAnalyticsSummary(
   token: string,
-  range: string
+  range: string,
+  pipeline?: string,
+  model?: string
 ): Promise<AnalyticsSummary> {
+  const params = new URLSearchParams({ range });
+  if (pipeline) params.set("pipeline", pipeline);
+  if (model) params.set("model", model);
   return request<AnalyticsSummary>(
-    `/api/analytics/summary?range=${encodeURIComponent(range)}`,
+    `/api/analytics/summary?${params.toString()}`,
     { method: "GET", headers: authHeaders(token) }
   );
 }
@@ -890,6 +934,9 @@ export interface RunEventRow {
   event_id: string;
   type: string;
   payload_json: Record<string, unknown>;
+  /** ISS-358: the durable row's own write time (runs.py get_run_events), UTC-aware.
+   *  Optional so a legacy/mock envelope without it still type-checks. */
+  created_at?: string | null;
 }
 
 /** The GET /api/runs/{id}/events envelope (runs.py:897-909). */
@@ -936,7 +983,17 @@ export async function getRunEvents(
     // upsertNarratorMessage key the reply distinctly and APPEND it below the
     // paired user question instead of overwriting it. The column is
     // authoritative, so it wins over any same-named payload key.
-    data: { ...(row.payload_json ?? {}), event_id: row.event_id, seq: row.seq },
+    // ISS-358: the row's `created_at` COLUMN rides as a FALLBACK — merged FIRST so a
+    // payload-embedded timestamp still wins (FIX-354 stamps the RUN's created_at on
+    // `pipeline_start`, which a resumed run's row write time would otherwise clobber).
+    // The app-layer chat rows carry no payload timestamp at all, so for them this is
+    // the only real send time and it is what stops a replay re-dating the turn to now.
+    data: {
+      created_at: row.created_at,
+      ...(row.payload_json ?? {}),
+      event_id: row.event_id,
+      seq: row.seq,
+    },
   }));
 }
 
@@ -1023,6 +1080,47 @@ export async function getRunSandbox(
     method: "GET",
     headers: authHeaders(token),
   });
+}
+
+/** The run's primary deliverable, as a file that ACTUALLY EXISTS in its workspace.
+ *
+ *  ISS-199 — every surface that names the deliverable used to guess it from
+ *  whatever text the panel happened to be holding (`run.output` is
+ *  `ctx.last_streamed`, the LAST agent's stream, which for `ppt_v2` is neither
+ *  the deck nor the .pptx). One resolver, so the Files tab, its base-version
+ *  section and the header Download cannot answer the question differently.
+ *
+ *  `declared` is the workflow's own `deliverable_filename` (the engine emits it
+ *  on `pipeline_complete` and persists it to the run row); omit it and the run
+ *  row is read for it. The sibling preference is keyed on the declared
+ *  EXTENSION, never a workflow name (SC-001):
+ *
+ *    declared .html → `<stem>.pptx`, else the declared file
+ *                     (ppt_v2: the PowerPoint, falling back to the deck when
+ *                     the render step did not run)
+ *    declared .pptx → the declared file, else `<stem>.html`
+ *    anything else  → the declared file alone (user_stories.md considers none)
+ *
+ *  Presence is the gate: null when nothing is declared, nothing is listed, or
+ *  neither candidate is on disk — the honest state, since we cannot name a file
+ *  we have not seen. */
+export async function resolveRunDeliverable(
+  token: string,
+  runId: string,
+  declared?: string | null,
+): Promise<SandboxFile | null> {
+  const name = declared ?? (await getWorkflow(token, runId)).deliverableFilename ?? null;
+  if (!name) return null;
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  const candidates = [...new Set(
+    ext === "html" ? [`${stem}.pptx`, name]
+    : ext === "pptx" ? [name, `${stem}.html`]
+    : [name],
+  )];
+  const listing = await getRunSandbox(token, runId);
+  return candidates.map((c) => listing.files.find((f) => f.path === c)).find(Boolean) ?? null;
 }
 
 /** The URL a workspace file's bytes are served from.

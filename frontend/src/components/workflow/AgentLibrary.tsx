@@ -101,20 +101,24 @@ export function AgentLibrary({
 
   // Use only existingAgentIds from parent — no local tracking
   // This ensures removed agents reappear in the library
-  const filteredAgents = ALL_AGENTS.filter((agent) => {
+  const categoryAgents = ALL_AGENTS.filter((agent) => {
     const matchesCategory = activeCategory === "all" || agentMatchesPipelineType(agent.pipeline_type, activeCategory);
     const matchesSearch =
       !searchQuery ||
       agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       agent.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       agent.role.toLowerCase().includes(searchQuery.toLowerCase());
+    const notHidden = currentPipelineType !== "custom" || !HIDDEN_FROM_CUSTOM.has(agent.id);
+    const templateAllowed = allowCustomAgentTemplate || !isCustomAgentTemplate(agent);
+    return matchesCategory && matchesSearch && notHidden && templateAllowed;
+  });
+
+  const filteredAgents = categoryAgents.filter((agent) => {
     // The blank custom-agent template is reusable N times, so "already added"
     // must never hide it — every add mints a new instance id.
     const notAlreadyAdded =
       isCustomAgentTemplate(agent) || !existingAgentIds.includes(agent.id);
-    const notHidden = currentPipelineType !== "custom" || !HIDDEN_FROM_CUSTOM.has(agent.id);
-    const templateAllowed = allowCustomAgentTemplate || !isCustomAgentTemplate(agent);
-    return matchesCategory && matchesSearch && notAlreadyAdded && notHidden && templateAllowed;
+    return notAlreadyAdded;
   }).sort((a, b) => {
     // Sort beta workflows to the end
     const aPt = getPrimaryPipelineType(a.pipeline_type);
@@ -124,6 +128,16 @@ export function AgentLibrary({
     if (aBeta !== bBeta) return aBeta - bBeta;
     return aPt.localeCompare(bPt) || a.order - b.order;
   });
+
+  // A category can be empty because it holds no agents at all, or because every
+  // agent it holds is already on the canvas — the default tab is the current
+  // pipeline's own, where the second case is the norm (ISS-311). The generic
+  // copy reads as "this category has none", so name the real reason.
+  const allAlreadyAdded = filteredAgents.length === 0 && categoryAgents.length > 0;
+  const activeCategoryLabel = CATEGORIES.find((c) => c.id === activeCategory && c.id !== "all")?.label;
+  const emptyMessage = allAlreadyAdded
+    ? `All ${activeCategoryLabel ? `${activeCategoryLabel} ` : ""}agents are already on your canvas`
+    : "No agents found";
 
   const categoryCounts: Record<string, number> = { all: 0 };
   ALL_AGENTS.forEach((a) => {
@@ -228,7 +242,7 @@ export function AgentLibrary({
               <div className="flex-1 overflow-y-auto p-4" style={{ background: "var(--surface-warm)" }}>
                 {filteredAgents.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
-                    <p className="text-[13px] text-ink-400">No agents found</p>
+                    <p className="text-[13px] text-ink-400">{emptyMessage}</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">

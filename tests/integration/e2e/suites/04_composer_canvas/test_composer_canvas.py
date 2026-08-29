@@ -463,3 +463,42 @@ def test_the_blank_custom_agent_template_is_withheld_when_authoring_an_override(
 @pytest.mark.skip(reason="dispatches a real run; belongs to the live tier")
 def test_a_saved_composition_can_be_launched_from_the_composer(page, shot):
     """Scenario: A saved composition can be launched from the composer"""
+
+
+@pytest.mark.issue("ISS-275")
+def test_back_button_confirms_before_discarding_unsaved_work(page, shot):
+    """ISS-275 — the composer's own Back control must warn before it discards
+    unsaved name+agent state.
+
+    `handleBackNav` (DashboardLayout.tsx) is wired to `ComposerPage`'s Back
+    button with no dirty-check, so today it navigates away silently. The
+    correct behaviour is a confirmation (native `confirm()` or an in-app
+    dialog) before any unsaved work is thrown away.
+    """
+    open_composer(page, "/workflows/new", nodes=0)
+
+    with shot("unsaved-draft", "When I name a workflow and add an agent, unsaved"):
+        page.fill(L.WORKFLOW_NAME, "Unsaved Draft ISS-275")
+        page.locator(L.ADD_AGENT).first.click()
+        expect(page.locator(L.ADD_TO_PLAN).first).to_be_visible(timeout=15000)
+        page.locator(L.ADD_TO_PLAN).first.click()
+        L.wait_for_nodes(page, 1)
+
+    assert L.agent_count(page) == 1
+
+    dialog_seen = {"fired": False}
+
+    def on_dialog(dialog):
+        dialog_seen["fired"] = True
+        dialog.dismiss()
+
+    page.on("dialog", on_dialog)
+
+    with shot("back-with-unsaved-work", 'When I click "Back" with unsaved work present'):
+        page.click(L.BACK)
+        page.wait_for_timeout(settings.SETTLE_MS)
+
+    assert dialog_seen["fired"], (
+        "Back discarded the unsaved workflow name and agent with no "
+        "confirmation dialog of any kind"
+    )

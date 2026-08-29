@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { FileText, Copy, Check, ChevronDown, ChevronRight, Link2, RefreshCw } from "lucide-react";
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 import { parseUserStoryMarkdown } from "@/lib/parsers/userStoryParser";
 
 interface UserStoryPreviewProps {
@@ -24,7 +25,7 @@ function getSprintColor(sp?: number): string {
 }
 
 export function UserStoryPreview({ content, onRevise }: UserStoryPreviewProps) {
-  const [copied, setCopied] = useState(false);
+  const { copied, failed, copy } = useClipboardCopy();
   const [expandedEpics, setExpandedEpics] = useState<Set<number>>(new Set([0, 1, 2, 3, 4, 5]));
   const [revisionText, setRevisionText] = useState("");
 
@@ -44,11 +45,7 @@ export function UserStoryPreview({ content, onRevise }: UserStoryPreviewProps) {
 
   const doc = parseUserStoryMarkdown(content);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const handleCopy = () => void copy(content);
 
   const toggleEpic = (idx: number) => {
     setExpandedEpics((prev) => {
@@ -71,7 +68,7 @@ export function UserStoryPreview({ content, onRevise }: UserStoryPreviewProps) {
       <div className="p-5 h-full overflow-y-auto">
         <div className="flex justify-end mb-3">
           <button onClick={handleCopy} className="flex items-center gap-1.5 text-[11px] font-medium text-gray-500 hover:text-gray-900 border border-gray-200 rounded-md px-2.5 py-1.5 transition-all">
-            {copied ? <><Check className="h-3 w-3 text-emerald-600" /> Copied</> : <><Copy className="h-3 w-3" /> Copy MD</>}
+            {copied ? <><Check className="h-3 w-3 text-emerald-600" /> Copied</> : <><Copy className="h-3 w-3" /> {failed ? "Copy failed" : "Copy MD"}</>}
           </button>
         </div>
         <pre className="text-[11px] text-gray-700 leading-relaxed whitespace-pre-wrap font-mono">{content}</pre>
@@ -90,7 +87,7 @@ export function UserStoryPreview({ content, onRevise }: UserStoryPreviewProps) {
           onClick={handleCopy}
           className="flex items-center gap-1.5 text-[11px] font-medium text-gray-500 hover:text-gray-900 border border-gray-200 rounded-md px-2.5 py-1.5 transition-all"
         >
-          {copied ? <><Check className="h-3 w-3 text-emerald-600" /> Copied</> : <><Copy className="h-3 w-3" /> Copy MD</>}
+          {copied ? <><Check className="h-3 w-3 text-emerald-600" /> Copied</> : <><Copy className="h-3 w-3" /> {failed ? "Copy failed" : "Copy MD"}</>}
         </button>
       </div>
 

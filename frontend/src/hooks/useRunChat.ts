@@ -315,6 +315,25 @@ function parseCardKind(raw: unknown): ChatMessage["cardKind"] | undefined {
 }
 
 /**
+ * ISS-358 — resolve the createdAt a fold should carry. The fold-time clock is NOT
+ * a send time: every durable row replayed on a reload / live-run switch takes the
+ * "create" branch (seedTranscript resets `messages` first), so an unconditional
+ * `new Date()` re-dates a historical turn to page-load time. Prefer the frame's own
+ * `created_at` — the `run_events` row column, now surfaced by BOTH durable readers
+ * (`runs.py` get_run_events and `run_stream.py`'s SSE replay) — then an existing
+ * bubble's already-settled value, and only fall back to the clock for a genuinely
+ * live frame that carries neither (where receipt time IS the send time).
+ */
+function foldedCreatedAt(
+  data: Record<string, unknown>,
+  existing?: string,
+): string {
+  const raw = data.created_at;
+  if (typeof raw === "string" && raw) return raw;
+  return existing ?? new Date().toISOString();
+}
+
+/**
  * Fold a `chat_message` echo into the transcript. Reconciles STRICTLY by
  * `message_id`: an existing turn (optimistic or already-echoed) with the same id
  * is merged in place (single bubble); a new id appends (T-31-03-S).
@@ -351,7 +370,7 @@ function upsertUserMessage(
     chatSessionId: threadId ?? runId ?? "",
     role: "user",
     content: typeof data.text === "string" ? data.text : "",
-    createdAt: new Date().toISOString(),
+    createdAt: foldedCreatedAt(data),
     attachments,
     runId,
     threadId,
@@ -385,18 +404,22 @@ function upsertNarratorMessage(
       : mintMessageId();
   const runId = typeof data.run_id === "string" ? data.run_id : undefined;
   const threadId = typeof data.thread_id === "string" ? data.thread_id : undefined;
+  // ISS-358: `idx` is resolved BEFORE the message literal so a re-fold (the
+  // streaming bubble's terminal chat_reply, a replayed row over a live one) keeps
+  // the createdAt already settled on the bubble instead of minting a fresh clock
+  // read through the `{ ...prev[idx], ...msg }` merge below.
+  const idx = prev.findIndex((m) => m.id === id);
   const msg: ChatMessage = {
     id,
     chatSessionId: threadId ?? runId ?? "",
     role: "assistant",
     content: typeof data.text === "string" ? data.text : "",
-    createdAt: new Date().toISOString(),
+    createdAt: foldedCreatedAt(data, idx >= 0 ? prev[idx].createdAt : undefined),
     cardKind: parseCardKind(data.card_kind),
     deepLink: parseDeepLink(data.deep_link),
     runId,
     threadId,
   };
-  const idx = prev.findIndex((m) => m.id === id);
   if (idx >= 0) {
     const next = prev.slice();
     next[idx] = { ...prev[idx], ...msg };

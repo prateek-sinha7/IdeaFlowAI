@@ -147,10 +147,14 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
   const [modelFilter, setModelFilter] = useState<string>("all");
   const [preferredModelId, setPreferredModelId] = useState<string | null>(null);
 
-  // SC-1 server recompute: the summary is re-queried whenever `dateFilter`
-  // changes — the server re-aggregates the owner's rows for the new range
-  // (HomeLaunchGrid fetch-shell idiom: cancelled guard + getToken + loading/
-  // error/finally). No in-memory reduce of raw runs.
+  // SC-1 server recompute: the summary is re-queried whenever ANY filter
+  // changes — the server re-aggregates the owner's rows for the new
+  // range/pipeline/model (HomeLaunchGrid fetch-shell idiom: cancelled guard +
+  // getToken + loading/error/finally). No in-memory reduce of raw runs.
+  // ISS-229/288/289 — the pipeline and model filters have to come back through
+  // here too: the KPI tiles, the Daily Activity chart and the Success Rate donut
+  // read the payload's window-wide `kpis`/`daily`/`token_totals`, which no
+  // client-side narrowing of the two rollup arrays can reach.
   useEffect(() => {
     let cancelled = false;
     const token = getToken();
@@ -160,7 +164,12 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
       return;
     }
     setLoading(true);
-    getAnalyticsSummary(token, dateFilter)
+    getAnalyticsSummary(
+      token,
+      dateFilter,
+      pipelineFilter === "all" ? undefined : pipelineFilter,
+      modelFilter === "all" ? undefined : modelFilter,
+    )
       .then((data) => {
         if (cancelled) return;
         setSummary(data);
@@ -174,7 +183,7 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [dateFilter]);
+  }, [dateFilter, pipelineFilter, modelFilter]);
 
   // Preferred model (for the "new runs will use…" note) — fetched once.
   useEffect(() => {
@@ -188,8 +197,9 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
   }, []);
 
   // ── Derived display data — bound to the endpoint payload (KPI math ported,
-  //    not re-derived). pipeline/model filters narrow the already-fetched
-  //    rollup arrays client-side (sanctioned — only the DATE filter refetches).
+  //    not re-derived). EVERY figure below describes the same population: the
+  //    payload is already scoped to the active date/pipeline/model filters
+  //    server-side (ISS-229/288/289), so nothing here re-filters in memory.
   const kpis = summary?.kpis;
   const tokenTotals = summary?.token_totals;
   const spend = summary?.spend ?? 0;
@@ -233,16 +243,22 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
     .map((m) => m.model_id)
     .sort();
 
-  const dailyData = (summary?.daily ?? []).map((d) => ({
-    label: formatDate(d.date),
-    value: d.total_tokens,
-    runs: d.total,
-  }));
+  const dailyData = (summary?.daily ?? []).map((d) => {
+    const label = formatDate(d.date);
+    return {
+      label,
+      value: d.total_tokens,
+      runs: d.total,
+      // ISS-369: tokens in the per-bar tooltip get the same K/M treatment as
+      // every other number on this page. Zero-token days keep BarChart's own
+      // default so the runs-only fallback tooltip ("Aug 24: 3 runs") survives.
+      tip: d.total_tokens > 0 ? `${label}: ${formatTokens(d.total_tokens)}` : undefined,
+    };
+  });
   const dailyHasTokens = dailyData.some((d) => d.value > 0);
   const dailyEmpty = dailyData.every((d) => d.value === 0 && d.runs === 0);
 
   const pipelineRows = (summary?.pipelines ?? [])
-    .filter((p) => pipelineFilter === "all" || normalizeType(p.type) === pipelineFilter)
     .map((p) => ({
       label: PIPELINE_LABELS[normalizeType(p.type)] ?? normalizeType(p.type),
       runs: p.count,
@@ -256,7 +272,6 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
     : Math.max(...pipelineRows.map((p) => p.runs), 1);
 
   const modelRows = (summary?.models ?? [])
-    .filter((m) => modelFilter === "all" || m.model_id === modelFilter)
     .map((m) => ({
       id: m.model_id,
       name: MODEL_META[m.model_id]?.short ?? m.model_id,
@@ -309,7 +324,7 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
                 </button>
               ))}
             </div>
-            {/* Pipeline select — narrows the fetched rollup arrays client-side. */}
+            {/* Pipeline select — each selection re-queries the server (SC-1). */}
             <select value={pipelineFilter} onChange={e => {
               const newPipeline = e.target.value as PipelineFilter;
               setPipelineFilter(newPipeline);
@@ -325,8 +340,11 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
               <option value="app_builder">App Builder</option>
               <option value="custom">Custom</option>
             </select>
-            {/* Model select — only shown when multiple models appear in the range. */}
-            {availableModelIds.length > 1 && (
+            {/* Model select — each selection re-queries the server (SC-1). Shown
+                when the window holds more than one model, and kept on screen once
+                a model is picked: the filtered payload reports only that one model,
+                which would otherwise hide the control still applying the filter. */}
+            {(availableModelIds.length > 1 || modelFilter !== "all") && (
               <select value={modelFilter} onChange={e => setModelFilter(e.target.value)}
                 aria-label="Filter by model"
                 name="model-filter"

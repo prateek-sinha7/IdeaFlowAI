@@ -169,7 +169,18 @@ class TestReplay:
         # The replayed body now also carries the row's authoritative event_id COLUMN
         # (see TestReplayIdentityProjection); _seed_events mints a fresh uuid4 per row,
         # so the expected value is read back rather than hardcoded.
-        row_event_id = db_session.query(RunEvent).filter_by(run_id="run-1", seq=2).one().event_id
+        row = db_session.query(RunEvent).filter_by(run_id="run-1", seq=2).one()
+        row_event_id = row.event_id
+        # ISS-358: the body ALSO carries the row's `created_at` COLUMN — the only send
+        # time a replayed app-layer chat row has. UTC-promoted (KAN-113) because a naive
+        # stamp is Date.parse'd as LOCAL time in the browser; asserted as an explicit
+        # promotion here rather than through the endpoint's own helper, so the tz half
+        # is pinned independently. Per-row wall clock, so read back like `event_id`.
+        row_created_at = (
+            row.created_at.replace(tzinfo=timezone.utc)
+            if row.created_at.tzinfo is None
+            else row.created_at
+        ).isoformat()
         frames = asyncio.run(
             _collect(
                 _iter_sse_frames(
@@ -182,7 +193,12 @@ class TestReplay:
         replay = [p for p in parsed if p["type"] != "stream_attached"]
         assert [p["id"] for p in replay] == ["2", "3"]
         assert [p["type"] for p in replay] == ["agent_chunk", "agent_complete"]
-        assert replay[0]["data"] == {"seq": 2, "text": "hi", "event_id": row_event_id}
+        assert replay[0]["data"] == {
+            "seq": 2,
+            "text": "hi",
+            "event_id": row_event_id,
+            "created_at": row_created_at,
+        }
 
     def test_replay_full_when_cursor_zero(self, db_session):
         _seed_run(db_session)

@@ -3692,6 +3692,52 @@ async def test_reconcile_supersedes_only_across_an_attempt_boundary(
     session.close()
 
 
+@pytest.mark.issue("ISS-316")
+@pytest.mark.asyncio
+async def test_reconcile_later_attempt_failure_supersedes_earlier_cancellation(monkeypatch):
+    """ISS-316: a LATER attempt (run_resuming + pipeline_start) that genuinely FAILS
+    (pipeline_failed, no pipeline_complete anywhere in its tail) must supersede the earlier
+    attempt's pipeline_cancelled the same way a later pipeline_complete already does.
+    `resume_supersedes` is keyed exclusively on `complete_seqs`, so this tail's
+    `complete_seqs` is empty, `resume_supersedes` short-circuits False, and the first branch
+    (`if cancelled and not resume_supersedes`) unconditionally re-persists "cancelled" —
+    reproducing run a8dfa959-e233-4ddf-87ce-d9a942cefde3 from BUG-20260828-085830-runs-cancelled."""
+    from agents.authz import ScopedStore
+    from app.models.workflow import WorkflowRun
+
+    tail = [
+        ("pipeline_start", 1), ("pipeline_cancelled", 2), ("run_resuming", 3),
+        ("pipeline_start", 4), ("agent_error", 5), ("agent_error", 6),
+        ("pipeline_failed", 7),
+    ]
+
+    session, db_engine = _make_session()
+    run_id = f"rc-{uuid.uuid4().hex[:8]}"
+    owner = "rc-user"
+    ws = "ws-rc"
+    _seed_workflow_run(
+        session, run_id, owner=owner, status="generating", workspace_id=ws
+    )
+    store = ScopedStore(owner_id=owner, workspace_id=ws, session=session)
+    for type_, seq in tail:
+        await store.append_event(
+            run_id, seq=seq, event_id=f"rc-{seq}", type=type_, payload_json={},
+        )
+    session.commit()
+
+    with _ResumeHarness(session, {}, fail_on=set(), db_engine=db_engine) as h:
+        rc = _wire_user_resume_drive(monkeypatch, db_engine, h.make_engine())
+        await rc._reconcile_terminal_status(run_id)
+
+    session.expire_all()
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+    assert row.status == "failed", (
+        f"a later-attempt pipeline_failed must supersede the earlier cancellation; "
+        f"got status={row.status!r} (expected 'failed')"
+    )
+    session.close()
+
+
 @pytest.mark.asyncio
 async def test_user_resume_persists_output_columns(monkeypatch):
     """END-TO-END (BUG-R03): a run crashed mid-build then USER-resumed to completion persists

@@ -98,9 +98,8 @@ export function ChatTokenWidget({ pipelineState }: ChatTokenWidgetProps) {
   const cacheWrite = cacheWriteTokens ?? 0;
 
   // `input` = total prompt tokens (uncached + cache_read + cache_write) per
-  // ChatBedrockConverse convention. Show the uncached "new input" portion so the
-  // user sees what was actually billed at full rate this turn.
-  const uncachedInput = Math.max(0, input - cacheRead - cacheWrite);
+  // ChatBedrockConverse convention — shown in full so the "in" figure reconciles
+  // against the "tokens" total, with the cached share called out beside it.
   const hasCaching = cacheRead > 0 || cacheWrite > 0;
   const cacheReadPct = Math.round((cacheRead / Math.max(1, input)) * 100);
 
@@ -117,21 +116,14 @@ export function ChatTokenWidget({ pipelineState }: ChatTokenWidgetProps) {
       <span className="font-bold text-gray-900">{formatTokens(total)} tokens</span>
       <span className="text-gray-400">·</span>
       <span>{formatCost(cost)}</span>
-      {hasCaching ? (
+      <span className="text-gray-400">·</span>
+      <span>{formatTokens(input)} in</span>
+      {hasCaching && (
         <>
-          <span className="text-gray-400">·</span>
-          <span title={`Total context: ${formatTokens(input)}`}>
-            {formatTokens(uncachedInput)} in
-          </span>
           <span className="text-gray-400">·</span>
           <span className="text-amber-600">
             ⚡ {formatTokens(cacheRead)} cached ({cacheReadPct}%)
           </span>
-        </>
-      ) : (
-        <>
-          <span className="text-gray-400">·</span>
-          <span>{formatTokens(input)} in</span>
         </>
       )}
       {ctx && (
