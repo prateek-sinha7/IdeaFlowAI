@@ -320,6 +320,15 @@ def test_a_saved_github_token_is_not_echoed_to_the_client(page, shot):
     assert page.locator(L.GITHUB_PAT).input_value() != FAKE_PAT
 
 
+def _token_runs(text: str) -> list[str]:
+    """Every token-shaped run in a page's text.
+
+    Shape only — this cannot tell an API key from a long hyphenated NAME, which
+    is why the caller subtracts the runs that were on the page beforehand.
+    """
+    return re.findall(r"\b[A-Za-z0-9_\-]{24,}\b", text)
+
+
 @pytest.mark.scenario("S-16-12")
 @pytest.mark.destructive
 def test_an_api_key_is_shown_once_and_never_again(page, shot):
@@ -333,6 +342,7 @@ def test_an_api_key_is_shown_once_and_never_again(page, shot):
     # earlier run left behind and the locator resolves to four elements.
     name = f"e2e-s-16-12-{uuid.uuid4().hex[:8]}"
     cold(page, "/handoff/settings")
+    before_tokens = set(_token_runs(page.evaluate("() => document.body.innerText")))
 
     try:
         with shot("key-created", "When I create an API key with a name"):
@@ -344,7 +354,22 @@ def test_an_api_key_is_shown_once_and_never_again(page, shot):
         # The plaintext is a long opaque string shown exactly once. Capture any
         # token-shaped run so the reload can prove it is gone — the list itself
         # shows only a masked prefix.
-        secrets = [s for s in re.findall(r"\b[A-Za-z0-9_\-]{24,}\b", shown) if name not in s]
+        #
+        # Subtract what was ALREADY on the page. A key named
+        # `validator-handoff-fixture`, left listed by an earlier run, is 25
+        # characters of [A-Za-z0-9_-] and reads as a secret to any shape-based
+        # pattern — so it "reappeared" after the reload and this test reported a
+        # plaintext leak that never happened. Only tokens that arrived WITH the
+        # creation can be this key's plaintext.
+        secrets = [
+            s
+            for s in _token_runs(shown)
+            if name not in s and s not in before_tokens
+        ]
+        assert secrets, (
+            "no newly-shown token was captured, so the reload below proves "
+            "nothing — the create step may have stopped showing the plaintext"
+        )
 
         with shot("key-not-reshown", "When I reload the page"):
             cold(page, "/handoff/settings")

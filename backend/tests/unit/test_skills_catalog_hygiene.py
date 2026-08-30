@@ -51,16 +51,19 @@ class TestSkillsCatalogHygiene:
             )
         )
 
-    def test_catalog_has_exactly_185_entries(self) -> None:
-        """list_global_skills() returns exactly 185 entries.
+    def test_catalog_has_exactly_186_entries(self) -> None:
+        """list_global_skills() returns exactly 186 entries.
 
         This is a parsing gate: a corrupted SKILL.md silently drops out
         of the catalog rather than raising, so a count change signals a
         potential parse failure somewhere.
+
+        Went 185 -> 186 with ``html-deck-to-pptx``, authored alongside the
+        ppt_v2 pipeline.
         """
         entries = list_global_skills()
-        assert len(entries) == 185, (
-            f"catalog changed from 185 to {len(entries)} entries — "
+        assert len(entries) == 186, (
+            f"catalog changed from 186 to {len(entries)} entries — "
             f"a SKILL.md may have a parse error"
         )
 

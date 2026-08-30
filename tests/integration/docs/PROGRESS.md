@@ -110,7 +110,7 @@ yet — the reason is its `@pytest.mark.skip` text, and it is shown below.
 | ok | `S-05-04` | Search narrows the list by title | `05_saved_workflows/test_saved_workflows.py` |
 | ok | `S-05-05` | New workflow opens the empty composer | `05_saved_workflows/test_saved_workflows.py` |
 | ok | `S-05-06` | A card opens its detail view | `05_saved_workflows/test_saved_workflows.py` |
-| ok | `S-05-07` | The detail view lists agent IDs, not display names | `05_saved_workflows/test_saved_workflows.py` |
+| ok | `S-05-07` | The detail view resolves agent IDs to display names | `05_saved_workflows/test_saved_workflows.py` |
 | ok | `S-05-08` | Edit opens the composer bound to this row | `05_saved_workflows/test_saved_workflows.py` |
 | ok | `S-05-09` | Run opens the base workflow's launch panel | `05_saved_workflows/test_saved_workflows.py` |
 | ok | `S-05-10` | A saved override's run panel reports the base agent count | `05_saved_workflows/test_saved_workflows.py` |

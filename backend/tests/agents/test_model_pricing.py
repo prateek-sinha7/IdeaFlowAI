@@ -99,8 +99,14 @@ def test_catalog_carries_base_rates(model_id: str, expected: Pricing) -> None:
 
 
 def test_pricing_covers_every_catalog_model() -> None:
+    """Every catalog model carries a Pricing — currently 9.
+
+    Went 8 -> 9 with ``eu.anthropic.claude-sonnet-5``. The count is pinned so a
+    model added without a rate is caught here rather than by a run billing at
+    zero.
+    """
     entries = ModelCatalog().list()
-    assert len(entries) == 8
+    assert len(entries) == 9
     for entry in entries:
         assert isinstance(entry.pricing, Pricing)
 

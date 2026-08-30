@@ -79,8 +79,11 @@ describe("page.tsx /workflows/{id} read-view catch block (F7, FR-009)", () => {
     const narrowedPattern =
       "if (err instanceof ApiError && (err.status === 403 || err.status === 404)) {";
     // Present at: run-detail fetch (T24), /workflows/{id}/edit fetch (T8), and
-    // now /workflows/{id} read-view fetch (T30, this fix) — three sites total.
+    // /workflows/{id} read-view fetch (T30) — three sites, until feat/bug-hunter
+    // brought two more fetches through the same narrowing. Five now.
+    // The pin only ever goes UP by inspection: a DROP means a catch block went
+    // back to swallowing every error, which is the defect this file exists for.
     const occurrences = pageSource.split(narrowedPattern).length - 1;
-    expect(occurrences).toBe(3);
+    expect(occurrences).toBe(5);
   });
 });

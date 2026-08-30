@@ -35,7 +35,7 @@ export default function NotFoundPage() {
             Page not found.
           </h2>
           <p className="mt-4 text-[14px] leading-relaxed text-white/60">
-            This URL doesn't exist. Let's get you back on track to shipping faster
+            This URL doesn&apos;t exist. Let&apos;s get you back on track to shipping faster
             with your agent workforce.
           </p>
         </div>
@@ -75,7 +75,7 @@ export default function NotFoundPage() {
               Not found
             </h1>
             <p className="mt-3 text-[13px] text-ink-500 leading-relaxed">
-              The page you're looking for doesn't exist or has been moved.
+              The page you&apos;re looking for doesn&apos;t exist or has been moved.
             </p>
           </motion.div>
 

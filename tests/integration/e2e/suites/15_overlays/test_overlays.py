@@ -379,7 +379,9 @@ def test_the_version_picker_lists_a_runs_artifact_versions(page, shot):
 def test_share_copies_a_link_rather_than_opening_a_dialog(page, shot):
     """Scenario: Share copies a link rather than opening a dialog"""
     run_id = a_completed_run(page)
-    share = page.get_by_label("Copy a link to this run")
+    # Renamed from "Copy a link to this run" by the Option B public share link
+    # (b69f25696): the control does more than copy now, so the label says Share.
+    share = page.get_by_label("Share this run")
     expect(share).to_be_visible()
     before = dialogs(page)
 
