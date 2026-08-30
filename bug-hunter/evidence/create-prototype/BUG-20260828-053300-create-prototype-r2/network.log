@@ -1,0 +1,5 @@
+GET http://localhost:8000/api/prototype/fetch-url?url=not-a-valid-url => 400 Bad Request
+GET http://localhost:8000/api/prototype/fetch-url?url=http%3A%2F%2Fexample.invalid.nonexistent-domain-xyz123%2F => 502 Bad Gateway
+  response body: {"detail":"URL fetch failed: [Errno 8] nodename nor servname provided, or not known"}
+GET http://localhost:8000/api/prototype/fetch-url?url=https%3A%2F%2Fanother-totally-fake-domain-abc987.invalid%2F => 502 Bad Gateway
+  response body: {"detail":"URL fetch failed: [Errno 8] nodename nor servname provided, or not known"}

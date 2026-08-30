@@ -71,6 +71,23 @@ const AUTO_STREAM_STATUSES = new Set([
   "revising",
 ]);
 
+/**
+ * ISS-220/236/237 — the resume remount gap. A resume (`handleResumeRun` →
+ * `DashboardLayout`'s `isRunning` effect → `router.push(routes.runStream(...))`)
+ * remounts `app/[...view]/page.tsx`, which unsubscribes its fan-out listeners on
+ * unmount and resubscribes fresh ones on mount. `fanout` had no buffering, so a
+ * frame dispatched in that window — e.g. the `pipeline_failed` a fast-failing
+ * resume emits ~3-5s later — reached no listener and was lost for good, freezing
+ * the live view on stale "Running · Starting…" state until a manual reload. Frames
+ * dispatched with ZERO subscribers are held here and replayed to the next
+ * subscriber(s) that join. Bounded by count AND age so a surface that never
+ * subscribes (e.g. /login) can neither grow the buffer without limit nor hand a
+ * stale burst to a subscriber that mounts much later; a remount gap is
+ * sub-second, so the window only has to cover a route commit.
+ */
+const GAP_REPLAY_MAX = 200;
+const GAP_REPLAY_MS = 15_000;
+
 export interface RunConnectionContextValue {
   /**
    * Whether the SSE transport is active. Always true under the provider (SSE is
@@ -229,6 +246,9 @@ export function RunConnectionProvider({
   const [phases, setPhases] = useState<Record<string, RunConnectionPhase>>({});
   const [epoch, setEpoch] = useState(0);
   const subscribersRef = useRef<Set<(m: RunStreamMessage) => void>>(new Set());
+  // ISS-220/236/237: frames fanned out while `subscribersRef` was empty, kept for
+  // the next subscriber to join (see GAP_REPLAY_MAX/GAP_REPLAY_MS above).
+  const gapFramesRef = useRef<{ at: number; msg: RunStreamMessage }[]>([]);
 
   // BUG-013: liveRunIds = union(autoIds, focusedRunId). Both inputs live in refs
   // (not state) so `refreshLiveRuns`/`attachRun` stay dependency-free useCallbacks
@@ -329,6 +349,18 @@ export function RunConnectionProvider({
   }, [refreshLiveRuns]);
 
   const fanout = useCallback((msg: RunStreamMessage) => {
+    // ISS-220/236/237: nobody is listening (the page remount gap) — hold the
+    // frame for the resubscriber instead of dropping it, ageing out and capping
+    // what we keep. Live delivery below clears the buffer: once a subscriber is
+    // registered again the gap is closed, so the held frames are replayed once.
+    if (subscribersRef.current.size === 0) {
+      const now = Date.now();
+      const held = gapFramesRef.current.filter((e) => now - e.at <= GAP_REPLAY_MS);
+      held.push({ at: now, msg });
+      gapFramesRef.current = held.slice(-GAP_REPLAY_MAX);
+      return;
+    }
+    gapFramesRef.current = [];
     subscribersRef.current.forEach((fn) => {
       try {
         fn(msg);
@@ -344,6 +376,20 @@ export function RunConnectionProvider({
 
   const subscribe = useCallback((fn: (m: RunStreamMessage) => void) => {
     subscribersRef.current.add(fn);
+    // ISS-220/236/237: replay whatever the fan-out held while there was no
+    // listener, so a page that remounted mid-run is told about the frames it was
+    // absent for. Every listener joining this commit gets them (page.tsx wires
+    // two — the pipeline reducer and the chat transcript); the reducers are
+    // idempotent by event_id and run-scope by `_sourceRunId`.
+    const now = Date.now();
+    gapFramesRef.current.forEach((e) => {
+      if (now - e.at > GAP_REPLAY_MS) return;
+      try {
+        fn(e.msg);
+      } catch {
+        /* a bad subscriber must not break the replay */
+      }
+    });
     return () => {
       subscribersRef.current.delete(fn);
     };

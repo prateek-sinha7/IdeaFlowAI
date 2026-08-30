@@ -21,6 +21,11 @@ import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 
 interface AgentThinkingTabProps {
   agents: AgentRunState[];
+  /** ISS-277 — the agent this tab should open ON, as named by the URL
+   *  (`/runs/{id}/steps/{agentId}`) and delivered through the deep-link seam.
+   *  An OPAQUE run-scoped id matched against `agents[].id`, never a workflow/
+   *  agent name literal (SC-001). Undefined ⇒ open on the overview spine. */
+  initialAgentId?: string;
   pipelineState?: PipelineRunState;
   waves?: WaveGroup[];
   runInput?: string;
@@ -74,15 +79,26 @@ function EmptyState() {
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 export function AgentThinkingTab({
-  agents, pipelineState, waves, runInput, originalBriefRootRunId, revisionParentVersion,
+  agents, initialAgentId, pipelineState, waves, runInput, originalBriefRootRunId, revisionParentVersion,
   clarifications, clarificationsLoading,
   laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
   clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow,
   specRevisionCount = 0,
 }: AgentThinkingTabProps) {
   // ── The three-level Steps navigation (mirrors the mock's stepView/taskView) ──
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(initialAgentId ?? null);
   const [selectedTaskIndex, setSelectedTaskIndex] = useState<number | null>(null);
+
+  // ISS-277 — a deep link that names an agent selects it. Seeded above for the
+  // mount that the deep link itself triggers, and re-applied here for a LATER
+  // one arriving while this tab is already mounted (a shallow run-tab nav or a
+  // back/forward). Keyed on the id, so an in-pane Back (which clears the
+  // selection) is never re-stomped while the URL keeps naming the same agent.
+  // The id is held even when `agents` has not arrived yet: `selectedAgent` is
+  // resolved from it on every render, so the detail opens as soon as it does.
+  useEffect(() => {
+    if (initialAgentId) { setSelectedAgentId(initialAgentId); setSelectedTaskIndex(null); }
+  }, [initialAgentId]);
 
   // ── Gate-events fetch (RUNUI-06) — the run's governance-gate rows drive the
   // "Review gate — {gate} · approved" strips interleaved in the overview spine.

@@ -72,7 +72,7 @@ interface AuditTabProps {
 
 // ─── Unified audit-row model ─────────────────────────────────────────────────
 
-type AuditCategory = "gate" | "validation" | "exec";
+type AuditCategory = "gate" | "validation" | "exec" | "hook";
 
 const SEVERITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 type Severity = (typeof SEVERITIES)[number];
@@ -170,6 +170,15 @@ function buildHookDetailRows(
     ? (detail.matched_keys as string[]).join(", ")
     : typeof detail.match === "string" ? detail.match : marker;
   if (matched) rows.push(["Match", matched]);
+  // Identity fields the real hook_run payload already carries (agent_name /
+  // tool / summary) — without them every lifecycle row expands to the same
+  // Action/Outcome fallback and no row is attributable (ISS-202).
+  const agentName = typeof detail.agent_name === "string" ? detail.agent_name : null;
+  if (agentName) rows.push(["Agent", agentName]);
+  const tool = typeof detail.tool === "string" ? detail.tool : null;
+  if (tool) rows.push(["Tool", tool]);
+  const summary = typeof detail.summary === "string" ? detail.summary : null;
+  if (summary) rows.push(["Summary", summary]);
   const fallbackAction = outcome === "block"
     ? `${eventLabel.includes("write") ? "write blocked" : "action blocked"} \u00b7 nothing persisted`
     : outcome === "warn" ? "warning recorded \u00b7 run continued" : "allowed";
@@ -274,6 +283,8 @@ const GROUP_LABEL: Record<"all" | FilterGroup, string> = {
  *  - a secret/credential/scan signal on a gate or validation → Security;
  *  - an exec row that looks like a perf/otel span → Perf, else Exec;
  *  - a behavioral/guideline/hook signal on a gate or validation → Governance;
+ *  - a hook_runs row with none of those signals → Activity (lifecycle telemetry,
+ *    NOT a governance gate);
  *  - otherwise the base source category (gate / validation).
  * Nothing is fabricated: the net-new categories appear ONLY when the live row
  * carries a matching signal.
@@ -291,6 +302,7 @@ function deriveFineCategory(
     return "exec";
   }
   if (/behavio|guideline|\bhook\b/.test(hay)) return "behavioral";
+  if (source === "hook") return "activity";
   return source === "gate" ? "gate" : "validation";
 }
 
@@ -565,13 +577,13 @@ export function AuditTab({ workflowRunId, runMeta, isRunning }: AuditTabProps) {
           // Build the mock's Detector / Match / Action / Outcome detail rows
           // from the real detail payload (SC-001 / ND-D: no fabrication).
           const detailRows = buildHookDetailRows(hookName, outcome, h.detail as Record<string, unknown> | null, step, eventLabel);
-          const fineCategory = deriveFineCategory("gate", hookName, step);
+          const fineCategory = deriveFineCategory("hook", hookName, step);
           const outcome3 = outcome === "block" ? "block" as Outcome3 : outcome === "warn" ? "warn" as Outcome3 : "pass" as Outcome3;
           // hook blocks that touched a credential are CRITICAL; warns are MEDIUM.
           const severity: Severity | null = outcome === "block" && /secret|credential|scan/.test(hookName) ? "CRITICAL" : null;
           merged.push({
             id: `hook:${h.id ?? `${hookName}-${h.created_at ?? Math.random()}`}`,
-            category: "gate",
+            category: "hook",
             step,
             label,
             outcome,
@@ -661,6 +673,7 @@ export function AuditTab({ workflowRunId, runMeta, isRunning }: AuditTabProps) {
   function exportRows() {
     return visibleRows.map((r) => ({
       category: r.category,
+      fineCategory: r.fineCategory,
       step: r.step,
       label: r.label,
       outcome: r.outcome,

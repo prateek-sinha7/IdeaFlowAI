@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, type HTMLAttributes } from "react";
 import { useRouter, useSearchParams, useParams, notFound } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -13,6 +13,7 @@ import type { SkillDef } from "@/store/api/skills";
 import { useAgentLibrary } from "@/hooks/useAgentLibrary";
 import { useSkillsCatalog } from "@/hooks/useSkillsCatalog";
 import { useHooksCatalog } from "@/hooks/useHooksCatalog";
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 import { useAppSelector } from "@/store/hooks";
 import { routes, parseViewPath } from "@/lib/routes";
 import { getSkillCategoryIcon } from "@/lib/skillIcons";
@@ -20,6 +21,7 @@ import { getWorkflowTypeIcon, getPrimaryPipelineType, agentMatchesPipelineType }
 import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import { SkillMarkdown } from "@/components/ui/SkillMarkdown";
 import type { AgentDef } from "@/types/index";
 
 type CategoryEntry = { id: string; label: string; section?: boolean };
@@ -41,6 +43,45 @@ function getInitials(name: string): string {
   const words = name.replace(/\s+agent$/i, "").split(" ");
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+// ISS-222/270/271 — `Card` renders a plain <div>, so every grid card that
+// carries an onClick has to supply its own keyboard affordance: focusable,
+// announced as a button, activated by Enter/Space. Enter/Space forward to the
+// element's own click handler so activation stays defined in exactly one place.
+// Cards with no working onClick (beta agents, beta skills) deliberately do NOT
+// get this — a focus stop that does nothing is worse than none.
+const CARD_KEYBOARD_PROPS: HTMLAttributes<HTMLDivElement> = {
+  role: "button",
+  tabIndex: 0,
+  onKeyDown: (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      e.currentTarget.click();
+    }
+  },
+};
+
+// ISS-272 — both in-file detail modals are the same scrim+panel shell and
+// neither had a keyboard dismiss path or any focus management. One shared hook
+// gives them the modal contract the prototype detail modals already use
+// (TemplateDetailModal): Escape closes, and focus moves onto the panel on open
+// so a keyboard user lands inside the dialog instead of behind it. No Tab trap,
+// same as those modals.
+function useDetailModalKeyboard(onClose: () => void) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return panelRef;
 }
 
 // ─── Loading Skeletons ───────────────────────────────────────────────────────
@@ -133,40 +174,46 @@ function CategoryChipSkeleton() {
   );
 }
 
+// ISS-231 — all three grids below render `list.map(...)` straight into the DOM,
+// so an empty list left the whole content area blank with no markup at all. One
+// shared empty state, rendered on the array's LENGTH rather than on whether the
+// search box has text, so a category/event filter that matches nothing lands
+// here too instead of on the same blank grid.
+function EmptyGridState({ noun, query, onClear }: { noun: string; query: string; onClear: () => void }) {
+  return (
+    <div className="col-span-full flex flex-col items-center gap-2 py-14">
+      <p className="text-[13px] text-ink-400">
+        {query ? `No ${noun} match “${query}”` : `No ${noun} found`}
+      </p>
+      {query && (
+        <button onClick={onClear} className="text-[12px] font-medium text-brand hover:opacity-80 transition-opacity">
+          Clear search
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── Skill Detail Modal ───────────────────────────────────────────────────────
 
 function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => void }) {
-  const [copied, setCopied] = useState(false);
+  const { copied, failed, copy } = useClipboardCopy();
+  const panelRef = useDetailModalKeyboard(onClose);
 
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(skill.content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  // Parse content into sections for display
-  const lines = skill.content.trim().split("\n");
-  const sections: { heading: string | null; lines: string[] }[] = [];
-  let current: { heading: string | null; lines: string[] } = { heading: null, lines: [] };
-  for (const line of lines) {
-    if (line.startsWith("# ") && current.lines.length === 0 && !current.heading) {
-      current.heading = line.replace(/^#+\s*/, "");
-    } else if (line.startsWith("## ")) {
-      if (current.heading || current.lines.length > 0) sections.push(current);
-      current = { heading: line.replace(/^#+\s*/, ""), lines: [] };
-    } else {
-      current.lines.push(line);
-    }
-  }
-  if (current.heading || current.lines.length > 0) sections.push(current);
+  const handleCopy = () => void copy(skill.content);
 
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-[var(--scrim)] backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${skill.name} skill`}
       onClick={onClose}
     >
       <div
+        ref={panelRef}
+        tabIndex={-1}
         onClick={e => e.stopPropagation()}
         className="bg-surface-white rounded-2xl shadow-2xl border border-line-border w-full max-w-2xl overflow-hidden flex flex-col"
         style={{ maxHeight: "88vh" }}
@@ -186,6 +233,9 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
               </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
+              {failed && (
+                <span className="text-[11px] font-semibold text-status-failed">Copy failed</span>
+              )}
               <button
                 onClick={handleCopy}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${
@@ -206,37 +256,14 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          {/* Formatted content */}
-          <div className="px-6 py-4 space-y-4">
-            {sections.map((section, i) => (
-              <div key={i}>
-                {section.heading && (
-                  <div className="flex items-center gap-2 mb-2">
-                    <Zap className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
-                    <h3 className="font-sans text-[12px] font-bold text-ink-800 uppercase tracking-wide">{section.heading}</h3>
-                  </div>
-                )}
-                <div className="space-y-1">
-                  {section.lines.filter(l => l.trim()).map((line, j) => {
-                    const isBullet = line.trim().startsWith("- ") || line.trim().startsWith("* ");
-                    const isNumbered = /^\d+\.\s/.test(line.trim());
-                    const text = isBullet ? line.trim().replace(/^[-*]\s+/, "") : isNumbered ? line.trim().replace(/^\d+\.\s+/, "") : line.trim();
-                    if (!text) return null;
-                    if (isBullet || isNumbered) {
-                      return (
-                        <div key={j} className="flex items-start gap-2.5 py-0.5">
-                          <div className="w-1.5 h-1.5 rounded-full bg-ink-400 flex-shrink-0 mt-1.5" />
-                          <p className="text-[12px] text-ink-700 leading-relaxed">{text}</p>
-                        </div>
-                      );
-                    }
-                    return (
-                      <p key={j} className="text-[12px] text-ink-600 leading-relaxed">{text}</p>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+          {/* Formatted content — ISS-591: this used to be a hand-rolled
+              line-splitter that only recognized `# `/`## ` headings and
+              `-`/`*`/numbered bullets, so inline **bold**, `code` and [links]
+              rendered as literal markup. Routed through the same
+              react-markdown + remark-gfm renderer the composer's skill modal
+              uses, so both surfaces parse the same SKILL.md identically. */}
+          <div className="px-6 py-4">
+            <SkillMarkdown content={skill.content} />
           </div>
 
           {/* Raw content block */}
@@ -278,15 +305,12 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
 // ─── Hook Detail Modal ────────────────────────────────────────────────────────
 
 function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void }) {
-  const [copied, setCopied] = useState(false);
+  const { copied, failed, copy } = useClipboardCopy();
+  const panelRef = useDetailModalKeyboard(onClose);
 
   const copyText = `Hook: ${hook.name}\nEvent: ${hook.event}\nTrigger: ${hook.trigger}\n\n${hook.description}\n\nTags: ${hook.tags.join(", ")}`;
 
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(copyText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const handleCopy = () => void copy(copyText);
 
   const EVENT_DESCRIPTION: Record<string, string> = {
     PreToolUse: "Runs before a tool is executed. Can inspect or block the operation.",
@@ -300,9 +324,14 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-[var(--scrim)] backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${hook.name} hook`}
       onClick={onClose}
     >
       <div
+        ref={panelRef}
+        tabIndex={-1}
         onClick={e => e.stopPropagation()}
         className="bg-surface-white rounded-2xl shadow-2xl border border-line-border w-full max-w-xl overflow-hidden flex flex-col"
         style={{ maxHeight: "88vh" }}
@@ -322,6 +351,9 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
               </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
+              {failed && (
+                <span className="text-[11px] font-semibold text-status-failed">Copy failed</span>
+              )}
               <button
                 onClick={handleCopy}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${
@@ -447,10 +479,17 @@ export function LibraryPage() {
 
   // Read category param from URL on mount, default to "all"
   const urlCategory = searchParams.get("category") || "all";
+  // ISS-360/592/593/594: search text gets the SAME one-shot URL seed the three
+  // category states already get. Opening an item-detail view remounts this
+  // component (routes.libraryAgent/Skill/Hook change the [...view] catch-all's
+  // segments — see `[...view]/page.tsx`'s T6 comment), so the URL is the only
+  // thing that survives the round trip, whether the user comes back via the
+  // detail view's X or the browser's own Back button.
+  const urlSearch = searchParams.get("search") || "";
   const [activeCategory, setActiveCategory] = useState(urlCategory);
-  const [searchQuery, setSearchQuery] = useState("");
-  // Carries the persisted skills/selections SNAPSHOT taken when the drawer was
-  // opened. Reading `savedSkillsRef`/`savedSelectionsRef` inline in the drawer's
+  const [searchQuery, setSearchQuery] = useState(urlSearch);
+  // Carries the persisted selections SNAPSHOT taken when the drawer was
+  // opened. Reading `savedSelectionsRef` inline in the drawer's
   // JSX instead would be a render-time ref read (react-hooks/refs): React does
   // not re-render on a ref write, so that read only ever reflected whatever the
   // ref held during some arbitrary earlier render. Snapshotting at open time —
@@ -459,14 +498,13 @@ export function LibraryPage() {
   const [selectedAgent, setSelectedAgent] = useState<{
     agent: AgentDef;
     index: number;
-    savedSkills?: string[];
     savedSelections?: SelectionsMap;
   } | null>(null);
   const [mainTab, setMainTab] = useState<"agents" | "skills" | "hooks">("agents");
   const [skillCategory, setSkillCategory] = useState(urlCategory);
-  const [skillSearch, setSkillSearch] = useState("");
+  const [skillSearch, setSkillSearch] = useState(urlSearch);
   const [hookEvent, setHookEvent] = useState(urlCategory);
-  const [hookSearch, setHookSearch] = useState("");
+  const [hookSearch, setHookSearch] = useState(urlSearch);
   const [selectedSkill, setSelectedSkill] = useState<SkillDef | null>(null);
   const [selectedHook, setSelectedHook] = useState<HookDef | null>(null);
 
@@ -521,14 +559,28 @@ export function LibraryPage() {
       const agent = ALL_AGENTS_COMBINED.find(a => a.id === librarySlug.slug);
       if (agent) {
         setMainTab("agents");
-        setSelectedAgent({ agent, index: ALL_AGENTS_COMBINED.indexOf(agent) });
+        // ISS-303: a "Coming Soon" (BETA_WORKFLOWS) agent has no click path
+        // into the drawer — the grid card's own onClick refuses it — so a
+        // direct URL must not be one either. Redirect to the listing rather
+        // than leaving the URL on a detail path nothing renders.
+        if (BETA_WORKFLOWS.has(getPrimaryPipelineType(agent.pipeline_type))) {
+          router.replace(routes.library({ tab: "agents" }));
+        } else {
+          setSelectedAgent({ agent, index: ALL_AGENTS_COMBINED.indexOf(agent) });
+        }
         librarySlugAppliedRef.current = true;
       }
     } else if (librarySlug.type === "skills" && skillsStatus === "succeeded") {
       const skill = SKILLS.find(s => s.id === librarySlug.slug);
       if (skill) {
         setMainTab("skills");
-        setSelectedSkill(skill);
+        // ISS-416: same gate for a beta skill — the "Coming Soon" skills grid
+        // renders those cards with no onClick at all.
+        if (skill.isBeta) {
+          router.replace(routes.library({ tab: "skills" }));
+        } else {
+          setSelectedSkill(skill);
+        }
         librarySlugAppliedRef.current = true;
       }
     } else if (librarySlug.type === "hooks" && hooksStatus === "succeeded") {
@@ -542,6 +594,22 @@ export function LibraryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [librarySlug?.type, librarySlug?.slug, agentsStatus, skillsStatus, hooksStatus, ALL_AGENTS_COMBINED, SKILLS, HOOKS]);
 
+  // ISS-360/592/593/594: the one place the active tab's search text is written,
+  // so it always reaches the URL alongside the tab's category — the category
+  // chips below already do this, and search needs it for the same reason: the
+  // URL is what a detail-view round trip (or a browser Back out of one) reads
+  // the filters back from. An event-handler write, never an effect — see T13.
+  const applySearch = (value: string) => {
+    if (mainTab === "agents") setSearchQuery(value);
+    else if (mainTab === "skills") setSkillSearch(value);
+    else setHookSearch(value);
+    router.replace(routes.library({
+      tab: mainTab,
+      category: mainTab === "skills" ? skillCategory : mainTab === "hooks" ? hookEvent : activeCategory,
+      search: value,
+    }));
+  };
+
   // Closes whichever detail modal is open via the URL, not local state directly
   // — mirrors what browser Back already does, so the T16 effect below is the
   // ONE place that clears selectedAgent/Skill/Hook, and the URL never goes
@@ -553,8 +621,12 @@ export function LibraryPage() {
       mainTab === "skills" ? skillCategory :
       mainTab === "hooks" ? hookEvent :
       activeCategory;
-    router.push(routes.library({ tab: mainTab, category: category === "all" ? undefined : category }));
-  }, [router, mainTab, activeCategory, skillCategory, hookEvent]);
+    const search =
+      mainTab === "skills" ? skillSearch :
+      mainTab === "hooks" ? hookSearch :
+      searchQuery;
+    router.push(routes.library({ tab: mainTab, category: category === "all" ? undefined : category, search }));
+  }, [router, mainTab, activeCategory, skillCategory, hookEvent, searchQuery, skillSearch, hookSearch]);
 
   // T16 (015-frontend-routing, FR-006): when the URL changes (e.g., via browser back),
   // close any modal that no longer matches the current URL. This allows the browser
@@ -584,13 +656,6 @@ export function LibraryPage() {
   // Keyed by agent.id → the SelectionsMap for that agent. A useRef keeps the
   // map stable (no re-render on save) while surviving the drawer unmount.
   const savedSelectionsRef = useRef<Record<string, SelectionsMap>>({});
-  // Spec 012 — the Skills-tab selection lives in its OWN ref, deliberately NOT
-  // inside savedSelectionsRef: the Config-tab Save writes a fresh SelectionsMap
-  // into that ref and would clobber any skills stored there. A catalog agent has
-  // no step to carry skills, but persisting them here restores the ticked set on
-  // reopen — the same drawer contract as the Config levers, not live checkboxes
-  // that silently discard.
-  const savedSkillsRef = useRef<Record<string, string[]>>({});
 
   const MAIN_TABS: TabItem[] = [
     { id: "agents", label: `Agents  ${ALL_AGENTS_COMBINED.length}`, icon: <Zap className="h-3.5 w-3.5" /> },
@@ -673,11 +738,7 @@ export function LibraryPage() {
               aria-label={`Search ${mainTab}`}
               name="library-search"
               value={mainTab === "agents" ? searchQuery : mainTab === "skills" ? skillSearch : hookSearch}
-              onChange={e => {
-                if (mainTab === "agents") setSearchQuery(e.target.value);
-                else if (mainTab === "skills") setSkillSearch(e.target.value);
-                else setHookSearch(e.target.value);
-              }}
+              onChange={e => applySearch(e.target.value)}
               placeholder={`Search ${mainTab}...`}
               className="w-full pl-10 pr-4 py-[9px] text-[13px] text-ink-800 bg-surface-card border border-line-control rounded-[10px] focus:outline-none focus:border-brand transition-colors placeholder:text-ink-200"
             />
@@ -719,7 +780,7 @@ export function LibraryPage() {
                 return (
                   <button key={cat.id} onClick={() => {
                     setActiveCategory(cat.id);
-                    router.replace(routes.library({ tab: "agents", category: cat.id === "all" ? undefined : cat.id }));
+                    router.replace(routes.library({ tab: "agents", category: cat.id === "all" ? undefined : cat.id, search: searchQuery }));
                   }}
                     className={`${chipBase} ${isActive ? chipActive : chipIdle} flex items-center gap-1.5`}>
                     {IconComponent && <IconComponent className="h-3.5 w-3.5" />}
@@ -731,6 +792,8 @@ export function LibraryPage() {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(288px,1fr))] gap-[13px]">
               {agentsStatus === "loading" ? (
                 Array.from({ length: 6 }).map((_, i) => <AgentCardSkeleton key={i} />)
+              ) : filteredAgents.length === 0 ? (
+                <EmptyGridState noun="agents" query={searchQuery} onClear={() => applySearch("")} />
               ) : (
                 filteredAgents.map((agent) => {
                   const WorkflowIconComponent = getWorkflowTypeIcon(getPrimaryPipelineType(agent.pipeline_type));
@@ -744,12 +807,12 @@ export function LibraryPage() {
                             agent,
                             index: filteredAgents.indexOf(agent),
                             // Snapshot the persisted drawer state at OPEN time.
-                            savedSkills: savedSkillsRef.current[agent.id],
                             savedSelections: savedSelectionsRef.current[agent.id],
                           });
-                          router.push(routes.libraryAgent(agent.id));
+                          router.push(routes.libraryAgent(agent.id, { tab: "agents", category: activeCategory, search: searchQuery }));
                         }
                       }}
+                      {...(BETA_WORKFLOWS.has(getPrimaryPipelineType(agent.pipeline_type)) ? {} : CARD_KEYBOARD_PROPS)}
                       className={`flex flex-col p-[17px] min-h-[180px] transition-colors group ${
                         BETA_WORKFLOWS.has(getPrimaryPipelineType(agent.pipeline_type))
                           ? "opacity-60 cursor-not-allowed"
@@ -799,7 +862,7 @@ export function LibraryPage() {
                   return (
                     <button key={cat.id} onClick={() => {
                       setSkillCategory(cat.id);
-                      router.replace(routes.library({ tab: "skills", category: cat.id === "all" ? undefined : cat.id }));
+                      router.replace(routes.library({ tab: "skills", category: cat.id === "all" ? undefined : cat.id, search: skillSearch }));
                     }}
                       className={`${chipBase} ${isActive ? chipActive : chipIdle} flex items-center gap-1.5`}>
                       {IconComponent && <IconComponent className="h-3.5 w-3.5" />}
@@ -814,6 +877,11 @@ export function LibraryPage() {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">
               {skillsStatus === "loading" ? (
                 Array.from({ length: 6 }).map((_, i) => <SkillCardSkeleton key={i} />)
+              ) : filteredSkills.length === 0 ? (
+                // filteredSkills, not activeSkills: when only beta skills match,
+                // the Coming Soon grid below still renders them, so the area is
+                // not blank and "no skills match" would contradict it.
+                <EmptyGridState noun="skills" query={skillSearch} onClear={() => applySearch("")} />
               ) : (
               activeSkills.map((skill) => {
                 const IconComponent = getSkillCategoryIcon(skill.category);
@@ -821,8 +889,9 @@ export function LibraryPage() {
                   <Card key={skill.id}
                     onClick={() => {
                       setSelectedSkill(skill);
-                      router.push(routes.librarySkill(skill.id));
+                      router.push(routes.librarySkill(skill.id, { tab: "skills", category: skillCategory, search: skillSearch }));
                     }}
+                    {...CARD_KEYBOARD_PROPS}
                     className="p-4 hover:border-line-control transition-colors cursor-pointer group"
                   >
                     <div className="flex items-center gap-2.5 mb-2.5">
@@ -898,7 +967,7 @@ export function LibraryPage() {
                   return (
                     <button key={ev.id} onClick={() => {
                       setHookEvent(ev.id);
-                      router.replace(routes.library({ tab: "hooks", category: ev.id === "all" ? undefined : ev.id }));
+                      router.replace(routes.library({ tab: "hooks", category: ev.id === "all" ? undefined : ev.id, search: hookSearch }));
                     }}
                       className={`${chipBase} ${isActive ? chipActive : chipIdle}`}>
                       {ev.label}
@@ -910,13 +979,16 @@ export function LibraryPage() {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">
               {hooksStatus === "loading" ? (
                 Array.from({ length: 6 }).map((_, i) => <HookCardSkeleton key={i} />)
+              ) : filteredHooks.length === 0 ? (
+                <EmptyGridState noun="hooks" query={hookSearch} onClear={() => applySearch("")} />
               ) : (
               filteredHooks.map((hook) => (
                 <Card key={hook.id}
                   onClick={() => {
                     setSelectedHook(hook);
-                    router.push(routes.libraryHook(hook.id));
+                    router.push(routes.libraryHook(hook.id, { tab: "hooks", category: hookEvent, search: hookSearch }));
                   }}
+                  {...CARD_KEYBOARD_PROPS}
                   className="p-4 hover:border-line-control transition-colors cursor-pointer group"
                 >
                   <div className="flex items-center gap-2.5 mb-2">
@@ -945,11 +1017,7 @@ export function LibraryPage() {
       <AnimatePresence>
         {selectedAgent && (
           <AgentCapabilitiesModal
-            // Seed the Skills tab from the persisted set so a reopen restores it.
-            agent={{
-              ...selectedAgent.agent,
-              skills: selectedAgent.savedSkills ?? selectedAgent.agent.skills,
-            }}
+            agent={selectedAgent.agent}
             agentIndex={selectedAgent.index}
             onClose={closeDetailModal}
             asDrawer
@@ -958,12 +1026,12 @@ export function LibraryPage() {
               // Persist the selections for this agent so reopening restores them.
               savedSelectionsRef.current[selectedAgent.agent.id] = next;
             }}
-            // Spec 012 — live the Skills tab; the selection persists in its own
-            // ref so the drawer restores it on reopen (separate from Config
-            // selections, whose Save writes a fresh SelectionsMap).
-            onSkillsChange={(agentId, skills) => {
-              savedSkillsRef.current[agentId] = skills;
-            }}
+            // ISS-318 — NO onSkillsChange: a catalog agent belongs to no
+            // pipeline, so there is no step to write skills to and no backend
+            // that stores them (ADR-0010). Omitting it is what makes
+            // AgentSkillsPicker render readOnly, per its own documented
+            // contract for this exact mount — an honest disabled list instead
+            // of checkmarks and a count badge for a click nothing persists.
           />
         )}
       </AnimatePresence>

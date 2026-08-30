@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useRouter } from "next/navigation";
 import {
   ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip,
-  Mic, MicOff, X, File, Settings2, Save, Image as ImageIcon, ArrowLeft,
+  Mic, MicOff, X, File, Settings2, Save, Image as ImageIcon, ArrowLeft, Lock,
 } from "lucide-react";
 import {
   getToken,
+  getMe,
   extractFileText,
   createUserWorkflow,
   handleSessionExpiry,
@@ -18,6 +19,7 @@ import { agentsFromManifest } from "@/lib/manifestAgents";
 import { buildLoginRedirect } from "@/lib/authRedirect";
 import { routes } from "@/lib/routes";
 import { agentMatchesPipelineType } from "@/lib/workflowIcons";
+import { canRunPipeline, getUpgradeTier, TIER_LABELS, type Tier } from "@/lib/entitlements";
 import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import {
   listDesignSystems,
@@ -34,7 +36,7 @@ import {
   type DiscoveryAnswers,
 } from "@/components/workflow/prototype/DiscoveryForm";
 import { ReviewGatesSection } from "@/components/workflow/ReviewGatesSection";
-import { AgentsPopup } from "@/components/workflow/AgentsPopup";
+import { AgentsPopup, type SelectionsMap } from "@/components/workflow/AgentsPopup";
 import { useAgentLibrary } from "@/hooks/useAgentLibrary";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
@@ -47,7 +49,7 @@ import {
 import type { CustomDesignSystem } from "@/components/workflow/prototype/CustomDesignSystemModal";
 import type { CustomTemplate } from "@/components/workflow/prototype/CustomTemplateModal";
 import type { AgentDef } from "@/types/index";
-import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate } from "@/store/api/userWorkflows";
+import { buildWorkflowManifest, collectAgentIds, instantiateIfTemplate, overrideDescription } from "@/store/api/userWorkflows";
 
 /**
  * LaunchWizard (plan 37-07) — the ONE unified deliverable-launch page. It
@@ -159,6 +161,10 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   const { libraryAgents } = useAgentLibrary();
 
   const [authChecked, setAuthChecked] = useState(false);
+  // ISS-321: the signed-in tier, for the entitlement gate below. `null` until
+  // the profile resolves (or if it fails) — the wizard is never locked on a
+  // tier it does not know, so a profile blip cannot brick an entitled user.
+  const [tier, setTier] = useState<Tier | null>(null);
   const [mode, setMode] = useState<LaunchMode>(initialMode);
   // Which deck deliverable the Deck half of the toggle means for THIS wizard —
   // see modeFromStepper. Fixed at open; the toggle switches families, not
@@ -240,6 +246,22 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   >(undefined);
 
   const selectionsRef = useRef<Record<string, Record<string, unknown>>>({});
+  // ISS-247 — the LIVE map the Advanced modal renders from. AgentsPopup used to
+  // own this privately (a mount-once seed off `selectionsRef`), so a gate checked
+  // in the Review-gates checklist on this page was invisible inside the modal.
+  // Every writer below goes through `handleSelectionsChange`, which keeps the ref
+  // (read by launch + save) and this state in step.
+  const [liveSelections, setLiveSelections] = useState<SelectionsMap>({});
+  // The ONE writer of that pair — every restore/reset below routes through it so
+  // the ref and the rendered map can never drift apart (ISS-247).
+  const handleSelectionsChange = useCallback((s: SelectionsMap) => {
+    selectionsRef.current = s;
+    setLiveSelections(s);
+  }, []);
+  // `touched: true` from the start is FIX-323: `gate_agent_ids` is ALWAYS sent, so
+  // an empty selection reads as an explicit "no gates" rather than an absent field
+  // the backend would fill from its own defaults. ISS-247 changed the live map, not
+  // this contract — do not revert it to false.
   const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: true });
 
   // Save-workflow state.
@@ -260,6 +282,11 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     const token = getToken();
     if (!token) { router.replace(buildLoginRedirect()); return; }
     setAuthChecked(true);
+    // ISS-321: the wizard is reached from two separate routes (the `[...view]`
+    // catch-all's wizardMode branch and the standalone `/workflow/create`
+    // page), so it owns the tier lookup rather than taking it as a prop from
+    // one of them. Non-fatal: a failure leaves `tier` null and gates nothing.
+    getMe(token).then((u) => setTier(u.tier)).catch(() => {});
     const from = sessionStorage.getItem("chain.from");
     if (from) {
       setChainFrom(from);
@@ -306,7 +333,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           .filter(Boolean) as AgentDef[];
         if (restored.length > 0) setPipelineAgents(restored);
       }
-      if (d.selections) selectionsRef.current = d.selections;
+      if (d.selections) handleSelectionsChange(d.selections);
       if (d.gateAgentIds !== undefined) gateSelectionRef.current = { ids: d.gateAgentIds, touched: true };
       // ISS-167: restored BEFORE the AgentsPopup below (keyed on userWorkflowId)
       // remounts, so its initialSelections seed reads the now-populated ref
@@ -321,7 +348,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         sessionStorage.removeItem(draftKey);
       }
     } catch { /* ignore malformed session data */ }
-  }, [authChecked, initialMode, libraryAgents]);
+  }, [authChecked, initialMode, libraryAgents, handleSelectionsChange]);
 
   // `pipelineAgents`'s initial value (below) is computed once at mount from
   // `libraryAgents` — Redux state populated by an async fetch on sign-in. If
@@ -332,9 +359,19 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
   // Re-derive once real agents arrive, but only while pipelineAgents is still
   // that empty race-loss state, so this never overwrites a user's deliberate
   // removal of every agent.
+  // ISS-228: the "still empty" test MUST be a functional updater. This effect
+  // shares the `libraryAgents` dependency with the draft-restore effect above,
+  // so both run in the same passive-effect flush; reading `pipelineAgents` from
+  // the render closure would see the value from BEFORE that sibling's
+  // setPipelineAgents(restored) — always 0 on a cold mount — and this effect,
+  // declared last, would enqueue the generic per-pipeline roster over the saved
+  // workflow's real one. `prev` is resolved against the queued update instead,
+  // so a restored roster is visible here and left alone.
   useEffect(() => {
-    if (libraryAgents.length === 0 || pipelineAgents.length > 0) return;
-    setPipelineAgents(defaultAgentsFor(libraryAgents, mode));
+    if (libraryAgents.length === 0) return;
+    setPipelineAgents((prev) =>
+      prev.length > 0 ? prev : defaultAgentsFor(libraryAgents, mode),
+    );
   }, [libraryAgents, mode]);
 
   // Complete a partial library roster from the compiled plan (see `planAgents`).
@@ -402,7 +439,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           setOverrideSelections(proj.selections);
           setShowOverride(true);
           if (proj.agents.length > 0) setPipelineAgents(proj.agents);
-          if (proj.selections) selectionsRef.current = proj.selections;
+          if (proj.selections) handleSelectionsChange(proj.selections);
         }
       })
       .catch(() => {
@@ -411,7 +448,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         // the screen over an optional enhancement.
       });
     return () => { cancelled = true; };
-  }, [authChecked, mode]);
+  }, [authChecked, mode, handleSelectionsChange]);
 
   /** Flip between the override's steps and the system ones (spec 016 T8). */
   const handleToggleOverride = useCallback(
@@ -425,10 +462,10 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         // Back to the system version — the library roster, exactly as a user
         // with no override sees it.
         setPipelineAgents(defaultAgentsFor(libraryAgents, mode));
-        selectionsRef.current = {};
+        handleSelectionsChange({});
       } else if (overrideAgents) {
         setPipelineAgents(overrideAgents);
-        selectionsRef.current = overrideSelections ?? {};
+        handleSelectionsChange(overrideSelections ?? {});
       } else {
         // Saved-but-off at mount, so the rows were never fetched. Enable the row
         // first, then read back the payload the server now serves as overridden.
@@ -439,7 +476,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           setOverrideAgents(proj.agents);
           setOverrideSelections(proj.selections);
           if (proj.agents.length > 0) setPipelineAgents(proj.agents);
-          selectionsRef.current = proj.selections ?? {};
+          handleSelectionsChange(proj.selections ?? {});
           setOverrideInfo({ ...overrideInfo, enabled: true });
           return;
         } catch {
@@ -458,7 +495,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         /* the roster already reflects the choice; the flag retries on next toggle */
       }
     },
-    [overrideInfo, overrideAgents, overrideSelections, libraryAgents, mode],
+    [overrideInfo, overrideAgents, overrideSelections, libraryAgents, mode, handleSelectionsChange],
   );
 
   // Load both template families + the design-system registry once authed.
@@ -543,9 +580,9 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     setSelectedTemplateId(null);
     setCustomTemplateBody(null);
     setPipelineAgents(defaultAgentsFor(libraryAgents, nextMode));
-    selectionsRef.current = {};
+    handleSelectionsChange({});
     gateSelectionRef.current = { ids: [], touched: true };
-  }, [libraryAgents, deckMode]);
+  }, [libraryAgents, deckMode, handleSelectionsChange]);
 
   const handleAddAgent = useCallback((agent: AgentDef, insertBeforeId?: string) => {
     setPipelineAgents((prev) => {
@@ -577,9 +614,6 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     setPipelineAgents(reordered);
   }, []);
 
-  const handleSelectionsChange = useCallback((s: Record<string, Record<string, unknown>>) => {
-    selectionsRef.current = s;
-  }, []);
   const handleGatesChange = useCallback((ids: string[], touched: boolean) => {
     gateSelectionRef.current = { ids, touched };
   }, []);
@@ -676,6 +710,15 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     return Boolean(selectedTemplateId && hasBuildInput && (!dsRequired || selectedDsId));
   }, [mode, selectedDsId, selectedTemplateId, dsRequired, hasBuildInput]);
 
+  // ISS-321: the deliverable this wizard launches, gated on the same
+  // `canRunPipeline` the dashboard catalog card uses (HomeLaunchGrid) and the
+  // backend enforces at run creation (`_require_tier_entitlement`). Without it
+  // an unentitled tier reached a submit-ready Continue via a direct URL, the
+  // one surface the locked catalog card never covers.
+  const launchPipeline = MODE_CONFIG[mode].savePipeline;
+  const locked = tier !== null && !canRunPipeline(tier, launchPipeline);
+  const upgradeTo = tier !== null ? getUpgradeTier(tier, launchPipeline) : null;
+
   const handleSaveWorkflow = useCallback(async (name: string, description: string) => {
     setShowSaveModal(false);
     setSaveError(null);
@@ -732,7 +775,14 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     try {
       const saved = await createUserWorkflow(jwt, {
         name: `My ${cfg.eyebrow.replace(/^New /, "")}`,
-        description: "Your saved version of this workflow.",
+        // ISS-226/ISS-279 — was a hardcoded literal, so the saved row was
+        // byte-identical no matter what was on screen. `handleLaunch` below
+        // reads exactly these three pieces of state for the same click.
+        description: overrideDescription({
+          brief,
+          templateId: selectedTemplateId,
+          designSystemId: isDeck ? (dsRequired ? selectedDsId : null) : selectedDsId,
+        }),
         base_pipeline_type: pipeline,
         agent_ids: pipelineAgents.map((a) => a.id),
         manifest: buildWorkflowManifest(
@@ -751,10 +801,10 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     } catch (e) {
       setSaveError((e as Error)?.message ?? "Failed to save your version.");
     }
-  }, [mode, cfg.eyebrow, pipelineAgents]);
+  }, [mode, cfg.eyebrow, pipelineAgents, brief, selectedTemplateId, selectedDsId, isDeck, dsRequired]);
 
   const handleLaunch = useCallback(() => {
-    if (!canContinue) return;
+    if (!canContinue || locked) return;
     const sourceRunId = isChaining ? (sessionStorage.getItem("chain.source_run_id") ?? undefined) : undefined;
     sessionStorage.removeItem("chain.source_run_id");
     const contextBlock = sessionStorage.getItem("chain.context_block") ?? undefined;
@@ -798,7 +848,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     sessionStorage.setItem(draft.pendingKey, "true");
     router.push(routes.home());
   }, [
-    canContinue, mode, isChaining, brief, attachedFileContents, attachedImages,
+    canContinue, locked, mode, isChaining, brief, attachedFileContents, attachedImages,
     dsRequired, isDeck, selectedDsId, selectedTemplateId, customDsBody, customTemplateBody,
     discoveryAnswers, pipelineAgents, router,
   ]);
@@ -1043,13 +1093,30 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             subtitle="Optionally pause the pipeline for your review after specific agents."
           />
           <div className="mt-3">
-            <ReviewGatesSection agents={pipelineAgents} onChange={handleGatesChange} />
+            <ReviewGatesSection
+              agents={pipelineAgents}
+              onChange={handleGatesChange}
+              selections={liveSelections}
+              onSelectionsChange={handleSelectionsChange}
+            />
           </div>
         </section>
 
         {/* ── Launch. ── */}
         <div className="pt-2">
-          {!canContinue && (
+          {/* ISS-321: the same locked state the dashboard catalog card shows
+              for this deliverable — reaching the wizard by direct URL must not
+              be the one path that hides it. */}
+          {locked && (
+            <div className="mb-4 flex items-center gap-2 rounded-[var(--radius-button)] border border-brand/20 bg-brand-fill px-3 py-2 text-[11px] font-semibold text-brand">
+              <Lock className="h-3.5 w-3.5 flex-shrink-0" />
+              {upgradeTo
+                ? `Requires ${TIER_LABELS[upgradeTo]} plan — your plan does not include this deliverable.`
+                : "Your plan does not include this deliverable."}
+            </div>
+          )}
+
+          {!canContinue && !locked && (
             <div className="mb-4 flex flex-wrap gap-2">
               {/* ISS-155: keyed on hasBuildInput, NOT on `!isChaining`. A chained
                   launch whose context block failed to load now blocks Continue, and
@@ -1099,7 +1166,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
             <button
               type="button"
               onClick={handleLaunch}
-              disabled={!canContinue}
+              disabled={!canContinue || locked}
               className="flex flex-1 items-center justify-center gap-2 rounded-[var(--radius-card)] bg-brand px-6 py-4 text-[14px] font-semibold text-white shadow-[var(--elevation-raised)] transition-all hover:bg-brand-pressed disabled:cursor-not-allowed disabled:bg-line-divider disabled:text-ink-400 disabled:shadow-none"
             >
               Continue
@@ -1156,6 +1223,7 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         onReorder={handleReorderAgents}
         canAddMore={canAddMore}
         initialSelections={selectionsRef.current}
+        selections={liveSelections}
         onSelectionsChange={handleSelectionsChange}
         userWorkflowId={userWorkflowId}
         savedName={savedName}

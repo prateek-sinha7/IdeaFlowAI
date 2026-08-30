@@ -1,0 +1,10 @@
+Verifier manual re-run (post FIX-374), 2026-08-29, /create/app, qa-admin, cold navigate /dashboard -> /create/app.
+Same repro as ledger/ISS-312: brief text filled, huge.txt (500,000 'a' chars) attached, page.route('**/api/runs') intercept+abort, Run workflow clicked.
+
+Captured POST /api/runs body length: 450274
+Tail: ...aaaa\n[Content truncated to 450,000 chars]\n=== End: huge.txt ===
+containsTrunc (body.toLowerCase().includes('truncat')): true
+
+Before fix (ledger/ISS-312 baseline): length 450236, containsTrunc false.
+After fix: length 450274 (+38 chars = the appended note), containsTrunc true. Matches the
+isBinaryFile branch's existing note format exactly.

@@ -130,8 +130,22 @@ def test_back_returns_to_run_history_without_losing_the_filter(page, shot):
 def test_every_message_declares_its_role_and_a_stable_id(page, shot):
     """Scenario: Every message declares its role and a stable id
 
-    Seeded runs only ever produce `narrator`, so the ATTRIBUTE is asserted and
-    the value is not — until a user turn exists there is nothing else to see.
+    Three id shapes, and every one of them is DERIVED — which is what makes it
+    stable. These are read off a cold-loaded transcript, so nothing here was
+    minted in this page's lifetime:
+
+    - `client-{n}-{uuid}` — a `user` turn. `mintMessageId` coins it when the
+      turn is SENT and it is persisted with it; `upsertUserMessage` keys
+      strictly on the frame's `message_id` and mints only when the frame
+      carries none, so a reload re-renders the same id, not a fresh one.
+    - `chat_reply:{event}` — a reply/narrator card keyed on its durable
+      `run_events` row.
+    - `chat-reply:{message_id}` — the same card when its frame carried no
+      `event_id` (useRunChat.ts:397, the Issue-3 defense). Still derived, from
+      the user turn it answers, so still identical after a reload.
+
+    This asserted `chat_reply:` for EVERY message until the seed grew real user
+    turns; that only ever held while the transcript was narrator-only.
     """
     with shot("messages", 'When I cold-load "/runs/{id}"'):
         a_run_with_status(page, "completed")
@@ -140,10 +154,22 @@ def test_every_message_declares_its_role_and_a_stable_id(page, shot):
         "els => els.map(e => ({ role: e.dataset.role, id: e.dataset.messageId }))"
     )
     assert messages, "the transcript is empty"
+
+    # Role -> the id shapes that role may legitimately carry. Kept role-scoped
+    # rather than collapsed into one regex, so a user turn wearing a reply's id
+    # (or the reverse) is still a failure.
+    shapes = {
+        "user": ("client-",),
+        "narrator": ("chat_reply:", "chat-reply:"),
+        "assistant": ("chat_reply:", "chat-reply:"),
+    }
     for message in messages:
-        assert message["role"], f"a message declares no role: {message}"
-        assert (message["id"] or "").startswith("chat_reply:"), (
-            f"a message id is not a chat_reply: {message}"
+        role = message["role"]
+        assert role, f"a message declares no role: {message}"
+        assert role in shapes, f"a message declares an unknown role: {message}"
+        assert (message["id"] or "").startswith(shapes[role]), (
+            f"a {role} message id carries none of that role's id shapes "
+            f"{shapes[role]}: {message}"
         )
     assert len({m["id"] for m in messages}) == len(messages), "two messages share an id"
 

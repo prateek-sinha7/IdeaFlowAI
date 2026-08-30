@@ -16,6 +16,7 @@ from playwright.sync_api import expect
 from framework import api, settings
 from framework import nav as NAV
 from framework.locators import errors as L
+from framework.locators import composer as COMPOSER
 from framework.locators import run_history as RH
 from framework.locators import shell as SHELL
 
@@ -443,3 +444,14 @@ def test_a_failed_run_is_presented_as_failed(page, shot):
     # The tabs that say WHY it failed must still be reachable.
     for tab in ("Steps", "Audit"):
         expect(page.get_by_text(tab, exact=True).first).to_be_visible()
+
+
+@pytest.mark.issue("ISS-299")
+def test_a_canvas_workflow_id_that_does_not_exist_falls_back_to_the_generic_404(page, shot):
+    """ISS-299 — /workflows/{bad-id}/canvas must 404 like its sibling routes,
+    not silently render a live "copy" composer that can persist a new workflow."""
+    with shot("missing-workflow-canvas", "When I cold-load a canvas route for a workflow id that does not exist"):
+        cold(page, f"/workflows/{L.NONEXISTENT_UUID}/canvas")
+
+    expect_404(page)
+    expect(page.locator(COMPOSER.SAVE_AS_COPY)).to_have_count(0)

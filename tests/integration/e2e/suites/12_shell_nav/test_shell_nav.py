@@ -339,6 +339,40 @@ def test_browser_back_and_forward_work_across_top_level_screens(page, shot):
     assert page.url.endswith("/workflows")
 
 
+@pytest.mark.issue("ISS-190")
+@pytest.mark.xfail(reason="ISS-190 unfixed", strict=True)
+def test_forward_navigation_to_prototype_wizard_rehydrates(page, shot):
+    """ISS-190 — Back-then-Forward to /create/prototype must render the wizard,
+    not leave the un-hydrated RSC stream as a blank body.
+
+    Reproduces the exact CONFIRMED 3/3 sequence from the card: fresh nav to
+    /create/prototype -> Back (to /dashboard) -> Forward (back to
+    /create/prototype), using real `page.go_back()`/`page.go_forward()`, not
+    scripted `history.forward()`.
+    """
+    page.goto("/dashboard")
+    page.goto("/create/prototype")
+    page.wait_for_load_state("load")
+    expect(page.locator("input[name='template-search']")).to_be_visible()
+
+    with shot("prototype-back", "When I press browser Back"):
+        page.go_back()
+        page.wait_for_url("**/dashboard")
+
+    with shot("prototype-forward", "When I press browser Forward"):
+        page.go_forward()
+        page.wait_for_url("**/create/prototype")
+
+    # The card's own signature of the failure: body.innerText is empty while
+    # body.innerHTML is full of raw, un-executed RSC stream text.
+    expect(page.locator("input[name='template-search']")).to_be_visible()
+    body_text_len = page.evaluate("() => document.body.innerText.length")
+    assert body_text_len > 0, (
+        "the wizard rehydrated to a blank body on Forward navigation "
+        f"(body.innerText.length == {body_text_len})"
+    )
+
+
 @pytest.mark.scenario("S-12-18")
 @pytest.mark.parametrize(
     ("route", "marker"),

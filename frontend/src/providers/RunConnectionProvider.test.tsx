@@ -28,14 +28,27 @@ const RUNS = vi.hoisted(() => [
   { id: "parked-B", status: "clarifying" },
 ]);
 
+// ISS-220/236/237 — captures each run's onMessage callback so a test can fire
+// a frame directly (simulating the backend, which the mocked transport never
+// does on its own) independent of whether a subscriber is currently attached.
+const onMessageByRunId = vi.hoisted(
+  () => new Map<string, (msg: { type: string; data: Record<string, unknown> }) => void>(),
+);
+
 vi.mock("@/hooks/useRunStream", () => ({
-  useRunStream: () => ({
-    phase: "live",
-    reconnect: () => {},
-    lastMessage: null,
-    lastError: null,
-    cursor: null,
-  }),
+  useRunStream: (opts: {
+    runId: string;
+    onMessage: (msg: { type: string; data: Record<string, unknown> }) => void;
+  }) => {
+    onMessageByRunId.set(opts.runId, opts.onMessage);
+    return {
+      phase: "live",
+      reconnect: () => {},
+      lastMessage: null,
+      lastError: null,
+      cursor: null,
+    };
+  },
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -279,5 +292,129 @@ describe("RunConnectionProvider — sendCommand drains a streamed POST body (m0o
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// BUG-20260828-015930-runs-cancelled (ISS-220/236/237) — a resume's
+// router.push remounts page.tsx, which unsubscribe()s its old fan-out
+// listener and subscribe()s a fresh one. `fanout` (RunConnectionProvider.tsx
+// ~331-339) is a plain `subscribersRef.current.forEach`, with NO buffering:
+// any frame dispatched while zero subscribers are registered — precisely the
+// gap between the old page.tsx unmounting and the new one mounting — is lost
+// forever, never replayed to the resubscriber. Each test below exercises the
+// same confirmed mechanism for the run state named in its card, since
+// `attachRun`/`fanout` are agnostic to why the run was resumed.
+// ─────────────────────────────────────────────────────────────────
+describe("RunConnectionProvider — resume remount subscribe gap must not drop frames", () => {
+  it("ISS-220: a frame emitted while the cancelled-run resume's page remount has no subscriber is still delivered to the resubscriber", async () => {
+    const { result } = renderHook(() => useRunConnection(), {
+      wrapper: RunConnectionProvider,
+    });
+    await waitFor(() => {
+      expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+    });
+
+    act(() => {
+      result.current.attachRun("resumed-cancelled-run");
+    });
+
+    const received: { type: string; data: Record<string, unknown> }[] = [];
+    let unsubscribeOldPage: () => void = () => {};
+    act(() => {
+      unsubscribeOldPage = result.current.subscribe((m) => received.push(m));
+    });
+    // Old page.tsx instance unmounts (router.push remount cleanup).
+    act(() => {
+      unsubscribeOldPage();
+    });
+
+    // Backend fails the resumed pipeline WHILE no subscriber is registered —
+    // the exact remount gap ISS-220 confirmed at RunConnectionProvider.tsx:331-339.
+    act(() => {
+      onMessageByRunId.get("resumed-cancelled-run")?.({
+        type: "pipeline_failed",
+        data: {},
+      });
+    });
+
+    // New page.tsx instance mounts and resubscribes.
+    act(() => {
+      result.current.subscribe((m) => received.push(m));
+    });
+
+    // FAILS TODAY: fanout has no buffering, so the frame lost in the gap
+    // never reaches the resubscriber and the live view stays stuck.
+    expect(received.map((m) => m.type)).toContain("pipeline_failed");
+  });
+
+  it("ISS-236: a frame emitted during the same subscribe gap after a FAILED run's 'Reopen & fix' resume is still delivered to the resubscriber", async () => {
+    const { result } = renderHook(() => useRunConnection(), {
+      wrapper: RunConnectionProvider,
+    });
+    await waitFor(() => {
+      expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+    });
+
+    act(() => {
+      result.current.attachRun("resumed-failed-run");
+    });
+
+    const received: { type: string; data: Record<string, unknown> }[] = [];
+    let unsubscribeOldPage: () => void = () => {};
+    act(() => {
+      unsubscribeOldPage = result.current.subscribe((m) => received.push(m));
+    });
+    act(() => {
+      unsubscribeOldPage();
+    });
+
+    act(() => {
+      onMessageByRunId.get("resumed-failed-run")?.({
+        type: "pipeline_failed",
+        data: {},
+      });
+    });
+
+    act(() => {
+      result.current.subscribe((m) => received.push(m));
+    });
+
+    expect(received.map((m) => m.type)).toContain("pipeline_failed");
+  });
+
+  it("ISS-237: a frame emitted during the same subscribe gap after a DEGRADED run's 'Run again' resume is still delivered to the resubscriber", async () => {
+    const { result } = renderHook(() => useRunConnection(), {
+      wrapper: RunConnectionProvider,
+    });
+    await waitFor(() => {
+      expect(result.current.liveRunIds.length).toBeGreaterThan(0);
+    });
+
+    act(() => {
+      result.current.attachRun("resumed-degraded-run");
+    });
+
+    const received: { type: string; data: Record<string, unknown> }[] = [];
+    let unsubscribeOldPage: () => void = () => {};
+    act(() => {
+      unsubscribeOldPage = result.current.subscribe((m) => received.push(m));
+    });
+    act(() => {
+      unsubscribeOldPage();
+    });
+
+    act(() => {
+      onMessageByRunId.get("resumed-degraded-run")?.({
+        type: "pipeline_degraded",
+        data: {},
+      });
+    });
+
+    act(() => {
+      result.current.subscribe((m) => received.push(m));
+    });
+
+    expect(received.map((m) => m.type)).toContain("pipeline_degraded");
   });
 });

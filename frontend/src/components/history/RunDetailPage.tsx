@@ -227,11 +227,18 @@ export function RunDetailPage({
   }
 
   // ── Loaded — generic-keyed rendering (SC-001: status/agents/tokens) ──
+  // ISS-395: "diverted" is a terminal, non-resumable status too — without it the
+  // Agents tab lists a diverted run's partially-run agents as if the run had
+  // completed normally, with nothing saying the pipeline handed off and the
+  // remaining agents never ran. The affordance carries diverted-specific copy
+  // (see `diverted` below), never the "failed or degraded" line.
   const terminalFailure =
     summary.status === "failed" ||
     summary.status === "cancelled" ||
-    summary.status === "degraded";
+    summary.status === "degraded" ||
+    summary.status === "diverted";
   const cancelled = summary.status === "cancelled";
+  const diverted = summary.status === "diverted";
   const failedAgents = parseFailedAgentIds(summary.error ?? undefined);
   const agentNameById = buildAgentNameById(
     summary.agents.map((a: RunSummaryAgent) => ({
@@ -378,6 +385,7 @@ export function RunDetailPage({
                 failedAgents={failedAgents}
                 agentNameById={agentNameById}
                 cancelled={cancelled}
+                diverted={diverted}
               />
             </div>
           ) : summary.agents.length > 0 ? (

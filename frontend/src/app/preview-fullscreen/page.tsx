@@ -43,32 +43,40 @@ export default function PreviewFullscreenPage() {
       return;
     }
 
-    // Check for quota error flag from opener
-    if (params.get("error") === "quota") {
-      setState("quota");
-      return;
-    }
+    // Quota error flag from opener. It does NOT short-circuit the payload read
+    // below: the quota tab is opened without "noopener", so it shares the
+    // opener's sessionStorage, and setItem is atomic — a write that threw leaves
+    // an earlier, successful, still-renderable payload intact. Read first, and
+    // fall back to the "too large" dead end only if nothing usable is there.
+    const quota = params.get("error") === "quota";
 
     setState("loading");
 
     // Small delay to ensure sessionStorage write from opener has flushed
     const timer = setTimeout(() => {
+      const giveUp = () => {
+        if (quota) {
+          setState("quota");
+          return;
+        }
+        router.replace(routes.runHistory());
+      };
       try {
         const raw = sessionStorage.getItem("__app_preview__");
         if (!raw) {
-          router.replace(routes.runHistory());
+          giveUp();
           return;
         }
         const data = JSON.parse(raw) as PreviewPayload;
         if (!data.files?.length) {
-          router.replace(routes.runHistory());
+          giveUp();
           return;
         }
         setPayload(data);
         document.title = `${data.projectName || "Project"} — IDE Preview`;
         setState("ready");
       } catch {
-        router.replace(routes.runHistory());
+        giveUp();
       }
     }, 100); // 100ms is enough for sessionStorage to be readable
 

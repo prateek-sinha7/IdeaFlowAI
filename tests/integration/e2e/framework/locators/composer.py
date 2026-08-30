@@ -21,6 +21,7 @@ HEADER_SUMMARY = '[data-testid="composer-header-summary"]'
 CANVAS = '[data-testid="canvas-view"]'
 BRIEF_NODE = '[data-testid="canvas-brief"]'
 EDGE = '[data-testid="canvas-edge"]'
+BACK = '[aria-label="Back"]'
 
 SAVE_WORKFLOW = 'button:text-is("Save workflow")'
 SAVE_AS_COPY = 'button:text-is("Save as copy")'

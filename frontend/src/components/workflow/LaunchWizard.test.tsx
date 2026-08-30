@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen, waitFor } from "@/test/renderWithProviders";
 import userEvent from "@testing-library/user-event";
 import { DRAFT_SCENARIOS, PROTO_AGENTS, PPT_AGENTS } from "./__fixtures__/launchContract";
+import { buildLaunchDraft } from "@/lib/launchDraft";
 import type { AgentDef } from "@/types/index";
 
 const pushMock = vi.fn();
@@ -30,6 +31,10 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/api", () => ({
   getToken: () => "test-token",
+  // ISS-321 — the wizard now reads the signed-in tier to gate an
+  // unentitled launch. Entitled here, so every assertion below stays on
+  // the un-gated path these tests were written for.
+  getMe: vi.fn().mockResolvedValue({ id: "u1", email: "qa@flowinqa.com", tier: "enterprise" }),
   extractFileText: vi.fn(),
   createUserWorkflow: (...args: unknown[]) => createUserWorkflowMock(...args),
   saveUserWorkflow: (...args: unknown[]) => saveUserWorkflowMock(...args),
@@ -129,6 +134,28 @@ const golden = (name: string) => {
   return s.expected;
 };
 
+/**
+ * The golden draft as the WIZARD writes it today.
+ *
+ * FIX-323 made the wizard always send `gate_agent_ids` (`touched: true` from
+ * mount), so an empty selection reaches the backend as an explicit "no gates"
+ * instead of an absent field it would fill from its own defaults. The frozen
+ * fixtures in `launchContract.ts` model the RETIRED route-split flow, where the
+ * field was omitted while untouched — they are the oracle
+ * `launchDraft.parity.test.ts` pins `buildLaunchDraft` against byte-for-byte, so
+ * they must NOT be edited to chase the component.
+ *
+ * Instead, re-serialize the scenario's own inputs through that same
+ * independently-pinned builder with the one field FIX-323 adds. The chain stays
+ * honest: builder ≡ frozen oracle (parity suite), component ≡ builder + FIX-323
+ * (here).
+ */
+const goldenAsWizardWrites = (name: string) => {
+  const s = DRAFT_SCENARIOS.find((x) => x.name === name);
+  if (!s) throw new Error(`missing scenario ${name}`);
+  return buildLaunchDraft(s.mode, { ...s.inputs, gatesTouched: true, gateAgentIds: [] }).draftJson;
+};
+
 // Create test agents matching the expected library
 const createTestAgents = (): AgentDef[] => {
   const protoAgents: AgentDef[] = PROTO_AGENTS.map((id, idx) => ({
@@ -175,7 +202,9 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     const g = golden("prototype · base (template + ds + brief)");
-    expect(sessionStorage.getItem("prototype.draft")).toBe(g.draftJson);
+    expect(sessionStorage.getItem("prototype.draft")).toBe(
+      goldenAsWizardWrites("prototype · base (template + ds + brief)"),
+    );
     expect(sessionStorage.getItem("prototype.pending")).toBe("true");
     expect(pushMock).toHaveBeenCalledWith("/dashboard");
   });
@@ -191,7 +220,7 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(sessionStorage.getItem("prototype.draft")).toBe(
-      golden("prototype · blank canvas (no template)").draftJson,
+      goldenAsWizardWrites("prototype · blank canvas (no template)"),
     );
   });
 
@@ -206,7 +235,8 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     const g = golden("ppt · base (ds required)");
-    expect(sessionStorage.getItem("ppt.draft")).toBe(g.draftJson);
+    const gJson = goldenAsWizardWrites("ppt · base (ds required)");
+    expect(sessionStorage.getItem("ppt.draft")).toBe(gJson);
     expect(sessionStorage.getItem("ppt.pending")).toBe("true");
   });
 
@@ -220,7 +250,7 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(sessionStorage.getItem("ppt.draft")).toBe(
-      golden("ppt · ds not required (designSystemId null)").draftJson,
+      goldenAsWizardWrites("ppt · ds not required (designSystemId null)"),
     );
   });
 
@@ -236,7 +266,8 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     const g = golden("ppt · custom template (customTemplateBody + designSystemId null)");
-    expect(sessionStorage.getItem("ppt.draft")).toBe(g.draftJson);
+    const gJson = goldenAsWizardWrites("ppt · custom template (customTemplateBody + designSystemId null)");
+    expect(sessionStorage.getItem("ppt.draft")).toBe(gJson);
     expect(sessionStorage.getItem("ppt.pending")).toBe("true");
   });
 });
@@ -258,7 +289,7 @@ describe("LaunchWizard — SC-001 Web/Deck deliverable-mode toggle", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     // Launch wrote the ppt contract, not prototype.
-    expect(sessionStorage.getItem("ppt.draft")).toBe(golden("ppt · base (ds required)").draftJson);
+    expect(sessionStorage.getItem("ppt.draft")).toBe(goldenAsWizardWrites("ppt · base (ds required)"));
     expect(sessionStorage.getItem("ppt.pending")).toBe("true");
     expect(sessionStorage.getItem("prototype.draft")).toBeNull();
   });

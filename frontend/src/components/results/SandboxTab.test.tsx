@@ -593,6 +593,46 @@ describe("SandboxTab", () => {
     expect(screen.queryByText(/wrote no files/i)).not.toBeInTheDocument();
   });
 
+  // ISS-356 (root) / ISS-586 (sibling, generalizes beyond diverted): the
+  // `expired` empty state must not assert a deliverable exists on
+  // Preview/Files when the run never produced one. `SandboxTabProps` carries
+  // no status/deliverable signal at all — only `runId`/`agentNameById` — so
+  // this holds identically for a diverted run (ISS-356, confirmed) and any
+  // other terminal no-deliverable status (ISS-586, inferred): the component
+  // has no way to tell them apart.
+  it("ISS-356/ISS-586: an expired workspace must not claim a deliverable exists elsewhere", async () => {
+    getRunSandbox.mockResolvedValue({
+      run_id: "run-1",
+      expired: true,
+      truncated: false,
+      files: [],
+    });
+    render(<SandboxTab runId="run-1" />);
+
+    await waitFor(() => expect(screen.getByText(/workspace expired/i)).toBeInTheDocument());
+    expect(
+      screen.queryByText(/deliverable is still on the preview and files tabs/i),
+    ).not.toBeInTheDocument();
+  });
+
+  // FIX guard for the above: the honest branch must not have deleted the
+  // reassurance for the case it IS true of — a run whose caller confirms a
+  // deliverable (screen 07 § S-07-22) still gets told where it still is.
+  it("still points at Preview/Files when the caller confirms a deliverable", async () => {
+    getRunSandbox.mockResolvedValue({
+      run_id: "run-1",
+      expired: true,
+      truncated: false,
+      files: [],
+    });
+    render(<SandboxTab runId="run-1" hasDeliverable />);
+
+    await waitFor(() => expect(screen.getByText(/workspace expired/i)).toBeInTheDocument());
+    expect(
+      screen.getByText(/deliverable is still on the preview and files tabs/i),
+    ).toBeInTheDocument();
+  });
+
   it("distinguishes a run that genuinely wrote nothing", async () => {
     getRunSandbox.mockResolvedValue({
       run_id: "run-1",

@@ -20,6 +20,7 @@ from agents.capabilities.model_catalog import ModelCatalog
 from app.api.api_key_auth import default_api_key_expiry, mint_api_key
 from app.core.crypto import decrypt_pat, encrypt_pat
 from app.core.dependencies import get_current_user
+from app.core.entitlements import can_use_model
 from app.models.database import get_db
 from app.models.handoff import UserApiKey, UserGithubCredential
 from app.models.user import User
@@ -230,10 +231,14 @@ def create_api_key(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ApiKeyCreateResponse:
+    # ISS-370: ``min_length=1`` counts RAW characters, so a whitespace-only name
+    # passes validation and would render as a permanently blank row -- there is
+    # no PATCH for /api-keys, so it could never be corrected from the UI.
+    name = payload.name.strip() or "Default"
     plaintext, prefix, digest = mint_api_key()
     row = UserApiKey(
         user_id=user.id,
-        name=payload.name,
+        name=name,
         token_prefix=prefix,
         token_hash=digest,
         # Phase 6 item 5: every NEW key gets a bounded lifetime. Pre-existing
@@ -331,13 +336,27 @@ def update_preferences(
             detail=f"Invalid model ID. Choose from: {sorted(_VALID_MODEL_IDS)}",
         )
 
+    # ISS-292: the catalog is not an entitlement. A known model id still has to
+    # be one this account's tier may select — 403 (not the 422 above) so
+    # "not entitled" stays distinguishable from "unknown model", mirroring
+    # can_run_pipeline's 403 at launch. This is the write path every reader of
+    # user.preferred_model (run_commands.py's 8 sites) sits behind.
+    if model_id is not None:
+        allowed, reason = can_use_model(user.tier, model_id)
+        if not allowed:
+            raise HTTPException(status_code=403, detail=reason)
+
     user.preferred_model = model_id
     db.add(user)
     db.commit()
     db.refresh(user)
 
+    # ISS-319: report the value THIS request validated and committed, not a
+    # post-refresh re-read of the row. A concurrent PUT's commit can land
+    # between our commit() and refresh(), and reading user.preferred_model
+    # here would make this 200 body report the OTHER request's model.
     return UserPreferencesResponse(
-        preferred_model=user.preferred_model,
+        preferred_model=model_id,
         available_models=AVAILABLE_MODELS,
     )
 

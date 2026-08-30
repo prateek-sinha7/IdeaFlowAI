@@ -43,6 +43,15 @@ describe('routes - round-trip tests', () => {
       { screen: 'login' }
     );
     testRoundTrip('register', () => routes.register(), { screen: 'register' });
+
+    // ISS-238: /register/<sub-path> must not be matched as the exact register screen —
+    // [...view]/page.tsx has no branch for screen === 'register', so anything that resolves
+    // to it silently falls through to the dashboard render instead of a 404. `create` and
+    // `workflows` both guard with segments.length === 1; `register` did not.
+    it('ISS-238: /register/<sub-path> is not the register screen', () => {
+      const parsed = parseViewPath(['register', 'anything']);
+      expect(parsed).not.toEqual({ screen: 'register' });
+    });
   });
 
   // ─────────────────────────────────────────────────────────────
@@ -297,15 +306,20 @@ describe('routes - round-trip tests', () => {
       expect(parsed).toEqual({ screen: 'library' });
     });
 
-    it('/library/{type} with no slug (legacy list shape) returns unknown — intercepted by next.config.ts before reaching parseViewPath', () => {
-      expect(parseViewPath(['library', 'agents'])).toEqual({ screen: 'unknown' });
-      expect(parseViewPath(['library', 'skills'])).toEqual({ screen: 'unknown' });
-      expect(parseViewPath(['library', 'hooks'])).toEqual({ screen: 'unknown' });
+    // ISS-572: these three used to assert `unknown` on the premise that
+    // next.config.ts intercepted them before they reached parseViewPath. That
+    // holds only for a full/document navigation — a client-side transition
+    // reaches the parser directly — so the parser now mirrors the redirect.
+    it('/library/{type} with no slug (legacy list shape) mirrors the next.config.ts redirect to the library screen', () => {
+      expect(parseViewPath(['library', 'agents'])).toEqual({ screen: 'library' });
+      expect(parseViewPath(['library', 'skills'])).toEqual({ screen: 'library' });
+      expect(parseViewPath(['library', 'hooks'])).toEqual({ screen: 'library' });
     });
 
-    it('/settings without tab returns unknown', () => {
+    // ISS-339: same correction as above for the fourth next.config.ts redirect.
+    it('/settings without tab mirrors the next.config.ts redirect to the profile tab', () => {
       const parsed = parseViewPath(['settings']);
-      expect(parsed).toEqual({ screen: 'unknown' });
+      expect(parsed).toEqual({ screen: 'settings-profile' });
     });
 
     it('single-segment unknown path returns unknown', () => {

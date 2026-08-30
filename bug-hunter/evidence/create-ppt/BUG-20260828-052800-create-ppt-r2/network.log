@@ -1,0 +1,15 @@
+Request (identical shape on two independent trials with different briefs and different templates
+selected — Clean Slide Deck+empty brief, and Minimal Keynote+custom brief):
+
+POST http://localhost:8000/api/user-workflows
+{"name":"My presentation","description":"Your saved version of this workflow.",
+ "base_pipeline_type":"ppt","agent_ids":["ppt-brief-analyst","ppt-composer","ppt-validator"],
+ "manifest":{"steps":[...generic 3-step ppt pipeline, no template/design-system reference...]},
+ "overrides_pipeline_type":"ppt"}
+
+Response: 201 Created, same record id "da92b4a4-7eff-41b5-9b9a-205cfa1616d9" both times
+(created_at unchanged, only updated_at bumps), "selections": null.
+
+No field in the request body ever carries the brief text, the selected template id
+("minimal-keynote" / "clean-slide-deck"), or any design-system choice — the payload is
+byte-for-byte identical across both trials despite different page state.

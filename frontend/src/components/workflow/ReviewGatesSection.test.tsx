@@ -135,41 +135,52 @@ describe("ReviewGatesSection — prototype pipeline", () => {
     expect(touched).toBe(false);
   });
 
-  it("toggling a checkbox fires onChange with touched=true and the new set", async () => {
+  it("toggling checkboxes fires onChange with touched=true, in pipeline order", async () => {
     const { user, onChange } = await renderExpanded();
     onChange.mockClear();
 
-    // Check prototype-build (index 3) → it joins the gated set.
+    // Checked OUT of pipeline order — build (index 3) first, then specify (index 0)
+    // — because the reported array is ordered by the pipeline, not by click order.
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     await user.click(checkboxes[3]);
-
-    const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
-    expect(touched).toBe(true);
-    // Reported in pipeline order: specify, plan, analyze, build.
-    expect(ids).toEqual(["prototype-specify", "prototype-plan", "prototype-analyze", "prototype-build"]);
-  });
-
-  it("unchecking a default gate fires onChange(touched=true) without it", async () => {
-    const { user, onChange } = await renderExpanded();
-    onChange.mockClear();
-
-    // Uncheck prototype-specify (index 0).
-    const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     await user.click(checkboxes[0]);
 
     const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
     expect(touched).toBe(true);
-    expect(ids).toEqual(["prototype-plan", "prototype-analyze"]);
+    expect(ids).toEqual(["prototype-specify", "prototype-build"]);
   });
 
-  it("unchecking ALL gates yields onChange([], true) — the no-gates payload", async () => {
+  // FIX-323 removed the pre-checked defaults, so there is no longer a "default
+  // gate" to uncheck. The guarantee that survives — and the one this test now
+  // covers — is that unchecking a gate the user checked drops it back out.
+  it("unchecking a gate the user checked fires onChange(touched=true) without it", async () => {
     const { user, onChange } = await renderExpanded();
-    onChange.mockClear();
 
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    await user.click(checkboxes[0]); // uncheck specify
-    await user.click(checkboxes[1]); // uncheck plan
-    await user.click(checkboxes[2]); // uncheck analyze
+    await user.click(checkboxes[0]); // check specify
+    await user.click(checkboxes[1]); // check plan
+    onChange.mockClear();
+    await user.click(checkboxes[0]); // and uncheck specify again
+
+    const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
+    expect(touched).toBe(true);
+    expect(ids).toEqual(["prototype-plan"]);
+  });
+
+  // The payload FIX-323 turns on: [] WITH touched=true. An empty selection has to
+  // reach the backend as an explicit "no gates" — `touched=false` would omit
+  // `gate_agent_ids` entirely and let the backend fall back to its own defaults.
+  it("unchecking every gate again yields onChange([], true) — the no-gates payload", async () => {
+    const { user, onChange } = await renderExpanded();
+
+    const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    await user.click(checkboxes[0]); // check specify
+    await user.click(checkboxes[1]); // check plan
+    await user.click(checkboxes[2]); // check analyze
+    onChange.mockClear();
+    await user.click(checkboxes[0]); // then take all three back off
+    await user.click(checkboxes[1]);
+    await user.click(checkboxes[2]);
 
     const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
     expect(touched).toBe(true);

@@ -163,7 +163,7 @@ describe("IdeaInputPage — EMP-01 selections launch wiring (WR-01)", () => {
     expect(resolvedType).toBe("user_stories");
     // The selection lands as `selections` — the exact key websocket.py reads off
     // the run_pipeline payload and engine._apply_selections overlays.
-    expect(extraParams).toEqual({ selections: _SELECTION });
+    expect(extraParams).toEqual({ gate_agent_ids: [], selections: _SELECTION });
   });
 
   it("threads a composed FAN-OUT selection into onRun extraParams.selections (51-06)", async () => {
@@ -178,7 +178,7 @@ describe("IdeaInputPage — EMP-01 selections launch wiring (WR-01)", () => {
     const [, , , extraParams] = onRun.mock.calls[0];
     // The fan-out levers reach the launch payload verbatim — the exact shape
     // engine._apply_selections overlays (strategy + task_source.source_step).
-    expect(extraParams).toEqual({ selections: _FANOUT_SELECTION });
+    expect(extraParams).toEqual({ gate_agent_ids: [], selections: _FANOUT_SELECTION });
   });
 
   it("omits selections entirely when no lever is set (byte-identical payload, INV-3)", async () => {
@@ -190,7 +190,12 @@ describe("IdeaInputPage — EMP-01 selections launch wiring (WR-01)", () => {
 
     expect(onRun).toHaveBeenCalledTimes(1);
     const [, , , extraParams] = onRun.mock.calls[0];
-    expect(extraParams).toBeUndefined();
+    // FIX-323 — the wizard now ALWAYS sends `gate_agent_ids`, so an empty gate
+    // selection reaches the backend as an explicit "no gates" rather than an
+    // absent field it would fill from its own defaults. INV-3 still holds for
+    // every OTHER key, which is what this test guards: nothing else is added.
+    expect(extraParams).toEqual({ gate_agent_ids: [] });
+    expect(extraParams).not.toHaveProperty("selections");
   });
 
   it("re-sends persisted selections seeded on a launched saved workflow", async () => {
@@ -211,6 +216,6 @@ describe("IdeaInputPage — EMP-01 selections launch wiring (WR-01)", () => {
     expect(onRun).toHaveBeenCalledTimes(1);
     const [, , , extraParams] = onRun.mock.calls[0];
     // ... and re-sends on launch (the persisted levers re-reach the overlay).
-    expect(extraParams).toEqual({ selections: _SELECTION });
+    expect(extraParams).toEqual({ gate_agent_ids: [], selections: _SELECTION });
   });
 });

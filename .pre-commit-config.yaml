@@ -181,4 +181,6 @@ repos:
         # Off by default during the soft-rollout window: `git commit` will
         # NOT run this hook. Run it manually with
         #     pre-commit run knowledge --hook-stage manual
-        # To make it auto again, delete this line.
+        # To make it auto again, delete the stages line below.
+        stages: [manual]
+

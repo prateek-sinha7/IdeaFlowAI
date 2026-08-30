@@ -14,6 +14,7 @@ import { parseClarificationArtifacts } from "@/lib/clarifications";
 import { routes } from "@/lib/routes";
 // KAN-116 (Bug 3): clean === markers from titles stored in DB (safety net for existing data).
 import { parseRunInput } from "@/lib/runInput";
+import { isPlausibleFilePath } from "@/lib/parsers/filePath";
 import { PPTPreview } from "@/components/preview/PPTPreview";
 import { UserStoryPreview } from "@/components/preview/UserStoryPreview";
 import { PrototypePreview } from "@/components/preview/PrototypePreview";
@@ -85,6 +86,9 @@ function parseFilesForIDE(markdown: string): ParsedFile[] {
   const add = (path: string, content: string) => {
     path = path.trim();
     if (!path || !content.trim() || seen.has(path)) return;
+    // ISS-323: a prose heading ("### Via Node.js") matches the heading/bold
+    // regexes as well as a real path does — a real file path has no whitespace.
+    if (!isPlausibleFilePath(path)) return;
     const name = path.split("/").pop() || path;
     if (!name.includes(".") && !/^(Dockerfile|Makefile|Procfile)$/i.test(name)) return;
     seen.add(path);
@@ -539,7 +543,12 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const revisionParentVersion = reopenParentIdx >= 0 ? reopenParentIdx + 1 : undefined;
     const isUserStory = workflowType === "user_stories" || workflowType === "user_stories_revision";
     const isAppBuilder = detailIsAppBuilder;
-    const isPpt = workflowType === "ppt" || workflowType === "ppt_revision";
+    // ISS-214 — `ppt_v2` belongs in the ppt slot here exactly as PreviewPanel.tsx
+    // :578's renderType folds it in (spec 017 — the same HTML deck; it differs
+    // only in ALSO producing a .pptx). This check had never gained that
+    // normalization, so a reopened ppt_v2 deck fell through to the generic
+    // branch: no pptContent for the Files tab, no PPTPreview for the deliverable.
+    const isPpt = workflowType === "ppt" || workflowType === "ppt_v2" || workflowType === "ppt_revision";
     const isPrototype = workflowType === "prototype" || workflowType === "prototype_revision";
     // ─── ISS-021 (18-03) — 2nd facet: the reopen generic fallback ─────────────
     // The OLD `isMarkdown = isCustom` swallowed HTML deliverables into
@@ -585,10 +594,15 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     // the summary column, so we suppress the neutral "No preview available" for it.
     // STRICTLY server-status-gated on the PERSISTED status (never a client
     // empty==failed guess), SC-001 (generic status, no workflow-name branch).
+    // ISS-391: "diverted" belongs in the same suppression — it is likewise a
+    // terminal, non-resumable status whose absent deliverable the summary column
+    // now explains (ISS-395), so the neutral "No preview available" would double
+    // up on messaging here exactly as it would for the other three.
     const reopenTerminalFailure =
       selectedRun.status === "failed" ||
       selectedRun.status === "cancelled" ||
-      selectedRun.status === "degraded";
+      selectedRun.status === "degraded" ||
+      selectedRun.status === "diverted";
 
     return (
       <div className="h-full flex bg-surface-paper">
@@ -903,12 +917,19 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               /* Files tab */
               <FilesTab
                 workflowType={workflowType}
+                /* ISS-199 — the run id is what lets FilesTab name its deliverable
+                   row from the run's own workspace instead of from the text the
+                   last agent streamed. The main run screen threads it already
+                   (PreviewPanel); this second call site never had. */
+                runId={selectedRun.id}
                 userStoryContent={(isUserStory || isAppBuilder) ? selectedOutput || undefined : undefined}
                 pptContent={isPpt ? selectedOutput || undefined : undefined}
                 prototypeContent={isPrototype ? selectedOutput || undefined : undefined}
                 genericDeliverable={
                   isGeneric && selectedOutput
-                    ? { mimetype: genericMimetype, filename: undefined, content: selectedOutput }
+                    /* ISS-214 — the run's DECLARED name, which sat unread on the
+                       same object; `undefined` here fell back to `deliverable.<ext>`. */
+                    ? { mimetype: genericMimetype, filename: selectedRun.deliverableFilename || undefined, content: selectedOutput }
                     : undefined
                 }
                 agentOutputs={

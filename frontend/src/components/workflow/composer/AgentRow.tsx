@@ -8,6 +8,7 @@ import {
   AgentPromptSection,
   getRole,
   getAgentInitials,
+  hasToolOverride,
   type SelectionsMap,
   type StepSelection,
 } from "../AgentsPopup";
@@ -79,6 +80,9 @@ export function AgentRow({
   const gateOn = (selection?.gates ?? []).some((g) => g !== "validation");
   const retryOn = (selection?.retry ?? 0) > 0;
   const skillsOn = (agent.skills?.length ?? 0) > 0;
+  // ISS-274 — a tool grant switched off (here or in Canvas view) is an
+  // override like any other, so the row flags it instead of hiding it.
+  const toolsOn = hasToolOverride(selection);
 
   const chip = (label: string, on: boolean) => (
     <button
@@ -197,6 +201,7 @@ export function AgentRow({
         {chip("Gate", gateOn)}
         {chip("Retry", retryOn)}
         {chip("Skills", skillsOn)}
+        {chip("Tools", toolsOn)}
         <span className="flex-1" />
         <button
           type="button"

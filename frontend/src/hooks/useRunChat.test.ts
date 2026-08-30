@@ -89,9 +89,14 @@ describe("useRunChat — family-anchored transcript reducer", () => {
     const m = result.current.messages[0];
     expect(m.role).toBe("assistant");
     expect(m.cardKind).toBe("gate");
-    // FIX-128: `target` is the milestone ANCHOR, kept as `anchor` — it is NOT
-    // aliased onto `tab` (a panel tab id), which PreviewPanel would then drop.
-    expect(m.deepLink).toEqual({ anchor: "gate:run-1", nonce: 7 });
+    // FIX-128 / ISS-614: `target` is the milestone ANCHOR ("gate:run-1"), NOT a
+    // panel tab id. It must never be aliased onto `tab` — PreviewPanel drops an
+    // unknown tab id, which is exactly what broke "Open in Steps"/"Open in
+    // Preview". It used to be parsed into a `deepLink.anchor` field; that field
+    // had no application reader (only this test), so FIX-413 deleted it. A frame
+    // carrying only `target` therefore yields NO descriptor at all, and the card
+    // falls back to its kind's generic defaultTab (ResultCard.tsx:113).
+    expect(m.deepLink).toBeUndefined();
     expect(m.deepLink?.tab).toBeUndefined();
   });
 

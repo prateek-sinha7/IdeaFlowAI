@@ -2343,6 +2343,27 @@ class ExecutionEngine:
         # ── Step 4: Run domain agents ─────────────────────────────────────
         self._state_machine.transition(pipeline_run_id, "generating")
 
+        # ISS-276: read the run's REAL created_at for the pipeline_start frame below.
+        # UTC-promoted (KAN-113: a naive stamp is Date.parse'd as LOCAL time → a wrong
+        # "Nh ago"). Best-effort like every other typed-substrate read here — the
+        # offline characterization harness has no ``workflow_runs`` row, so this stays
+        # None there and the key rides as null (also stripped by _VOLATILE_STRIP_KEYS,
+        # INV-3). Workflow-agnostic — no pipeline_type/spec.id branch (INV-1/SC-001).
+        _run_created_at: str | None = None
+        try:
+            _created = getattr(await scoped_store.get_run(pipeline_run_id), "created_at", None)
+            if _created is not None:
+                from datetime import timezone as _tz
+
+                if _created.tzinfo is None:
+                    _created = _created.replace(tzinfo=_tz.utc)
+                _run_created_at = _created.isoformat()
+        except Exception as _created_exc:  # noqa: BLE001 — never break a run on a DB read
+            logger.warning(
+                "pipeline_start created_at lookup failed (%s) — emitting without it",
+                _created_exc,
+            )
+
         yield {
             "type": "pipeline_start",
             "data": {
@@ -2359,6 +2380,11 @@ class ExecutionEngine:
                 # than waiting for the durable SSE replay to restore their statuses.
                 # 0 on every normal (non-resumed) run → byte/event-identical (INV-3).
                 "resume_offset": _resume_from,
+                # ISS-276: the run's real start time. The client folds this frame from
+                # BOTH the live SSE stream and the durable REST replay, so without it a
+                # replayed start is indistinguishable from a live one and the lane
+                # header dates a day-old run to the moment the page loaded.
+                "created_at": _run_created_at,
             },
         }
 

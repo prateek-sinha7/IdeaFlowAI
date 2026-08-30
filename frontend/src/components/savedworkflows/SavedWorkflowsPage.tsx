@@ -163,7 +163,7 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
   const [savedError, setSavedError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteRow, setDeleteRow] = useState<UserWorkflowSummary | null>(null);
   const [renameRow, setRenameRow] = useState<UserWorkflowSummary | null>(null);
 
   useEffect(() => {
@@ -215,7 +215,7 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
   };
 
   const handleDeleteConfirm = async () => {
-    const id = deleteConfirmId; if (!id) return; setDeleteConfirmId(null);
+    const id = deleteRow?.id; if (!id) return; setDeleteRow(null);
     const jwt = getToken(); if (!jwt) return;
     try {
       await deleteUserWorkflow(jwt, id);
@@ -345,7 +345,7 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
                       onEdit={() => handleEdit(row)}
                       onRename={() => { setOpenMenuId(null); setRenameRow(row); }}
                       onDuplicate={() => handleDuplicate(row)}
-                      onDelete={() => { setOpenMenuId(null); setDeleteConfirmId(row.id); }}
+                      onDelete={() => { setOpenMenuId(null); setDeleteRow(row); }}
                     />
                   </div>
                   {/* Type badge */}
@@ -407,11 +407,11 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
 
       {/* ── Delete confirm ── */}
       <AnimatePresence>
-        {deleteConfirmId && (
+        {deleteRow && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[80] flex items-center justify-center bg-[var(--scrim)] backdrop-blur-sm"
-            onClick={() => setDeleteConfirmId(null)}
-            onKeyDown={(e) => { if (e.key === "Escape") setDeleteConfirmId(null); }}>
+            onClick={() => setDeleteRow(null)}
+            onKeyDown={(e) => { if (e.key === "Escape") setDeleteRow(null); }}>
             <motion.div initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 8 }} transition={{ duration: 0.15 }}
               role="dialog" aria-modal="true" aria-labelledby="delete-workflow-title"
@@ -427,10 +427,10 @@ export function SavedWorkflowsPage({ onLaunchSaved, onCreateNew }: SavedWorkflow
                 </div>
               </div>
               <p className="text-[12px] text-ink-500 leading-relaxed mb-5">
-                The saved workflow will be permanently removed from your saved workflows.
+                &quot;{deleteRow.name}&quot; will be permanently removed from your saved workflows.
               </p>
               <div className="flex gap-2">
-                <button onClick={() => setDeleteConfirmId(null)}
+                <button onClick={() => setDeleteRow(null)}
                   className="flex-1 rounded-xl border border-line-border px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors">
                   Cancel
                 </button>

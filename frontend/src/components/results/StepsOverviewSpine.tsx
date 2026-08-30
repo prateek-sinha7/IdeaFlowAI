@@ -339,7 +339,10 @@ export function StepsOverviewSpine({
 }: StepsOverviewSpineProps) {
   const total = agents.length;
   const isRunning = pipelineState?.isRunning ?? false;
-  const failed = pipelineState?.failed || agents.some(a => a.status === "error");
+  // ISS-317: a pipeline that is actively running is never "failed". Gate the
+  // derived flag on !isRunning so a leftover per-agent `error` status can never
+  // pin this panel on "Run failed" while the header reads "Running".
+  const failed = !isRunning && (pipelineState?.failed || agents.some(a => a.status === "error"));
 
   // ── FIX-182: construction agent "done" guard ──────────────────────────────
   // agent_complete fires after EACH task-loop iteration, momentarily setting the

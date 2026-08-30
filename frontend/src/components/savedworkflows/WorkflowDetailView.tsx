@@ -3,6 +3,12 @@
 import Link from "next/link";
 import { Cpu } from "lucide-react";
 import type { UserWorkflowSummary } from "@/store/api/userWorkflows";
+import {
+  CUSTOM_AGENT_PREFIX,
+  findAgentInTree,
+  manifestStepsToAgents,
+} from "@/store/api/userWorkflows";
+import { useAgentLibrary } from "@/hooks/useAgentLibrary";
 import { Card } from "@/components/ui/Card";
 import { routes } from "@/lib/routes";
 
@@ -27,6 +33,19 @@ interface WorkflowDetailViewProps {
 export function WorkflowDetailView({ workflow }: WorkflowDetailViewProps) {
   const pipelineLabel = PIPELINE_LABEL[workflow.base_pipeline_type] ?? workflow.base_pipeline_type;
   const agentIds = workflow.agent_ids ?? [];
+  const { allAgents } = useAgentLibrary();
+  // ISS-490: a composed step is `custom-agent:<instance_id>` and has no catalog
+  // entry — its user-given name lives on the manifest step, so reconstruct the
+  // saved node tree the same way ComposerPage does on reopen and read it there.
+  const manifestAgents = manifestStepsToAgents(workflow.manifest?.steps ?? [], (id) =>
+    allAgents.find((a) => a.id === id),
+  );
+  // ISS-327: resolve each id to the same friendly name the Library page and this
+  // workflow's own Composer already show for it; the raw id is a last resort.
+  const displayName = (id: string) => {
+    const bare = id.startsWith(CUSTOM_AGENT_PREFIX) ? id.slice(CUSTOM_AGENT_PREFIX.length) : id;
+    return (allAgents.find((a) => a.id === id) ?? findAgentInTree(manifestAgents, bare))?.name ?? id;
+  };
 
   return (
     <div className="min-h-screen bg-surface-paper px-6 py-10">
@@ -51,7 +70,7 @@ export function WorkflowDetailView({ workflow }: WorkflowDetailViewProps) {
               <ul className="space-y-1">
                 {agentIds.map((id) => (
                   <li key={id} className="text-[12.5px] text-ink-700 bg-surface-warm rounded-[8px] px-3 py-2">
-                    {id}
+                    {displayName(id)}
                   </li>
                 ))}
               </ul>

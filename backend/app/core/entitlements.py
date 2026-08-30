@@ -2,6 +2,8 @@
 
 from typing import Literal
 
+from agents.capabilities.model_catalog import ModelCatalog
+
 Tier = Literal["basic", "pro", "enterprise", "hexaware"]
 
 # Pipelines each tier can execute (including revision variants)
@@ -83,6 +85,46 @@ def can_run_pipeline(user_tier: str, pipeline_type: str) -> tuple[bool, str]:
         next_label = TIER_LABELS[next_tier]
         return False, f"This pipeline requires {next_label} or higher. Upgrade your plan to unlock it."
     return False, "This pipeline is not available on your current plan."
+
+
+# Model cost classes each tier may select (ISS-292). Keyed off
+# ``ModelEntry.cost_class`` — the canonical axis (cheap/standard/premium), not the
+# display ``tier`` string — so the table is the same shape as TIER_PIPELINES above
+# and reads the same fail-closed way. The entry tier is held off the premium
+# (Opus) models; every paid tier keeps the full catalog.
+#
+# NOT the same axis as ``ModelEntry.user_allowed``, which is the CAP-03 trust flag
+# (engineer- vs user-composable capability) — subscription tier and capability
+# trust must not be conflated.
+TIER_MODEL_COST_CLASSES: dict[str, set[str]] = {
+    "basic": {"cheap", "standard"},
+    "hexaware": {"cheap", "standard", "premium"},
+    "pro": {"cheap", "standard", "premium"},
+    "enterprise": {"cheap", "standard", "premium"},
+}
+
+
+def can_use_model(user_tier: str, model_id: str) -> tuple[bool, str]:
+    """Return (allowed, reason). reason is empty string when allowed.
+
+    The tier question only. Catalog MEMBERSHIP stays the caller's check
+    (``settings.py``'s ``_VALID_MODEL_IDS``, ``run_engine.py``'s
+    ``ModelCatalog().ids()``), so an unknown id passes through here and keeps
+    getting the caller's 422 instead of a misleading "upgrade your plan" 403.
+    """
+    entry = ModelCatalog().get(model_id)
+    if entry is None:
+        return True, ""
+    allowed_classes = TIER_MODEL_COST_CLASSES.get(
+        user_tier, TIER_MODEL_COST_CLASSES["basic"]
+    )
+    if entry.cost_class in allowed_classes:
+        return True, ""
+    next_tier = UPGRADE_PATH.get(user_tier)
+    if next_tier:
+        next_label = TIER_LABELS[next_tier]
+        return False, f"This model requires {next_label} or higher. Upgrade your plan to unlock it."
+    return False, "This model is not available on your current plan."
 
 
 # --- Cognito group -> role/tier resolution (COGNITO-MIGRATION-PLAN §5.1) ---

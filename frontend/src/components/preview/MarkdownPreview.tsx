@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FileText, Copy, Check, ChevronRight, ChevronDown, RefreshCw } from "lucide-react";
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 
 // ─── WR-03 (18 review) — raw-HTML escaping is a SECURITY invariant ────────────
 // MarkdownPreview is the generic deliverable `text/markdown` render path
@@ -22,7 +23,7 @@ interface MarkdownPreviewProps {
 }
 
 export function MarkdownPreview({ content, onRevise }: MarkdownPreviewProps) {
-  const [copied, setCopied] = useState(false);
+  const { copied, failed, copy } = useClipboardCopy();
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [revisionText, setRevisionText] = useState("");
 
@@ -46,11 +47,7 @@ export function MarkdownPreview({ content, onRevise }: MarkdownPreviewProps) {
     );
   }
 
-  const handleCopyAll = () => {
-    navigator.clipboard.writeText(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const handleCopyAll = () => void copy(content);
 
   return (
     <div className="h-full flex flex-col">
@@ -61,7 +58,7 @@ export function MarkdownPreview({ content, onRevise }: MarkdownPreviewProps) {
           <span className="text-[11px] font-semibold text-ink-900">Output</span>
         </div>
         <button onClick={handleCopyAll} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[10px] font-medium text-ink-500 hover:text-ink-900 hover:bg-surface-warm border border-line-control transition-all">
-          {copied ? <><Check className="h-3 w-3 text-status-done" /><span className="text-status-done">Copied!</span></> : <><Copy className="h-3 w-3" /><span>Copy All</span></>}
+          {copied ? <><Check className="h-3 w-3 text-status-done" /><span className="text-status-done">Copied!</span></> : <><Copy className="h-3 w-3" /><span>{failed ? "Copy failed" : "Copy All"}</span></>}
         </button>
       </div>
 
@@ -169,13 +166,9 @@ export function MarkdownPreview({ content, onRevise }: MarkdownPreviewProps) {
 
 /* --- Code Block Component with Copy --- */
 function CodeBlock({ code, language }: { code: string; language: string }) {
-  const [copied, setCopied] = useState(false);
+  const { copied, failed, copy } = useClipboardCopy();
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const handleCopy = () => void copy(code);
 
   // Detect if it's a filename-style header
   const isFilename = language.includes("/") || language.includes(".");
@@ -191,7 +184,7 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
           onClick={handleCopy}
           className="flex items-center gap-1 text-[10px] text-[#9da5b4] hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
         >
-          {copied ? <><Check className="h-3 w-3 text-emerald-400" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
+          {copied ? <><Check className="h-3 w-3 text-emerald-400" /> Copied</> : <><Copy className="h-3 w-3" /> {failed ? "Copy failed" : "Copy"}</>}
         </button>
       </div>
       {/* Code */}

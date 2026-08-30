@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { X, Upload, Link, FileText, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { authedFetch, getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
+import { utf8Bytes } from "@/lib/byteSize";
 import { Button } from "@/components/ui/Button";
 
 export interface CustomTemplate {
@@ -77,7 +78,7 @@ export function CustomTemplateModal({ onConfirm, onClose }: CustomTemplateModalP
         setFileError("Could not read file content.");
         return;
       }
-      if (text.length > 2 * 1024 * 1024) {
+      if (file.size > 2 * 1024 * 1024) {
         setFileError("File is too large (max 2 MB).");
         return;
       }
@@ -229,7 +230,7 @@ export function CustomTemplateModal({ onConfirm, onClose }: CustomTemplateModalP
               {htmlBody && !fileError && (
                 <p className="mt-2 flex items-center gap-1.5 text-[11px] text-status-done">
                   <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
-                  Loaded {(htmlBody.length / 1024).toFixed(1)} KB
+                  Loaded {(utf8Bytes(htmlBody) / 1024).toFixed(1)} KB
                 </p>
               )}
             </div>
@@ -264,7 +265,7 @@ export function CustomTemplateModal({ onConfirm, onClose }: CustomTemplateModalP
               {urlFetched && htmlBody && (
                 <p className="mt-2 flex items-center gap-1.5 text-[11px] text-status-done">
                   <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
-                  Fetched {(htmlBody.length / 1024).toFixed(1)} KB from {new URL(urlInput).hostname}
+                  Fetched {(utf8Bytes(htmlBody) / 1024).toFixed(1)} KB from {new URL(urlInput).hostname}
                 </p>
               )}
             </div>

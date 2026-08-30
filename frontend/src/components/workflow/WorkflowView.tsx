@@ -83,6 +83,24 @@ const FEATURE_CARDS = [
   },
 ];
 
+/** Strip one attached filename out of the `[Attached: ...]` marker block(s) the
+ *  attach handler wrote into the idea text, leaving the markers for files that
+ *  are still attached intact (ISS-345, ISS-583). */
+function stripAttachmentMarker(text: string, filename: string): string {
+  let removed = false;
+  return text
+    .replace(/(\n\n)?\[Attached: ([^\]]*)\]/g, (match, sep: string | undefined, names: string) => {
+      if (removed) return match;
+      const remaining = names.split(", ");
+      const at = remaining.indexOf(filename);
+      if (at === -1) return match;
+      removed = true;
+      remaining.splice(at, 1);
+      return remaining.length ? `${sep ?? ""}[Attached: ${remaining.join(", ")}]` : "";
+    })
+    .trim();
+}
+
 export function WorkflowView({
   pipelineType: initialType,
   userMessage: externalMessage,
@@ -159,7 +177,7 @@ export function WorkflowView({
   };
 
   const handleRun = () => {
-    if (!ideaInput.trim()) return;
+    if (!ideaInput.trim() || pipelineAgents.length === 0) return;
     if (onStartPipeline) {
       const agentIds = pipelineAgents.map((a) => a.id);
       onStartPipeline(selectedType, ideaInput.trim(), agentIds);
@@ -385,7 +403,10 @@ export function WorkflowView({
                         {file.name}
                         <span className="text-grey/40">({file.size})</span>
                         <button
-                          onClick={() => setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))}
+                          onClick={() => {
+                            setAttachedFiles((prev) => prev.filter((_, i) => i !== idx));
+                            setIdeaInput((prev) => stripAttachmentMarker(prev, file.name));
+                          }}
                           className="ml-0.5 text-grey/40 hover:text-red-400 transition-colors"
                         >
                           <X className="h-2.5 w-2.5" />
@@ -470,7 +491,7 @@ export function WorkflowView({
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={handleRun}
-                  disabled={!ideaInput.trim()}
+                  disabled={!ideaInput.trim() || pipelineAgents.length === 0}
                   className="w-full flex items-center justify-center gap-2 rounded-xl bg-white text-black px-5 py-3 text-sm font-semibold transition-all duration-200 hover:bg-white/90 shadow-lg shadow-white/10 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
                 >
                   <Play className="h-4 w-4" />

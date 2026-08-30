@@ -17,8 +17,10 @@ import {
   AgentPromptSection,
   applyLeverPatch,
   useAgentCapabilities,
+  effectiveToolGrants,
   getAgentInitials,
   KNOWN_PRODUCERS,
+  TOOL_GRANT_LEVERS,
   type StepSelection,
   type SelectionsMap,
 } from "../AgentsPopup";
@@ -356,13 +358,10 @@ export function CanvasConfigRail({
     onSelection(agent.id, Object.keys(next).length > 0 ? next : undefined);
   };
 
-  // Effective tool grants for the Tools tab. Absent selection = the composer's
-  // defaults (read + write ON), which is what `agentToManifestStep` also emits,
-  // so an untouched step's saved manifest is unchanged by this control existing.
-  const toolGrants = {
-    read_files: sel.tools?.read_files ?? true,
-    write_files: sel.tools?.write_files ?? true,
-  };
+  // Effective tool grants for the Tools tab — from the SHARED helper, so this
+  // rail and the Simple view's expander can't disagree about what "default"
+  // means (ISS-274).
+  const toolGrants = effectiveToolGrants(sel);
 
   // Spec 012 (R-04/R-36) — the child-group strategy selector, shown only when
   // this node has children.
@@ -564,20 +563,7 @@ export function CanvasConfigRail({
               so a toggle would grant nothing. spawn_subagents is not listed at all —
               child dispatch is the engine's job, never a per-node grant. */}
           <div className="space-y-1.5">
-            {(
-              [
-                {
-                  key: "read_files",
-                  label: "Read files",
-                  desc: "List and read files in the run sandbox.",
-                },
-                {
-                  key: "write_files",
-                  label: "Write files",
-                  desc: "Create and edit files in the run sandbox. Off means this step produces no artifact for later steps to read.",
-                },
-              ] as const
-            ).map(({ key, label, desc }) => (
+            {TOOL_GRANT_LEVERS.map(({ key, label, desc }) => (
               <div
                 key={key}
                 className="flex items-center justify-between gap-3 rounded-lg border border-line-faint-row bg-surface-warm px-3 py-2"

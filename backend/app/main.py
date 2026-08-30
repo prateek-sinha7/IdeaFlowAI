@@ -7,7 +7,10 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 
 from app.api.auth import router as auth_router
@@ -323,6 +326,26 @@ async def _request_id_middleware(request: Request, call_next):
         _request_id_var.reset(token)
     response.headers["X-Request-ID"] = request_id
     return response
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    """ISS-224/ISS-257: never echo a rejected value back to the client.
+
+    FastAPI's default 422 handler serialises Pydantic's error shape as-is, and
+    that shape carries ``input`` — the COMPLETE value that failed validation.
+    For a length-constrained credential (``GithubPATRequest.pat``,
+    ``RegisterRequest.password``) that means the submitted secret round-trips
+    back in the response body. Nothing in the error tells us which fields are
+    sensitive, so ``input`` is dropped for every field on every route; ``loc``,
+    ``msg``, ``type`` and ``ctx`` are untouched, so the body still says exactly
+    what was wrong and where.
+    """
+    errors = [
+        {key: value for key, value in error.items() if key != "input"}
+        for error in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content=jsonable_encoder({"detail": errors}))
 
 
 # Register routers

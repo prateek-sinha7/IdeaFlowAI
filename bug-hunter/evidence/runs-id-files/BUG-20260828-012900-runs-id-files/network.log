@@ -1,0 +1,11 @@
+GET /api/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/sandbox (200 OK) — deliverable:true entries:
+{"path":"conversation_history/b9feac1c-ec21-4531-8ba7-bb391786993e:ppt-code-generator.md","size":319756,"kind":"text","deliverable":true}
+{"path":"presentation.html","size":54551,"kind":"text","deliverable":true}
+{"path":"presentation.pptx","size":163771,"kind":"binary","deliverable":true}
+{"path":"tmp/kindred-pitch-deck.html","size":54588,"kind":"text","deliverable":true}
+
+Run detail response: deliverable_mimetype = "text/html", deliverable_filename = "presentation.html"
+
+Files tab UI "Final output" card shows: kindred-a-custombuilt-social-network-pla.html (53.2 KB) — matches tmp/kindred-pitch-deck.html by size, NOT presentation.html (the API's own declared deliverable_filename) and NOT presentation.pptx (the real binary PPTX deliverable).
+
+"Download" on the Final output row and "Download All" both fetch only the tmp HTML file + 4 agent .md outputs + prompt.md — presentation.pptx (163,771 bytes, kind:binary, deliverable:true) is never listed, previewed, or downloadable anywhere on the Files tab.

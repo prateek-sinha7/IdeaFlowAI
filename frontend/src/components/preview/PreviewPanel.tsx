@@ -7,7 +7,7 @@ import { UserStoryPreview } from "./UserStoryPreview";
 import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
 import { MarkdownPreview } from "./MarkdownPreview";
-import { FilesTab, downloadBlob, deriveDeliverableFilename } from "@/components/results/FilesTab";
+import { FilesTab, downloadBlob, deriveDeliverableFilename, type AgentOutputItem } from "@/components/results/FilesTab";
 import { SandboxTab } from "@/components/results/SandboxTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AuditTab } from "@/components/results/AuditTab";
@@ -25,9 +25,10 @@ import { RunHeader } from "./RunHeader";
 import type { RunLaneState } from "@/components/chat/RunChatLane";
 // Phase 32 (plan 07) — shared run-screen underline-tab primitive (SC-1, D-15).
 import { Tabs } from "@/components/ui/Tabs";
-import type { WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
+import type { WorkflowType, GenericDeliverable, RunFamily, WorkflowRun, AgentThinkingEntry, AgentRunState, PipelineRunState } from "@/types/index";
 import type { TabDeepLinkTarget } from "@/hooks/useTabDeepLink";
-import { authedFetch, getToken, getWorkflow, getRunSandbox, getRunSandboxFileBlob } from "@/lib/api";
+import { authedFetch, getToken, getWorkflow, getRunSandbox, getRunSandboxFileBlob, getRunSandboxZip } from "@/lib/api";
+import { isPlausibleFilePath } from "@/lib/parsers/filePath";
 import { ENV } from "@/lib/env";
 // ISS-024 — shared id→name resolution for the failed-agents list (no dual-impl).
 import { buildAgentNameById, resolveAgentNames } from "@/lib/parseFailedAgents";
@@ -60,6 +61,9 @@ function parseAppBuilderFilesForIDE(markdown: string): ParsedFile[] {
   const addFile = (path: string, content: string) => {
     path = path.trim();
     if (!path || !content.trim() || seen.has(path)) return;
+    // ISS-323: a prose heading ("### Via Node.js") matches the heading/bold
+    // regexes as well as a real path does — a real file path has no whitespace.
+    if (!isPlausibleFilePath(path)) return;
     // Skip paths that look like section headers, not file paths
     // (must contain a dot or be a known extensionless file like Dockerfile/Makefile)
     const name = path.split("/").pop() || path;
@@ -292,7 +296,11 @@ interface PreviewPanelProps {
   genericDeliverable?: GenericDeliverable;
   isStreaming?: boolean;
   initialTab?: string;
-  onTabSelect?: (tab: string) => void;
+  // ISS-296: the optional second argument is an explicit version override —
+  // a version number pins, `null` clears the pin, omitted keeps whatever the
+  // URL already carries. The Version menu writes the URL through this same
+  // chokepoint so a pin is shareable and survives a later tab switch.
+  onTabSelect?: (tab: string, version?: string | null) => void;
   workflowType?: WorkflowType;
   /** Raw pipeline type — not normalised. Used to distinguish od_ppt from ppt for download. */
   rawPipelineType?: string;
@@ -334,6 +342,11 @@ interface PreviewPanelProps {
   // history callers and existing test renders).
   runFamily?: RunFamily | null;
   liveRunId?: string | null;
+  // ISS-230 — the 1-based version number the URL pins (`/runs/{id}/versions/{v}`,
+  // and its per-tab form). Optional/default-undefined: an un-pinned URL leaves
+  // the version state exactly as it was, so every existing caller and test
+  // render is unchanged.
+  pinnedVersion?: string;
   // Workstream C2 (POR §5 D3+D4+D7) — pass-throughs for the "Run input" surfaces.
   // The live path already carries clarify rounds via pipelineState.clarifications;
   // the explicit `clarifications` prop is the reopen override (?? keeps both
@@ -403,6 +416,94 @@ const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
 // tab; other generic targets (e.g. "steps") belong to the left lane column.
 const PANEL_TAB_IDS: readonly PanelTab[] = ["preview", "files", "thinking", "workspace", "audit"];
 
+// ─── ISS-606/608/609 — a pinned version's OWN pipeline data ───────────────────
+// The `/versions/{v}` override used to carry the fetched run's `.output` alone,
+// so only the deliverable CONTENT became version-aware (ISS-300/FIX-334). Every
+// pipeline surface — the Steps tab's summary + agent list, the Files tab's
+// "Agent outputs", the app_builder/generic previews, the Workspace tab's
+// agent-name labels, the Audit tab's own fetches — kept reading the raw live/root
+// props, so a pinned URL rendered the ROOT run's pipeline whichever version it
+// named. Project the SAME fetched record into the shapes those surfaces consume,
+// once, here: the eff* override pattern extended from content to pipeline data.
+//
+// A persisted `agent_outputs` row is one agent RUN, so a task-loop agent repeats
+// (this bug's root run: 17 rows, `agent_count` 5). Collapse to the LAST row per
+// agent id — what the live reducer holds after a durable replay — which keeps
+// first-appearance order and restores the run's own agent count.
+type PersistedAgentRow = AgentThinkingEntry & Partial<{
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  input_prompt: string;
+  thinking_text: string;
+  tool_calls: AgentRunState["toolCalls"];
+  context_sources: AgentRunState["contextSources"];
+}>;
+
+type VersionView = {
+  id: string;
+  content?: string;
+  agents: AgentRunState[];
+  pipelineState: PipelineRunState;
+  agentOutputs: AgentOutputItem[];
+};
+
+function versionViewFrom(run: WorkflowRun): VersionView {
+  const lastRowPerAgent = new Map<string, PersistedAgentRow>();
+  for (const row of (run.agentOutputs ?? []) as PersistedAgentRow[]) {
+    if (row?.agent_id) lastRowPerAgent.set(row.agent_id, row);
+  }
+  const agents: AgentRunState[] = [...lastRowPerAgent.values()].map((row, index) => ({
+    id: row.agent_id,
+    name: row.name ?? row.agent_id,
+    role: row.role ?? "",
+    icon: row.icon ?? "",
+    // A persisted row IS a completed agent output. A run-level failure comes from
+    // the server's own status below — never a per-agent client guess (ISS-017).
+    status: "done",
+    output: row.output ?? "",
+    thinking: row.thinking ?? "",
+    duration: row.duration ?? null,
+    error: null,
+    index,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    totalTokens: row.total_tokens,
+    inputPrompt: row.input_prompt,
+    thinkingText: row.thinking_text,
+    toolCalls: row.tool_calls,
+    contextSources: row.context_sources,
+  }));
+  const usage = run.tokenUsage;
+  return {
+    id: run.id,
+    content: run.output,
+    agents,
+    pipelineState: {
+      isRunning: false,
+      pipeline_type: run.type,
+      agents,
+      currentAgentIndex: agents.length - 1,
+      totalDuration: run.duration ?? null,
+      completedCount: agents.length,
+      totalInputTokens: usage?.total_input_tokens,
+      totalOutputTokens: usage?.total_output_tokens,
+      totalTokens: usage?.total_tokens,
+      estimatedCostUsd: usage?.estimated_cost_usd,
+      cacheReadTokens: usage?.total_cache_read_tokens,
+      cacheWriteTokens: usage?.total_cache_write_tokens,
+      modelId: run.modelId,
+      // ISS-609 — AuditTab keys its gate/validation/exec/hook-run fetches on this
+      // id, so the pinned run's id has to travel with the override.
+      pipelineRunId: run.id,
+      failed: run.status === "failed",
+    },
+    agentOutputs: agents
+      .filter((a) => a.output.trim().length > 0)
+      .map((a) => ({ name: a.name, role: a.role, output: a.output, agentId: a.id })),
+  };
+}
+
 // ─── ISS-017 (16-04) — terminal-empty degraded/failed affordance ──────────────
 // Rendered (instead of the neutral "Output will appear here") when a run is
 // TERMINAL, has no content, AND carries a server-derived failure signal
@@ -420,6 +521,7 @@ export function DegradedRunAffordance({
   agentNameById,
   onRetry,
   cancelled,
+  diverted,
 }: {
   // Raw agent IDs (e.g. "prototype-build"). Resolved to human names below.
   failedAgents?: string[];
@@ -433,6 +535,11 @@ export function DegradedRunAffordance({
   // IN-03 (16 review): true when the terminal state is a deliberate user cancel,
   // so the copy reads "cancelled" rather than "failed or degraded".
   cancelled?: boolean;
+  // ISS-390: true when the terminal state is a divert (a `trigger: workflow` route
+  // outcome handed off to a newly-minted run). Terminal and non-resumable like the
+  // others, but NOT a failure — only the detail line changes, so the run still
+  // reads as "did not complete" without claiming its agents failed.
+  diverted?: boolean;
 }) {
   const hasFailedAgents = !!(failedAgents && failedAgents.length > 0);
   // ISS-024: resolve ids → names once; fallback to the raw id keeps older runs
@@ -455,7 +562,9 @@ export function DegradedRunAffordance({
         <p className="text-xs text-ink-500">
           {cancelled
             ? "The run was stopped before producing a deliverable."
-            : "No deliverable was produced. The run ended in a failed or degraded state."}
+            : diverted
+              ? "The run was diverted to another workflow and will not resume. No deliverable was produced here."
+              : "No deliverable was produced. The run ended in a failed or degraded state."}
         </p>
         {hasFailedAgents && (
           <div className="w-full rounded-md border border-amber-100 bg-amber-50/60 px-3 py-2 text-left">
@@ -488,7 +597,7 @@ export function DegradedRunAffordance({
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow, waves, onShare, onDownload, specRevisionCount = 0 }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, pinnedVersion, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, onCancelWorkflow, waves, onShare, onDownload, specRevisionCount = 0 }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   // ─── Plan 07 — manual typed-renderer switcher override ───────────────────────
   // null = follow the generic auto-dispatch (the PRIMARY route); a non-null value
@@ -497,11 +606,11 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // (the "Auto" option) and whenever the deliverable's renderType changes.
   const [rendererOverride, setRendererOverride] = useState<string | null>(null);
   // ─── B3 (POR §5 D5) — read-only older-version state ─────────────────────────
-  // viewingVersion is the read-only older-version override ({ id, content }) or
-  // null (live latest on screen). The version affordance itself now lives in the
-  // Phase-39 RunHeader Version menu (INV-12 — the old version-pill pulse tick is
-  // retired with it).
-  const [viewingVersion, setViewingVersion] = useState<{ id: string; content?: string } | null>(null);
+  // viewingVersion is the read-only older-version override (the pinned member's
+  // own run record, projected by versionViewFrom) or null (live latest on
+  // screen). The version affordance itself now lives in the Phase-39 RunHeader
+  // Version menu (INV-12 — the old version-pill pulse tick is retired with it).
+  const [viewingVersion, setViewingVersion] = useState<VersionView | null>(null);
   // Phase 42-02 (§B / RUNUI-06) — latch for the state-keyed default-tab effect: the
   // last generic run-state we auto-applied a tab for. Keyed on the state VALUE so the
   // auto-select fires once per state transition and never overrides a later manual
@@ -527,7 +636,14 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     ? [...runFamily.members].sort((a, b) => a.revision_index - b.revision_index)
     : [];
   const latestId = sortedMembers.length > 0 ? sortedMembers[sortedMembers.length - 1].id : (liveRunId ?? null);
-  const activeRunId = viewingVersion?.id ?? liveRunId ?? latestId;
+  // ISS-607/ISS-610/ISS-611 — the member the UN-pinned route renders: liveRunId
+  // when the shell has one (a base `/runs/{rootId}/...` URL pins it to the ROOT),
+  // else the family's newest. This is a DIFFERENT value from latestId whenever
+  // the route names the root of a >=2-member family, so the two are not
+  // interchangeable: "dropping the pin" lands on THIS, never necessarily on the
+  // latest member.
+  const unpinnedRunId = liveRunId ?? latestId;
+  const activeRunId = viewingVersion?.id ?? unpinnedRunId;
   const activeIdx = sortedMembers.findIndex((m) => m.id === activeRunId);
   const isViewingOlder = viewingVersion != null && viewingVersion.id !== latestId;
   // The active member's parent (the immediately-prior version) — threaded to
@@ -546,27 +662,83 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   const revisionParentVersion = activeParentIdx >= 0 ? activeParentIdx + 1 : undefined;
   const originalBriefRootRunId = activeParentRunId ? runFamily?.root_id : undefined;
 
-  const handleSelectVersion = useCallback(async (memberId: string) => {
-    if (memberId === latestId) {
+  // ISS-607/ISS-612 — `tab` defaults to the tab already on screen (picking a
+  // version never also changes which tab is showing), and is passed explicitly
+  // by the chat deep-link consumer, which switches BOTH at once.
+  const handleSelectVersion = useCallback(async (memberId: string, tab: PanelTab = activeTab) => {
+    // ISS-296 — the menu is the primary way a version gets pinned, so it must
+    // WRITE the pin into the URL, not only into local state: the
+    // `/versions/{v}` segment is what makes a pin shareable, refreshable and
+    // (via `pinnedVersion`) survivable across the tab switches ISS-230 fixed.
+    // Routed through the tab-select chokepoint carrying the CURRENT tab, so
+    // picking a version never also changes which tab is on screen.
+    //
+    // ISS-607/ISS-610/ISS-611 — the "no pin needed, this member is already what
+    // the un-pinned route shows" shortcut keys on `unpinnedRunId`, NOT on
+    // `latestId`. On a base `/runs/{rootId}/...` route those differ (root vs
+    // newest member), and keying on latestId dropped the pin for the newest
+    // member: the target route then equalled the current pathname and
+    // DashboardLayout's pushState guard swallowed the click entirely.
+    const memberIdx = sortedMembers.findIndex((m) => m.id === memberId);
+    onTabSelect?.(tab, memberId === unpinnedRunId || memberIdx < 0 ? null : String(memberIdx + 1));
+    if (memberId === unpinnedRunId) {
       setViewingVersion(null); // back to live
       return;
     }
     const token = getToken();
     try {
       const run = await getWorkflow(token || "", memberId);
-      setViewingVersion({ id: memberId, content: run.output });
+      setViewingVersion(versionViewFrom(run));
     } catch (err) {
       // Read-only view is best-effort — never throw into the preview surface.
       // Dev-observability only: log the swallowed failure; fallback unchanged.
       console.warn("[revision-family] read-only version fetch failed", err);
       setViewingVersion(null);
     }
-  }, [latestId]);
+  }, [unpinnedRunId, sortedMembers, onTabSelect, activeTab]);
 
-  const handleBackToLatest = useCallback(() => setViewingVersion(null), []);
+  // ISS-296 — dropping the pin drops the URL segment too, so the address bar
+  // never claims a version that is no longer on screen.
+  // ISS-611 — "latest" is the family's NEWEST member, which is only the same
+  // thing as dropping the pin when the un-pinned route already names it. Routed
+  // through the one chokepoint above so the button pins exactly what its own
+  // label promises instead of falling back to the family root.
+  const handleBackToLatest = useCallback(() => {
+    if (latestId) void handleSelectVersion(latestId);
+  }, [latestId, handleSelectVersion]);
 
   // A new live run supersedes any active read-only view.
   useEffect(() => { setViewingVersion(null); }, [liveRunId]);
+
+  // ─── ISS-230 — the URL's `/versions/{v}` pin, applied ────────────────────────
+  // A pinned deep link opens the family ROOT in the shell (contentSourceRunId →
+  // liveRunId), and liveRunId wins over latestId in activeRunId above — so
+  // without this the pin never reached the panel at all and every tab fetched
+  // and rendered v1. Set as the read-only override directly rather than through
+  // handleSelectVersion, which treats "the latest member" as the Version menu's
+  // back-to-live shortcut and would null the pin out for exactly the family
+  // whose newest member is the one pinned.
+  // Keyed on the RESOLVED member id alone: a tab switch changes neither it nor
+  // the family, so switching tabs no longer refetches or re-pins, and clicking
+  // Back to latest is not immediately undone.
+  const pinnedMemberId = pinnedVersion
+    ? sortedMembers[Number(pinnedVersion) - 1]?.id
+    : undefined;
+  useEffect(() => {
+    if (!pinnedMemberId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const run = await getWorkflow(getToken() || "", pinnedMemberId);
+        if (!cancelled) setViewingVersion(versionViewFrom(run));
+      } catch (err) {
+        // Same contract as handleSelectVersion: best-effort, never throw into
+        // the preview surface — an unresolvable pin leaves the live view up.
+        console.warn("[revision-family] pinned version fetch failed", err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [pinnedMemberId]);
 
   const detectedType: WorkflowType = workflowType || (userStoryContent ? "user_stories" : pptContent ? "ppt" : prototypeContent ? "prototype" : "user_stories");
   // Normalize revision types to their base type for rendering
@@ -592,6 +764,12 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   const effUserStoryContent = overrideActive && (renderType === "user_stories" || renderType === "app_builder") ? overrideContent : userStoryContent;
   const effPptContent = overrideActive && renderType === "ppt" ? overrideContent : pptContent;
   const effPrototypeContent = overrideActive && renderType === "prototype" ? overrideContent : prototypeContent;
+  // ISS-606/608/609 — the pipeline-data counterparts of the eff* content above.
+  // Unlike the content slots these are renderType-independent: a pinned version's
+  // agents/outputs/run id belong to that version whatever it rendered.
+  const effAgents = viewingVersion?.agents ?? agents;
+  const effPipelineState = viewingVersion?.pipelineState ?? pipelineState;
+  const effAgentOutputs = viewingVersion?.agentOutputs ?? agentOutputs;
 
   const activeContent =
     renderType === "user_stories" || renderType === "app_builder"
@@ -652,6 +830,13 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // carries no failed/degraded flag (useWorkflow resets agents to idle), so the
   // cancelled signal is the reopened server status only.
   const isCancelledTerminal = reopenedRunStatus === "cancelled";
+  // ISS-390: a diverted run is terminal and non-resumable with no deliverable, but
+  // it is a hand-off, not a failure — so it gets its OWN affordance branch instead
+  // of joining reopenFailureSignal, which would mislabel the header as failed
+  // (headerFailed below) and drop the Preview tab entirely
+  // (terminalFailureNoDeliverable). Same carve-out shape as isCancelledTerminal.
+  const isDivertedTerminal = reopenedRunStatus === "diverted";
+  const showDivertedAffordance = !hasContent && isTerminal && isDivertedTerminal;
   // ─── Phase 42-03 (§D / Group D) — terminal-FAILED run surface ────────────────
   // A terminal FAILED run (failed/degraded with NO deliverable, and NOT a
   // deliberate cancel) matches the Failed mock: tabs become [Steps, Audit, Files]
@@ -701,7 +886,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // Unknown ids fall back to the raw id inside DegradedRunAffordance.
   const agentNameById = {
     ...(reopenedAgentNameById || {}),
-    ...buildAgentNameById(pipelineState?.agents),
+    ...buildAgentNameById(effPipelineState?.agents),
   };
 
   // ─── Phase 39 (RUNUI-06/07) — run-header state derivation ────────────────────
@@ -766,7 +951,19 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
 
     if (freshDeepLink) {
       const tab = deepLinkTarget!.tab;
-      if ((PANEL_TAB_IDS as readonly string[]).includes(tab)) setActiveTab(tab as PanelTab);
+      const isPanelTab = (PANEL_TAB_IDS as readonly string[]).includes(tab);
+      if (isPanelTab) setActiveTab(tab as PanelTab);
+      // ISS-607/ISS-612 — a narrator card minted by a DIFFERENT family member
+      // (a revision's "Revision started"/"Delivered" card, stitched into the
+      // shared family transcript) has to switch the RUN, not only the tab.
+      // Routed through handleSelectVersion — the same pin-and-navigate
+      // chokepoint the version menu uses — so there is one route-building path,
+      // not a second one here. Unknown/absent ids and the member already on
+      // screen fall through to the plain tab switch above.
+      const targetRunId = deepLinkTarget!.runId;
+      if (targetRunId && targetRunId !== activeRunId && sortedMembers.some((m) => m.id === targetRunId)) {
+        void handleSelectVersion(targetRunId, isPanelTab ? (tab as PanelTab) : activeTab);
+      }
       // The deep link owns the tab for this state too, so a same-commit state
       // transition doesn't immediately re-fire the default branch below for it.
       autoTabbedForState.current = defaultTabDiscriminator;
@@ -844,9 +1041,21 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // that declares a file it does not write simply leaves the button disabled,
   // rather than handing over a mislabelled one.
   const [deliverableFile, setDeliverableFile] = useState<string | null>(null);
+  // ISS-313: a workflow may declare a deliverable STRATEGY and no name at all.
+  // `serialized_sandbox` delivers the WHOLE workspace, so there is no single file
+  // to name — the manifest declares none, the engine emits `deliverable_filename:
+  // null`, and the run row keeps it. That left this button permanently disabled on
+  // a run whose deliverable is fully rendered and already downloadable from the
+  // file panel's own "Download ZIP". The bundle IS the deliverable there, so it is
+  // served as that same archive. Presence is still the gate — the workspace has to
+  // actually hold a deliverable-flagged file — and this applies ONLY when nothing
+  // was declared: a run that declares a file it does not write still stays
+  // disabled rather than handing over a mislabelled one.
+  const [deliverableBundle, setDeliverableBundle] = useState(false);
 
   useEffect(() => {
     setDeliverableFile(null);
+    setDeliverableBundle(false);
     // ONE fetch, when the run settles — no polling. A build writes its
     // deliverable at an unpredictable point and a timer would spend a request
     // every few seconds on every open run to notice a few seconds earlier.
@@ -862,9 +1071,15 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         if (!declared) {
           declared = (await getWorkflow(token, activeRunId)).deliverableFilename ?? null;
         }
-        if (!declared || cancelled) return;
+        if (cancelled) return;
         const listing = await getRunSandbox(token, activeRunId);
         if (cancelled) return;
+
+        // Nothing declared → the whole-workspace bundle (ISS-313, above).
+        if (!declared) {
+          setDeliverableBundle(listing.files.some((f) => f.deliverable));
+          return;
+        }
 
         // ── Prefer the editable original over the rendered one ────────────────
         // `ppt_v2` delivers "a rendered HTML deck AND a real editable PowerPoint
@@ -909,22 +1124,29 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     return () => { cancelled = true; };
   }, [activeRunId, headerRunState, pipelineState?.deliverableFilename]);
 
-  const canHeaderDownload = !!deliverableFile;
+  const canHeaderDownload = !!deliverableFile || deliverableBundle;
   const handleHeaderDownload = useCallback(() => {
     if (onDownload) return onDownload();
-    if (!deliverableFile || !activeRunId) return;
+    if (!activeRunId || (!deliverableFile && !deliverableBundle)) return;
     void (async () => {
       const token = getToken();
       if (!token) return;
       // The server's own Content-Type rides on the blob, so no extension→mime
       // table is needed here (and cannot drift from the one the API applies).
-      const blob = await getRunSandboxFileBlob(token, activeRunId, deliverableFile);
+      // ISS-313: no declared file → the workspace archive, the same bytes the
+      // file panel's "Download ZIP" serves, under the same name it gives them.
+      const blob = deliverableFile
+        ? await getRunSandboxFileBlob(token, activeRunId, deliverableFile)
+        : await getRunSandboxZip(token, activeRunId);
       const url = URL.createObjectURL(blob);
       // downloadBlob passes a `blob:` string straight through to the anchor.
-      downloadBlob(url, deliverableFile.split("/").pop() || deliverableFile, blob.type);
+      const name = deliverableFile
+        ? deliverableFile.split("/").pop() || deliverableFile
+        : `workspace-${activeRunId.slice(0, 8)}.zip`;
+      downloadBlob(url, name, blob.type);
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     })();
-  }, [onDownload, deliverableFile, activeRunId]);
+  }, [onDownload, deliverableFile, deliverableBundle, activeRunId]);
 
   // ─── Phase 39 (RUNUI-06/07) — PreviewChrome URL bar + open affordance ────────
   // The REAL deliverable filename for the browser-chrome URL bar (ND-D live — the
@@ -986,7 +1208,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         : null,
     app_builder: () =>
       effUserStoryContent
-        ? <AppBuilderIDEPreview content={effUserStoryContent} agentOutputs={agentOutputs} onRevise={overrideActive ? undefined : onReviseAppBuilder} />
+        ? <AppBuilderIDEPreview content={effUserStoryContent} agentOutputs={effAgentOutputs} onRevise={overrideActive ? undefined : onReviseAppBuilder} />
         : null,
     ppt: () =>
       (effPptContent || pptxCode)
@@ -1061,7 +1283,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     const content = genericDeliverable?.content ?? activeContent ?? "";
     if (!content) return null;
     const forced: GenericDeliverable = { ...(genericDeliverable ?? {}), content, mimetype };
-    return <GenericDeliverablePreview deliverable={forced} agentOutputs={agentOutputs} />;
+    return <GenericDeliverablePreview deliverable={forced} agentOutputs={effAgentOutputs} />;
   };
 
   const renderDeliverable = (): ReactNode => {
@@ -1087,7 +1309,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     //    custom/unknown deliverable, and for any first-party type that lacked
     //    first-party content but carries a generic deliverable.
     if (genericDeliverable?.content) {
-      return <GenericDeliverablePreview deliverable={genericDeliverable} agentOutputs={agentOutputs} />;
+      return <GenericDeliverablePreview deliverable={genericDeliverable} agentOutputs={effAgentOutputs} />;
     }
 
     return null;
@@ -1134,7 +1356,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
           carries a pulsing review dot while the run is paused on the user (an open
           gate / clarify round). PPT actions + the renderer switcher live in the
           right cluster. */}
-      <div className="flex-none px-[30px] pt-4 flex items-center justify-between gap-2 border-b border-line-divider">
+      <div className="flex-none px-[30px] pt-4 flex flex-wrap items-center justify-between gap-2 border-b border-line-divider">
         <Tabs
           tabs={visibleTabs.map((tab) => ({
             id: tab.id,
@@ -1185,20 +1407,34 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0 overflow-y-auto"
             >
-              {showCancelledAffordance ? (
+              {showFailureAffordance || showDivertedAffordance ? (
                 // Phase 42-03 (§D / Group D): the FAILED run's amber
                 // DegradedRunAffordance is RETIRED on the run screen — a terminal-
-                // failed run now drops the Preview tab entirely (visibleTabs) and
-                // defaults to Audit, so this branch is never reached for it. The
-                // ONLY remaining consumer is a CANCELLED-terminal run (a deliberate
-                // user Stop, §8 decision 4 keeps history/reopen behavior), which
-                // keeps its Preview tab and its cancelled-specific affordance copy.
+                // failed run drops the Preview tab entirely (visibleTabs) and
+                // defaults to Audit, so the generic run screen never reaches this
+                // branch for it. The other consumers are a CANCELLED-terminal run (a
+                // deliberate user Stop, §8 decision 4 keeps history/reopen behavior)
+                // and — per ISS-390 — a DIVERTED-terminal run, both of which keep
+                // their Preview tab and get status-specific affordance copy instead
+                // of the neutral "Output will appear here" live-streaming placeholder.
                 // DegradedRunAffordance stays exported for RunDetailPage.tsx:296.
+                //
+                // ISS-285: the one route that DOES reach this branch for a FAILED
+                // run is `/runs/{id}/preview/full`, whose deep link (reopenTabFor,
+                // now a real case) forces activeTab="preview" even though
+                // visibleTabs dropped the tab. Gating on showFailureAffordance
+                // rather than showCancelledAffordance is what makes that forced
+                // Preview state its own honest "no deliverable was produced"
+                // instead of the generic per-state default silently substituting
+                // the Audit trail — the failed counterpart to the cancelled copy
+                // this same route already renders correctly. `cancelled`/`diverted`
+                // still pick WHICH copy renders.
                 <DegradedRunAffordance
                   failedAgents={failedAgentNames}
                   agentNameById={agentNameById}
                   onRetry={onRevisePrototype || onRevisePpt || onReviseUserStory || onReviseAppBuilder}
                   cancelled={isCancelledTerminal}
+                  diverted={isDivertedTerminal}
                 />
               ) : isStillRunning ? (
                 // Streaming build — the mock's chrome with a "building …" URL + an
@@ -1278,7 +1514,11 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} runId={activeRunId} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} onOpenPreview={() => handleTabChange("preview")} runStatus={terminalFailure && !isCancelledTerminal ? "failed" : undefined} isRunning={isStillRunning} buildingTaskIndex={buildStepIndex} buildingTaskTotal={buildStepTotal} buildingFilename={pipelineState?.deliverableFilename} />
+              {/* ISS-300 — the eff* (version-aware) content, NOT the raw props.
+                  With a pin active these carry the pinned member's own output,
+                  so the Files tab's "Final output" name/size/content match the
+                  Preview tab instead of always showing the live/root run's. */}
+              <FilesTab workflowType={renderType} userStoryContent={effUserStoryContent} pptContent={effPptContent} prototypeContent={effPrototypeContent} agentOutputs={effAgentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} runId={activeRunId} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} onOpenPreview={() => handleTabChange("preview")} runStatus={terminalFailure && !isCancelledTerminal ? "failed" : undefined} isRunning={isStillRunning} buildingTaskIndex={buildStepIndex} buildingTaskTotal={buildStepTotal} buildingFilename={pipelineState?.deliverableFilename} />
             </motion.div>
           )}
           {activeTab === "workspace" && (
@@ -1290,7 +1530,11 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <SandboxTab runId={workspaceRunId} agentNameById={agentNameById} />
+              <SandboxTab
+                runId={workspaceRunId}
+                agentNameById={agentNameById}
+                hasDeliverable={hasContent}
+              />
             </motion.div>
           )}
           {activeTab === "thinking" && (
@@ -1303,8 +1547,13 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               className="absolute inset-0"
             >
               <AgentThinkingTab
-                agents={agents || []}
-                pipelineState={pipelineState}
+                agents={effAgents || []}
+                /* ISS-277 — the agent the URL named (`/runs/{id}/steps/{agentId}`),
+                   arriving on the same nonce'd deep-link target that selected this
+                   tab. Opaque id, matched against the run's own agent ids inside the
+                   Steps tab; undefined for every deep link that names no agent. */
+                initialAgentId={deepLinkTarget?.agentId}
+                pipelineState={effPipelineState}
                 waves={waves}
                 runInput={runInput}
                 clarifications={clarifications ?? pipelineState?.clarifications}
@@ -1341,7 +1590,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
             >
               <AuditTab
                 hookRuns={pipelineState?.hookRuns}
-                workflowRunId={pipelineState?.pipelineRunId}
+                workflowRunId={effPipelineState?.pipelineRunId}
                 isRunning={isStillRunning}
               />
             </motion.div>

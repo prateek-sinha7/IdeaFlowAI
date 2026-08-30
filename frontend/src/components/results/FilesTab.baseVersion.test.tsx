@@ -80,6 +80,36 @@ describe("Base-version Files section (B3 / D6)", () => {
     await screen.findByText("base-proto.html");
   });
 
+  // ISS-215 (BUG-20260828-012900-runs-id-files) — deriveDeliverableFiles is
+  // called with the parent's RAW `parentRun.type` (FilesTab.tsx:436-440), never
+  // normalized the way PreviewPanel.tsx:578 folds "ppt_v2" into "ppt" for
+  // rendering. A ppt_v2 parent therefore matches none of deriveDeliverableFiles'
+  // branches and the base-version section silently renders zero file rows.
+  it("ISS-215: expanding 'From v{n-1}' on a ppt_v2 parent run shows its deck, not zero rows", async () => {
+    mockGetWorkflow.mockResolvedValue({
+      id: "parent-1",
+      type: "ppt_v2",
+      output: "<html><title>Base Deck</title></html>",
+    } as WorkflowRun);
+
+    render(
+      <FilesTab
+        workflowType={"ppt" as never}
+        pptContent="<html><title>My Deck</title></html>"
+        parentRunId="parent-1"
+        parentVersionNumber={1}
+      />,
+    );
+
+    const toggle = screen.getByLabelText("From version 1");
+    fireEvent.click(toggle);
+    await waitFor(() => expect(mockGetWorkflow).toHaveBeenCalledWith("test-token", "parent-1"));
+
+    // Today this never appears — deriveDeliverableFiles("ppt_v2", ...) matches
+    // no branch and the base section renders nothing for the parent.
+    await screen.findByText("base-deck.html");
+  });
+
   it("absence: a non-revision run (parentRunId null) shows NO base section; the current-run file still renders", () => {
     render(
       <FilesTab

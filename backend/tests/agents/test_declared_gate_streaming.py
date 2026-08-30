@@ -49,8 +49,17 @@ from tests.agents._scripted_model import (
 _EVENT_TIMEOUT_S = 120.0
 
 
+# FIX-323 removed every STATIC review gate: the inline `gate: Human_Gate` on
+# prototype-specify/plan/analyze AGENT.md, and `gates: [human]` on those same
+# steps in workflow.yaml. A run now gates only the agents it is explicitly asked
+# to — `execute(gate_agent_ids=...)`, which is what the wizard sends. These
+# three tests therefore opt in by hand; without it there is no gate to stream,
+# approve or reject, and they would assert nothing.
+_GATED_AGENT_IDS = ["prototype-specify", "prototype-plan", "prototype-analyze"]
+
+
 @pytest.mark.asyncio
-async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -> None:
+async def test_declared_human_gate_streams_ready_before_approval_and_resumes(monkeypatch) -> None:
     """F1: ready received WHILE PAUSED → approve → resume → pipeline_complete.
 
     Scaffolds a prototype run exactly as ``_scripted_model._drive('prototype')``
@@ -87,6 +96,12 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
     _settings.RUNS_ROOT = _RUNS_ROOT
 
     # ── Disable the auto-clarify override (needs live WS round-trips). ────────
+    # Through monkeypatch, NOT a bare assignment: it restores however the test
+    # exits. A bare assignment restored only in the `finally` below, so a
+    # failure before that `try` left the module holding an un-cached plain
+    # function — and conftest's autouse `_isolate_compiled_plan_cache` then
+    # died on `.cache_clear()` at the setup of every test for the rest of the
+    # session.
     _orig_compile_for_run = engine_mod.compile_for_run
 
     def _patched_compile_for_run(pipeline_type, _orig=_orig_compile_for_run):
@@ -94,15 +109,18 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
         compiled.clarify.mode = "off"
         return compiled
 
-    engine_mod.compile_for_run = _patched_compile_for_run
+    monkeypatch.setattr(engine_mod, "compile_for_run", _patched_compile_for_run)
 
     specs = list(get_pipeline_agents("prototype"))
-    # Strip prototype-specify's inline attribute (see docstring) — its declared
-    # ``gates:[human]`` step is the ONLY one this run exercises through the
-    # manifest ``HumanGate`` handler; plan/analyze keep theirs and take the
-    # (deduped) inline path.
+    # Kept as a pin, not a manipulation: since FIX-323 nothing carries an inline
+    # attribute, so this strip is a no-op that fails loudly if one comes back
+    # and re-introduces the WR-02 declared+inline double-prompt.
     specs[0] = dataclasses.replace(specs[0], gate=None)
     assert specs[0].id == "prototype-specify"
+    assert not [s for s in specs if getattr(s, "gate", None)], (
+        "a static inline gate is back — FIX-323 removed them all so the user "
+        f"opts in: {[(s.id, s.gate) for s in specs if getattr(s, 'gate', None)]}"
+    )
 
     # ── Per-agent scripted model factory (no network). ────────────────────────
     _orig_create_runner = factory_mod.create_runner
@@ -173,10 +191,9 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
         pipeline_type="prototype",
         user_id="harness-user",
         od_context=od_context,
-        # gate_agent_ids left at the default (None): prototype-specify's inline
-        # attribute was stripped above so its gate is forced through the
-        # declared HumanGate handler; plan/analyze use their unchanged inline
-        # attribute (see docstring).
+        # The explicit opt-in IS the gate now (engine.py: a non-None
+        # gate_agent_ids is the effective set, replacing the empty static one).
+        gate_agent_ids=list(_GATED_AGENT_IDS),
     )
 
     try:
@@ -215,7 +232,6 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
         factory_mod.create_runner = _orig_create_runner
         if _orig_engine_create_runner is not None:
             engine_mod.create_runner = _orig_engine_create_runner
-        engine_mod.compile_for_run = _orig_compile_for_run
         if _orig_store_write is not None:
             engine._store.store = _orig_store_write  # type: ignore[assignment]
         else:
@@ -285,7 +301,7 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
 
 
 @pytest.mark.asyncio
-async def test_default_run_single_gate_per_agent_with_real_payload() -> None:
+async def test_opted_in_run_gates_each_agent_once_with_a_real_payload(monkeypatch) -> None:
     """WR-02 (13 review fix): a DEFAULT run (no ``gate_agent_ids`` override) must
     pause exactly ONCE per gated agent, with the agent's REAL output as payload.
 
@@ -304,6 +320,12 @@ async def test_default_run_single_gate_per_agent_with_real_payload() -> None:
 
     _settings.RUNS_ROOT = _RUNS_ROOT
 
+    # Through monkeypatch, NOT a bare assignment: it restores however the test
+    # exits. A bare assignment restored only in the `finally` below, so a
+    # failure before that `try` left the module holding an un-cached plain
+    # function — and conftest's autouse `_isolate_compiled_plan_cache` then
+    # died on `.cache_clear()` at the setup of every test for the rest of the
+    # session.
     _orig_compile_for_run = engine_mod.compile_for_run
 
     def _patched_compile_for_run(pipeline_type, _orig=_orig_compile_for_run):
@@ -311,16 +333,18 @@ async def test_default_run_single_gate_per_agent_with_real_payload() -> None:
         compiled.clarify.mode = "off"
         return compiled
 
-    engine_mod.compile_for_run = _patched_compile_for_run
+    monkeypatch.setattr(engine_mod, "compile_for_run", _patched_compile_for_run)
 
     specs = get_pipeline_agents("prototype")
-    gated_ids = {s.id for s in specs if getattr(s, "gate", None) == "Human_Gate"}
-    # KAN-86 added prototype-analyze to the prototype pipeline with
-    # `gate: Human_Gate` declared (mirroring specify/plan) — an intentional
-    # static-set change, not drift; the pin below tracks it.
-    assert gated_ids == {"prototype-specify", "prototype-plan", "prototype-analyze"}, (
-        f"precondition: the static inline gate set changed: {gated_ids}"
+    # Precondition, both directions. Nothing is gated statically any more
+    # (FIX-323), so the opt-in passed to execute() below is the ONLY thing that
+    # can open a gate — which is what makes the one-pause-per-agent assertion
+    # at the end meaningful rather than incidental.
+    assert not [s for s in specs if getattr(s, "gate", None)], (
+        "a static inline gate is back — FIX-323 removed them all so the user "
+        f"opts in: {[(s.id, s.gate) for s in specs if getattr(s, 'gate', None)]}"
     )
+    gated_ids = set(_GATED_AGENT_IDS)
 
     _orig_create_runner = factory_mod.create_runner
     _orig_engine_create_runner = getattr(engine_mod, "create_runner", None)
@@ -365,7 +389,9 @@ async def test_default_run_single_gate_per_agent_with_real_payload() -> None:
     }
 
     events: list[dict] = []
-    # DEFAULT run: gate_agent_ids is NOT passed — the inline static rule applies.
+    # An OPTED-IN run: gate_agent_ids names the three agents to pause on. It
+    # used to be a DEFAULT run relying on the inline static rule, which FIX-323
+    # deleted — a default run now pauses nowhere at all.
     gen = engine.execute(
         agents=list(specs),
         user_message="Build me a thing for managing tasks.",
@@ -373,6 +399,7 @@ async def test_default_run_single_gate_per_agent_with_real_payload() -> None:
         pipeline_type="prototype",
         user_id="harness-user",
         od_context=od_context,
+        gate_agent_ids=list(_GATED_AGENT_IDS),
     )
 
     try:
@@ -391,7 +418,6 @@ async def test_default_run_single_gate_per_agent_with_real_payload() -> None:
         factory_mod.create_runner = _orig_create_runner
         if _orig_engine_create_runner is not None:
             engine_mod.create_runner = _orig_engine_create_runner
-        engine_mod.compile_for_run = _orig_compile_for_run
         if _orig_store_write is not None:
             engine._store.store = _orig_store_write  # type: ignore[assignment]
         else:
@@ -424,7 +450,7 @@ async def test_default_run_single_gate_per_agent_with_real_payload() -> None:
 
 
 @pytest.mark.asyncio
-async def test_declared_gate_rejection_cancels_the_run() -> None:
+async def test_declared_gate_rejection_cancels_the_run(monkeypatch) -> None:
     """WR-03 (13 review fix): Reject at a declared gate CANCELS the run.
 
     Pre-fix, a declared human gate mapped rejection to a step-skip: the run kept
@@ -448,6 +474,12 @@ async def test_declared_gate_rejection_cancels_the_run() -> None:
 
     _settings.RUNS_ROOT = _RUNS_ROOT
 
+    # Through monkeypatch, NOT a bare assignment: it restores however the test
+    # exits. A bare assignment restored only in the `finally` below, so a
+    # failure before that `try` left the module holding an un-cached plain
+    # function — and conftest's autouse `_isolate_compiled_plan_cache` then
+    # died on `.cache_clear()` at the setup of every test for the rest of the
+    # session.
     _orig_compile_for_run = engine_mod.compile_for_run
 
     def _patched_compile_for_run(pipeline_type, _orig=_orig_compile_for_run):
@@ -455,7 +487,7 @@ async def test_declared_gate_rejection_cancels_the_run() -> None:
         compiled.clarify.mode = "off"
         return compiled
 
-    engine_mod.compile_for_run = _patched_compile_for_run
+    monkeypatch.setattr(engine_mod, "compile_for_run", _patched_compile_for_run)
 
     specs = list(get_pipeline_agents("prototype"))
     specs[0] = dataclasses.replace(specs[0], gate=None)
@@ -505,9 +537,9 @@ async def test_declared_gate_rejection_cancels_the_run() -> None:
         pipeline_type="prototype",
         user_id="harness-user",
         od_context=od_context,
-        # gate_agent_ids left at the default (None) — see docstring: specify's
-        # inline attribute is stripped above so ITS gate is the one forced
-        # through the declared HumanGate handler (the WR-03 surface under test).
+        # Opting in is what creates the gate there is something to REJECT; the
+        # static gate this used to lean on was removed by FIX-323.
+        gate_agent_ids=list(_GATED_AGENT_IDS),
     )
 
     try:
@@ -527,7 +559,6 @@ async def test_declared_gate_rejection_cancels_the_run() -> None:
         factory_mod.create_runner = _orig_create_runner
         if _orig_engine_create_runner is not None:
             engine_mod.create_runner = _orig_engine_create_runner
-        engine_mod.compile_for_run = _orig_compile_for_run
         if _orig_store_write is not None:
             engine._store.store = _orig_store_write  # type: ignore[assignment]
         else:

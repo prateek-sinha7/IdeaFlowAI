@@ -41,13 +41,21 @@ SAVE_AS_MY_VERSION = 'button:has-text("Save as my version")'
 # carries the text.
 USE_MY_VERSION = 'label:has-text("Use my version")'
 
-# A fixture that exists in every seeded database: an override of the ppt
-# built-in whose roster (4) disagrees with its launch panel (3) — D-05.
+# A saved row on the ppt built-in, present in every seeded database. It used to
+# carry a 4th agent (`report-generator`) on top of ppt's 3-agent base, which is
+# what made D-05 — roster 4, launch panel 3 — observable; a run overwrote the row
+# on 2026-08-29 and it is back to the base 3. Nothing here assumes its roster:
+# tests read that from the API, so restoring the 4th agent needs no test change.
 OVERRIDE_TITLE = "My presentation"
-OVERRIDE_AGENT_IDS = ["report-generator", "ppt-brief-analyst", "ppt-composer", "ppt-validator"]
-# The same steps on the canvas, under their display names. One manifest, two
-# vocabularies; a test must not expect one on the other's screen.
-OVERRIDE_DISPLAY_NAMES = ["Executive Reporting", "Presentation Strategist", "Deck Engineer", "Deck QA"]
+
+# agent id -> the name every view resolves it to (ISS-327 made the detail view
+# the last one to do so). Read as a PREFIX: the screen renders "Deck QA Agent".
+AGENT_DISPLAY_NAMES = {
+    "report-generator": "Executive Reporting",
+    "ppt-brief-analyst": "Presentation Strategist",
+    "ppt-composer": "Deck Engineer",
+    "ppt-validator": "Deck QA",
+}
 
 
 def card(page, title: str):

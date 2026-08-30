@@ -220,7 +220,7 @@ export interface RunChatLaneProps {
   /** Agent event stream per assistant turn id (plan 01/02 block rendering). */
   eventsByMessageId?: Record<string, AgentEvent[]>;
   /** The nonce'd deep-link seam a narrator card fires (plan 03, borrow #6). */
-  onRequestOpenTab?: (tab: string) => void;
+  onRequestOpenTab?: (tab: string, agentId?: string, runId?: string) => void;
 
   // ── Lane run header (Phase 39, RUNUI-06 — wired live by 39-05) ─────────────
   /** Back-to-history link in the run header — rendered only when supplied. */
@@ -1691,16 +1691,30 @@ export function RunChatLane({
         const degradedIds = pipelineState?.degradedFailedAgents ?? [];
         const nameById = buildAgentNameById(pipelineState?.agents);
 
+        // KAN-120 BUG-4 / ISS-221 / ISS-233: the inline resume error rides
+        // WITH the relaunch button, so every branch that renders one
+        // (cancelled / degraded / plain terminal, e.g. a diverted run) surfaces
+        // it — not only the branches that hand-copied the block.
         const relaunch = (label: string) => (
-          <Button
-            type="button"
-            variant="secondary"
-            data-testid="chat-relaunch"
-            onClick={() => onRelaunch?.()}
-            className="w-full justify-center"
-          >
-            {label}
-          </Button>
+          <>
+            {relaunchError && (
+              <div className="flex items-center gap-1.5 rounded-[8px] border border-status-amber-border bg-status-amber-fill px-[10px] py-[8px]">
+                <AlertTriangle className="h-[13px] w-[13px] flex-none text-status-amber" strokeWidth={1.8} />
+                <span className="font-serif text-[11.5px] leading-[1.4] text-status-amber-strong">
+                  {relaunchError}
+                </span>
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="secondary"
+              data-testid="chat-relaunch"
+              onClick={() => onRelaunch?.()}
+              className="w-full justify-center"
+            >
+              {label}
+            </Button>
+          </>
         );
 
         // Cancelled by you ack + Run again (LIVE-STATE-CONTRACT §1).
@@ -1718,15 +1732,6 @@ export function RunChatLane({
                   The run was stopped. Click Run Again to resume from where it left off.
                 </p>
               </Card>
-              {/* KAN-120 BUG-4: inline error if the resume attempt failed. */}
-              {relaunchError && (
-                <div className="flex items-center gap-1.5 rounded-[8px] border border-status-amber-border bg-status-amber-fill px-[10px] py-[8px]">
-                  <AlertTriangle className="h-[13px] w-[13px] flex-none text-status-amber" strokeWidth={1.8} />
-                  <span className="font-serif text-[11.5px] leading-[1.4] text-status-amber-strong">
-                    {relaunchError}
-                  </span>
-                </div>
-              )}
               {relaunch("Run Again")}
             </div>
           );

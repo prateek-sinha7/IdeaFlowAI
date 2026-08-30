@@ -363,6 +363,28 @@ def test_adding_a_user_creates_an_account_at_the_chosen_tier(page, shot, disposa
         _delete_by_email(admin_page, address)
 
 
+@pytest.mark.issue("ISS-577")
+def test_the_create_user_password_field_has_a_show_hide_toggle(page, shot):
+    """ISS-577 — the "Create New User" modal's Password field must offer a
+
+    show/hide toggle, the same affordance ISS-338 established for
+    /settings/profile's password fields. Today `admin/page.tsx` imports no
+    `Eye`/`EyeOff` icon at all and the field is hardcoded `type="password"`
+    with no toggle button anywhere in the modal. No user is created — the
+    dialog is opened and closed without submitting.
+    """
+    open_admin(page)
+
+    with shot("add-user-dialog-password-toggle", 'When I click "Add user"'):
+        page.click(L.ADD_USER)
+        expect(page.get_by_text("Create New User")).to_be_visible()
+
+    password_field = page.locator('input[type="password"]')
+    expect(password_field).to_be_visible()
+    sibling_button = password_field.locator("xpath=following-sibling::button[1]")
+    expect(sibling_button).to_be_visible()
+
+
 def _delete_by_email(admin_page, address: str) -> None:
     """Remove a user by address, through the API, best effort."""
     listing = api.full(admin_page, "GET", "/api/admin/users")
@@ -399,7 +421,7 @@ def test_deleting_a_user_removes_them(page, shot, disposable_user):
     assert tile(page, "TOTAL USERS") == before - 1
 
 
-EXTERNALLY_MANAGED = "managed outside the application"
+BREAK_GLASS_REFUSAL = "local break-glass account and cannot be reset here"
 
 
 @pytest.mark.scenario("S-11-17")
@@ -411,8 +433,9 @@ def test_an_admin_resets_another_users_password_to_a_temporary_one(page, shot, d
     A user created here comes back `auth_provider: "local"` and the endpoint
     refuses it:
 
-        "This account's password is managed outside the application and cannot
-         be reset here."
+        "This is a local break-glass account and cannot be reset here. Its
+         password is changed from the account's own profile settings, or
+         through the break-glass runbook."
 
     So the `requires_new_password_at_next_login` branch — and the
     NEW_PASSWORD_REQUIRED challenge it produces in 01-auth — cannot be reached
@@ -441,7 +464,7 @@ def test_an_admin_resets_another_users_password_to_a_temporary_one(page, shot, d
         return
 
     assert result["status"] in (400, 403, 409), result["body"][:200]
-    assert EXTERNALLY_MANAGED in result["body"], (
+    assert BREAK_GLASS_REFUSAL in result["body"], (
         f"the reset was refused for another reason: {result['body'][:200]}"
     )
     # The refusal must not leak a credential either.
@@ -480,7 +503,7 @@ def test_a_permanent_reset_skips_the_challenge_but_is_knowable(page, shot, dispo
         return
 
     assert result["status"] in (400, 403, 409), result["body"][:200]
-    assert EXTERNALLY_MANAGED in result["body"], (
+    assert BREAK_GLASS_REFUSAL in result["body"], (
         "`permanent=true` changed WHY the reset was refused — the flag must not "
         f"affect whether it is allowed at all: {result['body'][:200]}"
     )

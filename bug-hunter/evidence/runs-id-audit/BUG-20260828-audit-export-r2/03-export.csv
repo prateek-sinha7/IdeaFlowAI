@@ -1,0 +1,101 @@
+category,step,label,outcome,severity,detail,created_at
+gate,,audit logger — before step,continue,,Presentation Strategist Agent started,2026-08-27T13:50:11.262990
+gate,,Secret scan — scanned before write,continue,,"{""matched"":false}",2026-08-27T13:51:14.758223
+gate,,audit logger — after step,continue,,Presentation Strategist Agent completed,2026-08-27T13:51:14.782880
+gate,,audit logger — before step,continue,,Deck Engineer Agent started,2026-08-27T13:51:14.786729
+gate,,audit logger — tool call,continue,,Deck Engineer Agent used tool: write_todos,2026-08-27T13:51:39.581854
+gate,,audit logger — tool result,continue,,Deck Engineer Agent tool result: write_todos,2026-08-27T13:51:39.587294
+gate,,audit logger — tool call,continue,,Deck Engineer Agent used tool: write_file,2026-08-27T13:53:05.545895
+gate,,audit logger — tool result,continue,,Deck Engineer Agent tool result: write_file,2026-08-27T13:53:05.563382
+gate,,audit logger — tool call,continue,,Deck Engineer Agent used tool: write_todos,2026-08-27T13:53:09.040915
+gate,,audit logger — tool result,continue,,Deck Engineer Agent tool result: write_todos,2026-08-27T13:53:09.048687
+gate,,audit logger — tool call,continue,,Deck Engineer Agent used tool: write_todos,2026-08-27T13:54:38.517488
+gate,,audit logger — tool result,continue,,Deck Engineer Agent tool result: write_todos,2026-08-27T13:54:38.525864
+gate,,Secret scan — scanned before write,continue,,"{""matched"":false}",2026-08-27T13:54:40.159268
+gate,,audit logger — after step,continue,,Deck Engineer Agent completed,2026-08-27T13:54:40.191202
+gate,,audit logger — before step,continue,,Deck QA Agent started,2026-08-27T13:54:40.194577
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: ls,2026-08-27T13:54:43.755441
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: ls,2026-08-27T13:54:43.766816
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: write_file,2026-08-27T13:56:11.088974
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: write_file,2026-08-27T13:56:11.137346
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: read_file,2026-08-27T13:56:13.284230
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: read_file,2026-08-27T13:56:13.295582
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: read_file,2026-08-27T13:56:15.062713
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: read_file,2026-08-27T13:56:15.075896
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: read_file,2026-08-27T13:56:16.756673
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: read_file,2026-08-27T13:56:16.766314
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_navigate,2026-08-27T13:56:18.634095
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_navigate,2026-08-27T13:56:20.627624
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_take_screenshot,2026-08-27T13:56:21.923470
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_take_screenshot,2026-08-27T13:56:22.192717
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_evaluate,2026-08-27T13:56:23.621654
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_evaluate,2026-08-27T13:56:23.628180
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_evaluate,2026-08-27T13:56:26.057311
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_evaluate,2026-08-27T13:56:26.069210
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_take_screenshot,2026-08-27T13:56:27.364818
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_take_screenshot,2026-08-27T13:56:27.559168
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_evaluate,2026-08-27T13:56:29.898501
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_evaluate,2026-08-27T13:56:29.919754
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_take_screenshot,2026-08-27T13:56:31.313747
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_take_screenshot,2026-08-27T13:56:31.538352
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_evaluate,2026-08-27T13:56:33.473607
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_evaluate,2026-08-27T13:56:33.479643
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_take_screenshot,2026-08-27T13:56:34.855402
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_take_screenshot,2026-08-27T13:56:35.026935
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_evaluate,2026-08-27T13:56:36.932494
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_evaluate,2026-08-27T13:56:36.939024
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_take_screenshot,2026-08-27T13:56:38.430755
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_take_screenshot,2026-08-27T13:56:38.602622
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_evaluate,2026-08-27T13:56:41.563568
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_evaluate,2026-08-27T13:56:41.571358
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_take_screenshot,2026-08-27T13:56:43.150711
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_take_screenshot,2026-08-27T13:56:43.403443
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_evaluate,2026-08-27T13:56:46.355818
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_evaluate,2026-08-27T13:56:46.362326
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: read_file,2026-08-27T13:56:48.133566
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: read_file,2026-08-27T13:56:48.144871
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: grep,2026-08-27T13:56:49.912350
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: grep,2026-08-27T13:56:49.960489
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: grep,2026-08-27T13:56:51.448819
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: grep,2026-08-27T13:56:51.475296
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: grep,2026-08-27T13:56:52.991839
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: grep,2026-08-27T13:56:53.028884
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: grep,2026-08-27T13:56:54.484562
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: grep,2026-08-27T13:56:54.507941
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: grep,2026-08-27T13:56:56.029088
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: grep,2026-08-27T13:56:56.063555
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: grep,2026-08-27T13:56:58.032927
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: grep,2026-08-27T13:56:58.060727
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_evaluate,2026-08-27T13:57:01.664239
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_evaluate,2026-08-27T13:57:01.671826
+gate,,audit logger — tool call,continue,,Deck QA Agent used tool: playwright_close,2026-08-27T13:57:03.177836
+gate,,audit logger — tool result,continue,,Deck QA Agent tool result: playwright_close,2026-08-27T13:57:03.233486
+gate,,Secret scan — scanned before write,continue,,"{""matched"":false}",2026-08-27T13:57:06.114755
+gate,,audit logger — after step,continue,,Deck QA Agent completed,2026-08-27T13:57:06.139567
+gate,,audit logger — before step,continue,,PPTX Code Generator started,2026-08-27T13:57:06.141956
+gate,,audit logger — tool call,continue,,PPTX Code Generator used tool: extract_computed_styles,2026-08-27T13:57:11.811671
+gate,,audit logger — tool result,continue,,PPTX Code Generator tool result: extract_computed_styles,2026-08-27T13:57:13.470692
+gate,,audit logger — tool call,continue,,PPTX Code Generator used tool: read_file,2026-08-27T13:57:14.803808
+gate,,audit logger — tool result,continue,,PPTX Code Generator tool result: read_file,2026-08-27T13:57:14.815096
+gate,,audit logger — tool call,continue,,PPTX Code Generator used tool: read_file,2026-08-27T13:57:17.095114
+gate,,audit logger — tool result,continue,,PPTX Code Generator tool result: read_file,2026-08-27T13:57:17.111285
+gate,,audit logger — tool call,continue,,PPTX Code Generator used tool: render_pptx,2026-08-27T13:58:31.362753
+gate,,audit logger — tool result,continue,,PPTX Code Generator tool result: render_pptx,2026-08-27T13:58:31.622498
+gate,,audit logger — tool call,continue,,PPTX Code Generator used tool: render_pptx,2026-08-27T13:59:42.206513
+gate,,audit logger — tool result,continue,,PPTX Code Generator tool result: render_pptx,2026-08-27T13:59:42.915599
+gate,,audit logger — tool call,continue,,PPTX Code Generator used tool: render_pptx,2026-08-27T14:00:40.833772
+gate,,audit logger — tool result,continue,,PPTX Code Generator tool result: render_pptx,2026-08-27T14:00:41.445466
+gate,,audit logger — tool call,continue,,PPTX Code Generator used tool: render_pptx,2026-08-27T14:01:40.752185
+gate,,audit logger — tool result,continue,,PPTX Code Generator tool result: render_pptx,2026-08-27T14:01:41.344822
+gate,,audit logger — tool call,continue,,PPTX Code Generator used tool: render_pptx,2026-08-27T14:02:37.420593
+gate,,audit logger — tool result,continue,,PPTX Code Generator tool result: render_pptx,2026-08-27T14:02:38.012867
+gate,,audit logger — tool call,continue,,PPTX Code Generator used tool: render_pptx,2026-08-27T14:03:35.088436
+gate,,audit logger — tool result,continue,,PPTX Code Generator tool result: render_pptx,2026-08-27T14:03:35.632841
+gate,,audit logger — tool call,continue,,PPTX Code Generator used tool: render_pptx,2026-08-27T14:04:31.858165
+gate,,audit logger — tool result,continue,,PPTX Code Generator tool result: render_pptx,2026-08-27T14:04:32.407033
+gate,,audit logger — tool call,continue,,PPTX Code Generator used tool: render_pptx,2026-08-27T14:05:28.698572
+gate,,audit logger — tool result,continue,,PPTX Code Generator tool result: render_pptx,2026-08-27T14:05:29.210733
+gate,,audit logger — tool call,continue,,PPTX Code Generator used tool: render_pptx,2026-08-27T14:06:25.921229
+gate,,audit logger — tool result,continue,,PPTX Code Generator tool result: render_pptx,2026-08-27T14:06:30.344598
+gate,,Secret scan — scanned before write,continue,,"{""matched"":false}",2026-08-27T14:07:39.939263
+gate,,audit logger — after step,continue,,PPTX Code Generator completed,2026-08-27T14:07:39.975184

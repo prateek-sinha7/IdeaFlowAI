@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X, Plus, Lock, GripVertical, Info,
@@ -136,6 +136,15 @@ interface AgentsPopupProps {
    * (compose-from-scratch). Additive — preserves the byte-identical no-selections path.
    */
   initialSelections?: SelectionsMap;
+  /**
+   * ISS-247 — the LIVE per-step selections map, owned by the caller. When
+   * supplied the popup renders from THIS map instead of its own mount-once copy
+   * of `initialSelections`, so a gate set OUTSIDE the modal (the Review-gates
+   * checklist, which writes the same `selections[id].gates` the Config rail's
+   * Gate combobox reads) is visible INSIDE it. Absent ⇒ the popup keeps owning
+   * its own copy, unchanged.
+   */
+  selections?: SelectionsMap;
   /**
    * SURF-03 — the opened launchable workflow's declared per-step capabilities
    * (compiled projection). Threaded into the embedded palette so the composer
@@ -1438,6 +1447,48 @@ export function applyLeverPatch(
 }
 
 /**
+ * The author-editable per-step tool grants, in render order — the SINGLE
+ * definition every lever surface renders (the Canvas rail's Tools tab and the
+ * expander below), so the two views can never disagree about which grants
+ * exist or what "default" means (ISS-274). `exec`/`spawn_subagents` are
+ * deliberately absent: the untrusted cap zeroes them for db-trust manifests,
+ * so a toggle would grant nothing.
+ */
+export const TOOL_GRANT_LEVERS = [
+  {
+    key: "read_files",
+    label: "Read files",
+    desc: "List and read files in the run sandbox.",
+  },
+  {
+    key: "write_files",
+    label: "Write files",
+    desc: "Create and edit files in the run sandbox. Off means this step produces no artifact for later steps to read.",
+  },
+] as const;
+
+/**
+ * The grants in effect for a step. Absent selection = the composer's defaults
+ * (read + write ON), which is what `agentToManifestStep` also emits, so an
+ * untouched step's saved manifest is unchanged by these controls existing.
+ */
+export function effectiveToolGrants(
+  sel: StepSelection | undefined,
+): Record<(typeof TOOL_GRANT_LEVERS)[number]["key"], boolean> {
+  return {
+    read_files: sel?.tools?.read_files ?? true,
+    write_files: sel?.tools?.write_files ?? true,
+  };
+}
+
+/** True when a step carries a RESTRICTED grant (one switched off) — what the
+ *  Simple view's Overrides "Tools" chip reflects (ISS-274). */
+export function hasToolOverride(sel: StepSelection | undefined): boolean {
+  const grants = effectiveToolGrants(sel);
+  return TOOL_GRANT_LEVERS.some(({ key }) => !grants[key]);
+}
+
+/**
  * Fetch + kind-filter the live `/api/capabilities` palette into the lever
  * OPTIONS: `user_allowed` validator/gate names + the whole `model_catalog`
  * (SC-001 — never a hardcoded option list). Extracted from `AdvancedExpander` so
@@ -1858,6 +1909,7 @@ export function AdvancedExpander({
         const isOpen = expanded.has(agent.id);
         const region = `advanced-${agent.id}`;
         const sel = selections[agent.id] ?? {};
+        const grants = effectiveToolGrants(sel);
         const autoAttached =
           (sel.validators?.length ?? 0) > 0 &&
           (sel.gates ?? []).includes(COUPLED_GATE);
@@ -1883,6 +1935,67 @@ export function AdvancedExpander({
                 Validator · Gate · Model · Retry
               </span>
             </button>
+
+            {/* Tool grants (ISS-274) — the SAME `tools` field the Canvas rail's
+                Tools tab writes, through the SAME `applyLeverPatch` reducer and
+                the SAME shared lever list, so a grant restricted in one view is
+                visible and editable in the other. Rendered OUTSIDE the collapsed
+                disclosure: an existing restriction has to be visible when the
+                config panel opens, not one more click away. */}
+            <div className="space-y-1 pl-4 pt-0.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-400">
+                Tool grants
+              </p>
+              {TOOL_GRANT_LEVERS.map(({ key, label, desc }) => (
+                <div
+                  key={key}
+                  title={desc}
+                  className="flex items-center gap-2 bg-surface-warm border border-line-faint-row rounded-lg px-2.5 py-1.5"
+                >
+                  <label
+                    htmlFor={`${region}-${key}`}
+                    className="text-[11px] font-semibold text-ink-700 flex-1 min-w-0"
+                  >
+                    {label}
+                  </label>
+                  <input
+                    type="checkbox"
+                    id={`${region}-${key}`}
+                    aria-label={`${label} for ${agent.name}`}
+                    checked={grants[key]}
+                    onChange={(e) =>
+                      updateLever(agent.id, {
+                        tools: { ...grants, [key]: e.target.checked },
+                      })
+                    }
+                    className="h-3.5 w-3.5 accent-brand"
+                  />
+                </div>
+              ))}
+              {/* exec stays fixed OFF — the untrusted cap zeroes it for
+                  db-trust manifests, so the switch would grant nothing (same
+                  disabled row the Canvas rail shows). */}
+              <div
+                title="Not available to custom workflows."
+                className="flex items-center gap-2 bg-surface-warm border border-line-faint-row rounded-lg px-2.5 py-1.5"
+              >
+                <label
+                  htmlFor={`${region}-exec`}
+                  className="text-[11px] font-semibold text-ink-300 flex-1 min-w-0"
+                >
+                  Execute commands
+                </label>
+                <input
+                  type="checkbox"
+                  id={`${region}-exec`}
+                  aria-label={`Execute commands for ${agent.name}`}
+                  checked={false}
+                  disabled
+                  readOnly
+                  className="h-3.5 w-3.5 accent-brand disabled:cursor-not-allowed disabled:opacity-40"
+                />
+              </div>
+            </div>
 
             {isOpen && (
               <div id={region} className="space-y-1.5 pl-4">
@@ -2189,7 +2302,7 @@ export function AgentsPopup({
   isOpen, onClose, onOpenInCanvas, debugLabel, agents, pipelineType,
   onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
   allowCustomAgentTemplate = true,
-  onSelectionsChange, initialSelections,
+  onSelectionsChange, initialSelections, selections: controlledSelections,
   declaredCapabilities,
   userWorkflowId, savedName, savedDescription,
   overrideAvailable, overrideActive, onToggleOverride, runConfig,
@@ -2230,7 +2343,7 @@ export function AgentsPopup({
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [liveSelections, setLiveSelections] = useState<SelectionsMap>(() => {
+  const [ownSelections, setOwnSelections] = useState<SelectionsMap>(() => {
     // Runs ONCE per mount — the whole reason IdeaInputPage keys this component on
     // whether the manifest has landed.
     console.log("[wf] 5. AgentsPopup mount", debugLabel, {
@@ -2239,13 +2352,70 @@ export function AgentsPopup({
     });
     return initialSelections ?? {};
   });
+  // ISS-247: a caller that owns the map wins — the checklist outside this modal
+  // and the Gate combobox inside it must read one store, not two.
+  const liveSelections = controlledSelections ?? ownSelections;
+
+  // ISS-258 / ISS-363 — "Cancel" has to DISCARD what was edited in this modal
+  // session. Every edit inside it writes the HOST's state live: the canvas's
+  // route/outcome editor, add, remove and reorder all round-trip through
+  // `onTreeChange` -> `onReorder` -> the host's `pipelineAgents` (which is the
+  // `agents` prop below), and the per-agent levers through
+  // `onSelectionsChange`. Nothing ever snapshotted either, so Cancel only hid
+  // the modal and a never-saved edit — e.g. a conditional gate's outcome
+  // re-pointed at another workflow, and the divert node it adds — survived the
+  // reopen. Snapshot the host's state and re-emit it on dismiss.
+  //
+  // Staged at the FIRST edit of the session, NOT on the `isOpen` edge: both
+  // hosts keep re-deriving `pipelineAgents` asynchronously while the modal is
+  // already up (`IdeaInputPage.tsx`'s roster effect re-runs when the manifest
+  // fetch lands), so an open-edge snapshot of a workflow opened before its
+  // roster arrived captured the still-EMPTY array and Cancel then wiped every
+  // agent. Arming on the first edit can only ever capture the tree the user is
+  // actually editing. No edit means no snapshot, so an untouched session
+  // re-emits nothing at all.
+  const openSnapshot = useRef<{ agents: AgentDef[]; selections: SelectionsMap } | null>(null);
+  const stageEdit = useCallback(() => {
+    if (!openSnapshot.current) openSnapshot.current = { agents, selections: liveSelections };
+  }, [agents, liveSelections]);
+  useEffect(() => {
+    // A closed modal starts a fresh session — including after "Save workflow"
+    // and "Open in full canvas", both of which keep what they were handed.
+    if (!isOpen) openSnapshot.current = null;
+  }, [isOpen]);
+
   const handleSelectionsChange = useCallback(
     (next: SelectionsMap) => {
-      setLiveSelections(next);
+      stageEdit();
+      setOwnSelections(next);
       onSelectionsChange?.(next);
     },
-    [onSelectionsChange],
+    [stageEdit, onSelectionsChange],
   );
+
+  /** Every in-modal write to the host's agent tree — the canvas route/outcome
+   *  editor, rename, reorder, remove and "+ Sub-agent" all land here. */
+  const handleTreeChange = useCallback(
+    (next: AgentDef[]) => {
+      stageEdit();
+      onReorder?.(next);
+    },
+    [stageEdit, onReorder],
+  );
+
+  /** Dismiss without saving — the Cancel button, the header X and the backdrop.
+   *  NOT the post-save close in `handleSaveWorkflow`, which keeps the edit. */
+  const handleCancel = useCallback(() => {
+    const snapshot = openSnapshot.current;
+    if (snapshot) {
+      onReorder?.(snapshot.agents);
+      handleSelectionsChange(snapshot.selections);
+    }
+    // Last, not first: the restore above goes through `handleSelectionsChange`,
+    // which would otherwise re-arm the snapshot with the edit being undone.
+    openSnapshot.current = null;
+    onClose();
+  }, [onReorder, handleSelectionsChange, onClose]);
 
   const handleSaveWorkflow = useCallback(
     async (name: string, description: string) => {
@@ -2288,8 +2458,9 @@ export function AgentsPopup({
 
   const handleRemove = useCallback((agentId: string) => {
     if (getRole(agentId, pipelineType) !== "optional") return;
+    stageEdit();
     onRemoveAgent?.(agentId);
-  }, [onRemoveAgent, pipelineType]);
+  }, [onRemoveAgent, pipelineType, stageEdit]);
 
   // ComposerPage's addSubAgent (Spec 012/R-35), reused here so the embedded
   // canvas's "+ Sub-agent" opens the library to pick a real agent instead of
@@ -2298,11 +2469,11 @@ export function AgentsPopup({
     (agent: AgentDef) => {
       if (!subAgentParentId) return;
       const node = instantiateIfTemplate(agent, collectAgentIds(agents));
-      onReorder?.(addChildInTree(agents, subAgentParentId, node));
+      handleTreeChange(addChildInTree(agents, subAgentParentId, node));
       setSubAgentParentId(null);
       setLibraryOpen(false);
     },
-    [subAgentParentId, agents, onReorder],
+    [subAgentParentId, agents, handleTreeChange],
   );
 
   // CanvasView reports the whole selections map already keyed by agent —
@@ -2334,7 +2505,7 @@ export function AgentsPopup({
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           className="fixed inset-0 z-50 flex items-center justify-center py-3"
         >
-          <motion.div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
+          <motion.div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={handleCancel} />
 
           <motion.div
             initial={{ opacity: 0, y: 10, scale: 0.98 }}
@@ -2389,7 +2560,7 @@ export function AgentsPopup({
                       Open in full canvas
                     </button>
                   )}
-                  <button onClick={onClose} className="h-7 w-7 flex items-center justify-center rounded-lg text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-all">
+                  <button onClick={handleCancel} className="h-7 w-7 flex items-center justify-center rounded-lg text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-all">
                     <X className="h-4 w-4" />
                   </button>
                 </div>
@@ -2459,7 +2630,7 @@ export function AgentsPopup({
                     }}
                     canAddMore={canAddMore}
                     declaredCapabilities={flatDeclaredCapabilities}
-                    onTreeChange={onReorder}
+                    onTreeChange={handleTreeChange}
                     onRequestAddSubAgent={(parentId) => { setSubAgentParentId(parentId); setLibraryOpen(true); }}
                     briefText={canvasBriefText}
                     onBriefTextChange={setCanvasBriefText}
@@ -2489,7 +2660,7 @@ export function AgentsPopup({
                   {saveError}
                 </span>
               )}
-              <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-line-border text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors">
+              <button onClick={handleCancel} className="px-5 py-2.5 rounded-xl border border-line-border text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors">
                 Cancel
               </button>
               <button
@@ -2534,6 +2705,7 @@ export function AgentsPopup({
             onAddAgent={
               onAddAgent
                 ? (agent: AgentDef) => {
+                    stageEdit();
                     onAddAgent(agent, insertBeforeId);
                     setInsertBeforeId(undefined);
                   }

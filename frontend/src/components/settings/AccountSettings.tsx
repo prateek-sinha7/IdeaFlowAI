@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { routes } from "@/lib/routes";
 import {
-  ArrowLeft, Eye, EyeOff, CheckCircle2, AlertCircle, Check, ShieldCheck, Info,
+  ArrowLeft, CheckCircle2, AlertCircle, Check, ShieldCheck, Info,
 } from "lucide-react";
 import { authedFetch, getToken, getMe, changePassword, getPreferences, updatePreferences, getCapabilities } from "@/lib/api";
 import type { ModelOption, CapabilityModelEntry } from "@/lib/api";
@@ -16,7 +16,9 @@ import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, type BadgeStatus } from "@/components/ui/Badge";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { SecuritySection } from "@/components/settings/SecuritySection";
+import { UpgradePlanModal } from "@/components/settings/UpgradePlanModal";
 
 /**
  * The settings surface's tab ids. Exported so callers that deep-link into a
@@ -87,15 +89,17 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
   const [section, setSection] = useState<SettingsSection>(initialSection ?? "profile");
   const [email, setEmail] = useState("");
   const [userTier, setUserTier] = useState<Tier>("basic");
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Password change
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showCurrent, setShowCurrent] = useState(false);
-  const [showNew, setShowNew] = useState(false);
   const [changing, setChanging] = useState(false);
+  // Written only at submit time, and every text it carries asserts something
+  // about the three password fields, so any later edit makes it stale — each
+  // field's onChange clears it rather than leaving it to the next submit (ISS-244).
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // AI Model preference
@@ -279,32 +283,22 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
                 <div className="space-y-3.5 max-w-md">
                   <div>
                     <label htmlFor="current-password" className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">Current password</label>
-                    <div className="relative">
-                      <input id="current-password" type={showCurrent ? "text" : "password"} value={currentPassword}
-                        onChange={e => setCurrentPassword(e.target.value)}
-                        className={`${inputClass} pr-10`}
-                        placeholder="Enter current password" />
-                      <button type="button" onClick={() => setShowCurrent(!showCurrent)} className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700">
-                        {showCurrent ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                      </button>
-                    </div>
+                    <PasswordInput id="current-password" value={currentPassword}
+                      onChange={e => { setCurrentPassword(e.target.value); setMessage(null); }}
+                      className={inputClass}
+                      placeholder="Enter current password" />
                   </div>
                   <div>
                     <label htmlFor="new-password" className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">New password</label>
-                    <div className="relative">
-                      <input id="new-password" type={showNew ? "text" : "password"} value={newPassword}
-                        onChange={e => setNewPassword(e.target.value)}
-                        className={`${inputClass} pr-10`}
-                        placeholder="At least 8 characters" />
-                      <button type="button" onClick={() => setShowNew(!showNew)} className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700">
-                        {showNew ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                      </button>
-                    </div>
+                    <PasswordInput id="new-password" value={newPassword}
+                      onChange={e => { setNewPassword(e.target.value); setMessage(null); }}
+                      className={inputClass}
+                      placeholder="At least 8 characters" />
                   </div>
                   <div>
                     <label htmlFor="confirm-password" className="text-[11.5px] font-medium text-ink-400 mb-1.5 block">Confirm new password</label>
-                    <input id="confirm-password" type="password" value={confirmPassword}
-                      onChange={e => setConfirmPassword(e.target.value)}
+                    <PasswordInput id="confirm-password" value={confirmPassword}
+                      onChange={e => { setConfirmPassword(e.target.value); setMessage(null); }}
                       className={inputClass}
                       placeholder="Re-enter new password" />
                   </div>
@@ -451,7 +445,7 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
                   <p className="text-[13.5px] font-semibold text-ink-900">{TIER_LABELS[userTier]} plan</p>
                   <p className="text-[11.5px] text-ink-500 mt-0.5">Your plan determines which deliverables you can run and the features available to you.</p>
                 </div>
-                <Button variant="secondary" size="sm" className="flex-shrink-0 px-3.5 py-2 text-brand">
+                <Button variant="secondary" size="sm" onClick={() => setUpgradeOpen(true)} className="flex-shrink-0 px-3.5 py-2 text-brand">
                   Manage plan
                 </Button>
               </div>
@@ -483,6 +477,8 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
 
         </AnimatePresence>
       </div>
+
+      {upgradeOpen && <UpgradePlanModal tier={userTier} onClose={() => setUpgradeOpen(false)} />}
     </div>
   );
 }
@@ -490,6 +486,11 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
 // ---------------------------------------------------------------------------
 // Constitution Section (T074b — FR-012)
 // ---------------------------------------------------------------------------
+
+// The ceiling the editor displays. One constant, read by the counter, the
+// textarea's maxLength and the Save-disable check, so the number on screen is
+// a limit that is actually enforced.
+const CONSTITUTION_MAX_CHARS = 4000;
 
 function ConstitutionSection() {
   const [content, setContent] = useState("");
@@ -537,6 +538,15 @@ function ConstitutionSection() {
   const handleDelete = async () => {
     const token = getToken();
     if (!token) return;
+    // ISS-320: "Clear" sits beside "Save constitution" and reads like a draft
+    // reset, but it is a hard DELETE of the instructions prepended to every
+    // agent on every run, with no undo. Gate it behind the same native confirm
+    // DashboardLayout uses for unsaved work — Save stays a one-click action,
+    // the destructive twin does not.
+    if (!window.confirm(
+      "Clear your constitution? This permanently deletes the saved instructions "
+      + "prepended to every agent on every run."
+    )) return;
     setDeleting(true);
     setStatus("idle");
     try {
@@ -576,7 +586,7 @@ function ConstitutionSection() {
       <Card className="overflow-hidden shadow-[var(--elevation-raised)]">
         <div className="flex items-center justify-between px-4 py-3 border-b border-line-divider">
           <span className="text-[11.5px] font-semibold text-ink-700">Global instructions</span>
-          <span className="text-[11px] text-ink-300 tabular-nums">{content.length} / 4000 chars</span>
+          <span className="text-[11px] text-ink-300 tabular-nums">{content.length} / {CONSTITUTION_MAX_CHARS} chars</span>
         </div>
         {loading ? (
           <div className="h-56 flex items-center justify-center">
@@ -588,6 +598,7 @@ function ConstitutionSection() {
             onChange={(e) => { setContent(e.target.value); setStatus("idle"); }}
             aria-label="Constitution content"
             name="constitution"
+            maxLength={CONSTITUTION_MAX_CHARS}
             placeholder={"# My Constitution\n\n## Principle 1 — Quality First\nEvery output must be production-ready…\n\n## Principle 2 — Security\nNever expose secrets or PII…"}
             className="w-full h-64 text-[13px] text-ink-800 bg-surface-card px-4 py-3.5 resize-none focus:outline-none font-mono leading-relaxed"
           />
@@ -624,7 +635,7 @@ function ConstitutionSection() {
         <Button
           variant="primary"
           onClick={handleSave}
-          disabled={saving || loading || !content.trim()}
+          disabled={saving || loading || !content.trim() || content.length > CONSTITUTION_MAX_CHARS}
           className="px-5 py-2.5"
         >
           {saving ? "Saving…" : "Save constitution"}

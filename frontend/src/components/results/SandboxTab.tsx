@@ -55,6 +55,7 @@ import {
   Globe,
   Image as ImageIcon,
   Loader2,
+  Lock,
   Package,
   Settings,
 } from "lucide-react";
@@ -352,12 +353,24 @@ function fenceOne(text: string): string {
     // `</html>` at 960 and 970), so stopping at the first `</html>` cuts the
     // deck in half and spills its tail into the page as prose. The last one is
     // the real end.
-    /<(spec|tasks|analysis)\b[^>]*>([\s\S]*?)<\/\1\s*>|<artifact\b[^>]*>([\s\S]*?)<\/artifact\s*>|<!DOCTYPE\s+html[\s\S]*<\/html\s*>|<!DOCTYPE\s+html[^\n]*/gi,
-    (match, proseTag, proseBody, artifactBody) => {
+    //
+    // The LAST branch is the orphaned OPENER: `<artifact …>` whose `</artifact>`
+    // never arrived because the agent's output was cut off mid-payload (one real
+    // run ends `</parameter></invoke>` with the deck still open). The closed
+    // branch above cannot match it, so the tag used to escape into the prose
+    // paragraph it was glued onto — `…self-contained HTML file.<artifact
+    // identifier="…">`. It requires WHITESPACE AND ATTRIBUTES on purpose: every
+    // real opener in the corpus carries `identifier=`, while all 39 bare
+    // `<artifact>` occurrences are prose describing the format ("Emit between
+    // `<artifact>` tags:") and must be left exactly as written. Everything after
+    // an orphaned opener IS the payload — there is no closer to end it — so it
+    // runs to the end of the input.
+    /<(spec|tasks|analysis)\b[^>]*>([\s\S]*?)<\/\1\s*>|<artifact\b[^>]*>([\s\S]*?)<\/artifact\s*>|<!DOCTYPE\s+html[\s\S]*<\/html\s*>|<!DOCTYPE\s+html[^\n]*|<artifact\s+[^>]*>([\s\S]*)/gi,
+    (match, proseTag, proseBody, artifactBody, orphanBody) => {
       // Prose wrapper — unwrap, full stop.
       if (proseTag) return `\n\n${proseBody.trim()}\n\n`;
 
-      const t = (artifactBody ?? match).trim();
+      const t = (artifactBody ?? orphanBody ?? match).trim();
       // A payload that already fenced itself needs unwrapping, not a second
       // fence around the first.
       if (/^(`{3,}|~{3,})/.test(t)) return `\n\n${t}\n\n`;
@@ -476,19 +489,27 @@ function formatBytes(n: number): string {
 /** Source, in a real editor. ONE component, both surfaces: the full-file view
  *  and every fenced block inside a rendered markdown file.
  *
- *  CodeMirror 6, read-only, and LAZILY imported — a run workspace is not on the
- *  critical path, so the editor must never enter the main bundle. Until it
- *  resolves the same bytes render in a <pre>, which is also what a test or a
- *  no-JS render sees.
+ *  CodeMirror 6, LAZILY imported — a run workspace is not on the critical
+ *  path, so the editor must never enter the main bundle. Until it resolves the
+ *  same bytes render in a <pre>, which is also what a test or a no-JS render
+ *  sees.
+ *
+ *  NOT read-only, and it says so on the strip below the editor. ⌘F opens
+ *  Replace and Replace has to be able to write, so the doc takes keystrokes —
+ *  but there is no save path for a run artifact, and opening another file
+ *  re-fetches the server's bytes. A pane that swallows typing and drops it
+ *  without a word is the defect (ISS-383); the strip is the answer, and it
+ *  lives in here so BOTH surfaces carry it (ISS-597).
  *
  *  Deliberately NOT `AppBuilderPreview`'s approach: that injects highlight.js
  *  from a CDN at runtime — a third-party script in the app's own origin, and
  *  dead offline.
  *
  *  Seven direct packages, no meta-package and no `basicSetup`: state, view,
- *  language, search, two grammars and the highlight tags. Everything else
- *  CodeMirror ships (autocomplete, linting, history, edit keymaps) is for
- *  EDITING and is not pulled in. */
+ *  language, search, two grammars and the highlight tags. Autocomplete and
+ *  linting — the parts that only pay off in a file you are going to save — are
+ *  not pulled in. `history` and the edit keymaps ARE, for the reason on the
+ *  extensions list below. */
 function CodeView({
   code,
   lang,
@@ -715,7 +736,7 @@ function CodeView({
     <div
       className={
         fill
-          ? "h-full min-h-0 bg-surface-white"
+          ? "flex h-full min-h-0 flex-col bg-surface-white"
           : "my-2 min-w-0 max-w-full overflow-hidden rounded-[6px] border border-line-border bg-surface-white"
       }
     >
@@ -726,12 +747,20 @@ function CodeView({
           {lang}
         </span>
       )}
-      <div ref={host} className={fill ? "h-full" : ""} />
+      <div ref={host} className={fill ? "min-h-0 flex-1" : ""} />
       {!ready && (
         <pre className="overflow-x-auto bg-surface-white px-3.5 py-3 font-mono text-[11.5px] leading-[1.65] text-ink-800">
           {code}
         </pre>
       )}
+      {/* The one thing the pane never said: it takes keystrokes and throws
+          them away. Here rather than at either call site — the full-file view
+          and every fenced block in a rendered markdown file are the same
+          function, so one strip covers both. */}
+      <span className="flex flex-none items-center gap-1 border-t border-line-border bg-surface-warm px-3 py-1 text-[9.5px] text-ink-400">
+        <Lock className="h-2.5 w-2.5 flex-none" />
+        Read-only scratchpad — edits are not saved
+      </span>
     </div>
   );
 }
@@ -846,9 +875,16 @@ export interface SandboxTabProps {
    *  builds from `pipelineState.agents` (live) or the reopened run's outputs.
    *  An id it does not carry falls back to a prettified form of the id. */
   agentNameById?: Record<string, string>;
+  /** Whether this run actually produced a deliverable. ISS-356/ISS-586: the
+   *  expired empty state may only point at the Preview and Files tabs when the
+   *  caller CONFIRMS one exists — `expired` is a directory-existence flag
+   *  (`run_files.py`, `not sandbox.root.is_dir()`) and cannot tell a completed
+   *  run from a diverted/failed/cancelled one that never produced anything.
+   *  Absent → say nothing about a deliverable rather than assert a false one. */
+  hasDeliverable?: boolean;
 }
 
-export function SandboxTab({ runId, agentNameById }: SandboxTabProps) {
+export function SandboxTab({ runId, agentNameById, hasDeliverable }: SandboxTabProps) {
   const [files, setFiles] = useState<SandboxFile[]>([]);
   const [expired, setExpired] = useState(false);
   const [truncated, setTruncated] = useState(false);
@@ -1039,8 +1075,9 @@ export function SandboxTab({ runId, agentNameById }: SandboxTabProps) {
       <div className="flex h-full flex-col items-center justify-center gap-1.5 p-6 text-center">
         <p className="text-[13px] font-medium text-ink-700">Workspace expired</p>
         <p className="max-w-[380px] text-[12px] leading-relaxed text-ink-400">
-          Run workspaces are cleared after a retention period. The deliverable is
-          still on the Preview and Files tabs — only the raw working files are gone.
+          Run workspaces are cleared after a retention period.
+          {hasDeliverable &&
+            " The deliverable is still on the Preview and Files tabs — only the raw working files are gone."}
         </p>
       </div>
     );

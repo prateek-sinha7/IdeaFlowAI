@@ -339,6 +339,28 @@ def test_basic_tier_allowed_for_basic_pipeline(env):
     assert _run_count(env) == 1
 
 
+@pytest.mark.issue("ISS-234")
+def test_empty_custom_agent_ids_not_silently_widened_to_full_pool(env):
+    """ISS-234: ``pipeline_type: "custom"`` with an explicitly empty
+    ``agent_ids: []`` (the composer's genuine "nothing selected" state — e.g.
+    the dead-link ``/workflows/<bad-id>/canvas`` composer, which renders 0
+    agents) must NOT be silently substituted with the full custom-pool default
+    roster.
+
+    Today ``if agent_ids:`` at ``run_commands.py:2695`` is False for ``[]`` the
+    same as for ``None``, so it falls to ``get_pipeline_agents("custom")`` — the
+    full 9-agent custom-utility pool — and mints + drives a real run the caller
+    never asked for. Expected: an empty custom roster is rejected PRE-MINT (no
+    WorkflowRun row, no engine execute), the same shape as every other ingress
+    denial in this file."""
+    user = _seed_user(env)
+    env["state"]["user"] = user
+    resp = _post_launch(env, message="x", pipeline_type="custom", agent_ids=[])
+    assert resp.status_code in (400, 422), resp.text
+    assert _run_count(env) == 0
+    assert _RecordingEngine.invoked is False
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # 2. Happy path — the endpoint mints the run (synchronous) + returns {run_id}
 # ────────────────────────────────────────────────────────────────────────────

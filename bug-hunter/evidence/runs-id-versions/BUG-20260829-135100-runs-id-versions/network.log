@@ -1,0 +1,28 @@
+API ground truth (fetched directly, auth'd, in-browser):
+GET /api/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a (root, "v1")
+  duration: 3164.1s, agent_count: 5, token_usage.total_tokens: 8,567,417
+
+GET /api/runs/ef86e750-bbcd-404f-855a-fb0d5bee63f5 (revision, "v2")
+  duration: 371s, agent_count: 2, token_usage.total_tokens: 2,388,072
+
+UI displayed (Steps tab), cold navigation to EACH version URL in turn:
+  /runs/77f74563.../versions/1/steps -> header "Version v1", "Run complete 5 / 5 agents · 1m 32s"
+    Spec Writer Agent 2m 43s · 39.9K tok
+    Task Planner Agent 3m 5s · 55.4K tok
+    Spec Kit Analyzer 1m 14s · 44.3K tok
+    Implementation Agent 2m 6s · 1.8M tok
+    Validation Agent 1m 31s · 1.5M tok
+    Footer: TOKEN USAGE 3.5M total · 3.4M input · 63.2K output
+
+  /runs/77f74563.../versions/2/steps -> header "Version v2", "Run complete 5 / 5 agents · 1m 32s"
+    Spec Writer Agent 2m 43s · 39.9K tok
+    Task Planner Agent 3m 5s · 55.4K tok
+    Spec Kit Analyzer 1m 14s · 44.3K tok
+    Implementation Agent 2m 6s · 1.8M tok
+    Validation Agent 1m 31s · 1.5M tok
+    Footer: TOKEN USAGE 3.5M total · 3.4M input · 63.2K output
+
+Both version URLs render byte-identical Steps content, matching NEITHER version's real
+agent_count/duration/token_usage from the API. Network trace on cold-load of /versions/2/steps
+confirms GET /api/runs/ef86e750-... (the pinned v2 run) IS fetched over the wire -- the data
+exists in the response, it just never reaches what the Steps tab renders.

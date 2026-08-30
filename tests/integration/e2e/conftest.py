@@ -33,6 +33,19 @@ def pytest_addoption(parser):
         help="Label for this run's output folder under tests/integration/test-runs/.",
     )
     parser.addoption(
+        "--resume",
+        action="store_true",
+        help="Skip the scenarios that already finished in an interrupted run. "
+             "pytest's own --stepwise/--lf only remember FAILURES, so a Ctrl+C "
+             "part-way through a green run leaves them with nothing and the next "
+             "run starts from the top.",
+    )
+    parser.addoption(
+        "--resume-reset",
+        action="store_true",
+        help="Forget the recorded progress, so the next run starts from the top.",
+    )
+    parser.addoption(
         "--dpi",
         type=int,
         default=settings.DEVICE_SCALE_FACTOR,
@@ -190,7 +203,54 @@ _progress = {"i": 0, "total": 0}
 _results = run_report.Results()
 
 
+# ── resume after an interrupt ────────────────────────────────────────────────
+# A 500-scenario run takes an hour, and a Ctrl+C at minute 50 used to cost all
+# fifty. Every scenario that FINISHES is appended here, so --resume can skip it.
+# Appended at teardown, one line at a time and flushed, so even a kill -9 loses
+# at most the single scenario in flight.
+_PROGRESS_FILE = Path(__file__).parent / ".pytest-resume"
+
+
+def pytest_runtest_logreport(report):
+    # teardown, not call: a scenario whose fixtures blew up on the way down is
+    # not finished, and must not be skipped on the next pass.
+    if report.when == "teardown":
+        with _PROGRESS_FILE.open("a") as fh:
+            fh.write(report.nodeid + "\n")
+
+
+def _apply_resume(config, items):
+    """Drop the scenarios a previous interrupted run already finished."""
+    if config.getoption("--resume-reset"):
+        _PROGRESS_FILE.unlink(missing_ok=True)
+    if not config.getoption("--resume") or not _PROGRESS_FILE.exists():
+        return
+    # splitlines(), never split(): 52 of these node ids carry a space inside a
+    # parametrised value ("[chromium-Streamed text-uses the agent's raw output]"),
+    # and whitespace-splitting shreds them into tokens that match nothing.
+    done = {ln.strip() for ln in _PROGRESS_FILE.read_text().splitlines() if ln.strip()}
+    keep = [i for i in items if i.nodeid not in done]
+    skipped = [i for i in items if i.nodeid in done]
+    if not skipped:
+        return
+    if not keep:
+        # Everything on record is done. Start clean rather than collect nothing
+        # and report it as "no test ran".
+        _PROGRESS_FILE.unlink(missing_ok=True)
+        Reporter(config).note(
+            f"resume: all {len(skipped)} already finished — progress cleared, running the lot",
+            warn=False,
+        )
+        return
+    items[:] = keep
+    config.hook.pytest_deselected(items=skipped)
+    Reporter(config).note(
+        f"resume: skipping {len(skipped)} already finished, {len(keep)} to go", warn=False
+    )
+
+
 def pytest_collection_modifyitems(config, items):
+    _apply_resume(config, items)
     _progress["total"] = len(items)
     _results.base_url = config.getoption("--base-url") or "the app"
     _results.run_name = config.getoption("--run-name")
@@ -270,6 +330,12 @@ def _record(item, outcome: str, rep, reason: str = "", error: str = "") -> None:
 
 def pytest_sessionfinish(session, exitstatus):
     """Write `0-report.html` at the top of this run's folder."""
+    # 0 = all passed, 1 = some failed; either way the run REACHED THE END, so the
+    # recorded progress is spent. 2 (interrupted) and 3 (internal error) keep it —
+    # that is exactly the case --resume exists for. A --resume run keeps its file
+    # too, so a second interrupt is still resumable.
+    if exitstatus in (0, 1) and not session.config.getoption("--resume"):
+        _PROGRESS_FILE.unlink(missing_ok=True)
     if not _results.cases:
         return
     out = run_report.write(_results, run_directory(session.config))

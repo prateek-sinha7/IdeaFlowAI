@@ -114,6 +114,79 @@ def test_the_legacy_wizard_path_redirects_to_the_named_create_route(page, shot, 
     expect(page.locator('textarea[name="brief"]')).to_be_visible()
 
 
+@pytest.mark.issue("ISS-227")
+def test_a_traversal_mode_value_does_not_escape_the_create_namespace(page, shot):
+    """ISS-227 — /workflow/create?mode=../admin must not escape /create/*.
+
+    `proxy.ts:10` builds the redirect target by unsanitized string
+    interpolation (`new URL(`/create/${mode}`, request.url)`), so `../admin`
+    resolves outside `/create` entirely and lands on the live admin console.
+    The correct behaviour is the same containment `mode=ppt`/`mode=prototype`
+    already get in S-16-04: the resulting URL must stay under `/create/*`.
+    """
+    with shot(
+        "mode-traversal-admin",
+        'When I cold-load "/workflow/create?mode=../admin"',
+    ):
+        page.goto("/workflow/create?mode=../admin")
+        page.wait_for_load_state("load")
+        page.wait_for_timeout(settings.SETTLE_MS // 2)
+
+    assert page.url.startswith(f"{settings.BASE_URL}/create/"), (
+        f"traversal mode value escaped the /create namespace, landed on {page.url!r}"
+    )
+    assert "/admin" not in page.url, (
+        f"?mode=../admin reached the live admin console at {page.url!r}"
+    )
+
+
+@pytest.mark.issue("ISS-281")
+@pytest.mark.role("basic")
+def test_a_non_admin_traversal_never_navigates_to_admin(page, shot):
+    """ISS-281 — `proxy.ts`'s mode-traversal redirect performs zero
+    authorization of its own (that is ISS-227's root cause); `/admin`'s own
+    `is_admin` gate (`admin/page.tsx:170`) only bounces a non-admin AFTER the
+    frame has already navigated there, client-side, post-mount.
+
+    Confirmed by direct observation (Playwright `framenavigated` on the main
+    frame, qa-basic session): the frame's navigation history for
+    `?mode=../admin` is `/admin` -> `/admin` -> `/dashboard` — i.e. the
+    browser genuinely visits `/admin` before the client bounce fires, it does
+    not merely settle there. The final settled URL is `/dashboard`, so a
+    settled-URL assertion alone would pass vacuously; this asserts the frame
+    never visits `/admin` at all, which is what "no exposure window" requires.
+    """
+    visited: list[str] = []
+    page.on(
+        "framenavigated",
+        lambda frame: visited.append(frame.url)
+        if frame == page.main_frame
+        else None,
+    )
+    admin_calls: list[str] = []
+    page.on(
+        "request",
+        lambda req: admin_calls.append(req.url) if "/api/admin" in req.url else None,
+    )
+
+    with shot(
+        "mode-traversal-admin-non-admin-tier",
+        'When qa-basic cold-loads "/workflow/create?mode=../admin"',
+    ):
+        page.goto("/workflow/create?mode=../admin")
+        page.wait_for_load_state("load")
+        page.wait_for_timeout(settings.SETTLE_MS // 2)
+
+    admin_visits = [u for u in visited if u.rstrip("/").endswith("/admin")]
+    assert not admin_visits, (
+        f"qa-basic (non-admin) frame navigated to /admin via mode traversal "
+        f"before being bounced away: {visited}"
+    )
+    assert not admin_calls, (
+        f"qa-basic (non-admin) triggered admin API calls via mode traversal: {admin_calls}"
+    )
+
+
 # ── /preview-fullscreen ──────────────────────────────────────────────────────
 
 
@@ -406,3 +479,88 @@ def test_a_handoff_token_belonging_to_another_user_is_refused(page, shot, handof
     )
     assert "E2E handoff fixture" not in body, "the task description leaked"
     assert "github.com/flowinqa/e2e-fixture" not in body, "the repository leaked"
+
+
+# ── BUG-20260828-034200-handoff-settings: over-length secrets echoed in a 422 ──
+
+
+@pytest.mark.issue("ISS-224")
+@pytest.mark.destructive
+def test_an_oversize_github_pat_is_not_echoed_in_the_422_or_rendered_raw(page, shot):
+    """ISS-224 — a >512-char PAT must not round-trip in the 422 body or on-page.
+
+    The GitHub access token card says "Encrypted at rest, never returned by
+    any API." The PAT input has no client-side maxlength, so a value over the
+    backend's 512-character limit can be submitted; the backend correctly
+    rejects it with 422, but today the full submitted value comes back
+    verbatim in the response body's `detail[].input`, and the frontend falls
+    back to rendering the whole raw JSON (secret included) on-page.
+    """
+    cold(page, "/handoff/settings")
+
+    oversize_pat = "ghp_" + "A" * 5000  # 5004 chars, > the 512-char server limit
+
+    bodies: list[str] = []
+
+    def capture(response):
+        if "/api/settings/github-pat" in response.url:
+            try:
+                bodies.append(response.text())
+            except Exception:
+                pass
+
+    page.on("response", capture)
+
+    with shot("oversize-pat-submitted", "When I submit a PAT over the server's length limit"):
+        page.fill(L.GITHUB_PAT, oversize_pat)
+        page.click(L.SAVE)
+        page.wait_for_timeout(settings.SETTLE_MS)
+
+    assert bodies, "no /api/settings/github-pat response was observed"
+    for body in bodies:
+        assert oversize_pat not in body, (
+            "the 422 response body echoed the full oversize PAT back: "
+            f"{body[:200]!r}"
+        )
+
+    page_text = page.evaluate("() => document.body.innerText")
+    assert oversize_pat not in page_text, (
+        "the oversize PAT was rendered verbatim on the page"
+    )
+
+
+@pytest.mark.issue("ISS-264")
+@pytest.mark.destructive
+def test_an_oversize_api_key_name_is_not_echoed_in_the_422_or_rendered_raw(page, shot):
+    """ISS-264 — the same authedJson fallback ISS-224 found, reached via
+    "Create API key" instead of the PAT field (ApiKeyCreateRequest.name,
+    max_length=64). The field itself is not a secret, but the raw-JSON render
+    sink is the same one ISS-224 already screenshotted leaking a value.
+    """
+    cold(page, "/handoff/settings")
+
+    oversize_name = "n" * 100  # 100 chars, > the 64-char server limit
+
+    bodies: list[str] = []
+
+    def capture(response):
+        if "/api/settings/api-keys" in response.url:
+            try:
+                bodies.append(response.text())
+            except Exception:
+                pass
+
+    page.on("response", capture)
+
+    with shot("oversize-key-name-submitted", "When I submit an API key name over the limit"):
+        page.fill(L.API_KEY_NAME, oversize_name)
+        page.click(L.CREATE_KEY)
+        page.wait_for_timeout(settings.SETTLE_MS)
+
+    assert bodies, "no /api/settings/api-keys response was observed"
+
+    page_text = page.evaluate("() => document.body.innerText")
+    assert '{"detail":[' not in page_text, (
+        "the raw 422 JSON body was rendered as page text under the API-keys "
+        f"section: {page_text[:300]!r}"
+    )

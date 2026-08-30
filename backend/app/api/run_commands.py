@@ -808,12 +808,20 @@ async def _reconcile_terminal_status(run_id: str) -> None:
                                  and e.payload_json.get("status") == "degraded")]
         reattempt_seqs = [e.seq for e in events
                           if e.type in ("run_resuming", "pipeline_start")]
+        # ISS-316: a later attempt that genuinely FAILS supersedes the earlier
+        # cancellation exactly as a later clean completion does. Keyed on
+        # complete_seqs alone, a "Run again" whose pipeline emits pipeline_failed
+        # (no pipeline_complete in its tail) left the run reporting "cancelled"
+        # forever. The FIX-229 attempt-boundary guard is unchanged, so a
+        # pipeline_failed in the SAME attempt as the cancellation still loses to it.
+        terminal_seqs = complete_seqs + [e.seq for e in events
+                                         if e.type == "pipeline_failed"]
         resume_supersedes = (
             cancelled
-            and complete_seqs
-            and max(complete_seqs) > max(cancelled_seqs)
+            and terminal_seqs
+            and max(terminal_seqs) > max(cancelled_seqs)
             and any(
-                max(cancelled_seqs) < s < max(complete_seqs) for s in reattempt_seqs
+                max(cancelled_seqs) < s < max(terminal_seqs) for s in reattempt_seqs
             )
         )
         if cancelled and not resume_supersedes:
@@ -2722,6 +2730,28 @@ async def launch_run(
                     str(exc),
                     http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 )
+        elif base_pipeline_type == "custom":
+            # ISS-234: `custom` is the ONE type whose roster IS the caller's
+            # composition, so an absent/empty `agent_ids` means "nothing
+            # selected" — never "use this type's default membership". The `else`
+            # below cannot tell the two apart (`None` and `[]` are equally
+            # falsy), and resolving them the same way silently substituted the
+            # whole 9-agent custom pool (`custom/workflow.yaml`'s own steps) for
+            # a composition the caller never assembled — a real Bedrock spend on
+            # an unrelated workflow, with no UI indication it would happen.
+            #
+            # Every 0-agent composer state routes here: the dead-link
+            # `/workflows/<bad-id>/canvas` (ISS-234), any other swallowed
+            # `getWorkflowDetail` failure on a REAL workflow (ISS-334), a
+            # brand-new "Compose a custom workflow" canvas (ISS-333), and a
+            # legacy USER_WORKFLOW_FLAT row with no `agents` (pre-WR-02). Deny
+            # PRE-MINT, like every other ingress denial here — no WorkflowRun
+            # row, no driver, no spend.
+            raise _reject(
+                "no_agents_selected",
+                "This workflow has no agents. Add at least one agent before running it.",
+                http_status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
         else:
             agents = get_pipeline_agents(base_pipeline_type)
             if not agents and base_pipeline_type == "ppt":

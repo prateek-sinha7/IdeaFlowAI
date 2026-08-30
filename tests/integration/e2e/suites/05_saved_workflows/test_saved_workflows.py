@@ -12,14 +12,44 @@ touches a seeded fixture, and it restores the count it started from.
 
 from __future__ import annotations
 
+import json
 import re
 
 import pytest
 from playwright.sync_api import expect
 
+from framework import api
 from framework import settings
 from framework import age
 from framework.locators import saved_workflows as L
+
+
+def saved_row(page, wid: str) -> dict:
+    """A saved workflow's own record, straight from the API.
+
+    "Counts are read, never assumed" applies to the ROSTER too: which agents a
+    row holds is data that any save can change, so the expected value comes
+    from the record rather than from a constant that goes stale the first time
+    someone edits the row. `report-generator` was on `My presentation` until
+    2026-08-29 and is not any more.
+    """
+    rows = json.loads(api.full(page, "GET", "/api/user-workflows")["body"])
+    if not isinstance(rows, list):
+        rows = rows.get("items") or rows.get("workflows") or []
+    row = next((r for r in rows if r.get("id") == wid), None)
+    assert row, f"the API does not list the workflow {wid}"
+    return row
+
+
+def roster_count(page) -> int:
+    """The `N agents` caption on a detail view.
+
+    Case-insensitive: the caption is uppercased by CSS, so its DOM text is
+    "3 agents" while the screen reads "3 AGENTS".
+    """
+    m = re.search(r"(\d+)\s+agents", page.evaluate("() => document.body.innerText"), re.I)
+    assert m, "the detail view reports no agent count"
+    return int(m.group(1))
 
 
 def open_list(page) -> None:
@@ -137,9 +167,14 @@ def test_a_card_opens_its_detail_view(page, shot):
         expect(page.get_by_role("heading", name=L.OVERRIDE_TITLE)).to_be_visible()
 
     # Case-insensitive: the badge and the roster caption are uppercased by CSS,
-    # so their DOM text is "Presentation" and "4 agents".
+    # so their DOM text is "Presentation" and "3 agents".
     expect(page.get_by_text(re.compile(r"^Presentation$", re.I))).to_be_visible()
-    expect(page.get_by_text(re.compile(r"4\s+agents", re.I)).first).to_be_visible()
+    # The roster the scenario asks for, counted rather than assumed: the caption
+    # must agree with the agents this row is actually saved with.
+    saved = saved_row(page, wid)
+    assert roster_count(page) == len(saved["agent_ids"]), (
+        f"the roster caption disagrees with the saved roster {saved['agent_ids']}"
+    )
     expect(page.locator(L.EDIT)).to_be_visible()
     expect(page.locator(L.RUN)).to_be_visible()
 
@@ -153,20 +188,46 @@ def test_a_card_opens_its_detail_view(page, shot):
 
 
 @pytest.mark.scenario("S-05-07")
-def test_the_detail_view_lists_agent_ids_not_display_names(page, shot):
-    """Scenario: The detail view lists agent IDs, not display names"""
+def test_the_detail_view_resolves_agent_ids_to_display_names(page, shot):
+    """Scenario: The detail view resolves agent IDs to display names
+
+    INVERTED BY ISS-327, which found the raw id to BE the defect: the Library
+    and Composer name the same agents, and this view alone printed
+    `agentIds.map((id) => id)`. It resolves them now, falling back to the raw
+    id only when the catalog cannot name one — so an unfamiliar agent is still
+    listed rather than dropped.
+
+    Every agent is read off the saved record, so this does not care which
+    agents the row currently holds.
+    """
     wid = workflow_id(page, L.OVERRIDE_TITLE)
 
     with shot("roster", 'When I cold-load the detail view'):
         page.goto(f"/workflows/{wid}")
         expect(page.get_by_role("heading", name=L.OVERRIDE_TITLE)).to_be_visible()
 
+    saved = saved_row(page, wid)
     body = page.evaluate("() => document.body.innerText")
-    for agent_id in L.OVERRIDE_AGENT_IDS:
-        assert agent_id in body, f"the roster omits {agent_id}"
-    # Two views of one manifest. The canvas names belong on the canvas.
-    for display in L.OVERRIDE_DISPLAY_NAMES:
-        assert display not in body, f"the roster used the canvas name {display!r}"
+    assert saved["agent_ids"], "the saved row holds no agents to render"
+
+    resolved = 0
+    for agent_id in saved["agent_ids"]:
+        name = L.AGENT_DISPLAY_NAMES.get(agent_id)
+        if name:
+            assert name in body, f"the roster did not resolve {agent_id} to {name!r}"
+            assert agent_id not in body, (
+                f"the roster printed the raw id {agent_id} beside its name — "
+                "ISS-327 replaced the id with the name, it did not add to it"
+            )
+            resolved += 1
+        else:
+            # No catalog entry: the id itself is the fallback, and appearing as
+            # itself is better than not appearing at all.
+            assert agent_id in body, f"an unresolvable agent vanished: {agent_id}"
+    assert resolved, (
+        f"none of {saved['agent_ids']} is a known agent — "
+        "framework.locators.saved_workflows.AGENT_DISPLAY_NAMES needs the entry"
+    )
 
 
 @pytest.mark.scenario("S-05-08")
@@ -214,16 +275,33 @@ def test_a_saved_overrides_run_panel_reports_the_base_agent_count(page, shot):
 
     with shot("roster-count", "When I cold-load the detail view"):
         page.goto(f"/workflows/{wid}")
-        expect(page.get_by_text(re.compile(r"4\s+agents", re.I)).first).to_be_visible()
+        expect(page.get_by_text(re.compile(r"\d+\s+agents", re.I)).first).to_be_visible()
+
+    roster = roster_count(page)
 
     with shot("panel-count", 'When I cold-load "/workflows/{id}/run"'):
         page.goto(f"/workflows/{wid}/run")
         expect(page.get_by_text("NEW PRESENTATION")).to_be_visible()
 
-    advanced = page.locator('button:has-text("Advanced")').first.inner_text()
-    assert "3 agents" in advanced.replace("\n", " "), (
-        f"the panel now reports {advanced!r} — if it says 4, D-05 is fixed and "
-        "this test should assert agreement instead"
+    advanced = page.locator('button:has-text("Advanced")').first.inner_text().replace("\n", " ")
+    m = re.search(r"(\d+)\s+agents", advanced, re.I)
+    assert m, f"the launch panel reports no agent count: {advanced!r}"
+    panel = int(m.group(1))
+
+    if roster == panel:
+        pytest.skip(
+            f"D-05 is not observable: {L.OVERRIDE_TITLE!r} holds {roster} agents, "
+            f"which is its base manifest's own count, so there is no override for "
+            "the panel to ignore. It had one — `report-generator` on top of the "
+            "3-agent ppt base — until a run overwrote the row on 2026-08-29. "
+            "Restore that 4th agent, or point this at another row whose saved "
+            "roster differs from its base, and the defect becomes assertable again."
+        )
+
+    assert panel < roster, (
+        f"the roster says {roster} and the panel says {panel} — D-05 is the "
+        "panel reporting FEWER (the base manifest's count) than the saved "
+        "override. If they now agree, D-05 is fixed and this should assert that."
     )
 
 

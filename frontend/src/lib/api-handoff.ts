@@ -8,7 +8,7 @@
  */
 
 import { ENV } from "@/lib/env";
-import { handleSessionExpiry } from "@/lib/api";
+import { ApiError, errorMessageFromDetail, handleSessionExpiry } from "@/lib/api";
 
 const BASE_URL = ENV.API_URL;
 
@@ -63,14 +63,28 @@ async function authedJson<T>(
   path: string,
   init: RequestInit = {}
 ): Promise<T> {
-  const resp = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(init.headers || {}),
-    },
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(`${BASE_URL}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(init.headers || {}),
+      },
+    });
+  } catch (err) {
+    // ISS-301 — a network-layer rejection (offline, DNS failure, aborted
+    // connection, backend unreachable) never reached the server, so it says
+    // nothing about whether the resource exists. Re-throw it as ApiError(0) —
+    // lib/api.ts's own marker for "no HTTP response was received" (see its
+    // abort path) — so every handoff call site can branch on `status` instead
+    // of guessing from the message text.
+    throw new ApiError(
+      0,
+      err instanceof Error ? err.message : "Network request failed"
+    );
+  }
   if (resp.status === 204) {
     return undefined as T;
   }
@@ -83,9 +97,12 @@ async function authedJson<T>(
     if (resp.status === 401) {
       handleSessionExpiry();
     }
-    const message =
-      typeof body?.detail === "string" ? body.detail : JSON.stringify(body);
-    throw new Error(message || `HTTP ${resp.status}`);
+    // ISS-224 — a 422's list-shaped `detail` embeds the rejected value in
+    // `input`; stringifying the body rendered a submitted PAT back on-page.
+    const message = errorMessageFromDetail(body?.detail) ?? JSON.stringify(body);
+    // ISS-301 — carry the HTTP status on the error. A bare Error left every
+    // caller unable to tell a real 404 apart from any other failure.
+    throw new ApiError(resp.status, message || `HTTP ${resp.status}`);
   }
   return body as T;
 }

@@ -22,6 +22,7 @@ markers = [
     "requires_postgres: test requires a live PostgreSQL service — skipped without a DB (SQLite-default suites exclude this marker)",
     "requires_postgres_populated_migration: test requires a live PostgreSQL service with migration chain testing from 0014 to head",
     "live: test makes a live network/provider call — excluded from default offline runs",
+    "issue: the ISS card this test proves; paired with xfail until the fix lands",
 ]
 
 # Coverage configuration for pytest-cov

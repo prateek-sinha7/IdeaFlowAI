@@ -455,7 +455,23 @@ export function handlePipelineMessage(
             index: idx,
           };
           const existing = carried?.get(a.id);
-          if (existing) return { ...existing, ...identity };
+          // ISS-317: an `error` carried from the PRE-resume attempt is stale
+          // evidence the resume itself supersedes — the same treatment the
+          // terminal cancelled/failed/degraded markers already get below. Spread
+          // verbatim it kept every reader of this array (the Steps summary label,
+          // its progress-bar segment and per-row style, RunChatLane's PipelineMini
+          // pip, AgentDetailPanel's isError) showing a re-running agent as failed
+          // until that agent's own agent_start finally fired. Reset it to the
+          // fresh-roster rule instead.
+          if (existing) {
+            if (existing.status !== "error") return { ...existing, ...identity };
+            return {
+              ...existing,
+              ...identity,
+              status: idx < resumeOffset ? "done" : "idle",
+              error: null,
+            };
+          }
           return {
             ...identity,
             // KAN-120 BUG-2: agents before the resume offset are already done.
@@ -506,9 +522,18 @@ export function handlePipelineMessage(
           failed: undefined,
           degraded: undefined,
           // Phase 39 (RUNUI-06): surface the run's created_at so the lane header can
-          // render a relative age ("23h ago"). ADDITIVE optional — falls back to
-          // the receipt time when the event omits it.
-          createdAt: (msg.created_at as string) || prev.createdAt || new Date().toISOString(),
+          // render a relative age ("23h ago"). ADDITIVE optional.
+          //
+          // ISS-276: NO "now" fallback. This reducer is fed by BOTH the live SSE
+          // stream and the durable REST replay (getRunEvents → handleWebSocketMessage),
+          // and the two frames are identical on the wire — so stamping the receipt time
+          // dated a day-old run to page-load time and froze the lane header on "just
+          // now". A frame that carries no created_at now leaves the field unset, and
+          // formatRelativeAge(undefined) renders "" (dropped by the header's
+          // filter(Boolean)) — a blank instead of a wrong age. The engine stamps the
+          // run's real created_at on pipeline_start (engine.py, same fix), so live runs
+          // and every run recorded after it still render the real age.
+          createdAt: (msg.created_at as string) || prev.createdAt,
           // ISS-063: the restart history a re-announcement re-announces has already
           // happened, so carry it. Only a genuinely different run clears it. Without
           // this the trailing resume frame lands last on every replay and zeroes the
@@ -779,12 +804,20 @@ export function handlePipelineMessage(
           degraded: isDegraded || undefined,
           degradedFailedAgents: isDegraded ? degradedFailedIds : undefined,
           completedCount: updated.filter((a) => a.status === "done").length,
-          // Prefer the backend's authoritative totals, but fall back to the
-          // values accumulated from agent_complete so a missing field never
-          // wipes the token card to zero.
-          totalInputTokens: (msg.total_input_tokens as number) || prev.totalInputTokens || 0,
-          totalOutputTokens: (msg.total_output_tokens as number) || prev.totalOutputTokens || 0,
-          totalTokens: (msg.total_tokens as number) || prev.totalTokens || 0,
+          // ISS-304: prefer the totals accumulated from agent_complete, and fall
+          // back to the event's own fields only when nothing accumulated (so a
+          // run with no per-agent events never wipes the token card to zero).
+          // The event's totals are NOT the same authority as the rest of the app:
+          // `pipeline_complete.total_*` additionally folds in aux_token_usage
+          // (planner/clarify/fix-loop, engine.py ISS-033), while the persisted
+          // `workflow_runs.token_usage` every OTHER reader shows — the Run History
+          // card, GET /api/runs/{id}, Analytics — is re-derived from agent_complete
+          // alone. Taking the event field made this one header disagree with the
+          // same run's own API (17.9K vs 10.4K). Accumulating from agent_complete
+          // is the SAME set token_usage is built from, so the two now agree.
+          totalInputTokens: prev.totalInputTokens || (msg.total_input_tokens as number) || 0,
+          totalOutputTokens: prev.totalOutputTokens || (msg.total_output_tokens as number) || 0,
+          totalTokens: prev.totalTokens || (msg.total_tokens as number) || 0,
           estimatedCostUsd: (msg.estimated_cost_usd as number) || prev.estimatedCostUsd || 0,
           cacheReadTokens: (msg.total_cache_read_tokens as number) || prev.cacheReadTokens || 0,
           cacheWriteTokens: (msg.total_cache_write_tokens as number) || prev.cacheWriteTokens || 0,

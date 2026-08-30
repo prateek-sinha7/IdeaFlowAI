@@ -56,7 +56,20 @@ def chip(page, label: str):
 
 
 def chip_count(page, label: str) -> int:
-    text = chip(page, label).first.inner_text().replace("\n", " ")
+    """A type chip's count.
+
+    **A chip with no families is not rendered at all** — `WorkflowHistory.tsx`
+    drops it (`if (type !== "all" && count === 0) return null`), so an absent
+    chip IS a count of zero, not a broken selector. Waiting on it instead just
+    spends the full locator timeout to learn there are no runs of that type.
+
+    A chip that vanished while its families still exist is still caught: those
+    families keep being counted in the rows, so `sum(chips) == rows` fails.
+    """
+    c = chip(page, label)
+    if c.count() == 0:
+        return 0
+    text = c.first.inner_text().replace("\n", " ")
     m = re.search(r"(\d+)\s*$", text.strip())
     assert m, f"the {label!r} chip carries no count: {text!r}"
     return int(m.group(1))

@@ -1,0 +1,29 @@
+Two independent reproductions. Playwright page.route() intercepted the
+POST http://localhost:8000/api/runs request and aborted it client-side
+BEFORE it reached the backend (no real run was created), purely to inspect
+the exact payload the browser had already assembled.
+
+Repro 1 (brief text + valid.md + huge.txt attached):
+  bodyLen: 450427
+  containsTrunc (payload includes the word "truncat"): false
+  huge.txt block present at offset 251, content is 'a' repeated with no
+  truncation marker before "=== End: huge.txt ==="
+
+Repro 2 (brief text + huge.txt only attached):
+  bodyLen: 450236
+  containsTrunc: false
+  tail of body: "...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  \n=== End: huge.txt ===\",\"_display_title\":\"Summarize the attached notes into user stories.\"}"
+
+Source: frontend/src/components/workflow/IdeaInputPage.tsx handleFiles():
+  - isTextFile (.txt/.md/.json/.csv) path (line ~514-523): reads via
+    FileReader, stores content.slice(0, ATTACH_MAX_CHARS) with NO
+    truncation note appended.
+  - isBinaryFile (.pdf/.docx/.pptx) path (line ~524-545): calls
+    extractFileText(), and explicitly appends
+    "\n[Content truncated to 450,000 chars]" when res.truncated is true.
+  ATTACH_MAX_CHARS = 450000 (frontend/src/lib/constants.ts:7).
+
+The attached-file chip UI (same file, ~line 629-639) renders only the
+filename — no size, no truncation state — for both file-type paths, so
+there is no UI signal at all that a text attachment's content was cut.

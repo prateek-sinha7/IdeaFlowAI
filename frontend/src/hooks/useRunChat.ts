@@ -280,23 +280,16 @@ function parseAttachments(raw: unknown): ChatAttachment[] | undefined {
 function parseDeepLink(raw: unknown): DeepLinkTarget | undefined {
   if (raw == null || typeof raw !== "object") return undefined;
   const r = raw as Record<string, unknown>;
-  // The frame's deep_link is `{ target, nonce }`. `target` is the narrator's
-  // milestone/artifact ANCHOR (`run:<id>` / `clarify:<id>` / `deliverable:<file>`
-  // / `spec_revision:<id>:<n>` / a `gate_key`) — it is NOT a panel tab id, so it
-  // is kept as `anchor`. Aliasing it onto `tab` (pre-FIX-128) made the result
-  // card hand PreviewPanel an unknown tab, which that panel's PANEL_TAB_IDS
-  // guard silently dropped — so "Open in Steps"/"Open in Preview" never switched
-  // the tab. `tab` is now populated ONLY by an explicit `tab` field; otherwise the
+  // The frame's deep_link is `{ tab, nonce }`. `tab` is a generic panel tab id
+  // populated ONLY by an explicit `tab` field in the incoming data; otherwise the
   // card kind's generic defaultTab wins. `nonce` coerces to a number (0 if absent
   // or non-numeric — the engine's hex nonce is a card identifier, while the
   // NAVIGATION nonce is minted fresh by useTabDeepLink on click).
-  const anchor = typeof r.target === "string" && r.target ? r.target : undefined;
   const tab = typeof r.tab === "string" && r.tab ? r.tab : undefined;
-  if (!anchor && !tab) return undefined;
+  if (!tab) return undefined;
   const nonceNum = Number(r.nonce);
   return {
     ...(tab ? { tab } : {}),
-    ...(anchor ? { anchor } : {}),
     nonce: Number.isFinite(nonceNum) ? nonceNum : 0,
   };
 }
@@ -312,6 +305,25 @@ function parseCardKind(raw: unknown): ChatMessage["cardKind"] | undefined {
   return typeof raw === "string" && CARD_KINDS.has(raw)
     ? (raw as ChatMessage["cardKind"])
     : undefined;
+}
+
+/**
+ * ISS-358 — resolve the createdAt a fold should carry. The fold-time clock is NOT
+ * a send time: every durable row replayed on a reload / live-run switch takes the
+ * "create" branch (seedTranscript resets `messages` first), so an unconditional
+ * `new Date()` re-dates a historical turn to page-load time. Prefer the frame's own
+ * `created_at` — the `run_events` row column, now surfaced by BOTH durable readers
+ * (`runs.py` get_run_events and `run_stream.py`'s SSE replay) — then an existing
+ * bubble's already-settled value, and only fall back to the clock for a genuinely
+ * live frame that carries neither (where receipt time IS the send time).
+ */
+function foldedCreatedAt(
+  data: Record<string, unknown>,
+  existing?: string,
+): string {
+  const raw = data.created_at;
+  if (typeof raw === "string" && raw) return raw;
+  return existing ?? new Date().toISOString();
 }
 
 /**
@@ -351,7 +363,7 @@ function upsertUserMessage(
     chatSessionId: threadId ?? runId ?? "",
     role: "user",
     content: typeof data.text === "string" ? data.text : "",
-    createdAt: new Date().toISOString(),
+    createdAt: foldedCreatedAt(data),
     attachments,
     runId,
     threadId,
@@ -385,18 +397,30 @@ function upsertNarratorMessage(
       : mintMessageId();
   const runId = typeof data.run_id === "string" ? data.run_id : undefined;
   const threadId = typeof data.thread_id === "string" ? data.thread_id : undefined;
+  // ISS-607/ISS-612: a narrator card's payload anchors on `pipeline_run_id`
+  // (chat_narrator.project_milestone_card) — a family member's card carries ITS
+  // OWN run id, which is what the card's deep-link has to target once the family
+  // transcript stitches sibling runs' cards into one lane. Without this fallback
+  // `runId` was always undefined on a narrator turn and the card had no run to
+  // point at. `run_id` stays first: it is the chat_message twin's own field.
+  const narratorRunId =
+    runId ?? (typeof data.pipeline_run_id === "string" ? data.pipeline_run_id : undefined);
+  // ISS-358: `idx` is resolved BEFORE the message literal so a re-fold (the
+  // streaming bubble's terminal chat_reply, a replayed row over a live one) keeps
+  // the createdAt already settled on the bubble instead of minting a fresh clock
+  // read through the `{ ...prev[idx], ...msg }` merge below.
+  const idx = prev.findIndex((m) => m.id === id);
   const msg: ChatMessage = {
     id,
     chatSessionId: threadId ?? runId ?? "",
     role: "assistant",
     content: typeof data.text === "string" ? data.text : "",
-    createdAt: new Date().toISOString(),
+    createdAt: foldedCreatedAt(data, idx >= 0 ? prev[idx].createdAt : undefined),
     cardKind: parseCardKind(data.card_kind),
     deepLink: parseDeepLink(data.deep_link),
-    runId,
+    runId: narratorRunId,
     threadId,
   };
-  const idx = prev.findIndex((m) => m.id === id);
   if (idx >= 0) {
     const next = prev.slice();
     next[idx] = { ...prev[idx], ...msg };

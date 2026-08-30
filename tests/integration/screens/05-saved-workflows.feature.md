@@ -122,12 +122,15 @@ Feature: Saved workflows
     And I see "Edit" and "Run"
 
   @S-05-07
-  Scenario: The detail view lists agent IDs, not display names
+  Scenario: The detail view resolves agent IDs to display names
     Given a saved workflow whose base is "ppt"
     When I cold-load "/workflows/{id}"
-    Then the roster lists agent identifiers such as "ppt-composer"
-    And the roster does NOT list canvas display names such as "Deck Engineer"
-    # Two views of one manifest. Assert the right vocabulary per screen.
+    Then the roster names agents as the Library does, such as "Deck Engineer"
+    And the roster does NOT print the raw identifier "ppt-composer"
+    And an identifier the catalog cannot name is still listed, as itself
+    # INVERTED by ISS-327. This read the other way round until the raw id was
+    # found to BE the defect: every other view of the same agents named them,
+    # and this one alone printed agentIds.map((id) => id).
 
   @S-05-08
   Scenario: Edit opens the composer bound to this row

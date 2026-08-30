@@ -321,3 +321,90 @@ def test_analytics_is_scoped_to_the_signed_in_user(page_as, shot):
         f"two different accounts report identical totals ({admin_runs:,.0f}) — "
         "analytics may not be scoped per user"
     )
+
+
+@pytest.mark.issue("ISS-229")
+def test_pipeline_filter_narrows_total_runs_strictly(page, shot):
+    """ISS-229 — selecting one pipeline type must scope TOTAL RUNS to it.
+
+    `test_the_pipeline_filter_narrows_every_tile` above only asserts
+    `filtered <= everything`, which the bug satisfies vacuously (filtered ==
+    everything, unchanged). This asserts the tile actually moves.
+    """
+    open_analytics(page)
+    L.select_range(page, "All")
+    everything = L.number(L.tile(page, "TOTAL RUNS"))
+
+    with shot("iss-229-pipeline-narrows-kpi", 'When I select the pipeline "Prototype"'):
+        page.select_option(L.PIPELINE_FILTER, label="Prototype")
+        page.wait_for_timeout(500)
+
+    filtered = L.number(L.tile(page, "TOTAL RUNS"))
+    assert filtered < everything, (
+        f"TOTAL RUNS stayed at {filtered:,.0f} after filtering to Prototype "
+        f"(unfiltered total is {everything:,.0f}) — the KPI tile ignored the pipeline filter"
+    )
+
+
+@pytest.mark.issue("ISS-288")
+def test_model_filter_narrows_total_runs(page, shot):
+    """ISS-288 — selecting a model must scope TOTAL RUNS to it, mirroring ISS-229."""
+    open_analytics(page)
+    L.select_range(page, "All")
+
+    model_select = page.locator(L.MODEL_FILTER)
+    if model_select.count() == 0:
+        pytest.skip("only one model present in this range — the model filter is not rendered")
+
+    options = model_select.locator("option").all_inner_texts()
+    target = next(o for o in options if o != "All models")
+    baseline = L.number(L.tile(page, "TOTAL RUNS"))
+    target_runs = L.model_runs(page, target)
+    assert target_runs < baseline, "picked a model that already covers all runs — not a useful probe"
+
+    with shot("iss-288-model-narrows-kpi", f'When I select the model "{target}"'):
+        page.select_option(L.MODEL_FILTER, label=target)
+        page.wait_for_timeout(500)
+
+    filtered = L.number(L.tile(page, "TOTAL RUNS"))
+    assert filtered == target_runs, (
+        f"TOTAL RUNS stayed at {filtered:,.0f} after filtering to model {target!r} "
+        f"(that model's own breakdown row says {target_runs:,.0f} runs) — "
+        "the KPI tile ignored the model filter"
+    )
+
+
+@pytest.mark.issue("ISS-289")
+@pytest.mark.xfail(reason="ISS-289 unfixed", strict=True)
+def test_pipeline_breakdown_respects_the_model_filter_too(page, shot):
+    """ISS-289 — "By Pipeline Type" must narrow further when a model is ALSO selected,
+    not just sit on its own single-axis filter.
+    """
+    open_analytics(page)
+    L.select_range(page, "All")
+
+    with shot("iss-289-pipeline-only", 'When I select the pipeline "Prototype"'):
+        page.select_option(L.PIPELINE_FILTER, label="Prototype")
+        page.wait_for_timeout(500)
+    pipeline_only = L.runs_by_pipeline(page).get("PROTOTYPE")
+    assert pipeline_only, "Prototype not found in the By Pipeline Type breakdown"
+
+    model_select = page.locator(L.MODEL_FILTER)
+    if model_select.count() == 0:
+        pytest.skip("only one model present in this range — the model filter is not rendered")
+    options = model_select.locator("option").all_inner_texts()
+    target = next(o for o in options if o != "All models")
+    target_total = L.model_runs(page, target)
+    assert target_total < pipeline_only, "picked a model that covers all of Prototype — not a useful probe"
+
+    with shot("iss-289-pipeline-and-model", f'When I additionally select the model "{target}"'):
+        page.select_option(L.MODEL_FILTER, label=target)
+        page.wait_for_timeout(500)
+    pipeline_and_model = L.runs_by_pipeline(page).get("PROTOTYPE")
+
+    assert pipeline_and_model != pipeline_only and pipeline_and_model <= target_total, (
+        f"By Pipeline Type still shows {pipeline_and_model} Prototype runs after also "
+        f"selecting model {target!r} (whose own total is only {target_total:,.0f}) — "
+        f"unchanged from the pipeline-only figure of {pipeline_only} — "
+        "the breakdown ignored the model filter"
+    )

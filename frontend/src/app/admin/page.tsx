@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -21,8 +21,15 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 
 const TIER_ORDER: Tier[] = ["basic", "pro", "enterprise", "hexaware"];
+
+// The Create-User modal is a plain <div>, not a <form>, so the Email input's
+// type="email" never fires a native constraint check (ISS-295). Gate on shape
+// explicitly instead; the backend's EmailStr on CreateUserRequest is the real
+// authority — this only stops the submit before it leaves the page.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Tier -> Badge status key (token-backed chip): basic=neutral grey, pro=brand
 // violet, enterprise=green. The tier LABEL is passed explicitly so the chip
@@ -132,9 +139,16 @@ export default function AdminPage() {
   const [newIsAdmin, setNewIsAdmin] = useState(false);
   const [creating, setCreating] = useState(false);
 
+  // Every toast on this page shares one dismiss timer. Without cancelling the
+  // pending one, an earlier call's 3.5s timeout nulls a NEWER toast that
+  // replaced it — e.g. the create-success toast erasing the duplicate-email
+  // 409 error toast that follows it within 3.5s (ISS-324/ISS-487).
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const showToast = useCallback((type: "success" | "error", text: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ type, text });
-    setTimeout(() => setToast(null), 3500);
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
   }, []);
 
   // Declared BEFORE the effect that calls it, and memoized, so the effect can
@@ -210,7 +224,7 @@ export default function AdminPage() {
   };
 
   const handleCreateUser = async () => {
-    if (!newEmail || !newPassword) return;
+    if (!EMAIL_PATTERN.test(newEmail) || !newPassword) return;
     const token = getToken();
     if (!token) return;
     setCreating(true);
@@ -487,7 +501,7 @@ export default function AdminPage() {
                 </div>
                 <div>
                   <label htmlFor="new-user-password" className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5 block">Password</label>
-                  <input id="new-user-password" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                  <PasswordInput id="new-user-password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
                     className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-white px-3 py-2.5 text-[13px] text-ink-900 focus:outline-none focus:border-ink-400"
                     placeholder="At least 8 characters" />
                 </div>
@@ -509,7 +523,7 @@ export default function AdminPage() {
                 </label>
                 <Button
                   onClick={handleCreateUser}
-                  disabled={creating || !newEmail || !newPassword}
+                  disabled={creating || !EMAIL_PATTERN.test(newEmail) || !newPassword}
                   className="w-full mt-1"
                 >
                   {creating ? "Creating..." : "Create User"}

@@ -1,0 +1,15 @@
+=== Cycle 1 (cold start, fresh /create/app load) ===
+Attached huge.txt (500,000 'a' chars) + brief text, clicked Run workflow, intercepted POST /api/runs and aborted client-side.
+Body length: 450236
+containsTrunc (body.toLowerCase().includes('truncat')): false
+Tail: ...aaaa\n=== End: huge.txt ===","_display_title":"Summarize the attached notes into user stories."}
+RESULT: REPRODUCED
+=== Cycle 2 (cold start, fresh /create/app load) ===
+Body length: 450236, containsTrunc: false, tail ends "=== End: huge.txt ===" with no marker.
+RESULT: REPRODUCED
+
+=== Cycle 3 (cold start, fresh /create/app load) ===
+Body length: 450236, containsTrunc: false, tail ends "=== End: huge.txt ===" with no marker.
+RESULT: REPRODUCED
+
+SUMMARY: 3/3 cycles reproduced from cold start. Identical result every time (450236 chars, no truncation marker).

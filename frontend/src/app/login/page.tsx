@@ -1,10 +1,11 @@
 "use client";
 
-import { Suspense, useState, FormEvent } from "react";
+import { Suspense, useEffect, useRef, useState, FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import { Mail, Lock } from "lucide-react";
 import {
+  getToken,
   login,
   respondToLoginChallenge,
   isAuthChallenge,
@@ -12,6 +13,7 @@ import {
   type AuthChallengeResponse,
 } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { resolveRedirectTarget } from "@/lib/authRedirect";
 
 function LoginForm() {
@@ -22,6 +24,14 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  // `disabled={isLoading}` only reaches the DOM once React commits, a tick
+  // later than a same-task repeat click, so rapid clicks would each start
+  // their own request. A ref mutates synchronously and closes that window.
+  const submittingRef = useRef(false);
+  // Nothing renders until the mount-time auth check below has run, so an
+  // already-signed-in user never sees a frame of the sign-in form (effects
+  // run after paint).
+  const [checked, setChecked] = useState(false);
 
   // Cognito migration (Phase 4): when login() returns a challenge instead of
   // a token, the form switches to the matching challenge step. `session` is
@@ -35,6 +45,19 @@ function LoginForm() {
   // still produce it, and a dead end at the login screen is the worst place for
   // one.
   const [selectedFactor, setSelectedFactor] = useState("");
+
+  // A user who already holds a token has no business on the sign-in screen —
+  // send them where a successful sign-in would have, mirroring app/page.tsx's
+  // token branch for "/". handleSessionExpiry() clears the token before it
+  // navigates to ?expired=true, so a genuinely expired session still lands on
+  // the form rather than bouncing back.
+  useEffect(() => {
+    if (getToken()) {
+      router.replace(resolveRedirectTarget(searchParams.get("redirect")));
+      return;
+    }
+    setChecked(true);
+  }, [router, searchParams]);
 
   function goToDestination() {
     // Every user — including admins — lands on the main application by
@@ -57,6 +80,8 @@ function LoginForm() {
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setError("");
     setIsLoading(true);
 
@@ -70,6 +95,7 @@ function LoginForm() {
     } catch (err) {
       setError(describeApiError(err));
     } finally {
+      submittingRef.current = false;
       setIsLoading(false);
     }
   }
@@ -102,6 +128,8 @@ function LoginForm() {
       return;
     }
 
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setIsLoading(true);
     try {
       const result = await respondToLoginChallenge(email, challenge.session, challenge.challenge, {
@@ -129,9 +157,12 @@ function LoginForm() {
     } catch (err) {
       setError(describeApiError(err));
     } finally {
+      submittingRef.current = false;
       setIsLoading(false);
     }
   }
+
+  if (!checked) return null;
 
   if (challenge) {
     return (
@@ -230,6 +261,7 @@ function LoginForm() {
           <div className="rounded-[var(--radius-card)] border border-line-control bg-surface-card p-7 shadow-[var(--elevation-raised)]">
             {isExpired && (
               <motion.div
+                role="alert"
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="mb-5 rounded-[var(--radius-button)] border border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] px-4 py-3 text-sm text-status-failed"
@@ -240,6 +272,7 @@ function LoginForm() {
 
             {error && (
               <motion.div
+                role="alert"
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="mb-5 rounded-[var(--radius-button)] border border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] px-4 py-3 text-sm text-status-failed"
@@ -414,7 +447,7 @@ function ChallengeForm({
 
         <div className="rounded-[var(--radius-card)] border border-line-control bg-surface-card p-7 shadow-[var(--elevation-raised)]">
           {error && (
-            <div className="mb-5 rounded-[var(--radius-button)] border border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] px-4 py-3 text-sm text-status-failed">
+            <div role="alert" className="mb-5 rounded-[var(--radius-button)] border border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] px-4 py-3 text-sm text-status-failed">
               {error}
             </div>
           )}
@@ -426,9 +459,8 @@ function ChallengeForm({
                   <label htmlFor="new-password" className="mb-1.5 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">
                     New password
                   </label>
-                  <input
+                  <PasswordInput
                     id="new-password"
-                    type="password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     required
@@ -442,9 +474,8 @@ function ChallengeForm({
                   <label htmlFor="confirm-new-password" className="mb-1.5 block text-[11px] font-semibold text-ink-600 uppercase tracking-wider">
                     Confirm password
                   </label>
-                  <input
+                  <PasswordInput
                     id="confirm-new-password"
-                    type="password"
                     value={confirmNewPassword}
                     onChange={(e) => setConfirmNewPassword(e.target.value)}
                     required

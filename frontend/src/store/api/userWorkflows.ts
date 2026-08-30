@@ -400,6 +400,31 @@ export function buildWorkflowManifest(
   return manifest;
 }
 
+/** The free-text summary a "Save as my version" override stores (ISS-226).
+ *
+ *  An override row persists `manifest`, and `manifest`/`selections` are mutually
+ *  exclusive server-side (both write the one `manifest_json` column), so the
+ *  `_wizard` bag "Save workflow" writes cannot ride along with it — and the
+ *  manifest's own top-level keys are strict-listed (INV-5), so a brief/template
+ *  field cannot be added there without a schema change. `description` is the one
+ *  free-text field left, so it carries what was actually on screen instead of a
+ *  literal. Capped at the column's 2000 chars so a long brief cannot 422 a save.
+ */
+export function overrideDescription(parts: {
+  brief?: string;
+  templateId?: string | null;
+  designSystemId?: string | null;
+}): string {
+  const meta = [
+    parts.templateId ? `Template: ${parts.templateId}` : null,
+    parts.designSystemId ? `Design system: ${parts.designSystemId}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const body = [meta, parts.brief?.trim()].filter(Boolean).join("\n\n");
+  return body ? body.slice(0, 2000) : "Your saved version of this workflow.";
+}
+
 function manifestStepToAgent(
   step: ManifestStep,
   lookup?: (id: string) => AgentDef | undefined,
