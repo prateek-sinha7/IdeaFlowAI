@@ -11,13 +11,21 @@ import type { WorkflowRun } from "@/types/index";
 // idiom as HomeLaunchGrid.test.tsx (api + next/navigation + motion/react).
 // ─────────────────────────────────────────────────────────────────
 
+// Each mock DECLARES the parameters the vi.mock factory below forwards to it.
+// vitest infers a mock's call signature from its implementation, so a zero-arg
+// implementation called with `(token)` is a type error even though it works at
+// runtime — and the arguments are the whole point here: the assertions below read
+// them back off `.mock.calls` to prove the second account refetched with its own
+// token rather than serving the first account's cached rows.
 const mockGetToken = vi.fn(() => "test-token");
-const mockGetWorkflowDefinitions = vi.fn(async () => []);
-const mockGetUserWorkflows = vi.fn(async () => []);
-const mockGetAnalyticsSummary = vi.fn(
-  async (): Promise<AnalyticsSummary> => ({ type_avg_duration_sec: {} } as unknown as AnalyticsSummary),
+const mockGetWorkflowDefinitions = vi.fn<(token: string) => Promise<unknown[]>>(async () => []);
+const mockGetUserWorkflows = vi.fn<(token: string) => Promise<unknown[]>>(async () => []);
+const mockGetAnalyticsSummary = vi.fn<(token: string, range: string) => Promise<AnalyticsSummary>>(
+  async () => ({ type_avg_duration_sec: {} } as unknown as AnalyticsSummary),
 );
-const mockGetWorkflows = vi.fn(async (): Promise<WorkflowRun[]> => []);
+const mockGetWorkflows = vi.fn<(token: string, opts?: { limit?: number }) => Promise<WorkflowRun[]>>(
+  async () => [],
+);
 
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),

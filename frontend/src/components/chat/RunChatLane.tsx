@@ -220,7 +220,7 @@ export interface RunChatLaneProps {
   /** Agent event stream per assistant turn id (plan 01/02 block rendering). */
   eventsByMessageId?: Record<string, AgentEvent[]>;
   /** The nonce'd deep-link seam a narrator card fires (plan 03, borrow #6). */
-  onRequestOpenTab?: (tab: string) => void;
+  onRequestOpenTab?: (tab: string, agentId?: string, runId?: string) => void;
 
   // ── Lane run header (Phase 39, RUNUI-06 — wired live by 39-05) ─────────────
   /** Back-to-history link in the run header — rendered only when supplied. */

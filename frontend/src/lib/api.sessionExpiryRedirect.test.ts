@@ -23,17 +23,26 @@ describe("handleSessionExpiry — ISS-322 preserves the original route", () => {
     // jsdom's window.location is not directly assignable; replace it with a
     // plain mutable object so we can observe what handleSessionExpiry sets
     // href to, while reading a specific pathname/search as the "current page".
-    // @ts-expect-error - intentionally replacing window.location for the test
-    delete window.location;
-    window.location = {
-      pathname: "/settings/ai-model",
-      search: "",
-      href: "http://localhost/settings/ai-model",
-    } as unknown as Location;
+    // defineProperty, not assignment: `window.location` is typed non-writable, so
+    // `window.location = {...}` is a type error however it is cast. Redefining the
+    // property is the jsdom idiom and leaves the runtime behaviour identical.
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      writable: true,
+      value: {
+        pathname: "/settings/ai-model",
+        search: "",
+        href: "http://localhost/settings/ai-model",
+      } as unknown as Location,
+    });
   });
 
   afterEach(() => {
-    window.location = originalLocation;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      writable: true,
+      value: originalLocation,
+    });
   });
 
     it("ISS-322 — attaches a redirect param pointing back at the protected route", () => {

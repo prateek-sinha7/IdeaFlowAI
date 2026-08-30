@@ -21,10 +21,10 @@ ROOT_RUN_ID = "77f74563-fa19-4f0b-84fd-d0224f89a54a"
 V2_RUN_ID = "ef86e750-bbcd-404f-855a-fb0d5bee63f5"
 
 # The two members' persisted `.output` lengths, as `formatSize` renders them in
-# the Files tab's "Final output" hero. Fetched from the API to prove the sizes
-# are not stale fixture folklore: v1 = 247,394 chars, v2 = 85,529.
-V1_SIZE = "241.6 KB"
-V2_SIZE = "83.5 KB"
+# the Files tab's "Final output" hero. Computed from UTF-8 byte counts (not char
+# counts): v1 = 247,691 bytes, v2 = 85,624 bytes. The app renders formatSize(utf8Bytes(...)).
+V1_SIZE = "241.9 KB"
+V2_SIZE = "83.6 KB"
 
 
 def _pin_to_v2(page) -> None:

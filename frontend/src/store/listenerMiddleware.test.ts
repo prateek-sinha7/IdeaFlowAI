@@ -5,6 +5,8 @@ import agentsReducer from "@/store/slices/agentsSlice";
 import skillsReducer from "@/store/slices/skillsSlice";
 import hooksReducer from "@/store/slices/hooksSlice";
 import globalReducer, { fetchWorkflows, fetchRecentRuns } from "@/store/slices/globalSlice";
+import type { WorkflowSummary } from "@/store/api/workflows";
+import type { WorkflowRun } from "@/types/index";
 
 // ─────────────────────────────────────────────────────────────────
 // ISS-200 — listenerMiddleware's `signedIn` preload guard gates ONLY on
@@ -31,16 +33,27 @@ vi.mock("@/lib/api", () => ({
 
 import { listenerMiddleware } from "@/store/listenerMiddleware";
 
-function makeStore(preloadedState: Record<string, unknown>) {
+const reducer = {
+  auth: authReducer,
+  agents: agentsReducer,
+  skills: skillsReducer,
+  hooks: hooksReducer,
+  global: globalReducer,
+};
+
+/** Only the slice fields a case actually seeds; the rest fall back to the slice's
+ *  own initial state. Typed per-slice rather than as `Record<string, unknown>` —
+ *  that widened `preloadedState` enough to break configureStore's inference, so
+ *  TS resolved `reducer` against the single-Reducer overload and rejected both
+ *  the reducer map and the middleware tuple. */
+type SeedState = { [K in keyof typeof reducer]?: Partial<ReturnType<(typeof reducer)[K]>> };
+
+function makeStore(preloadedState: SeedState) {
   return configureStore({
-    reducer: {
-      auth: authReducer,
-      agents: agentsReducer,
-      skills: skillsReducer,
-      hooks: hooksReducer,
-      global: globalReducer,
-    },
-    preloadedState,
+    reducer,
+    // Cast at the boundary only: a partial slice is what these cases deliberately
+    // seed, and the reducers fill the rest.
+    preloadedState: preloadedState as Parameters<typeof configureStore>[0]["preloadedState"],
     middleware: (getDefault) => getDefault().prepend(listenerMiddleware.middleware),
   });
 }
@@ -51,10 +64,12 @@ describe("listenerMiddleware signedIn preload guard (ISS-200)", () => {
   it("refetches recentRuns/workflows when signedIn fires for a DIFFERENT user, even though the prior account's fetch already succeeded", async () => {
     const store = makeStore({
       global: {
-        workflows: [{ id: "leaked-workflow" }],
+        // Sentinel rows: only the id is read, and only to prove the FIRST
+        // account's data is what sits in the store when the second signs in.
+        workflows: [{ id: "leaked-workflow" } as WorkflowSummary],
         workflowsStatus: "succeeded",
         workflowsError: null,
-        recentRuns: [{ id: "leaked-run" }],
+        recentRuns: [{ id: "leaked-run" } as WorkflowRun],
         recentRunsStatus: "succeeded",
         recentRunsError: null,
       },

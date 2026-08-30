@@ -280,23 +280,16 @@ function parseAttachments(raw: unknown): ChatAttachment[] | undefined {
 function parseDeepLink(raw: unknown): DeepLinkTarget | undefined {
   if (raw == null || typeof raw !== "object") return undefined;
   const r = raw as Record<string, unknown>;
-  // The frame's deep_link is `{ target, nonce }`. `target` is the narrator's
-  // milestone/artifact ANCHOR (`run:<id>` / `clarify:<id>` / `deliverable:<file>`
-  // / `spec_revision:<id>:<n>` / a `gate_key`) — it is NOT a panel tab id, so it
-  // is kept as `anchor`. Aliasing it onto `tab` (pre-FIX-128) made the result
-  // card hand PreviewPanel an unknown tab, which that panel's PANEL_TAB_IDS
-  // guard silently dropped — so "Open in Steps"/"Open in Preview" never switched
-  // the tab. `tab` is now populated ONLY by an explicit `tab` field; otherwise the
+  // The frame's deep_link is `{ tab, nonce }`. `tab` is a generic panel tab id
+  // populated ONLY by an explicit `tab` field in the incoming data; otherwise the
   // card kind's generic defaultTab wins. `nonce` coerces to a number (0 if absent
   // or non-numeric — the engine's hex nonce is a card identifier, while the
   // NAVIGATION nonce is minted fresh by useTabDeepLink on click).
-  const anchor = typeof r.target === "string" && r.target ? r.target : undefined;
   const tab = typeof r.tab === "string" && r.tab ? r.tab : undefined;
-  if (!anchor && !tab) return undefined;
+  if (!tab) return undefined;
   const nonceNum = Number(r.nonce);
   return {
     ...(tab ? { tab } : {}),
-    ...(anchor ? { anchor } : {}),
     nonce: Number.isFinite(nonceNum) ? nonceNum : 0,
   };
 }
@@ -404,6 +397,14 @@ function upsertNarratorMessage(
       : mintMessageId();
   const runId = typeof data.run_id === "string" ? data.run_id : undefined;
   const threadId = typeof data.thread_id === "string" ? data.thread_id : undefined;
+  // ISS-607/ISS-612: a narrator card's payload anchors on `pipeline_run_id`
+  // (chat_narrator.project_milestone_card) — a family member's card carries ITS
+  // OWN run id, which is what the card's deep-link has to target once the family
+  // transcript stitches sibling runs' cards into one lane. Without this fallback
+  // `runId` was always undefined on a narrator turn and the card had no run to
+  // point at. `run_id` stays first: it is the chat_message twin's own field.
+  const narratorRunId =
+    runId ?? (typeof data.pipeline_run_id === "string" ? data.pipeline_run_id : undefined);
   // ISS-358: `idx` is resolved BEFORE the message literal so a re-fold (the
   // streaming bubble's terminal chat_reply, a replayed row over a live one) keeps
   // the createdAt already settled on the bubble instead of minting a fresh clock
@@ -417,7 +418,7 @@ function upsertNarratorMessage(
     createdAt: foldedCreatedAt(data, idx >= 0 ? prev[idx].createdAt : undefined),
     cardKind: parseCardKind(data.card_kind),
     deepLink: parseDeepLink(data.deep_link),
-    runId,
+    runId: narratorRunId,
     threadId,
   };
   if (idx >= 0) {

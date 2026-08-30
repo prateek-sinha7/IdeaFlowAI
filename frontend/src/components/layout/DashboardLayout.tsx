@@ -298,7 +298,7 @@ export interface DashboardLayoutProps {
   ) => string;
   // The nonce'd deep-link seam (borrow #6): the lane's result cards call
   // onRequestOpenTab; PreviewPanel consumes deepLinkTarget for all tabs.
-  onRequestOpenTab?: (tab: string) => void;
+  onRequestOpenTab?: (tab: string, agentId?: string, runId?: string) => void;
   deepLinkTarget?: import("@/hooks/useTabDeepLink").TabDeepLinkTarget | null;
   /**
    * T6 (015-frontend-routing, FR-001/FR-003): the screen `parseViewPath`

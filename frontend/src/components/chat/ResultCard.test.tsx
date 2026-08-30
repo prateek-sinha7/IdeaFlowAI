@@ -92,16 +92,21 @@ describe("ResultCard", () => {
     expect(onRequestOpenTab).toHaveBeenCalledWith("audit");
   });
 
-  // FIX-128 regression: the backend's `deep_link.target` anchor ("run:<id>",
-  // "deliverable:<file>", …) is a milestone REFERENCE, not a panel tab id. It must
-  // NOT be handed to the tab seam — PreviewPanel drops unknown tab ids, which is
-  // what broke "Open in Steps" / "Open in Preview". The kind's generic default wins.
-  it("ignores the milestone anchor and opens the kind's default tab (FIX-128)", () => {
+  // FIX-128 regression: the backend's `deep_link.target` ("run:<id>",
+  // "deliverable:<file>", …) is a milestone REFERENCE, not a panel tab id, and must
+  // never reach the tab seam — PreviewPanel drops unknown tab ids, which is what
+  // broke "Open in Steps" / "Open in Preview". ISS-614 removed the `anchor` field
+  // that used to carry it, so a narrator frame with only a `target` now parses to a
+  // descriptor with NO tab at all (useRunChat.parseDeepLink) — which is what these
+  // fixtures represent. The guarantee under test is unchanged: a descriptor that
+  // names no tab falls back to the card kind's generic default, never to something
+  // derived from the milestone reference.
+  it("falls back to the kind's default tab when the descriptor names none (FIX-128)", () => {
     const onSteps = vi.fn();
     const { unmount } = render(
       <ResultCard
         message={narrator("pipeline", {
-          deepLink: { anchor: "run:93f7ca84-9f63-4d8a-90cf-8fbe8163d4b2", nonce: 0 },
+          deepLink: { nonce: 0 },
         })}
         onRequestOpenTab={onSteps}
       />,
@@ -118,7 +123,7 @@ describe("ResultCard", () => {
     render(
       <ResultCard
         message={narrator("deliverable", {
-          deepLink: { anchor: "deliverable:index.html", nonce: 0 },
+          deepLink: { nonce: 0 },
         })}
         onRequestOpenTab={onPreview}
       />,

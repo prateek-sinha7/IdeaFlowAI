@@ -10941,3 +10941,313 @@ phantom (per the validator's 3/3 cold-start cycles). After screenshot:
 `bug-hunter/evidence/preview-fullscreen/BUG-20260828-105300-preview-fullscreen-r2/03-after-fix-explorer.png`.
 
 Test green AND manual repro clean. Closing.
+
+## BUG-20260829-135100-runs-id-versions — Steps tab's pipeline summary and agent list render identical, version-independent data for every version URL in a run family, matching neither version's real record
+
+- **Page:** Run detail pinned to an artifact version — Steps tab
+- **Route:** `/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/1/steps` and
+  `/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/2/steps` (verified genuine 2-member
+  family via `GET /api/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/family`: v1 = root
+  `77f74563-fa19-4f0b-84fd-d0224f89a54a`, v2 = revision `ef86e750-bbcd-404f-855a-fb0d5bee63f5`)
+- **Severity:** High
+- **Status:** CLOSED
+- **Verified (2026-08-29, verifier lane4):** ran
+  `tests/integration/e2e/suites/21_run_families_and_versions/test_iss_606_609_version_pin_ignored_by_agent_data.py`
+  — both tests XPASS(strict) confirmed observed, xfail markers removed, re-run plain GREEN (2
+  passed). Regression file `test_iss_230_version_pin_survives_tab_switch.py`: 4 passed / 1
+  failed (`test_the_files_tab_shows_the_pinned_versions_own_deliverable`), independently
+  reproduced identical at HEAD 78e4500a3 with the fix stashed out — confirmed pre-existing
+  (ISS-613), not caused by this change. Manual re-run of the ORIGINAL repro in the browser
+  (qa-admin, cold `page.goto` to both `/versions/1/steps` and `/versions/2/steps`): v1 now shows
+  "5 / 5 agents · 52m 44s · 8.6M tokens" (Spec Writer/Task Planner/Spec Kit Analyzer/
+  Implementation/Validation Agent), v2 now shows "2 / 2 agents · 6m 11s · 2.4M tokens"
+  (Revision Specialist/Revision Validation Agent) — no longer byte-identical, each matches its
+  own ground-truth record. 0 new console errors. `npx tsc --noEmit`: 0 errors in
+  PreviewPanel.tsx (3 pre-existing unrelated test-file errors untouched). `npm run build`:
+  succeeds. `lint-imports` (from backend/): 1 pre-existing broken contract
+  (kernel/app.api), unrelated to this frontend-only change. `validate_links.py`: 13453/13453
+  resolved, 0 broken.
+- **Fixer (2026-08-29):** fixed at the PreviewPanel chokepoint the cards named —
+  `versionViewFrom()` projects the already-fetched pinned run record into
+  agents/pipelineState/agentOutputs, and `effAgents`/`effPipelineState`/`effAgentOutputs`
+  now feed all six raw-prop mounts (Steps :1422-1429, Files agentOutputs :1394, Audit
+  workflowRunId :1466, AppBuilderIDEPreview :1085, GenericDeliverablePreview :1160/:1186,
+  agentNameById :773-776). One file changed:
+  `frontend/src/components/preview/PreviewPanel.tsx` (+111/-17). Fix card
+  [FIX-411](../.knowledge/cards/20260829-1646-FIX-411.md); ISS-606/608/609 set resolved.
+  Tests: `test_iss_606_609_version_pin_ignored_by_agent_data.py` — both tests
+  XPASS(strict) (the pass signal; xfail markers left for 6-verifier). Regression:
+  `test_iss_230_version_pin_survives_tab_switch.py` 4 passed / 1 failed, the failure
+  reproduced identically with the pre-change file restored from HEAD 78e4500a3 —
+  stale byte-size constants, recorded as
+  [ISS-613](../.knowledge/cards/20260829-1647-ISS-613.md). Frontend unit: 56 passed
+  across 7 PreviewPanel test files; tsc clean on the changed file.
+- **Test-writer (2026-08-29):** wrote and ran red tests for ISS-606 and ISS-609 in
+  `tests/integration/e2e/suites/21_run_families_and_versions/test_iss_606_609_version_pin_ignored_by_agent_data.py`
+  (same `77f74563-.../ef86e750-...` family, `@pytest.mark.issue`+`xfail(strict=True)`).
+  `test_steps_tab_shows_the_pinned_versions_own_agent_count` (ISS-606): pinned `/versions/2/steps`
+  shows `5 / 5 agents` (root's count) instead of v2's own `2 / 2` — observed red, right reason.
+  `test_audit_tab_fetches_the_pinned_versions_own_run_id` (ISS-609): pinned `/versions/2/audit`
+  only ever fetches `gate-events`/`validation-results`/`exec-runs`/`hook-runs` for the ROOT run id,
+  never for the pinned `ef86e750-...` — observed red, right reason (raw network-request capture).
+  **ISS-608 has no test.** Genuinely could not be staged: this dataset has zero `app_builder`
+  runs at all (`AppBuilderIDEPreview` never mounts), and the one 2-member family with differing
+  agent rosters (this bug's own) is a `prototype`-type run — `PrototypePreview` never receives
+  `agentOutputs` (see `FIRST_PARTY_RENDERERS` in `PreviewPanel.tsx:1078-1094`, `GenericDeliverablePreview`
+  is not reached), and its Workspace tab shows "Workspace expired" (no files to compare
+  agent-name labels against). No fixture exists to observe ISS-608 fail for its own reason;
+  fabricating a live run for this was out of scope. Card left `verification.status: passed`
+  (manual) — the fixer should stage this live if it needs its own red test before FIXING.
+- **Validated:** 3/3 on 2026-08-29, every cycle — cold `page.goto` to /versions/1/steps and
+  /versions/2/steps rendered byte-identical Steps content ("5 / 5 agents · 1m 32s") on all
+  three cycles; no narrowing needed. Root cause: PreviewPanel.tsx:1422-1429 (AgentThinkingTab)
+  and :1394 (FilesTab agentOutputs) consume the raw `agents`/`pipelineState`/`agentOutputs`
+  props, never a version-derived override.
+- **Root cause:** CONFIRMED — `frontend/src/components/preview/PreviewPanel.tsx`'s version-pin
+  override (`viewingVersion` state at line 525, `overrideActive`/`overrideContent` at 654-655)
+  computes `effUserStoryContent`/`effPptContent`/`effPrototypeContent` (656-658) for the
+  deliverable CONTENT only. It never computes an equivalent override for the pipeline/agent
+  data, so `AgentThinkingTab` (1422-1429, `agents`+`pipelineState`) and `FilesTab`'s
+  `agentOutputs=` (1394) render whatever the live/root run's data was at mount time, for every
+  `/versions/{v}` URL in the family, permanently. Read directly at those line numbers; not
+  inferred.
+- **Blast radius:** grepped every mount of `<PreviewPanel` (`frontend/src`, one call site:
+  `DashboardLayout.tsx:3140-3154`) — all fan-out is internal to `PreviewPanel.tsx`, no second
+  implementation elsewhere. Within the file, raw (non-version-aware) `agents`/`pipelineState`/
+  `agentOutputs` reach: `AgentThinkingTab` (Steps tab, 1422-1429) and `FilesTab`'s
+  `agentOutputs=` (1394) — both already covered by [ISS-606](../.knowledge/cards/20260829-1412-ISS-606.md);
+  `AuditTab`'s `workflowRunId={pipelineState?.pipelineRunId}` (1466, should be `activeRunId`) —
+  new, [ISS-609](../.knowledge/cards/20260829-1420-ISS-609.md); and the Preview tab's
+  `AppBuilderIDEPreview`/`GenericDeliverablePreview` (`agentOutputs=` at 1085/1160/1186) plus
+  the Workspace tab's `agentNameById` (773-776, consumed at `SandboxTab.tsx:1047`) — new,
+  [ISS-608](../.knowledge/cards/20260829-1421-ISS-608.md). `workspaceRunId` (753) and
+  `activeRunId` (551) are already correctly version-pin-aware — not part of the blast radius.
+- **Proposed fix:** extend the SAME override pattern already used for content — compute
+  `effAgents`/`effPipelineState`/`effAgentOutputs` (and/or a shared `effRunId`) once inside
+  `PreviewPanel.tsx`, next to `effUserStoryContent` et al. (654-658), sourced from the pinned
+  member's full run record (the `getWorkflow()` fetch at 585/624 currently keeps only
+  `run.output` — it needs to retain `agents`/`agent_outputs`/`pipeline_run_id` too). Thread
+  those into every consumer named above. One chokepoint, matching
+  [FIX-334](../.knowledge/cards/20260828-2149-FIX-334.md)'s own precedent (fixed at the
+  PreviewPanel mount site, not inside each child tab) and its locked_constraint "every content
+  prop a pinned-version-aware surface consumes is the eff* value, never the raw live/root prop."
+- **Issue cards:** [ISS-606](../.knowledge/cards/20260829-1412-ISS-606.md) (root),
+  [ISS-608](../.knowledge/cards/20260829-1421-ISS-608.md) (sibling: Preview tab
+  AppBuilderIDEPreview/GenericDeliverablePreview + Workspace tab agentNameById, INFERRED),
+  [ISS-609](../.knowledge/cards/20260829-1420-ISS-609.md) (sibling: Audit tab self-fetches with
+  the live runId, INFERRED)
+- **Found at:** 2026-08-29 13:51 UTC
+- **Found by:** bug-runs-id-versions (user-reported)
+- **Fingerprint:** `/runs/[id]/versions/[n]/steps|steps-tab-agent-list|cold-navigate-to-a-pinned-version-url|content-identical-across-versions-not-derived-from-either-versions-run-record`
+- **Evidence:** `bug-hunter/evidence/runs-id-versions/BUG-20260829-135100-runs-id-versions/`
+
+### Summary
+This is the user-reported symptom "all previous versions show the latest version's runned
+agents and files in the Steps tab" — investigated and confirmed as a genuine, previously
+undocumented mechanism, distinct from every related item already on record:
+- **Not** `BUG-20260828-090732-runs-id-versions` (CLOSED) — that bug was about the version pin
+  being *dropped* by clicking a tab (URL/network reverting to v1). Here the URL is correct on
+  a cold navigation and the network layer genuinely fetches the pinned run
+  (`GET /api/runs/ef86e750-...` confirmed in the network log), yet the rendered Steps content
+  still does not change.
+- **Not** `ISS-386` (still open) — that card is specifically about `routes.runStepsAgent`
+  lacking a `version` parameter for *deep-linking to one agent's own detail pane*
+  (`/runs/{id}/versions/{v}/steps/{agentId}`). This bug is about the Steps tab's *top-level
+  pipeline summary and agent list* (no `agentId` in the URL at all) rendering the same content
+  regardless of which version is pinned.
+- **Not** `BUG-20260828-020900-runs-id-versions` (DUPLICATE) — that was the version-picker
+  *label* being stuck on "Version v1" while correct v2 content rendered underneath. Here the
+  picker label is correct ("Version v2" shown when on `/versions/2`), but the content beneath
+  it does not correspond to v2 (or to v1 either).
+
+Cold-navigating directly to `/versions/1/steps` and separately to `/versions/2/steps` (two
+full `page.goto` loads, not a tab click) renders byte-identical Steps content both times: "Run
+complete · 5 / 5 agents · 1m 32s", the same five agent names with the same per-agent durations
+and token counts (Spec Writer Agent 2m 43s · 39.9K tok, Task Planner Agent 3m 5s · 55.4K tok,
+Spec Kit Analyzer 1m 14s · 44.3K tok, Implementation Agent 2m 6s · 1.8M tok, Validation Agent
+1m 31s · 1.5M tok), and the same footer ("TOKEN USAGE 3.5M total · 3.4M input · 63.2K output").
+Direct API calls confirm the two real run records differ sharply: root/v1
+(`77f74563-...`) has `agent_count: 5`, `duration: 3164.1s`, `token_usage.total_tokens:
+8,567,417`; the revision/v2 (`ef86e750-...`) has `agent_count: 2`, `duration: 371s`,
+`token_usage.total_tokens: 2,388,072`. The Steps tab's displayed total (1m 32s) matches
+*neither* record, and the displayed content is identical between the two version URLs — so the
+Steps tab is not reading from either version's own run data at all, even though the network
+layer does fetch the pinned run's record on the wire.
+
+### Reproduction
+1. Sign in as qa-admin, confirm the family: `GET /api/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/family`
+   returns two members (v1 root, v2 revision `ef86e750-bbcd-404f-855a-fb0d5bee63f5`).
+2. Navigate (full `page.goto`, cold load) to
+   `http://localhost:3000/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/1/steps`. Record
+   the Steps tab's "Run complete" summary line and each agent row's duration/token label.
+3. Navigate (full `page.goto`, cold load) to
+   `http://localhost:3000/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/2/steps`. Record
+   the same fields.
+4. Compare: the two are byte-identical (same total, same 5 agent rows, same durations/tokens),
+   despite the version-picker header correctly reading "Version v1" on the first load and
+   "Version v2" on the second.
+5. Cross-check with `GET /api/runs/77f74563-...` and `GET /api/runs/ef86e750-...` directly:
+   `agent_count`/`duration`/`token_usage` differ sharply between the two real records (5 agents/
+   3164.1s/8.57M tokens vs. 2 agents/371s/2.39M tokens) and neither matches the UI's displayed
+   "5 / 5 agents · 1m 32s · 3.5M total".
+6. Confirm via the network log that `GET /api/runs/ef86e750-bbcd-404f-855a-fb0d5bee63f5` IS
+   issued on the cold load of `/versions/2/steps` — the pinned run's data is fetched over the
+   wire, it simply never reaches what the Steps tab renders.
+
+### Expected
+The Steps tab's pipeline summary and agent list should reflect the specific version pinned by
+the URL — matching the same version-aware data the Files tab now correctly shows (per
+FIX-334/FIX-328), i.e. v1's steps view should show v1's own 5-agent/3164s run, and v2's should
+show v2's own 2-agent/371s run.
+
+### Actual
+Both version URLs render identical Steps content that matches neither version's real
+`agent_count`, `duration`, or `token_usage`, even though the correct run record for the pinned
+version is confirmed fetched over the network.
+
+### Evidence
+- `/versions/2/steps`, header correctly reads "Version v2": `bug-hunter/evidence/runs-id-versions/BUG-20260829-135100-runs-id-versions/01-v2-steps-header-says-v2.png`
+- `/versions/1/steps`, identical agent list/durations/tokens despite different version: `bug-hunter/evidence/runs-id-versions/BUG-20260829-135100-runs-id-versions/02-v1-steps-identical-content.png`
+- API ground-truth vs. UI comparison: `bug-hunter/evidence/runs-id-versions/BUG-20260829-135100-runs-id-versions/network.log`
+
+### Browser Signals
+- Console: none observed (0 errors on both loads)
+- Network: `GET /api/runs/ef86e750-bbcd-404f-855a-fb0d5bee63f5` (the pinned v2 run) is issued
+  and returns 200 on cold-load of `/versions/2/steps` — the fetch is correct, the render is not.
+- State/URL: URL correctly retains `/versions/{n}/steps` on both loads; version-picker label is
+  correct on both loads. Only the Steps body content is wrong/unchanging.
+
+### Second independent confirmation + correction (orchestrator, 2026-08-29 15:54 CEST)
+
+A second hunter reproduced this independently on the same family and deduped against this
+entry under lock rather than filing a twin. Its findings SHARPEN this entry — read them
+before analyzing:
+
+- **Root cause, pinned to the seam:** `PreviewPanel.tsx`'s `viewingVersion`/`pinnedVersion`
+  override only swaps `effUserStoryContent` / `effPptContent` / `effPrototypeContent` (the
+  Preview tab's deliverable content). It never swaps the top-level `agentOutputs` /
+  `pipelineState` props — and BOTH the Steps tab and `FilesTab`'s "Agent outputs" section
+  consume those. So both surfaces render the root run's agent data regardless of the pin.
+
+- **CORRECTION to this entry's Expected section.** It states the Files tab "now correctly
+  shows" version-aware data per FIX-334/FIX-328. **That is not true for the per-agent
+  "Agent outputs" markdown list.** Only the top-level "Final output" deliverable size is
+  version-aware; the 5-file markdown list is not. Directly observed. The analyzer must
+  check the Files tab's Agent-outputs section too, not only Steps — they share the same
+  unfixed `agentOutputs` prop.
+
+- **Blast radius to check:** the Audit tab under a version pin is suspected same-class but
+  was not independently isolated. Also unclear whether the Download button being disabled
+  while pinned is an intended gate or a fourth instance.
+
+- **ISS-386 is NOT this bug and has zero production callers.** Clicking an agent row expands
+  it inline and builds no URL at all, which confirms ISS-386's own "zero callers" finding.
+  Do not fold ISS-386 into this fix; it is a real but currently inert route-builder gap.
+
+- Family verified via `GET /api/runs/<id>/family`: v1 root (5 unique agents / 17 raw entries),
+  v2 revision `ef86e750-bbcd-404f-855a-fb0d5bee63f5` (2 agents).
+
+## BUG-20260829-140111-runs-id-steps-agent — Version picker and chat "Answer/Open in Steps" links silently fail to switch to a revision when starting from the base (unversioned) Steps route — the revision's own agent step (e.g. "Backlog Revision Agent") becomes unreachable, which is what a user experiences as "the revision agent shows no input/output/context at all"
+
+- **Page:** Run detail — Steps tab
+- **Route:** /runs/{rootRunId}/steps (base, unversioned route on a run that has a completed revision)
+- **Severity:** High
+- **Status:** CLOSED
+- **Validated:** 3/3 on 2026-08-29, cycle 1 — no narrowing needed; reproduced via both the version-picker "Version v2" option and the chat "Answer in Steps" link, cold nav each time
+- **Verified:** 2026-08-30 (lane3, real Chrome via MCP). Test file
+  `tests/integration/e2e/suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py`
+  run standalone: 4 passed + 1 xfailed (exit 0). `xfail` markers removed from the 4 XPASS
+  tests (ISS-607 x2, ISS-610, ISS-612); ISS-611's marker left in place per FIX-412 (its
+  `not fetched_root_instead` assertion is a documented separate defect, ISS-615). Manual
+  repro re-run from the ROOT run's base route (`636ff908-21d6-4c3a-9f00-0ea4f08060fc`):
+  version picker's "Version v2" now navigates to `/versions/2/steps` and renders "Backlog
+  Revision Agent" with populated Reasoning/Full input prompt (15,473 chars)/Agent output
+  (12.2k chars)/Context received (1 source); chat's "Answer in Steps" on "Revision started"
+  also navigates to `/versions/2/steps` with the same content. "Back to latest →" from a
+  pinned `/versions/2/steps` on the 5-member family (`b868a6b6-...`) lands on
+  `/versions/5/steps` — the true latest, not the root — confirming ISS-611 is not
+  regressed. Zero console errors/warnings throughout. `npx tsc --noEmit`: only the 4
+  pre-existing errors already documented in FIX-412/prior fixes, none new.
+  `eslint` on the 7 changed files: 2 pre-existing errors (DashboardLayout.tsx:969, :1751),
+  identical to the ones FIX-352 already logged as pre-existing/untouched — no new errors.
+  `vitest` regression spot-checks: RunHeader.test.tsx 8/8 passed,
+  PreviewPanel.switcher.test.tsx 5/5 passed. Backend `lint-imports` shows one pre-existing
+  broken contract (`kernel imports only capability ports`) unrelated to this frontend-only
+  fix — not introduced here, not this bug's to fix.
+- **Tested:** 2026-08-29 — one file, `tests/integration/e2e/suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py`, 5 tests covering all 4 cards (ISS-607 x2, ISS-610, ISS-611, ISS-612), each `@pytest.mark.xfail(strict=True)`; all 5 observed red for the documented reason (no navigation / no request for the revision's own run id / root's data shown instead of the true latest) — `.venv/bin/python -m pytest suites/21_run_families_and_versions/test_iss_607_610_611_612_base_route_revision_unreachable.py -q`. ISS-611 needed a different, pre-existing 5-member family (root `b868a6b6-...` / latest `8ab0ca9e-...`) since the ISS-607 2-member fixture has no middle version to pin to.
+- **Fixed:** 2026-08-29 — [FIX-412](../.knowledge/cards/20260829-1703-FIX-412.md). `handleSelectVersion` (PreviewPanel.tsx:665-698) now keys its back-to-live shortcut on the new `unpinnedRunId` (`liveRunId ?? latestId`) instead of `latestId`, so picking the newest member from a base route writes a real `/versions/N` pin; `handleBackToLatest` routes through that same chokepoint with `latestId`; the merged deep-link effect (PreviewPanel.tsx:952-970) hands a narrator card's own run id to it; `useTabDeepLink.requestOpenTab` gained a `runId` arg, MessageBubble binds `message.runId`, and `useRunChat.upsertNarratorMessage` falls back to the payload's `pipeline_run_id`. 4/5 e2e tests XPASS(strict); ISS-611's still xfails on its SECOND assertion only (`not fetched_root_instead`) — a bare `GET /api/runs/{rootId}` fires on ANY pin change because the root stays in the URL base segment, so that assertion is unsatisfiable under the current addressing contract; test left unedited, see [ISS-615](../.knowledge/cards/20260829-1705-ISS-615.md). Deferred: [ISS-614](../.knowledge/cards/20260829-1704-ISS-614.md) (`DeepLinkTarget.anchor` still has zero readers — it is a filename, not a run id, for deliverable cards).
+- **Root cause:** PreviewPanel.tsx:577-582 `handleSelectVersion` treats the newest family member as `memberId === latestId` and passes `null` for the version pin, so `DashboardLayout.tsx:501`'s pushState guard sees `targetRoute === window.location.pathname` and never navigates (CONFIRMED, re-read this pass); `ResultCard.tsx`'s `onRequestOpenTab(tab)` (lines 164/175/207) carries no run-id parameter at all, and the run id it would need (`message.deepLink.anchor`, `run:<id>`) is already parsed end-to-end by `useRunChat.parseDeepLink` (`useRunChat.ts:280-299`) and `types/index.ts:75-90` but has zero readers anywhere in `frontend/src/` (CONFIRMED by exhaustive grep this pass)
+- **Blast radius:** both broken functions are already single chokepoints, not many callers — `handleSelectVersion`/`handleBackToLatest` (`PreviewPanel.tsx:570-600`) are the only version-picker logic app-wide (one `RunHeader` mount, one `PreviewPanel` mount at `DashboardLayout.tsx:3127`); `useTabDeepLink.requestOpenTab` (one consumer, `page.tsx:3933`) is the only chat deep-link seam app-wide. The fix belongs in those two places, not per-caller. Three concrete siblings the same mechanisms imply (all INFERRED, not yet independently browser-reproduced): (1) the picker no-op reproduces on every tab, not just Steps, since `handleSelectVersion` reads `activeTab` generically — [ISS-610](../.knowledge/cards/20260829-1631-ISS-610.md); (2) from a pinned OLDER (non-latest) version, "Back to latest →" silently opens the family ROOT instead of the true latest revision, because the null-pin path resolves `activeRunId` to `liveRunId` (the root), not `latestId` — a wrong destination, not just a no-op — [ISS-611](../.knowledge/cards/20260829-1631-ISS-611.md); (3) the chat deep-link's missing run-id parameter is structural to the whole seam, not specific to the "Revision started" card kind — any narrator card whose milestone belongs to a different family member (e.g. a `deliverable` card for the revision's own completion, shown in the shared family transcript) hits the identical no-op — [ISS-612](../.knowledge/cards/20260829-1631-ISS-612.md)
+- **Proposed fix:** in `handleSelectVersion`/`handleBackToLatest`, stop equating "clicked/target member is `latestId`" with "already viewing it live" — resolve the back-to-latest shortcut against `latestId` explicitly instead of assuming `liveRunId === latestId` (true only when the mount's own URL already names the latest member). For the chat deep-link, extend `useTabDeepLink.requestOpenTab(tab, agentId?)` to also carry the already-parsed `anchor`/run id through to `page.tsx`'s one consumer, which should reuse `handlePreviewPanelTabSelect`'s existing pin-and-navigate logic rather than duplicating route-building.
+- **Found at:** 2026-08-29 14:01 UTC
+- **Found by:** bug-runs-id-steps-agent (page hunter, user-reported assignment)
+- **Fingerprint:** `/runs/[id]/steps|version-picker+chat-revision-link|select-non-root-version-from-unversioned-steps-url|silent-no-op-no-navigation-no-content-change`
+- **Evidence:** `bug-hunter/evidence/runs-id-steps-agent/BUG-20260829-140111-runs-id-steps-agent/`
+
+### Summary
+Investigated a user report that "User story Revision Agent doesn't show any input, output data and context received at all." No completed `user_stories_revision` fixture existed, so I launched one live run (`636ff908-21d6-4c3a-9f00-0ea4f08060fc`, base user-stories run) and revised it via the chat follow-up, producing a completed `user_stories_revision` run (`2ac66bbd-8d76-4d59-9580-a29b1a4f6e74`, "Backlog Revision Agent" step). Loaded **directly** on the revision's own run id, `/runs/2ac66bbd.../steps`, the "Backlog Revision Agent" detail pane renders correctly — Reasoning, Full input prompt (15,473 chars), Agent output (12.2k chars), and Context received (1 source, prompt.md) all populate normally. The originally reported symptom does **not** reproduce via that path.
+
+However, the natural path a user actually takes — staying on the **root/base** run's Steps URL (`/runs/636ff908.../steps`, what "Back to history" and every run-card link land on) and then trying to reach the revision from there — is broken. Neither of the two UI affordances built for exactly this purpose works:
+1. The version picker ("Version v1, choose version" button/listbox) — selecting the "Version v2" option is a complete no-op: no URL change, no re-render, no error. The pane keeps showing v1's 7 base agents (Documentation Agent, Domain Discovery Agent, etc.), never the revision's "Backlog Revision Agent".
+2. The chat transcript's "Answer in Steps" link on the "Revision started" entry — same result: click registers (no exception, no console error), but URL and content are both unchanged.
+
+Because the revision's agent never becomes visible through either normal-user path, the user's perception exactly matches the report: they never actually reach an agent panel populated with the revision's data — from their point of view, "the Revision Agent" (whichever agent they expect to see) shows nothing, because the app is silently still showing v1's unrelated agents/URL/content with zero indication that their selection failed.
+
+This is distinct from the two related, already-CLOSED bugs about the version picker: BUG-20260828-090732-runs-id-versions (fixed) covered losing an *already-established* `/versions/N` pin when switching tabs, and BUG-20260828-020900-runs-id-versions (duplicate of the same, now-fixed root cause) covered the picker's *label* being wrong while `/versions/N` content was already correctly displayed. Both of those bugs' repros start from a URL that already has `/versions/N` in it. Mine starts from the plain unversioned `/steps` URL — the actual entry point for a normal user — and the version switch never happens at all, so the fix that resolved those two closed bugs (FIX-328/FIX-334, `handleSelectVersion`) does not cover this starting state.
+
+### Reproduction
+1. Sign in as qa-admin. On a user-stories run with a completed revision (used the live pair
+   `636ff908-21d6-4c3a-9f00-0ea4f08060fc` root / `2ac66bbd-8d76-4d59-9580-a29b1a4f6e74` v2 revision;
+   `.../family` confirms v1 root 7 agents, v2 revision 1 agent "Backlog Revision Agent"),
+   `page.goto` fresh to `http://localhost:3000/runs/636ff908-21d6-4c3a-9f00-0ea4f08060fc/steps`
+   (the base, unversioned URL — what "Back to history" and the run-card link both produce).
+   Confirm the picker button reads "Version v1" and the pane shows the 7 base agents.
+2. Click the "Version v1, choose version" button to open the listbox, then click the "Version v2"
+   option. Observe: `window.location.href` is unchanged (still `.../steps`, no `/versions/2`
+   segment), the picker button still reads "Version v1", and the agent list is still the same 7
+   base agents — no "Backlog Revision Agent" row appears anywhere.
+3. Reload fresh to the same base URL again. In the chat transcript, find the "Revision started"
+   entry and click its "Answer in Steps" link. Observe the identical failure: URL stays at
+   `.../steps`, content stays on v1's 7 agents, no console error, no network request for the
+   revision's own run id fires.
+4. For contrast, `page.goto` directly to the revision's OWN run id,
+   `http://localhost:3000/runs/2ac66bbd-8d76-4d59-9580-a29b1a4f6e74/steps`, and click into
+   "Backlog Revision Agent" — Reasoning/Full input prompt/Agent output/Context received all
+   render correctly (see evidence 02). This confirms the revision's own data and the
+   `AgentDetailPanel` rendering logic are fine; the defect is purely in reaching it from the
+   root run's base Steps route.
+
+### Expected
+From the root run's base Steps URL, both the version picker's "Version v2" option and the chat's
+"Answer in Steps" link on the "Revision started" entry should navigate to (or otherwise render)
+the revision's own Steps content — including its distinct agent list (e.g. "Backlog Revision
+Agent") — matching what a direct `page.goto` to the revision's own run id already shows
+correctly.
+
+### Actual
+Both affordances are silent no-ops from the base route: no URL change, no content change, no
+error of any kind. The revision's agent list and its populated Input/Output/Context Received
+panels are only reachable by knowing and directly navigating to the revision's own run id — which
+no visible UI control exposes from the base Steps view. A user following the app's own "answer
+in steps" / "switch version" prompts never sees the revision agent's data at all.
+
+### Evidence
+- Base v1, working detail panel for contrast: `bug-hunter/evidence/runs-id-steps-agent/BUG-20260829-140111-runs-id-steps-agent/01-base-v1-documentation-agent-detail.png`
+- Revision's own URL, working detail panel (proves the panel/data are fine in isolation): `bug-hunter/evidence/runs-id-steps-agent/BUG-20260829-140111-runs-id-steps-agent/02-revision-own-url-backlog-revision-agent-detail.png`
+- Before (base route, picker shows v1): `bug-hunter/evidence/runs-id-steps-agent/BUG-20260829-140111-runs-id-steps-agent/03-before-picker-shows-v1.png`
+- Failure 1 (after clicking "Version v2" in the picker, still v1): `bug-hunter/evidence/runs-id-steps-agent/BUG-20260829-140111-runs-id-steps-agent/04-failure-after-clicking-v2-still-shows-v1.png`
+- Failure 2 (after clicking chat's "Answer in Steps" on Revision started, still v1): `bug-hunter/evidence/runs-id-steps-agent/BUG-20260829-140111-runs-id-steps-agent/05-failure-after-answer-in-steps-still-v1.png`
+
+### Browser Signals
+- Console: 0 errors, 0 warnings on either failed click.
+- Network: no request for the revision run id (`2ac66bbd-...`) fires after either the picker
+  click or the "Answer in Steps" click; the page continues serving whatever it already had
+  cached for the root run id.
+- State/URL: `window.location.href` verified unchanged after both trigger attempts (stays
+  `/runs/636ff908-21d6-4c3a-9f00-0ea4f08060fc/steps`), confirming genuine navigation failure,
+  not a render race.
+
+- **Issue cards:** [ISS-607](../.knowledge/cards/20260829-1450-ISS-607.md) (root),
+  [ISS-610](../.knowledge/cards/20260829-1631-ISS-610.md) (sibling: no-op reproduces on every tab, not just Steps),
+  [ISS-611](../.knowledge/cards/20260829-1631-ISS-611.md) (sibling: "Back to latest" from a pinned older version opens the ROOT run, not the true latest),
+  [ISS-612](../.knowledge/cards/20260829-1631-ISS-612.md) (sibling: chat deep-link carries no run id for ANY card kind, not just "Revision started")

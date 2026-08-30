@@ -29,7 +29,7 @@ export interface ChatPanelProps {
   messageMode?: ChatMode;
   processSteps?: ProcessStep[];
   /** The nonce'd deep-link seam a narrator ResultCard fires (borrow #6). */
-  onRequestOpenTab?: (tab: string) => void;
+  onRequestOpenTab?: (tab: string, agentId?: string, runId?: string) => void;
   /** Plan-01 agent event stream per assistant turn id — renders the block strip. */
   eventsByMessageId?: Record<string, AgentEvent[]>;
   /** Suppress the built-in ChatInput so the run lane can supply its own unified

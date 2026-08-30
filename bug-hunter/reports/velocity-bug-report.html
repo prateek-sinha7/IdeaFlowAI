@@ -66,12 +66,12 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 </style></head><body><div class="wrap">
 <header>
 <h1>Velocity — Autonomous Bug Hunt</h1>
-<div class="sub">92 reproducible defects across 55 application pages · generated 2026-08-28 11:27 UTC</div>
+<div class="sub">94 reproducible defects across 55 application pages · generated 2026-08-29 14:08 UTC</div>
 </header>
 
 <div class="stats">
-<div class="stat"><div class="n">92</div><div class="l">Total bugs</div></div>
-<div class="stat"><div class="n high">21</div><div class="l">High</div></div>
+<div class="stat"><div class="n">94</div><div class="l">Total bugs</div></div>
+<div class="stat"><div class="n high">23</div><div class="l">High</div></div>
 <div class="stat"><div class="n med">50</div><div class="l">Medium</div></div>
 <div class="stat"><div class="n low">21</div><div class="l">Low</div></div>
 <div class="stat"><div class="n">55</div><div class="l">Pages tested</div></div>
@@ -84,7 +84,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <li><b>Figures that disagree across surfaces</b> — token totals, agent counts and timestamps differ between list, detail, footer and API.</li>
 <li><b>Unsanitised params reaching the router</b> — <code>?mode=../admin</code> escapes its namespace onto the live admin console.</li>
 </ul>
-<h3 style="margin-top:20px">Bugs by area</h3><div class="bars"><div class="bar"><span class="nm">/runs</span><span class="t" style="width:100%"></span><span class="c">24</span></div><div class="bar"><span class="nm">/create</span><span class="t" style="width:54%"></span><span class="c">13</span></div><div class="bar"><span class="nm">/workflows</span><span class="t" style="width:54%"></span><span class="c">13</span></div><div class="bar"><span class="nm">/library</span><span class="t" style="width:42%"></span><span class="c">10</span></div><div class="bar"><span class="nm">/settings</span><span class="t" style="width:38%"></span><span class="c">9</span></div><div class="bar"><span class="nm">/workflow</span><span class="t" style="width:21%"></span><span class="c">5</span></div><div class="bar"><span class="nm">/login</span><span class="t" style="width:17%"></span><span class="c">4</span></div><div class="bar"><span class="nm">/handoff</span><span class="t" style="width:12%"></span><span class="c">3</span></div><div class="bar"><span class="nm">/preview-fullscreen</span><span class="t" style="width:12%"></span><span class="c">3</span></div><div class="bar"><span class="nm">/analytics</span><span class="t" style="width:8%"></span><span class="c">2</span></div><div class="bar"><span class="nm">/admin</span><span class="t" style="width:8%"></span><span class="c">2</span></div><div class="bar"><span class="nm">/library, </span><span class="t" style="width:4%"></span><span class="c">1</span></div><div class="bar"><span class="nm">/register</span><span class="t" style="width:4%"></span><span class="c">1</span></div><div class="bar"><span class="nm">/(root)</span><span class="t" style="width:4%"></span><span class="c">1</span></div><div class="bar"><span class="nm">/dashboard</span><span class="t" style="width:4%"></span><span class="c">1</span></div></div>
+<h3 style="margin-top:20px">Bugs by area</h3><div class="bars"><div class="bar"><span class="nm">/runs</span><span class="t" style="width:100%"></span><span class="c">26</span></div><div class="bar"><span class="nm">/create</span><span class="t" style="width:50%"></span><span class="c">13</span></div><div class="bar"><span class="nm">/workflows</span><span class="t" style="width:50%"></span><span class="c">13</span></div><div class="bar"><span class="nm">/library</span><span class="t" style="width:38%"></span><span class="c">10</span></div><div class="bar"><span class="nm">/settings</span><span class="t" style="width:35%"></span><span class="c">9</span></div><div class="bar"><span class="nm">/workflow</span><span class="t" style="width:19%"></span><span class="c">5</span></div><div class="bar"><span class="nm">/login</span><span class="t" style="width:15%"></span><span class="c">4</span></div><div class="bar"><span class="nm">/handoff</span><span class="t" style="width:12%"></span><span class="c">3</span></div><div class="bar"><span class="nm">/preview-fullscreen</span><span class="t" style="width:12%"></span><span class="c">3</span></div><div class="bar"><span class="nm">/analytics</span><span class="t" style="width:8%"></span><span class="c">2</span></div><div class="bar"><span class="nm">/admin</span><span class="t" style="width:8%"></span><span class="c">2</span></div><div class="bar"><span class="nm">/library, </span><span class="t" style="width:4%"></span><span class="c">1</span></div><div class="bar"><span class="nm">/register</span><span class="t" style="width:4%"></span><span class="c">1</span></div><div class="bar"><span class="nm">/(root)</span><span class="t" style="width:4%"></span><span class="c">1</span></div><div class="bar"><span class="nm">/dashboard</span><span class="t" style="width:4%"></span><span class="c">1</span></div></div>
 </div>
 
 <div class="controls">
@@ -612,6 +612,9 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <li>State/URL: URL stays on <code>/runs/{id}/files</code> throughout; reproduces identically on both the</li>
 </ul>
 <p>initial load and a completely fresh reload, so this is deterministic, not a race.</p>
+<ul>
+<li><b>Issue card:</b> [ISS-199](../.knowledge/cards/20260828-1600-ISS-199.md)</li>
+</ul>
 <div class="meta"><span>ID <code>BUG-20260828-012900-runs-id-files</code></span>
 <span>Found by <code>bug-runs-id-files-r1</code></span>
 <span>Fingerprint <code>/runs/[id]/files|files-tab-final-output-selection|open-ppt-v2-completed-run|real-pptx-binary-never-listed-tmp-html-shown-instead</code></span></div>
@@ -1457,6 +1460,28 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <li>State/URL: <code>location.href</code> correctly reflects <code>/library/skills/&lt;id&gt;</code> in every case while the</li>
 </ul>
 <p>rendered DOM is the unrelated listing page.</p>
+<ul>
+<li><b>Fixed:</b> 2026-08-28 by [FIX-340](../.knowledge/cards/20260828-2230-FIX-340.md) — one file, <code>frontend/src/store/listenerMiddleware.ts</code>: the <code>signedIn</code> preload no longer awaits <code>fetchWorkflows</code>/<code>fetchRecentRuns</code> before dispatching <code>fetchAgentLibrary</code>/<code>fetchSkills</code>/<code>fetchHooks</code>; all five go out together. The INFERRED unmemoized-<code>useSkillsCatalog</code> mechanism above is CORRECTED, not confirmed: the seed effect and <code>SKILLS.find</code> both work, <code>skillsStatus</code> had simply not reached <code>&quot;succeeded&quot;</code> yet (measured 12.2s of gate on a cold load). The card-click path re-measured as never broken.</li>
+<li><b>Fix verified:</b> <code>tests/integration/e2e/suites/08_library/test_iss232_skill_detail_full_regression.py</code> — marked run XPASS(strict) = FAILED (the fix signal; xfail marker left for 6-verifier); <code>--runxfail</code> run 1 passed, 0 misses across 6 cold navigations. <code>frontend/src/store/listenerMiddleware.test.ts</code> 1 passed.</li>
+<li><b>Verified:</b> 2026-08-28 by 6-verifier. Ran <code>test_iss232_skill_detail_full_regression.py</code> alone</li>
+</ul>
+<p>(<code>.venv</code> at <code>tests/integration/e2e/.venv</code>): marked run reproduced <code>XPASS(strict) = FAILED</code> (the</p>
+<p>pass signal); <code>xfail</code> marker removed, re-run plain green (1 passed). <code>listenerMiddleware.test.ts</code></p>
+<p>1 passed (vitest). Manual repro in lane5 Chrome, qa-admin, matching the register&#x27;s exact</p>
+<p>conditions: 6x back-to-back cold <code>about:blank</code> -&gt; <code>/library?tab=skills</code> -&gt;</p>
+<p><code>/library/skills/html-deck-to-pptx</code> loop, checked 500ms after each load — 0/6 misses, dialog</p>
+<p>open every time (was 100% failure pre-fix); cold direct nav to</p>
+<p><code>/library/skills/windows-desktop-e2e</code> (the other id the register named) also opened its dialog</p>
+<p>cleanly with correct SKILL.md content and no console errors/warnings; genuine card click from</p>
+<p><code>/library?tab=skills</code> opened the dialog in the same tick. Screenshot:</p>
+<p><code>bug-hunter/evidence/library-skills/BUG-20260828-091300-library-skills-r2/04-after-fix-detail-opens.png</code>.</p>
+<p>Health: <code>npm run build</code> compiled clean (11/11 static pages, no TS errors from Next&#x27;s own</p>
+<p>typecheck); regression file <code>suites/08_library/test_library.py</code> 24/24 passed; backend</p>
+<p><code>:8000/docs</code> 200 (frontend-only fix, no restart needed). <code>backend/lint-imports</code> shows 1 broken</p>
+<p>contract (<code>kernel imports only capability ports</code>) — pre-existing, unrelated to this fix</p>
+<p>(FIX-340 touched only <code>frontend/src/store/listenerMiddleware.ts</code>, zero Python files; the broken</p>
+<p>contract traces through <code>execution_engine</code> -&gt; <code>app.api.run_commands</code>/<code>user_workflows</code>, files</p>
+<p>this bug never touched), noted but not mine to fix.</p>
 <div class="meta"><span>ID <code>BUG-20260828-091300-library-skills-r2</code></span>
 <span>Found by <code>bug-library-skills-r2</code></span>
 <span>Fingerprint <code>/library/skills/&lt;id&gt;|skill-detail-route-match|navigate-to-any-skill-id|library-listing-renders-instead-of-detail-for-100pct-of-skills</code></span></div>
@@ -1521,8 +1546,163 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Found by <code>bug-workflows-nonexistent-r2</code></span>
 <span>Fingerprint <code>/workflows/&lt;bad-id&gt;/canvas|run-once|click-run-once-on-empty-copy-composer|launches-unrelated-default-9-agent-pipeline-consuming-real-tokens</code></span></div>
 </div></details>
+<details class="bug" data-sev="High" data-search="steps tab&#x27;s pipeline summary and agent list render identical, version-independent data for every version url in a run family, matching neither version&#x27;s real record /runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/1/steps` and bug-20260829-135100-runs-id-versions high run detail pinned to an artifact version — steps tab">
+<summary><span class="num">22</span><span class="sev High">High</span>
+<span class="ttl">Steps tab&#x27;s pipeline summary and agent list render identical, version-independent data for every version URL in a run family, matching neither version&#x27;s real record<span class="rt">/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/1/steps` and</span></span></summary>
+<div class="body"><h4>Summary</h4><p>This is the user-reported symptom &quot;all previous versions show the latest version&#x27;s runned</p>
+<p>agents and files in the Steps tab&quot; — investigated and confirmed as a genuine, previously</p>
+<p>undocumented mechanism, distinct from every related item already on record:</p>
+<ul>
+<li><b>Not</b> <code>BUG-20260828-090732-runs-id-versions</code> (CLOSED) — that bug was about the version pin</li>
+</ul>
+<p>being *dropped* by clicking a tab (URL/network reverting to v1). Here the URL is correct on</p>
+<p>a cold navigation and the network layer genuinely fetches the pinned run</p>
+<p>(<code>GET /api/runs/ef86e750-...</code> confirmed in the network log), yet the rendered Steps content</p>
+<p>still does not change.</p>
+<ul>
+<li><b>Not</b> <code>ISS-386</code> (still open) — that card is specifically about <code>routes.runStepsAgent</code></li>
+</ul>
+<p>lacking a <code>version</code> parameter for *deep-linking to one agent&#x27;s own detail pane*</p>
+<p>(<code>/runs/{id}/versions/{v}/steps/{agentId}</code>). This bug is about the Steps tab&#x27;s *top-level</p>
+<p>pipeline summary and agent list* (no <code>agentId</code> in the URL at all) rendering the same content</p>
+<p>regardless of which version is pinned.</p>
+<ul>
+<li><b>Not</b> <code>BUG-20260828-020900-runs-id-versions</code> (DUPLICATE) — that was the version-picker</li>
+</ul>
+<p>*label* being stuck on &quot;Version v1&quot; while correct v2 content rendered underneath. Here the</p>
+<p>picker label is correct (&quot;Version v2&quot; shown when on <code>/versions/2</code>), but the content beneath</p>
+<p>it does not correspond to v2 (or to v1 either).</p>
+<p>Cold-navigating directly to <code>/versions/1/steps</code> and separately to <code>/versions/2/steps</code> (two</p>
+<p>full <code>page.goto</code> loads, not a tab click) renders byte-identical Steps content both times: &quot;Run</p>
+<p>complete · 5 / 5 agents · 1m 32s&quot;, the same five agent names with the same per-agent durations</p>
+<p>and token counts (Spec Writer Agent 2m 43s · 39.9K tok, Task Planner Agent 3m 5s · 55.4K tok,</p>
+<p>Spec Kit Analyzer 1m 14s · 44.3K tok, Implementation Agent 2m 6s · 1.8M tok, Validation Agent</p>
+<p>1m 31s · 1.5M tok), and the same footer (&quot;TOKEN USAGE 3.5M total · 3.4M input · 63.2K output&quot;).</p>
+<p>Direct API calls confirm the two real run records differ sharply: root/v1</p>
+<p>(<code>77f74563-...</code>) has <code>agent_count: 5</code>, <code>duration: 3164.1s</code>, <code>token_usage.total_tokens:</p>
+<p>8,567,417</code>; the revision/v2 (<code>ef86e750-...</code>) has <code>agent_count: 2</code>, <code>duration: 371s</code>,</p>
+<p><code>token_usage.total_tokens: 2,388,072</code>. The Steps tab&#x27;s displayed total (1m 32s) matches</p>
+<p>*neither* record, and the displayed content is identical between the two version URLs — so the</p>
+<p>Steps tab is not reading from either version&#x27;s own run data at all, even though the network</p>
+<p>layer does fetch the pinned run&#x27;s record on the wire.</p><h4>Reproduction</h4><ol>
+<li>Sign in as qa-admin, confirm the family: <code>GET /api/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/family</code></li>
+</ol>
+<p>returns two members (v1 root, v2 revision <code>ef86e750-bbcd-404f-855a-fb0d5bee63f5</code>).</p>
+<ol>
+<li>Navigate (full <code>page.goto</code>, cold load) to</li>
+</ol>
+<p><code>http://localhost:3000/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/1/steps</code>. Record</p>
+<p>the Steps tab&#x27;s &quot;Run complete&quot; summary line and each agent row&#x27;s duration/token label.</p>
+<ol>
+<li>Navigate (full <code>page.goto</code>, cold load) to</li>
+</ol>
+<p><code>http://localhost:3000/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/2/steps</code>. Record</p>
+<p>the same fields.</p>
+<ol>
+<li>Compare: the two are byte-identical (same total, same 5 agent rows, same durations/tokens),</li>
+</ol>
+<p>despite the version-picker header correctly reading &quot;Version v1&quot; on the first load and</p>
+<p>&quot;Version v2&quot; on the second.</p>
+<ol>
+<li>Cross-check with <code>GET /api/runs/77f74563-...</code> and <code>GET /api/runs/ef86e750-...</code> directly:</li>
+</ol>
+<p><code>agent_count</code>/<code>duration</code>/<code>token_usage</code> differ sharply between the two real records (5 agents/</p>
+<p>3164.1s/8.57M tokens vs. 2 agents/371s/2.39M tokens) and neither matches the UI&#x27;s displayed</p>
+<p>&quot;5 / 5 agents · 1m 32s · 3.5M total&quot;.</p>
+<ol>
+<li>Confirm via the network log that <code>GET /api/runs/ef86e750-bbcd-404f-855a-fb0d5bee63f5</code> IS</li>
+</ol>
+<p>issued on the cold load of <code>/versions/2/steps</code> — the pinned run&#x27;s data is fetched over the</p>
+<p>wire, it simply never reaches what the Steps tab renders.</p><h4>Expected</h4><p>The Steps tab&#x27;s pipeline summary and agent list should reflect the specific version pinned by</p>
+<p>the URL — matching the same version-aware data the Files tab now correctly shows (per</p>
+<p>FIX-334/FIX-328), i.e. v1&#x27;s steps view should show v1&#x27;s own 5-agent/3164s run, and v2&#x27;s should</p>
+<p>show v2&#x27;s own 2-agent/371s run.</p><h4>Actual</h4><p>Both version URLs render identical Steps content that matches neither version&#x27;s real</p>
+<p><code>agent_count</code>, <code>duration</code>, or <code>token_usage</code>, even though the correct run record for the pinned</p>
+<p>version is confirmed fetched over the network.</p><h4>Evidence</h4><ul>
+<li><code>/versions/2/steps</code>, header correctly reads &quot;Version v2&quot;: <code>bug-hunter/evidence/runs-id-versions/BUG-20260829-135100-runs-id-versions/01-v2-steps-header-says-v2.png</code></li>
+<li><code>/versions/1/steps</code>, identical agent list/durations/tokens despite different version: <code>bug-hunter/evidence/runs-id-versions/BUG-20260829-135100-runs-id-versions/02-v1-steps-identical-content.png</code></li>
+<li>API ground-truth vs. UI comparison: <code>bug-hunter/evidence/runs-id-versions/BUG-20260829-135100-runs-id-versions/network.log</code></li>
+</ul><h4>Browser signals</h4><ul>
+<li>Console: none observed (0 errors on both loads)</li>
+<li>Network: <code>GET /api/runs/ef86e750-bbcd-404f-855a-fb0d5bee63f5</code> (the pinned v2 run) is issued</li>
+</ul>
+<p>and returns 200 on cold-load of <code>/versions/2/steps</code> — the fetch is correct, the render is not.</p>
+<ul>
+<li>State/URL: URL correctly retains <code>/versions/{n}/steps</code> on both loads; version-picker label is</li>
+</ul>
+<p>correct on both loads. Only the Steps body content is wrong/unchanging.</p>
+<div class="meta"><span>ID <code>BUG-20260829-135100-runs-id-versions</code></span>
+<span>Found by <code>bug-runs-id-versions (user-reported)</code></span>
+<span>Fingerprint <code>/runs/[id]/versions/[n]/steps|steps-tab-agent-list|cold-navigate-to-a-pinned-version-url|content-identical-across-versions-not-derived-from-either-versions-run-record</code></span></div>
+</div></details>
+<details class="bug" data-sev="High" data-search="version picker and chat &quot;answer/open in steps&quot; links silently fail to switch to a revision when starting from the base (unversioned) steps route — the revision&#x27;s own agent step (e.g. &quot;backlog revision agent&quot;) becomes unreachable, which is what a user experiences as &quot;the revision agent shows no input/output/context at all&quot; /runs/{rootrunid}/steps (base, unversioned route on a run that has a completed revision) bug-20260829-140111-runs-id-steps-agent high run detail — steps tab">
+<summary><span class="num">23</span><span class="sev High">High</span>
+<span class="ttl">Version picker and chat &quot;Answer/Open in Steps&quot; links silently fail to switch to a revision when starting from the base (unversioned) Steps route — the revision&#x27;s own agent step (e.g. &quot;Backlog Revision Agent&quot;) becomes unreachable, which is what a user experiences as &quot;the revision agent shows no input/output/context at all&quot;<span class="rt">/runs/{rootRunId}/steps (base, unversioned route on a run that has a completed revision)</span></span></summary>
+<div class="body"><h4>Summary</h4><p>Investigated a user report that &quot;User story Revision Agent doesn&#x27;t show any input, output data and context received at all.&quot; No completed <code>user_stories_revision</code> fixture existed, so I launched one live run (<code>636ff908-21d6-4c3a-9f00-0ea4f08060fc</code>, base user-stories run) and revised it via the chat follow-up, producing a completed <code>user_stories_revision</code> run (<code>2ac66bbd-8d76-4d59-9580-a29b1a4f6e74</code>, &quot;Backlog Revision Agent&quot; step). Loaded <b>directly</b> on the revision&#x27;s own run id, <code>/runs/2ac66bbd.../steps</code>, the &quot;Backlog Revision Agent&quot; detail pane renders correctly — Reasoning, Full input prompt (15,473 chars), Agent output (12.2k chars), and Context received (1 source, prompt.md) all populate normally. The originally reported symptom does <b>not</b> reproduce via that path.</p>
+<p>However, the natural path a user actually takes — staying on the <b>root/base</b> run&#x27;s Steps URL (<code>/runs/636ff908.../steps</code>, what &quot;Back to history&quot; and every run-card link land on) and then trying to reach the revision from there — is broken. Neither of the two UI affordances built for exactly this purpose works:</p>
+<ol>
+<li>The version picker (&quot;Version v1, choose version&quot; button/listbox) — selecting the &quot;Version v2&quot; option is a complete no-op: no URL change, no re-render, no error. The pane keeps showing v1&#x27;s 7 base agents (Documentation Agent, Domain Discovery Agent, etc.), never the revision&#x27;s &quot;Backlog Revision Agent&quot;.</li>
+<li>The chat transcript&#x27;s &quot;Answer in Steps&quot; link on the &quot;Revision started&quot; entry — same result: click registers (no exception, no console error), but URL and content are both unchanged.</li>
+</ol>
+<p>Because the revision&#x27;s agent never becomes visible through either normal-user path, the user&#x27;s perception exactly matches the report: they never actually reach an agent panel populated with the revision&#x27;s data — from their point of view, &quot;the Revision Agent&quot; (whichever agent they expect to see) shows nothing, because the app is silently still showing v1&#x27;s unrelated agents/URL/content with zero indication that their selection failed.</p>
+<p>This is distinct from the two related, already-CLOSED bugs about the version picker: BUG-20260828-090732-runs-id-versions (fixed) covered losing an *already-established* <code>/versions/N</code> pin when switching tabs, and BUG-20260828-020900-runs-id-versions (duplicate of the same, now-fixed root cause) covered the picker&#x27;s *label* being wrong while <code>/versions/N</code> content was already correctly displayed. Both of those bugs&#x27; repros start from a URL that already has <code>/versions/N</code> in it. Mine starts from the plain unversioned <code>/steps</code> URL — the actual entry point for a normal user — and the version switch never happens at all, so the fix that resolved those two closed bugs (FIX-328/FIX-334, <code>handleSelectVersion</code>) does not cover this starting state.</p><h4>Reproduction</h4><ol>
+<li>Sign in as qa-admin. On a user-stories run with a completed revision (used the live pair</li>
+</ol>
+<p><code>636ff908-21d6-4c3a-9f00-0ea4f08060fc</code> root / <code>2ac66bbd-8d76-4d59-9580-a29b1a4f6e74</code> v2 revision;</p>
+<p><code>.../family</code> confirms v1 root 7 agents, v2 revision 1 agent &quot;Backlog Revision Agent&quot;),</p>
+<p><code>page.goto</code> fresh to <code>http://localhost:3000/runs/636ff908-21d6-4c3a-9f00-0ea4f08060fc/steps</code></p>
+<p>(the base, unversioned URL — what &quot;Back to history&quot; and the run-card link both produce).</p>
+<p>Confirm the picker button reads &quot;Version v1&quot; and the pane shows the 7 base agents.</p>
+<ol>
+<li>Click the &quot;Version v1, choose version&quot; button to open the listbox, then click the &quot;Version v2&quot;</li>
+</ol>
+<p>option. Observe: <code>window.location.href</code> is unchanged (still <code>.../steps</code>, no <code>/versions/2</code></p>
+<p>segment), the picker button still reads &quot;Version v1&quot;, and the agent list is still the same 7</p>
+<p>base agents — no &quot;Backlog Revision Agent&quot; row appears anywhere.</p>
+<ol>
+<li>Reload fresh to the same base URL again. In the chat transcript, find the &quot;Revision started&quot;</li>
+</ol>
+<p>entry and click its &quot;Answer in Steps&quot; link. Observe the identical failure: URL stays at</p>
+<p><code>.../steps</code>, content stays on v1&#x27;s 7 agents, no console error, no network request for the</p>
+<p>revision&#x27;s own run id fires.</p>
+<ol>
+<li>For contrast, <code>page.goto</code> directly to the revision&#x27;s OWN run id,</li>
+</ol>
+<p><code>http://localhost:3000/runs/2ac66bbd-8d76-4d59-9580-a29b1a4f6e74/steps</code>, and click into</p>
+<p>&quot;Backlog Revision Agent&quot; — Reasoning/Full input prompt/Agent output/Context received all</p>
+<p>render correctly (see evidence 02). This confirms the revision&#x27;s own data and the</p>
+<p><code>AgentDetailPanel</code> rendering logic are fine; the defect is purely in reaching it from the</p>
+<p>root run&#x27;s base Steps route.</p><h4>Expected</h4><p>From the root run&#x27;s base Steps URL, both the version picker&#x27;s &quot;Version v2&quot; option and the chat&#x27;s</p>
+<p>&quot;Answer in Steps&quot; link on the &quot;Revision started&quot; entry should navigate to (or otherwise render)</p>
+<p>the revision&#x27;s own Steps content — including its distinct agent list (e.g. &quot;Backlog Revision</p>
+<p>Agent&quot;) — matching what a direct <code>page.goto</code> to the revision&#x27;s own run id already shows</p>
+<p>correctly.</p><h4>Actual</h4><p>Both affordances are silent no-ops from the base route: no URL change, no content change, no</p>
+<p>error of any kind. The revision&#x27;s agent list and its populated Input/Output/Context Received</p>
+<p>panels are only reachable by knowing and directly navigating to the revision&#x27;s own run id — which</p>
+<p>no visible UI control exposes from the base Steps view. A user following the app&#x27;s own &quot;answer</p>
+<p>in steps&quot; / &quot;switch version&quot; prompts never sees the revision agent&#x27;s data at all.</p><h4>Evidence</h4><ul>
+<li>Base v1, working detail panel for contrast: <code>bug-hunter/evidence/runs-id-steps-agent/BUG-20260829-140111-runs-id-steps-agent/01-base-v1-documentation-agent-detail.png</code></li>
+<li>Revision&#x27;s own URL, working detail panel (proves the panel/data are fine in isolation): <code>bug-hunter/evidence/runs-id-steps-agent/BUG-20260829-140111-runs-id-steps-agent/02-revision-own-url-backlog-revision-agent-detail.png</code></li>
+<li>Before (base route, picker shows v1): <code>bug-hunter/evidence/runs-id-steps-agent/BUG-20260829-140111-runs-id-steps-agent/03-before-picker-shows-v1.png</code></li>
+<li>Failure 1 (after clicking &quot;Version v2&quot; in the picker, still v1): <code>bug-hunter/evidence/runs-id-steps-agent/BUG-20260829-140111-runs-id-steps-agent/04-failure-after-clicking-v2-still-shows-v1.png</code></li>
+<li>Failure 2 (after clicking chat&#x27;s &quot;Answer in Steps&quot; on Revision started, still v1): <code>bug-hunter/evidence/runs-id-steps-agent/BUG-20260829-140111-runs-id-steps-agent/05-failure-after-answer-in-steps-still-v1.png</code></li>
+</ul><h4>Browser signals</h4><ul>
+<li>Console: 0 errors, 0 warnings on either failed click.</li>
+<li>Network: no request for the revision run id (<code>2ac66bbd-...</code>) fires after either the picker</li>
+</ul>
+<p>click or the &quot;Answer in Steps&quot; click; the page continues serving whatever it already had</p>
+<p>cached for the root run id.</p>
+<ul>
+<li>State/URL: <code>window.location.href</code> verified unchanged after both trigger attempts (stays</li>
+</ul>
+<p><code>/runs/636ff908-21d6-4c3a-9f00-0ea4f08060fc/steps</code>), confirming genuine navigation failure,</p>
+<p>not a render race.</p>
+<div class="meta"><span>ID <code>BUG-20260829-140111-runs-id-steps-agent</code></span>
+<span>Found by <code>bug-runs-id-steps-agent (page hunter, user-reported assignment)</code></span>
+<span>Fingerprint <code>/runs/[id]/steps|version-picker+chat-revision-link|select-non-root-version-from-unversioned-steps-url|silent-no-op-no-navigation-no-content-change</code></span></div>
+</div></details>
 <details class="bug" data-sev="Medium" data-search="library search with no matches shows a blank page, no empty state /library, /library?tab=skills, /library?tab=hooks bug-20260827-221730-library medium library (agents / skills / hooks catalog)">
-<summary><span class="num">22</span><span class="sev Medium">Medium</span>
+<summary><span class="num">24</span><span class="sev Medium">Medium</span>
 <span class="ttl">Library search with no matches shows a blank page, no empty state<span class="rt">/library, /library?tab=skills, /library?tab=hooks</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Typing a search term into the library search box (<code>input[name=&#x27;library-search&#x27;]</code>) that matches</p>
 <p>no items produces a completely blank content area below the category pills — no &quot;no results</p>
@@ -1567,7 +1747,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/library|search-input|type-nonmatching-query|blank-results-no-empty-state</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="password-mismatch error does not clear when the fields are corrected to match /settings/profile bug-20260827-222300-settings-profile medium settings · profile (account settings)">
-<summary><span class="num">23</span><span class="sev Medium">Medium</span>
+<summary><span class="num">25</span><span class="sev Medium">Medium</span>
 <span class="ttl">Password-mismatch error does not clear when the fields are corrected to match<span class="rt">/settings/profile</span></span></summary>
 <div class="body"><h4>Summary</h4><p>On the Password card of /settings/profile, entering a New password and a Confirm new password</p>
 <p>that differ and clicking &quot;Change Password&quot; correctly shows a client-side &quot;New passwords do not</p>
@@ -1624,7 +1804,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/settings/profile|change-password-form|edit-confirm-field-after-mismatch-submit|stale-do-not-match-error-persists</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="sign in button is not disabled during the login request, allowing duplicate submissions /login bug-20260827-222750-login medium login (sign-in form)">
-<summary><span class="num">24</span><span class="sev Medium">Medium</span>
+<summary><span class="num">26</span><span class="sev Medium">Medium</span>
 <span class="ttl">Sign in button is not disabled during the login request, allowing duplicate submissions<span class="rt">/login</span></span></summary>
 <div class="body"><h4>Summary</h4><p>On the sign-in form, filling in valid credentials and clicking &quot;Sign in&quot; multiple times in</p>
 <p>rapid succession (e.g. a fast triple click, or any repeat click before the async login request</p>
@@ -1676,7 +1856,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/login|sign-in-button|rapid-repeated-click-with-valid-credentials|duplicate-login-requests-fired</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="for an authenticated user, unmatched `/register/&lt;sub-path&gt;` urls silently render the dashboard instead of a 404 or a redirect /register/anything, /register/abc123xyz (any nonexistent sub-path under /register) bug-20260827-231407-register medium register (redirect stub) — unmatched sub-routes">
-<summary><span class="num">25</span><span class="sev Medium">Medium</span>
+<summary><span class="num">27</span><span class="sev Medium">Medium</span>
 <span class="ttl">For an authenticated user, unmatched `/register/&lt;sub-path&gt;` URLs silently render the Dashboard instead of a 404 or a redirect<span class="rt">/register/anything, /register/abc123xyz (any nonexistent sub-path under /register)</span></span></summary>
 <div class="body"><h4>Summary</h4><p><code>/register</code> itself is a known, intentional redirect stub (out of scope here). But a nonexistent</p>
 <p>sub-path under it, e.g. <code>/register/anything</code>, is a different code path entirely — for a</p>
@@ -1742,7 +1922,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/register/&lt;sub-path&gt;|route-resolution|authenticated-user-navigates-to-unmatched-register-subroute|url-shows-register-subpath-but-dashboard-content-renders</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="browser back to `/` after the corrupt-token auth bounce leaves the app permanently blank instead of redirecting to `/login` / bug-20260827-232305-root medium root entry point (redirect stub)">
-<summary><span class="num">26</span><span class="sev Medium">Medium</span>
+<summary><span class="num">28</span><span class="sev Medium">Medium</span>
 <span class="ttl">Browser Back to `/` after the corrupt-token auth bounce leaves the app permanently blank instead of redirecting to `/login`<span class="rt">/</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Empirical check of the two conflicting docs (the <code>velocity.json</code> quirk claiming <code>/</code> unconditionally</p>
 <p>redirects to <code>/login</code>, vs. <code>DEFECTS-OBSERVED.md</code> correction C-3 claiming it branches on token</p>
@@ -1805,12 +1985,15 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 </ul>
 <p>confirmed <code>null</code> throughout; a manual <code>location.reload()</code> on the same URL immediately redirects</p>
 <p>to <code>/login</code>, isolating the defect to the Back-triggered load path specifically.</p>
+<ul>
+<li><b>Issue card:</b> none minted — DUPLICATE of [ISS-217](../.knowledge/cards/20260828-1649-ISS-217.md).</li>
+</ul>
 <div class="meta"><span>ID <code>BUG-20260827-232305-root</code></span>
 <span>Found by <code>bug-root-r1</code></span>
 <span>Fingerprint <code>/|root-redirect|browser-back-after-corrupt-token-bounce-chain|blank-page-stuck-forever-no-redirect</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="checking an agent in the composer&#x27;s &quot;review gates&quot; checklist does not set that agent&#x27;s gate in the advanced modal&#x27;s per-agent config panel /create/app bug-20260828-000100-create-app medium create app (simple launch panel — mislabeled as user stories per known d-01)">
-<summary><span class="num">27</span><span class="sev Medium">Medium</span>
+<summary><span class="num">29</span><span class="sev Medium">Medium</span>
 <span class="ttl">Checking an agent in the composer&#x27;s &quot;Review gates&quot; checklist does not set that agent&#x27;s Gate in the Advanced modal&#x27;s per-agent Config panel<span class="rt">/create/app</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The launch panel exposes two separate controls for the same underlying concept — whether an</p>
 <p>agent&#x27;s step pauses the pipeline for human review. The top-level &quot;Review gates&quot; popover (a</p>
@@ -1881,7 +2064,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/create/app|review-gates-checklist-vs-advanced-config-gate-dropdown|check-agent-in-review-gates-popover|advanced-modal-per-agent-gate-still-reads-no-gate</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="the advanced modal&#x27;s workflow-level settings (smart planning, confirm requirements first, deliverable strategy, internet access) are permanently disabled with no explanation /create/user-stories bug-20260828-000600-create-user-stories medium user-stories launch panel (advanced workflow configuration modal)">
-<summary><span class="num">28</span><span class="sev Medium">Medium</span>
+<summary><span class="num">30</span><span class="sev Medium">Medium</span>
 <span class="ttl">The Advanced modal&#x27;s Workflow-level settings (Smart planning, Confirm requirements first, Deliverable strategy, Internet access) are permanently disabled with no explanation<span class="rt">/create/user-stories</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Opening the &quot;Advanced&quot; modal and viewing its right-rail &quot;Workflow&quot; tab (the default view when no</p>
 <p>agent node is selected on the canvas) renders four workflow-level settings — &quot;Smart planning&quot;</p>
@@ -1948,7 +2131,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/create/user-stories|advanced-modal-workflow-tab|open-workflow-tab-no-node-selected|all-workflow-level-controls-permanently-disabled-no-affordance</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="advanced modal&#x27;s &quot;cancel&quot; button does not discard edits to a conditional-gate outcome&#x27;s route /create/ex_a2_branch bug-20260828-001100-create-ex-a2-branch medium branch by language launch panel (advanced workflow configuration modal)">
-<summary><span class="num">29</span><span class="sev Medium">Medium</span>
+<summary><span class="num">31</span><span class="sev Medium">Medium</span>
 <span class="ttl">Advanced modal&#x27;s &quot;Cancel&quot; button does not discard edits to a conditional-gate outcome&#x27;s route<span class="rt">/create/ex_A2_branch</span></span></summary>
 <div class="body"><h4>Summary</h4><p><code>ex_A2_branch</code> (&quot;Branch by Language&quot;) is a real branching fixture whose &quot;Pick Language&quot; agent</p>
 <p>step has a Conditional gate with three outcomes (<code>english</code>/<code>spanish</code>/<code>dutch</code>), each routing to</p>
@@ -2022,12 +2205,166 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 </ul>
 <p>step 9 correctly reset the panel, isolating the defect to the modal&#x27;s Cancel handler rather</p>
 <p>than a backend persistence bug.</p>
+<ul>
+<li><b>Issue card:</b> [ISS-258](../.knowledge/cards/20260828-1650-ISS-258.md)</li>
+<li><b>Root cause:</b> The embedded route/outcome editor writes through <code>onRouteChange</code></li>
+</ul>
+<p>(<code>CanvasConfigRail.tsx:295</code>) → <code>onTreeChange</code> (<code>CanvasView.tsx:748-751</code>, wired at <code>:2302</code>) →</p>
+<p>the host&#x27;s <code>onReorder</code> prop (<code>AgentsPopup.tsx:2462</code>) → <code>setPipelineAgents</code></p>
+<p>(<code>IdeaInputPage.tsx:1540-1542</code>), the React state the canvas renders from. Cancel</p>
+<p>(<code>AgentsPopup.tsx:2492-2493</code>, <code>onClick={onClose}</code>) only flips <code>showAgents</code></p>
+<p>(<code>IdeaInputPage.tsx:1882</code>, <code>() =&gt; setShowAgents(false)</code>) and never restores <code>pipelineAgents</code> —</p>
+<p>no snapshot of it is ever taken when the modal opens. This corrects ISS-258&#x27;s own root-cause</p>
+<p>attribution (<code>AgentsPopup.tsx:2242-2248</code>&#x27;s <code>handleSelectionsChange</code>/<code>onSelectionsChange</code>/</p>
+<p><code>selectionsRef</code>), which is real code with the identical defect shape but is wired to a</p>
+<p>different edit surface (the flat per-agent levers, not the route/outcome editor) — see ISS-364.</p>
+<ul>
+<li><b>Blast radius:</b> both production callers of <code>AgentsPopup</code> — <code>IdeaInputPage.tsx:1870</code></li>
+</ul>
+<p>(<code>/create/&lt;id&gt;</code>, this bug&#x27;s own route) and <code>LaunchWizard.tsx:1112</code> (<code>/workflow/create</code> and the</p>
+<p>ppt/prototype branch of <code>/workflows/{id}/run</code>) — confirmed via</p>
+<p><code>grep -rn &quot;&lt;AgentsPopup&quot; frontend/src/ --include=&quot;*.tsx&quot;</code> (2 production hits + 4 in</p>
+<p><code>AgentsPopup.reskin.test.tsx</code>). Every other edit that funnels through the same <code>onTreeChange</code>/</p>
+<p><code>onReorder</code> chain (add/remove/reorder agent) shares the identical un-restored Cancel, as does</p>
+<p>every edit through the adjacent <code>onSelectionsChange</code>/<code>selectionsRef</code> chain (Model/Validators/</p>
+<p>Gates/Retry levers).</p>
+<ul>
+<li><b>Fix belongs in:</b> <code>AgentsPopup.tsx</code> itself, once — not in either host page. It already takes</li>
+</ul>
+<p>a one-time mount snapshot for <code>liveSelections</code> (<code>:2233-2241</code>); the same staged-copy-with-</p>
+<p>restore-on-Cancel needs to cover <code>agents</code>/<code>pipelineAgents</code>, with Cancel (<code>:2492-2493</code>)</p>
+<p>resetting both staged copies and re-emitting them to the host before calling <code>onClose</code>. One</p>
+<p>diff in the shared component fixes both hosts and every edit channel; patching either host</p>
+<p>page alone, or patching <code>handleSelectionsChange</code> alone per ISS-258&#x27;s original fix sketch,</p>
+<p>would leave the reported route-editor case unfixed.</p>
+<ul>
+<li><b>Issue cards:</b> [ISS-258](../.knowledge/cards/20260828-1650-ISS-258.md) (original — repro and</li>
+</ul>
+<p>evidence stand; root-cause mechanism superseded),</p>
+<p>[ISS-363](../.knowledge/cards/20260828-2129-ISS-363.md) (root — corrected mechanism),</p>
+<p>[ISS-364](../.knowledge/cards/20260828-2130-ISS-364.md) (sibling, INFERRED: flat-lever edits</p>
+<p>via <code>selectionsRef</code>),</p>
+<p>[ISS-365](../.knowledge/cards/20260828-2131-ISS-365.md) (sibling, INFERRED: add/remove/reorder-</p>
+<p>agent edits),</p>
+<p>[ISS-366](../.knowledge/cards/20260828-2132-ISS-366.md) (sibling, INFERRED: same defect via</p>
+<p><code>LaunchWizard</code>&#x27;s <code>AgentsPopup</code> instance)</p>
+<ul>
+<li><b>Fix card:</b> [FIX-349](../.knowledge/cards/20260828-2324-FIX-349.md)</li>
+<li><b>Fixed:</b> <code>frontend/src/components/workflow/AgentsPopup.tsx</code> — the modal now snapshots the</li>
+</ul>
+<p>host&#x27;s <code>agents</code> + <code>liveSelections</code> on the <code>isOpen</code> edge and re-emits that snapshot</p>
+<p>(<code>onReorder?.(snapshot.agents)</code> + <code>handleSelectionsChange(snapshot.selections)</code>) before</p>
+<p><code>onClose()</code>, from a new <code>handleCancel</code> wired to the Cancel button, the header X and the</p>
+<p>backdrop. The post-save <code>onClose()</code> in <code>handleSaveWorkflow</code> is untouched. One diff in the</p>
+<p>shared component, so both hosts and every edit channel are covered.</p>
+<ul>
+<li><b>Test:</b> <code>tests/integration/e2e/suites/03_launch_panels/test_iss258_advanced_modal_cancel_discards_route_edit.py</code></li>
+</ul>
+<p>→ <b>1 xfailed, NOT the XPASS a clean fix produces.</b> The remaining failure is entirely</p>
+<p>test-side: line 63 asserts <code>to_have_value(&quot;Step&quot;)</code> but the markup is</p>
+<p><code>&lt;option value=&quot;step&quot;&gt;Step&lt;/option&gt;</code> (<code>CanvasConfigRail.tsx:843</code>), so the value is <code>step</code>.</p>
+<p>Everything the bug is about passed on the same run — steps 1-3 ok, and the line-57</p>
+<p><code>DIVERT_NODE count == 0</code> assertion passed, i.e. the cancelled route edit&#x27;s divert node is</p>
+<p>gone after Cancel + reopen. Verifier: correct that one literal to <code>&quot;step&quot;</code> (a fixer does not</p>
+<p>edit a test to make it pass) and it XPASSes.</p>
+<ul>
+<li><b>Verified (REOPENED):</b> Ran</li>
+</ul>
+<p><code>suites/03_launch_panels/test_iss258_advanced_modal_cancel_discards_route_edit.py</code> with</p>
+<p><code>--runxfail</code> three times (offline tier, real Chrome via pytest-playwright). Result was flaky</p>
+<p>across runs, not the single test-side label mismatch the fixer reported: 1/3 failed exactly as</p>
+<p>FIX-349 described (line 63 <code>to_have_value(&quot;Step&quot;)</code> vs actual <code>&quot;step&quot;</code>); the other 2/3 failed</p>
+<p>because the reopened modal showed <b><code>0 agents</code></b> and no <code>Pick Language</code> node at all — the</p>
+<p>divert-node edit was gone, but so was every other agent, not just the cancelled edit.</p>
+<p>Screenshot evidence:</p>
+<p><code>tests/integration/test-runs/2026-08-28T23-39-local/03-launch_panels/UNMARKED-advanced-modal-cancel-discards-a-conditional-gate-route-edit/03-cancel-and-reopen.png</code></p>
+<p>and the <code>2026-08-28T23-31-local</code> run&#x27;s equivalent shot both show &quot;0 AGENTS&quot; on reopen. Root</p>
+<p>cause confirmed by reading <code>AgentsPopup.tsx:2377-2379</code>: <code>openSnapshot</code>&#x27;s <code>useEffect</code> depends</p>
+<p>only on <code>[isOpen]</code> and snapshots the live <code>agents</code>/<code>liveSelections</code> the instant <code>isOpen</code> flips</p>
+<p>true — if the modal is opened before the host&#x27;s <code>pipelineAgents</code> has finished loading from its</p>
+<p>own async fetch (steps.json for the <code>23-39</code> run shows the &quot;advanced-open&quot; step completing only</p>
+<p>352ms after <code>page.goto</code>), the snapshot captures the still-empty initial array. <code>handleCancel</code></p>
+<p>then calls <code>onReorder?.(snapshot.agents)</code> with that empty array, wiping every real agent from</p>
+<p><code>pipelineAgents</code> — a regression strictly worse than the original bug (data loss vs. an</p>
+<p>un-discarded edit). A manual re-run in the browser with a deliberate wait for &quot;5 agents&quot; to</p>
+<p>render before opening the modal did NOT reproduce this (correctly showed 5 agents, no divert</p>
+<p>node, Type reset to &quot;Step&quot; on Cancel + reopen) — the defect is a load-order race, not</p>
+<p>present-100%-of-the-time, which is exactly why it survived FIX-349&#x27;s own 3-run manual</p>
+<p>verification but shows up 2/3 in the faster automated test. xfail marker left in place; cards</p>
+<p>left <code>resolved</code>/<code>active</code> unchanged pending a real fix (snapshot must wait for <code>agents</code> to be</p>
+<p>populated, not just <code>isOpen</code>, before restoring on Cancel).</p>
+<ul>
+<li><b>Re-fix card:</b> [FIX-365](../.knowledge/cards/20260829-0045-FIX-365.md) — the reopened</li>
+</ul>
+<p>regression, fixed in the same file FIX-349 touched</p>
+<p>(<code>frontend/src/components/workflow/AgentsPopup.tsx</code>, no other file). <code>openSnapshot</code> is no</p>
+<p>longer taken on the <code>isOpen</code> edge; it is STAGED by the first modal-initiated write, via a</p>
+<p><code>stageEdit()</code> that reads the live <code>agents</code>/<code>liveSelections</code> at that moment. The</p>
+<p><code>[isOpen]</code> effect now only CLEARS on close. Every in-modal write to host state routes</p>
+<p>through it: a new <code>handleTreeChange</code> wrapping <code>onReorder</code> (what <code>&lt;CanvasView</p>
+<p>onTreeChange=…&gt;</code> now receives — route/outcome editor, rename, reorder, reparent, the</p>
+<p>detach reconciler and <code>addSubAgent</code>), <code>handleSelectionsChange</code> (the flat levers),</p>
+<p><code>handleRemove</code>, and the <code>AgentLibrary</code> add closure. A snapshot can therefore never capture</p>
+<p>a roster that has not arrived — a user cannot edit a tree that is not rendered — so the</p>
+<p>empty-array wipe is structurally impossible. <code>handleCancel</code> is unchanged apart from</p>
+<p>clearing the ref LAST (the restore runs through <code>handleSelectionsChange</code>, which would</p>
+<p>otherwise re-arm it), and <code>if (snapshot)</code> now means &quot;nothing was edited, re-emit nothing&quot;.</p>
+<p>The post-save <code>onClose()</code> and &quot;Open in full canvas&quot; still keep their edits.</p>
+<ul>
+<li><b>Re-verified:</b> <code>suites/03_launch_panels/test_iss258_advanced_modal_cancel_discards_route_edit.py</code></li>
+</ul>
+<p>run 4x from <code>tests/integration/e2e</code> (offline tier, real Chrome). <code>--runxfail</code> x3: 3/3 failed</p>
+<p>at line 63 and ONLY line 63 — <code>AssertionError: Locator expected to have Value &#x27;Step&#x27; /</p>
+<p>Actual value: step</code>, aria snapshot <code>combobox &quot;Type&quot;: option &quot;Step&quot; [selected]</code>. The 2/3</p>
+<p>&quot;0 agents&quot; wipe is GONE: every run resolved <code>canvas-node-custom-agent:language</code> after the</p>
+<p>reopen and passed the line-57 <code>DIVERT_NODE count == 0</code> assertion. Plain run</p>
+<p>(<code>2026-08-29T00-42-local</code>): 1 xfailed, all three shot-steps ok; its</p>
+<p><code>03-cancel-and-reopen.png</code> shows &quot;5 AGENTS · EX_A2_BRANCH&quot;, all five nodes, the</p>
+<p>english/spanish/dutch route edges and no divert node. The remaining red line is still the</p>
+<p>test-side <code>to_have_value(&quot;Step&quot;)</code> vs the <code>&lt;option value=&quot;step&quot;&gt;</code> markup</p>
+<p>(<code>CanvasConfigRail.tsx:829</code>) — left for the verifier to correct, as a fixer does not edit a</p>
+<p>test to make it pass; xfail marker left in place. Regression guards:</p>
+<p><code>AgentsPopup.reskin.test.tsx</code> 14/14 green; <code>tsc --noEmit</code> 6 errors, the identical</p>
+<p>pre-existing set FIX-349 recorded, zero in AgentsPopup.tsx; <code>eslint AgentsPopup.tsx</code></p>
+<p>0 errors / 10 warnings, none in the changed region. Frontend-only — no backend restart, no</p>
+<p>migration, no engine or import-linter surface touched.</p>
+<ul>
+<li><b>Verified:</b> 2026-08-29 by 6-verifier. Corrected the test-side literal on</li>
+</ul>
+<p><code>suites/03_launch_panels/test_iss258_advanced_modal_cancel_discards_route_edit.py:63</code></p>
+<p>from <code>to_have_value(&quot;Step&quot;)</code> to <code>to_have_value(&quot;step&quot;)</code> (matches</p>
+<p><code>&lt;option value=&quot;step&quot;&gt;</code>, <code>CanvasConfigRail.tsx:829</code> — a fixer does not edit a test, so</p>
+<p>this was left for the verifier per FIX-365&#x27;s own note). <code>--runxfail</code> x3: 3/3 XPASS clean</p>
+<p>(no failure at all, including the fast-open race that broke FIX-349). Removed the</p>
+<p><code>xfail</code> marker, kept <code>@pytest.mark.issue(&quot;ISS-258&quot;)</code>, re-ran plain: 1 passed, 3 shots,</p>
+<p>9.4s. Manual re-run of the original repro by hand in the browser (qa-admin,</p>
+<p><code>lane4</code>, fresh <code>/create/ex_A2_branch</code>): opened Advanced (5 agents, no divert node),</p>
+<p>changed the <code>english</code> outcome&#x27;s Type to Workflow, picked &quot;Spanish Greeter&quot; — the</p>
+<p>&quot;Spanish Greeter — Diverts run&quot; node appeared as expected — clicked Cancel, reopened</p>
+<p>Advanced: canvas shows all 5 original agents, no divert node, &quot;Route 3 outcomes&quot; pill,</p>
+<p>and the <code>english</code> outcome&#x27;s Config-tab Type combobox is back to <code>option &quot;Step&quot;</p>
+<p>[selected]</code>. No console errors/warnings (<code>browser_console_messages</code>: 0/0).</p>
+<p>Evidence: <code>bug-hunter/evidence/create-ex-a2-branch/BUG-20260828-001100-create-ex-a2-branch/04-verified-after-cancel-reopen-english-type-step.png</code>.</p>
+<p>Health: <code>frontend/tsc --noEmit</code> — same 6 pre-existing errors as FIX-365 recorded</p>
+<p>(<code>HomeLaunchGrid.crossAccountLeak.test.tsx</code> x4, <code>listenerMiddleware.test.ts</code> x2), zero</p>
+<p>in <code>AgentsPopup.tsx</code>. <code>backend</code> <code>:8000/docs</code> → 200 (no backend restart needed,</p>
+<p>frontend-only fix). <code>backend/ lint-imports</code> shows one broken contract</p>
+<p>(<code>agents.execution_engine.engine</code> → <code>app.api.*</code>), but it is entirely inside backend</p>
+<p>Python files this fix never touched (<code>AgentsPopup.tsx</code> is the fix&#x27;s only diff) —</p>
+<p>unrelated to this bug, not evaluated further here. Regression:</p>
+<p><code>frontend npx vitest run AgentsPopup.reskin.test.tsx</code> 14/14 green;</p>
+<p><code>suites/03_launch_panels/test_launch_panels.py</code> whole-file run — the one FAILED</p>
+<p>(<code>test_the_advanced_control_opens_the_agent_roster</code>, &quot;Advanced says 6 agents but the</p>
+<p>canvas renders 7 nodes&quot; on <code>/create/user-stories</code>) is the documented pre-existing</p>
+<p>D-05/D-10 agent-count defect (already confirmed pre-existing via a stash test by the</p>
+<p>2026-08-28 ISS-247 verification above); the two ISS-306 xfails in that file are also</p>
+<p>pre-existing/unrelated. No regression traced to this fix.</p>
 <div class="meta"><span>ID <code>BUG-20260828-001100-create-ex-a2-branch</code></span>
 <span>Found by <code>bug-create-ex-a2-branch-r1</code></span>
 <span>Fingerprint <code>/create/ex_A2_branch|advanced-modal-conditional-gate-route-editor|change-outcome-type-and-target-then-click-cancel|edit-persists-across-modal-close-and-reopen</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="`/workflow/create` never redirects when `mode` is absent or empty, leaving the legacy url live and uncanonicalized /workflow/create (no query string), /workflow/create?mode= (empty value) bug-20260828-001420-workflow-create-ppt medium legacy wizard entry url (redirect stub)">
-<summary><span class="num">30</span><span class="sev Medium">Medium</span>
+<summary><span class="num">32</span><span class="sev Medium">Medium</span>
 <span class="ttl">`/workflow/create` never redirects when `mode` is absent or empty, leaving the legacy URL live and uncanonicalized<span class="rt">/workflow/create (no query string), /workflow/create?mode= (empty value)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>C-1/the documented redirect behavior covers <code>/workflow/create?mode=ppt</code> and</p>
 <p><code>?mode=prototype</code>, both of which correctly <code>router.replace</code> to <code>/create/ppt</code> /</p>
@@ -2092,7 +2429,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/workflow/create|legacy-wizard-redirect|navigate-with-no-mode-param-or-empty-mode-value|no-redirect-fires-legacy-url-serves-live-prototype-content</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="invalid `mode` value redirects into a permanently dead-end 0-agent composer with the underlying 404 silently swallowed /workflow/create?mode=nonsense (any unrecognized, non-empty `mode` value) bug-20260828-001720-workflow-create-prototype medium legacy wizard entry url for the prototype mode">
-<summary><span class="num">31</span><span class="sev Medium">Medium</span>
+<summary><span class="num">33</span><span class="sev Medium">Medium</span>
 <span class="ttl">Invalid `mode` value redirects into a permanently dead-end 0-agent composer with the underlying 404 silently swallowed<span class="rt">/workflow/create?mode=nonsense (any unrecognized, non-empty `mode` value)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>This is a distinct failure mode from the already-filed <code>BUG-20260828-001420-workflow-create-ppt</code></p>
 <p>(missing/empty <code>mode</code> never redirects and silently falls back to a fully functional prototype</p>
@@ -2158,7 +2495,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/workflow/create|mode-param-redirect|navigate-with-unrecognized-nonempty-mode-value|redirects-to-generic-0-agent-composer-permanently-disabled-no-error-shown</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="leaving the new-workflow composer via its own &quot;back&quot; control silently discards all unsaved work with no confirmation /workflows/new bug-20260828-003800-workflows-new medium empty composer / canvas (new custom workflow)">
-<summary><span class="num">32</span><span class="sev Medium">Medium</span>
+<summary><span class="num">34</span><span class="sev Medium">Medium</span>
 <span class="ttl">Leaving the new-workflow composer via its own &quot;Back&quot; control silently discards all unsaved work with no confirmation<span class="rt">/workflows/new</span></span></summary>
 <div class="body"><h4>Summary</h4><p>On <code>/workflows/new</code>, after naming the workflow and adding an agent to the canvas (real,</p>
 <p>unsaved, in-progress composer state — never persisted, since &quot;Save workflow&quot; was never</p>
@@ -2205,7 +2542,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/workflows/new|composer-back-button|click-back-with-unsaved-agents-and-name|work-discarded-no-confirmation</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="simple view&#x27;s per-agent &quot;configure →&quot; panel has no tools section at all, hiding an existing tool-grant override (e.g. write files disabled) with no visibility or edit path /workflows/656ca387-e69c-474d-b7ff-5fd9eb017cc0/edit (composer patch mode, applies to any saved workflow) bug-20260828-005500-workflows-id-edit medium saved workflow — edit composer">
-<summary><span class="num">33</span><span class="sev Medium">Medium</span>
+<summary><span class="num">35</span><span class="sev Medium">Medium</span>
 <span class="ttl">Simple view&#x27;s per-agent &quot;Configure →&quot; panel has no Tools section at all, hiding an existing tool-grant override (e.g. Write files disabled) with no visibility or edit path<span class="rt">/workflows/656ca387-e69c-474d-b7ff-5fd9eb017cc0/edit (composer PATCH mode, applies to any saved workflow)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The composer&#x27;s Canvas view exposes a full &quot;Tools&quot; tab in the per-agent config rail</p>
 <p>(<code>Overview</code>/<code>Skills</code>/<code>Hooks</code>/<code>Tools</code>/<code>Config</code>) with three real, togglable switches — &quot;Read</p>
@@ -2280,12 +2617,55 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <p>changes were ever saved (Save workflow was never clicked), and the underlying</p>
 <p><code>GET /api/user-workflows/656ca387-e69c-474d-b7ff-5fd9eb017cc0</code> was confirmed unchanged</p>
 <p>(<code>updated_at</code> unchanged) after this investigation.</p>
+<ul>
+<li><b>Validated:</b> 3/3 on 2026-08-28, cycle 1 — reproduces unconditionally on every cold load, no</li>
+</ul>
+<p>axis variation needed (root cause: <code>AgentRow.tsx</code> uses <code>AdvancedExpander</code>, not</p>
+<p><code>CanvasConfigRail</code>, so Simple view never renders a Tools section at all).</p>
+<ul>
+<li><b>Root cause:</b> <code>AgentRow.tsx:252-258</code> (Simple view&#x27;s &quot;Configure →&quot; panel) opens</li>
+</ul>
+<p><code>AdvancedExpander</code> (<code>AgentsPopup.tsx:1774-2184</code>), whose subtitle is hardcoded <code>Validator ·</p>
+<p>Gate · Model · Retry</code> (<code>AgentsPopup.tsx:1883</code>) and whose JSX never reads or writes</p>
+<p><code>StepSelection.tools</code>. <code>StepSelection.tools?: AgentToolGrants</code> (<code>AgentsPopup.tsx:1372-1376</code>)</p>
+<p>is a normal field of the SAME <code>SelectionsMap</code> Canvas view&#x27;s <code>CanvasConfigRail.tsx:550-613</code></p>
+<p>writes through via the shared <code>applyLeverPatch</code> reducer — confirmed both views are wired to</p>
+<p>ONE shared <code>selections</code> state in <code>ComposerPage.tsx</code> (Canvas: <code>ComposerPage.tsx:1113-1115</code>;</p>
+<p>Simple/<code>AgentRow</code>: <code>ComposerPage.tsx:1304-1310</code>). So a Canvas-set restriction is real,</p>
+<p>shared, in-session state; <code>AdvancedExpander</code> simply never renders it. CONFIRMED via direct</p>
+<p>source read of all cited files.</p>
+<ul>
+<li><b>Blast radius:</b> <code>AdvancedExpander</code> itself is mounted at exactly one JSX call site</li>
+</ul>
+<p>(<code>AgentRow.tsx:252</code>), so there is no second literal caller of the broken component — but</p>
+<p>grepping every OTHER renderer of the shared <code>StepSelection</code>/<code>applyLeverPatch</code> shape found two</p>
+<p>more surfaces with the identical drift: <code>ConfigLeversFlat</code> (<code>AgentsPopup.tsx:1620-1772</code>,</p>
+<p>backing <code>AgentCapabilitiesModal</code>&#x27;s Config tab, mounted from <code>LibraryPage.tsx:1001</code> and</p>
+<p><code>AgentLibrary.tsx:335</code>) also renders only Model/Validator/Gate/Retry; and Canvas view&#x27;s own</p>
+<p>node card (<code>CanvasNode.tsx:763-802</code>) computes only <code>validatorOn</code>/<code>gateOn</code>/<code>retryOn</code> for its</p>
+<p>at-a-glance chip row, so even a Canvas-only user gets no visible flag on the node itself —</p>
+<p>only the rail&#x27;s dedicated Tools tab shows it. Both filed INFERRED (unreproduced in-browser).</p>
+<ul>
+<li><b>Fix:</b> belongs in the shared lever-rendering path, not per-caller — either add a Tools</li>
+</ul>
+<p>section to <code>AdvancedExpander</code> (mirroring <code>CanvasConfigRail.tsx</code>&#x27;s Read files/Write files rows</p>
+<p>and reusing the same <code>patch({ tools: {...} })</code> write-through so Simple and Canvas can&#x27;t drift</p>
+<p>again) or extract Tools into one shared sub-component both <code>AdvancedExpander</code> and</p>
+<p><code>CanvasConfigRail</code> render, the same way <code>AgentSkillsPicker</code> is already shared between them</p>
+<p>(<code>AgentRow.tsx:259-262</code>) specifically to prevent this class of drift.</p>
+<ul>
+<li><b>Issue cards:</b> [ISS-274](../.knowledge/cards/20260828-1854-ISS-274.md) (root — confirmed),</li>
+</ul>
+<p>[ISS-378](../.knowledge/cards/20260828-2006-ISS-378.md) (sibling, INFERRED: <code>ConfigLeversFlat</code>/</p>
+<p><code>AgentCapabilitiesModal</code>, Library + Add-agent drawer, same missing Tools row),</p>
+<p>[ISS-382](../.knowledge/cards/20260828-2008-ISS-382.md) (sibling, INFERRED: Canvas node card&#x27;s</p>
+<p>own override-chip row has no Tools indicator either)</p>
 <div class="meta"><span>ID <code>BUG-20260828-005500-workflows-id-edit</code></span>
 <span>Found by <code>bug-workflows-id-edit-r1</code></span>
 <span>Fingerprint <code>/workflows/{id}/edit|simple-view-agent-configure-panel|toggle-tool-grant-in-canvas-then-inspect-simple-view|no-tools-section-or-indicator-exists-in-simple-view</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="loading a saved-workflow launch panel with a nonexistent or malformed workflow id silently renders the dashboard under the unchanged bogus url /workflows/&lt;nonexistent-uuid&gt;/run, /workflows/&lt;malformed-id&gt;/run bug-20260828-010600-workflows-id-run medium saved workflow&#x27;s launch panel">
-<summary><span class="num">34</span><span class="sev Medium">Medium</span>
+<summary><span class="num">36</span><span class="sev Medium">Medium</span>
 <span class="ttl">Loading a saved-workflow launch panel with a nonexistent or malformed workflow id silently renders the Dashboard under the unchanged bogus URL<span class="rt">/workflows/&lt;nonexistent-uuid&gt;/run, /workflows/&lt;malformed-id&gt;/run</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Navigating directly to a saved workflow&#x27;s dedicated launch route (<code>/workflows/{id}/run</code>) with an</p>
 <p>id that does not resolve to any saved workflow — either a well-formed but nonexistent UUID</p>
@@ -2368,7 +2748,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/workflows/&lt;id&gt;/run|workflow-run-panel-cold-mount|navigate-with-nonexistent-or-malformed-workflow-id|api-404-caught-then-dashboard-silently-rendered-under-stale-url</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="run detail header&#x27;s relative timestamp is stuck on &quot;just now&quot; for a run that finished 11+ hours ago, disagreeing with the version picker&#x27;s own age label /runs/b9feac1c-ec21-4531-8ba7-bb391786993e (and its preview url) bug-20260828-011700-runs-id medium completed run — preview tab (run detail header)">
-<summary><span class="num">35</span><span class="sev Medium">Medium</span>
+<summary><span class="num">37</span><span class="sev Medium">Medium</span>
 <span class="ttl">Run detail header&#x27;s relative timestamp is stuck on &quot;just now&quot; for a run that finished 11+ hours ago, disagreeing with the version picker&#x27;s own age label<span class="rt">/runs/b9feac1c-ec21-4531-8ba7-bb391786993e (and its Preview URL)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The run detail page&#x27;s left-hand header (below the run title, <code>data-testid=&quot;lane-run-meta&quot;</code> area)</p>
 <p>shows a relative timestamp for when the run happened, followed by duration and token count (e.g.</p>
@@ -2437,7 +2817,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/[id]|run-detail-header-relative-time|load-completed-run-11h-old|header-reads-just-now-while-version-picker-reads-11h-ago</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="steps tab footer&#x27;s &quot;input&quot; token figure is ~20x too low and its own breakdown does not sum to the stated total /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps bug-20260828-012500-runs-id-steps medium completed run — steps tab">
-<summary><span class="num">36</span><span class="sev Medium">Medium</span>
+<summary><span class="num">38</span><span class="sev Medium">Medium</span>
 <span class="ttl">Steps tab footer&#x27;s &quot;input&quot; token figure is ~20x too low and its own breakdown does not sum to the stated total<span class="rt">/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The Steps tab&#x27;s bottom-left &quot;TOKEN USAGE&quot; footer (<code>3.1M total · 141.3K input · 192.8K output</code>) is</p>
 <p>meant to break the run&#x27;s total token count down into input vs. output. Its own numbers do not</p>
@@ -2494,12 +2874,85 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <li>State/URL: URL stays on <code>/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps</code> throughout; confirmed</li>
 </ul>
 <p>via direct DOM <code>innerText</code> reads (not just screenshot) both before and after a fresh reload.</p>
+<ul>
+<li><b>Validated:</b> 3/3 on 2026-08-28, every cycle from a cold <code>page.goto</code> — deterministic, no</li>
+</ul>
+<p>timing dependency. Root cause in <code>frontend/src/components/workflow/TokenUsageSummary.tsx:56</code>.</p>
+<ul>
+<li><b>Root cause:</b> <code>TokenUsageSummary.tsx:56</code> renders <code>uncachedInput</code> (gross input minus</li>
+</ul>
+<p>cache_read/cache_write, <code>:32</code>) as the &quot;input&quot; label whenever caching is active, while <code>total</code></p>
+<p>(<code>:26</code>) is computed from the FULL gross <code>input</code> — so input+output can never reconstruct the</p>
+<p>displayed total. The correct full figure is only ever shown in the element&#x27;s own <code>title</code></p>
+<p>tooltip (<code>:54</code>), proving the right value is in scope and simply not the one rendered.</p>
+<ul>
+<li><b>Blast radius:</b> sole production caller is <code>AgentThinkingTab.tsx:321</code> (Steps tab) — renders</li>
+</ul>
+<p>for a run in ANY status (generating/completed/failed/gated), not only completed runs.</p>
+<p><code>ChatTokenWidget.tsx:93-124</code> independently duplicates the identical formula (its own docstring</p>
+<p>says it &quot;Mirrors TokenUsageSummary&quot;) — dormant/unmounted in production today (only its</p>
+<p><code>composedContextUsage</code> helper is imported by <code>RunChatLane.tsx:67-71</code>) but will reproduce the</p>
+<p>same defect once wired into the chat lane. Checked and ruled out: backend</p>
+<p><code>concierge.py get_token_usage()</code> (reports the plain gross figure, no subtraction) and</p>
+<p><code>AnalyticsPage.tsx:224-232,604-619</code> (computes the same uncached value but labels it &quot;New</p>
+<p>Input&quot; inside a 4-segment breakdown that does reconcile to the total — the fix precedent).</p>
+<ul>
+<li><b>Fix belongs in:</b> a shared helper (e.g. <code>{total, uncachedInput, cacheRead, cacheWrite,</li>
+</ul>
+<p>hasCaching}</code> from a <code>PipelineRunState</code>) called by both <code>TokenUsageSummary.tsx</code> and</p>
+<p><code>ChatTokenWidget.tsx</code> instead of each hand-rolling the same subtraction, modeled on</p>
+<p><code>AnalyticsPage.tsx</code>&#x27;s already-correct labeling.</p>
+<ul>
+<li><b>Issue cards:</b> [ISS-278](../.knowledge/cards/20260828-1700-ISS-278.md) (root),</li>
+</ul>
+<p>[ISS-385](../.knowledge/cards/20260828-2225-ISS-385.md) (sibling: ChatTokenWidget.tsx</p>
+<p>duplicates the same formula, currently unmounted)</p>
+<ul>
+<li><b>Fixed:</b> <code>TokenUsageSummary.tsx:56</code> now renders <code>{formatTokens(input)} input</code> — the same</li>
+</ul>
+<p>gross <code>totalInputTokens</code> the <code>total</code> beside it is derived from — so the footer&#x27;s two visible</p>
+<p>parts reconstruct the stated total; the tooltip keeps the cached share. The orphaned</p>
+<p><code>uncachedInput</code> local is gone. <code>ChatTokenWidget.tsx</code> (the dormant duplicate) got the same</p>
+<p>treatment: the <code>in</code> segment is unconditional and gross, only the amber <code>⚡ N cached (P%)</code></p>
+<p>segment stays behind <code>hasCaching</code>. The shared helper both cards proposed was NOT created —</p>
+<p>with the subtraction deleted from both files there is no shared arithmetic left to extract,</p>
+<p>and the goal it served (no dormant copy) is met by fixing both call sites in one pass.</p>
+<p>Vitest: TokenUsageSummary.footerSum 2/2 XPASS (&quot;Error: Expect test to fail&quot; — the red run IS</p>
+<p>the pass signal, <code>it.fails</code> markers left in place for the verifier); TokenUsageSummary.cache</p>
+<p>5/5 green; ChatTokenWidget 6/6 green. <code>npx tsc --noEmit</code>: no error in either changed file</p>
+<p>(the 6 reported are HomeLaunchGrid.crossAccountLeak / listenerMiddleware tests, other work in</p>
+<p>this tree). eslint on both files: 0 errors, 1 pre-existing unused-<code>modelId</code> warning on the</p>
+<p>untouched props signature. Frontend-only: no backend restart, no migration, no engine or</p>
+<p>import-linter surface involved.</p>
+<ul>
+<li><b>Fix card:</b> [FIX-353](../.knowledge/cards/20260828-2353-FIX-353.md) — resolves</li>
+</ul>
+<p>[ISS-278](../.knowledge/cards/20260828-1700-ISS-278.md) (status: resolved, verification:</p>
+<p>passed) and [ISS-385](../.knowledge/cards/20260828-2225-ISS-385.md) (status: resolved,</p>
+<p>verification: optional — the widget is still mounted nowhere, so its fix is settled by</p>
+<p>construction and by its own unit suite, not by a UI reproduction).</p>
+<ul>
+<li><b>Verified:</b> <code>TokenUsageSummary.footerSum.test.tsx</code> (2 cases) confirmed XPASS</li>
+</ul>
+<p>(&quot;Error: Expect test to fail&quot; on both <code>it.fails</code>), <code>xfail</code>/<code>it.fails</code> markers removed,</p>
+<p>re-run plain green: <code>TokenUsageSummary.footerSum.test.tsx</code> + <code>TokenUsageSummary.cache.test.tsx</code></p>
+<p>+ <code>ChatTokenWidget.test.tsx</code> = 13/13 passed. Manual repro re-run by hand in Chrome</p>
+<p>(qa-admin, cold <code>page.goto</code> to <code>/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps</code>): footer now</p>
+<p>reads <code>TOKEN USAGE · 3.1M total · 2.9M input · 192.8K output</code> — 2.9M + 192.8K reconstructs</p>
+<p>3.1M, and the tooltip (&quot;Total context sent: 2.9M (2.4M cached)&quot;) now agrees with the visible</p>
+<p>label instead of contradicting it. <code>npx tsc --noEmit</code>: 0 errors in the two changed files (6</p>
+<p>pre-existing errors remain in unrelated <code>HomeLaunchGrid.crossAccountLeak.test.tsx</code> /</p>
+<p><code>listenerMiddleware.test.ts</code>, confirmed at HEAD, not introduced by this fix). Backend</p>
+<p><code>/docs</code> → 200 (frontend-only change, no restart needed). Regression:</p>
+<p><code>AgentThinkingTab.test.tsx</code> (sole production caller&#x27;s own suite) 6/6 green. No new console</p>
+<p>errors (1 pre-existing sandboxed-iframe warning, unrelated to this component). After</p>
+<p>screenshot: <code>bug-hunter/evidence/runs-id-steps/BUG-20260828-012500-runs-id-steps/04-after-fix-verified.png</code>.</p>
 <div class="meta"><span>ID <code>BUG-20260828-012500-runs-id-steps</code></span>
 <span>Found by <code>bug-runs-id-steps-r1</code></span>
 <span>Fingerprint <code>/runs/[id]/steps|token-usage-footer|load-completed-run-steps-tab|input-token-figure-far-below-actual-breakdown-does-not-sum-to-total</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="deep-linking a specific agent&#x27;s step url never opens that agent&#x27;s detail pane; it renders the plain unfiltered lane list instead /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps/&lt;agentid&gt; (e.g. `/steps/ppt-brief-analyst`, `/steps/ppt-composer`) bug-20260828-012700-runs-id-steps-agent medium completed run — one agent&#x27;s step detail">
-<summary><span class="num">37</span><span class="sev Medium">Medium</span>
+<summary><span class="num">39</span><span class="sev Medium">Medium</span>
 <span class="ttl">Deep-linking a specific agent&#x27;s step URL never opens that agent&#x27;s detail pane; it renders the plain unfiltered lane list instead<span class="rt">/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps/&lt;agentId&gt; (e.g. `/steps/ppt-brief-analyst`, `/steps/ppt-composer`)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The Steps tab&#x27;s URL scheme includes a per-agent segment (<code>/runs/{id}/steps/{agentId}</code>), and the</p>
 <p>app itself generates and links to these URLs (e.g. the &quot;Answer in Steps&quot;/&quot;Open in Steps&quot; chat</p>
@@ -2575,12 +3028,70 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 </ul>
 <p>including immediately after the manual click that opens the detail pane — the URL is written</p>
 <p>once by navigation and never updated or read back by the selection logic.</p>
+<ul>
+<li><b>Root cause:</b> <code>agentId</code> is dropped end-to-end, confirmed at every hop by direct read.</li>
+</ul>
+<p><code>reopenTabFor(screen: ParsedView[&quot;screen&quot;])</code> (<code>frontend/src/app/[...view]/page.tsx:228-234</code>)</p>
+<p>is typed to accept only the screen name, so it structurally cannot see <code>agentId</code> even though</p>
+<p>the full <code>parsedView</code> object (with <code>.agentId</code>) is in scope at both call sites</p>
+<p>(<code>page.tsx:3189</code>, <code>:3237</code>). <code>TabDeepLinkTarget</code> (<code>frontend/src/hooks/useTabDeepLink.ts:28-33</code>)</p>
+<p>carries only <code>{tab, nonce}</code> and <code>requestOpenTab</code> is typed <code>(tab: string) =&gt; void</code> (<code>:38-39</code>) —</p>
+<p>no field exists to carry an agent id even one layer downstream. <code>PreviewPanel</code>&#x27;s deep-link</p>
+<p>consumer effect (<code>PreviewPanel.tsx:814-837</code>) reads only <code>.tab</code> and calls <code>setActiveTab</code>; it</p>
+<p>invokes <code>&lt;AgentThinkingTab&gt;</code> with no agent-id-shaped prop at all (<code>:1360-1384</code>). Finally,</p>
+<p><code>AgentThinkingTabProps</code> (<code>AgentThinkingTab.tsx:22-46</code>) has no such field, and</p>
+<p><code>selectedAgentId</code> (<code>:84</code>) is plain <code>useState&lt;string | null&gt;(null)</code>, unconditionally <code>null</code> on</p>
+<p>every mount regardless of the URL. The reverse direction is equally absent: the manual click</p>
+<p>handler <code>onOpenAgent={(id) =&gt; { setSelectedAgentId(id); ... }}</code> (<code>:295</code>) and its task-level and</p>
+<p><code>onBack</code> counterparts (<code>:254</code>, <code>:260</code>, <code>:282</code>) never call <code>router.push</code>/<code>replace</code> or</p>
+<p><code>window.history.pushState</code>/<code>replaceState</code> — confirmed by grepping <code>AgentThinkingTab.tsx</code>,</p>
+<p><code>StepsOverviewSpine.tsx</code>, and <code>AgentDetailPanel.tsx</code> for <code>router\.|useRouter|window.history|</p>
+<p>pushState|replaceState</code>: the only hit is an unrelated &quot;divert to another run&#x27;s live stream&quot;</p>
+<p>push in <code>StepsOverviewSpine.tsx:43,52</code>.</p>
+<ul>
+<li><b>Blast radius:</b> <code>routes.runStepsAgent</code> (the typed builder for this URL) has zero production</li>
+</ul>
+<p>callers today — <code>grep -rn &quot;runStepsAgent&quot; frontend/src/</code> matches only <code>routes.ts</code> itself and</p>
+<p>its own test. The &quot;Answer in Steps&quot;/&quot;Open in Steps&quot; chat CTAs named in this entry&#x27;s Summary</p>
+<p>(<code>ResultCard.tsx:54-91</code>) call the generic <code>onRequestOpenTab(&quot;thinking&quot;)</code> directly — by design,</p>
+<p>per SC-001 (never key chat behavior on an agent/workflow name) — and never build or navigate</p>
+<p>to a <code>/steps/{agentId}</code> URL; likewise the breadcrumb (<code>AgentDetailPanel.tsx:994</code>) renders as a</p>
+<p>plain <code>&lt;button&gt;</code>, not a link. So the only path into this bug today is direct/shared/bookmarked</p>
+<p>navigation to the URL <code>routes.ts</code> itself defines and documents — a path ADR-0018 makes a</p>
+<p>first-class contract (&quot;every URL... routes.ts is the single source for building and parsing</p>
+<p>it&quot;), independent of caller count. Two further gaps surfaced from the same trace, filed as</p>
+<p>siblings: (1) the missing-history-push above also means the browser Back button, after a</p>
+<p>manual agent/task selection, skips the Steps list entirely and lands on whatever page preceded</p>
+<p>the Steps tab, since no history entry was ever created for the selection; (2)</p>
+<p><code>routes.runStepsAgent</code> is the only run-tab builder in <code>routes.ts</code> with no <code>version</code> parameter</p>
+<p>(<code>routes.ts:72-89</code>), unlike <code>runSteps</code>/<code>runFiles</code>/<code>runWorkspace</code>/<code>runAudit</code>, even though</p>
+<p><code>parseViewPath</code> (<code>:319-339</code>) already parses <code>/versions/{v}/steps/{agentId}</code> into a <code>version</code></p>
+<p>field for this exact screen — the builder cannot construct what the parser already accepts.</p>
+<ul>
+<li><b>Fix belongs in:</b> the shared <code>TabDeepLinkTarget</code>/<code>requestOpenTab</code> seam</li>
+</ul>
+<p>(<code>useTabDeepLink.ts</code>) — widen it to optionally carry an agent id, since every deep-link</p>
+<p>producer (page.tsx&#x27;s cold-mount effect, and <code>ResultCard</code>&#x27;s chat CTAs) already routes through</p>
+<p>this one interface. Thread that value through <code>PreviewPanel</code>&#x27;s consumer effect into a new</p>
+<p><code>AgentThinkingTab</code> prop (e.g. <code>initialAgentId</code>) that seeds <code>selectedAgentId</code>&#x27;s initial value.</p>
+<p>For the reverse direction, <code>onOpenAgent</code>/<code>onBack</code> in <code>AgentThinkingTab.tsx</code> need to call</p>
+<p><code>router.push</code>/<code>replace</code> with <code>routes.runStepsAgent(runId, agentId)</code> (or <code>routes.runSteps(runId)</code></p>
+<p>on back-to-list) so selection state and the URL/history stay in sync both ways. Not a</p>
+<p>page.tsx-only patch: <code>reopenTabFor</code>&#x27;s signature, <code>TabDeepLinkTarget</code>&#x27;s shape, and</p>
+<p><code>AgentThinkingTab</code>&#x27;s prop surface all need the same new field so every existing caller keeps</p>
+<p>routing through one seam rather than growing a second, parallel channel.</p>
+<ul>
+<li><b>Issue cards:</b> [ISS-277](../.knowledge/cards/20260828-1659-ISS-277.md) (root),</li>
+</ul>
+<p>[ISS-386](../.knowledge/cards/20260828-2228-ISS-386.md) (sibling: routes.runStepsAgent has no</p>
+<p>version param, unlike its four sibling builders), [ISS-387](../.knowledge/cards/20260828-2228-ISS-387.md)</p>
+<p>(sibling: no history entry on manual agent/task selection breaks the browser Back button)</p>
 <div class="meta"><span>ID <code>BUG-20260828-012700-runs-id-steps-agent</code></span>
 <span>Found by <code>bug-runs-steps-agent-r1</code></span>
 <span>Fingerprint <code>/runs/[id]/steps/[agentId]|steps-tab-lane-detail-panel|fresh-navigation-or-reload-of-agent-deep-link|no-agent-detail-renders-only-list-view</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="workspace tab&#x27;s &quot;code&quot; file viewer is a live, freely-editable text editor with no read-only indication for a completed run /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/workspace bug-20260828-013500-runs-id-workspace medium completed run — workspace tab">
-<summary><span class="num">38</span><span class="sev Medium">Medium</span>
+<summary><span class="num">40</span><span class="sev Medium">Medium</span>
 <span class="ttl">Workspace tab&#x27;s &quot;Code&quot; file viewer is a live, freely-editable text editor with no read-only indication for a completed run<span class="rt">/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/workspace</span></span></summary>
 <div class="body"><h4>Summary</h4><p>First established that the Workspace tab correctly bounds the already-filed Files-tab</p>
 <p>deliverable bug (<code>BUG-20260828-012900-runs-id-files</code>): the run&#x27;s real <code>presentation.pptx</code></p>
@@ -2674,7 +3185,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/[id]/workspace|workspace-file-viewer-code-mode|click-into-cm-content-and-type|editor-accepts-arbitrary-keystrokes-no-readonly-lock-no-save-affordance</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="for a failed run with no preview tab, `/preview/full` silently renders the audit trail instead of an honest &quot;no deliverable&quot; state /runs/{id}/preview/full bug-20260828-014416-runs-id-preview-full medium full-bleed deliverable view">
-<summary><span class="num">39</span><span class="sev Medium">Medium</span>
+<summary><span class="num">41</span><span class="sev Medium">Medium</span>
 <span class="ttl">For a failed run with no Preview tab, `/preview/full` silently renders the Audit trail instead of an honest &quot;no deliverable&quot; state<span class="rt">/runs/{id}/preview/full</span></span></summary>
 <div class="body"><h4>Summary</h4><p><code>/runs/{id}/preview/full</code> is the dedicated route whose entire purpose is to force-select and</p>
 <p>show the run&#x27;s Preview tab (the deliverable view). For a run whose pipeline failed before</p>
@@ -2744,7 +3255,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/{id}/preview/full|preview-tab-fallback|navigate-to-preview-full-for-failed-run-with-no-preview-tab|silently-renders-audit-tab-instead-of-empty-state</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="diverted run&#x27;s preview tab shows the &quot;waiting for live output&quot; placeholder even though the run is permanently terminal /runs/{id}/stream bug-20260828-014937-runs-id-stream medium stream view (run detail, preview tab)">
-<summary><span class="num">40</span><span class="sev Medium">Medium</span>
+<summary><span class="num">42</span><span class="sev Medium">Medium</span>
 <span class="ttl">Diverted run&#x27;s Preview tab shows the &quot;waiting for live output&quot; placeholder even though the run is permanently terminal<span class="rt">/runs/{id}/stream</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Loading <code>/stream</code> for a run whose status is <code>diverted</code> (the API confirms <code>status: &quot;diverted&quot;</code></p>
 <p>with <code>completed_at</code> already set — a permanently terminal state, not paused-and-resumable; only</p>
@@ -2816,7 +3327,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/{id}/stream|preview-tab-empty-state|load-stream-for-a-diverted-run|shows-generic-live-waiting-placeholder-instead-of-honest-terminal-message</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="version picker label is stuck on &quot;version v1&quot; while viewing a real, distinct v2 /runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/2 (root run has a genuine 2-member bug-20260828-020900-runs-id-versions medium run detail pinned to an artifact version">
-<summary><span class="num">41</span><span class="sev Medium">Medium</span>
+<summary><span class="num">43</span><span class="sev Medium">Medium</span>
 <span class="ttl">Version picker label is stuck on &quot;Version v1&quot; while viewing a real, distinct v2<span class="rt">/runs/77f74563-fa19-4f0b-84fd-d0224f89a54a/versions/2 (root run has a genuine 2-member</span></span></summary>
 <div class="body"><h4>Summary</h4><p>This is distinct from the already-known D-12 (a NONEXISTENT version like <code>/versions/99</code> silently</p>
 <p>serving v1 with no error). Here the requested version genuinely exists and the CORRECT content is</p>
@@ -2872,7 +3383,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/[id]/versions/2|version-picker-label|load-existing-second-version|header-and-picker-both-claim-v1-while-serving-v2-content</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="library agent detail&#x27;s &quot;save agent&quot; config override silently discards the change with no api call /library/agents/&lt;agentid&gt; (e.g. /library/agents/material-analyzer) bug-20260828-025950-library-agents-id medium library — agent detail">
-<summary><span class="num">42</span><span class="sev Medium">Medium</span>
+<summary><span class="num">44</span><span class="sev Medium">Medium</span>
 <span class="ttl">Library agent detail&#x27;s &quot;Save agent&quot; Config override silently discards the change with no API call<span class="rt">/library/agents/&lt;agentId&gt; (e.g. /library/agents/material-analyzer)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The agent detail drawer&#x27;s Config tab (reached via any agent&#x27;s &quot;Configure →&quot; affordance on</p>
 <p><code>/library</code>, e.g. the Architecture Agent at <code>/library/agents/material-analyzer</code>) presents a</p>
@@ -2927,7 +3438,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/library/agents/&lt;id&gt;|agent-detail-config-tab-save|change-model-then-save|change-not-persisted-no-network-call</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="skill ids with no hyphen (single-word slug) silently fall back to the library listing instead of rendering the skill detail page /library/skills/&lt;skillid&gt; (single-segment ids: `accessibility`, `benchmark`, `seo`) bug-20260828-030430-library-skills-id medium library — skill detail">
-<summary><span class="num">43</span><span class="sev Medium">Medium</span>
+<summary><span class="num">45</span><span class="sev Medium">Medium</span>
 <span class="ttl">Skill IDs with no hyphen (single-word slug) silently fall back to the Library listing instead of rendering the skill detail page<span class="rt">/library/skills/&lt;skillId&gt; (single-segment ids: `accessibility`, `benchmark`, `seo`)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Navigating directly to <code>/library/skills/&lt;skillId&gt;</code> renders the skill detail page correctly for</p>
 <p>hyphenated ids (e.g. <code>windows-desktop-e2e</code>, <code>html-deck-to-pptx</code> — verified via a full markdown</p>
@@ -2995,7 +3506,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/library/skills/&lt;id&gt;|skill-detail-route-match|navigate-directly-to-a-no-hyphen-skill-id|library-listing-renders-instead-of-detail</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="hook detail&#x27;s &quot;compatible agents&quot; list references nonexistent agent ids not found in the agents library /library/hooks/&lt;hookid&gt; (reproduces on 6 of the 8 hooks: `post-design-quality`, `session-start`, `stop-console-log`, `stop-format-typecheck`, and more) bug-20260828-030700-library-hooks-id medium library — hook detail">
-<summary><span class="num">44</span><span class="sev Medium">Medium</span>
+<summary><span class="num">46</span><span class="sev Medium">Medium</span>
 <span class="ttl">Hook detail&#x27;s &quot;Compatible agents&quot; list references nonexistent agent ids not found in the Agents library<span class="rt">/library/hooks/&lt;hookId&gt; (reproduces on 6 of the 8 hooks: `post-design-quality`, `session-start`, `stop-console-log`, `stop-format-typecheck`, and more)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Each hook detail page renders a &quot;Compatible agents&quot; section (sourced directly from the backend&#x27;s</p>
 <p><code>compatible_agents</code> array on <code>GET /api/hooks/library</code>, verified byte-for-byte against the</p>
@@ -3064,7 +3575,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/library/hooks/&lt;id&gt;|compatible-agents-list|render-hook-detail-page|list-contains-agent-ids-absent-from-agents-library</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="pipeline model selector enforces no tier restriction; a basic-tier account can select and persist the most expensive &quot;powerful&quot; models /settings/ai-model bug-20260828-031200-settings-ai-model medium settings — ai model">
-<summary><span class="num">45</span><span class="sev Medium">Medium</span>
+<summary><span class="num">47</span><span class="sev Medium">Medium</span>
 <span class="ttl">Pipeline model selector enforces no tier restriction; a basic-tier account can select and persist the most expensive &quot;powerful&quot; models<span class="rt">/settings/ai-model</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The Pipeline Model selector on /settings/ai-model presents all 9 catalog models — including the</p>
 <p>two &quot;powerful&quot; (premium/most expensive) tier models, Claude Opus 4.5 and Claude Opus 4.6 — to</p>
@@ -3144,7 +3655,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/settings/ai-model|pipeline-model-select|basic-tier-account-selects-powerful-tier-model-and-saves|no-tier-gating-anywhere-ui-or-api</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="&quot;manage plan&quot; button on usage &amp; limits has no click handler at all; a basic-tier account has no way to upgrade /settings/usage bug-20260828-031600-settings-usage medium settings · usage &amp; limits">
-<summary><span class="num">46</span><span class="sev Medium">Medium</span>
+<summary><span class="num">48</span><span class="sev Medium">Medium</span>
 <span class="ttl">&quot;Manage plan&quot; button on Usage &amp; Limits has no click handler at all; a basic-tier account has no way to upgrade<span class="rt">/settings/usage</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The <code>/settings/usage</code> page&#x27;s only interactive control besides the settings tabs is the &quot;Manage</p>
 <p>plan&quot; button, rendered next to the plan-name heading (&quot;Enterprise plan&quot; for qa-admin, &quot;Basic</p>
@@ -3217,7 +3728,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/settings/usage|manage-plan-button|click|no-onclick-handler-bound-no-request-no-modal-no-navigation</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="constitution&#x27;s &quot;x / 4000 chars&quot; limit is display-only; content well over 4000 chars saves and persists with no truncation or rejection /settings/constitution bug-20260828-031900-settings-constitution medium settings · constitution">
-<summary><span class="num">47</span><span class="sev Medium">Medium</span>
+<summary><span class="num">49</span><span class="sev Medium">Medium</span>
 <span class="ttl">Constitution&#x27;s &quot;X / 4000 chars&quot; limit is display-only; content well over 4000 chars saves and persists with no truncation or rejection<span class="rt">/settings/constitution</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The Constitution editor shows a character counter styled as a hard cap (&quot;X / 4000 chars&quot;), and</p>
 <p>the page copy states this constitution &quot;is prepended to every agent on every run.&quot; Despite that,</p>
@@ -3290,7 +3801,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/settings/constitution|global-instructions-textarea|type-past-4000-char-counter-and-save|no-limit-enforced-content-persists-unbounded</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="security tab tells break-glass admin their credentials are &quot;managed outside the application&quot; when this app manages them itself /settings/security bug-20260828-032424-settings-security medium settings — security">
-<summary><span class="num">48</span><span class="sev Medium">Medium</span>
+<summary><span class="num">50</span><span class="sev Medium">Medium</span>
 <span class="ttl">Security tab tells break-glass admin their credentials are &quot;managed outside the application&quot; when this app manages them itself<span class="rt">/settings/security</span></span></summary>
 <div class="body"><h4>Summary</h4><p>For the <code>qa-admin</code> account (a local/break-glass account, not Cognito-backed), the Security</p>
 <p>tab shows &quot;Not available for this account&quot; with the explanation &quot;This account&#x27;s credentials</p>
@@ -3358,7 +3869,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/settings/security|mfa-unavailable-message|view-as-local-break-glass-account|copy-falsely-claims-external-credential-management</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="create-user dialog accepts and persists a malformed email with no @ or domain /admin bug-20260828-033400-admin medium admin">
-<summary><span class="num">49</span><span class="sev Medium">Medium</span>
+<summary><span class="num">51</span><span class="sev Medium">Medium</span>
 <span class="ttl">Create-User dialog accepts and persists a malformed email with no @ or domain<span class="rt">/admin</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The &quot;Create New User&quot; dialog on <code>/admin</code> performs no email-format validation, neither client-side</p>
 <p>nor server-side. The &quot;Create User&quot; button only checks that the Email and Password fields are</p>
@@ -3406,7 +3917,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/admin|create-user-dialog|submit-malformed-email|user-persisted-with-invalid-email</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="`/workflows/&lt;bad-id&gt;/canvas` silently opens an empty &quot;copy&quot; composer instead of 404ing, letting a user save a brand-new persisted workflow from a dead link /workflows/&lt;nonexistent-or-malformed-id&gt;/canvas (e.g. /workflows/00000000-0000-0000-0000-000000000000/canvas, /workflows/totally-bogus-id-12345/canvas) bug-20260828-040400-workflows-nonexistent medium missing workflow — canvas sub-route">
-<summary><span class="num">50</span><span class="sev Medium">Medium</span>
+<summary><span class="num">52</span><span class="sev Medium">Medium</span>
 <span class="ttl">`/workflows/&lt;bad-id&gt;/canvas` silently opens an empty &quot;copy&quot; composer instead of 404ing, letting a user save a brand-new persisted workflow from a dead link<span class="rt">/workflows/&lt;nonexistent-or-malformed-id&gt;/canvas (e.g. /workflows/00000000-0000-0000-0000-000000000000/canvas, /workflows/totally-bogus-id-12345/canvas)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Unlike the bare workflow detail route and <code>/edit</code>, both of which correctly render the generic</p>
 <p>404 for a nonexistent or malformed workflow id (verified in this same investigation — both are</p>
@@ -3485,7 +3996,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/workflows/&lt;bad-id&gt;/canvas|copy-composer|navigate-to-canvas-subroute-for-nonexistent-workflow|empty-composer-renders-and-save-as-copy-persists-a-real-workflow</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="`?error=quota` always shows the &quot;too large&quot; dead-end even when a fully valid preview is sitting in sessionstorage /preview-fullscreen?error=quota bug-20260828-040915-preview-fullscreen-quota medium fullscreen preview — quota error">
-<summary><span class="num">51</span><span class="sev Medium">Medium</span>
+<summary><span class="num">53</span><span class="sev Medium">Medium</span>
 <span class="ttl">`?error=quota` always shows the &quot;too large&quot; dead-end even when a fully valid preview is sitting in sessionStorage<span class="rt">/preview-fullscreen?error=quota</span></span></summary>
 <div class="body"><h4>Summary</h4><p><code>frontend/src/app/preview-fullscreen/page.tsx</code> checks <code>params.get(&quot;error&quot;) === &quot;quota&quot;</code> and, if</p>
 <p>true, immediately renders the dead-end &quot;Project too large for full screen&quot; message and <code>return</code>s</p>
@@ -3560,7 +4071,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/preview-fullscreen|error-quota-flag-precedence|navigate-with-error=quota-while-valid-__app_preview__-payload-present-in-sessionStorage|quota-dead-end-shown-instead-of-working-preview-that-is-actually-cached</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="a genuine network/fetch failure on the handoff page is misreported as &quot;handoff not found&quot;, even for a real, valid, owned token /handoff/{token} bug-20260828-042900-handoff-invalid medium handoff — invalid/unknown token">
-<summary><span class="num">52</span><span class="sev Medium">Medium</span>
+<summary><span class="num">54</span><span class="sev Medium">Medium</span>
 <span class="ttl">A genuine network/fetch failure on the handoff page is misreported as &quot;Handoff not found&quot;, even for a real, valid, owned token<span class="rt">/handoff/{token}</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The <code>/handoff/{token}</code> page&#x27;s &quot;not found&quot; error surface (<code>Handoff not found</code>) is shown any time</p>
 <p>the <code>GET /api/handoff/{token}</code> request fails to complete — including a pure network failure</p>
@@ -3620,12 +4131,96 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 </ul>
 <p>recovers the correct content, confirming this is a client-side error-handling gap, not a</p>
 <p>server-side data issue.</p>
+<ul>
+<li><b>Validated:</b> 3/3 on 2026-08-28, every cycle from a cold start (cycle 1: reload with route</li>
+</ul>
+<p>interception installed; cycle 2: cleared cookies/localStorage + fresh navigation; cycle 3: a</p>
+<p>brand-new browser tab). Re-minted a fresh real handoff token via <code>POST /api/handoff/receive</code>,</p>
+<p>confirmed healthy load, then reproduced the &quot;Handoff not found&quot; / &quot;Failed to fetch&quot; mis-render</p>
+<p>on every cycle with <code>page.route(&#x27;<b>/api/handoff/</b>&#x27;, route =&gt; route.abort(&#x27;failed&#x27;))</code>. Root</p>
+<p>cause traced to <code>frontend/src/components/handoff/HandoffWorkflow.tsx:73-148</code> (<code>fetchSession</code>)</p>
+<p>funneling any thrown error — HTTP 404 or a pure network-layer fetch rejection — into the same</p>
+<p><code>loadError</code> state, then <code>HandoffWorkflow.tsx:216-233</code> rendering an unconditional &quot;Handoff not</p>
+<p>found&quot; heading for any <code>loadError</code>.</p>
+<ul>
+<li><b>Issue card:</b> [ISS-301](../.knowledge/cards/20260828-1740-ISS-301.md)</li>
+<li><b>Root cause:</b> <code>frontend/src/lib/api-handoff.ts:61-92</code> (<code>authedJson</code>) — the single choke point</li>
+</ul>
+<p>behind all 8 handoff API calls — throws a bare, status-less <code>Error</code> for an HTTP failure and lets a</p>
+<p>network-layer <code>fetch</code> rejection propagate unmodified, so neither case carries anything a caller can</p>
+<p>branch on. <code>HandoffWorkflow.tsx:143-145</code> (<code>fetchSession</code>&#x27;s catch) then collapses both into one</p>
+<p><code>loadError</code> string, and <code>HandoffWorkflow.tsx:216-233</code> renders &quot;Handoff not found&quot; unconditionally</p>
+<p>for any <code>loadError</code>. This is the exact class of bug <code>lib/api.ts</code>&#x27;s <code>ApiError</code>/<code>isNotFoundError</code></p>
+<p>(<code>:93-116</code>) was already built to prevent (per its own comment, referencing ISS-374) — but</p>
+<p><code>api-handoff.ts</code> has its own separate <code>authedJson</code> that never adopted that fix.</p>
+<ul>
+<li><b>Blast radius:</b> all 8 functions routed through <code>authedJson</code> in <code>api-handoff.ts</code> (<code>getHandoff</code>,</li>
+</ul>
+<p><code>startHandoff</code>, <code>getGithubPatStatus</code>, <code>saveGithubPat</code>, <code>deleteGithubPat</code>, <code>listApiKeys</code>,</p>
+<p><code>createApiKey</code>, <code>revokeApiKey</code>) carry the same undiscriminated-error defect at the data layer.</p>
+<p>Two additional call sites confirmed broken by the same mechanism: <code>HandoffWorkflow.tsx</code>&#x27;s</p>
+<p>post-completion re-fetch (<code>:186-192</code>) can wipe an already-loaded, in-progress/completed session</p>
+<p>back to &quot;Handoff not found&quot; on a transient refresh failure (the render guard is <code>loadError ||</p>
+<p>!session</code>, not <code>!session</code> alone); <code>IntegrationsCard.tsx</code>&#x27;s <code>refresh()</code> (<code>:80-93</code>) has an EMPTY catch</p>
+<p>that silently renders &quot;No GitHub token saved yet.&quot; / &quot;No API keys yet.&quot; for a user who has both,</p>
+<p>indistinguishable from a legitimately empty account — confirmed backend-side</p>
+<p>(<code>backend/app/api/settings.py:178-201</code>) that &quot;no PAT saved&quot; is itself a normal 200/<code>null</code>, never an</p>
+<p>error, so that catch only ever fires on a genuine failure.</p>
+<ul>
+<li><b>Fix location:</b> <code>authedJson</code> in <code>frontend/src/lib/api-handoff.ts</code> (<code>:61-92</code>) — make it throw the</li>
+</ul>
+<p>same <code>ApiError</code>-shaped failure <code>lib/api.ts</code>&#x27;s <code>request()</code> already throws (status-bearing for HTTP</p>
+<p>failures, a typed/wrapped case for network failures) so every caller can branch with the same</p>
+<p><code>isNotFoundError</code>-style check instead of re-deriving its own heuristic. One guard there, not one</p>
+<p>per caller. <code>ApiError</code> itself is not currently exported from <code>lib/api.ts</code> — that export needs adding</p>
+<p>first.</p>
+<ul>
+<li><b>Issue cards:</b> [ISS-301](../.knowledge/cards/20260828-1740-ISS-301.md) (root),</li>
+</ul>
+<p>[ISS-409](../.knowledge/cards/20260828-2148-ISS-409.md) (sibling: IntegrationsCard swallows the</p>
+<p>same failure as a false empty state), [ISS-411](../.knowledge/cards/20260828-2147-ISS-411.md)</p>
+<p>(sibling: HandoffWorkflow&#x27;s post-completion re-fetch can wipe an already-valid session)</p>
+<ul>
+<li><b>Fixed:</b> <code>frontend/src/lib/api-handoff.ts</code> (<code>authedJson</code>) now wraps a network-layer fetch</li>
+</ul>
+<p>rejection as <code>ApiError(0, ...)</code> — <code>lib/api.ts</code>&#x27;s existing &quot;no HTTP response&quot; marker — and throws</p>
+<p><code>ApiError(resp.status, ...)</code> for an HTTP failure, so all 8 handoff calls carry a branchable</p>
+<p>status. <code>HandoffWorkflow.tsx</code> consumes it: <code>loadError</code> became <code>{message, offline}</code>, the heading</p>
+<p>branches to &quot;Couldn&#x27;t reach VelocityAI&quot; + a Retry button when offline, and the full-page guard</p>
+<p>is now <code>!session</code> alone (ISS-411) with a non-blocking notice for a failed refresh. <code>ApiError</code> was</p>
+<p>already exported at <code>lib/api.ts:648</code> — the card&#x27;s note that it was not is stale.</p>
+<p>ISS-409 (IntegrationsCard&#x27;s empty catch) is NOT fixed here and stays open on its own card.</p>
+<ul>
+<li><b>Fix card:</b> [FIX-370](../.knowledge/cards/20260829-0116-FIX-370.md)</li>
+<li><b>Tests:</b> frontend/src/components/handoff/HandoffWorkflow.test.tsx — 1 passed, 1 failed with</li>
+</ul>
+<p>&quot;Error: Expect test to fail&quot; = the <code>it.fails</code> (xfail strict) case XPASSing, i.e. the pass signal;</p>
+<p>marker left in place for 6-verifier. Baseline before the change on the same file was</p>
+<p>&quot;1 passed | 1 expected fail (2)&quot;. Also green: api-handoff.test.ts (3/3), api.errorEcho.test.ts</p>
+<p>(1/1). tsc --noEmit: 6 errors, none in either changed file.</p>
+<ul>
+<li><b>Verified:</b> <code>HandoffWorkflow.test.tsx</code> re-run confirmed XPASS (&quot;Error: Expect test to fail&quot;</li>
+</ul>
+<p>on the <code>it.fails</code> case), <code>it.fails</code> marker removed, re-run plain green (2 passed). Regression:</p>
+<p><code>api-handoff.test.ts</code> (3/3) and <code>api.errorEcho.test.ts</code> (1/1) still green. <code>tsc --noEmit</code>: same</p>
+<p>6 pre-existing errors, none in <code>HandoffWorkflow.tsx</code>/<code>api-handoff.ts</code>/the test file. Backend</p>
+<p>untouched by this fix; <code>:8000/docs</code> → 200. <code>lint-imports</code> (from <code>backend/</code>): 1 pre-existing</p>
+<p>broken contract (<code>agents.execution_engine.engine</code> → <code>app.api</code>), unrelated to this frontend-only</p>
+<p>change. Manual repro in lane4 Chrome, same conditions as the original (qa-admin, real minted</p>
+<p>handoff token via <code>POST /api/handoff/receive</code>): healthy load renders the real session; with</p>
+<p><code>page.route(&#x27;<b>/api/handoff/</b>&#x27;, route =&gt; route.abort(&#x27;failed&#x27;))</code> + reload, the page now shows</p>
+<p>&quot;Couldn&#x27;t reach VelocityAI&quot; / &quot;The request never reached the server, so this handoff may still</p>
+<p>be fine. Check your connection and try again.&quot; with a Retry button — no &quot;Handoff not found&quot;</p>
+<p>text anywhere; clicking Retry after unrouting recovers the real session; a genuine nonexistent</p>
+<p>token still renders &quot;Handoff not found&quot; byte-identical to before. Screenshots:</p>
+<p><code>bug-hunter/evidence/handoff-invalid/BUG-20260828-042900-handoff-invalid/03-verify-after-healthy-load.png</code>,</p>
+<p><code>.../04-verify-after-fix-network-error-distinguished.png</code>.</p>
 <div class="meta"><span>ID <code>BUG-20260828-042900-handoff-invalid</code></span>
 <span>Found by <code>bug-handoff-invalid-r2</code></span>
 <span>Fingerprint <code>/handoff/{token}|token-lookup-fetch|network-request-fails-or-is-unreachable|frontend-renders-generic-not-found-instead-of-a-network-error-state</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="&quot;coming soon&quot; agents are fully browsable and configurable via direct url, bypassing the catalog&#x27;s own disabled/unreachable gating /library/agents/{id} (e.g. /library/agents/dotnet-inventory, /library/agents/mulesoft-springboot-scaffold) bug-20260828-050115-library medium library — agents tab">
-<summary><span class="num">53</span><span class="sev Medium">Medium</span>
+<summary><span class="num">55</span><span class="sev Medium">Medium</span>
 <span class="ttl">&quot;Coming Soon&quot; agents are fully browsable and configurable via direct URL, bypassing the catalog&#x27;s own disabled/unreachable gating<span class="rt">/library/agents/{id} (e.g. /library/agents/dotnet-inventory, /library/agents/mulesoft-springboot-scaffold)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>30 of the Agents tab&#x27;s 94 catalog entries (the <code>.NET to Azure</code> and Mulesoft-to-Spring-Boot</p>
 <p>migration pipelines, plus a handful of revision agents) are rendered as visibly disabled cards —</p>
@@ -3681,7 +4276,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/library/agents/{id}|agent-detail-drawer|direct-url-navigation-to-coming-soon-agent-id|full-detail-and-editable-config-render-despite-catalog-marking-agent-unavailable</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="run detail chat header shows a token total that does not match the run&#x27;s own api `token_usage`, disagreeing with the correct figure shown on the run history list card for the same run /runs/a0693fcd-9451-4c19-a9e7-61474ea03516 bug-20260828-051900-runs medium run detail (reached via run history)">
-<summary><span class="num">54</span><span class="sev Medium">Medium</span>
+<summary><span class="num">56</span><span class="sev Medium">Medium</span>
 <span class="ttl">Run detail chat header shows a token total that does not match the run&#x27;s own API `token_usage`, disagreeing with the correct figure shown on the Run History list card for the same run<span class="rt">/runs/a0693fcd-9451-4c19-a9e7-61474ea03516</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Filtered Run History to &quot;Presentation&quot; and searched, landing on a set of 5 runs that all share</p>
 <p>the exact same (truncated) title text — a good stress case for confirming the correct run is</p>
@@ -3740,7 +4335,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/[id]|run-detail-chat-header-token-total|open-completed-run-from-filtered-search|header-token-figure-disagrees-with-api-and-list-card</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="delete-workflow confirmation dialog never identifies which workflow it will delete /workflows bug-20260828-052400-workflows medium saved workflows list">
-<summary><span class="num">55</span><span class="sev Medium">Medium</span>
+<summary><span class="num">57</span><span class="sev Medium">Medium</span>
 <span class="ttl">Delete-workflow confirmation dialog never identifies which workflow it will delete<span class="rt">/workflows</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Clicking Delete in a saved-workflow card&#x27;s &quot;Workflow actions&quot; menu opens a confirmation dialog whose entire text is generic and static — &quot;Delete workflow&quot; / &quot;This cannot be undone&quot; / &quot;The saved workflow will be permanently removed from your saved workflows.&quot; — with no workflow title, id, or any other identifying detail anywhere in the dialog (verified via the full accessibility tree, not just the visible screenshot). The list contains many near-identical rows (four cards titled &quot;Signoff Stop-Resume Test&quot; with only a trailing numeric suffix distinguishing three of them, four &quot;Signoff Composer Test (API)…&quot; cards, etc.), so a user who opens the menu on the wrong card among lookalikes has no way to catch the mistake before confirming an irreversible delete — the dialog itself provides zero disambiguating evidence, and by the time it is open the source card is no longer visible/highlighted either.</p><h4>Reproduction</h4><ol>
 <li>Go to <code>/workflows</code> as qa-admin.</li>
@@ -3763,7 +4358,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/workflows|delete-workflow-confirmation-dialog|open-workflow-actions-then-delete|dialog-text-contains-no-workflow-name-or-identifier</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="oversized text attachment (.txt/.md/.json/.csv) is silently truncated with zero user-visible indication, unlike the equivalent pdf/docx/pptx path /create/app bug-20260828-053745-create-app-r2 medium create app — simple launch panel">
-<summary><span class="num">56</span><span class="sev Medium">Medium</span>
+<summary><span class="num">58</span><span class="sev Medium">Medium</span>
 <span class="ttl">Oversized text attachment (.txt/.md/.json/.csv) is silently truncated with zero user-visible indication, unlike the equivalent PDF/DOCX/PPTX path<span class="rt">/create/app</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Attaching a plain-text-type file (<code>.txt</code>/<code>.md</code>/<code>.json</code>/<code>.csv</code>) whose content exceeds the</p>
 <p>450,000-character <code>ATTACH_MAX_CHARS</code> limit gets its content silently sliced to that limit before</p>
@@ -3824,7 +4419,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/create/app|brief-attach-file-text-type|attach-text-file-over-450000-chars-and-run|content-silently-truncated-no-warning-anywhere</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="the &quot;add agent&quot; library&#x27;s own &quot;user stories&quot; category tab always shows &quot;no agents found&quot;, even for a bare text search /create/user-stories bug-20260828-054500-create-user-stories medium user-stories launch panel — advanced workflow configuration modal">
-<summary><span class="num">57</span><span class="sev Medium">Medium</span>
+<summary><span class="num">59</span><span class="sev Medium">Medium</span>
 <span class="ttl">The &quot;Add agent&quot; library&#x27;s own &quot;User Stories&quot; category tab always shows &quot;No agents found&quot;, even for a bare text search<span class="rt">/create/user-stories</span></span></summary>
 <div class="body"><h4>Summary</h4><p>On <code>/create/user-stories</code>, opening Advanced → Agents → any &quot;+ Add agent&quot; placeholder opens the</p>
 <p>&quot;Add agent&quot; library dialog defaulted to the <b>&quot;User Stories&quot;</b> category tab (the page&#x27;s own</p>
@@ -3885,7 +4480,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/create/user-stories|advanced-modal-add-agent-dialog|select-user-stories-category-tab|no-agents-found-for-own-pipelines-category-even-on-search</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="a step&#x27;s seeded &quot;before-human&quot; gate is invisible in both the gate combobox and the review-gates checklist on fresh load /create/ex_a4_human_gate bug-20260828-055300-create-ex-a2-branch medium catalog-driven launch panel for a conditional-gate fixture (human gate example)">
-<summary><span class="num">58</span><span class="sev Medium">Medium</span>
+<summary><span class="num">60</span><span class="sev Medium">Medium</span>
 <span class="ttl">A step&#x27;s seeded &quot;before-human&quot; gate is invisible in both the Gate combobox and the Review-gates checklist on fresh load<span class="rt">/create/ex_A4_human_gate</span></span></summary>
 <div class="body"><h4>Summary</h4><p><code>GET /api/workflows/ex_A4_human_gate</code> returns the &quot;Pick Language&quot; step with</p>
 <p><code>&quot;gates&quot;: [&quot;before-human&quot;, &quot;conditional&quot;]</code> — the manifest genuinely declares this step as both a</p>
@@ -3951,7 +4546,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/create/ex_A4_human_gate|advanced-modal-gate-config-and-review-gates-checklist|load-fixture-whose-manifest-step-carries-two-simultaneous-gates|human-review-gate-invisible-in-both-ui-surfaces</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="&quot;save workflow&quot; silently no-ops when the name field is empty, with zero visible feedback and no api request fired /workflows/new bug-20260828-060700-workflows-new-r2 medium empty composer / canvas (new custom workflow)">
-<summary><span class="num">59</span><span class="sev Medium">Medium</span>
+<summary><span class="num">61</span><span class="sev Medium">Medium</span>
 <span class="ttl">&quot;Save workflow&quot; silently no-ops when the name field is empty, with zero visible feedback and no API request fired<span class="rt">/workflows/new</span></span></summary>
 <div class="body"><h4>Summary</h4><p>On <code>/workflows/new</code>, with at least one agent added to the canvas but the &quot;Workflow name&quot; field</p>
 <p>left empty (showing only the &quot;Untitled workflow&quot; placeholder), clicking &quot;Save workflow&quot; does</p>
@@ -4009,7 +4604,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/workflows/new|save-workflow-button|click-save-with-empty-name-field|no-request-fired-no-feedback-shown</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="preview toolbar&#x27;s &quot;full screen&quot; button renders entirely outside a narrow (mobile) viewport with no scroll affordance to reach it /runs/{id}/preview/full bug-20260828-084621-runs-id-preview-full medium full-bleed deliverable view">
-<summary><span class="num">60</span><span class="sev Medium">Medium</span>
+<summary><span class="num">62</span><span class="sev Medium">Medium</span>
 <span class="ttl">Preview toolbar&#x27;s &quot;Full Screen&quot; button renders entirely outside a narrow (mobile) viewport with no scroll affordance to reach it<span class="rt">/runs/{id}/preview/full</span></span></summary>
 <div class="body"><h4>Summary</h4><p>On <code>/runs/{id}/preview/full</code> for a completed run, the Preview tab&#x27;s toolbar row (Renders-as</p>
 <p>toggle area&#x27;s sibling row holding a secondary &quot;Download&quot; button and the &quot;Full Screen&quot; button)</p>
@@ -4068,7 +4663,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/{id}/preview/full|preview-toolbar-fullscreen-button|resize-viewport-to-375px-width|button-bounding-box-left-edge-exceeds-window-innerWidth-with-no-scroll-mechanism</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="completed run&#x27;s &quot;download the deliverable&quot; toolbar button stays permanently disabled when the backend never populates `deliverable_filename`, even though the deliverable is fully rendered /runs/{id}/stream bug-20260828-085047-runs-id-stream medium stream view (run detail, preview tab toolbar)">
-<summary><span class="num">61</span><span class="sev Medium">Medium</span>
+<summary><span class="num">63</span><span class="sev Medium">Medium</span>
 <span class="ttl">Completed run&#x27;s &quot;Download the deliverable&quot; toolbar button stays permanently disabled when the backend never populates `deliverable_filename`, even though the deliverable is fully rendered<span class="rt">/runs/{id}/stream</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Launched a genuinely live run (the &quot;Playwright Smoke Test&quot; workflow, ~3s/1-agent pipeline —</p>
 <p>first live pipeline execution this hunt has been able to exercise now that Bedrock credentials</p>
@@ -4137,7 +4732,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/{id}/stream|download-deliverable-toolbar-button|complete-a-live-run-whose-deliverable_filename-is-null|download-button-permanently-disabled-despite-fully-rendered-deliverable</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="steps panel keeps showing &quot;run failed&quot; while a reopened run is genuinely running /runs/d6e425b6-df0d-4f54-9bba-f4a771e33812/stream bug-20260828-085400-runs-failed medium failed run detail / live run stream">
-<summary><span class="num">62</span><span class="sev Medium">Medium</span>
+<summary><span class="num">64</span><span class="sev Medium">Medium</span>
 <span class="ttl">Steps panel keeps showing &quot;Run failed&quot; while a reopened run is genuinely running<span class="rt">/runs/d6e425b6-df0d-4f54-9bba-f4a771e33812/stream</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Clicking &quot;Reopen &amp; fix from the failed step&quot; on the seeded failed run <code>d6e425b6…</code> genuinely</p>
 <p>resumes the run (confirmed via <code>GET /api/runs/{id}</code> — status flips to <code>generating</code> and</p>
@@ -4194,7 +4789,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/{id}/stream|steps-panel-status-badge|reopen-and-fix-from-failed-step|stale-run-failed-label-persists-during-live-progress</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="a run whose &quot;run again&quot; pipeline actually failed keeps reporting `status: &quot;cancelled&quot;` everywhere, permanently misrepresenting its real outcome /runs/{id}, /runs bug-20260828-085830-runs-cancelled medium cancelled run detail / run history list">
-<summary><span class="num">63</span><span class="sev Medium">Medium</span>
+<summary><span class="num">65</span><span class="sev Medium">Medium</span>
 <span class="ttl">A run whose &quot;Run Again&quot; pipeline actually failed keeps reporting `status: &quot;cancelled&quot;` everywhere, permanently misrepresenting its real outcome<span class="rt">/runs/{id}, /runs</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Run <code>a8dfa959-e233-4ddf-87ce-d9a942cefde3</code> was seeded <code>cancelled</code>. A prior worker used &quot;Run</p>
 <p>Again&quot; on it; the backend&#x27;s re-run pipeline genuinely failed (<code>GET /api/runs/{id}/events</code> shows</p>
@@ -4272,7 +4867,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/{id}|run-status-field|run-again-on-a-cancelled-run-that-then-fails|status-permanently-reports-cancelled-instead-of-failed</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="library agent detail&#x27;s skills tab &quot;add&quot; gives success feedback (checkmark + badge count) but persists nothing — silently discarded on reload, no save affordance exists at all /library/agents/&lt;agentid&gt; (e.g. /library/agents/material-analyzer) bug-20260828-092630-library-agents-id medium library — agent detail">
-<summary><span class="num">64</span><span class="sev Medium">Medium</span>
+<summary><span class="num">66</span><span class="sev Medium">Medium</span>
 <span class="ttl">Library agent detail&#x27;s Skills tab &quot;Add&quot; gives success feedback (checkmark + badge count) but persists nothing — silently discarded on reload, no Save affordance exists at all<span class="rt">/library/agents/&lt;agentId&gt; (e.g. /library/agents/material-analyzer)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>On the Library agent detail drawer&#x27;s Skills tab, clicking the &quot;+&quot; (Add) button on any</p>
 <p>catalog skill immediately renders full success feedback — the button becomes a filled</p>
@@ -4336,7 +4931,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/library/agents/&lt;id&gt;|agent-detail-skills-tab-add-skill|click-add-skill-then-reload|checkmark-and-badge-shown-but-no-network-call-and-state-lost-on-reload</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="concurrent `put /api/settings/preferences` calls silently lose one write and return a false-success response with the wrong persisted value /settings/ai-model bug-20260828-094120-settings-ai-model-r2 medium settings — ai model">
-<summary><span class="num">65</span><span class="sev Medium">Medium</span>
+<summary><span class="num">67</span><span class="sev Medium">Medium</span>
 <span class="ttl">Concurrent `PUT /api/settings/preferences` calls silently lose one write and return a false-success response with the WRONG persisted value<span class="rt">/settings/ai-model</span></span></summary>
 <div class="body"><h4>Summary</h4><p><code>PUT /api/settings/preferences</code> is not safe under concurrent writes for the same user. When two</p>
 <p><code>PUT</code> requests with different <code>preferred_model</code> values are in flight at the same time (e.g. a</p>
@@ -4408,7 +5003,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/settings/ai-model|pipeline-model-preferences-api|two-concurrent-PUT-preferences-requests|lost-update-plus-response-body-reports-wrong-preferred-model</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="/create/&lt;type&gt; composer has no tier gating at all; a basic-tier account reaches a fully configured, submit-ready wizard for a deliverable its own usage &amp; limits page says it cannot run /create/prototype (reproducible pattern likely applies to any tier-restricted `/create/&lt;type&gt;`) bug-20260828-094937-settings-usage-r2 medium settings · usage &amp; limits (entitlement claim) / create composer (unenforced route)">
-<summary><span class="num">66</span><span class="sev Medium">Medium</span>
+<summary><span class="num">68</span><span class="sev Medium">Medium</span>
 <span class="ttl">/create/&lt;type&gt; composer has no tier gating at all; a basic-tier account reaches a fully configured, submit-ready wizard for a deliverable its own Usage &amp; Limits page says it cannot run<span class="rt">/create/prototype (reproducible pattern likely applies to any tier-restricted `/create/&lt;type&gt;`)</span></span></summary>
 <div class="body"><h4>Summary</h4><p><code>/settings/usage</code> correctly tells a basic-tier account it only has &quot;Deliverable access&quot; to 2 of 8</p>
 <p>types (Product Requirements, Presentation) — confirmed accurate against</p>
@@ -4478,12 +5073,20 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <p>to <code>BUG-20260828-050115-library</code> (Coming-Soon library agents reachable by direct URL) but a</p>
 <p>distinct route, component and trigger (subscription-tier entitlement vs. unreleased-feature</p>
 <p>flag), not a duplicate of it.</p>
+<ul>
+<li><b>Validated:</b> 3/3 on 2026-08-28, cold start every cycle — direct URL entry to</li>
+</ul>
+<p><code>/create/prototype</code> as <code>qa-basic</code> bypasses the dashboard&#x27;s correctly-locked catalog card;</p>
+<p><code>[...view]/page.tsx</code> never gates the wizard on <code>can_run_pipeline</code>.</p>
+<ul>
+<li><b>Issue card:</b> [ISS-321](../.knowledge/cards/20260828-2002-ISS-321.md)</li>
+</ul>
 <div class="meta"><span>ID <code>BUG-20260828-094937-settings-usage-r2</code></span>
 <span>Found by <code>bug-settings-usage-r2</code></span>
 <span>Fingerprint <code>/create/prototype|composer-wizard|direct-url-navigation-basic-tier|full-multistep-wizard-loads-and-reaches-enabled-continue-despite-tier-not-entitled</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="&quot;clear&quot; on constitution deletes the saved value immediately, with no confirmation and no relation to &quot;save&quot; /settings/constitution bug-20260828-095800-settings-constitution-r2 medium settings · constitution">
-<summary><span class="num">67</span><span class="sev Medium">Medium</span>
+<summary><span class="num">69</span><span class="sev Medium">Medium</span>
 <span class="ttl">&quot;Clear&quot; on Constitution deletes the saved value immediately, with no confirmation and no relation to &quot;Save&quot;<span class="rt">/settings/constitution</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The &quot;Clear&quot; button next to &quot;Save constitution&quot; does not behave like a form-reset control — it</p>
 <p>fires <code>DELETE /api/settings/constitution</code> immediately on click, permanently erasing the user&#x27;s</p>
@@ -4548,7 +5151,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/settings/constitution|clear-button|click-clear|immediate-unconfirmed-delete-of-saved-constitution</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="mid-session token expiry drops the original protected route; re-login always lands on /dashboard instead of using the working `?redirect=` mechanism /login?expired=true (entered via a protected route&#x27;s 401) bug-20260828-101500-login-expired-true-r2 medium login (session-expired variant)">
-<summary><span class="num">68</span><span class="sev Medium">Medium</span>
+<summary><span class="num">70</span><span class="sev Medium">Medium</span>
 <span class="ttl">Mid-session token expiry drops the original protected route; re-login always lands on /dashboard instead of using the working `?redirect=` mechanism<span class="rt">/login?expired=true (entered via a protected route&#x27;s 401)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The app has a working return-path mechanism: a <b>signed-out</b> user deep-linking a protected</p>
 <p>route is sent to <code>/login?redirect=%2F&lt;path&gt;</code> and, after signing in, is correctly returned to</p>
@@ -4613,7 +5216,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/login|auth-guard|mid-session-token-expiry-on-protected-route|redirect-param-dropped-lands-on-dashboard-not-original-route</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="create-user dialog silently swallows a duplicate-email 409, giving the admin zero feedback that submission failed /admin bug-20260828-103434-admin medium admin">
-<summary><span class="num">69</span><span class="sev Medium">Medium</span>
+<summary><span class="num">71</span><span class="sev Medium">Medium</span>
 <span class="ttl">Create-User dialog silently swallows a duplicate-email 409, giving the admin zero feedback that submission failed<span class="rt">/admin</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The &quot;Create New User&quot; dialog on <code>/admin</code> does not check for an existing email before enabling</p>
 <p>submission, and when the backend correctly rejects a duplicate with <code>409 Conflict</code> and a clear</p>
@@ -4669,7 +5272,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/admin|create-user-dialog|submit-duplicate-email|409-rejected-no-user-feedback</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="file explorer/download parses a markdown subheading in the deliverable as a phantom &quot;file&quot; with no real name or extension /preview-fullscreen (ready state, real `__app_preview__` payload from a completed app builder run&#x27;s &quot;full screen&quot; button) bug-20260828-105300-preview-fullscreen-r2 medium fullscreen preview — ready state (app builder ide preview, genuine payload)">
-<summary><span class="num">70</span><span class="sev Medium">Medium</span>
+<summary><span class="num">72</span><span class="sev Medium">Medium</span>
 <span class="ttl">File explorer/download parses a markdown subheading in the deliverable as a phantom &quot;file&quot; with no real name or extension<span class="rt">/preview-fullscreen (ready state, real `__app_preview__` payload from a completed App Builder run&#x27;s &quot;Full Screen&quot; button)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Round 1 could not obtain a real payload for this page and hand-seeded <code>sessionStorage[&#x27;__app_preview__&#x27;]</code>, flagging that as weaker evidence. This round used a genuine payload: the existing completed App Builder run &quot;A hello world app.&quot; (<code>37aabc96-6e71-4d2b-ac30-90a827c8b862</code>), reached the fullscreen preview via the real <code>AppBuilderPreview.handleFullscreen()</code> &quot;Full Screen&quot; button (not a forged payload). The run&#x27;s single Documentation Agent produced a README containing a <code>### Via Node.js</code> subsection with a fenced <code>javascript</code> code sample. The App Builder preview&#x27;s file-list builder incorrectly parses this markdown subheading as a standalone project file — it appears in the Explorer tree, in the file-count footer (&quot;4 files&quot;), and in the individual-file code viewer, with <code>name</code>/<code>path</code> literally set to <code>&quot;Via Node.js&quot;</code> (a phrase with a space, no file extension, and no relation to any real project path). Clicking its per-file &quot;Download&quot; button (<code>AppBuilderPreview.handleDownload</code>, <code>frontend/src/components/preview/AppBuilderPreview.tsx:248-254</code>) sets <code>a.download = file.name</code> verbatim, so the browser saves an extensionless file literally named &quot;Via Node.js&quot;. The same phantom entry is also bundled into &quot;Download ZIP&quot; as a top-level, extensionless 203-byte entry. The deliverable&#x27;s real generated code files (per the README&#x27;s own &quot;Project Structure&quot; section: <code>app.js</code>, <code>package.json</code>, etc.) are not present in the preview at all — only documentation files and this one phantom &quot;file&quot; are shown — so the file tree materially misrepresents the actual project.</p><h4>Reproduction</h4><ol>
 <li>Sign in as qa-admin, go to <code>/runs</code>, filter &quot;App Builder&quot;, open the completed run &quot;A hello world app.&quot; (<code>37aabc96-6e71-4d2b-ac30-90a827c8b862</code>).</li>
@@ -4693,7 +5296,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/preview-fullscreen|app-builder-preview-file-list-builder|open-fullscreen-preview-for-a-real-app-builder-run-whose-deliverable-contains-a-markdown-###-subheading-with-a-fenced-code-sample|subheading-is-listed-as-its-own-file-with-a-malformed-name-and-downloads-as-an-extensionless-file-named-after-the-heading-text</code></span></div>
 </div></details>
 <details class="bug" data-sev="Medium" data-search="audit tab&#x27;s csv and json export strip the security/governance category distinction and never populate the promised &quot;severity&quot; column /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/audit bug-20260828-audit-export-r2 medium completed run — audit tab">
-<summary><span class="num">71</span><span class="sev Medium">Medium</span>
+<summary><span class="num">73</span><span class="sev Medium">Medium</span>
 <span class="ttl">Audit tab&#x27;s CSV and JSON export strip the Security/Governance category distinction and never populate the promised &quot;severity&quot; column<span class="rt">/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/audit</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The Audit tab&#x27;s rows visibly carry two different category badges on screen — &quot;Gate&quot; for</p>
 <p>governance/gate rows and &quot;Security&quot; for secret-scan rows (pill counts read &quot;Governance 96,</p>
@@ -4758,7 +5361,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/{id}/audit|export-csv-json|click-export-then-csv-or-json|category-always-gate-severity-always-empty-contradicting-promised-columns</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="escape does not close a catalog card&#x27;s &quot;inspect&quot; details modal /dashboard bug-20260827-221400-dashboard low dashboard (catalog)">
-<summary><span class="num">72</span><span class="sev Low">Low</span>
+<summary><span class="num">74</span><span class="sev Low">Low</span>
 <span class="ttl">Escape does not close a catalog card&#x27;s &quot;Inspect&quot; details modal<span class="rt">/dashboard</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Clicking the &quot;Inspect &lt;card&gt; details&quot; button on any dashboard catalog card opens a dialog</p>
 <p>(<code>role=&quot;dialog&quot;</code>, e.g. &quot;App Builder workflow&quot;, &quot;Retry Loop&quot;) showing context providers,</p>
@@ -4797,7 +5400,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/dashboard|catalog-card-inspect-modal|press-escape|dialog-remains-open</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="escape does not close a saved-workflow card&#x27;s &quot;workflow actions&quot; dropdown menu /workflows bug-20260828-003300-workflows low my workflows (saved workflows list)">
-<summary><span class="num">73</span><span class="sev Low">Low</span>
+<summary><span class="num">75</span><span class="sev Low">Low</span>
 <span class="ttl">Escape does not close a saved-workflow card&#x27;s &quot;Workflow actions&quot; dropdown menu<span class="rt">/workflows</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Each saved-workflow card on <code>/workflows</code> has a <code>button[aria-label=&#x27;Workflow actions&#x27;]</code> that opens</p>
 <p>a small dropdown menu (<code>Edit</code> / <code>Rename</code> / <code>Duplicate</code> / <code>Delete</code>). The menu is correctly</p>
@@ -4856,7 +5459,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/workflows|workflow-actions-dropdown-menu|press-escape-while-menu-open|menu-remains-open-aria-expanded-stays-true</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="saved-workflow detail view lists agents by raw internal slug instead of the friendly display name used everywhere else in the app /workflows/{id} bug-20260828-004300-workflows-id low saved workflow — read-only detail view">
-<summary><span class="num">74</span><span class="sev Low">Low</span>
+<summary><span class="num">76</span><span class="sev Low">Low</span>
 <span class="ttl">Saved-workflow detail view lists agents by raw internal slug instead of the friendly display name used everywhere else in the app<span class="rt">/workflows/{id}</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The read-only detail view for a saved workflow (<code>/workflows/{id}</code>) renders its agent roster by</p>
 <p>printing the raw <code>agent_ids</code> values verbatim — e.g. <code>documentation-agent</code>, <code>prototype-specify</code> —</p>
@@ -4921,7 +5524,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/workflows/{id}|agent-roster-list|render-saved-workflow-agent_ids|raw-agent-slug-shown-instead-of-friendly-name</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="&quot;run workflow&quot; enables with zero agents attached and silently no-ops on click /workflow bug-20260828-011000-workflow low legacy workflow builder (unlinked, second/older builder)">
-<summary><span class="num">75</span><span class="sev Low">Low</span>
+<summary><span class="num">77</span><span class="sev Low">Low</span>
 <span class="ttl">&quot;Run Workflow&quot; enables with zero agents attached and silently no-ops on click<span class="rt">/workflow</span></span></summary>
 <div class="body"><h4>Summary</h4><p>On a fresh load of <code>/workflow</code> (the orphaned legacy builder, D-17&#x27;s <code>/workflow</code>, unlinked from</p>
 <p><code>routes.ts</code>), &quot;Run Workflow&quot; starts correctly <code>disabled</code> while &quot;Workflow Agents (0)&quot; and the</p>
@@ -4981,7 +5584,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/workflow|run-workflow-button|type-brief-with-zero-agents-attached|button-enables-but-click-fires-no-request-and-does-nothing</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="skill with an empty `category` field renders a blank category label and is unreachable through any category pill /library?tab=skills bug-20260828-021300-library-skills low library — skills tab">
-<summary><span class="num">76</span><span class="sev Low">Low</span>
+<summary><span class="num">78</span><span class="sev Low">Low</span>
 <span class="ttl">Skill with an empty `category` field renders a blank category label and is unreachable through any category pill<span class="rt">/library?tab=skills</span></span></summary>
 <div class="body"><h4>Summary</h4><p><code>GET /api/skills/library</code> returns 186 skills; <code>total_count</code> (186), the raw array length (186),</p>
 <p>and the rendered card count (<code>document.querySelectorAll(&#x27;div.cursor-pointer.p-4&#x27;).length</code> = 186)</p>
@@ -5051,7 +5654,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/library?tab=skills|skill-card-category-badge-and-category-pill-filter|render-card-for-skill-with-empty-category-field|blank-category-label-and-card-unreachable-by-any-specific-pill</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="hook detail page&#x27;s &quot;copy&quot; button gives zero feedback that a copy occurred /library/hooks/&lt;hook-id&gt; (e.g. /library/hooks/post-design-quality, /library/hooks/post-quality-gate) bug-20260828-025500-library-hooks low library — hook detail">
-<summary><span class="num">77</span><span class="sev Low">Low</span>
+<summary><span class="num">79</span><span class="sev Low">Low</span>
 <span class="ttl">Hook detail page&#x27;s &quot;Copy&quot; button gives zero feedback that a copy occurred<span class="rt">/library/hooks/&lt;hook-id&gt; (e.g. /library/hooks/post-design-quality, /library/hooks/post-quality-gate)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Clicking a hook card in the Library&#x27;s Hooks tab performs a genuine client-side route navigation</p>
 <p>to <code>/library/hooks/&lt;hook-id&gt;</code> (a real page, not a modal), which renders the full hook detail</p>
@@ -5110,7 +5713,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/library/hooks/&lt;id&gt;|hook-detail-copy-button|click-copy-button|no-visual-state-change-no-toast-no-confirmation</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="file explorer search leaves orphaned empty folders visible and the footer file count never reflects the active filter /preview-fullscreen (ready state, valid `__app_preview__` payload) bug-20260828-041300-preview-fullscreen low fullscreen preview — ready state (app builder ide preview)">
-<summary><span class="num">78</span><span class="sev Low">Low</span>
+<summary><span class="num">80</span><span class="sev Low">Low</span>
 <span class="ttl">File explorer search leaves orphaned empty folders visible and the footer file count never reflects the active filter<span class="rt">/preview-fullscreen (ready state, valid `__app_preview__` payload)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>In <code>frontend/src/components/preview/AppBuilderPreview.tsx</code>, the file-tree search</p>
 <p>(<code>FileTreeNode</code>) filters only leaf <b>files</b> by <code>searchQuery</code> (<code>if (!matchesSearch) return null;</code></p>
@@ -5174,7 +5777,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/preview-fullscreen|app-builder-preview-file-explorer-search|type-query-matching-only-a-nested-file|parent-folders-with-zero-matching-children-remain-visible-and-expand-empty-while-footer-count-stays-unfiltered</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="failed-login error message renders with no aria live region or alert role, so screen readers never announce it /login?expired=1 (identical dom structure to plain /login) bug-20260828-041815-login-expired-1 low login reached with a non-canonical expiry param">
-<summary><span class="num">79</span><span class="sev Low">Low</span>
+<summary><span class="num">81</span><span class="sev Low">Low</span>
 <span class="ttl">Failed-login error message renders with no ARIA live region or alert role, so screen readers never announce it<span class="rt">/login?expired=1 (identical DOM structure to plain /login)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Submitting the sign-in form on <code>/login?expired=1</code> with invalid credentials correctly renders a</p>
 <p>visible &quot;Invalid email or password.&quot; message, but the element carries no <code>role=&quot;alert&quot;</code>,</p>
@@ -5223,7 +5826,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/login?expired=1|sign-in-error-message|submit-with-invalid-credentials|error-text-not-announced-to-assistive-tech</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="bare `/settings` redirects correctly on a cold/full load but renders the honest 404 page when reached via client-side (spa) navigation /settings bug-20260828-042311-settings low bare settings route">
-<summary><span class="num">80</span><span class="sev Low">Low</span>
+<summary><span class="num">82</span><span class="sev Low">Low</span>
 <span class="ttl">Bare `/settings` redirects correctly on a cold/full load but renders the honest 404 page when reached via client-side (SPA) navigation<span class="rt">/settings</span></span></summary>
 <div class="body"><h4>Summary</h4><p>A full/cold browser navigation (typing the URL, or a <code>fetch</code>/reload) to bare <code>/settings</code></p>
 <p>receives a server-level redirect to <code>/settings/profile</code> and renders correctly (this is the</p>
@@ -5267,23 +5870,102 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <li>Failure (client-side nav, 404 instead of redirect): <code>bug-hunter/evidence/settings/BUG-20260828-042311-settings/02-failure-clientside-nav-shows-404.png</code></li>
 <li>Repro 2 (same failure on qa-admin account): <code>bug-hunter/evidence/settings/BUG-20260828-042311-settings/03-repro2-admin-account-same-404.png</code></li>
 </ul><h4>Browser signals</h4><ul>
-<li>Console: none relevant.</li>
+<li><b>Status:</b> CLOSED</li>
 <li>Network: <code>fetch(&#x27;http://localhost:3000/settings&#x27;)</code> returns <code>redirected: true</code>, final <code>url</code></li>
 </ul>
 <p><code>http://localhost:3000/settings/profile</code> — confirming the redirect is server/network-layer</p>
 <p>only, with no corresponding client-router rule. No network request fires at all during the</p>
 <p>client-side <code>popstate</code> transition, confirming the 404 is a pure client-side render decision.</p>
 <ul>
+<li><b>Validated:</b> 3/3 on 2026-08-28, cycle 1 — reproduced identically on every cold cycle, no</li>
+</ul>
+<p>axis variance needed. Root cause: <code>frontend/src/lib/routes.ts:401-403</code> parses bare</p>
+<p><code>/settings</code> as <code>unknown</code> while <code>frontend/next.config.ts:27-28</code> defines a server-only redirect</p>
+<p>to <code>/settings/profile</code>; the two layers disagree.</p>
+<ul>
+<li><b>Issue card:</b> [ISS-339](../.knowledge/cards/20260828-1850-ISS-339.md), [ISS-572](../.knowledge/cards/20260829-0019-ISS-572.md)</li>
+</ul>
+<p>(sibling: the other 3 next.config.ts redirects, /library/agents|skills|hooks)</p>
+<ul>
+<li><b>Fix card:</b> [FIX-397](../.knowledge/cards/20260829-0349-FIX-397.md) — <code>parseViewPath</code></li>
+</ul>
+<p>(<code>frontend/src/lib/routes.ts</code>) now mirrors all 4 of next.config.ts&#x27;s server-only redirects:</p>
+<p>bare <code>/settings</code> resolves to <code>settings-profile</code> and the legacy 2-segment</p>
+<p><code>/library/agents|skills|hooks</code> resolve to <code>library</code>, instead of falling through to <code>unknown</code></p>
+<p>-&gt; <code>notFound()</code>. Test <code>frontend/src/lib/routes.iss339.test.ts</code> — 4/4 <code>it.fails</code> XPASS</p>
+<p>(vitest&#x27;s strict-xfail analogue); <code>routes.test.ts</code> 59 passed, with its two stale</p>
+<p><code>unknown</code> assertions corrected per ISS-572.</p>
+<ul>
 <li>State/URL: URL stays <code>/settings</code> throughout the client-side-nav failure case (never becomes</li>
 </ul>
 <p><code>/settings/profile</code>), distinct from the full-load case where the URL bar itself changes to</p>
 <p><code>/settings/profile</code>.</p>
+<ul>
+<li><b>Root cause:</b> CONFIRMED — <code>frontend/src/lib/routes.ts:405-409</code> (<code>parseViewPath</code>,</li>
+</ul>
+<p><code>head === &#x27;settings&#x27;</code>, <code>segments.length === 1</code>) explicitly returns <code>{ screen: &#x27;unknown&#x27; }</code> for</p>
+<p>bare <code>/settings</code>, with an inline comment acknowledging the gap. <code>frontend/next.config.ts:26-30</code></p>
+<p>defines the redirect only as a Next.js server-side <code>redirects()</code> rule, which never fires on a</p>
+<p>client-side history transition. <code>frontend/src/app/[...view]/page.tsx:3780-3782</code></p>
+<p>(<code>if (parsedView.screen === &quot;unknown&quot;) notFound();</code>) is the single shared gate that renders the</p>
+<p>404 for that result.</p>
+<ul>
+<li><b>Blast radius:</b> <code>parseViewPath</code> is called from 4 sites (<code>frontend/src/app/[...view]/page.tsx:398</code>,</li>
+</ul>
+<p><code>frontend/src/components/library/LibraryPage.tsx:490</code>, <code>frontend/src/app/error.tsx:24</code>,</p>
+<p><code>frontend/src/app/global-error.tsx:24</code>) — only the first is a rendering gate (the other two only</p>
+<p>label errors for logging, not this defect&#x27;s blast radius). All 4 of <code>next.config.ts</code>&#x27;s</p>
+<p><code>redirects()</code> rules were checked against <code>routes.ts</code>; 3 more have the identical</p>
+<p>no-client-mirror gap: <code>/library/agents</code>, <code>/library/skills</code>, <code>/library/hooks</code></p>
+<p>(<code>frontend/src/lib/routes.ts:377-399</code>), independently codified as a passing (wrong) test at</p>
+<p><code>frontend/src/lib/routes.test.ts:309-313</code>. No in-app caller currently constructs any of these</p>
+<p>4 bare paths (<code>routes.ts</code>&#x27;s own builders always emit the tabbed/query form), so real-world</p>
+<p>exposure is external/historical links landing as a client-side transition, not any in-app button.</p>
+<ul>
+<li><b>Proposed fix:</b> belongs in the shared parser (<code>frontend/src/lib/routes.ts</code>&#x27;s <code>parseViewPath</code>)</li>
+</ul>
+<p>or the single catch-all gate that consumes it (<code>[...view]/page.tsx:3780</code>), not duplicated per</p>
+<p>caller — per ADR-0018, <code>routes.ts</code> is the one place that parses every URL. A guard here fixes</p>
+<p>all 4 paths at once and keeps the two redirect tables (next.config.ts, routes.ts) from drifting</p>
+<p>further apart.</p>
+<ul>
+<li><b>Issue cards:</b> [ISS-339](../.knowledge/cards/20260828-1850-ISS-339.md) (root, this bug),</li>
+</ul>
+<p>[ISS-572](../.knowledge/cards/20260829-0019-ISS-572.md) (sibling, INFERRED: same gap on</p>
+<p><code>/library/agents</code>, <code>/library/skills</code>, <code>/library/hooks</code>)</p>
+<ul>
+<li><b>Verified:</b> 2026-08-29 — <code>frontend/src/lib/routes.iss339.test.ts</code> (4/4, XPASS confirmed</li>
+</ul>
+<p>with <code>it.fails</code> still in place, then <code>.fails</code> removed and re-run: 4/4 plain green) and</p>
+<p><code>frontend/src/lib/routes.test.ts</code> (59/59 green, unchanged) via</p>
+<p><code>npx vitest run src/lib/routes.iss339.test.ts src/lib/routes.test.ts</code>. Manual repro from this</p>
+<p>entry re-run by hand in real Chrome (lane4, qa-admin, signed in): cold <code>/dashboard</code> -&gt;</p>
+<p><code>window.history.pushState({}, &#x27;&#x27;, &#x27;/settings&#x27;); dispatchEvent(new PopStateEvent(&#x27;popstate&#x27;))</code></p>
+<p>now renders the Profile settings screen (tabs Profile/AI Model/Usage &amp; Limits/Constitution/</p>
+<p>Security, heading &quot;Account Settings&quot;), not the 404 — screenshot</p>
+<p><code>bug-hunter/evidence/settings/BUG-20260828-042311-settings/04-after-fix-clientside-nav-shows-profile.png</code>.</p>
+<p>Also spot-checked the ISS-572 sibling the same way: client-side <code>pushState</code>/<code>popstate</code> to</p>
+<p><code>/library/agents</code> now renders the Library screen (h1 &quot;Library&quot;, 3 tabs), not 404. No new</p>
+<p>console errors/warnings on either page. <code>curl :8000/docs</code> -&gt; 200 (backend untouched, no</p>
+<p>restart needed — frontend-only fix). <code>npx tsc --noEmit</code>: 0 errors in routes.ts/routes.test.ts;</p>
+<p>15 pre-existing errors remain in unrelated files (login.a11y.test.tsx,</p>
+<p>HomeLaunchGrid.crossAccountLeak.test.tsx, api.sessionExpiryRedirect.test.ts,</p>
+<p>listenerMiddleware.test.ts), matching FIX-397&#x27;s own count exactly. <code>lint-imports</code> (from</p>
+<p><code>backend/</code>): 1 pre-existing broken contract (<code>agents.execution_engine.engine</code> -&gt;</p>
+<p><code>app.api.*</code>), unrelated to this frontend-only change — not caused by this fix.</p>
+<p>Regression file <code>tests/integration/e2e/suites/13_errors/test_errors.py</code> (offline tier):</p>
+<p>attempted twice via <code>.venv/bin/python -m pytest</code>, both runs stalled at the session-scoped</p>
+<p>real-Chrome login fixture with near-zero CPU for 3.5+ minutes (environment contention — many</p>
+<p>MCP browser lanes were active concurrently in this run) and were killed without completing;</p>
+<p>SKIPPED, not claimed as a pass. Per FIX-397&#x27;s own coverage note this suite only exercises the</p>
+<p>cold-load path (unchanged <code>next.config.ts</code> redirect), so it is not expected to be sensitive to</p>
+<p>this change, but that is unconfirmed by an actual run here.</p>
 <div class="meta"><span>ID <code>BUG-20260828-042311-settings</code></span>
 <span>Found by <code>bug-settings-r2</code></span>
 <span>Fingerprint <code>/settings|bare-route-router|clientside-navigation-to-settings|shows-404-instead-of-redirect-that-fullload-applies</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="confirm new password field has no show/hide toggle, unlike its sibling fields /settings/profile bug-20260828-050900-settings-profile low settings — profile">
-<summary><span class="num">81</span><span class="sev Low">Low</span>
+<summary><span class="num">83</span><span class="sev Low">Low</span>
 <span class="ttl">Confirm new password field has no show/hide toggle, unlike its sibling fields<span class="rt">/settings/profile</span></span></summary>
 <div class="body"><h4>Summary</h4><p>On the Password card of /settings/profile, both &quot;Current password&quot; and &quot;New password&quot; inputs</p>
 <p>render an eye-icon button that toggles the field between masked (<code>type=&quot;password&quot;</code>) and plain</p>
@@ -5331,7 +6013,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/settings/profile|change-password-form|inspect-confirm-new-password-field|missing-visibility-toggle-inconsistent-with-current-and-new-password-fields</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="&quot;upload custom template → from url&quot; leaks a raw python errno/socket message to the user on an unreachable domain /create/prototype bug-20260828-053300-create-prototype-r2 low prototype wizard shell">
-<summary><span class="num">82</span><span class="sev Low">Low</span>
+<summary><span class="num">84</span><span class="sev Low">Low</span>
 <span class="ttl">&quot;Upload custom template → From URL&quot; leaks a raw Python errno/socket message to the user on an unreachable domain<span class="rt">/create/prototype</span></span></summary>
 <div class="body"><h4>Summary</h4><p>On the Template tab&#x27;s &quot;Upload custom&quot; → &quot;From URL&quot; flow, entering a syntactically valid but</p>
 <p>unreachable URL (a DNS name that cannot resolve) and clicking &quot;Fetch&quot; surfaces the backend&#x27;s raw</p>
@@ -5398,7 +6080,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/create/prototype|upload-custom-template-from-url|fetch-unreachable-domain|raw-backend-errno-string-rendered-as-error</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="simple and canvas views disagree on the ppt built-in&#x27;s deliverable type (&quot;custom&quot; vs &quot;streamed text&quot;) /workflows/ppt/canvas bug-20260828-073350-workflows-ppt-canvas low built-in workflow on the canvas">
-<summary><span class="num">83</span><span class="sev Low">Low</span>
+<summary><span class="num">85</span><span class="sev Low">Low</span>
 <span class="ttl">Simple and Canvas views disagree on the PPT built-in&#x27;s deliverable type (&quot;Custom&quot; vs &quot;Streamed text&quot;)<span class="rt">/workflows/ppt/canvas</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The PPT built-in&#x27;s real deliverable (<code>GET /api/workflows/ppt</code> → <code>deliverable: {&quot;strategy&quot;: &quot;ppt&quot;,</p>
 <p>&quot;name&quot;: &quot;presentation.pptx&quot;}</code>) is neither of the app&#x27;s three generic deliverable strategies. The</p>
@@ -5459,7 +6141,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/workflows/ppt/canvas|simple-vs-canvas-deliverable-display|switch-between-simple-and-canvas-tabs|deliverable-type-label-disagrees-custom-vs-streamed-text</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="removing a file attachment leaves a stale &quot;[attached: ...]&quot; marker in the brief textarea, keeping run workflow enabled for a phantom attachment /workflow bug-20260828-074900-workflow-r2 low legacy workflow builder (unlinked, second/older builder)">
-<summary><span class="num">84</span><span class="sev Low">Low</span>
+<summary><span class="num">86</span><span class="sev Low">Low</span>
 <span class="ttl">Removing a file attachment leaves a stale &quot;[Attached: ...]&quot; marker in the brief textarea, keeping Run Workflow enabled for a phantom attachment<span class="rt">/workflow</span></span></summary>
 <div class="body"><h4>Summary</h4><p>On <code>/workflow</code>, clicking &quot;Attach file&quot; and selecting a file injects a literal</p>
 <p><code>[Attached: &lt;filename&gt;]</code> marker string directly into the &quot;Describe your idea&quot; textarea&#x27;s value</p>
@@ -5526,7 +6208,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/workflow|attach-file-remove-attachment|click-remove-x-on-attachment-chip|stale-attached-marker-text-remains-in-textarea-run-button-stays-enabled</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="tool-call summary row renders &quot;[object object]&quot; instead of a readable preview for array/object arguments /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps bug-20260828-080047-runs-id-steps low completed run — steps tab">
-<summary><span class="num">85</span><span class="sev Low">Low</span>
+<summary><span class="num">87</span><span class="sev Low">Low</span>
 <span class="ttl">Tool-call summary row renders &quot;[object Object]&quot; instead of a readable preview for array/object arguments<span class="rt">/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/steps</span></span></summary>
 <div class="body"><h4>Summary</h4><p>On the Steps tab, expanding an agent row&#x27;s &quot;Tool calls&quot; panel shows a one-line collapsed summary</p>
 <p>for each call (<code>&lt;tool_name&gt;  &lt;args preview&gt;  ok</code>). When a tool&#x27;s argument value is an array of</p>
@@ -5577,7 +6259,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/[id]/steps|agent-detail-tool-calls-panel|expand-agent-row-with-array-object-tool-args|collapsed-summary-shows-literal-object-object-instead-of-readable-preview</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="files tab file sizes are character counts, not byte counts, understating every non-ascii file /runs/b9feac1c-ec21-4531-8ba7-bb391786993e/files bug-20260828-082706-runs-id-files low completed run — files tab">
-<summary><span class="num">86</span><span class="sev Low">Low</span>
+<summary><span class="num">88</span><span class="sev Low">Low</span>
 <span class="ttl">Files tab file sizes are character counts, not byte counts, understating every non-ASCII file<span class="rt">/runs/b9feac1c-ec21-4531-8ba7-bb391786993e/files</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Every file-size label on the Files tab (Run input, agent outputs, and — where content is text —</p>
 <p>the Final output row) is computed from the text content&#x27;s character/<code>.length</code> count rather than</p>
@@ -5625,7 +6307,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/[id]/files|file-size-label|render-files-list-with-non-ascii-content|size-shown-is-utf16-char-count-not-byte-count</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="diverted run&#x27;s workspace tab falsely claims &quot;the deliverable is still on the preview and files tabs&quot; when no deliverable was ever produced /runs/{id}/workspace (diverted run) bug-20260828-090219-runs-diverted low diverted run detail">
-<summary><span class="num">87</span><span class="sev Low">Low</span>
+<summary><span class="num">89</span><span class="sev Low">Low</span>
 <span class="ttl">Diverted run&#x27;s Workspace tab falsely claims &quot;the deliverable is still on the Preview and Files tabs&quot; when no deliverable was ever produced<span class="rt">/runs/{id}/workspace (diverted run)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>A diverted run never produces a deliverable — confirmed via the backend API on all four</p>
 <p>diverted runs checked (<code>940ca699…</code>, <code>277bc03a…</code>, <code>4dec89fb…</code>, <code>b15f23d0…</code>): <code>output: null</code>,</p>
@@ -5683,7 +6365,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/{id}/workspace|workspace-expired-empty-state|open-workspace-tab-on-a-diverted-run|message-falsely-claims-deliverable-exists-on-preview-and-files</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="composer&#x27;s per-agent skills &quot;view details&quot; modal renders raw markdown syntax instead of formatted content /workflows/new (agent config panel → skills tab → &quot;view details&quot; on any skill) bug-20260828-093400-library-skills-id-r2 low library — skill detail (composer cross-surface: `/workflows/new` agent skills tab preview)">
-<summary><span class="num">88</span><span class="sev Low">Low</span>
+<summary><span class="num">90</span><span class="sev Low">Low</span>
 <span class="ttl">Composer&#x27;s per-agent Skills &quot;View details&quot; modal renders raw markdown syntax instead of formatted content<span class="rt">/workflows/new (agent config panel → Skills tab → &quot;View details&quot; on any skill)</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The skill&#x27;s own detail page at <code>/library/skills/&lt;id&gt;</code> correctly renders the skill&#x27;s markdown body</p>
 <p>as HTML (proper <code>&lt;h2&gt;</code>/<code>&lt;h3&gt;</code> headings, etc — confirmed live for <code>windows-desktop-e2e</code>,</p>
@@ -5721,7 +6403,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/workflows/new|agent-skills-view-details-modal|click-view-details-on-a-skill|markdown-hashes-shown-as-literal-text-not-rendered-headings</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="closing a hook detail view resets the hooks tab&#x27;s search text and category filter /library/hooks/&lt;id&gt; → close (x) → /library?tab=hooks bug-20260828-093757-library-hooks-id low library — hooks tab">
-<summary><span class="num">89</span><span class="sev Low">Low</span>
+<summary><span class="num">91</span><span class="sev Low">Low</span>
 <span class="ttl">Closing a hook detail view resets the Hooks tab&#x27;s search text and category filter<span class="rt">/library/hooks/&lt;id&gt; → close (X) → /library?tab=hooks</span></span></summary>
 <div class="body"><h4>Summary</h4><p>On the Library &quot;Hooks&quot; tab, typing a search query and/or selecting a category pill (e.g.</p>
 <p>&quot;PostToolUse&quot;, &quot;SessionStart&quot;) narrows the card list and updates the URL with</p>
@@ -5762,12 +6444,58 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 </ul>
 <p>closes to <code>/library?tab=hooks</code> (category param and search box state both lost); reproduced</p>
 <p>identically with <code>category=PostToolUse</code> + search=<code>quality</code></p>
+<ul>
+<li><b>Validated:</b> 3/3 on 2026-08-28, cycle 1 — reproduced identically on 3 independent cold-start</li>
+</ul>
+<p>cycles (search=<code>session</code>+SessionStart, search=<code>quality</code>+PostToolUse, search=<code>config</code>+PreToolUse);</p>
+<p>no axis variation needed</p>
+<ul>
+<li><b>Issue card:</b> [ISS-360](../.knowledge/cards/20260828-1917-ISS-360.md)</li>
+<li><b>Root cause:</b> The loss happens on OPEN, not on close. <code>routes.libraryHook</code>/<code>libraryAgent</code>/</li>
+</ul>
+<p><code>librarySkill</code> (<code>frontend/src/lib/routes.ts:127,129,131</code>) build a bare detail path with no query</p>
+<p>string, and that <code>router.push</code> remounts the whole <code>DashboardPage</code> tree under the <code>[...view]</code></p>
+<p>catch-all — a confirmed, tested finding already documented in this codebase at</p>
+<p><code>frontend/src/app/[...view]/page.tsx:3238</code>. The remount reinitializes every <code>useState</code> in</p>
+<p><code>LibraryPage.tsx</code>: <code>hookSearch</code>/<code>skillSearch</code>/<code>searchQuery</code> (<code>:539,537,522</code>) have no</p>
+<p>URL-derivation at all, and <code>hookEvent</code>/<code>skillCategory</code>/<code>activeCategory</code> (<code>:538,536,521</code>) derive</p>
+<p>from the URL only via a one-shot mount initializer. <code>closeDetailModal</code> (<code>:635-641</code>) is not</p>
+<p>broken — it correctly threads whatever category state it&#x27;s handed; that state was already reset</p>
+<p>to defaults before the X button was ever clicked.</p>
+<ul>
+<li><b>Blast radius:</b> all 3 detail-route builders in <code>routes.ts</code> (<code>libraryAgent</code>/<code>librarySkill</code>/</li>
+</ul>
+<p><code>libraryHook</code>), each with exactly one caller in <code>LibraryPage.tsx</code> (<code>:828</code>/<code>:908</code>/<code>:1005</code>), all</p>
+<p>funneling through the same <code>closeDetailModal</code>; plus the browser Back button, which reaches the</p>
+<p>identical already-lost state via the T16 effect (<code>:643-665</code>) without ever calling</p>
+<p><code>closeDetailModal</code>.</p>
+<ul>
+<li><b>Proposed fix:</b> in <code>routes.ts</code>, not per-caller — thread <code>{tab, category, search}</code> through</li>
+</ul>
+<p><code>libraryAgent</code>/<code>librarySkill</code>/<code>libraryHook</code> (mirroring <code>routes.library</code>&#x27;s own params), and add a</p>
+<p><code>search</code>/<code>q</code> param to the URL-seed pattern <code>LibraryPage.tsx:520-521</code> already uses for category so</p>
+<p><code>searchQuery</code>/<code>skillSearch</code>/<code>hookSearch</code> survive the remount the same way.</p>
+<ul>
+<li><b>Issue cards:</b> [ISS-360](../.knowledge/cards/20260828-1917-ISS-360.md) (root, root cause</li>
+</ul>
+<p>appended this pass), [ISS-592](../.knowledge/cards/20260829-0117-ISS-592.md) (sibling: Agents</p>
+<p>tab), [ISS-593](../.knowledge/cards/20260829-0117-ISS-593.md) (sibling: Skills tab),</p>
+<p>[ISS-594](../.knowledge/cards/20260829-0117-ISS-594.md) (sibling: browser Back button, all 3</p>
+<p>tabs)</p>
+<ul>
+<li><b>Fix card:</b> [FIX-407](../.knowledge/cards/20260829-0441-FIX-407.md) — <code>routes.libraryAgent</code>/</li>
+</ul>
+<p><code>librarySkill</code>/<code>libraryHook</code> now take the list&#x27;s <code>{tab, category, search}</code> and <code>routes.library</code></p>
+<p>gained a <code>search</code> param, so the remount a detail navigation triggers re-seeds the filters off</p>
+<p>the URL; <code>LibraryPage</code>&#x27;s search box, category chips and empty-state Clear all write <code>search</code></p>
+<p>through one <code>applySearch</code> handler. All 4 tests XPASS(strict);</p>
+<p><code>suites/08_library/test_library.py</code> 24 PASS as regression.</p>
 <div class="meta"><span>ID <code>BUG-20260828-093757-library-hooks-id</code></span>
 <span>Found by <code>bug-library-hooks-id-r2</code></span>
 <span>Fingerprint <code>/library/hooks/&lt;id&gt;|hooks-tab-search-and-category-filter|close-hook-detail-view|filters-and-search-text-reset-to-default</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="chat message timestamps in the preview transcript silently reset to the current time on every page reload, never reflecting when the message was actually sent /runs/b9feac1c-ec21-4531-8ba7-bb391786993e bug-20260828-095700-runs-id-chat-timestamp low completed run — preview tab">
-<summary><span class="num">90</span><span class="sev Low">Low</span>
+<summary><span class="num">92</span><span class="sev Low">Low</span>
 <span class="ttl">Chat message timestamps in the Preview transcript silently reset to the current time on every page reload, never reflecting when the message was actually sent<span class="rt">/runs/b9feac1c-ec21-4531-8ba7-bb391786993e</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Sent a follow-up chat message on a completed run (<code>Ppt V2</code>, run <code>b9feac1c-ec21-4531-8ba7-bb391786993e</code>). The message and the assistant&#x27;s reply render with a clock time next to each (&quot;09:51 AM&quot;), which looks like a normal sent/received timestamp. Reloading the page repeatedly shows this pair of timestamps changing on every single reload to match the browser&#x27;s current wall-clock time at that reload — never staying fixed at the moment the message was actually sent. Cross-checked the backend: <code>GET /api/runs/{id}/events?after=N</code> returns the <code>chat_message</code>/<code>chat_reply</code> event payloads with no <code>created_at</code>/timestamp field at all, confirming the frontend has no real send time to render and is falling back to <code>Date.now()</code> on each mount. This is a different defect from the already-filed run-header &quot;stuck on just now&quot; bug (<code>BUG-20260828-011700-runs-id</code>): that one is a single frozen/wrong value that never updates; this one is not frozen at all — it changes to a new, always-wrong &quot;now&quot; value on every reload.</p><h4>Reproduction</h4><ol>
 <li>Sign in as qa-admin, navigate to <code>/runs/b9feac1c-ec21-4531-8ba7-bb391786993e</code> (completed run, Preview tab).</li>
@@ -5789,7 +6517,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/runs/{id}|preview-chat-transcript-message-clock|reload-page-after-sending-chat-message|displayed-message-timestamp-jumps-to-current-load-time-instead-of-original-send-time</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="daily activity chart tooltip shows raw unformatted token counts, breaking the page&#x27;s own number-formatting convention /analytics bug-20260828-102900-analytics-r2 low analytics">
-<summary><span class="num">91</span><span class="sev Low">Low</span>
+<summary><span class="num">93</span><span class="sev Low">Low</span>
 <span class="ttl">Daily Activity chart tooltip shows raw unformatted token counts, breaking the page&#x27;s own number-formatting convention<span class="rt">/analytics</span></span></summary>
 <div class="body"><h4>Summary</h4><p>Every number displayed elsewhere on the Analytics page (KPI tiles, By Pipeline Type, By Model,</p>
 <p>Token Breakdown, Model Details) is formatted with K/M abbreviations (e.g. <code>34.2M</code>, <code>554.0K</code>,</p>
@@ -5824,7 +6552,7 @@ mark{background:rgba(163,113,247,.3);color:inherit;border-radius:2px}
 <span>Fingerprint <code>/analytics|daily-activity-chart-tooltip|hover-a-bar|raw-unformatted-integer-instead-of-K-M-abbreviation</code></span></div>
 </div></details>
 <details class="bug" data-sev="Low" data-search="whitespace-only api key name bypasses the &quot;default&quot; fallback, creating a permanently blank/unidentifiable key entry /handoff/settings bug-20260828-103900-handoff-settings-r2 low handoff settings — github pat and api keys">
-<summary><span class="num">92</span><span class="sev Low">Low</span>
+<summary><span class="num">94</span><span class="sev Low">Low</span>
 <span class="ttl">Whitespace-only API key name bypasses the &quot;Default&quot; fallback, creating a permanently blank/unidentifiable key entry<span class="rt">/handoff/settings</span></span></summary>
 <div class="body"><h4>Summary</h4><p>The &quot;API key name&quot; field defaults to <code>&quot;Default&quot;</code> when submitted empty (<code>keyName || &quot;Default&quot;</code> in</p>
 <p><code>IntegrationsCard.tsx</code>), but a name consisting only of whitespace (e.g. three spaces) is a</p>

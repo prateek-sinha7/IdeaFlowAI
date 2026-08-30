@@ -1,6 +1,39 @@
 # Hunt state
 
+## RUN — closer dispatch 2026-08-29 14:06 UTC — **NOT COMPLETE**
+
+Dispatch handed this closer `Run status: COMPLETE` with an empty per-phase results list, but
+the register does not support that: `bug-hunter/ledger.md` has grown to **94** bug entries
+while `bug-hunter/ledger-index.md` (what the scheduler reads) still has **92** rows. The 2
+missing bugs are real, `Status: Open`, and untouched by any pipeline phase this dispatch —
+see `bug-hunter/reports/20260829-140649-all.md` for full detail. Reported here rather than
+silently advanced or hand-patched into the index.
+
+REGISTER   94 bugs total. 92 terminal (unchanged since the 8th-launch close below: 79 CLOSED,
+             7 ESCALATED, 4 DUPLICATE, 2 UNREPRODUCIBLE). **2 Open, not yet in
+             `ledger-index.md`, not yet carded, not yet run through validate:**
+             - `BUG-20260829-135100-runs-id-versions` (High) — Steps tab (and, per a second
+               hunter's addendum on the same entry, the Files tab's per-agent "Agent outputs"
+               list) render version-independent data for every `/versions/{n}` URL in a run
+               family. Root-cause hypothesis already on the entry:
+               `PreviewPanel.tsx`'s `viewingVersion`/`pinnedVersion` override only swaps
+               deliverable-content props, never `agentOutputs`/`pipelineState`.
+             - `BUG-20260829-140111-runs-id-steps-agent` (High) — from the base/unversioned
+               `/runs/{id}/steps` route, neither the version picker nor the chat "Answer in
+               Steps" link switches to a revision; the revision's own agent step is reachable
+               only by navigating directly to the revision's own run id. Hunter created live
+               fixture runs `636ff908-...` (base) → `2ac66bbd-...` (user_stories_revision) for
+               this — reusable as a resolved instance.
+NEXT       A validate pass (`2-validator`) on these 2 bugs is the actual next step, then a
+             `report.py` regen (or equivalent) to bring `ledger-index.md` back in sync. Do NOT
+             treat this run as closed/no-further-work until that happens.
+
+---
+
 ## RUN — full line, stage=all (8th launch 2026-08-28 20:26 CEST) — COMPLETE
+
+*(historical — this section describes the prior close; the register has since gained 2 new
+Open bugs not reflected below. See the section above for current state.)*
 
 RUN         started 2026-08-28 20:26 CEST · closed 2026-08-29 03:03 UTC ·
               status **COMPLETE** — every one of the 92 register bugs reached a terminal
