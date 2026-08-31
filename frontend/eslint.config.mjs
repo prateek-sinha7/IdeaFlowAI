@@ -80,15 +80,20 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": ["error", ...HARDCODED_URL_RULES],
     },
   },
-  // Downgrade setState-in-effect to warning (pre-existing pattern in codebase).
+  // Ratchet react-hooks rules from warn to error over time (Phase 4).
+  // Pre-existing pattern in codebase: `exhaustive-deps`, `set-state-in-effect`,
+  // `static-components`, `preserve-manual-memoization` were downgraded to warn.
+  // Strategy: ratchet to error per directory as violations are fixed (not all at once).
+  // This prevents a cascade of new errors while still enforcing the rules going forward.
+  // Timeline: Phase 4 (initial ratchet to error for new code), Phase 4.5+ (per-directory).
   {
     name: "flowin/react-hooks-overrides",
     files: ["src/**/*.{ts,tsx,js,jsx}"],
     rules: {
-      "react-hooks/exhaustive-deps": "warn",
-      "react-hooks/set-state-in-effect": "warn",
-      "react-hooks/static-components": "warn",
-      "react-hooks/preserve-manual-memoization": "warn",
+      "react-hooks/exhaustive-deps": "error",
+      "react-hooks/set-state-in-effect": "error",
+      "react-hooks/static-components": "error",
+      "react-hooks/preserve-manual-memoization": "error",
     },
   },
 ]);

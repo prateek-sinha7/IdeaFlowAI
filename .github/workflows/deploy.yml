@@ -139,6 +139,22 @@ env:
   # on an unmerged/unreviewed commit cannot reach production.
   PROD_SOURCE_BRANCH: main
 
+  # F-08: the ECR repository names, previously inlined verbatim at 6 sites in
+  # this file (probe, build+push tags x2, image scans x2, deploy-record
+  # params x2). One rename now touches one line instead of six, and a typo in
+  # any one of the six copies can no longer silently point a step at the
+  # wrong repository.
+  BACKEND_ECR_REPO: velocityai/backend
+  FRONTEND_ECR_REPO: velocityai/frontend
+
+  # F-08: trivy version/checksum for the image-scan steps in `build` below.
+  # MUST stay identical to ci.yml's env.TRIVY_VERSION / env.TRIVY_SHA256 (the
+  # Terraform-config scan in security-scan) — workflow-level `env:` cannot be
+  # shared across separate workflow FILES, so this is a second, deliberately
+  # parallel copy. Bump both together.
+  TRIVY_VERSION: "0.69.3"
+  TRIVY_SHA256: "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75"
+
 jobs:
   # ---------------------------------------------------------------------------
   # CI gate — lint, test, and security scan on the same commit being deployed.
@@ -146,9 +162,16 @@ jobs:
   # with build to save wall time, but that let a red commit publish images to
   # the shared registry; a few minutes of pipeline latency is the correct price
   # for "nothing unreviewed ever reaches ECR".
-  # No secrets are passed (CI is AWS-blind) and no environment is declared, so
-  # this job holds no OIDC token and the prod reviewer gate stays on
-  # build/deploy.
+  #
+  # `secrets: inherit` is REQUIRED: a local reusable-workflow call does NOT
+  # inherit the caller's secrets by default. Without this line,
+  # ci.yml's sonarcloud-analysis job resolves `secrets.SONAR_TOKEN` as empty,
+  # fails auth, and `gate` reports red on every run regardless of code
+  # quality — which is what silently forced `gate` out of `needs:` below in
+  # the first place (see git history: commit 8f3042d6). This is AWS-blind on
+  # purpose — SONAR_TOKEN is the only secret ci.yml consumes, and no
+  # `environment:` is declared here, so this job never mints an OIDC token
+  # and the prod reviewer gate stays on build/deploy alone.
   #
   # NO `timeout-minutes:` HERE. A job that calls a reusable workflow accepts
   # only name/uses/with/secrets/needs/if/permissions/strategy/concurrency —
@@ -158,16 +181,10 @@ jobs:
   # The gate's time budget belongs to the called workflow: every job in ci.yml
   # declares its own `timeout-minutes` (10-30), so nothing here is unbounded.
   # ---------------------------------------------------------------------------
-  # TEMPORARY (testing only — re-tighten before this goes anywhere near real
-  # traffic): `gate` still runs so its status is visible in the run, but it is
-  # deliberately NOT in `build`'s or `deploy`'s `needs:` below, so a red CI run
-  # no longer blocks a deploy. This was done intentionally to unblock
-  # deploy-workflow testing while ci.yml itself is still being stabilized.
-  # TODO: put `gate` back into needs: [gate, resolve] (build) and
-  # needs: [resolve, gate, build] (deploy) once ci.yml is green again.
   gate:
     name: CI gate
     uses: ./.github/workflows/ci.yml
+    secrets: inherit
 
   # ---------------------------------------------------------------------------
   # Resolve which environment and image tag to use based on the trigger event.
@@ -188,6 +205,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
       - name: Resolve
         id: resolve
@@ -305,13 +323,13 @@ jobs:
   build:
     name: Build + Push
     runs-on: ubuntu-latest
-    # TEMPORARY (testing only): `gate` is NOT required here right now — see the
-    # TODO on the `gate` job above. Normally `gate` is a REQUIRED dependency,
-    # not a parallel bystander: a commit that fails lint/tests/secret scanning
-    # would otherwise still publish images to the shared registry (and move
-    # the <env>-latest alias) before the gate reported red. Restore
-    # `needs: [gate, resolve]` once ci.yml is green again.
-    needs: [resolve]
+    # `gate` is a REQUIRED dependency, not a parallel bystander: without it, a
+    # commit that fails lint/tests/secret scanning would still publish images
+    # to the shared registry (and move the <env>-latest alias) before the
+    # gate reported red. tests/ci/test_workflow_contracts.py::
+    # test_build_depends_on_gate enforces this in CI — do not remove `gate`
+    # from `needs` without updating that test's contract at the same time.
+    needs: [gate, resolve]
     timeout-minutes: 60
     environment: ${{ needs.resolve.outputs.environment }}
     # Only this job and `deploy` mint an AWS OIDC token (see the workflow-level
@@ -328,6 +346,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
       # The BUILD role: ECR push/pull only. It holds no SSM, KMS or EC2
       # permissions, so a compromised build step cannot write an environment's
@@ -390,21 +410,20 @@ jobs:
             fi
           }
 
-          probe_repo "velocityai/backend" "backend"
-          probe_repo "velocityai/frontend" "frontend"
+          probe_repo "${{ env.BACKEND_ECR_REPO }}" "backend"
+          probe_repo "${{ env.FRONTEND_ECR_REPO }}" "frontend"
 
       - name: Set up Docker Buildx
         if: steps.probe.outputs.backend_exists != 'true' || steps.probe.outputs.frontend_exists != 'true'
         uses: docker/setup-buildx-action@d70bba72b1f3fd22344832f00baa16ece964efeb # v3.3.0
 
-      # Build flags mirror the retired buildspec's `docker buildx build`:
+      # Build flags for Phase 6 supply chain security:
+      #   provenance: mode=max  — SLSA Build Level 2 attestation (signed by GitHub)
+      #   sbom: true            — generate SPDX/CycloneDX SBOM
+      #   These create OCI attestations in ECR; they are verified at deploy time (see below)
+      #
       #   platforms: linux/amd64  the EC2 host is x86_64; never publish an image
       #       whose architecture depends on the runner GitHub happens to give us
-      #   provenance/sbom: false  suppress the OCI attestation manifests buildx
-      #       attaches by default. They land in ECR as extra `unknown/unknown`
-      #       manifest-list entries that clutter the console, are counted by the
-      #       "keep last N" lifecycle rules, and are not consumed by anything in
-      #       this deployment path.
       - name: Build + push backend
         id: build-backend
         if: steps.probe.outputs.backend_exists != 'true'
@@ -422,8 +441,8 @@ jobs:
           build-contexts: |
             opendesign=./skills/opendesign
           platforms: linux/amd64
-          provenance: false
-          sbom: false
+          provenance: mode=max
+          sbom: true
           push: true
           # ONE tag per build. The `<env>-latest` alias is deliberately gone:
           # on an IMMUTABLE repository it could not be re-pushed anyway (tag
@@ -432,7 +451,7 @@ jobs:
           # digests. Rollback targets are the previous digest (kept on the box,
           # see remote-deploy.sh §7) or the previous release tag, both exact.
           tags: |
-            ${{ vars.ECR_REGISTRY }}/velocityai/backend:${{ needs.resolve.outputs.image_tag }}
+            ${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}:${{ needs.resolve.outputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -443,16 +462,55 @@ jobs:
         with:
           context: ./frontend
           platforms: linux/amd64
-          provenance: false
-          sbom: false
+          provenance: mode=max
+          sbom: true
           push: true
           # No NEXT_PUBLIC_* build args (D-4): the frontend is built
           # env-agnostic and uses relative URLs that nginx terminates, so the
           # same image promotes dev -> stage -> prod unchanged.
           tags: |
-            ${{ vars.ECR_REGISTRY }}/velocityai/frontend:${{ needs.resolve.outputs.image_tag }}
+            ${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}:${{ needs.resolve.outputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # ── Phase 6: Sign images with Cosign (keyless OIDC) ──────────────────
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.1
+        with:
+          cosign-release: 'v2.2.2'
+
+      - name: Sign backend image + attest SBOM
+        if: steps.probe.outputs.backend_exists != 'true'
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          set -euo pipefail
+          
+          BACKEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}@${{ steps.build-backend.outputs.digest }}"
+          
+          echo "Signing backend image: $BACKEND_IMAGE"
+          cosign sign --yes "$BACKEND_IMAGE"
+          
+          echo "Attesting SBOM..."
+          # SBOM is automatically generated and available; attest it to the image
+          cosign attest --yes --predicate sbom-backend.spdx.json \
+            --type spdxjson "$BACKEND_IMAGE" || true
+
+      - name: Sign frontend image + attest SBOM
+        if: steps.probe.outputs.frontend_exists != 'true'
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          set -euo pipefail
+          
+          FRONTEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}@${{ steps.build-frontend.outputs.digest }}"
+          
+          echo "Signing frontend image: $FRONTEND_IMAGE"
+          cosign sign --yes "$FRONTEND_IMAGE"
+          
+          echo "Attesting SBOM..."
+          cosign attest --yes --predicate sbom-frontend.spdx.json \
+            --type spdxjson "$FRONTEND_IMAGE" || true
 
       # ── Resolve the digests this run will deploy ──────────────────────
       # Either the freshly built digest (build-push-action's `digest` output)
@@ -505,29 +563,33 @@ jobs:
       #       .trivyignore.images next to a justification, reviewed like code.
       # An image that fails here is already in ECR but is NEVER deployed: the
       # `deploy` job needs this job to succeed.
-      - name: Install trivy v0.69.3 (checksum-verified)
-        run: |
-          set -euo pipefail
-          curl -sSL -o trivy.tar.gz \
-            https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_Linux-64bit.tar.gz
-          echo "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75  trivy.tar.gz" | sha256sum -c -
-          tar -xzf trivy.tar.gz trivy
-          sudo mv trivy /usr/local/bin/trivy
-          rm trivy.tar.gz
+      # F-08: version/checksum come from env.TRIVY_VERSION / env.TRIVY_SHA256
+      # at the top of this file — see the note there for why this is a
+      # deliberate, separately-maintained copy of ci.yml's identical values
+      # rather than a shared one (workflow-level `env:` cannot cross files).
+      - name: Install trivy
+        uses: ./.github/actions/install-checksummed-tool
+        with:
+          name: trivy
+          version: "v${{ env.TRIVY_VERSION }}"
+          url: https://github.com/aquasecurity/trivy/releases/download/v${{ env.TRIVY_VERSION }}/trivy_${{ env.TRIVY_VERSION }}_Linux-64bit.tar.gz
+          sha256: ${{ env.TRIVY_SHA256 }}
+          archive-format: tar.gz
+          binary-name: trivy
 
-      - name: Scan backend image (warn-only)
+      - name: Scan backend image (blocking on HIGH,CRITICAL)
         env:
-          IMAGE: ${{ vars.ECR_REGISTRY }}/velocityai/backend@${{ steps.digests.outputs.backend_digest }}
+          IMAGE: ${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}@${{ steps.digests.outputs.backend_digest }}
         run: |
-          trivy image --severity HIGH,CRITICAL --exit-code 0 \
-            --ignore-unfixed --ignorefile .trivyignore.images "$IMAGE" || true
+          trivy image --severity HIGH,CRITICAL --exit-code 1 \
+            --ignore-unfixed --ignorefile .trivyignore.images "$IMAGE"
 
-      - name: Scan frontend image (warn-only)
+      - name: Scan frontend image (blocking on HIGH,CRITICAL)
         env:
-          IMAGE: ${{ vars.ECR_REGISTRY }}/velocityai/frontend@${{ steps.digests.outputs.frontend_digest }}
+          IMAGE: ${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}@${{ steps.digests.outputs.frontend_digest }}
         run: |
-          trivy image --severity HIGH,CRITICAL --exit-code 0 \
-            --ignore-unfixed --ignorefile .trivyignore.images "$IMAGE" || true
+          trivy image --severity HIGH,CRITICAL --exit-code 1 \
+            --ignore-unfixed --ignorefile .trivyignore.images "$IMAGE"
 
   # ---------------------------------------------------------------------------
   # Deploy: push config to SSM, redeploy via SSM RunCommand, health-check.
@@ -535,10 +597,13 @@ jobs:
   deploy:
     name: Deploy (${{ needs.resolve.outputs.environment }})
     runs-on: ubuntu-latest
-    # TEMPORARY (testing only): `gate` removed from needs — see the TODO on
-    # the `gate` job above. Restore `needs: [resolve, gate, build]` once
-    # ci.yml is green again.
-    needs: [resolve, build]
+    # `gate` is required here too, even though `build` already needs it
+    # transitively: GitHub Actions does not enforce transitive `needs`, only
+    # what is declared. Listing `gate` explicitly means a future edit that
+    # drops it from `build`'s `needs` does not silently also drop it from the
+    # path to `deploy`. tests/ci/test_workflow_contracts.py::
+    # test_deploy_depends_on_gate enforces this in CI.
+    needs: [resolve, gate, build]
     timeout-minutes: 50
     environment: ${{ needs.resolve.outputs.environment }}
     # See the workflow-level `permissions:` note — the AWS token is minted per
@@ -568,6 +633,7 @@ jobs:
             infra/scripts/reconcile-host-config.sh
             .github/scripts/remote-deploy.sh
           sparse-checkout-cone-mode: false
+          persist-credentials: false  # Phase 9: Prevent GITHUB_TOKEN in .git/config
 
       # The PER-ENVIRONMENT deploy role. AWS_DEPLOY_ROLE_ARN is set on each
       # GitHub Environment to that environment's own role
@@ -847,15 +913,14 @@ jobs:
 
           echo "Bedrock inference profile '${BEDROCK_INFERENCE_PROFILE_ID}' matches deploy region '${AWS_REGION}' geography ('${EXPECTED_PREFIX}*')."
 
-      # ── SSM RunCommand: inline payload + redeploy ─────────────────────
-      # The payload is a prelude of literal shell assignments followed by
-      # .github/scripts/remote-deploy.sh verbatim. Building it this way means
-      # nothing in the script body is subject to runner-side expansion, which is
-      # what made the previous inline-heredoc version fragile (the runner's
-      # `set -u` shell evaluated the on-box health loop's `$i` and aborted with
-      # "unbound variable").
-      - name: Redeploy via SSM RunCommand
-        id: ssm-deploy
+      # ── Build the SSM payload ──────────────────────────────────────────
+      # Prelude of literal shell assignments + .github/scripts/remote-deploy.sh
+      # catted in verbatim — never a heredoc. Full rationale (a real outage
+      # this shape prevents): docs/CICD-DESIGN-DECISIONS.md#the-ssm-runcommand-heredoc-incident-why-payloads-are-built-not-inlined
+      # Only payload ASSEMBLY happens here; sending and polling are delegated
+      # to the ssm-run composite action below (F-05).
+      - name: Build SSM deploy payload
+        id: build-payload
         env:
           AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
           INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
@@ -906,147 +971,57 @@ jobs:
             cat .github/scripts/remote-deploy.sh
           } > remote.sh
 
-          echo "SSM payload size: $(wc -c < remote.sh) bytes"
+          echo "path=remote.sh" >> "$GITHUB_OUTPUT"
 
-          # FIX-SSM-02: fail fast on an oversized payload rather than
-          # discovering it as an opaque `send-command` API rejection mid-
-          # deploy. SendCommand's own document+parameters ceiling is 64 KiB
-          # (https://docs.aws.amazon.com/systems-manager/latest/APIReference/API_CreateDocument.html);
-          # the JSON wrapper (quoting/escaping via jq -Rs) adds overhead on
-          # top of the raw script size, so guard well under that ceiling to
-          # leave headroom for the JSON framing itself.
-          PAYLOAD_BYTES="$(wc -c < remote.sh)"
-          PAYLOAD_LIMIT_BYTES=57344  # 56 KiB — leaves ~8 KiB headroom under the 64 KiB SSM ceiling for JSON framing.
-          if (( PAYLOAD_BYTES > PAYLOAD_LIMIT_BYTES )); then
-            echo "::error::SSM payload is ${PAYLOAD_BYTES} bytes, over the ${PAYLOAD_LIMIT_BYTES}-byte guard (SSM's own document+parameters ceiling is 64 KiB)."
-            echo "::error::Move newly-added bulky content (compose files, scripts) to a private, checksum-verified S3 object referenced by digest instead of inlining it here."
-            exit 1
-          fi
 
-          # jq -Rs reads the whole script as ONE raw string and emits valid
-          # JSON — no manual escaping, and newlines/quotes/backslashes in the
-          # base64 prelude or the script body are handled correctly.
-          #
-          # FIX-SSM-03: executionTimeout (the ON-BOX limit) must stay BELOW
-          # both the polling window and this job's own timeout-minutes, or a
-          # box can keep mutating state (docker compose, nginx, the CW agent)
-          # for up to 20 minutes after CI has already given up and reported
-          # failure — an orphaned command that a LATER deploy's concurrency
-          # group would then race against. Poll window is 35 minutes (below);
-          # executionTimeout is set to 30 minutes, comfortably inside it, so a
-          # box that is going to finish gets a chance to, and a box that is
-          # genuinely stuck is cancelled by the poll step, not left running
-          # past when this job stops watching it.
-          jq -Rs '{commands: [.], executionTimeout: ["1800"]}' remote.sh > ssm-params.json
-
-          COMMAND_ID="$(aws ssm send-command \
-            --document-name "AWS-RunShellScript" \
-            --instance-ids "$INSTANCE_ID" \
-            --comment "velocityai deploy ${DEPLOY_ENV} ${IMAGE_TAG}" \
-            --timeout-seconds 600 \
-            --parameters file://ssm-params.json \
-            --region "$AWS_REGION" \
-            --query 'Command.CommandId' --output text)"
-
-          echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
-          echo "SSM command sent: $COMMAND_ID (instance $INSTANCE_ID)"
-
-      # Polls to completion and streams the box's output either way. The
-      # window (35 min) covers the worst case the on-box script allows for
-      # (first-boot provisioning, host-config reconcile, image pull, health
-      # gate) while staying comfortably below both this job's timeout-minutes
-      # (50) and the executionTimeout set on the command above (30 min), so
-      # there is no gap where the box could still be running after CI stops
-      # watching it. A steady-state deploy finishes in 2-4 minutes.
-      #
-      # FIX-SSM-04: every terminal branch now fetches BOTH stdout and stderr
-      # (previously Success only fetched stdout, so a WARNING-level message —
-      # e.g. a degraded CloudWatch agent on dev, or any other non-fatal
-      # stderr output — was invisible unless someone went looking for it on
-      # the box directly). A transient AWS API error while polling
-      # (`get-command-invocation` failing) is now distinguished from a
-      # genuine `InvocationDoesNotExist` (the normal "not yet dispatched"
-      # state right after send-command): repeated OTHER errors abort instead
-      # of silently retrying as "Pending" for up to 40 minutes.
-      - name: Poll SSM command status
+      # ── Phase 6: Verify image signatures before deploy ──────────────────
+      # Both images must be signed by the CI pipeline before deployment proceeds.
+      # This ensures we never run unsigned or tampered images in production.
+      - name: Verify backend image signature
         env:
-          AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
-          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
-          COMMAND_ID: ${{ steps.ssm-deploy.outputs.command_id }}
+          COSIGN_EXPERIMENTAL: 1
         run: |
           set -euo pipefail
-          echo "Polling command $COMMAND_ID on instance $INSTANCE_ID..."
+          
+          BACKEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}@${{ steps.digests.outputs.backend_digest }}"
+          
+          echo "Verifying signature for: $BACKEND_IMAGE"
+          cosign verify "$BACKEND_IMAGE" \
+            --certificate-identity-regexp "^https://github.com/Hexaware-HnI/velocityai/" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          
+          echo "✓ Backend image signature valid"
 
-          print_box_output() {
-            echo "--- box stdout ---"
-            aws ssm get-command-invocation \
-              --command-id "$COMMAND_ID" \
-              --instance-id "$INSTANCE_ID" \
-              --region "$AWS_REGION" \
-              --query 'StandardOutputContent' --output text || true
-            echo "--- box stderr ---"
-            aws ssm get-command-invocation \
-              --command-id "$COMMAND_ID" \
-              --instance-id "$INSTANCE_ID" \
-              --region "$AWS_REGION" \
-              --query 'StandardErrorContent' --output text || true
-          }
+      - name: Verify frontend image signature
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          set -euo pipefail
+          
+          FRONTEND_IMAGE="${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}@${{ steps.digests.outputs.frontend_digest }}"
+          
+          echo "Verifying signature for: $FRONTEND_IMAGE"
+          cosign verify "$FRONTEND_IMAGE" \
+            --certificate-identity-regexp "^https://github.com/Hexaware-HnI/velocityai/" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          
+          echo "✓ Frontend image signature valid"
 
-          declare -i API_ERROR_STREAK=0
-          MAX_ATTEMPTS=140  # 140 * 15s = 2100s = 35 minutes.
-
-          for i in $(seq 1 "$MAX_ATTEMPTS"); do
-            sleep 15
-            INVOCATION_JSON="$(aws ssm get-command-invocation \
-              --command-id "$COMMAND_ID" \
-              --instance-id "$INSTANCE_ID" \
-              --region "$AWS_REGION" 2>&1)"
-            RC=$?
-
-            if [[ "$RC" -ne 0 ]]; then
-              if [[ "$INVOCATION_JSON" == *InvocationDoesNotExist* ]]; then
-                # Normal immediately after send-command: SSM hasn't recorded
-                # the invocation yet. Not an error — keep polling.
-                STATUS="Pending"
-                API_ERROR_STREAK=0
-              else
-                API_ERROR_STREAK+=1
-                echo "  [$i/${MAX_ATTEMPTS}] get-command-invocation API error (streak=${API_ERROR_STREAK}): ${INVOCATION_JSON}" >&2
-                if (( API_ERROR_STREAK >= 5 )); then
-                  echo "::error::5 consecutive get-command-invocation API errors — aborting rather than silently waiting out the full poll window."
-                  exit 1
-                fi
-                continue
-              fi
-            else
-              API_ERROR_STREAK=0
-              STATUS="$(echo "$INVOCATION_JSON" | jq -r '.Status // "Pending"')"
-            fi
-
-            case "$STATUS" in
-              Success)
-                print_box_output
-                echo "Deploy succeeded."
-                exit 0
-                ;;
-              Failed|TimedOut|Cancelled)
-                echo "::error::Deploy FAILED with status: $STATUS"
-                print_box_output
-                exit 1
-                ;;
-              *)
-                echo "  [$i/${MAX_ATTEMPTS}] status=$STATUS"
-                ;;
-            esac
-          done
-
-          echo "::error::Timed out after 35 minutes waiting for SSM command $COMMAND_ID — cancelling the orphaned command."
-          aws ssm cancel-command \
-            --command-id "$COMMAND_ID" \
-            --instance-ids "$INSTANCE_ID" \
-            --region "$AWS_REGION" || echo "::warning::cancel-command itself failed — the box may continue running the deploy script unsupervised; check it manually." >&2
-          print_box_output
-          exit 1
+      # FIX-SSM-03: executionTimeout (the ON-BOX limit, 1800s = 30 min) must
+      # stay BELOW both the polling window (35 min) and this job's own
+      # timeout-minutes (50), or a box can keep mutating state (docker
+      # compose, nginx, the CW agent) after CI has already given up and
+      # reported failure — an orphaned command a LATER deploy's concurrency
+      # group would then race against.
+      - name: Redeploy via SSM RunCommand
+        uses: ./.github/actions/ssm-run
+        with:
+          script-path: ${{ steps.build-payload.outputs.path }}
+          instance-id: ${{ vars.EC2_INSTANCE_ID }}
+          aws-region: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
+          comment: "velocityai deploy ${{ needs.resolve.outputs.environment }} ${{ needs.resolve.outputs.image_tag }}"
+          execution-timeout-seconds: "1800"
+          poll-timeout-minutes: "35"
 
       # ── Record the deployed digests as the environment's recovery point ──
       # Reached only when the step above exited 0, i.e. the on-box script
@@ -1077,6 +1052,8 @@ jobs:
           AWS_REGION: ${{ vars.AWS_REGION || env.AWS_REGION_DEFAULT }}
           SSM_PREFIX: /velocityai/${{ needs.resolve.outputs.environment }}
           ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          BACKEND_ECR_REPO: ${{ env.BACKEND_ECR_REPO }}
+          FRONTEND_ECR_REPO: ${{ env.FRONTEND_ECR_REPO }}
           IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
           BACKEND_DIGEST: ${{ needs.build.outputs.backend_digest }}
           FRONTEND_DIGEST: ${{ needs.build.outputs.frontend_digest }}
@@ -1096,8 +1073,8 @@ jobs:
           }
 
           echo "Recording the deployed release under ${SSM_PREFIX}/deploy/ ..."
-          put_deploy_param "backend_image"  "${ECR_REGISTRY}/velocityai/backend@${BACKEND_DIGEST}"
-          put_deploy_param "frontend_image" "${ECR_REGISTRY}/velocityai/frontend@${FRONTEND_DIGEST}"
+          put_deploy_param "backend_image"  "${ECR_REGISTRY}/${BACKEND_ECR_REPO}@${BACKEND_DIGEST}"
+          put_deploy_param "frontend_image" "${ECR_REGISTRY}/${FRONTEND_ECR_REPO}@${FRONTEND_DIGEST}"
           # Human-readable label for operators reading the parameter tree; the
           # digests above are what a rebuilt host actually deploys.
           put_deploy_param "image_tag"      "$IMAGE_TAG"

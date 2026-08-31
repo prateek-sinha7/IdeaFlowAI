@@ -25,6 +25,10 @@ This script enforces:
   1. `build` job must have `gate` in its needs (explicit)
   2. `deploy` job must have both `gate` and `build` in its needs (explicit)
   3. No future bypass route to deploy can omit gate
+  4. Phase 10: No `continue-on-error: true` on security/scanner steps
+  5. Phase 10: No `|| true` in scanner invocations (gitleaks, checkov, trivy, etc.)
+  6. Phase 10: All `trivy image` commands use `--exit-code 1`
+  7. Phase 10: All `flip-to-failing` dates are not expired
 
 Exit codes:
   0 - Contract satisfied, workflow is safe
@@ -35,6 +39,8 @@ import sys
 import yaml
 from pathlib import Path
 from typing import Dict, Set, List, Optional
+from datetime import datetime
+import re
 
 
 def load_workflow(workflow_path: str) -> Dict:
@@ -111,6 +117,140 @@ def compute_transitive_dependencies(jobs: Dict[str, Dict], start_job: str) -> Se
     return all_deps
 
 
+def check_continue_on_error_on_security_steps(jobs: Dict[str, Dict], verbose: bool = False) -> bool:
+    """
+    Phase 10: Check that no security or scanner steps have `continue-on-error: true`.
+    
+    Returns:
+        True if no violations, False otherwise
+    """
+    security_keywords = {
+        'security', 'scan', 'gitleaks', 'checkov', 'trivy', 
+        'tflint', 'codeql', 'bandit', 'semgrep', 'sast'
+    }
+    
+    violations = []
+    
+    for job_name, job_def in jobs.items():
+        if not job_def or 'steps' not in job_def:
+            continue
+        
+        for step_idx, step in enumerate(job_def['steps'], 1):
+            if not step:
+                continue
+            
+            step_name = step.get('name', f'Step {step_idx}')
+            # Check if this is a security-related step
+            is_security_step = any(keyword in step_name.lower() for keyword in security_keywords)
+            
+            if is_security_step and step.get('continue-on-error') is True:
+                violations.append(f"  {job_name}/{step_name}: continue-on-error: true")
+    
+    if violations:
+        print("VIOLATION: Security/scanner steps have continue-on-error: true (Phase 10)")
+        for v in violations:
+            print(v)
+        return False
+    elif verbose:
+        print("✓ No security/scanner steps have continue-on-error: true")
+    
+    return True
+
+
+def check_scanner_exit_codes(jobs: Dict[str, Dict], verbose: bool = False) -> bool:
+    """
+    Phase 10: Check that scanner invocations don't use `|| true` and use proper exit codes.
+    
+    Returns:
+        True if no violations, False otherwise
+    """
+    violations = []
+    
+    for job_name, job_def in jobs.items():
+        if not job_def or 'steps' not in job_def:
+            continue
+        
+        for step_idx, step in enumerate(job_def['steps'], 1):
+            if not step or 'run' not in step:
+                continue
+            
+            run_command = step.get('run', '')
+            step_name = step.get('name', f'Step {step_idx}')
+            
+            # Check for scanner commands with || true
+            scanners = ['gitleaks', 'checkov', 'trivy', 'tflint', 'bandit', 'semgrep']
+            for scanner in scanners:
+                if scanner in run_command:
+                    # Check for || true pattern
+                    if '|| true' in run_command:
+                        violations.append(
+                            f"  {job_name}/{step_name}: '{scanner}' invocation has '|| true'"
+                        )
+                    # For trivy image: ensure --exit-code 1 is used
+                    if 'trivy image' in run_command and '--exit-code 1' not in run_command:
+                        violations.append(
+                            f"  {job_name}/{step_name}: 'trivy image' missing '--exit-code 1'"
+                        )
+    
+    if violations:
+        print("VIOLATION: Scanner commands have || true or missing exit-code (Phase 10)")
+        for v in violations:
+            print(v)
+        return False
+    elif verbose:
+        print("✓ All scanner invocations have proper exit-code handling")
+    
+    return True
+
+
+def check_flip_to_failing_dates(workflow_path: str, verbose: bool = False) -> bool:
+    """
+    Phase 10: Check that all `flip-to-failing` dates are not expired.
+    
+    This looks for comments like:
+      # flip-to-failing: 2026-12-31 (reason: ...)
+    
+    And validates the date is in the future.
+    
+    Returns:
+        True if no violations, False otherwise
+    """
+    violations = []
+    today = datetime.now().date()
+    
+    try:
+        with open(workflow_path, 'r') as f:
+            lines = f.readlines()
+    except Exception as e:
+        if verbose:
+            print(f"Note: Could not read workflow for flip-to-failing check: {e}")
+        return True
+    
+    for line_idx, line in enumerate(lines, 1):
+        # Match: # flip-to-failing: YYYY-MM-DD
+        match = re.search(r'#\s*flip-to-failing:\s*(\d{4}-\d{2}-\d{2})', line)
+        if match:
+            date_str = match.group(1)
+            try:
+                flip_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                if flip_date < today:
+                    violations.append(
+                        f"  Line {line_idx}: flip-to-failing date '{date_str}' is expired (today: {today})"
+                    )
+            except ValueError:
+                print(f"  Line {line_idx}: Invalid date format: {date_str}")
+    
+    if violations:
+        print("VIOLATION: flip-to-failing dates are expired (Phase 10)")
+        for v in violations:
+            print(v)
+        return False
+    elif verbose:
+        print("✓ All flip-to-failing dates are valid/future")
+    
+    return True
+
+
 def check_gate_contract(workflow_path: str, verbose: bool = False) -> bool:
     """
     Verify that the gate contract is satisfied.
@@ -170,6 +310,16 @@ def check_gate_contract(workflow_path: str, verbose: bool = False) -> bool:
     elif verbose:
         print("✓ 'gate' is transitively required by 'deploy'")
     
+    # Phase 10: Check scanner step safeguards
+    if not check_continue_on_error_on_security_steps(jobs, verbose):
+        contract_satisfied = False
+    
+    if not check_scanner_exit_codes(jobs, verbose):
+        contract_satisfied = False
+    
+    if not check_flip_to_failing_dates(workflow_path, verbose):
+        contract_satisfied = False
+    
     # Additional analysis: show the dependency chain for documentation
     if verbose and contract_satisfied:
         print("\nDependency chain:")
@@ -191,7 +341,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Verify GitHub Actions workflow gate contract",
+        description="Verify GitHub Actions workflow gate contract (Phase 10)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

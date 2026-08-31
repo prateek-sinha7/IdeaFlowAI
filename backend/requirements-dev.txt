@@ -1,67 +1,31 @@
-# Backend development-only dependencies.
-#
-# Install with:    pip install -r requirements-dev.txt
-#
-# These are NOT installed in production containers (see Dockerfile, which
-# only installs requirements.txt). They power local static analysis,
-# linting, and pre-commit checks.
-#
-# Versions are pinned exactly for reproducibility. Bump deliberately, never
-# with a range.
+# Development and test dependencies
+# These are NOT shipped in production containers
+# For local development: uv sync --frozen (installs both prod + dev)
 
-# Static analysis (pyflakes/pycodestyle/bugbear/pylint subsets).
-# Configured in pyproject.toml under [tool.ruff].
-#
-# Ruff catches:
-#   - Unused imports (F401), undefined names within a file (F821, F811)
-#   - Pycodestyle errors (E*, W*) including indentation/whitespace bugs
-#   - Bugbear (B*) likely-bug patterns
-#   - Pylint ERROR-level rules (PLE*)
-#
-# Ruff does NOT do module resolution. It cannot tell that
-# `from app.agents.pipeline import X` references a deleted module.
-# That's what pyright is for — see below.
-ruff==0.8.4
+-r requirements-prod.txt
 
-# Type/import resolution. We run pyright in `typeCheckingMode: off` with
-# only `reportMissingImports` enabled — i.e. a pure import-resolution
-# check. This catches the class of bug ruff cannot: a lazy or top-level
-# `from x.y import Z` to a module that doesn't exist (e.g. deleted in a
-# merge). Configured in `pyrightconfig.json`.
-#
-# IMPORTANT: Run pyright AFTER `pip install -r requirements.txt`. Without
-# the runtime deps installed, pyright will (correctly) report fastapi,
-# sqlalchemy, etc. as unresolved.
-pyright==1.1.391
+# Testing framework
+pytest==8.3.4
+pytest-asyncio==0.24.0
+hypothesis==6.122.3
 
-# Coverage measurement and reporting (pytest-cov).
-# Configured in pyproject.toml under [tool.coverage]. Run with:
-#   pytest tests/ --cov=app --cov=agents --cov-report=html --cov-report=term-missing
-coverage[toml]==7.6.1
-pytest-cov==5.0.0  # Compatible with coverage 7.6.1; provides --cov* flags for pytest
+# HTTP testing client
+httpx==0.28.1
 
-# Dependency vulnerability scanning. Run with:
-#   pip-audit -r requirements.txt
-pip-audit==2.7.3
+# Browser automation for render validation (dev/test only)
+# Note: playwright wheel does NOT bundle the browser binary.
+# Browser install must be done separately: playwright install --with-deps chromium
+# (This is only done in CI for testing, never in production container)
+playwright==1.60.0
 
-# Pre-commit framework. Run `pre-commit install` once after installing.
-# Hooks live in /.pre-commit-config.yaml at the repo root.
-pre-commit==4.0.1
+# Code quality tools (linting, type checking, etc.)
+# Note: ruff, pyright, vulture, import-linter are in the CI pipeline and
+# may be expected by developers running tests locally. Include them here
+# so `uv sync` sets up a complete dev environment.
+ruff==0.7.4
+pyright==1.1.384
+vulture==2.14
+import-linter==2.1
 
-# Import-boundary enforcement (Ports & Adapters / hexagonal — 003 §31, D-11).
-# Configured in pyproject.toml under [tool.importlinter]. Asserts the kernel
-# module depends only on capability ports, never legacy engine/factory
-# internals. In Phase 1 this is a GREEN SCAFFOLD (D-12): the kernel is still
-# engine.py and the contract holds on the current tree; Phase 7/8 only TIGHTENS
-# it (adds forbidden modules once kernel.py + capabilities/base.py land) —
-# never rewrites it. Run with `cd backend && lint-imports`.
-import-linter==2.11
-
-# Dead-code / orphaned-function detection (the §31 "ruff / vulture" dead-code
-# gate, D-13). Ruff already catches F401/F811 (unused-in-file); vulture finds
-# whole functions/classes/vars that are never referenced anywhere — the kind of
-# orphan a refactor leaves behind. Configured in pyproject.toml under
-# [tool.vulture] and allow-listed (framework entrypoints: FastAPI routes,
-# pytest fixtures, registry self-registration) to avoid false positives.
-# Run with `cd backend && vulture app/ agents/`.
-vulture==2.16
+# Testing coverage analysis
+pytest-cov==5.0.0

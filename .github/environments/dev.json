@@ -1,0 +1,18 @@
+{
+  "name": "dev",
+  "description": "Development environment — permissive, dev branch policy.",
+  "can_admins_bypass": true,
+  "wait_timer": 0,
+  "deployment_branch_policy": {
+    "protected_tags": false,
+    "protected_branches": true,
+    "custom_branch_policies": false,
+    "allowed_branches": [
+      "refs/heads/dev"
+    ]
+  },
+  "reviewers": [],
+  "min_review_count": 0,
+  "require_branch_uptodate": false,
+  "protect_custom_deployment_gate_reviewers": false
+}

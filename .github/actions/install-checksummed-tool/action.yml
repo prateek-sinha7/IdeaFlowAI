@@ -1,0 +1,88 @@
+# Composite action: download + SHA256-verify + install a single-binary CLI
+# release, without depending on any third-party setup-* GitHub Action.
+#
+# F-05 / F-08: replaces the duplicated "curl | sha256sum -c | tar/unzip |
+# sudo mv" blocks for gitleaks, trivy (installed separately in BOTH ci.yml's
+# security-scan job and deploy.yml's build job), tflint, and terraform. Each
+# caller now supplies only the four facts that differ (url, checksum, archive
+# format, binary name) instead of repeating the ~10-line install recipe.
+#
+# Why not a third-party action (e.g. aquasecurity/setup-trivy): CVE-2026-33634
+# (GHSA-69fq-xp46-6x23) — attackers force-pushed malicious commits onto
+# existing version TAGS of aquasecurity/trivy-action and
+# aquasecurity/setup-trivy. A checksum this repo verifies itself, against a
+# URL pinned to an exact version, removes any dependency on a third party's
+# action tag staying uncompromised between now and when this workflow runs.
+# See docs/CICD-DESIGN-DECISIONS.md#action-pinning-and-cve-2026-33634 for the
+# full incident writeup this pattern responds to.
+name: Install checksummed tool
+description: Downloads a release archive, verifies its SHA256, and installs one binary to /usr/local/bin.
+
+inputs:
+  name:
+    description: Human-readable tool name, used only in log output (e.g. "trivy").
+    required: true
+  version:
+    description: Exact version being installed, used only in log output (e.g. "v0.69.3").
+    required: true
+  url:
+    description: Direct download URL for the release archive.
+    required: true
+  sha256:
+    description: Expected SHA256 checksum of the downloaded archive.
+    required: true
+  archive-format:
+    description: "'tar.gz' or 'zip'."
+    required: true
+  binary-name:
+    description: Name of the binary file inside the archive to extract and install.
+    required: true
+  dest-name:
+    description: Name to install the binary as under /usr/local/bin (defaults to binary-name).
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: "Install ${{ inputs.name }} ${{ inputs.version }} (checksum-verified)"
+      shell: bash
+      env:
+        TOOL_NAME: ${{ inputs.name }}
+        TOOL_VERSION: ${{ inputs.version }}
+        TOOL_URL: ${{ inputs.url }}
+        TOOL_SHA256: ${{ inputs.sha256 }}
+        ARCHIVE_FORMAT: ${{ inputs.archive-format }}
+        BINARY_NAME: ${{ inputs.binary-name }}
+        DEST_NAME: ${{ inputs.dest-name }}
+      run: |
+        set -euo pipefail
+
+        dest="${DEST_NAME:-$BINARY_NAME}"
+        workdir="$(mktemp -d)"
+        archive="${workdir}/archive.${ARCHIVE_FORMAT}"
+
+        echo "Downloading ${TOOL_NAME} ${TOOL_VERSION} from ${TOOL_URL}..."
+        curl -sSL -o "$archive" "$TOOL_URL"
+
+        echo "${TOOL_SHA256}  ${archive}" | sha256sum -c -
+
+        case "$ARCHIVE_FORMAT" in
+          tar.gz)
+            tar -xzf "$archive" -C "$workdir" "$BINARY_NAME"
+            ;;
+          zip)
+            unzip -q "$archive" -d "$workdir" "$BINARY_NAME"
+            ;;
+          *)
+            echo "::error::Unsupported archive-format '${ARCHIVE_FORMAT}' (expected tar.gz or zip)."
+            exit 1
+            ;;
+        esac
+
+        sudo mv "${workdir}/${BINARY_NAME}" "/usr/local/bin/${dest}"
+        sudo chmod +x "/usr/local/bin/${dest}"
+        rm -rf "$workdir"
+
+        echo "Installed ${TOOL_NAME} to /usr/local/bin/${dest}:"
+        "/usr/local/bin/${dest}" --version || "/usr/local/bin/${dest}" version

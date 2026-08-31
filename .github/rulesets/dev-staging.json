@@ -1,0 +1,24 @@
+{
+  "name": "dev-staging-protection",
+  "description": "Deploying branches (dev, staging): prevent accidental deletion and force push.",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/dev",
+        "refs/heads/staging"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    }
+  ]
+}

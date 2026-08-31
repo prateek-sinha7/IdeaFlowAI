@@ -17,7 +17,12 @@ export default defineConfig({
     // Coverage configuration: collect coverage for all src files
     coverage: {
       provider: "v8",
-      reporter: ["text", "text-summary", "html", "json", "xml", "lcov"],
+      // Reporters: text (console), html (browsable), json (for tooling),
+      // xml (Cobertura for SonarCloud), lcov (alternative XML format).
+      // v8 provider generates all formats from a single run.
+      reporter: ["text", "text-summary", "html", "json", "json-summary", "xml", "lcov"],
+      // Coverage report output directory (default: coverage/)
+      reportsDirectory: "./coverage",
       // `include` is what makes coverage span every source file, not only the
       // ones a test happened to import. It replaces the old `coverage.all: true`
       // flag, which is no longer part of `CoverageOptions` (TS2769) and is
@@ -31,7 +36,7 @@ export default defineConfig({
         "src/test/",
       ],
       // Vitest >=2 nests the percentage gates under `thresholds`; declaring them
-      // at the top level of `coverage` is not part of `CoverageOptions` and fails
+      // at the top level of `coverage` is not part of `CoverageOptions` (TS2769) and fails
       // the typecheck (TS2769) while also being silently ignored at runtime.
       thresholds: {
         lines: 80,

@@ -1,0 +1,187 @@
+# Composite action: send an SSM RunCommand payload and poll it to completion.
+#
+# F-05: replaces the ~60-line "aws ssm send-command" + "Poll SSM command
+# status" pair that was triplicated verbatim across deploy.yml's `deploy`
+# job, provision.yml's `provision` job, and admin-recovery.yml's `recover`
+# job (each one ported from the previous with only comment-level notes about
+# what was copied from where). All three payload-size guard, poll interval,
+# InvocationDoesNotExist handling, and both-streams-on-every-terminal-branch
+# logic (FIX-SSM-02 / FIX-SSM-04) now live in exactly one place.
+#
+# The caller is responsible for building the actual script content (each of
+# the three callers assembles a different literal-shell "prelude + cat
+# some-script.sh" payload) and writing it to a FILE on disk, passed here as
+# `script-path`. A file path (rather than passing the script body itself
+# through a `with:` string) avoids YAML/GITHUB_OUTPUT multiline-escaping
+# entirely — every caller already builds its payload with a `{ echo ...; cat
+# some-script.sh; } > remote.sh` block, so this only removes the send+poll
+# duplication, not the payload-assembly step (which differs per caller: only
+# deploy.yml's payload carries gzipped compose-file blobs).
+name: SSM RunCommand (send + poll)
+description: Sends a shell script to an EC2 instance via SSM RunCommand and polls until it reaches a terminal state.
+
+inputs:
+  script-path:
+    description: Path to a shell script file (already assembled by the caller) to execute on the instance.
+    required: true
+  instance-id:
+    description: EC2 instance ID to target.
+    required: true
+  aws-region:
+    description: AWS region the instance lives in.
+    required: true
+  comment:
+    description: Human-readable comment attached to the SSM command (visible in the AWS console / CloudTrail).
+    required: true
+  execution-timeout-seconds:
+    description: On-box script timeout passed to SSM (must stay below poll-timeout-minutes).
+    required: false
+    default: "1800"
+  send-timeout-seconds:
+    description: SSM's own send-command API timeout.
+    required: false
+    default: "600"
+  poll-interval-seconds:
+    description: Seconds to sleep between poll attempts.
+    required: false
+    default: "15"
+  poll-timeout-minutes:
+    description: Total wall-clock minutes to poll before giving up and cancelling the command.
+    required: false
+    default: "35"
+  payload-limit-bytes:
+    description: "Guard rail below SSM's own 64 KiB document+parameters ceiling (default 56 KiB, matching FIX-SSM-02)."
+    required: false
+    default: "57344"
+
+outputs:
+  command-id:
+    description: The SSM command ID that was sent.
+    value: ${{ steps.send.outputs.command_id }}
+
+runs:
+  using: composite
+  steps:
+    - name: Send SSM command
+      id: send
+      shell: bash
+      env:
+        SCRIPT_PATH: ${{ inputs.script-path }}
+        INSTANCE_ID: ${{ inputs.instance-id }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        COMMENT: ${{ inputs.comment }}
+        EXEC_TIMEOUT: ${{ inputs.execution-timeout-seconds }}
+        SEND_TIMEOUT: ${{ inputs.send-timeout-seconds }}
+        PAYLOAD_LIMIT_BYTES: ${{ inputs.payload-limit-bytes }}
+      run: |
+        set -euo pipefail
+
+        PAYLOAD_BYTES="$(wc -c < "$SCRIPT_PATH")"
+        echo "SSM payload size: ${PAYLOAD_BYTES} bytes"
+        if (( PAYLOAD_BYTES > PAYLOAD_LIMIT_BYTES )); then
+          echo "::error::SSM payload is ${PAYLOAD_BYTES} bytes, over the ${PAYLOAD_LIMIT_BYTES}-byte guard (SSM's own document+parameters ceiling is 64 KiB)."
+          echo "::error::Move newly-added bulky content to a private, checksum-verified S3 object referenced by digest instead of inlining it here."
+          exit 1
+        fi
+
+        jq -Rs --arg timeout "$EXEC_TIMEOUT" \
+          '{commands: [.], executionTimeout: [$timeout]}' "$SCRIPT_PATH" > ssm-params.json
+
+        COMMAND_ID="$(aws ssm send-command \
+          --document-name "AWS-RunShellScript" \
+          --instance-ids "$INSTANCE_ID" \
+          --comment "$COMMENT" \
+          --timeout-seconds "$SEND_TIMEOUT" \
+          --parameters file://ssm-params.json \
+          --region "$AWS_REGION" \
+          --query 'Command.CommandId' --output text)"
+
+        echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
+        echo "SSM command sent: $COMMAND_ID (instance $INSTANCE_ID)"
+
+    # Ported verbatim (FIX-SSM-04): every terminal branch fetches BOTH stdout
+    # and stderr, InvocationDoesNotExist right after send-command is treated
+    # as "Pending" rather than an error, and 5 consecutive OTHER API errors
+    # abort instead of silently retrying for the whole poll window.
+    - name: Poll SSM command status
+      shell: bash
+      env:
+        AWS_REGION: ${{ inputs.aws-region }}
+        INSTANCE_ID: ${{ inputs.instance-id }}
+        COMMAND_ID: ${{ steps.send.outputs.command_id }}
+        POLL_INTERVAL_SECONDS: ${{ inputs.poll-interval-seconds }}
+        POLL_TIMEOUT_MINUTES: ${{ inputs.poll-timeout-minutes }}
+      run: |
+        set -euo pipefail
+        echo "Polling command $COMMAND_ID on instance $INSTANCE_ID..."
+
+        print_box_output() {
+          echo "--- box stdout ---"
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query 'StandardOutputContent' --output text || true
+          echo "--- box stderr ---"
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" \
+            --query 'StandardErrorContent' --output text || true
+        }
+
+        declare -i API_ERROR_STREAK=0
+        MAX_ATTEMPTS=$(( POLL_TIMEOUT_MINUTES * 60 / POLL_INTERVAL_SECONDS ))
+
+        for i in $(seq 1 "$MAX_ATTEMPTS"); do
+          sleep "$POLL_INTERVAL_SECONDS"
+          INVOCATION_JSON="$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" 2>&1)"
+          RC=$?
+
+          if [[ "$RC" -ne 0 ]]; then
+            if [[ "$INVOCATION_JSON" == *InvocationDoesNotExist* ]]; then
+              # Normal immediately after send-command: SSM hasn't recorded
+              # the invocation yet. Not an error — keep polling.
+              STATUS="Pending"
+              API_ERROR_STREAK=0
+            else
+              API_ERROR_STREAK+=1
+              echo "  [$i/${MAX_ATTEMPTS}] get-command-invocation API error (streak=${API_ERROR_STREAK}): ${INVOCATION_JSON}" >&2
+              if (( API_ERROR_STREAK >= 5 )); then
+                echo "::error::5 consecutive get-command-invocation API errors — aborting rather than silently waiting out the full poll window."
+                exit 1
+              fi
+              continue
+            fi
+          else
+            API_ERROR_STREAK=0
+            STATUS="$(echo "$INVOCATION_JSON" | jq -r '.Status // "Pending"')"
+          fi
+
+          case "$STATUS" in
+            Success)
+              print_box_output
+              echo "SSM command succeeded."
+              exit 0
+              ;;
+            Failed|TimedOut|Cancelled)
+              echo "::error::SSM command FAILED with status: $STATUS"
+              print_box_output
+              exit 1
+              ;;
+            *)
+              echo "  [$i/${MAX_ATTEMPTS}] status=$STATUS"
+              ;;
+          esac
+        done
+
+        echo "::error::Timed out after ${POLL_TIMEOUT_MINUTES} minutes waiting for SSM command $COMMAND_ID — cancelling the orphaned command."
+        aws ssm cancel-command \
+          --command-id "$COMMAND_ID" \
+          --instance-ids "$INSTANCE_ID" \
+          --region "$AWS_REGION" || echo "::warning::cancel-command itself failed — the box may continue running the command unsupervised; check it manually." >&2
+        print_box_output
+        exit 1

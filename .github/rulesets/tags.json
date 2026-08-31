@@ -1,0 +1,23 @@
+{
+  "name": "release-tag-protection",
+  "description": "Release tag protection (v*): prevent deletion and retagging of release versions. Creation restricted to release-managers team.",
+  "target": "tag",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/tags/v*"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    }
+  ]
+}

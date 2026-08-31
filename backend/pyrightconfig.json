@@ -10,7 +10,7 @@
   "_comment_9": "access, etc.) is disabled because adopting full type-checking on a",
   "_comment_10": "live codebase is a separate project.",
 
-  "include": ["app"],
+  "include": ["app", "agents"],
   "exclude": [
     "**/__pycache__",
     "**/node_modules",
