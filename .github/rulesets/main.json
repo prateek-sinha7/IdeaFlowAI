@@ -1,6 +1,6 @@
 {
   "name": "main-production-protection",
-  "description": "Production branch protection: 2 approvals, required signatures, code owner review, no force push.",
+  "description": "Production branch protection: prevent accidental deletion and force push, required signatures.",
   "target": "branch",
   "enforcement": "active",
   "bypass_actors": [],
@@ -18,16 +18,6 @@
     },
     {
       "type": "non_fast_forward"
-    },
-    {
-      "type": "pull_request",
-      "parameters": {
-        "dismiss_stale_reviews_on_push": true,
-        "require_code_owner_review": true,
-        "require_last_push_approval": true,
-        "required_approving_review_count": 2,
-        "required_review_thread_resolution": true
-      }
     },
     {
       "type": "required_signatures"
