@@ -1209,8 +1209,14 @@ jobs:
         with:
           dev-deps: "true"
 
+      # checkov comes from backend/requirements-dev.txt into backend/.venv, so it
+      # is NOT on PATH — it must be invoked through `uv run` like every other
+      # venv-provided tool in this workflow (a bare `checkov` exited 127).
       - name: checkov IaC scan
-        run: checkov -d infra/terraform --config-file ci/checkov.yaml
+        working-directory: backend
+        run: >-
+          uv run --no-sync checkov -d ../infra/terraform
+          --config-file ../ci/checkov.yaml
 
       - name: Install trivy
         uses: ./.github/actions/install-checksummed-tool
@@ -1263,7 +1269,8 @@ jobs:
           name: terraform
           version: v1.11.0
           url: https://releases.hashicorp.com/terraform/1.11.0/terraform_1.11.0_linux_amd64.zip
-          sha256: 32ca9c487ae91d62db5c1f21a0f6d99aac3a53dd2c8c8f6be3fc975f7968d0cd
+          # Verified against https://releases.hashicorp.com/terraform/1.11.0/terraform_1.11.0_SHA256SUMS
+          sha256: 069e531fd4651b9b510adbd7e27dd648b88d66d5f369a2059aadbb4baaead1c1
           archive-format: zip
           binary-name: terraform
 

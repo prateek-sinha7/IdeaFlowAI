@@ -276,6 +276,21 @@ ignore_names = [
     # interface-only signatures (no bodies — impls are Phase 7), so the params
     # are "unused" only to static analysis. The signature IS the port contract.
     "step",
+    # Optional-dependency shim symbol (agents/capabilities/hooks/otel_tracing.py):
+    # `from opentelemetry import trace` is paired with `trace = None` in the
+    # ImportError branch so the module-level name exists either way. Nothing
+    # reads it today; the symmetric shim is deliberate and self-documenting, so
+    # this is an "imported to establish the name" case, not dead code.
+    "trace",
+    # Context-manager protocol parameter (agents/execution_engine/fanout.py
+    # `_suppress_cancel.__exit__`): Python calls `__exit__(exc_type, exc, tb)`
+    # positionally, so the traceback slot must exist even when unread.
+    "tb",
+    # Used ONLY inside a quoted forward-ref annotation
+    # (app/agents/cached_invoke.py: `messages: "str | Sequence[BaseMessage]"`).
+    # Same class as ModelRequest/ModelResponse above — vulture does not resolve
+    # string annotations, ruff correctly sees the import as used.
+    "Sequence",
 ]
 
 # ---------------------------------------------------------------------------

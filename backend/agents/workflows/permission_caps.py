@@ -241,13 +241,19 @@ def log_decision(
 
     Every seam logs through here so the format is defined once:
 
-        tool_permission: <workflow> : <agent> : requested=… : granted=… [detail]
+        tool_permission: <seam> : <workflow> : <agent> : requested=… : granted=… [detail]
+
+    ``seam`` names the call site ("cap" for the compile-time ceiling,
+    "resolve" for the bind-time resolution) so the two decisions are
+    distinguishable in a trace — they were previously indistinguishable
+    because the parameter was accepted and then dropped on the floor.
 
     ``granted`` always states what IS permitted rather than what was excluded —
     an exclusion set is a double negative and has been misread before (ISS-004).
     """
     logger.info(
-        "tool_permission: %s : %s : requested=%s : granted=%s%s",
+        "tool_permission: %s : %s : %s : requested=%s : granted=%s%s",
+        seam or "?",
         workflow or "?",
         agent or "?",
         requested,

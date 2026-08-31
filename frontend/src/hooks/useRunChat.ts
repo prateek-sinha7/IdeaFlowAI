@@ -593,7 +593,13 @@ export function useRunChat(config: UseRunChatConfig): UseRunChatReturn {
         // transcript untouched — it ACCUMULATES, never wipes (§0 rule).
         break;
     }
-  }, []);
+    // `runId` is read in the concierge_proposal branch above (proposalRunId).
+    // It MUST be a dependency: with an empty array the closure pinned the
+    // first-render runId forever, so a proposal raised after the UI switched
+    // to a child/revision run recorded the stale parent id — the exact bug
+    // `proposalRunId` exists to prevent. sendMessage/appendLocalMessage below
+    // already declare [runId, …] for the same reason.
+  }, [runId]);
 
   useEffect(() => subscribe(handleFrame), [subscribe, handleFrame]);
 

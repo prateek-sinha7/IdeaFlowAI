@@ -27,5 +27,13 @@ pyright==1.1.384
 vulture==2.14
 import-linter==2.1
 
+# Security scanners invoked by CI via `uv run --no-sync` (ci.yml: the `backend`
+# and `security-scan-iac` jobs). These were previously assumed to be on PATH,
+# which made them fail with "command not found" / "Failed to spawn" the moment
+# the jobs actually ran — declare them so the venv provides them.
+bandit==1.9.4
+pip-audit==2.10.1
+checkov==3.3.16
+
 # Testing coverage analysis
 pytest-cov==5.0.0
