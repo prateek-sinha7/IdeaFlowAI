@@ -2,11 +2,30 @@
 
 22 cards, 3 batches.
 
-| batch | round | fix site | cards | tier | phases | model |
-|---|---|---|---|---|---|---|
-| B1 | 2 | `frontend/src/components/workflow/AgentsPopup.tsx` | ISS-368, ISS-399, ISS-491 | A′ (ISS-368 sibling of ISS-246; ISS-399 sibling of ISS-290; ISS-491 sibling of ISS-326) | replicate → verify | haiku |
-| B2 | 2 | frontend·workflow (mixed) | ISS-420, ISS-480, ISS-603 | A′ (ISS-420/421 sibling of ISS-311; ISS-480 sibling of ISS-320) + C (ISS-603 test fixture) | mixed | haiku |
-| B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | BUG-048, ISS-189, ISS-197, ISS-217, ISS-228, ISS-284, ISS-361, ISS-362, ISS-364, ISS-365, ISS-366, ISS-377, ISS-384, ISS-421, ISS-423, ISS-429 | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| card | status | batch | round | fix site | tier | phases | model |
+|---|---|---|---|---|---|---|---|
+| ISS-368 | TESTED | B1 | 2 | `frontend/src/components/workflow/AgentsPopup.tsx` | A′ (ISS-368 sibling of ISS-246; ISS-399 sibling of ISS-290; ISS-491 sibling of ISS-326) | replicate → verify | haiku |
+| ISS-399 | TESTED | B1 | 2 | `frontend/src/components/workflow/AgentsPopup.tsx` | A′ (ISS-368 sibling of ISS-246; ISS-399 sibling of ISS-290; ISS-491 sibling of ISS-326) | replicate → verify | haiku |
+| ISS-491 | TESTED | B1 | 2 | `frontend/src/components/workflow/AgentsPopup.tsx` | A′ (ISS-368 sibling of ISS-246; ISS-399 sibling of ISS-290; ISS-491 sibling of ISS-326) | replicate → verify | haiku |
+| ISS-420 | ANALYZED | B2 | 2 | frontend·workflow (mixed) | A′ (ISS-420/421 sibling of ISS-311; ISS-480 sibling of ISS-320) + C (ISS-603 test fixture) | mixed | haiku |
+| ISS-480 | ANALYZED | B2 | 2 | frontend·workflow (mixed) | A′ (ISS-420/421 sibling of ISS-311; ISS-480 sibling of ISS-320) + C (ISS-603 test fixture) | mixed | haiku |
+| ISS-603 | ANALYZED | B2 | 2 | frontend·workflow (mixed) | A′ (ISS-420/421 sibling of ISS-311; ISS-480 sibling of ISS-320) + C (ISS-603 test fixture) | mixed | haiku |
+| BUG-048 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-189 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-197 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-217 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-228 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-284 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-361 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-362 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-364 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-365 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-366 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-377 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-384 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-421 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-423 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
+| ISS-429 | ANALYZED | B3 | 3 | `frontend/src/components/workflow/LaunchWizard.tsx` | A (ISS-228 family) + A′ (ISS-361 sibling of ISS-247; ISS-364-366 sibling of ISS-363; ISS-421 sibling of ISS-311; ISS-423 sibling of ISS-312) + C | full; one read | **sonnet** (16 cards, ~large file, launch-wizard family + ConfigLeversFlat stale-state) |
 
 Notes:
 - B1 all-A′: three replicates (FIX-348, FIX-360, FIX-388), one file, skip validate/
@@ -29,4 +48,5 @@ Collision note: LaunchWizard.tsx, AgentsPopup.tsx, WorkflowView.tsx owned here.
 IdeaInputPage / DashboardLayout (domain 13), page.tsx (domain 8), ComposerPage
 (domain 10), ReviewGatesSection (shared — coordinate), CanvasConfigRail (domain 10)
 are NOT — escalate cross-file needs.
-Status: NOT STARTED.
+Status: the `status` column above is authoritative — it is what the line
+reads and writes. A whole-file status could only drift from it.

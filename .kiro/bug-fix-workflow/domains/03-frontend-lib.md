@@ -2,10 +2,12 @@
 
 4 cards, 2 batches.
 
-| batch | round | fix site | cards | tier | phases | model |
-|---|---|---|---|---|---|---|
-| B1 | 3 | `frontend/src/lib/routes.ts` (ISS-386) | ISS-386 | B (route-depth) | full | haiku |
-| B2 | 4 | `frontend/src/lib/api.ts` | BUG-013-GROUNDED-CONTEXT, ISS-413, ISS-486 | C | full | haiku |
+| card | status | batch | round | fix site | tier | phases | model |
+|---|---|---|---|---|---|---|---|
+| ISS-386 | ANALYZED | B1 | 3 | `frontend/src/lib/routes.ts` (ISS-386) | B (route-depth) | full | haiku |
+| BUG-013-GROUNDED-CONTEXT | ANALYZED | B2 | 4 | `frontend/src/lib/api.ts` | C | full | haiku |
+| ISS-413 | ANALYZED | B2 | 4 | `frontend/src/lib/api.ts` | C | full | haiku |
+| ISS-486 | ANALYZED | B2 | 4 | `frontend/src/lib/api.ts` | C | full | haiku |
 
 Notes:
 - ISS-386: `runStepsAgent` missing a version param the sibling helpers have —
@@ -20,4 +22,5 @@ Notes:
 Collision note: `api.ts` and `routes.ts` are lib-local. BUG-013's blast radius
 mentions `RunConnectionProvider.tsx` — do not edit it from this domain; escalate if
 the fix genuinely requires it.
-Status: NOT STARTED.
+Status: the `status` column above is authoritative — it is what the line
+reads and writes. A whole-file status could only drift from it.

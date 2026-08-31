@@ -2,10 +2,24 @@
 
 16 cards, 2 batches.
 
-| batch | round | fix site | cards | tier | phases | model |
-|---|---|---|---|---|---|---|
-| B1 | 3 | `frontend/src/hooks/useWorkflow.ts` | BUG-014-B-GROUNDED-CONTEXT, FIX-BUGFIX-SPEC-REVISION-CONTEXT, ISS-108, ISS-109, ISS-110, ISS-115, ISS-116, ISS-142, ISS-417, ISS-438, ISS-439, ISS-440 | A′ (ISS-417 sibling of ISS-304; ISS-438-440 stale-state sibling of ISS-232) + B (stale-state) + C | full; one read | **sonnet** (12 cards, core hook, stale-state reasoning) |
-| B2 | 6 | `frontend/src/hooks/useRunChat.ts` | BUG-018-GROUNDED-CONTEXT, BUG-021-GROUNDED-CONTEXT, ISS-111, ISS-141 | C | full | haiku |
+| card | status | batch | round | fix site | tier | phases | model |
+|---|---|---|---|---|---|---|---|
+| BUG-014-B-GROUNDED-CONTEXT | ANALYZED | B1 | 3 | `frontend/src/hooks/useWorkflow.ts` | A′ (ISS-417 sibling of ISS-304; ISS-438-440 stale-state sibling of ISS-232) + B (stale-state) + C | full; one read | **sonnet** (12 cards, core hook, stale-state reasoning) |
+| FIX-BUGFIX-SPEC-REVISION-CONTEXT | ANALYZED | B1 | 3 | `frontend/src/hooks/useWorkflow.ts` | A′ (ISS-417 sibling of ISS-304; ISS-438-440 stale-state sibling of ISS-232) + B (stale-state) + C | full; one read | **sonnet** (12 cards, core hook, stale-state reasoning) |
+| ISS-108 | ANALYZED | B1 | 3 | `frontend/src/hooks/useWorkflow.ts` | A′ (ISS-417 sibling of ISS-304; ISS-438-440 stale-state sibling of ISS-232) + B (stale-state) + C | full; one read | **sonnet** (12 cards, core hook, stale-state reasoning) |
+| ISS-109 | ANALYZED | B1 | 3 | `frontend/src/hooks/useWorkflow.ts` | A′ (ISS-417 sibling of ISS-304; ISS-438-440 stale-state sibling of ISS-232) + B (stale-state) + C | full; one read | **sonnet** (12 cards, core hook, stale-state reasoning) |
+| ISS-110 | ANALYZED | B1 | 3 | `frontend/src/hooks/useWorkflow.ts` | A′ (ISS-417 sibling of ISS-304; ISS-438-440 stale-state sibling of ISS-232) + B (stale-state) + C | full; one read | **sonnet** (12 cards, core hook, stale-state reasoning) |
+| ISS-115 | ANALYZED | B1 | 3 | `frontend/src/hooks/useWorkflow.ts` | A′ (ISS-417 sibling of ISS-304; ISS-438-440 stale-state sibling of ISS-232) + B (stale-state) + C | full; one read | **sonnet** (12 cards, core hook, stale-state reasoning) |
+| ISS-116 | ANALYZED | B1 | 3 | `frontend/src/hooks/useWorkflow.ts` | A′ (ISS-417 sibling of ISS-304; ISS-438-440 stale-state sibling of ISS-232) + B (stale-state) + C | full; one read | **sonnet** (12 cards, core hook, stale-state reasoning) |
+| ISS-142 | ANALYZED | B1 | 3 | `frontend/src/hooks/useWorkflow.ts` | A′ (ISS-417 sibling of ISS-304; ISS-438-440 stale-state sibling of ISS-232) + B (stale-state) + C | full; one read | **sonnet** (12 cards, core hook, stale-state reasoning) |
+| ISS-417 | ANALYZED | B1 | 3 | `frontend/src/hooks/useWorkflow.ts` | A′ (ISS-417 sibling of ISS-304; ISS-438-440 stale-state sibling of ISS-232) + B (stale-state) + C | full; one read | **sonnet** (12 cards, core hook, stale-state reasoning) |
+| ISS-438 | ANALYZED | B1 | 3 | `frontend/src/hooks/useWorkflow.ts` | A′ (ISS-417 sibling of ISS-304; ISS-438-440 stale-state sibling of ISS-232) + B (stale-state) + C | full; one read | **sonnet** (12 cards, core hook, stale-state reasoning) |
+| ISS-439 | ANALYZED | B1 | 3 | `frontend/src/hooks/useWorkflow.ts` | A′ (ISS-417 sibling of ISS-304; ISS-438-440 stale-state sibling of ISS-232) + B (stale-state) + C | full; one read | **sonnet** (12 cards, core hook, stale-state reasoning) |
+| ISS-440 | ANALYZED | B1 | 3 | `frontend/src/hooks/useWorkflow.ts` | A′ (ISS-417 sibling of ISS-304; ISS-438-440 stale-state sibling of ISS-232) + B (stale-state) + C | full; one read | **sonnet** (12 cards, core hook, stale-state reasoning) |
+| BUG-018-GROUNDED-CONTEXT | ANALYZED | B2 | 6 | `frontend/src/hooks/useRunChat.ts` | C | full | haiku |
+| BUG-021-GROUNDED-CONTEXT | ANALYZED | B2 | 6 | `frontend/src/hooks/useRunChat.ts` | C | full | haiku |
+| ISS-111 | ANALYZED | B2 | 6 | `frontend/src/hooks/useRunChat.ts` | C | full | haiku |
+| ISS-141 | ANALYZED | B2 | 6 | `frontend/src/hooks/useRunChat.ts` | C | full | haiku |
 
 Notes:
 - B1 `useWorkflow.ts` — the central state hook, heavily referenced. Dominant theme:
@@ -26,4 +40,5 @@ Notes:
 
 Collision note: useWorkflow.ts and useRunChat.ts owned here. useRunStream.ts/
 RunConnectionProvider.tsx are cross-domain SSE surface — escalate, never edit from here.
-Status: NOT STARTED.
+Status: the `status` column above is authoritative — it is what the line
+reads and writes. A whole-file status could only drift from it.

@@ -2,10 +2,22 @@
 
 14 cards, 2 batches.
 
-| batch | round | fix site | cards | tier | phases | model |
-|---|---|---|---|---|---|---|
-| B1 | 4 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | ISS-183, ISS-192, ISS-223, ISS-333, ISS-334, ISS-340, ISS-353, ISS-393, ISS-410, ISS-431, ISS-604 | A (ISS-393 family) + A′ (ISS-353 sibling of ISS-245; ISS-431 sibling of ISS-315) + C | full; one read | **sonnet** (11 cards, family, ~large file) |
-| B2 | 4 | frontend·composer (mixed) | ISS-178, ISS-382, ISS-489 | A′ (ISS-489 sibling of ISS-326) + C | mixed | haiku |
+| card | status | batch | round | fix site | tier | phases | model |
+|---|---|---|---|---|---|---|---|
+| ISS-183 | ANALYZED | B1 | 4 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | A (ISS-393 family) + A′ (ISS-353 sibling of ISS-245; ISS-431 sibling of ISS-315) + C | full; one read | **sonnet** (11 cards, family, ~large file) |
+| ISS-192 | ANALYZED | B1 | 4 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | A (ISS-393 family) + A′ (ISS-353 sibling of ISS-245; ISS-431 sibling of ISS-315) + C | full; one read | **sonnet** (11 cards, family, ~large file) |
+| ISS-223 | ANALYZED | B1 | 4 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | A (ISS-393 family) + A′ (ISS-353 sibling of ISS-245; ISS-431 sibling of ISS-315) + C | full; one read | **sonnet** (11 cards, family, ~large file) |
+| ISS-333 | ANALYZED | B1 | 4 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | A (ISS-393 family) + A′ (ISS-353 sibling of ISS-245; ISS-431 sibling of ISS-315) + C | full; one read | **sonnet** (11 cards, family, ~large file) |
+| ISS-334 | ANALYZED | B1 | 4 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | A (ISS-393 family) + A′ (ISS-353 sibling of ISS-245; ISS-431 sibling of ISS-315) + C | full; one read | **sonnet** (11 cards, family, ~large file) |
+| ISS-340 | ANALYZED | B1 | 4 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | A (ISS-393 family) + A′ (ISS-353 sibling of ISS-245; ISS-431 sibling of ISS-315) + C | full; one read | **sonnet** (11 cards, family, ~large file) |
+| ISS-353 | ANALYZED | B1 | 4 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | A (ISS-393 family) + A′ (ISS-353 sibling of ISS-245; ISS-431 sibling of ISS-315) + C | full; one read | **sonnet** (11 cards, family, ~large file) |
+| ISS-393 | ANALYZED | B1 | 4 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | A (ISS-393 family) + A′ (ISS-353 sibling of ISS-245; ISS-431 sibling of ISS-315) + C | full; one read | **sonnet** (11 cards, family, ~large file) |
+| ISS-410 | ANALYZED | B1 | 4 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | A (ISS-393 family) + A′ (ISS-353 sibling of ISS-245; ISS-431 sibling of ISS-315) + C | full; one read | **sonnet** (11 cards, family, ~large file) |
+| ISS-431 | ANALYZED | B1 | 4 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | A (ISS-393 family) + A′ (ISS-353 sibling of ISS-245; ISS-431 sibling of ISS-315) + C | full; one read | **sonnet** (11 cards, family, ~large file) |
+| ISS-604 | ANALYZED | B1 | 4 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | A (ISS-393 family) + A′ (ISS-353 sibling of ISS-245; ISS-431 sibling of ISS-315) + C | full; one read | **sonnet** (11 cards, family, ~large file) |
+| ISS-178 | ANALYZED | B2 | 4 | frontend·composer (mixed) | A′ (ISS-489 sibling of ISS-326) + C | mixed | haiku |
+| ISS-382 | ANALYZED | B2 | 4 | frontend·composer (mixed) | A′ (ISS-489 sibling of ISS-326) + C | mixed | haiku |
+| ISS-489 | ANALYZED | B2 | 4 | frontend·composer (mixed) | A′ (ISS-489 sibling of ISS-326) + C | mixed | haiku |
 
 Notes:
 - ComposerPage.tsx cluster: run-once guards (ISS-333 no-length-guard, ISS-431
@@ -23,4 +35,5 @@ Notes:
 Collision note: ComposerPage.tsx owned here. LibraryPage.tsx (7), AgentsPopup/
 CanvasConfigRail (12), `[...view]/page.tsx` (8) are NOT — escalate ISS-393/223/382
 rather than reaching across.
-Status: NOT STARTED.
+Status: the `status` column above is authoritative — it is what the line
+reads and writes. A whole-file status could only drift from it.

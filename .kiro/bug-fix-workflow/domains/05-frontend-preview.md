@@ -2,10 +2,15 @@
 
 7 cards, 2 batches.
 
-| batch | round | fix site | cards | tier | phases | model |
-|---|---|---|---|---|---|---|
-| B1 | 1 | frontend·preview (ISS-433, ISS-596) | ISS-433, ISS-596 | A′ (ISS-433 sibling of ISS-314/FIX-378) + C | ISS-433 replicate FIX-378; ISS-596 test-side | haiku |
-| B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | ISS-251, ISS-388, ISS-389, ISS-599, ISS-609 | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
+| card | status | batch | round | fix site | tier | phases | model |
+|---|---|---|---|---|---|---|---|
+| ISS-433 | ANALYZED | B1 | 1 | frontend·preview (ISS-433, ISS-596) | A′ (ISS-433 sibling of ISS-314/FIX-378) + C | ISS-433 replicate FIX-378; ISS-596 test-side | haiku |
+| ISS-596 | ANALYZED | B1 | 1 | frontend·preview (ISS-433, ISS-596) | A′ (ISS-433 sibling of ISS-314/FIX-378) + C | ISS-433 replicate FIX-378; ISS-596 test-side | haiku |
+| ISS-251 | ANALYZED | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
+| ISS-388 | ANALYZED | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
+| ISS-389 | ANALYZED | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
+| ISS-599 | ANALYZED | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
+| ISS-609 | ANALYZED | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
 
 Notes:
 - ISS-433: replicate FIX-378 (PrototypePreview browser-chrome focus/a11y) at the
@@ -19,4 +24,5 @@ Notes:
   reach across; likely the PreviewPanel-side prop wiring is the real fix.
 
 Collision note: PreviewPanel.tsx owned here. AuditTab.tsx is domain 6's — do not edit.
-Status: NOT STARTED.
+Status: the `status` column above is authoritative — it is what the line
+reads and writes. A whole-file status could only drift from it.

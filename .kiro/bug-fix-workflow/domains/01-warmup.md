@@ -2,11 +2,12 @@
 
 4 cards, 3 batches, all round 1. Smallest domain — proves the loop end to end.
 
-| batch | round | fix site | cards | tier | phases | model |
-|---|---|---|---|---|---|---|
-| B1 | 1 | `backend/agents/execution_engine/engine.py` (ISS-187 only) | ISS-187 | C | full | **sonnet** (engine.py) |
-| B2 | 1 | docs·planning | ISS-076, ISS-095 | C | validate→fix→verify (docs) | haiku |
-| B3 | 1 | unclassified (BUG-031) | BUG-031 | C | full | haiku |
+| card | status | batch | round | fix site | tier | phases | model |
+|---|---|---|---|---|---|---|---|
+| ISS-187 | ANALYZED | B1 | 1 | `backend/agents/execution_engine/engine.py` (ISS-187 only) | C | full | **sonnet** (engine.py) |
+| ISS-076 | ANALYZED | B2 | 1 | docs·planning | C | validate→fix→verify (docs) | haiku |
+| ISS-095 | ANALYZED | B2 | 1 | docs·planning | C | validate→fix→verify (docs) | haiku |
+| BUG-031 | ANALYZED | B3 | 1 | unclassified (BUG-031) | C | full | haiku |
 
 Notes:
 - ISS-187: spec-014 ex_A* gate fixtures / entitlements mismatch. Fix site is
@@ -23,4 +24,5 @@ Notes:
   should review carefully (touches commit machinery).
 
 Collision: none — three disjoint fix sites.
-Status: NOT STARTED.
+Status: the `status` column above is authoritative — it is what the line
+reads and writes. A whole-file status could only drift from it.

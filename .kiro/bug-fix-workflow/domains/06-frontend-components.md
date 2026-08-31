@@ -2,11 +2,18 @@
 
 10 cards, 3 batches.
 
-| batch | round | fix site | cards | tier | phases | model |
-|---|---|---|---|---|---|---|
-| B1 | 1 | `frontend/src/components/handoff/IntegrationsCard.tsx` | ISS-409, ISS-481 | A′ (ISS-409 sibling of ISS-301/FIX-370; ISS-481 sibling of ISS-320/FIX-385) | replicate → verify | haiku |
-| B2 | 2 | frontend·components (mixed) | ISS-073, ISS-112, ISS-114, ISS-216, ISS-434, ISS-600 | B/C | full | haiku |
-| B3 | 4 | `frontend/src/components/results/AgentDetailPanel.tsx` | ISS-117, ISS-387 | C | full | haiku |
+| card | status | batch | round | fix site | tier | phases | model |
+|---|---|---|---|---|---|---|---|
+| ISS-409 | TESTED | B1 | 1 | `frontend/src/components/handoff/IntegrationsCard.tsx` | A′ (ISS-409 sibling of ISS-301/FIX-370; ISS-481 sibling of ISS-320/FIX-385) | replicate → verify | haiku |
+| ISS-481 | TESTED | B1 | 1 | `frontend/src/components/handoff/IntegrationsCard.tsx` | A′ (ISS-409 sibling of ISS-301/FIX-370; ISS-481 sibling of ISS-320/FIX-385) | replicate → verify | haiku |
+| ISS-073 | ANALYZED | B2 | 2 | frontend·components (mixed) | B/C | full | haiku |
+| ISS-112 | ANALYZED | B2 | 2 | frontend·components (mixed) | B/C | full | haiku |
+| ISS-114 | ANALYZED | B2 | 2 | frontend·components (mixed) | B/C | full | haiku |
+| ISS-216 | ANALYZED | B2 | 2 | frontend·components (mixed) | B/C | full | haiku |
+| ISS-434 | ANALYZED | B2 | 2 | frontend·components (mixed) | B/C | full | haiku |
+| ISS-600 | ANALYZED | B2 | 2 | frontend·components (mixed) | B/C | full | haiku |
+| ISS-117 | ANALYZED | B3 | 4 | `frontend/src/components/results/AgentDetailPanel.tsx` | C | full | haiku |
+| ISS-387 | ANALYZED | B3 | 4 | `frontend/src/components/results/AgentDetailPanel.tsx` | C | full | haiku |
 
 Notes:
 - B1 both A′: ISS-409 replicates FIX-370 (empty-catch leaves state at defaults);
@@ -21,4 +28,5 @@ Notes:
 
 Collision note: AgentDetailPanel.tsx / IntegrationsCard.tsx owned here. AuditTab.tsx
 (shared with domain 5) — do not edit. useRunStateStore.ts is domain 11's.
-Status: NOT STARTED.
+Status: the `status` column above is authoritative — it is what the line
+reads and writes. A whole-file status could only drift from it.
