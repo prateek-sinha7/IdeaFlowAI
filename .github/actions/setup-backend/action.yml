@@ -10,6 +10,15 @@ inputs:
     description: Python version to use
     required: false
     default: "3.12"
+  frozen:
+    description: >-
+      Deprecated no-op. backend/uv.lock is gitignored (never committed), so
+      there is no lockfile on the runner for `uv sync --frozen` to read.
+      Dependencies are always installed from requirements*.txt regardless of
+      this input. Kept only so existing callers that pass `frozen: "true"`
+      don't fail on an unrecognized input.
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -42,8 +51,12 @@ runs:
       run: |
         set -euo pipefail
         uv venv --python ${{ inputs.python-version }}
+        # Source of truth is requirements*.txt, not uv.lock: uv.lock is
+        # gitignored (local dev convenience only) and never present on the
+        # CI runner, so `uv sync --frozen` always fails here with
+        # "Unable to find lockfile". Install with `uv pip install` instead.
         if [[ "${{ inputs.dev-deps }}" == "true" ]]; then
-          uv sync --frozen --group dev
+          uv pip install -r requirements-dev.txt
         else
-          uv sync --frozen
+          uv pip install -r requirements-prod.txt
         fi
