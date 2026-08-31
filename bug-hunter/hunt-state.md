@@ -1,5 +1,60 @@
 # Hunt state
 
+
+## RUN — 2026-08-31 21:02 CEST — domain 15 COMPLETE + COMMITTED, domain 14 PAUSED PARTIAL
+
+COMMIT      `835793a99` — engine fixes (ISS-072, ISS-090, ISS-125, ISS-131, ISS-402),
+              FIX-433 roster seat, capability/checkpointer/caching fixes, 18 new test
+              files (incl. a real integration test and 3 written-but-unrun @live e2e
+              tests in tests/integration/e2e/suites/22_handoff_and_gates/), 22 new FIX
+              cards, architecture regenerated. Supersedes the "NOT COMMITTED" line below.
+DOMAIN 15   COMPLETE. 18 CLOSED, 13 ESCALATED (ADR-0002 vocabulary-rename decision;
+              ISS-094 needs a look; ISS-132 3-way product decision; ISS-156/096/130 not
+              reproducible; rest stale-test/no-app-defect per the closer note below).
+DOMAIN 14   PAUSED PARTIAL. `.kiro/bug-fix-workflow/domains/14-backend-api.md`: 1 CLOSED
+              (ISS-182), 3 FIXED pending verify (ISS-470, ISS-471, BUG-004), 7 TESTED
+              pending fix, 4 ESCALATED (incl. ISS-134 — process-local liveness dict is
+              correct for the current single-process deployment; only wrong under the
+              future ECS Fargate migration), 14 ANALYZED untouched. Resume with
+              `Workflow({scriptPath:".../bug-hunt.js", args:{register:".kiro/bug-fix-workflow/domains/14-backend-api.md", state:".kiro/bug-fix-workflow/STATE.md", unit:"issue", stage:"all", wave:3, lanes:1}})`
+              after deleting `bug-hunter/PAUSE`.
+NOT STARTED domains 08-13 (frontend·routes through frontend·layout, 121 cards) — all
+              pre-stamped ANALYZED by the 16:10 dedup rewrite, same as 14/15 were. No
+              `2-validator`/`3-analyzer` ran on any of them; browser repro not recorded.
+REGISTERS   `bug-hunter/OPEN-ISSUES.md` and `bug-hunter/OPEN-ISSUES-DEDUP.md` hand-updated
+              (not via dedup.py, per explicit instruction) to reflect these 18 closures:
+              226->208 open, 180->198 closed.
+
+## RUN — closer dispatch 2026-08-31 17:41 UTC (domain 15-backend-other) — COMPLETE, NOT COMMITTED
+
+REGISTER    `.kiro/bug-fix-workflow/domains/15-backend-other.md`. This batch (validate ->
+              analyze -> test -> fix -> verify) closed **12** bugs: ISS-098, ISS-101, ISS-106,
+              ISS-118, ISS-120, ISS-185, ISS-357, ISS-631, ISS-633, ISS-635, ISS-636, ISS-637.
+              One more fix landed but its parent issue stays open (ISS-638 is 6 grouped
+              symptoms; only 1 was a real defect, fixed as FIX-437 — the other 5 rows are
+              either already-cured or stale test expectations needing a human call).
+              7 bugs re-confirmed not-reproducible this batch (ISS-096, ISS-130, ISS-156,
+              ISS-079, ISS-173, ISS-174) — cards updated, no code touched, recommend closing
+              as already-fixed. 3 bugs (ISS-630, ISS-632, ISS-634) turned out to have no
+              application defect at all — their own cards' root causes were wrong, corrected
+              in place, and a 4-test-writer harness rewrite is the real next step, gated on a
+              product call about the ADR-0008 roster-subset seam. ISS-132 stays a pure
+              product decision (3 mutually exclusive fix shapes, none picked).
+KNOWLEDGE   Architecture rebuilt clean (713/713 files, both extractors succeeded). Cards
+              index/context/validate rebuilt clean (1117 cards, 0 broken links). 4 real
+              one-directional RELATED-edge gaps found and repaired (BUG-078, FIX-427,
+              ISS-638, FIX-414). Diagrams **not** run — 14 DOMAIN cards are prose-stale,
+              reported and left for the user per standing instruction.
+SYNC POINT  Left at `f907e77a` (2026-08-26). The 77 commits since then are pre-existing
+              unrelated branch history, not this batch's — not stamped.
+COMMIT      **Not committed.** This closer only prepared a "Ready to commit" plan; the
+              operator runs every `git commit` in this repo. See
+              `bug-hunter/reports/20260831-174145-closer.md` for the full per-bug table and
+              suggested commit grouping.
+REPORT      bug-hunter/reports/20260831-174145-closer.md
+
+---
+
 ## RUN — closer dispatch 2026-08-29 14:06 UTC — **NOT COMPLETE**
 
 Dispatch handed this closer `Run status: COMPLETE` with an empty per-phase results list, but
