@@ -87,6 +87,10 @@ backend/evals/minimal/report.html
 # understand-anything code-indexing tool local cache (personal, not for team use)
 .understand-anything/
 
+# Temporary files created by the bug-fix workflow agent (scripts, outputs, screenshots)
+# Never committed — the closer moves them here at the end of every domain run.
+.tmp/
+
 # Personal scratch notes
 /TODO.md
 .kiro/settings/mcp.json

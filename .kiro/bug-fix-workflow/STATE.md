@@ -5,7 +5,7 @@ memory. Updated by the closer after every domain run.
 
 | # | domain | cards | status | closed | reopened | escalated | report |
 |---|--------|-------|--------|--------|----------|-----------|--------|
-| 1 | warmup | 4 | IN PROGRESS (BUG-031 done, in-session) | 1 | 0 | 0 | smoke test 2026-08-31 |
+| 1 | warmup | 4 | DONE | 2 | 0 | 2 | [20260831-domain-01-warmup.md](reports/20260831-domain-01-warmup.md) |
 | 2 | frontend·settings | 4 | NOT STARTED | – | – | – | – |
 | 3 | frontend·lib | 4 | NOT STARTED | – | – | – | – |
 | 4 | tests·integration | 5 | NOT STARTED | – | – | – | – |
@@ -29,3 +29,5 @@ Status values: NOT STARTED · IN PROGRESS (round N) · DONE · BLOCKED · PARTIA
   verify, backend·api/other, engine.py/run_commands.py, any 3+-file fix.
 - Git: operator owns all commits. Closer never commits — it lists "Ready to commit".
 - Restart: fixes to yaml/AGENT.md/env/deps need a manual backend restart before verify.
+- **Pre-existing Windows encoding issue:** `build_context.py` fails with `UnicodeDecodeError: 'charmap' cp1252 0x90` on one MOD-*.md card. `CONTEXT.md` is stale until fixed. Index and dedup run fine.
+- **Servers:** backend `.venv` is at `backend/.venv/Scripts/`; use absolute paths. Frontend: `cmd /c "npm run dev"` from `frontend/`. Both confirmed up on 2026-08-31.

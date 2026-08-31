@@ -6,6 +6,89 @@ Kiro keeps its own context thin: it never validates/analyzes/fixes/verifies in t
 main session — it dispatches sub-agents and consumes only their ~15-line return
 contracts.
 
+## Windows execution — mandatory patterns (learned 2026-08-31)
+
+**Read this before dispatching a single command. Ignoring it costs 20+ minutes of
+retries on every domain run.**
+
+This workspace runs PowerShell on Windows with a PTY echo bug and a restrictive
+ExecutionPolicy. The symptoms look like hanging commands or garbled output, but
+they are deterministic failures with known workarounds.
+
+### The four problems and their fixes
+
+**Problem 1 — PTY echo.** The `execute_pwsh` tool echoes every character as it is
+sent to the terminal. Multi-line output looks like a stream of garbage. Complex
+commands appear to hang.
+- **Fix:** Write commands to `.cmd` files at the project root and run them via
+  `cmd /c <file>.cmd`. The `.cmd` file redirects output to a `.txt` file; read
+  that with `read_file`. Simple existence checks (`Test-Path`, single `Write-Host`)
+  are safe inline — anything that calls an external process is not.
+
+**Problem 2 — PowerShell ExecutionPolicy blocks `.ps1` scripts.** npm, npx, and
+any tool that installs as a `.ps1` wrapper silently fail.
+- **Fix:** Always invoke npm/npx via `cmd /c "npm run ..."`. Never call `npm` or
+  `npx` directly from PowerShell.
+
+**Problem 3 — Relative paths for the backend venv fail.** PowerShell interprets
+`backend\.venv\Scripts\uvicorn.exe` as a module import path.
+- **Fix:** Always use the absolute path:
+  `C:\Users\2000152842\Downloads\IdeaFlowAI\backend\.venv\Scripts\<tool>.exe`
+
+**Problem 4 — `build_context.py` (stage 2 of rebuild) always fails on Windows.**
+One MOD-*.md architecture card has a non-UTF-8 byte (0x90 at ~position 7187).
+`build_context.py` reads it with the system codec (cp1252) and crashes.
+- **Fix:** Accept that `CONTEXT.md` stays stale. Report as pre-existing. Do NOT
+  retry the rebuild trying to fix this — it is a data issue in the card, not a
+  transient failure.
+
+### Server startup
+
+Start servers with `control_pwsh_process action=start`:
+
+```
+# Backend
+command: C:\Users\2000152842\Downloads\IdeaFlowAI\backend\.venv\Scripts\uvicorn.exe app.main:app --reload --host 0.0.0.0 --port 8000
+cwd:     C:\Users\2000152842\Downloads\IdeaFlowAI\backend
+
+# Frontend
+command: cmd /c "npm run dev"
+cwd:     C:\Users\2000152842\Downloads\IdeaFlowAI\frontend
+```
+
+Wait 8–10 seconds then read output with `get_process_output lines=20`. Confirm:
+- Backend: `🟢 Backend ready` in the log
+- Frontend: `✓ Ready in <N>ms` in the log
+
+Do NOT use `Invoke-WebRequest` health checks in complex one-liners — the PTY echo
+makes the output unreadable. If you must health-check via HTTP, write a `.cmd` file.
+
+### Running tests
+
+Write a `.cmd` file:
+```bat
+@echo off
+cd /d C:\Users\2000152842\Downloads\IdeaFlowAI\backend
+C:\Users\2000152842\Downloads\IdeaFlowAI\backend\.venv\Scripts\python.exe -m pytest <file> -v --tb=short --no-header > ..\test_output.txt 2>&1
+echo EXIT_CODE=%ERRORLEVEL% >> ..\test_output.txt
+```
+
+For e2e tests:
+```bat
+@echo off
+cd /d C:\Users\2000152842\Downloads\IdeaFlowAI\tests\integration\e2e
+.venv\Scripts\python.exe -m pytest suites/<area>/<file> -v --tb=short > ..\..\..\e2e_output.txt 2>&1
+echo EXIT_CODE=%ERRORLEVEL% >> ..\..\..\e2e_output.txt
+```
+
+Run via `cmd /c <file>.cmd`, read result from the output `.txt` file.
+
+### Preflight for in-session execution (one per session)
+
+Before dispatching any sub-agent that needs to run tests, confirm the venv and
+servers are healthy with a `.cmd` file that writes its result to a file, then read
+that file. Do not trust prior-session state.
+
 ## On "run domain X"
 
 1. **Read state first.** Read `.kiro/bug-fix-workflow/STATE.md` and the domain's
@@ -15,6 +98,9 @@ contracts.
 2. **Preconditions.** Confirm the domain touches no file another *live* session is
    editing. Note whether app servers need to be up (only VERIFY on browser-
    observable cards needs `:3000`/`:8000`; pure unit/tsc verifies do not).
+   **On Windows:** start servers using `control_pwsh_process` with absolute paths
+   (see the **Windows execution** section above). Confirm via `get_process_output`
+   that both logged their ready message before dispatching any worker that needs them.
 3. **Walk rounds in order.** For each round in the run-doc:
    - Collect the batches in that round. They write disjoint files → dispatch them
      as **parallel `spawn_run` tasks** (respect the host: on tight memory, cap the
@@ -45,6 +131,14 @@ contracts.
 | A / B / C (open) | VALIDATE → ANALYZE → TEST → FIX → VERIFY |
 | stale-test-only | (validate trivial) → FIX(test) → VERIFY. Fixer edits the TEST, not app — allowed only because the *card* says the test is wrong. |
 | no fix site | not scheduled → `TRIAGE.md` |
+
+**Important — ALREADY_FIXED fast-path (observed 2026-08-31):**
+The VALIDATE step should also check `ALREADY_FIXED`. Cards recorded months before
+HEAD may have had their root fixed by a broad subsequent commit with no card link.
+When the validator returns `ALREADY_FIXED`, skip all remaining phases: have the
+verifier run the tests once to confirm green, update the card to `status: resolved`,
+and go straight to CLOSE. Do NOT run the full ANALYZE → TEST → FIX pipeline for a
+card whose tests are already green.
 
 ## spawn_run seeding template
 

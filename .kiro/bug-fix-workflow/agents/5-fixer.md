@@ -97,6 +97,13 @@ Cards-only rebuild.
   `.planning/` (frozen). Never hand-edit derived artifacts (`INDEX.md`,
   `state.yaml`, `modules.json`, below an `<!-- AUTO-GENERATED` marker). No second
   admin on `/admin`.
+- **Test code follows the same conventions as production tests.** If you write or
+  edit an e2e test: use `framework.accounts` for credentials (never hardcode
+  email/password), use `framework.settings` for timeouts/URLs, use `conftest.py`
+  fixtures (`page`, `page_as`, `shot`, etc.) — never `sync_playwright()` or
+  `browser.launch()` inline. Test functions are named for what they assert, not for
+  the ticket number. Shot IDs describe the step, not the ticket. Inline sentinels
+  are named constants with a comment. See `4-test-writer.md §1a` for the full rules.
 - Schema change / new dependency / decision the card doesn't cover → ESCALATE.
 
 ## 9. Return contract

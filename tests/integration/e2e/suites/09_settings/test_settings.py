@@ -540,80 +540,102 @@ def test_the_constitution_editor_rejects_content_over_its_stated_limit(page, sho
 
 
 @pytest.mark.issue("ISS-482")
-@pytest.mark.xfail(reason="ISS-482 unfixed", strict=True)
 @pytest.mark.destructive
 def test_switching_tabs_away_from_constitution_requires_confirmation_for_unsaved_draft(page, shot):
     """ISS-482 — switching settings tabs away from Constitution with an unsaved draft
+    must ask before discarding it, and must preserve the draft if the user cancels.
 
-    must require confirmation before discarding it. Today `Tabs onChange` at
-    AccountSettings.tsx:230-234 calls `setSection(next)` unconditionally, which
-    unmounts `ConstitutionSection` (the guard `{section === "constitution" && ...}`
-    becomes false) and discards its local `content` state with no warning.
+    Fixed by FIX-386: Tabs onChange now gates on dirty draft state and calls
+    window.confirm before unmounting ConstitutionSection. The draft state was
+    lifted from ConstitutionSection's local useState to the parent's
+    constitutionContent/constitutionLoadedValue pair so the handler can see it.
 
-    The draft is distinct from the persisted backend value (ISS-320): switching
-    away loses the LOCAL state, not just routing away. Clicking back to Constitution
-    re-mounts a fresh component that re-fetches from the backend, so the typed
-    draft is gone. Expected: a confirm dialog gates the tab switch, dismissing it
-    leaves the draft intact, accepting it proceeds to the new tab.
+    Root cause (AccountSettings.tsx:230-234): `setSection(next)` was called
+    unconditionally, immediately turning the `{section === "constitution" && ...}`
+    guard false and discarding the component's local `content` state with no warning.
+    Clicking back to Constitution re-mounted a fresh component that re-fetched from
+    the backend — the typed draft was gone.
+
+    See .knowledge/cards/20260828-2322-ISS-482.md and FIX-386 (20260831-1020).
     """
+    # ISS-482: a recognisable sentinel that will never accidentally match any
+    # real user constitution. Must NOT be the empty string — an empty textarea
+    # may be indistinguishable from "nothing loaded yet" in some UI states.
+    _UNSAVED_DRAFT = "ISS-482 e2e sentinel: tab-switch must ask before discarding"
+
     open_settings(page, "/settings/constitution")
     editor = page.locator(L.CONSTITUTION)
     expect(editor).to_be_visible()
     original = editor.input_value()
 
-    unsaved_draft = "E2E ISS-482: unsaved draft that should not be lost on tab switch"
     try:
-        with shot("iss482-draft", "When I type an unsaved draft into Constitution"):
-            editor.fill(unsaved_draft)
+        with shot("before-draft", "Given the Constitution editor is open and clean"):
+            # Baseline: confirm the editor is in its saved state before we type.
             expect(page.get_by_text("Constitution saved")).to_have_count(0)
-            # Draft is local-only, so reloading or navigating away loses it
-            # without the fix. Confirm we are in the unsaved state.
 
-        with shot("iss482-tab-switch", "And I click a different tab (Profile)"):
-            # The dismiss_native_dialogs fixture (conftest:346) auto-dismisses
-            # any dialog. Registering our own handler here sets up BEFORE the
-            # fixture's, so ours takes precedence and we can count the dialog.
-            dialog_seen = []
-            def capture_dialog(dialog):
-                dialog_seen.append(dialog.message)
-                dialog.dismiss()
-            page.once("dialog", capture_dialog)
+        with shot("draft-typed", "When I type an unsaved draft into Constitution"):
+            editor.fill(_UNSAVED_DRAFT)
+            # Draft is local-only — "Constitution saved" must NOT appear, proving
+            # we are genuinely in an unsaved state before the tab switch.
+            expect(page.get_by_text("Constitution saved")).to_have_count(0)
+
+        with shot("tab-switch-attempted", "And I click the Profile tab"):
+            # conftest's dismiss_native_dialogs fixture auto-dismisses dialogs
+            # registered AFTER this handler. Registering ours first with .once()
+            # gives our handler priority so we can capture the message and dismiss
+            # it ourselves — then assert it appeared.
+            dialogs_captured: list[str] = []
+
+            def _capture_and_dismiss(dialog) -> None:
+                # ISS-482: record every dialog message so assertions can be
+                # specific about what the confirm said, not just that it fired.
+                dialogs_captured.append(dialog.message)
+                dialog.dismiss()  # "Cancel" — keep the draft
+
+            page.once("dialog", _capture_and_dismiss)
             page.click(L.tab("tab-profile"))
             page.wait_for_timeout(settings.SETTLE_MS)
 
-        # A confirm dialog SHOULD have been shown; without the fix, no dialog
-        # is shown and the draft is silently lost.
-        assert dialog_seen, (
-            "no confirm dialog appeared when switching away from Constitution "
-            "with unsaved draft — the draft is being silently discarded"
-        )
-        # The message should mention losing unsaved work.
-        assert any("unsaved" in msg.lower() or "draft" in msg.lower() 
-                   for msg in dialog_seen), (
-            f"dialog message did not mention unsaved work: {dialog_seen}"
+        # ASSERTION 1 (ISS-482 core): a confirm dialog must have fired before the
+        # tab switch committed. Without the fix, none fires and the draft is gone.
+        assert dialogs_captured, (
+            "ISS-482: no confirm dialog appeared when switching away from "
+            "Constitution with an unsaved draft — draft was silently discarded"
         )
 
-        with shot("iss482-profile-tab", "And the Profile tab loaded"):
-            expect(page.locator(L.tab("tab-profile"))).to_have_attribute(
+        # ASSERTION 2: the dialog message must reference unsaved work so the user
+        # understands what they are being asked to confirm.
+        assert any(
+            "unsaved" in msg.lower() or "discard" in msg.lower()
+            for msg in dialogs_captured
+        ), (
+            f"ISS-482: dialog appeared but message did not mention unsaved work "
+            f"or discard: {dialogs_captured}"
+        )
+
+        with shot("dismissed-stayed-on-constitution", "Then dismissing the dialog keeps me on Constitution"):
+            # Dismissing (Cancel) must NOT navigate to Profile.
+            expect(page.locator(L.tab("tab-profile"))).not_to_have_attribute(
                 "aria-selected", "true"
             )
 
-        with shot("iss482-back-to-constitution", "When I click back to Constitution"):
-            page.click(L.tab("tab-constitution"))
-            page.wait_for_timeout(settings.SETTLE_MS)
+        with shot("back-to-constitution", "And the draft is still in the editor"):
+            # The Constitution tab should still be visible — no re-mount needed.
+            editor = page.locator(L.CONSTITUTION)
+            expect(editor).to_be_visible()
 
-        editor = page.locator(L.CONSTITUTION)
-        expect(editor).to_be_visible()
-        # The dismissed dialog should have LEFT the draft in the local state,
-        # so the Constitution tab remounts with the draft still there.
-        # (Without the fix, the unmount discarded it, so re-mounting shows only
-        # what re-fetches from the backend — the original empty or previous value.)
-        assert editor.input_value() == unsaved_draft, (
-            f"draft was lost on tab switch: "
-            f"expected '{unsaved_draft}', got '{editor.input_value()}' "
-            f"(confirm dialog must have preserved the local state when dismissed)"
+        # ASSERTION 3 (ISS-482 key invariant): dismissing the dialog must have
+        # preserved the in-memory draft. Without the fix, unmount discards it and
+        # re-mounting re-fetches the backend value — the draft is gone forever.
+        assert editor.input_value() == _UNSAVED_DRAFT, (
+            f"ISS-482: draft lost after dismissing confirm dialog — "
+            f"expected sentinel value, got {editor.input_value()!r}. "
+            f"The confirm appeared but the state-lift did not preserve the draft."
         )
+
     finally:
+        # Restore the original constitution so a leftover sentinel value never
+        # contaminates live runs. The constitution is prepended to EVERY agent.
         page.goto("/settings/constitution")
         page.locator(L.CONSTITUTION).wait_for()
         page.locator(L.CONSTITUTION).fill(original)

@@ -7,6 +7,32 @@ card actually describes. You check both.
 
 Model: **Sonnet** — this is the correctness gate; do not cheap out on the checker.
 
+## 0. Check ALREADY_FIXED before doing anything else
+Before running tests or doing any work: check whether the card's own verification
+says `status: passed` or whether the test files already pass in the current tree.
+
+```
+cd backend && .venv\Scripts\python.exe -m pytest <test_file> -x -q   (via .cmd file on Windows)
+```
+
+If the tests pass cleanly and no `xfail` is present, this card is `ALREADY_FIXED`.
+Update the card to `status: resolved`, `verification.status: passed`, record the
+observed test output, and return `RESULT: VERIFIED, PASSED: true` immediately.
+**Do not run the full reproduce/health-check pipeline for a card that is already green.**
+
+This avoids burning analysis time on cards whose root was fixed by an earlier
+broad commit. ISS-095 was this exact case (2026-08-31): 3 tests passed in 43.58s,
+root fixed by commit `da172056`, card had been recorded before that commit landed.
+
+## Windows execution — mandatory patterns (learned 2026-08-31)
+
+All shell operations in this workflow must use `.cmd` files or `cmd /c`. The
+`execute_pwsh` tool has a PTY echo bug on this machine and PowerShell's
+ExecutionPolicy blocks `.ps1` scripts including npm. See `2-validator.md`'s
+**Windows execution** section for the full rule set — it applies identically here.
+The short version: write commands to `.cmd` files, run via `cmd /c`, read output
+from the output files they write. Use absolute paths for the backend venv.
+
 ## 1. Restart first, if the backend changed
 If the fixer reported `NON_PY_BACKEND_CHANGED: true` (yaml/AGENT.md/env/deps),
 **ask the operator to restart the backend** before trusting any result —
