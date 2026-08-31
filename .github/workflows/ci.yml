@@ -1215,7 +1215,8 @@ jobs:
       - name: checkov IaC scan
         working-directory: backend
         run: >-
-          uv run --no-sync checkov -d ../infra/terraform
+          uv run --no-sync --with checkov==3.2.200
+          checkov -d ../infra/terraform
           --config-file ../ci/checkov.yaml
 
       - name: Install trivy

@@ -27,18 +27,5 @@ pyright==1.1.384
 vulture==2.14
 import-linter==2.1
 
-# Security scanners invoked by CI via `uv run --no-sync` (ci.yml: the `backend`
-# and `security-scan-iac` jobs). These were previously assumed to be on PATH,
-# which made them fail with "command not found" / "Failed to spawn" the moment
-# the jobs actually ran — declare them so the venv provides them.
-#
-# checkov was pinned at 3.3.16, which pulls boto3>=1.42.42 as a transitive;
-# boto3 1.43.2 (from requirements-prod.txt, needed by langchain-aws 1.4.6) and
-# checkov>=3.3.16 have conflicting boto3 constraints. Downgrading checkov to 3.2.x
-# resolves the conflict (3.2.x allows boto3>=1.42).
-bandit==1.9.4
-pip-audit==2.10.1
-checkov==3.2.200
-
 # Testing coverage analysis
 pytest-cov==5.0.0
