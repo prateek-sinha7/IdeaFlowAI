@@ -50,7 +50,7 @@ runs:
       working-directory: backend
       run: |
         set -euo pipefail
-        uv venv --python ${{ inputs.python-version }}
+        uv venv --python ${{ inputs.python-version }} --clear
         # Source of truth is requirements*.txt, not uv.lock: uv.lock is
         # gitignored (local dev convenience only) and never present on the
         # CI runner, so `uv sync --frozen` always fails here with
