@@ -54,33 +54,9 @@ regexes = [
   '''sk_live_abc123''',
 ]
 
-# Fingerprint allowlist (gitleaks --source . --no-git scans the FULL git log,
-# not just the working tree — a finding's commit can predate any path/regex
-# rule added above and still surface on every future scan). Each entry below
-# is `<commit>:<file>:<rule>:<line>` from a `gitleaks detect -v` run and was
-# manually triaged:
-#
-#   - identity.py:133 / identity.py:159 / velocityai-alb/README.md:14 /
-#     foundation/README.md:13 — false positives. generic-api-key matched
-#     ordinary code (`verify_exp=not allow_expired`) or prose ("Secrets:
-#     none created..." / "Secrets: `app_secret_key` / `db_password`
-#     default empty..."). No secret-shaped value is present.
-#   - FINDINGS.md:167 (aws-access-token, `ASIA3S4PSEJ5EQAD7HOA`) — a real
-#     STS temporary session ID pasted into a debugging doc. Confirmed
-#     EXPIRED by the doc's own text (session died ~23 min after issue,
-#     months before this scan) and the file no longer exists on any branch.
-#   - .vscode/settings.json:5 (jwt) — a real signed JWT committed to a local
-#     REST Client config. Decoded `exp` is in the past (confirmed expired)
-#     and the file no longer exists on any branch (also gitignored going
-#     forward — see `.gitignore`).
-#
-# Rotate-then-allowlist, never allowlist-first: both real findings were
-# independently confirmed dead (expired) before being added here.
-fingerprints = [
-  "5da5de51ecc5a232f98693bd5fa3f74dec7bc8c9:infra/terraform/velocityai-alb/README.md:generic-api-key:14",
-  "8f8d5efeb831525af0a8fe661b369e4898575476:backend/app/core/identity.py:generic-api-key:133",
-  "8f8d5efeb831525af0a8fe661b369e4898575476:backend/app/core/identity.py:generic-api-key:159",
-  "231f8c0711094f27579bbf3d46a18696d9a7138c:backend/evals/minimal/OPUS-AUTOMATIC/FINDINGS.md:aws-access-token:167",
-  "62853fcd7e1562c78b7217d99094c0f672ae220f:.vscode/settings.json:jwt:5",
-  "e1a3a4959c0b51a8c4a502742a96aeda412967e7:infra/terraform/foundation/README.md:generic-api-key:13",
-]
+# NOTE: gitleaks' [allowlist] table has no `fingerprints` key (only `paths`,
+# `regexes`, `commits`, `stopwords` — see gitleaks/config/allowlist.go). Six
+# specific historical findings (4 false positives + 2 confirmed-expired dead
+# secrets) are triaged individually by exact finding fingerprint instead, via
+# `.gitleaksignore` at the repo root — gitleaks auto-loads that file from
+# `--source`. See that file for the full rationale per finding.
