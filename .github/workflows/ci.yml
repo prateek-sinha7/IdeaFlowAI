@@ -126,11 +126,11 @@ jobs:
 
       - name: ruff format --check
         working-directory: backend
-        run: ruff format --check .
+        run: uv run --no-sync ruff format --check .
 
       - name: ruff check (linting)
         working-directory: backend
-        run: ruff check .
+        run: uv run --no-sync ruff check .
 
       - name: python -m compileall (syntax check)
         working-directory: backend
