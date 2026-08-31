@@ -94,10 +94,10 @@ backend/evals/minimal/report.html
 # Local issues / grounded-context files (personal, not for team use)
 /issues/
 # Kiro IDE files (personal, not for team use)
-.kiro/
 .kiro/*
 !.kiro/steering/
 !.kiro/skills/
+!.kiro/bug-fix-workflow/
 .kiro/steering/localsetup.md
 .run
 
