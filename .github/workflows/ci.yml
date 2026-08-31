@@ -147,7 +147,7 @@ jobs:
           python .github/scripts/check-workflow-gate-contract.py \
             .github/workflows/deploy.yml --verbose
 
-      # gitleaks: secret scanning (see .gitleaks.toml)
+      # gitleaks: secret scanning (see ci/gitleaks.toml + ci/gitleaksignore)
       - name: Install gitleaks
         uses: ./.github/actions/install-checksummed-tool
         with:
@@ -159,7 +159,7 @@ jobs:
           binary-name: gitleaks
 
       - name: gitleaks detect (full history)
-        run: gitleaks detect --redact --no-banner -v --config .gitleaks.toml --source .
+        run: gitleaks detect --redact --no-banner -v --config ci/gitleaks.toml -i ci/gitleaksignore --source .
 
       # Shell syntax checks
       - name: shellcheck (all .sh files)
@@ -1190,7 +1190,7 @@ jobs:
           binary-name: gitleaks
 
       - name: gitleaks detect (full history)
-        run: gitleaks detect --redact --no-banner -v --config .gitleaks.toml --source .
+        run: gitleaks detect --redact --no-banner -v --config ci/gitleaks.toml -i ci/gitleaksignore --source .
 
   # Job 2: IaC scanning (checkov + trivy config)
   security-scan-iac:
@@ -1210,7 +1210,7 @@ jobs:
           dev-deps: "true"
 
       - name: checkov IaC scan
-        run: checkov -d infra/terraform --config-file .checkov.yaml
+        run: checkov -d infra/terraform --config-file ci/checkov.yaml
 
       - name: Install trivy
         uses: ./.github/actions/install-checksummed-tool
@@ -1225,7 +1225,7 @@ jobs:
       - name: trivy config scan
         run: |
           trivy config --exit-code 1 --severity HIGH,CRITICAL \
-            --ignorefile .trivyignore \
+            --ignorefile ci/trivyignore \
             --skip-dirs "**/examples/**" \
             --skip-dirs "**/localstack/**" \
             infra/terraform

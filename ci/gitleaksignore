@@ -1,12 +1,16 @@
 # =============================================================================
-# gitleaks ignore file — auto-loaded from `--source .` (see cmd/root.go:
-# `{source}/.gitleaksignore`). One fingerprint per line, format
-# `commit:file:rule-id:start-line`, copied verbatim from `gitleaks detect -v`
-# output. Do NOT hand-edit a fingerprint value — regenerate it from a real
-# scan (`gitleaks detect --redact --no-banner -v --config .gitleaks.toml
-# --source .` and copy the `Fingerprint:` line) so it matches byte-for-byte.
+# gitleaks ignore file. Loaded via `-i ci/gitleaksignore` — gitleaks only
+# AUTO-loads an ignore file named `.gitleaksignore` at the --source root
+# (cmd/root.go), so moving it here makes the flag mandatory.
 #
-# Each entry below was manually triaged (see .gitleaks.toml for the pointer):
+# One fingerprint per line, format `commit:file:rule-id:start-line`, copied
+# verbatim from `gitleaks detect -v` output. Do NOT hand-edit a fingerprint
+# value — regenerate it from a real scan and copy the `Fingerprint:` line so
+# it matches byte-for-byte:
+#   gitleaks detect --redact --no-banner -v \
+#     --config ci/gitleaks.toml -i ci/gitleaksignore --source .
+#
+# Each entry below was manually triaged (see ci/gitleaks.toml for the pointer):
 #
 #   - generic-api-key on identity.py:133 and identity.py:159 — false
 #     positive. Matches `verify_exp=not allow_expired` (a boolean kwarg),

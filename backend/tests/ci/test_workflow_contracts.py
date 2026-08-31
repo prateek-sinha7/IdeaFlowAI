@@ -393,13 +393,30 @@ class WorkflowContract:
         Raises:
             AssertionError: If terraform job is misconfigured
         """
+        # Phase 8 split the single `security-scan` job into three parallel
+        # jobs (`security-scan-secrets` / `-iac` / `-terraform`). Collect the
+        # steps from every security-scan* job rather than pinning one job
+        # name, so a future re-split/rename cannot silently make this
+        # contract vacuous (looking up one hardcoded name raised
+        # "job not found" instead of checking the terraform steps at all).
         jobs = self.ci_workflow.get("jobs", {})
-        security_scan = jobs.get("security-scan", {})
+        security_scan_jobs = {
+            name: job
+            for name, job in jobs.items()
+            if name == "security-scan" or name.startswith("security-scan-")
+        }
 
-        if not security_scan:
-            raise ValueError("security-scan job not found in ci.yml")
+        if not security_scan_jobs:
+            raise ValueError(
+                "no security-scan* job found in ci.yml "
+                f"(jobs present: {sorted(jobs)})"
+            )
 
-        steps = security_scan.get("steps", [])
+        steps = [
+            step
+            for job in security_scan_jobs.values()
+            for step in (job.get("steps") or [])
+        ]
         errors = []
 
         # Find terraform-related steps

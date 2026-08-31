@@ -40,8 +40,8 @@ README.md           @Hexaware-HnI/engineering
 CONTRIBUTING.md     @Hexaware-HnI/engineering
 
 # ── Security / Secrets / Configuration ─────────────────────────────────
-.gitleaks.toml      @Hexaware-HnI/devops
-.checkov.yaml       @Hexaware-HnI/devops
+# Scanner configs live under ci/ (gitleaks, checkov, trivy ignores).
+/ci/                @Hexaware-HnI/devops
 .github/dependabot.yml   @Hexaware-HnI/devops
 pyproject.toml      @Hexaware-HnI/platform-engineering
 package.json        @Hexaware-HnI/frontend

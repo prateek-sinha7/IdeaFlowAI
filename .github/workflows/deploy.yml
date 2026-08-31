@@ -560,7 +560,7 @@ jobs:
       #       this pipeline; failing on it would only train people to bypass
       #       the gate. Rebuilding picks up fixes as upstream ships them.
       #   --ignorefile      triaged, time-boxed exceptions live in
-      #       .trivyignore.images next to a justification, reviewed like code.
+      #       ci/trivyignore.images next to a justification, reviewed like code.
       # An image that fails here is already in ECR but is NEVER deployed: the
       # `deploy` job needs this job to succeed.
       # F-08: version/checksum come from env.TRIVY_VERSION / env.TRIVY_SHA256
@@ -582,14 +582,14 @@ jobs:
           IMAGE: ${{ vars.ECR_REGISTRY }}/${{ env.BACKEND_ECR_REPO }}@${{ steps.digests.outputs.backend_digest }}
         run: |
           trivy image --severity HIGH,CRITICAL --exit-code 1 \
-            --ignore-unfixed --ignorefile .trivyignore.images "$IMAGE"
+            --ignore-unfixed --ignorefile ci/trivyignore.images "$IMAGE"
 
       - name: Scan frontend image (blocking on HIGH,CRITICAL)
         env:
           IMAGE: ${{ vars.ECR_REGISTRY }}/${{ env.FRONTEND_ECR_REPO }}@${{ steps.digests.outputs.frontend_digest }}
         run: |
           trivy image --severity HIGH,CRITICAL --exit-code 1 \
-            --ignore-unfixed --ignorefile .trivyignore.images "$IMAGE"
+            --ignore-unfixed --ignorefile ci/trivyignore.images "$IMAGE"
 
   # ---------------------------------------------------------------------------
   # Deploy: push config to SSM, redeploy via SSM RunCommand, health-check.

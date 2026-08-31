@@ -105,7 +105,7 @@ jobs:
             --exit-code 1 \
             --severity CRITICAL,HIGH \
             --ignore-unfixed \
-            --ignorefile .trivyignore.images \
+            --ignorefile ci/trivyignore.images \
             --format sarif \
             --output trivy-${{ inputs.component }}.sarif \
             "${{ env.IMAGE_REF }}"
