@@ -253,6 +253,22 @@ def main():
     tree = repo_tree()
     cards = load_cards()
     opens = {k: v for k, v in cards.items() if v["status"] in OPEN_STATUSES}
+
+    # Closed defects (status: resolved) that a fix landed for. Kept in THIS file so
+    # it is the single source of truth for status — every ISS/BUG defect card shows,
+    # open ones in the batched view below, closed ones tagged `→ FIX-NNN` up top.
+    # Provenance: for each closed card we find the FIX card(s) that name it, and the
+    # ISS root it declared kinship with (where it came from).
+    def fix_cards_naming(cid):
+        return sorted(c["cid"] for c in cards.values()
+                      if c["type"] == "fix"
+                      and re.search(rf"\b{re.escape(cid)}\b", c["text"]))
+    closed = {}
+    for cid, c in cards.items():
+        if c["type"] in ("issue", "bug") and c["status"] == "resolved":
+            origin = sorted(set(SIBLING.findall(f"{c['title']} || {c.get('summary','')}")))
+            closed[cid] = dict(card=c, fixes=fix_cards_naming(cid), origin=origin)
+
     for c in opens.values():
         c["declared"] = sorted(set(SIBLING.findall(f"{c['title']} || {c['summary']}")))
         # A hunt card names 1-5 real paths. Legacy GROUNDED-CONTEXT cards carry 20+
@@ -343,7 +359,8 @@ def main():
     w(f"**{len(opens)} open cards → {rows_after} units of work** "
       f"({families} families + {len(singles)} singletons), "
       f"schedulable as **{len(batches)} work batches** — see "
-      f"[Work batches](#work-batches--how-to-actually-run-this) for the execution view.")
+      f"[Work batches](#work-batches--how-to-actually-run-this) for the execution view."
+      f" **{len(closed)} closed** — see [Closed](#-closed--fix-landed).")
     w("")
     w("A merge is proposed only where cards share a **fix site**, not merely a symptom")
     w("class. Two Escape-key bugs in unrelated components are one class and two diffs —")
@@ -355,6 +372,29 @@ def main():
     w(f"| A | declared family, root and siblings both open — one line trip | {len(tier_a)} | {sum(len(v) for v in tier_a.values())} |")
     w(f"| B | same file **and** same defect class — proposed, needs review | {len(tier_b)} | {len(in_b)} |")
     w(f"| C | no kin found — stays its own row | — | {len(singles)} |")
+    w("")
+    w("---")
+    w("")
+
+    # ---- Recently closed (status: resolved) ------------------------------------
+    w("## ✅ Closed — fix landed")
+    w("")
+    w(f"{len(closed)} defect card(s) now `status: resolved`. Kept here so this one file")
+    w("shows every card's real status: the `→ FIX-NNN` column is the landed fix that")
+    w("closed it, and *origin* is the root it was a sibling of (where it came from).")
+    w("Generated from card frontmatter — a card drops out of the open backlog below and")
+    w("appears here the moment its `status` flips to `resolved`.")
+    w("")
+    if closed:
+        w("| closed card | → fix | origin | what it was |")
+        w("|---|---|---|---|")
+        for cid in sorted(closed):
+            e = closed[cid]
+            fx = ", ".join(link(f) for f in e["fixes"]) or "—"
+            org = ", ".join(link(o) for o in e["origin"]) or "—"
+            w(f"| {link(cid)} | {fx} | {org} | {desc(cid, 100)} |")
+    else:
+        w("*None yet.*")
     w("")
     w("---")
     w("")

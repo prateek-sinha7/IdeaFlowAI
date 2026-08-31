@@ -539,6 +539,93 @@ def test_the_constitution_editor_rejects_content_over_its_stated_limit(page, sho
             expect(page.get_by_text("Constitution cleared")).to_be_visible()
 
 
+@pytest.mark.issue("ISS-482")
+@pytest.mark.xfail(reason="ISS-482 unfixed", strict=True)
+@pytest.mark.destructive
+def test_switching_tabs_away_from_constitution_requires_confirmation_for_unsaved_draft(page, shot):
+    """ISS-482 — switching settings tabs away from Constitution with an unsaved draft
+
+    must require confirmation before discarding it. Today `Tabs onChange` at
+    AccountSettings.tsx:230-234 calls `setSection(next)` unconditionally, which
+    unmounts `ConstitutionSection` (the guard `{section === "constitution" && ...}`
+    becomes false) and discards its local `content` state with no warning.
+
+    The draft is distinct from the persisted backend value (ISS-320): switching
+    away loses the LOCAL state, not just routing away. Clicking back to Constitution
+    re-mounts a fresh component that re-fetches from the backend, so the typed
+    draft is gone. Expected: a confirm dialog gates the tab switch, dismissing it
+    leaves the draft intact, accepting it proceeds to the new tab.
+    """
+    open_settings(page, "/settings/constitution")
+    editor = page.locator(L.CONSTITUTION)
+    expect(editor).to_be_visible()
+    original = editor.input_value()
+
+    unsaved_draft = "E2E ISS-482: unsaved draft that should not be lost on tab switch"
+    try:
+        with shot("iss482-draft", "When I type an unsaved draft into Constitution"):
+            editor.fill(unsaved_draft)
+            expect(page.get_by_text("Constitution saved")).to_have_count(0)
+            # Draft is local-only, so reloading or navigating away loses it
+            # without the fix. Confirm we are in the unsaved state.
+
+        with shot("iss482-tab-switch", "And I click a different tab (Profile)"):
+            # The dismiss_native_dialogs fixture (conftest:346) auto-dismisses
+            # any dialog. Registering our own handler here sets up BEFORE the
+            # fixture's, so ours takes precedence and we can count the dialog.
+            dialog_seen = []
+            def capture_dialog(dialog):
+                dialog_seen.append(dialog.message)
+                dialog.dismiss()
+            page.once("dialog", capture_dialog)
+            page.click(L.tab("tab-profile"))
+            page.wait_for_timeout(settings.SETTLE_MS)
+
+        # A confirm dialog SHOULD have been shown; without the fix, no dialog
+        # is shown and the draft is silently lost.
+        assert dialog_seen, (
+            "no confirm dialog appeared when switching away from Constitution "
+            "with unsaved draft — the draft is being silently discarded"
+        )
+        # The message should mention losing unsaved work.
+        assert any("unsaved" in msg.lower() or "draft" in msg.lower() 
+                   for msg in dialog_seen), (
+            f"dialog message did not mention unsaved work: {dialog_seen}"
+        )
+
+        with shot("iss482-profile-tab", "And the Profile tab loaded"):
+            expect(page.locator(L.tab("tab-profile"))).to_have_attribute(
+                "aria-selected", "true"
+            )
+
+        with shot("iss482-back-to-constitution", "When I click back to Constitution"):
+            page.click(L.tab("tab-constitution"))
+            page.wait_for_timeout(settings.SETTLE_MS)
+
+        editor = page.locator(L.CONSTITUTION)
+        expect(editor).to_be_visible()
+        # The dismissed dialog should have LEFT the draft in the local state,
+        # so the Constitution tab remounts with the draft still there.
+        # (Without the fix, the unmount discarded it, so re-mounting shows only
+        # what re-fetches from the backend — the original empty or previous value.)
+        assert editor.input_value() == unsaved_draft, (
+            f"draft was lost on tab switch: "
+            f"expected '{unsaved_draft}', got '{editor.input_value()}' "
+            f"(confirm dialog must have preserved the local state when dismissed)"
+        )
+    finally:
+        page.goto("/settings/constitution")
+        page.locator(L.CONSTITUTION).wait_for()
+        page.locator(L.CONSTITUTION).fill(original)
+        if original.strip():
+            page.click(L.SAVE_CONSTITUTION)
+            expect(page.get_by_text("Constitution saved")).to_be_visible()
+        else:
+            if page.locator(L.CLEAR_CONSTITUTION).count() > 0:
+                page.click(L.CLEAR_CONSTITUTION)
+                expect(page.get_by_text("Constitution cleared")).to_be_visible()
+
+
 # ── Security ─────────────────────────────────────────────────────────────────
 
 

@@ -102,6 +102,10 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
   // field's onChange clears it rather than leaving it to the next submit (ISS-244).
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // Constitution editor (lifted from ConstitutionSection so parent onChange can see dirty state)
+  const [constitutionContent, setConstitutionContent] = useState("");
+  const [constitutionLoadedValue, setConstitutionLoadedValue] = useState("");
+
   // AI Model preference
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
   const [richModels, setRichModels] = useState<CapabilityModelEntry[]>([]);
@@ -228,6 +232,12 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
             active={section}
             onChange={id => {
               const next = id as SettingsSection;
+              // ISS-482: guard tab switch away from Constitution if draft differs from loaded value
+              if (section === "constitution" && constitutionContent !== constitutionLoadedValue) {
+                if (!window.confirm(
+                  "You have unsaved changes to your constitution. Discard them?"
+                )) return;
+              }
               setSection(next);
               router.replace(SECTION_ROUTE[next]());
             }}
@@ -467,7 +477,12 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
 
           {/* ── CONSTITUTION ── */}
           {section === "constitution" && (
-            <ConstitutionSection />
+            <ConstitutionSection
+              content={constitutionContent}
+              setContent={setConstitutionContent}
+              loadedValue={constitutionLoadedValue}
+              setLoadedValue={setConstitutionLoadedValue}
+            />
           )}
 
           {/* ── SECURITY ── two-factor authentication (was /settings/security) */}
@@ -492,8 +507,14 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
 // a limit that is actually enforced.
 const CONSTITUTION_MAX_CHARS = 4000;
 
-function ConstitutionSection() {
-  const [content, setContent] = useState("");
+interface ConstitutionSectionProps {
+  content: string;
+  setContent: (c: string) => void;
+  loadedValue: string;
+  setLoadedValue: (v: string) => void;
+}
+
+function ConstitutionSection({ content, setContent, loadedValue, setLoadedValue }: ConstitutionSectionProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -510,10 +531,14 @@ function ConstitutionSection() {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
-      .then((data) => { setContent(data.content || ""); })
+      .then((data) => {
+        const loaded = data.content || "";
+        setContent(loaded);
+        setLoadedValue(loaded);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [setContent, setLoadedValue]);
 
   const handleSave = async () => {
     const token = getToken();
@@ -526,8 +551,12 @@ function ConstitutionSection() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content: content.trim() }),
       });
-      if (r.ok) setStatus("saved");
-      else setStatus("error");
+      if (r.ok) {
+        setStatus("saved");
+        setLoadedValue(content.trim());
+      } else {
+        setStatus("error");
+      }
     } catch {
       setStatus("error");
     } finally {
@@ -554,8 +583,13 @@ function ConstitutionSection() {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (r.ok) { setContent(""); setStatus("deleted"); }
-      else setStatus("error");
+      if (r.ok) {
+        setContent("");
+        setLoadedValue("");
+        setStatus("deleted");
+      } else {
+        setStatus("error");
+      }
     } catch {
       setStatus("error");
     } finally {
