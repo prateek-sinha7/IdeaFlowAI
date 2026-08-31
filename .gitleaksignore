@@ -18,10 +18,11 @@
 #     positive. Matches the prose "Secrets: `app_secret_key` / `db_password`
 #     default empty and are auto-generated...".
 #   - aws-access-token on backend/evals/minimal/OPUS-AUTOMATIC/FINDINGS.md:167
-#     — a real STS temporary session ID (`ASIA3S4PSEJ5EQAD7HOA`) pasted into
-#     a debugging doc. Confirmed EXPIRED by the doc's own text (the session
-#     died ~23 minutes after issue, months before this scan). The file no
-#     longer exists on any branch.
+#     — a real STS temporary session ID pasted into a debugging doc.
+#     Confirmed EXPIRED by the doc's own text (the session died ~23 minutes
+#     after issue, months before this scan). The file no longer exists on
+#     any branch. (Redacted here too: quoting the literal value in this
+#     comment previously re-triggered the same gitleaks rule on this file.)
 #   - jwt on .vscode/settings.json:5 — a real signed JWT committed to a
 #     local REST Client config. Decoded `exp` claim is in the past
 #     (confirmed expired). The file no longer exists on any branch and
