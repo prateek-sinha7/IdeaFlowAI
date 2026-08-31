@@ -263,7 +263,7 @@ jobs:
 
       # Phase 8: Cache Playwright browser (~400 MB, 90s install time)
       - name: Cache Playwright browser
-        uses: actions/cache@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/cache@13aacd865c20de90d75de3b17ebe84f7a17d57d2 # v4.0.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ hashFiles('frontend/package-lock.json') }}
@@ -404,7 +404,7 @@ jobs:
 
       - name: Upload coverage artifact (agents-a)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: coverage-agents-a
           path: backend/.coverage.agents-a
@@ -412,7 +412,7 @@ jobs:
 
       - name: Upload JUnit artifact (agents-a)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: junit-agents-a
           path: backend/junit-agents-a.xml
@@ -450,7 +450,7 @@ jobs:
 
       - name: Upload coverage artifact (agents-b)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: coverage-agents-b
           path: backend/.coverage.agents-b
@@ -458,7 +458,7 @@ jobs:
 
       - name: Upload JUnit artifact (agents-b)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: junit-agents-b
           path: backend/junit-agents-b.xml
@@ -508,7 +508,7 @@ jobs:
 
       - name: Upload coverage artifact (unit)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: coverage-unit
           path: backend/.coverage.unit
@@ -516,7 +516,7 @@ jobs:
 
       - name: Upload coverage artifact (integration)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: coverage-integration
           path: backend/.coverage.integration
@@ -524,7 +524,7 @@ jobs:
 
       - name: Upload JUnit artifact (unit)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: junit-unit
           path: backend/junit-unit.xml
@@ -532,7 +532,7 @@ jobs:
 
       - name: Upload JUnit artifact (integration)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: junit-integration
           path: backend/junit-integration.xml
@@ -598,7 +598,7 @@ jobs:
 
       - name: Upload backend coverage HTML
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: backend-coverage-report
           path: backend/htmlcov/
@@ -606,7 +606,7 @@ jobs:
 
       - name: Upload merged JUnit report
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: backend-junit-report
           path: backend/junit-merged.xml
@@ -614,7 +614,7 @@ jobs:
 
       - name: Upload backend coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@7ade9e1d1b46ef528654a18d89d61ba33dfa899c # v5.0.0
+        uses: codecov/codecov-action@968872560f81e7bdde9272853e65f2507c0eca7c # v5.0.0
         with:
           files: ./backend/coverage.xml
           flags: backend
@@ -900,7 +900,7 @@ jobs:
 
       - name: Upload frontend coverage HTML
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: frontend-coverage-report
           path: frontend/coverage/
@@ -908,7 +908,7 @@ jobs:
 
       - name: Upload frontend coverage XML (for SonarCloud)
         if: always()
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: frontend-coverage-xml
           path: frontend/coverage/coverage-final.xml
@@ -916,7 +916,7 @@ jobs:
 
       - name: Upload frontend coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@7ade9e1d1b46ef528654a18d89d61ba33dfa899c # v5.0.0
+        uses: codecov/codecov-action@968872560f81e7bdde9272853e65f2507c0eca7c # v5.0.0
         with:
           files: ./frontend/coverage/coverage-final.json
           flags: frontend
@@ -1034,7 +1034,7 @@ jobs:
           done
 
       - name: Upload consolidated coverage artifact
-        uses: actions/upload-artifact@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: sonarcloud-coverage
           path: sonarcloud-coverage/

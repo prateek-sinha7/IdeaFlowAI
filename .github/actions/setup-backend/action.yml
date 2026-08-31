@@ -27,7 +27,7 @@ runs:
 
     - name: Cache .venv
       id: venv
-      uses: actions/cache@604373da6381d3951a3a00b7d75be340fc38a549 # v4.0.0
+      uses: actions/cache@13aacd865c20de90d75de3b17ebe84f7a17d57d2 # v4.0.0
       with:
         path: backend/.venv
         key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('backend/requirements-prod.txt', 'backend/requirements-dev.txt') }}-${{ inputs.dev-deps }}
