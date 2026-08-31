@@ -52,7 +52,9 @@ class ChatHistoryCompaction:
 
     name = "chat_history"
 
-    def compact(self, transcript: Iterable[Any], *, budget: int, keep_recent: int) -> str:
+    def compact(
+        self, transcript: Iterable[Any], *, budget: int, keep_recent: int
+    ) -> str:
         """Return the transcript bounded to ``budget`` chars.
 
         - If the full transcript already fits ``budget``, it is returned verbatim.
@@ -67,12 +69,16 @@ class ChatHistoryCompaction:
             return full
 
         keep_recent = max(0, int(keep_recent))
-        recent = turns[len(turns) - keep_recent:] if keep_recent else []
+        recent = turns[len(turns) - keep_recent :] if keep_recent else []
         older = turns[: len(turns) - len(recent)]
 
         recent_block = "\n".join(recent)
         summary = self._summarize_older(older)
-        result = f"{summary}\n{recent_block}" if (summary and recent_block) else (summary or recent_block)
+        result = (
+            f"{summary}\n{recent_block}"
+            if (summary and recent_block)
+            else (summary or recent_block)
+        )
 
         # Safety net: if the verbatim recent block alone still exceeds budget, shrink
         # the summary to the minimal marker (recent turns stay byte-verbatim —

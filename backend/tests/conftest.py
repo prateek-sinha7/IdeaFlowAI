@@ -170,6 +170,7 @@ def _no_live_model_from_a_unit_test(request, monkeypatch):
     # Applied first, so a test that deliberately patches build_model still wins.
     monkeypatch.setattr(app.agents.model_factory, "build_model", refuse)
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ISS-102 — offline live-model-client construction guard
 #
@@ -204,22 +205,14 @@ def _no_live_model_from_a_unit_test(request, monkeypatch):
 # have lost. Matching is therefore EXACT nodeid membership: no prefix matching,
 # no parametrize-suffix stripping.
 _CONSTRUCTS_BUT_NEVER_INVOKES: dict[str, str] = {
-    "tests/unit/test_brief_max_chars.py::test_full_brief_reaches_planner_uncut":
-        "SmartPlanner builds its model, then the test asserts on the composed prompt only; the model is never invoked.",
-    "tests/unit/test_brief_max_chars.py::test_ceiling_still_enforced_above_cap":
-        "Same SmartPlanner prompt-only assertion at the cap boundary; construction only.",
-    "tests/unit/test_cached_invoke.py::test_bedrock_call_places_cache_control_on_stable_prefix":
-        "Builds a real ChatBedrockConverse to exercise cache_control shaping; the request is never sent.",
-    "tests/unit/test_cached_invoke.py::test_cache_control_suppressed_when_flag_off":
-        "Same cache_control shaping with the flag off; construction only.",
-    "tests/agents/test_iss056_clarify_quality_fixes.py::TestH3SmartPlannerDesignNote::test_design_note_present_when_design_context_supplied":
-        "SmartPlanner design-note prompt assertion; construction only.",
-    "tests/agents/test_iss056_clarify_quality_fixes.py::TestH3SmartPlannerDesignNote::test_design_note_absent_when_design_context_none":
-        "Same, design context absent; construction only.",
-    "tests/agents/test_iss056_clarify_quality_fixes.py::TestH3SmartPlannerDesignNote::test_design_note_absent_when_both_names_missing":
-        "Same, both names missing; construction only.",
-    "tests/agents/test_mcp_client.py::test_bound_mcp_tool_augments_a_deepagents_agent":
-        "create_deep_agent resolves the 'anthropic:' model string via init_chat_model; the graph is inspected, never run.",
+    "tests/unit/test_brief_max_chars.py::test_full_brief_reaches_planner_uncut": "SmartPlanner builds its model, then the test asserts on the composed prompt only; the model is never invoked.",
+    "tests/unit/test_brief_max_chars.py::test_ceiling_still_enforced_above_cap": "Same SmartPlanner prompt-only assertion at the cap boundary; construction only.",
+    "tests/unit/test_cached_invoke.py::test_bedrock_call_places_cache_control_on_stable_prefix": "Builds a real ChatBedrockConverse to exercise cache_control shaping; the request is never sent.",
+    "tests/unit/test_cached_invoke.py::test_cache_control_suppressed_when_flag_off": "Same cache_control shaping with the flag off; construction only.",
+    "tests/agents/test_iss056_clarify_quality_fixes.py::TestH3SmartPlannerDesignNote::test_design_note_present_when_design_context_supplied": "SmartPlanner design-note prompt assertion; construction only.",
+    "tests/agents/test_iss056_clarify_quality_fixes.py::TestH3SmartPlannerDesignNote::test_design_note_absent_when_design_context_none": "Same, design context absent; construction only.",
+    "tests/agents/test_iss056_clarify_quality_fixes.py::TestH3SmartPlannerDesignNote::test_design_note_absent_when_both_names_missing": "Same, both names missing; construction only.",
+    "tests/agents/test_mcp_client.py::test_bound_mcp_tool_augments_a_deepagents_agent": "create_deep_agent resolves the 'anthropic:' model string via init_chat_model; the graph is inspected, never run.",
 }
 
 
@@ -276,7 +269,7 @@ def _blocked_init(nodeid: str, class_name: str):
             f"This test would make a real, billable provider call. Fix it in one of "
             f"three ways:\n"
             f"  (a) patch the construction seam in the test — e.g. "
-            f"monkeypatch.setattr(rc_module, \"_resolve_concierge\", lambda: fake), or "
+            f'monkeypatch.setattr(rc_module, "_resolve_concierge", lambda: fake), or '
             f"replace the class attribute on the SOURCE module the way "
             f"tests/unit/test_model_factory.py:77/83/89 already does;\n"
             f"  (b) mark the test @pytest.mark.requires_api_key if it genuinely needs a "

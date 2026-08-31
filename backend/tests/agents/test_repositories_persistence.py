@@ -79,7 +79,7 @@ async def test_create_repository_persists_one_row_and_links_workspace(db_session
     assert len(repos) == 1, f"expected one repositories row, found {len(repos)}"
     repo = repos[0]
     assert repo.id == repo_id
-    assert repo.provider == "local"          # free String, no enum
+    assert repo.provider == "local"  # free String, no enum
     assert repo.url == "/srv/fixtures/sample-repo"
     assert repo.default_branch == "main"
 
@@ -88,12 +88,10 @@ async def test_create_repository_persists_one_row_and_links_workspace(db_session
     assert repo.workspace_id == ws_id
 
     # (3) EXACTLY ONE kind='repo' workspaces row, linked by repo_id.
-    repo_workspaces = (
-        db_session.query(Workspace).filter(Workspace.kind == "repo").all()
-    )
-    assert len(repo_workspaces) == 1, (
-        f"expected one kind=repo workspaces row, found {len(repo_workspaces)}"
-    )
+    repo_workspaces = db_session.query(Workspace).filter(Workspace.kind == "repo").all()
+    assert (
+        len(repo_workspaces) == 1
+    ), f"expected one kind=repo workspaces row, found {len(repo_workspaces)}"
     ws_row = repo_workspaces[0]
     assert ws_row.id == ws_id
     assert ws_row.repo_id == repo_id, "the workspace must link to the repo by repo_id"

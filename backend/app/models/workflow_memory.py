@@ -25,7 +25,7 @@ class WorkflowMemory(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     key = Column(String(255), nullable=False)
-    value = Column(Text, nullable=False)                     # up to 1,048,576 chars
+    value = Column(Text, nullable=False)  # up to 1,048,576 chars
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

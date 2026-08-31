@@ -23,10 +23,10 @@ class Workspace(Base):
     __tablename__ = "workspaces"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
     # self-id carries the AUTHZ-01 pair; set equal to id at creation for the
     # default per-run workspace so the scope filter `workspace_id = :ws` holds.
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
     kind = Column(String, nullable=False, default="sandbox", server_default="sandbox")
     runtime = Column(String, nullable=False, default="local", server_default="local")
     # Phase 9 (repositories): FK wired additively in migration 0017.

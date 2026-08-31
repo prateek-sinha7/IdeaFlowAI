@@ -83,9 +83,9 @@ def test_0020_reversible_offline(fresh_db_url: str) -> None:
     inspector = inspect(engine)
     assert inspector.has_table("wave_runs"), "wave_runs missing after upgrade 0020"
     cols = {c["name"] for c in inspector.get_columns("wave_runs")}
-    assert _EXPECTED_WAVE_COLUMNS.issubset(cols), (
-        f"wave_runs missing columns: {sorted(_EXPECTED_WAVE_COLUMNS - cols)}"
-    )
+    assert _EXPECTED_WAVE_COLUMNS.issubset(
+        cols
+    ), f"wave_runs missing columns: {sorted(_EXPECTED_WAVE_COLUMNS - cols)}"
     engine.dispose()
 
     # downgrade to 0019 drops wave_runs (the 0019→0020 step is reversible).
@@ -151,8 +151,8 @@ async def test_record_wave_run_writes_scoped_row(db_session):
     row = rows[0]
     assert row.id == row_id
     assert row.run_id == "run-1"
-    assert row.owner_id == "alice"        # AUTHZ-01
-    assert row.workspace_id == "ws-1"     # AUTHZ-01
+    assert row.owner_id == "alice"  # AUTHZ-01
+    assert row.workspace_id == "ws-1"  # AUTHZ-01
     assert row.step == "wave-step"
     assert row.wave_index == 0
     assert row.task_ids == ["t1", "t2"]

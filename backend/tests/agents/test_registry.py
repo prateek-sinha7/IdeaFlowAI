@@ -78,13 +78,13 @@ class TestPipelineOrdering:
         """list_agent_ids must return a list of strings for every pipeline type."""
         for pipeline_type in sorted(SUPPORTED_PIPELINE_TYPES):
             ids = list_agent_ids(pipeline_type)
-            assert isinstance(ids, list), (
-                f"Pipeline {pipeline_type!r}: expected list, got {type(ids).__name__}"
-            )
+            assert isinstance(
+                ids, list
+            ), f"Pipeline {pipeline_type!r}: expected list, got {type(ids).__name__}"
             for agent_id in ids:
-                assert isinstance(agent_id, str), (
-                    f"Pipeline {pipeline_type!r}: agent ID {agent_id!r} is not a string"
-                )
+                assert isinstance(
+                    agent_id, str
+                ), f"Pipeline {pipeline_type!r}: agent ID {agent_id!r} is not a string"
 
 
 class TestGetPipelineAgents:
@@ -104,9 +104,9 @@ class TestGetPipelineAgents:
 
             # All items must be AgentSpec instances
             for spec in specs:
-                assert isinstance(spec, AgentSpec), (
-                    f"Pipeline {pipeline_type!r}: expected AgentSpec, got {type(spec).__name__}"
-                )
+                assert isinstance(
+                    spec, AgentSpec
+                ), f"Pipeline {pipeline_type!r}: expected AgentSpec, got {type(spec).__name__}"
 
             # Orders must be strictly ascending
             orders = [spec.order for spec in specs]
@@ -119,9 +119,9 @@ class TestGetPipelineAgents:
     def test_get_pipeline_agents_unsupported_type_returns_empty_list(self):
         """Requirement 5.7: get_pipeline_agents with unsupported type returns []."""
         result = get_pipeline_agents("not_a_real_pipeline_type")
-        assert result == [], (
-            f"Expected [] for unsupported pipeline type, got {result!r}"
-        )
+        assert (
+            result == []
+        ), f"Expected [] for unsupported pipeline type, got {result!r}"
 
     def test_get_pipeline_agents_empty_string_returns_empty_list(self):
         """get_pipeline_agents with empty string returns []."""
@@ -228,9 +228,7 @@ class TestRosterCompletenessProperty:
         expected_set = set(_agents_from_workflow_yaml(pipeline_type))
         actual_set = set(list_agent_ids(pipeline_type))
         extra = actual_set - expected_set
-        assert not extra, (
-            f"Pipeline {pipeline_type!r}: registry returned extra agents not in workflow.yaml: {extra!r}"
-        )
+        assert not extra, f"Pipeline {pipeline_type!r}: registry returned extra agents not in workflow.yaml: {extra!r}"
 
     @pytest.mark.parametrize("pipeline_type", REVISION_PIPELINES)
     def test_roster_missing_no_yaml_agents(self, pipeline_type: str):
@@ -238,9 +236,7 @@ class TestRosterCompletenessProperty:
         expected_set = set(_agents_from_workflow_yaml(pipeline_type))
         actual_set = set(list_agent_ids(pipeline_type))
         missing = expected_set - actual_set
-        assert not missing, (
-            f"Pipeline {pipeline_type!r}: registry is missing agents from workflow.yaml: {missing!r}"
-        )
+        assert not missing, f"Pipeline {pipeline_type!r}: registry is missing agents from workflow.yaml: {missing!r}"
 
 
 class TestPrototypePipelineRegressionProperty:
@@ -282,6 +278,6 @@ class TestPrototypePipelineRegressionProperty:
     def test_prototype_roster_has_exactly_five_agents(self):
         """Prototype pipeline must contain exactly 5 agents (guard against additions/deletions)."""
         actual = list_agent_ids("prototype")
-        assert len(actual) == 5, (
-            f"Prototype pipeline should have exactly 5 agents, got {len(actual)}: {actual!r}"
-        )
+        assert (
+            len(actual) == 5
+        ), f"Prototype pipeline should have exactly 5 agents, got {len(actual)}: {actual!r}"

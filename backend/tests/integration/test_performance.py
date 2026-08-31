@@ -61,9 +61,9 @@ class TestPerformanceTargets:
         )
         elapsed = time.monotonic() - start
 
-        assert elapsed < 15.0, (
-            f"SC-002 FAILED: Deep_Planner_Agent took {elapsed:.1f}s (limit: 15s)"
-        )
+        assert (
+            elapsed < 15.0
+        ), f"SC-002 FAILED: Deep_Planner_Agent took {elapsed:.1f}s (limit: 15s)"
         assert planning_context.get("execution_gate") in ("PROCEED", "CLARIFY_REQUIRED")
 
     @pytest.mark.asyncio
@@ -89,9 +89,9 @@ class TestPerformanceTargets:
 
         if first_agent_start_time is not None:
             elapsed = first_agent_start_time - start
-            assert elapsed < 30.0, (
-                f"SC-003 FAILED: Pre-pipeline took {elapsed:.1f}s (limit: 30s)"
-            )
+            assert (
+                elapsed < 30.0
+            ), f"SC-003 FAILED: Pre-pipeline took {elapsed:.1f}s (limit: 30s)"
 
     @pytest.mark.asyncio
     async def test_clarification_restore_within_5s(self):
@@ -126,10 +126,12 @@ class TestPerformanceTargets:
 
         # Simulate reconnect — retrieve clarifications via the typed scoped read.
         start = time.monotonic()
-        clarifications = await scoped.list_refs(run_id=pipeline_run_id, kind="clarifications")
+        clarifications = await scoped.list_refs(
+            run_id=pipeline_run_id, kind="clarifications"
+        )
         elapsed = time.monotonic() - start
 
         assert clarifications, "clarifications must be restorable from artifact_refs"
-        assert elapsed < 5.0, (
-            f"SC-008 FAILED: Clarification restore took {elapsed:.3f}s (limit: 5s)"
-        )
+        assert (
+            elapsed < 5.0
+        ), f"SC-008 FAILED: Clarification restore took {elapsed:.3f}s (limit: 5s)"

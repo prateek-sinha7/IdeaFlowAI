@@ -1,12 +1,12 @@
 """MCP-02 Wave-0 acceptance: the mcp_server catalog + scoped per-owner credentials.
 
-  * the catalog registers github/gitlab/jira/slack (user_allowed=True) +
-    filesystem/postgres (user_allowed=False); the trust flags are read off the
-    registry (the single trust source the compiler consults);
-  * a per-owner MCP credential is stored SCOPED + encrypted (never plaintext) and
-    a same-owner read decrypts it; a cross-owner read raises ``PermissionError``
-    (T-09-05-ID — the default-deny denial gate), and the scoped reader returns
-    ``None`` cross-owner.
+* the catalog registers github/gitlab/jira/slack (user_allowed=True) +
+  filesystem/postgres (user_allowed=False); the trust flags are read off the
+  registry (the single trust source the compiler consults);
+* a per-owner MCP credential is stored SCOPED + encrypted (never plaintext) and
+  a same-owner read decrypts it; a cross-owner read raises ``PermissionError``
+  (T-09-05-ID — the default-deny denial gate), and the scoped reader returns
+  ``None`` cross-owner.
 """
 
 from __future__ import annotations
@@ -54,11 +54,15 @@ def test_catalog_user_allowed_flags() -> None:
     # Read-scoped servers are on the user palette.
     for name in ("github", "gitlab", "jira", "slack"):
         assert r.is_registered("mcp_server", name)
-        assert r.is_user_allowed("mcp_server", name) is True, f"{name} should be user_allowed"
+        assert (
+            r.is_user_allowed("mcp_server", name) is True
+        ), f"{name} should be user_allowed"
     # Powerful/write servers are OFF the user palette.
     for name in ("filesystem", "postgres"):
         assert r.is_registered("mcp_server", name)
-        assert r.is_user_allowed("mcp_server", name) is False, f"{name} must NOT be user_allowed"
+        assert (
+            r.is_user_allowed("mcp_server", name) is False
+        ), f"{name} must NOT be user_allowed"
 
 
 def test_catalog_exposed_tools_and_powerful_flags() -> None:
@@ -93,7 +97,9 @@ async def test_mcp_credential_stored_scoped_and_encrypted(db_session) -> None:
     assert row.workspace_id == "ws-1"
     assert row.server == "gitlab"
     assert row.scope == "gitlab_read"
-    assert row.encrypted_secret != "glpat-SECRET-TOKEN", "secret must be encrypted at rest"
+    assert (
+        row.encrypted_secret != "glpat-SECRET-TOKEN"
+    ), "secret must be encrypted at rest"
     assert "glpat-SECRET-TOKEN" not in row.encrypted_secret
 
     # The owner can read it back decrypted.
@@ -104,7 +110,9 @@ async def test_mcp_credential_stored_scoped_and_encrypted(db_session) -> None:
 async def test_cross_owner_mcp_credential_read_is_denied(db_session) -> None:
     """T-09-05-ID: a different owner cannot read the credential (default-deny + assert)."""
     alice = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
-    cred_id = await alice.write_mcp_credential(server="jira", secret="jira-token", scope="jira_read")
+    cred_id = await alice.write_mcp_credential(
+        server="jira", secret="jira-token", scope="jira_read"
+    )
 
     bob = ScopedStore(owner_id="bob", workspace_id="ws-1", session=db_session)
     # Default-deny scoped read returns None cross-owner.

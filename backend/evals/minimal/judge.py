@@ -73,7 +73,9 @@ DEFAULT_SEVERITY = "minor"
 # 260731-121449 at 5, so dimension count was never the driver).
 #
 # Flattening restores the proven shape and keeps the severity signal.
-_SEVERITY_PREFIX = re.compile(r"^\s*\**\s*(blocking|major|minor)\s*\**\s*[:\-—]\s*", re.I)
+_SEVERITY_PREFIX = re.compile(
+    r"^\s*\**\s*(blocking|major|minor)\s*\**\s*[:\-—]\s*", re.I
+)
 
 
 def split_severity(text: str) -> tuple[str, str]:
@@ -84,7 +86,7 @@ def split_severity(text: str) -> tuple[str, str]:
     """
     match = _SEVERITY_PREFIX.match(text or "")
     if match:
-        return match.group(1).lower(), (text[match.end():] or "").strip()
+        return match.group(1).lower(), (text[match.end() :] or "").strip()
     return DEFAULT_SEVERITY, (text or "").strip()
 
 
@@ -108,7 +110,7 @@ class DimensionScore(BaseModel):
     weaknesses: list[str] = Field(
         default_factory=list,
         description="Each defect prefixed with its severity: 'blocking: ...', "
-                     "'major: ...' or 'minor: ...'. The prefix is required.",
+        "'major: ...' or 'minor: ...'. The prefix is required.",
     )
 
     def findings(self) -> list[dict]:
@@ -116,7 +118,9 @@ class DimensionScore(BaseModel):
         out = []
         for weakness in self.weaknesses:
             severity, text = split_severity(weakness)
-            out.append({"text": text, "severity": severity, "cost": severity_cost(severity)})
+            out.append(
+                {"text": text, "severity": severity, "cost": severity_cost(severity)}
+            )
         return out
 
     def priced(self) -> int:
@@ -136,7 +140,7 @@ class JudgeOutput(BaseModel):
 
     dimensions: list[DimensionScore] = Field(
         description="One entry for EVERY dimension id listed in the rubric — a partial "
-                     "list is discarded in full and the work is wasted.",
+        "list is discarded in full and the work is wasted.",
     )
     rationale: str = Field(default="")
     strengths: list[str] = Field(default_factory=list)
@@ -180,7 +184,9 @@ class JudgeOutput(BaseModel):
             if isinstance(dimension.get("strengths"), list):
                 dimension["strengths"] = [_to_text(i) for i in dimension["strengths"]]
             if isinstance(dimension.get("weaknesses"), list):
-                dimension["weaknesses"] = [_to_weakness(i) for i in dimension["weaknesses"]]
+                dimension["weaknesses"] = [
+                    _to_weakness(i) for i in dimension["weaknesses"]
+                ]
         for key in ("rationale", "strengths", "weaknesses"):
             if data.get(key):
                 continue
@@ -243,8 +249,11 @@ def _to_weakness(item: Any) -> str:
     if isinstance(item, dict):
         text = _to_text(item)
         severity = next(
-            (str(item[k]).strip().lower() for k in _SEVERITY_KEYS
-             if isinstance(item.get(k), str) and item[k].strip()),
+            (
+                str(item[k]).strip().lower()
+                for k in _SEVERITY_KEYS
+                if isinstance(item.get(k), str) and item[k].strip()
+            ),
             None,
         )
         if severity and not _SEVERITY_PREFIX.match(text):
@@ -298,22 +307,22 @@ JUDGE_PROMPT_TEMPLATE = (_PROMPT_DIR / "judge_prompt.md").read_text(encoding="ut
 ADVISE_PROMPT_TEMPLATE = (_PROMPT_DIR / "advise_prompt.md").read_text(encoding="utf-8")
 
 
-
 class Suggestion(BaseModel):
     """ONE piece of advice: what to change, how strongly, where it belongs, why."""
 
     action: str = Field(
         description="Either 'add' (a new instruction for the prompt) or 'remove' "
-                     "(an instruction already in the prompt that causes the weakness).",
+        "(an instruction already in the prompt that causes the weakness).",
     )
     description: str = Field(
         description="The instruction itself, as one self-contained sentence that could "
-                     "be pasted into the prompt as-is. For 'remove', quote the existing wording.",
+        "be pasted into the prompt as-is. For 'remove', quote the existing wording.",
     )
     advisory_score: int = Field(
-        ge=0, le=100,
+        ge=0,
+        le=100,
         description="How strongly this is advised: 0 = optional (MAY), 100 = mandatory "
-                     "(MUST). Judge it by what the observed weakness actually costs.",
+        "(MUST). Judge it by what the observed weakness actually costs.",
     )
     category: str = Field(
         description="Which rubric dimension id this serves, verbatim from the list given.",
@@ -321,7 +330,7 @@ class Suggestion(BaseModel):
     reason: str = Field(
         default="",
         description="Which observed weakness this addresses, in one line. Name the "
-                     "evidence, not the intent.",
+        "evidence, not the intent.",
     )
 
 
@@ -361,8 +370,13 @@ class AdviceOutput(BaseModel):
 
         def one(item: Any, action: str) -> dict:
             if isinstance(item, str):
-                return {"action": action, "description": item, "advisory_score": 0,
-                        "category": "uncategorised", "reason": ""}
+                return {
+                    "action": action,
+                    "description": item,
+                    "advisory_score": 0,
+                    "category": "uncategorised",
+                    "reason": "",
+                }
             if isinstance(item, dict):
                 return {**item, "action": str(item.get("action") or action)}
             return item
@@ -381,7 +395,7 @@ class Advice:
     """Structured prompt edits. Never raises — same R-09 contract as `judge`."""
 
     advice: list[dict] = field(default_factory=list)
-    text: str = ""          # kept for older stored advice; no longer produced
+    text: str = ""  # kept for older stored advice; no longer produced
     resolved_model_id: str = "unknown"
     tokens_in: int = 0
     tokens_out: int = 0
@@ -390,8 +404,13 @@ class Advice:
 
 
 async def advise(
-    *, system_prompt: str, weaknesses: list[str], strengths: list[str], judge_config: dict,
-    categories: list[str] | None = None, on_call=None,
+    *,
+    system_prompt: str,
+    weaknesses: list[str],
+    strengths: list[str],
+    judge_config: dict,
+    categories: list[str] | None = None,
+    on_call=None,
 ) -> Advice:
     """One model call: given the judge's already-clustered weaknesses/
     strengths and the agent's REAL current system prompt, propose the
@@ -411,23 +430,46 @@ async def advise(
         reply = await _invoke_with_rate_limit_retry(structured, prompt)
         parsed, parse_error, tokens_in, tokens_out = _unpack_reply(reply)
         if on_call:
-            on_call({"kind": "advise", "attempt": 0, "model": resolved_model_id,
-                      "prompt": prompt, "raw": _raw_snapshot(reply),
-                      "parse_error": parse_error, "tokens_in": tokens_in, "tokens_out": tokens_out})
+            on_call(
+                {
+                    "kind": "advise",
+                    "attempt": 0,
+                    "model": resolved_model_id,
+                    "prompt": prompt,
+                    "raw": _raw_snapshot(reply),
+                    "parse_error": parse_error,
+                    "tokens_in": tokens_in,
+                    "tokens_out": tokens_out,
+                }
+            )
         if parse_error is not None or parsed is None:
-            return Advice(resolved_model_id=resolved_model_id, tokens_in=tokens_in,
-                           tokens_out=tokens_out, errored=True,
-                           error_reason=parse_error or "advisor returned no parsable output")
+            return Advice(
+                resolved_model_id=resolved_model_id,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                errored=True,
+                error_reason=parse_error or "advisor returned no parsable output",
+            )
         return Advice(
             advice=[_suggestion(x) for x in parsed.advice],
             resolved_model_id=resolved_model_id,
-            tokens_in=tokens_in, tokens_out=tokens_out,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
         )
     except Exception as exc:  # noqa: BLE001 - advice failures must never propagate
         if on_call:
-            on_call({"kind": "advise", "attempt": 0, "model": resolved_model_id,
-                      "prompt": locals().get("prompt", ""), "error": str(exc)})
-        return Advice(resolved_model_id=resolved_model_id, errored=True, error_reason=str(exc))
+            on_call(
+                {
+                    "kind": "advise",
+                    "attempt": 0,
+                    "model": resolved_model_id,
+                    "prompt": locals().get("prompt", ""),
+                    "error": str(exc),
+                }
+            )
+        return Advice(
+            resolved_model_id=resolved_model_id, errored=True, error_reason=str(exc)
+        )
 
 
 def _suggestion(item: Suggestion) -> dict:
@@ -447,7 +489,11 @@ def _suggestion(item: Suggestion) -> dict:
 
 
 def build_judge_prompt(
-    *, system_prompt: str, prompt: str, response: str, rubric: dict,
+    *,
+    system_prompt: str,
+    prompt: str,
+    response: str,
+    rubric: dict,
     upstream: dict[str, str] | None = None,
 ) -> str:
     """Fill `prompts/judge_prompt.md` from the rubric's dimensions and anchors.
@@ -486,10 +532,15 @@ def build_judge_prompt(
         f"- {band}: {' '.join(str(anchor_map[band]).split())}"
         for band in sorted(anchor_map, key=lambda k: int(k), reverse=True)
     )
-    anchors = f"\n=== SCORE ANCHORS ===\n{anchor_lines}\n=== END ===\n" if anchor_lines else ""
+    anchors = (
+        f"\n=== SCORE ANCHORS ===\n{anchor_lines}\n=== END ===\n"
+        if anchor_lines
+        else ""
+    )
     upstream_text = "".join(
         f"\n=== UPSTREAM ARTIFACT: {path} ===\n{text}\n=== END ===\n"
-        for path, text in (upstream or {}).items() if text
+        for path, text in (upstream or {}).items()
+        if text
     )
     if upstream_text:
         upstream_text = (
@@ -501,8 +552,12 @@ def build_judge_prompt(
             " rather than take the response's word for it.\n" + upstream_text
         )
     return JUDGE_PROMPT_TEMPLATE.format(
-        system_prompt=system_prompt, prompt=prompt, response=response,
-        rubric_text=rubric.get("rubric", ""), dimensions=dimensions, anchors=anchors,
+        system_prompt=system_prompt,
+        prompt=prompt,
+        response=response,
+        rubric_text=rubric.get("rubric", ""),
+        dimensions=dimensions,
+        anchors=anchors,
         upstream=upstream_text,
     )
 
@@ -556,11 +611,19 @@ async def _invoke_logged(structured_judge, prompt: str, on_call, **meta):
         raise
     parsed, parse_error, tokens_in, tokens_out = _unpack_reply(reply)
     if on_call:
-        on_call({
-            **meta, "prompt": prompt, "raw": _raw_snapshot(reply),
-            "parse_error": parse_error, "tokens_in": tokens_in, "tokens_out": tokens_out,
-            "dimensions_returned": [d.id for d in parsed.dimensions] if parsed is not None else [],
-        })
+        on_call(
+            {
+                **meta,
+                "prompt": prompt,
+                "raw": _raw_snapshot(reply),
+                "parse_error": parse_error,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "dimensions_returned": [d.id for d in parsed.dimensions]
+                if parsed is not None
+                else [],
+            }
+        )
     return parsed, parse_error, tokens_in, tokens_out
 
 
@@ -594,8 +657,13 @@ def _check_dimension_ids(returned: list[str], expected: list[str]) -> str | None
 
 
 async def judge(
-    response: str, *, rubric: dict, system_prompt: str = "", prompt: str = "",
-    upstream: dict[str, str] | None = None, on_call=None,
+    response: str,
+    *,
+    rubric: dict,
+    system_prompt: str = "",
+    prompt: str = "",
+    upstream: dict[str, str] | None = None,
+    on_call=None,
 ) -> JudgeVerdict:
     """Grade one response against a rubric. NEVER raises — R-09: a malformed
     reply costs this one row, not the stage. A dimension-id mismatch (e.g. a
@@ -610,20 +678,32 @@ async def judge(
     resolved_model_id = app.agents.model_factory.model_identifier(judge_model)
     tokens_in = tokens_out = 0
     try:
-        structured_judge = judge_model.with_structured_output(JudgeOutput, include_raw=True)
+        structured_judge = judge_model.with_structured_output(
+            JudgeOutput, include_raw=True
+        )
         judge_prompt = build_judge_prompt(
-            system_prompt=system_prompt, prompt=prompt, response=response, rubric=rubric,
+            system_prompt=system_prompt,
+            prompt=prompt,
+            response=response,
+            rubric=rubric,
             upstream=upstream,
         )
         parsed, parse_error, tokens_in, tokens_out = await _invoke_logged(
-            structured_judge, judge_prompt, on_call, kind="judge", attempt=0,
+            structured_judge,
+            judge_prompt,
+            on_call,
+            kind="judge",
+            attempt=0,
             model=resolved_model_id,
         )
 
         def errored(reason: str) -> JudgeVerdict:
             return JudgeVerdict(
-                resolved_model_id=resolved_model_id, tokens_in=tokens_in,
-                tokens_out=tokens_out, errored=True, error_reason=reason,
+                resolved_model_id=resolved_model_id,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                errored=True,
+                error_reason=reason,
             )
 
         expected_ids = [d["id"] for d in rubric.get("dimensions", [])]
@@ -645,13 +725,21 @@ async def judge(
             mismatch = _check_dimension_ids(returned_ids, expected_ids)
             if mismatch is None:
                 break
-            if attempt >= INCOMPLETE_RETRIES or not set(expected_ids) - set(returned_ids):
-                return errored(mismatch)  # unexpected-ids-only never improves on a re-ask
+            if attempt >= INCOMPLETE_RETRIES or not set(expected_ids) - set(
+                returned_ids
+            ):
+                return errored(
+                    mismatch
+                )  # unexpected-ids-only never improves on a re-ask
             missing = sorted(set(expected_ids) - set(returned_ids))
             parsed, parse_error, retry_in, retry_out = await _invoke_logged(
-                structured_judge, f"{judge_prompt}\n\n{_RETRY_NOTE.format(missing=missing)}",
-                on_call, kind="judge-retry", attempt=attempt + 1,
-                model=resolved_model_id, missing=missing,
+                structured_judge,
+                f"{judge_prompt}\n\n{_RETRY_NOTE.format(missing=missing)}",
+                on_call,
+                kind="judge-retry",
+                attempt=attempt + 1,
+                model=resolved_model_id,
+                missing=missing,
             )
             # Accumulate, never overwrite: a retried row really did cost both calls.
             tokens_in += retry_in
@@ -676,6 +764,9 @@ async def judge(
         )
     except Exception as exc:  # noqa: BLE001 - judge failures must never propagate
         return JudgeVerdict(
-            resolved_model_id=resolved_model_id, tokens_in=tokens_in,
-            tokens_out=tokens_out, errored=True, error_reason=str(exc),
+            resolved_model_id=resolved_model_id,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            errored=True,
+            error_reason=str(exc),
         )

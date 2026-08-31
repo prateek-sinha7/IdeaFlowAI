@@ -367,9 +367,7 @@ def _compile_selections_trust_user(
 
     manifest = synthesize_manifest(base_pipeline_type, agent_ids, compile_selections)
     try:
-        WorkflowCompiler().compile(
-            manifest, CapabilityRegistry(), trust="user"
-        )
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
     except CompilerError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -487,7 +485,9 @@ def _migrate_attached_skills_to_steps(db: Session, row: WorkflowDefinition) -> N
 # --- Endpoints -------------------------------------------------------------
 
 
-@router.post("", response_model=UserWorkflowResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=UserWorkflowResponse, status_code=status.HTTP_201_CREATED
+)
 def create_user_workflow(
     body: SaveUserWorkflowRequest,
     current_user: User = Depends(get_current_user),
@@ -540,7 +540,9 @@ def create_user_workflow(
     # model_overrides — same two-check allow-list as launch.
     err = _validate_model_overrides(body.model_overrides or {}, set(body.agent_ids))
     if err:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err
+        )
 
     # EMP-02 (CAP-03): re-validate user-authored per-step selections with
     # trust="user" BEFORE any row is created — a smuggled non-user-allowed
@@ -733,9 +735,7 @@ def update_user_workflow(
         # against the row's stored composition, then persists the new map into
         # ``manifest_json``. An empty map clears the persisted selections.
         try:
-            current_agent_ids_list = (
-                json.loads(row.agents) if row.agents else []
-            )
+            current_agent_ids_list = json.loads(row.agents) if row.agents else []
         except (ValueError, TypeError):
             current_agent_ids_list = []
         _compile_selections_trust_user(

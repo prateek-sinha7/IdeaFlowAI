@@ -76,7 +76,9 @@ class _JsonFragment:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("impl", [CopyDisjointMerge, Git3WayMerge, JsonMerge, HtmlFragmentMerge])
+@pytest.mark.parametrize(
+    "impl", [CopyDisjointMerge, Git3WayMerge, JsonMerge, HtmlFragmentMerge]
+)
 def test_impls_satisfy_the_merge_port(impl) -> None:
     inst = impl()
     assert isinstance(inst, MergeStrategy)  # runtime_checkable structural conformance
@@ -106,7 +108,11 @@ def test_copy_disjoint_deterministic_over_disjoint_set() -> None:
     assert r1.clean and r2.clean
     # Byte-stable deterministic result regardless of input order (sorted internally).
     assert r1.applied == r2.applied == ["a.txt", "b.txt", "c.txt"]
-    assert base1.written == base2.written == {"a.txt": "AAA", "b.txt": "BBB", "c.txt": "CCC"}
+    assert (
+        base1.written
+        == base2.written
+        == {"a.txt": "AAA", "b.txt": "BBB", "c.txt": "CCC"}
+    )
 
 
 def test_copy_disjoint_overlap_is_a_reported_conflict_not_silent_overwrite() -> None:

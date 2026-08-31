@@ -142,7 +142,9 @@ async def upsert_github_pat(
             detail=f"GitHub rejected the PAT ({resp.status_code}). Check that it has at least `repo` scope.",
         )
     gh_user = resp.json().get("login")
-    scopes_header = resp.headers.get("x-oauth-scopes") or resp.headers.get("X-OAuth-Scopes") or ""
+    scopes_header = (
+        resp.headers.get("x-oauth-scopes") or resp.headers.get("X-OAuth-Scopes") or ""
+    )
 
     encrypted = encrypt_pat(pat)
     row = (
@@ -201,7 +203,9 @@ def get_github_pat_status(
     )
 
 
-@router.delete("/github-pat", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete(
+    "/github-pat", status_code=status.HTTP_204_NO_CONTENT, response_class=Response
+)
 def delete_github_pat(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -279,7 +283,11 @@ def list_api_keys(
     ]
 
 
-@router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete(
+    "/api-keys/{key_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 def revoke_api_key(
     key_id: str,
     user: User = Depends(get_current_user),
@@ -364,6 +372,7 @@ async def get_constitution(
     Returns null content if no Constitution has been set.
     """
     from agents.workflow_memory.memory import get_workflow_memory
+
     memory = get_workflow_memory()
     content = await memory.get_constitution(user.id)
     return ConstitutionResponse(content=content)
@@ -380,6 +389,7 @@ async def set_constitution(
     as a guardrail on all subsequent pipeline runs.
     """
     from agents.workflow_memory.memory import get_workflow_memory, WorkflowMemoryError
+
     memory = get_workflow_memory()
     try:
         await memory.set_constitution(user.id, payload.content)
@@ -394,6 +404,7 @@ async def delete_constitution(
 ) -> Response:
     """Delete the user's Constitution from Workflow_Memory."""
     from agents.workflow_memory.memory import get_workflow_memory
+
     memory = get_workflow_memory()
     await memory.delete_constitution(user.id)
     return Response(status_code=204)

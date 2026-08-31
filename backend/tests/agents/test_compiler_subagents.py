@@ -45,74 +45,145 @@ def _wf(steps: list, **overrides) -> WorkflowManifest:
 
 
 def test_duplicate_instance_id_across_levels_rejected(registry):
-    raw = _wf(steps=[
-        {"agent": "custom-agent", "instance_id": "dup", "prompt": "x"},
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "y",
-         "subagents": {"mode": "parallel", "steps": [
-             {"agent": "custom-agent", "instance_id": "dup", "prompt": "z"}]}},
-    ])
+    raw = _wf(
+        steps=[
+            {"agent": "custom-agent", "instance_id": "dup", "prompt": "x"},
+            {
+                "agent": "custom-agent",
+                "instance_id": "parent",
+                "prompt": "y",
+                "subagents": {
+                    "mode": "parallel",
+                    "steps": [
+                        {"agent": "custom-agent", "instance_id": "dup", "prompt": "z"}
+                    ],
+                },
+            },
+        ]
+    )
     with pytest.raises(CompilerError, match="instance_id.*dup"):
         WorkflowCompiler().compile(raw, registry)
 
 
 def test_three_level_nesting_rejected(registry):
-    raw = _wf(steps=[
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-         "subagents": {"mode": "parallel", "steps": [
-             {"agent": "custom-agent", "instance_id": "child", "prompt": "c",
-              "subagents": {"mode": "parallel", "steps": [
-                  {"agent": "custom-agent", "instance_id": "grandchild", "prompt": "g",
-                   "subagents": {"mode": "parallel", "steps": [
-                       {"agent": "custom-agent", "instance_id": "ggchild",
-                        "prompt": "gg"},
-                   ]}},
-              ]}},
-         ]}},
-    ])
+    raw = _wf(
+        steps=[
+            {
+                "agent": "custom-agent",
+                "instance_id": "parent",
+                "prompt": "p",
+                "subagents": {
+                    "mode": "parallel",
+                    "steps": [
+                        {
+                            "agent": "custom-agent",
+                            "instance_id": "child",
+                            "prompt": "c",
+                            "subagents": {
+                                "mode": "parallel",
+                                "steps": [
+                                    {
+                                        "agent": "custom-agent",
+                                        "instance_id": "grandchild",
+                                        "prompt": "g",
+                                        "subagents": {
+                                            "mode": "parallel",
+                                            "steps": [
+                                                {
+                                                    "agent": "custom-agent",
+                                                    "instance_id": "ggchild",
+                                                    "prompt": "gg",
+                                                },
+                                            ],
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+            },
+        ]
+    )
     with pytest.raises(CompilerError, match="nests deeper"):
         WorkflowCompiler().compile(raw, registry)
 
 
 def test_fanout_without_task_source_rejected(registry):
-    raw = _wf(steps=[
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-         "subagents": {"mode": "fanout", "steps": [
-             {"agent": "custom-agent", "instance_id": "child", "prompt": "c"},
-         ]}},
-    ])
+    raw = _wf(
+        steps=[
+            {
+                "agent": "custom-agent",
+                "instance_id": "parent",
+                "prompt": "p",
+                "subagents": {
+                    "mode": "fanout",
+                    "steps": [
+                        {
+                            "agent": "custom-agent",
+                            "instance_id": "child",
+                            "prompt": "c",
+                        },
+                    ],
+                },
+            },
+        ]
+    )
     with pytest.raises(CompilerError, match="task_source"):
         WorkflowCompiler().compile(raw, registry)
 
 
 def test_prompt_on_builtin_step_rejected(registry):
-    raw = _wf(steps=[
-        {"agent": "demo-agent", "prompt": "not allowed on a built-in step"},
-    ])
+    raw = _wf(
+        steps=[
+            {"agent": "demo-agent", "prompt": "not allowed on a built-in step"},
+        ]
+    )
     with pytest.raises(CompilerError, match="prompt"):
         WorkflowCompiler().compile(raw, registry)
 
 
 def test_empty_subagent_steps_rejected(registry):
-    raw = _wf(steps=[
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-         "subagents": {"mode": "parallel", "steps": []}},
-    ])
+    raw = _wf(
+        steps=[
+            {
+                "agent": "custom-agent",
+                "instance_id": "parent",
+                "prompt": "p",
+                "subagents": {"mode": "parallel", "steps": []},
+            },
+        ]
+    )
     with pytest.raises(CompilerError, match="subagents.steps"):
         WorkflowCompiler().compile(raw, registry)
 
 
 def test_three_custom_instances_get_distinct_agent_ids(registry):
-    compiled = WorkflowCompiler().compile(_wf(steps=[
-        {"agent": "custom-agent", "instance_id": n, "prompt": "x"} for n in ("a", "b", "c")
-    ]), registry)
+    compiled = WorkflowCompiler().compile(
+        _wf(
+            steps=[
+                {"agent": "custom-agent", "instance_id": n, "prompt": "x"}
+                for n in ("a", "b", "c")
+            ]
+        ),
+        registry,
+    )
     assert [s.agent_id for s in compiled.steps] == [
-        "custom-agent:a", "custom-agent:b", "custom-agent:c"]
+        "custom-agent:a",
+        "custom-agent:b",
+        "custom-agent:c",
+    ]
 
 
 def test_builtin_step_agent_id_unchanged(registry):
-    compiled = WorkflowCompiler().compile(_wf(steps=[
-        {"agent": "demo-agent"},
-    ]), registry)
+    compiled = WorkflowCompiler().compile(
+        _wf(
+            steps=[
+                {"agent": "demo-agent"},
+            ]
+        ),
+        registry,
+    )
     assert compiled.steps[0].agent_id == "demo-agent"
 
 
@@ -122,47 +193,114 @@ def test_builtin_step_agent_id_unchanged(registry):
 
 
 def test_children_precede_parent_in_compiled_order(registry):
-    compiled = WorkflowCompiler().compile(_wf(steps=[
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-         "subagents": {"mode": "parallel", "steps": [
-             {"agent": "custom-agent", "instance_id": "child-a", "prompt": "a"},
-             {"agent": "custom-agent", "instance_id": "child-b", "prompt": "b"},
-         ]}},
-    ]), registry)
+    compiled = WorkflowCompiler().compile(
+        _wf(
+            steps=[
+                {
+                    "agent": "custom-agent",
+                    "instance_id": "parent",
+                    "prompt": "p",
+                    "subagents": {
+                        "mode": "parallel",
+                        "steps": [
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child-a",
+                                "prompt": "a",
+                            },
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child-b",
+                                "prompt": "b",
+                            },
+                        ],
+                    },
+                },
+            ]
+        ),
+        registry,
+    )
     ids = [s.agent_id for s in compiled.steps]
     assert ids == [
-        "custom-agent:child-a", "custom-agent:child-b", "custom-agent:parent",
+        "custom-agent:child-a",
+        "custom-agent:child-b",
+        "custom-agent:parent",
     ]
 
 
 def test_parent_depends_on_every_child(registry):
-    compiled = WorkflowCompiler().compile(_wf(steps=[
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-         "subagents": {"mode": "parallel", "steps": [
-             {"agent": "custom-agent", "instance_id": "child-a", "prompt": "a"},
-             {"agent": "custom-agent", "instance_id": "child-b", "prompt": "b"},
-         ]}},
-    ]), registry)
+    compiled = WorkflowCompiler().compile(
+        _wf(
+            steps=[
+                {
+                    "agent": "custom-agent",
+                    "instance_id": "parent",
+                    "prompt": "p",
+                    "subagents": {
+                        "mode": "parallel",
+                        "steps": [
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child-a",
+                                "prompt": "a",
+                            },
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child-b",
+                                "prompt": "b",
+                            },
+                        ],
+                    },
+                },
+            ]
+        ),
+        registry,
+    )
     parent = next(s for s in compiled.steps if s.agent_id == "custom-agent:parent")
     assert set(parent.depends_on) == {
-        "custom-agent:child-a", "custom-agent:child-b",
+        "custom-agent:child-a",
+        "custom-agent:child-b",
     }
 
 
 def test_two_level_tree_is_depth_first(registry):
-    compiled = WorkflowCompiler().compile(_wf(steps=[
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-         "subagents": {"mode": "parallel", "steps": [
-             {"agent": "custom-agent", "instance_id": "child", "prompt": "c",
-              "subagents": {"mode": "parallel", "steps": [
-                  {"agent": "custom-agent", "instance_id": "grandchild",
-                   "prompt": "g"},
-              ]}},
-         ]}},
-    ]), registry)
+    compiled = WorkflowCompiler().compile(
+        _wf(
+            steps=[
+                {
+                    "agent": "custom-agent",
+                    "instance_id": "parent",
+                    "prompt": "p",
+                    "subagents": {
+                        "mode": "parallel",
+                        "steps": [
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child",
+                                "prompt": "c",
+                                "subagents": {
+                                    "mode": "parallel",
+                                    "steps": [
+                                        {
+                                            "agent": "custom-agent",
+                                            "instance_id": "grandchild",
+                                            "prompt": "g",
+                                        },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                },
+            ]
+        ),
+        registry,
+    )
     ids = [s.agent_id for s in compiled.steps]
     assert ids == [
-        "custom-agent:grandchild", "custom-agent:child", "custom-agent:parent",
+        "custom-agent:grandchild",
+        "custom-agent:child",
+        "custom-agent:parent",
     ]
     child = next(s for s in compiled.steps if s.agent_id == "custom-agent:child")
     parent = next(s for s in compiled.steps if s.agent_id == "custom-agent:parent")
@@ -171,14 +309,30 @@ def test_two_level_tree_is_depth_first(registry):
 
 
 def test_existing_parent_depends_on_is_preserved_not_overwritten(registry):
-    compiled = WorkflowCompiler().compile(_wf(steps=[
-        {"agent": "demo-agent"},
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-         "depends_on": ["demo-agent"],
-         "subagents": {"mode": "parallel", "steps": [
-             {"agent": "custom-agent", "instance_id": "child", "prompt": "c"},
-         ]}},
-    ]), registry)
+    compiled = WorkflowCompiler().compile(
+        _wf(
+            steps=[
+                {"agent": "demo-agent"},
+                {
+                    "agent": "custom-agent",
+                    "instance_id": "parent",
+                    "prompt": "p",
+                    "depends_on": ["demo-agent"],
+                    "subagents": {
+                        "mode": "parallel",
+                        "steps": [
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child",
+                                "prompt": "c",
+                            },
+                        ],
+                    },
+                },
+            ]
+        ),
+        registry,
+    )
     parent = next(s for s in compiled.steps if s.agent_id == "custom-agent:parent")
     assert set(parent.depends_on) == {"demo-agent", "custom-agent:child"}
 
@@ -189,32 +343,82 @@ def test_existing_parent_depends_on_is_preserved_not_overwritten(registry):
 
 
 def test_sequential_produces_a_sibling_chain_of_edges(registry):
-    compiled = WorkflowCompiler().compile(_wf(steps=[
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-         "subagents": {"mode": "sequential", "steps": [
-             {"agent": "custom-agent", "instance_id": "child-a", "prompt": "a"},
-             {"agent": "custom-agent", "instance_id": "child-b", "prompt": "b"},
-             {"agent": "custom-agent", "instance_id": "child-c", "prompt": "c"},
-         ]}},
-    ]), registry)
+    compiled = WorkflowCompiler().compile(
+        _wf(
+            steps=[
+                {
+                    "agent": "custom-agent",
+                    "instance_id": "parent",
+                    "prompt": "p",
+                    "subagents": {
+                        "mode": "sequential",
+                        "steps": [
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child-a",
+                                "prompt": "a",
+                            },
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child-b",
+                                "prompt": "b",
+                            },
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child-c",
+                                "prompt": "c",
+                            },
+                        ],
+                    },
+                },
+            ]
+        ),
+        registry,
+    )
     by_id = {s.agent_id: s for s in compiled.steps}
     assert by_id["custom-agent:child-a"].depends_on == []
     assert by_id["custom-agent:child-b"].depends_on == ["custom-agent:child-a"]
     assert by_id["custom-agent:child-c"].depends_on == ["custom-agent:child-b"]
     assert set(by_id["custom-agent:parent"].depends_on) == {
-        "custom-agent:child-a", "custom-agent:child-b", "custom-agent:child-c",
+        "custom-agent:child-a",
+        "custom-agent:child-b",
+        "custom-agent:child-c",
     }
 
 
 def test_parallel_produces_no_edges_between_siblings(registry):
-    compiled = WorkflowCompiler().compile(_wf(steps=[
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-         "subagents": {"mode": "parallel", "steps": [
-             {"agent": "custom-agent", "instance_id": "child-a", "prompt": "a"},
-             {"agent": "custom-agent", "instance_id": "child-b", "prompt": "b"},
-             {"agent": "custom-agent", "instance_id": "child-c", "prompt": "c"},
-         ]}},
-    ]), registry)
+    compiled = WorkflowCompiler().compile(
+        _wf(
+            steps=[
+                {
+                    "agent": "custom-agent",
+                    "instance_id": "parent",
+                    "prompt": "p",
+                    "subagents": {
+                        "mode": "parallel",
+                        "steps": [
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child-a",
+                                "prompt": "a",
+                            },
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child-b",
+                                "prompt": "b",
+                            },
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child-c",
+                                "prompt": "c",
+                            },
+                        ],
+                    },
+                },
+            ]
+        ),
+        registry,
+    )
     by_id = {s.agent_id: s for s in compiled.steps}
     assert by_id["custom-agent:child-a"].depends_on == []
     assert by_id["custom-agent:child-b"].depends_on == []
@@ -235,13 +439,34 @@ def test_parallel_max_parallel_now_binds_the_fanout_semaphore(registry):
     is only correct BECAUSE it is now honored — the old rejection was right for
     the old behavior.
     """
-    compiled = WorkflowCompiler().compile(_wf(steps=[
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-         "subagents": {"mode": "parallel", "max_parallel": 3, "steps": [
-             {"agent": "custom-agent", "instance_id": "child-a", "prompt": "a"},
-             {"agent": "custom-agent", "instance_id": "child-b", "prompt": "b"},
-         ]}},
-    ]), registry)
+    compiled = WorkflowCompiler().compile(
+        _wf(
+            steps=[
+                {
+                    "agent": "custom-agent",
+                    "instance_id": "parent",
+                    "prompt": "p",
+                    "subagents": {
+                        "mode": "parallel",
+                        "max_parallel": 3,
+                        "steps": [
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child-a",
+                                "prompt": "a",
+                            },
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "child-b",
+                                "prompt": "b",
+                            },
+                        ],
+                    },
+                },
+            ]
+        ),
+        registry,
+    )
     parent = next(s for s in compiled.steps if s.agent_id == "custom-agent:parent")
     assert parent.strategy == "parallel_group"
     assert parent.fanout is not None
@@ -252,14 +477,16 @@ def test_parallel_max_parallel_now_binds_the_fanout_semaphore(registry):
     # both in the loop AND as spawned workers would run each twice.
     children = [s for s in compiled.steps if s.agent_id != "custom-agent:parent"]
     assert {c.agent_id for c in children} == {
-        "custom-agent:child-a", "custom-agent:child-b"
+        "custom-agent:child-a",
+        "custom-agent:child-b",
     }
     assert all(c.dispatched_by == "custom-agent:parent" for c in children)
 
     # run_fanout rejects a named worker absent from allowed_workers before it
     # spawns, so the children must be auto-allow-listed or the run would raise.
     assert set(compiled.allowed_workers) >= {
-        "custom-agent:child-a", "custom-agent:child-b"
+        "custom-agent:child-a",
+        "custom-agent:child-b",
     }
 
 
@@ -270,12 +497,26 @@ def test_parallel_max_parallel_must_be_a_positive_int(registry, bad):
     `True` is in the list on purpose: it is an `int` in Python, and without an
     explicit bool check `max_parallel: true` would compile to a semaphore of 1.
     """
-    raw = _wf(steps=[
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-         "subagents": {"mode": "parallel", "max_parallel": bad, "steps": [
-             {"agent": "custom-agent", "instance_id": "child-a", "prompt": "a"},
-         ]}},
-    ])
+    raw = _wf(
+        steps=[
+            {
+                "agent": "custom-agent",
+                "instance_id": "parent",
+                "prompt": "p",
+                "subagents": {
+                    "mode": "parallel",
+                    "max_parallel": bad,
+                    "steps": [
+                        {
+                            "agent": "custom-agent",
+                            "instance_id": "child-a",
+                            "prompt": "a",
+                        },
+                    ],
+                },
+            },
+        ]
+    )
     with pytest.raises(CompilerError, match="max_parallel"):
         WorkflowCompiler().compile(raw, registry)
 
@@ -286,21 +527,36 @@ def test_parallel_max_parallel_must_be_a_positive_int(registry, bad):
 
 
 def test_fanout_group_materializes_fanout_spec_and_task_source(registry):
-    compiled = WorkflowCompiler().compile(_wf(steps=[
-        {"agent": "demo-agent", "instance_id": "plan"},
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-         "subagents": {
-             "mode": "fanout",
-             "max_parallel": 5,
-             "task_source": {
-                 "kind": "parsed", "parser": "heading_tasks",
-                 "target": "tasks.md", "source_step": "demo-agent",
-             },
-             "steps": [
-                 {"agent": "custom-agent", "instance_id": "worker", "prompt": "w"},
-             ],
-         }},
-    ]), registry)
+    compiled = WorkflowCompiler().compile(
+        _wf(
+            steps=[
+                {"agent": "demo-agent", "instance_id": "plan"},
+                {
+                    "agent": "custom-agent",
+                    "instance_id": "parent",
+                    "prompt": "p",
+                    "subagents": {
+                        "mode": "fanout",
+                        "max_parallel": 5,
+                        "task_source": {
+                            "kind": "parsed",
+                            "parser": "heading_tasks",
+                            "target": "tasks.md",
+                            "source_step": "demo-agent",
+                        },
+                        "steps": [
+                            {
+                                "agent": "custom-agent",
+                                "instance_id": "worker",
+                                "prompt": "w",
+                            },
+                        ],
+                    },
+                },
+            ]
+        ),
+        registry,
+    )
     worker = next(s for s in compiled.steps if s.agent_id == "custom-agent:worker")
     assert worker.strategy == "fanout_batch"
     assert worker.fanout is not None
@@ -316,17 +572,34 @@ def test_fanout_group_materializes_fanout_spec_and_task_source(registry):
 
 
 def test_fanout_group_with_multiple_children_rejected(registry):
-    raw = _wf(steps=[
-        {"agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-         "subagents": {
-             "mode": "fanout",
-             "task_source": {"kind": "parsed", "parser": "heading_tasks",
-                              "target": "tasks.md"},
-             "steps": [
-                 {"agent": "custom-agent", "instance_id": "worker-a", "prompt": "a"},
-                 {"agent": "custom-agent", "instance_id": "worker-b", "prompt": "b"},
-             ],
-         }},
-    ])
+    raw = _wf(
+        steps=[
+            {
+                "agent": "custom-agent",
+                "instance_id": "parent",
+                "prompt": "p",
+                "subagents": {
+                    "mode": "fanout",
+                    "task_source": {
+                        "kind": "parsed",
+                        "parser": "heading_tasks",
+                        "target": "tasks.md",
+                    },
+                    "steps": [
+                        {
+                            "agent": "custom-agent",
+                            "instance_id": "worker-a",
+                            "prompt": "a",
+                        },
+                        {
+                            "agent": "custom-agent",
+                            "instance_id": "worker-b",
+                            "prompt": "b",
+                        },
+                    ],
+                },
+            },
+        ]
+    )
     with pytest.raises(CompilerError, match="fanout"):
         WorkflowCompiler().compile(raw, registry)

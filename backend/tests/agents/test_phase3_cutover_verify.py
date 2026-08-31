@@ -61,7 +61,13 @@ def _hitl_script() -> list[_ScriptedTurn]:
         _ScriptedTurn(
             texts=["working "],
             tool_calls=[
-                (GATED_TOOL, json.dumps({"task_number": 1, "task_title": "Shell", "summary": "x"}), "call_1")
+                (
+                    GATED_TOOL,
+                    json.dumps(
+                        {"task_number": 1, "task_title": "Shell", "summary": "x"}
+                    ),
+                    "call_1",
+                )
             ],
             usage=(11, 7),
         ),
@@ -98,11 +104,15 @@ class TestCheckpointResume:
             elif ev["type"] == "done":
                 saw_done = True
 
-        assert saw_gate, "armed run must PAUSE at the gated tool and emit a 'gate' event"
-        assert not saw_done, "'gate' and 'done' are mutually exclusive — paused run never 'done'"
-        assert gate_payload and gate_payload.get("interrupt_ids"), (
-            "gate payload must carry interrupt_ids (the resume handles)"
-        )
+        assert (
+            saw_gate
+        ), "armed run must PAUSE at the gated tool and emit a 'gate' event"
+        assert (
+            not saw_done
+        ), "'gate' and 'done' are mutually exclusive — paused run never 'done'"
+        assert gate_payload and gate_payload.get(
+            "interrupt_ids"
+        ), "gate payload must carry interrupt_ids (the resume handles)"
         # The pending action_request references the gated tool.
         names = [a.get("name") for a in (gate_payload.get("action_requests") or [])]
         assert GATED_TOOL in names, f"gate must reference the gated tool; got {names}"
@@ -119,14 +129,15 @@ class TestCheckpointResume:
 
         # ── After resume: terminal state, and the gated tool actually executed. ──
         final_state = await runner._graph.aget_state(runner.config)
-        assert final_state.next == (), (
-            f"resumed graph must reach a terminal state; next={final_state.next!r}"
-        )
+        assert (
+            final_state.next == ()
+        ), f"resumed graph must reach a terminal state; next={final_state.next!r}"
         from langchain_core.messages import ToolMessage
 
         msgs = final_state.values.get("messages", [])
         tool_msgs = [
-            m for m in msgs
+            m
+            for m in msgs
             if isinstance(m, ToolMessage) and getattr(m, "name", "") == GATED_TOOL
         ]
         assert tool_msgs, "after approve+resume, the gated tool must have executed (ToolMessage present)"
@@ -165,9 +176,9 @@ class TestCheckpointResume:
             m.content for m in result.get("messages", []) if isinstance(m, AIMessage)
         ]
         joined = " ".join(t for t in ai_texts if isinstance(t, str))
-        assert "all done" in joined, (
-            f"resumed run must continue to turn 2 ('all done'), not restart; got {ai_texts!r}"
-        )
+        assert (
+            "all done" in joined
+        ), f"resumed run must continue to turn 2 ('all done'), not restart; got {ai_texts!r}"
 
 
 # ===========================================================================
@@ -280,16 +291,39 @@ _DOCUMENTED_EVENT_TYPES = frozenset(
 _REQUIRED_DATA_KEYS = {
     "agent_start": {"agent_id", "name", "role", "icon", "index", "total"},
     "agent_chunk": {"agent_id", "chunk"},
-    "agent_complete": {"agent_id", "name", "duration", "output_length",
-                        "input_tokens", "output_tokens", "total_tokens"},
+    "agent_complete": {
+        "agent_id",
+        "name",
+        "duration",
+        "output_length",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+    },
     "tool_call": {"agent_id", "tool", "args"},
     "tool_result": {"agent_id", "tool", "result"},
-    "task_progress": {"agent_id", "pipeline_run_id", "completed_tasks",
-                      "completed_count", "timestamp"},
-    "task_loop_progress": {"agent_id", "pipeline_run_id", "task_number",
-                           "total_tasks", "timestamp"},
-    "pipeline_complete": {"pipeline_type", "pipeline_run_id", "final_output",
-                          "total_input_tokens", "total_output_tokens", "total_tokens"},
+    "task_progress": {
+        "agent_id",
+        "pipeline_run_id",
+        "completed_tasks",
+        "completed_count",
+        "timestamp",
+    },
+    "task_loop_progress": {
+        "agent_id",
+        "pipeline_run_id",
+        "task_number",
+        "total_tasks",
+        "timestamp",
+    },
+    "pipeline_complete": {
+        "pipeline_type",
+        "pipeline_run_id",
+        "final_output",
+        "total_input_tokens",
+        "total_output_tokens",
+        "total_tokens",
+    },
 }
 
 
@@ -299,7 +333,9 @@ class TestNewEngineEventVocabulary:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("pipeline_type", ["user_stories", "prototype"])
-    async def test_event_vocabulary_conforms_to_contract(self, pipeline_type: str) -> None:
+    async def test_event_vocabulary_conforms_to_contract(
+        self, pipeline_type: str
+    ) -> None:
         events = await _drive(pipeline_type, "new")
         assert events, f"{pipeline_type}: NEW engine produced no events"
 
@@ -334,9 +370,9 @@ class TestNewEngineEventVocabulary:
         assert "pipeline_start" in types
         assert types[-1] == "pipeline_complete"
         # Every agent_start is eventually followed by an agent_complete (or error).
-        assert types.count("agent_start") == types.count("agent_complete"), (
-            f"each agent_start must pair with an agent_complete; got {types}"
-        )
+        assert types.count("agent_start") == types.count(
+            "agent_complete"
+        ), f"each agent_start must pair with an agent_complete; got {types}"
 
     @pytest.mark.asyncio
     async def test_prototype_build_emits_task_progress_from_tool_args(self) -> None:
@@ -355,12 +391,12 @@ class TestNewEngineEventVocabulary:
             ctasks = data.get("completed_tasks") or []
             assert ctasks, "task_progress must carry a non-empty completed_tasks list"
             item = ctasks[0]
-            assert set(item.keys()) == {"number", "title", "summary"}, (
-                f"completed_tasks item must be {{number,title,summary}}; got {sorted(item.keys())}"
-            )
-            assert item["number"] == 1 and item["title"] == "Build shell", (
-                f"task_progress payload must reflect the report_task_complete args; got {item}"
-            )
+            assert (
+                set(item.keys()) == {"number", "title", "summary"}
+            ), f"completed_tasks item must be {{number,title,summary}}; got {sorted(item.keys())}"
+            assert (
+                item["number"] == 1 and item["title"] == "Build shell"
+            ), f"task_progress payload must reflect the report_task_complete args; got {item}"
 
 
 # ===========================================================================

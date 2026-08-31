@@ -57,7 +57,8 @@ class RepoProvider:
                 logger.warning(
                     "repo provider: assert_owns failed for source run %s (%s) — "
                     "FAILING CLOSED: surfacing no repo context",
-                    source_run_id, authz_exc,
+                    source_run_id,
+                    authz_exc,
                 )
                 return {}
 

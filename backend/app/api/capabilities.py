@@ -157,6 +157,4 @@ def list_capabilities(
         for m in ModelCatalog().list()
     ]
 
-    return CapabilitiesPalette(
-        capabilities=capabilities, model_catalog=model_catalog
-    )
+    return CapabilitiesPalette(capabilities=capabilities, model_catalog=model_catalog)

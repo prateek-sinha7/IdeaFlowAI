@@ -135,8 +135,12 @@ def env(monkeypatch):
     client = TestClient(app)
 
     yield {
-        "ws": ws_module, "rc": rc_module, "client": client,
-        "state": state, "Session": TestingSession, "engine": stub,
+        "ws": ws_module,
+        "rc": rc_module,
+        "client": client,
+        "state": state,
+        "Session": TestingSession,
+        "engine": stub,
     }
 
     ws_module._PIPELINE_TASKS.clear()
@@ -167,11 +171,18 @@ def _seed_run(env, owner_id: str, *, status: str, run_type="prototype") -> str:
     run_id = str(uuid.uuid4())
     db = env["Session"]()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=owner_id, owner_id=owner_id,
-            title="a run", type=run_type, status=status, input="brief",
-            agent_count=3,
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=owner_id,
+                owner_id=owner_id,
+                title="a run",
+                type=run_type,
+                status=status,
+                input="brief",
+                agent_count=3,
+            )
+        )
         db.commit()
     finally:
         db.close()

@@ -38,7 +38,7 @@ class AgentContext:
     dict.
     """
 
-    user_request: str                          # Original user message
+    user_request: str  # Original user message
     agent_outputs: dict[str, str] = field(default_factory=dict)
     attached_skills: list[dict] = field(default_factory=list)
     attached_hooks: list[dict] = field(default_factory=list)
@@ -51,7 +51,7 @@ class AgentContext:
     # THIS invocation — written by create_runner, read by the engine to emit the
     # ``agent_skills`` event. Typed ``object`` to keep the app-layer import lazy.
     skills_delivery: object | None = None
-    model: str | None = None                   # User-selected model ID (overrides system default)
+    model: str | None = None  # User-selected model ID (overrides system default)
     # od_context carries loaded template / design-system / craft content for
     # agents that declare an `injects` capability (od_prototype / od_ppt).
     # Keys: template_body, ds_id, ds_body, craft_block, template_id,
@@ -294,7 +294,11 @@ def create_runner(
     # Skills must be staged BEFORE tools/prompt are resolved: staging needs the
     # sandbox, and the prompt/tool set below need to know whether anything was
     # actually staged (spec 011).
-    _skills = _resolve_step_skills(ctx.step_skills) if ctx.step_skills else ctx.attached_skills
+    _skills = (
+        _resolve_step_skills(ctx.step_skills)
+        if ctx.step_skills
+        else ctx.attached_skills
+    )
     delivery = stage_skills(
         sandbox,
         _skills,
@@ -486,9 +490,7 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
     # spec.injects → identical _compose_injection input → byte-identical prompt (INV-3).
     spec_injects = getattr(spec, "injects", []) or []
     step_injects = getattr(ctx, "step_injects", []) or []
-    injects = list(spec_injects) + [
-        i for i in step_injects if i not in spec_injects
-    ]
+    injects = list(spec_injects) + [i for i in step_injects if i not in spec_injects]
     if injects:
         injection_block = _compose_injection(spec, ctx, injects)
         if injection_block:
@@ -531,7 +533,9 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
     # The per-user DISK skill (ctx.disk_skill / D6) keeps its eager block and is the ONLY
     # input to the unchanged render below.
     disk_skill = getattr(ctx, "disk_skill", None)
-    skill_blocks = extract_ui_skill_blocks([{"content": disk_skill}] if disk_skill else [])
+    skill_blocks = extract_ui_skill_blocks(
+        [{"content": disk_skill}] if disk_skill else []
+    )
     skill_entries = [b for b in skill_blocks if b.content]
     if skill_entries:
         rendered_skills = [
@@ -543,7 +547,9 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
             f"--- END SKILL {b.name.upper() or 'UNKNOWN'} ---\n"
             for b in skill_entries
         ]
-        blocks["skills"] = "=== SKILLS ===\n\n" + "\n\n".join(rendered_skills) + "=== END SKILLS ==="
+        blocks["skills"] = (
+            "=== SKILLS ===\n\n" + "\n\n".join(rendered_skills) + "=== END SKILLS ==="
+        )
 
     # 3. Hooks — via the ``behavioral`` hook_provider (the legacy prompt-only hook
     # survives as a non-executable sub-type; the ## Active Behavioral Hooks block render).
@@ -553,12 +559,12 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
         hook_names = [h.get("name", h.get("id", "?")) for h in ctx.attached_hooks]
         logger.debug(
             "_compose_system_prompt: %d hook(s) injected into agent=%s — %s",
-            len(ctx.attached_hooks), spec.id, ", ".join(hook_names),
+            len(ctx.attached_hooks),
+            spec.id,
+            ", ".join(hook_names),
         )
     else:
-        logger.debug(
-            "_compose_system_prompt: no hooks attached for agent=%s", spec.id
-        )
+        logger.debug("_compose_system_prompt: no hooks attached for agent=%s", spec.id)
 
     # 4. Constitution guardrail (F4 untouched — 08-06 owns its deletion).
     constitution = _inject_constitution(ctx)
@@ -576,17 +582,20 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
     if user_id:
         try:
             from app.agents.prompt_overrides import read_user_prompt_override
+
             override = read_user_prompt_override(spec.id, user_id=user_id)
             if override:
                 logger.debug(
                     "_compose_system_prompt: applying user prompt override for agent=%s user=%s",
-                    spec.id, user_id,
+                    spec.id,
+                    user_id,
                 )
                 prompt_body = override
         except Exception as exc:  # noqa: BLE001 — never let an override lookup crash a run
             logger.warning(
                 "_compose_system_prompt: prompt override lookup failed for agent=%s: %s — using base prompt",
-                spec.id, exc,
+                spec.id,
+                exc,
             )
     # 6. Custom-agent composition (spec 012 / R-14, F-06, T11): a synthetic
     # ``custom-agent:<instance_id>`` spec's prompt_body is the baked preamble
@@ -604,7 +613,9 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
         # The declared single_file deliverable name wins for the FINAL step
         # that produces it (deliverable_filename_override, set by the engine
         # only in that case) — otherwise the usual per-instance convention.
-        filename = ctx.deliverable_filename_override or artifact_name(instance_id, ctx.topic)
+        filename = ctx.deliverable_filename_override or artifact_name(
+            instance_id, ctx.topic
+        )
         parts = [prompt_body]
         if ctx.step_prompt:
             parts.append(ctx.step_prompt)
@@ -633,7 +644,9 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
     # pins this function's return value byte-for-byte).
     logger.debug(
         "compose_prompt %s: %d slots -> ~%d chars",
-        spec.id, len(blocks), len(composed),
+        spec.id,
+        len(blocks),
+        len(composed),
     )
     return composed
 
@@ -667,7 +680,9 @@ def _inject_constitution(ctx: AgentContext) -> str:
     )
 
 
-def _compose_injection_no_template(spec, od: dict, injects: list[str], sections: list) -> str:
+def _compose_injection_no_template(
+    spec, od: dict, injects: list[str], sections: list
+) -> str:
     """KAN-87: compose injection block when no template was selected.
 
     Injects the design system tokens + a concrete "blank canvas" scaffold that

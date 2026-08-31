@@ -49,7 +49,9 @@ class UserGithubCredential(Base):
     __tablename__ = "user_github_credentials"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    user_id = Column(
+        String, ForeignKey("users.id"), nullable=False, unique=True, index=True
+    )
     encrypted_pat = Column(Text, nullable=False)
     github_username = Column(String, nullable=True)
     scopes = Column(String, nullable=True)
@@ -96,11 +98,11 @@ class UserApiKey(Base):
 
 
 # Status values for HandoffSession.status
-HANDOFF_STATUS_PENDING = "pending"          # Created, awaiting user claim in browser
-HANDOFF_STATUS_RUNNING = "running"          # Pipeline executing
-HANDOFF_STATUS_COMPLETED = "completed"      # PR created (or report delivered)
-HANDOFF_STATUS_FAILED = "failed"            # Pipeline raised
-HANDOFF_STATUS_EXPIRED = "expired"          # Lapsed before claim
+HANDOFF_STATUS_PENDING = "pending"  # Created, awaiting user claim in browser
+HANDOFF_STATUS_RUNNING = "running"  # Pipeline executing
+HANDOFF_STATUS_COMPLETED = "completed"  # PR created (or report delivered)
+HANDOFF_STATUS_FAILED = "failed"  # Pipeline raised
+HANDOFF_STATUS_EXPIRED = "expired"  # Lapsed before claim
 
 # Mode values
 HANDOFF_MODE_AUTO = "auto"
@@ -134,7 +136,9 @@ class HandoffSession(Base):
     repo_default_branch = Column(String, nullable=True)
     source_branch = Column(String, nullable=True)
     mode = Column(String, nullable=False, default=HANDOFF_MODE_AUTO)
-    source_client = Column(String, nullable=True)  # "claude-code" | "mcp" | "cursor" | ...
+    source_client = Column(
+        String, nullable=True
+    )  # "claude-code" | "mcp" | "cursor" | ...
 
     status = Column(String, nullable=False, default=HANDOFF_STATUS_PENDING)
     resolved_mode = Column(String, nullable=True)  # populated post-classification

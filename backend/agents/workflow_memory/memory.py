@@ -101,7 +101,10 @@ class WorkflowMemory:
         if not self._use_db:
             if user_id not in self._mem:
                 self._mem[user_id] = {}
-            if len(self._mem[user_id]) >= _MAX_ENTRIES_PER_USER and key not in self._mem[user_id]:
+            if (
+                len(self._mem[user_id]) >= _MAX_ENTRIES_PER_USER
+                and key not in self._mem[user_id]
+            ):
                 raise WorkflowMemoryError(
                     f"User {user_id!r} has reached the {_MAX_ENTRIES_PER_USER}-entry limit."
                 )
@@ -132,6 +135,7 @@ class WorkflowMemory:
                     existing.updated_at = now
                 else:
                     import uuid
+
                     row = WMModel(
                         id=str(uuid.uuid4()),
                         user_id=user_id,
@@ -213,7 +217,11 @@ class WorkflowMemory:
 
 def _is_table_missing(exc: Exception) -> bool:
     err = str(exc).lower()
-    return "no such table" in err or "does not exist" in err or "failed to locate a name" in err
+    return (
+        "no such table" in err
+        or "does not exist" in err
+        or "failed to locate a name" in err
+    )
 
 
 # ------------------------------------------------------------------

@@ -53,7 +53,9 @@ def test_linear_chain_satisfiable(resolver: WorkflowResolver) -> None:
     agents = [
         _AgentSpec("specify-agent", produces=["spec"]),
         _AgentSpec("clarify-agent", consumes=["spec"], produces=["clarifications"]),
-        _AgentSpec("plan-agent", consumes=["spec", "clarifications"], produces=["plan"]),
+        _AgentSpec(
+            "plan-agent", consumes=["spec", "clarifications"], produces=["plan"]
+        ),
     ]
     result = resolver.validate(agents)
     assert result.satisfiable
@@ -184,9 +186,9 @@ def test_multi_producer_nearest_upstream_wins(resolver: WorkflowResolver) -> Non
     """When two agents produce the same type, the nearest upstream (highest index
     that is still < consumer index) should be selected."""
     agents = [
-        _AgentSpec("producer-1", produces=["spec"]),   # index 0
-        _AgentSpec("producer-2", produces=["spec"]),   # index 1
-        _AgentSpec("consumer", consumes=["spec"]),     # index 2
+        _AgentSpec("producer-1", produces=["spec"]),  # index 0
+        _AgentSpec("producer-2", produces=["spec"]),  # index 1
+        _AgentSpec("consumer", consumes=["spec"]),  # index 2
     ]
     result = resolver.validate(agents)
     assert result.satisfiable
@@ -230,8 +232,14 @@ def test_resolve_execution_order_returns_topological_order(
 def test_51_agents_still_validates(resolver: WorkflowResolver) -> None:
     """The resolver itself has no agent-count limit — the engine enforces 1–50.
     Validate that 51 agents resolve correctly (engine will reject before calling execute)."""
-    agents = [_AgentSpec(f"agent-{i}", produces=[f"out-{i}"], consumes=[f"out-{i-1}"] if i > 0 else [])
-              for i in range(51)]
+    agents = [
+        _AgentSpec(
+            f"agent-{i}",
+            produces=[f"out-{i}"],
+            consumes=[f"out-{i-1}"] if i > 0 else [],
+        )
+        for i in range(51)
+    ]
     result = resolver.validate(agents)
     assert result.satisfiable
     assert len(result.dag) == 51
@@ -293,7 +301,11 @@ def test_presort_reorders_consumer_first(resolver: WorkflowResolver) -> None:
     reordered producer-first; feeding the result back into the UNTOUCHED validate()
     is satisfiable."""
     agents = [
-        _AgentSpec("swot-analyst", consumes=["market-research-agent"], produces=["swot-analyst"]),
+        _AgentSpec(
+            "swot-analyst",
+            consumes=["market-research-agent"],
+            produces=["swot-analyst"],
+        ),
         _AgentSpec("market-research-agent", produces=["market-research-agent"]),
     ]
     ordered = resolver.presort(agents)
@@ -325,7 +337,9 @@ def test_presort_exempt_types_are_roots(resolver: WorkflowResolver) -> None:
     """An agent consuming only exempt types (planning_context/constitution) is a
     root — presorts without error."""
     agents = [
-        _AgentSpec("a", consumes=["planning_context", "constitution"], produces=["spec"]),
+        _AgentSpec(
+            "a", consumes=["planning_context", "constitution"], produces=["spec"]
+        ),
     ]
     ordered = resolver.presort(agents)
     assert [a.id for a in ordered] == ["a"]

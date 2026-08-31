@@ -45,6 +45,7 @@ router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 # --- Response Models ---
 
+
 class AgentResponse(BaseModel):
     id: str
     name: str
@@ -94,12 +95,13 @@ class PromptOverrideRequest(BaseModel):
 
 class AgentPromptResponse(BaseModel):
     agent_id: str
-    prompt_body: str          # base AGENT.md prompt
-    override: str | None      # per-user override (None if not set)
-    has_override: bool        # whether the user has saved an override
+    prompt_body: str  # base AGENT.md prompt
+    override: str | None  # per-user override (None if not set)
+    has_override: bool  # whether the user has saved an override
 
 
 # --- Helpers ---
+
 
 def _agent_has_resolvable_skill(agent_id: str, user_id: str) -> bool:
     """Return True if any skill (user, global, pptx, or default) resolves for
@@ -108,6 +110,7 @@ def _agent_has_resolvable_skill(agent_id: str, user_id: str) -> bool:
 
 
 # --- Endpoints ---
+
 
 @router.get("/pipelines/{pipeline_type}", response_model=PipelineResponse)
 def get_pipeline(
@@ -303,9 +306,7 @@ def create_skill(
         # payload-too-large signal.
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=(
-                f"Skill content exceeds maximum size of {MAX_SKILL_BYTES} bytes"
-            ),
+            detail=(f"Skill content exceeds maximum size of {MAX_SKILL_BYTES} bytes"),
         )
 
     path = save_custom_skill(request.agent_id, request.content, user_id=current_user.id)
@@ -392,7 +393,9 @@ def save_agent_prompt_override(
     path = save_user_prompt_override(agent_id, request.content, user_id=current_user.id)
     logger.info(
         "Prompt override saved: user=%s agent=%s bytes=%d",
-        current_user.id, agent_id, len(content_bytes),
+        current_user.id,
+        agent_id,
+        len(content_bytes),
     )
     return {"status": "saved", "agent_id": agent_id, "path": path}
 

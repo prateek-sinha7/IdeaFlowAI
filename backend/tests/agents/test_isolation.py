@@ -127,7 +127,10 @@ def test_worktree_creates_branch_and_dir(runs_root):
     # A per-worker branch fanout/build/0 exists.
     branches = subprocess.run(
         ["git", "branch", "--list", "fanout/build/0"],
-        cwd=str(base._sandbox.root), check=True, capture_output=True, text=True,
+        cwd=str(base._sandbox.root),
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout
     assert "fanout/build/0" in branches
     # The worktree dir exists + is rooted under the run dir.
@@ -153,8 +156,11 @@ def test_remove_worktree_leaves_no_orphan(runs_root):
     wt = base.allocate_worktree(step="build", worker_index=0)
     # Sanity: the worktree is registered before removal.
     listed = subprocess.run(
-        ["git", "worktree", "list"], cwd=str(base._sandbox.root),
-        check=True, capture_output=True, text=True,
+        ["git", "worktree", "list"],
+        cwd=str(base._sandbox.root),
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout
     assert str(wt._sandbox.root) in listed or "fanout/build/0" in listed
 
@@ -162,13 +168,19 @@ def test_remove_worktree_leaves_no_orphan(runs_root):
 
     # Zero orphan worktrees + the per-worker branch is deleted.
     listed_after = subprocess.run(
-        ["git", "worktree", "list"], cwd=str(base._sandbox.root),
-        check=True, capture_output=True, text=True,
+        ["git", "worktree", "list"],
+        cwd=str(base._sandbox.root),
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout
     assert str(wt._sandbox.root) not in listed_after
     branches = subprocess.run(
         ["git", "branch", "--list", "fanout/build/0"],
-        cwd=str(base._sandbox.root), check=True, capture_output=True, text=True,
+        cwd=str(base._sandbox.root),
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout
     assert "fanout/build/0" not in branches
 
@@ -263,7 +275,9 @@ def test_clone_repo_flips_has_git(runs_root, tmp_path):
     src = tmp_path / "src-repo"
     src.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=str(src), check=True)
-    subprocess.run(["git", "config", "user.email", "t@t.local"], cwd=str(src), check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "t@t.local"], cwd=str(src), check=True
+    )
     subprocess.run(["git", "config", "user.name", "t"], cwd=str(src), check=True)
     (src / "seed.txt").write_text("base\n", encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=str(src), check=True)
@@ -352,7 +366,9 @@ async def test_run_fanout_commits_completed_worktree_worker():
 
     await _collect(run_fanout([{"agent": "self", "input": "t"}], ctx, step=_iso_step()))
 
-    assert [c[0] for c in committed] == [0], "the completed worktree worker did not commit"
+    assert [c[0] for c in committed] == [
+        0
+    ], "the completed worktree worker did not commit"
 
 
 def test_select_scope_sub_sandbox_when_no_git():
@@ -392,20 +408,51 @@ class _IsolationFakeRunner:
     async def reclaim_isolated_workspace(self, base_workspace, worker_ws):
         self.reclaimed.append(worker_ws)
 
-    async def record_subagent_run(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None, worker_index=None, task_id=None):
+    async def record_subagent_run(
+        self,
+        *,
+        parent_step,
+        worker_agent,
+        depth,
+        isolation,
+        status,
+        tokens=None,
+        cost=None,
+        worker_index=None,
+        task_id=None,
+    ):
         self._row_seq += 1
         row_id = f"row-{self._row_seq}"
         self.recorded_rows.append(
-            dict(id=row_id, parent_step=parent_step, worker_agent=worker_agent,
-                 depth=depth, isolation=isolation, status=status)
+            dict(
+                id=row_id,
+                parent_step=parent_step,
+                worker_agent=worker_agent,
+                depth=depth,
+                isolation=isolation,
+                status=status,
+            )
         )
         return row_id
 
     async def update_subagent_run(self, row_id, *, status, tokens=None, cost=None):
         self.updated_rows.append(dict(id=row_id, status=status))
 
-    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None, **kw):
-        self.spawned.append(dict(index=worker_index, agent_id=agent_id, workspace=workspace))
+    async def run_worker(
+        self,
+        step,
+        ctx,
+        *,
+        worker_index,
+        thread_id,
+        agent_id,
+        input,
+        workspace=None,
+        **kw,
+    ):
+        self.spawned.append(
+            dict(index=worker_index, agent_id=agent_id, workspace=workspace)
+        )
         self.worker_workspaces.append(workspace)
         yield {"type": "agent_chunk", "data": {"worker": worker_index}}
 
@@ -415,7 +462,9 @@ def _iso_ctx(runner):
 
 
 def _iso_step(agent_id="worker-a", *, mode="parallel"):
-    fanout = SimpleNamespace(mode=mode, max_parallel=None, agent="self", count=None, workers=[])
+    fanout = SimpleNamespace(
+        mode=mode, max_parallel=None, agent="self", count=None, workers=[]
+    )
     return SimpleNamespace(agent_id=agent_id, fanout=fanout)
 
 
@@ -437,7 +486,9 @@ async def test_has_git_base_allocates_worktree_recorded_on_subagent_runs():
     # The chosen scope is recorded on EACH child's subagent_runs.isolation.
     assert all(r["isolation"] == "worktree" for r in runner.recorded_rows)
     # Each worker bound its allocated isolated workspace.
-    assert all(ws is not None and ws.scope == "worktree" for ws in runner.worker_workspaces)
+    assert all(
+        ws is not None and ws.scope == "worktree" for ws in runner.worker_workspaces
+    )
     # Happy-path teardown reclaimed every allocated workspace.
     assert len(runner.reclaimed) == 2
 
@@ -488,14 +539,22 @@ def test_engine_extracts_isolated_sandbox_from_worker_step_view():
     ectx = SimpleNamespace(current_step=SimpleNamespace(isolated_workspace=iso_ws))
     assert ExecutionEngine._isolated_run_sandbox(ectx) is sandbox
     # No step bound / no isolated workspace → None (shared-sandbox parity).
-    assert ExecutionEngine._isolated_run_sandbox(SimpleNamespace(current_step=None)) is None
-    assert ExecutionEngine._isolated_run_sandbox(
-        SimpleNamespace(current_step=SimpleNamespace(isolated_workspace=None))
-    ) is None
+    assert (
+        ExecutionEngine._isolated_run_sandbox(SimpleNamespace(current_step=None))
+        is None
+    )
+    assert (
+        ExecutionEngine._isolated_run_sandbox(
+            SimpleNamespace(current_step=SimpleNamespace(isolated_workspace=None))
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
-async def test_two_workers_same_relpath_isolated_through_run_sandbox_override(runs_root):
+async def test_two_workers_same_relpath_isolated_through_run_sandbox_override(
+    runs_root,
+):
     """Two workers writing the SAME relpath land in DISTINCT roots through the
     ``create_runner(run_sandbox=...)`` override — the CR-02 live seam, not a fake
     that merely records the workspace (T-11-02-02 through the real disk backend)."""
@@ -508,18 +567,24 @@ async def test_two_workers_same_relpath_isolated_through_run_sandbox_override(ru
     outputs: dict[int, str] = {}
     for i in range(2):
         child = base.allocate_sub_sandbox(step="build", worker_index=i)
-        fake = ScriptedFakeChatModel([
-            _ScriptedTurn(
-                texts=["writing "],
-                tool_calls=[(
-                    "write_file",
-                    _json.dumps({"file_path": "/out.txt", "content": f"worker-{i}"}),
-                    f"c{i}",
-                )],
-                usage=(5, 3),
-            ),
-            _ScriptedTurn(texts=["done."], usage=(2, 1)),
-        ])
+        fake = ScriptedFakeChatModel(
+            [
+                _ScriptedTurn(
+                    texts=["writing "],
+                    tool_calls=[
+                        (
+                            "write_file",
+                            _json.dumps(
+                                {"file_path": "/out.txt", "content": f"worker-{i}"}
+                            ),
+                            f"c{i}",
+                        )
+                    ],
+                    usage=(5, 3),
+                ),
+                _ScriptedTurn(texts=["done."], usage=(2, 1)),
+            ]
+        )
         ctx = AgentContext(
             user_request="go", model=fake, user_id="owner-1", run_id="ws-run-1"
         )
@@ -540,7 +605,9 @@ def test_fanout_never_reads_isolation_scope_from_manifest():
 
     fanout_src = (
         pathlib.Path(__file__).resolve().parents[2]
-        / "agents" / "execution_engine" / "fanout.py"
+        / "agents"
+        / "execution_engine"
+        / "fanout.py"
     ).read_text(encoding="utf-8")
     # The scope is derived from base_workspace.has_git, never from step.fanout.
     assert "fanout.isolation" not in fanout_src

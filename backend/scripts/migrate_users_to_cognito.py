@@ -100,6 +100,7 @@ USAGE (from backend/)
 Requires COGNITO_* configuration to be present even when AUTH_PROVIDER is still
 ``local`` (that is the normal pre-flip state — see runbook step 3).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -305,7 +306,9 @@ def migrate(
             if break_glass_email and user.email.lower() == break_glass_email:
                 skipped_break_glass = user
                 continue
-            is_designated_admin = bool(admin_email) and user.email.lower() == admin_email
+            is_designated_admin = (
+                bool(admin_email) and user.email.lower() == admin_email
+            )
             if not is_designated_admin and not migrate_others:
                 skipped_others.append(user)
                 continue
@@ -339,9 +342,11 @@ def migrate(
             print(f"  SKIP (--admin-only):      {user.email}")
 
         for user in to_migrate:
-            role = "PERMANENT password from stdin" if (
-                admin_email and user.email.lower() == admin_email
-            ) else "generated TEMPORARY password (NEW_PASSWORD_REQUIRED)"
+            role = (
+                "PERMANENT password from stdin"
+                if (admin_email and user.email.lower() == admin_email)
+                else "generated TEMPORARY password (NEW_PASSWORD_REQUIRED)"
+            )
             groups = [group_for_tier(user.tier)]
             if user.is_admin:
                 groups.append(ADMIN_GROUP)
@@ -379,7 +384,10 @@ def migrate(
                     # a real check rather than an `assert` so it still holds if
                     # this module is ever driven programmatically or under -O.
                     failures.append((email, "no admin password supplied"))
-                    print(f"  FAILED  {email}: no admin password supplied", file=sys.stderr)
+                    print(
+                        f"  FAILED  {email}: no admin password supplied",
+                        file=sys.stderr,
+                    )
                     continue
                 password, permanent = admin_password, True
             else:
@@ -427,10 +435,14 @@ def migrate(
                 continue
 
             if is_designated_admin:
-                print(f"  OK      {email} -> cognito_sub={sub} (permanent password set)")
+                print(
+                    f"  OK      {email} -> cognito_sub={sub} (permanent password set)"
+                )
             else:
                 generated.append((email, password))
-                print(f"  OK      {email} -> cognito_sub={sub} (temporary password below)")
+                print(
+                    f"  OK      {email} -> cognito_sub={sub} (temporary password below)"
+                )
 
         # --- Report ----------------------------------------------------------
         if generated:
@@ -455,9 +467,7 @@ def migrate(
                 file=sys.stderr,
             )
 
-        print(
-            "\nNext: uv run python scripts/verify_cognito_cutover.py --check-pool"
-        )
+        print("\nNext: uv run python scripts/verify_cognito_cutover.py --check-pool")
         if settings.AUTH_PROVIDER.lower() != "cognito":
             print(
                 f"NOTE: AUTH_PROVIDER is still '{settings.AUTH_PROVIDER}'. Migrated "

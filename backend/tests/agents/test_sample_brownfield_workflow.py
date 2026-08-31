@@ -93,7 +93,11 @@ def _load_fixture_specs():
 
 def _scripts_for(agent_id: str):
     if agent_id == "brownfield-analyze":
-        return [_ScriptedTurn(texts=["Edit src/app.py to personalize the greeting."], usage=(12, 7))]
+        return [
+            _ScriptedTurn(
+                texts=["Edit src/app.py to personalize the greeting."], usage=(12, 7)
+            )
+        ]
     if agent_id == "brownfield-build":
         return [_ScriptedTurn(texts=["Edited src/app.py."], usage=(20, 10))]
     return [_ScriptedTurn(texts=[f"{agent_id} default."], usage=(5, 3))]
@@ -116,6 +120,7 @@ async def _drive_brownfield(fixture_repo: Path, runs_root: str):
     from agents.loader import _SPEC_CACHE
 
     import app.core.config as config_module
+
     config_module.settings.RUNS_ROOT = runs_root
 
     from app.agents.runtime.local import LocalSandboxRuntime
@@ -123,7 +128,10 @@ async def _drive_brownfield(fixture_repo: Path, runs_root: str):
     # ── Provision the has_git=True repo workspace (clone fixture, branch work) ───
     runtime = LocalSandboxRuntime()
     workspace = runtime.create_workspace(
-        owner_id="brownfield-user", workspace_id="brownfield-ws", has_git=True, exec=False
+        owner_id="brownfield-user",
+        workspace_id="brownfield-ws",
+        has_git=True,
+        exec=False,
     )
     workspace.clone_repo(str(fixture_repo))
     workspace.create_branch("work")
@@ -200,7 +208,9 @@ async def _drive_brownfield(fixture_repo: Path, runs_root: str):
 
     engine = ExecutionEngine()
 
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs):
+    async def _fake_run_planner(
+        user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+    ):
         return engine._default_planning_context(user_message), "PROCEED"
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]
@@ -243,9 +253,13 @@ async def _drive_brownfield(fixture_repo: Path, runs_root: str):
 
 
 @pytest.mark.asyncio
-async def test_sample_brownfield_runs_end_to_end_with_diff(local_git_fixture, tmp_path) -> None:
+async def test_sample_brownfield_runs_end_to_end_with_diff(
+    local_git_fixture, tmp_path
+) -> None:
     """REPO-05: the run completes offline and the surfaced repo_diff contains the edit."""
-    events, _compiled = await _drive_brownfield(local_git_fixture, str(tmp_path / "runs"))
+    events, _compiled = await _drive_brownfield(
+        local_git_fixture, str(tmp_path / "runs")
+    )
     assert events, "sample_brownfield produced no events"
 
     errors = [e for e in events if e.get("type") == "error"]
@@ -256,7 +270,9 @@ async def test_sample_brownfield_runs_end_to_end_with_diff(local_git_fixture, tm
     final_output = (completes[-1].get("data") or {}).get("final_output")
 
     # The deliverable is the repo_diff dict (tree + per-file diff + summary).
-    assert isinstance(final_output, dict), f"final_output is not a repo_diff dict: {final_output!r}"
+    assert isinstance(
+        final_output, dict
+    ), f"final_output is not a repo_diff dict: {final_output!r}"
     assert final_output.get("kind") == "repo_diff"
     assert _EDIT_REL in final_output["tree"], final_output["tree"]
     # The surfaced diff CONTAINS the agent's edit (REPO-05 core acceptance).
@@ -267,14 +283,18 @@ async def test_sample_brownfield_runs_end_to_end_with_diff(local_git_fixture, tm
 
 
 @pytest.mark.asyncio
-async def test_sample_brownfield_exec_off_at_every_step(local_git_fixture, tmp_path) -> None:
+async def test_sample_brownfield_exec_off_at_every_step(
+    local_git_fixture, tmp_path
+) -> None:
     """REPO-05 / T-09-04-01: the effective-perms intersection has exec=off everywhere."""
-    _events, compiled = await _drive_brownfield(local_git_fixture, str(tmp_path / "runs"))
+    _events, compiled = await _drive_brownfield(
+        local_git_fixture, str(tmp_path / "runs")
+    )
     assert compiled.steps, "the compiled workflow has no steps"
     for step in compiled.steps:
-        assert step.tools.exec is False, (
-            f"step {step.agent_id} grants exec — the brownfield path must run exec=off"
-        )
+        assert (
+            step.tools.exec is False
+        ), f"step {step.agent_id} grants exec — the brownfield path must run exec=off"
     # The deliverable + repo provider all resolved against the registry (the manifest
     # compiled cleanly — no engine edit was needed to run the new workflow).
     assert compiled.deliverable.strategy == "repo_diff"
@@ -294,7 +314,9 @@ def test_sample_brownfield_required_zero_engine_edits() -> None:
     repo_root = Path(
         subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
     )
     engine_pkg = "backend/agents/execution_engine/"

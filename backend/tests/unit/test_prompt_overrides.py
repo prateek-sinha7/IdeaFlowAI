@@ -19,6 +19,7 @@ import pytest
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def overrides_sandbox(tmp_path: Path) -> Iterator[Path]:
     """Redirect the prompt_overrides module to a fresh tmp_path."""
@@ -36,14 +37,20 @@ def overrides_sandbox(tmp_path: Path) -> Iterator[Path]:
 
 # ── Storage layer ─────────────────────────────────────────────────────────────
 
+
 class TestPromptOverrideStorage:
     """Tests for save / read / delete / has_override in prompt_overrides.py."""
 
     def test_save_writes_to_correct_path(self, overrides_sandbox):
         """Override is written to skills/users/{uid}/{agent_id}/PROMPT_OVERRIDE.md."""
-        from app.agents.prompt_overrides import save_user_prompt_override, _USER_SKILLS_DIR
+        from app.agents.prompt_overrides import (
+            save_user_prompt_override,
+            _USER_SKILLS_DIR,
+        )
 
-        path = save_user_prompt_override("domain-analyst", "# Custom prompt", user_id="user-1")
+        path = save_user_prompt_override(
+            "domain-analyst", "# Custom prompt", user_id="user-1"
+        )
 
         expected = _USER_SKILLS_DIR / "user-1" / "domain-analyst" / "PROMPT_OVERRIDE.md"
         assert Path(path) == expected
@@ -52,9 +59,14 @@ class TestPromptOverrideStorage:
 
     def test_read_returns_content_when_override_exists(self, overrides_sandbox):
         """Reading an existing override returns its content verbatim."""
-        from app.agents.prompt_overrides import save_user_prompt_override, read_user_prompt_override
+        from app.agents.prompt_overrides import (
+            save_user_prompt_override,
+            read_user_prompt_override,
+        )
 
-        save_user_prompt_override("epic-architect", "override content", user_id="user-2")
+        save_user_prompt_override(
+            "epic-architect", "override content", user_id="user-2"
+        )
         result = read_user_prompt_override("epic-architect", user_id="user-2")
         assert result == "override content"
 
@@ -67,7 +79,10 @@ class TestPromptOverrideStorage:
 
     def test_has_override_true_after_save(self, overrides_sandbox):
         """has_user_prompt_override returns True after saving."""
-        from app.agents.prompt_overrides import save_user_prompt_override, has_user_prompt_override
+        from app.agents.prompt_overrides import (
+            save_user_prompt_override,
+            has_user_prompt_override,
+        )
 
         save_user_prompt_override("domain-analyst", "# Override", user_id="user-3")
         assert has_user_prompt_override("domain-analyst", user_id="user-3") is True
@@ -81,7 +96,9 @@ class TestPromptOverrideStorage:
     def test_delete_removes_file(self, overrides_sandbox):
         """Deleting an override removes the file and returns True."""
         from app.agents.prompt_overrides import (
-            save_user_prompt_override, delete_user_prompt_override, has_user_prompt_override
+            save_user_prompt_override,
+            delete_user_prompt_override,
+            has_user_prompt_override,
         )
 
         save_user_prompt_override("domain-analyst", "# Override", user_id="user-4")
@@ -90,7 +107,9 @@ class TestPromptOverrideStorage:
         assert result is True
         assert has_user_prompt_override("domain-analyst", user_id="user-4") is False
 
-    def test_delete_idempotent_returns_false_when_nothing_to_delete(self, overrides_sandbox):
+    def test_delete_idempotent_returns_false_when_nothing_to_delete(
+        self, overrides_sandbox
+    ):
         """Deleting a non-existent override returns False without error."""
         from app.agents.prompt_overrides import delete_user_prompt_override
 
@@ -99,7 +118,10 @@ class TestPromptOverrideStorage:
 
     def test_users_isolated_from_each_other(self, overrides_sandbox):
         """User A's override does not affect User B's read."""
-        from app.agents.prompt_overrides import save_user_prompt_override, read_user_prompt_override
+        from app.agents.prompt_overrides import (
+            save_user_prompt_override,
+            read_user_prompt_override,
+        )
 
         save_user_prompt_override("domain-analyst", "user-A override", user_id="user-A")
         result_b = read_user_prompt_override("domain-analyst", user_id="user-B")
@@ -114,7 +136,10 @@ class TestPromptOverrideStorage:
 
     def test_save_raises_on_oversized_content(self, overrides_sandbox):
         """Saving content exceeding MAX_PROMPT_OVERRIDE_BYTES raises ValueError."""
-        from app.agents.prompt_overrides import save_user_prompt_override, MAX_PROMPT_OVERRIDE_BYTES
+        from app.agents.prompt_overrides import (
+            save_user_prompt_override,
+            MAX_PROMPT_OVERRIDE_BYTES,
+        )
 
         oversized = "x" * (MAX_PROMPT_OVERRIDE_BYTES + 1)
         with pytest.raises(ValueError, match="MAX_PROMPT_OVERRIDE_BYTES"):
@@ -129,7 +154,10 @@ class TestPromptOverrideStorage:
 
     def test_skill_and_override_coexist_in_same_directory(self, overrides_sandbox):
         """PROMPT_OVERRIDE.md and SKILL.md can live side by side for the same agent."""
-        from app.agents.prompt_overrides import save_user_prompt_override, _USER_SKILLS_DIR
+        from app.agents.prompt_overrides import (
+            save_user_prompt_override,
+            _USER_SKILLS_DIR,
+        )
 
         save_user_prompt_override("domain-analyst", "# Override", user_id="user-7")
         skill_path = _USER_SKILLS_DIR / "user-7" / "domain-analyst" / "SKILL.md"
@@ -137,11 +165,14 @@ class TestPromptOverrideStorage:
         skill_path.write_text("# Skill")
 
         # Both files exist independently
-        assert (_USER_SKILLS_DIR / "user-7" / "domain-analyst" / "PROMPT_OVERRIDE.md").exists()
+        assert (
+            _USER_SKILLS_DIR / "user-7" / "domain-analyst" / "PROMPT_OVERRIDE.md"
+        ).exists()
         assert skill_path.exists()
 
 
 # ── Factory injection ─────────────────────────────────────────────────────────
+
 
 class TestFactoryPromptOverrideInjection:
     """Tests for factory.py: user override is used in _compose_system_prompt."""
@@ -173,28 +204,40 @@ class TestFactoryPromptOverrideInjection:
         ctx = self._make_ctx(user_id="user-no-override")
 
         with patch("agents.factory._resolve_runner_tools", return_value=([], True)):
-            with patch("agents.capabilities.registry.CapabilityRegistry.resolve") as mock_policy:
+            with patch(
+                "agents.capabilities.registry.CapabilityRegistry.resolve"
+            ) as mock_policy:
                 policy = MagicMock()
-                policy.assemble.side_effect = lambda blocks, ctx: blocks.get("prompt_body", "")
+                policy.assemble.side_effect = lambda blocks, ctx: blocks.get(
+                    "prompt_body", ""
+                )
                 mock_policy.return_value = policy
                 with patch("agents.capabilities.registry.discover"):
                     result = _compose_system_prompt(spec, ctx)
 
         assert result == "base prompt body"
 
-    def test_override_replaces_base_prompt_when_user_has_override(self, overrides_sandbox):
+    def test_override_replaces_base_prompt_when_user_has_override(
+        self, overrides_sandbox
+    ):
         """When user has a saved override, it replaces spec.prompt_body in the system prompt."""
         from agents.factory import _compose_system_prompt
         from app.agents.prompt_overrides import save_user_prompt_override
 
-        save_user_prompt_override("domain-analyst", "my custom override", user_id="user-override")
+        save_user_prompt_override(
+            "domain-analyst", "my custom override", user_id="user-override"
+        )
         spec = self._make_spec("base prompt body")
         ctx = self._make_ctx(user_id="user-override")
 
         with patch("agents.factory._resolve_runner_tools", return_value=([], True)):
-            with patch("agents.capabilities.registry.CapabilityRegistry.resolve") as mock_policy:
+            with patch(
+                "agents.capabilities.registry.CapabilityRegistry.resolve"
+            ) as mock_policy:
                 policy = MagicMock()
-                policy.assemble.side_effect = lambda blocks, ctx: blocks.get("prompt_body", "")
+                policy.assemble.side_effect = lambda blocks, ctx: blocks.get(
+                    "prompt_body", ""
+                )
                 mock_policy.return_value = policy
                 with patch("agents.capabilities.registry.discover"):
                     result = _compose_system_prompt(spec, ctx)
@@ -210,9 +253,13 @@ class TestFactoryPromptOverrideInjection:
         ctx = self._make_ctx(user_id=None)
 
         with patch("agents.factory._resolve_runner_tools", return_value=([], True)):
-            with patch("agents.capabilities.registry.CapabilityRegistry.resolve") as mock_policy:
+            with patch(
+                "agents.capabilities.registry.CapabilityRegistry.resolve"
+            ) as mock_policy:
                 policy = MagicMock()
-                policy.assemble.side_effect = lambda blocks, ctx: blocks.get("prompt_body", "")
+                policy.assemble.side_effect = lambda blocks, ctx: blocks.get(
+                    "prompt_body", ""
+                )
                 mock_policy.return_value = policy
                 with patch("agents.capabilities.registry.discover"):
                     result = _compose_system_prompt(spec, ctx)
@@ -227,13 +274,19 @@ class TestFactoryPromptOverrideInjection:
         ctx = self._make_ctx(user_id="user-error")
 
         with patch("agents.factory._resolve_runner_tools", return_value=([], True)):
-            with patch("agents.capabilities.registry.CapabilityRegistry.resolve") as mock_policy:
+            with patch(
+                "agents.capabilities.registry.CapabilityRegistry.resolve"
+            ) as mock_policy:
                 policy = MagicMock()
-                policy.assemble.side_effect = lambda blocks, ctx: blocks.get("prompt_body", "")
+                policy.assemble.side_effect = lambda blocks, ctx: blocks.get(
+                    "prompt_body", ""
+                )
                 mock_policy.return_value = policy
                 with patch("agents.capabilities.registry.discover"):
-                    with patch("app.agents.prompt_overrides.read_user_prompt_override",
-                               side_effect=OSError("disk read failed")):
+                    with patch(
+                        "app.agents.prompt_overrides.read_user_prompt_override",
+                        side_effect=OSError("disk read failed"),
+                    ):
                         result = _compose_system_prompt(spec, ctx)
 
         assert result == "base prompt body"
@@ -241,9 +294,14 @@ class TestFactoryPromptOverrideInjection:
     def test_after_delete_base_prompt_is_used_again(self, overrides_sandbox):
         """After deleting an override, the base prompt is restored."""
         from agents.factory import _compose_system_prompt
-        from app.agents.prompt_overrides import save_user_prompt_override, delete_user_prompt_override
+        from app.agents.prompt_overrides import (
+            save_user_prompt_override,
+            delete_user_prompt_override,
+        )
 
-        save_user_prompt_override("domain-analyst", "temporary override", user_id="user-revert")
+        save_user_prompt_override(
+            "domain-analyst", "temporary override", user_id="user-revert"
+        )
 
         spec = self._make_spec("base prompt body")
         ctx = self._make_ctx(user_id="user-revert")
@@ -252,9 +310,13 @@ class TestFactoryPromptOverrideInjection:
         delete_user_prompt_override("domain-analyst", user_id="user-revert")
 
         with patch("agents.factory._resolve_runner_tools", return_value=([], True)):
-            with patch("agents.capabilities.registry.CapabilityRegistry.resolve") as mock_policy:
+            with patch(
+                "agents.capabilities.registry.CapabilityRegistry.resolve"
+            ) as mock_policy:
                 policy = MagicMock()
-                policy.assemble.side_effect = lambda blocks, ctx: blocks.get("prompt_body", "")
+                policy.assemble.side_effect = lambda blocks, ctx: blocks.get(
+                    "prompt_body", ""
+                )
                 mock_policy.return_value = policy
                 with patch("agents.capabilities.registry.discover"):
                     result = _compose_system_prompt(spec, ctx)
@@ -263,6 +325,7 @@ class TestFactoryPromptOverrideInjection:
 
 
 # ── AgentResponse includes prompt_body ────────────────────────────────────────
+
 
 class TestAgentResponseIncludesPromptBody:
     """Tests that prompt_body is included in API responses (root cause was it was omitted)."""
@@ -273,7 +336,9 @@ class TestAgentResponseIncludesPromptBody:
         import inspect
 
         fields = AgentResponse.model_fields
-        assert "prompt_body" in fields, "AgentResponse.prompt_body field missing — root cause not fixed"
+        assert (
+            "prompt_body" in fields
+        ), "AgentResponse.prompt_body field missing — root cause not fixed"
 
     def test_agent_prompt_response_model_has_required_fields(self):
         """AgentPromptResponse has agent_id, prompt_body, override, has_override."""
@@ -286,6 +351,7 @@ class TestAgentResponseIncludesPromptBody:
     def test_prompt_override_request_model_exists(self):
         """PromptOverrideRequest Pydantic model exists."""
         from app.api.agents import PromptOverrideRequest
+
         assert PromptOverrideRequest is not None
 
     def test_max_prompt_override_bytes_larger_than_max_skill_bytes(self):

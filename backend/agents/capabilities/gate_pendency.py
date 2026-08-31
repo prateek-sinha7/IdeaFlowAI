@@ -76,6 +76,7 @@ def derive_open_gate(events: list) -> tuple[str | None, str | None]:
     ``events`` rows may be ORM ``RunEvent`` objects or plain dicts (``{type, seq,
     payload_json}``) — both are read via ``getattr``/``get``.
     """
+
     def _type(r: Any) -> str:
         return getattr(r, "type", None) if not isinstance(r, dict) else r.get("type")
 

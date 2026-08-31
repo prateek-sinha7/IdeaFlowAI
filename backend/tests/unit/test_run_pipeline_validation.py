@@ -121,7 +121,9 @@ class TestBasePipelinesIncludeDefaultsPlusCustomPool:
             "prototype-polisher",
             "prototype-finalizer",
         }
-        assert not (retired & allowed), f"retired prototype_v1 ids leaked: {retired & allowed}"
+        assert not (
+            retired & allowed
+        ), f"retired prototype_v1 ids leaked: {retired & allowed}"
 
 
 # ---------------------------------------------------------------------------
@@ -163,17 +165,17 @@ class TestCrossPipelineInjectionIsBlocked:
         bases = ["user_stories", "ppt", "prototype", "app_builder"]
         for i, a in enumerate(bases):
             own_a = set(PIPELINE_AGENTS[a])
-            for b in bases[i + 1:]:
+            for b in bases[i + 1 :]:
                 own_b = set(PIPELINE_AGENTS[b])
                 # The two pipelines' OWN agents never overlap.
-                assert not (own_a & own_b), (
-                    f"{a!r} and {b!r} share own-agents {own_a & own_b!r}"
-                )
+                assert not (
+                    own_a & own_b
+                ), f"{a!r} and {b!r} share own-agents {own_a & own_b!r}"
                 # So neither pipeline's allow-list contains the OTHER's own agents.
                 allowed_a = allowed_custom_agent_ids(a)
-                assert not (own_b & allowed_a), (
-                    f"{b!r} agents {own_b & allowed_a!r} leaked into {a!r}"
-                )
+                assert not (
+                    own_b & allowed_a
+                ), f"{b!r} agents {own_b & allowed_a!r} leaked into {a!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -211,9 +213,9 @@ class TestRevisionPipelinesAreTight:
         """
         ppt_rev_allowed = allowed_custom_agent_ids("ppt_revision")
         for utility in _CUSTOM_POOL:
-            assert utility not in ppt_rev_allowed, (
-                f"Custom utility {utility!r} leaked into ppt_revision"
-            )
+            assert (
+                utility not in ppt_rev_allowed
+            ), f"Custom utility {utility!r} leaked into ppt_revision"
 
     def test_ppt_revision_rejects_base_ppt_agents(self) -> None:
         """And it doesn't accidentally pick up the base PPT agents either —
@@ -221,9 +223,9 @@ class TestRevisionPipelinesAreTight:
         """
         ppt_rev_allowed = allowed_custom_agent_ids("ppt_revision")
         for ppt_agent in PIPELINE_AGENTS["ppt"]:
-            assert ppt_agent not in ppt_rev_allowed, (
-                f"Base PPT agent {ppt_agent!r} leaked into ppt_revision"
-            )
+            assert (
+                ppt_agent not in ppt_rev_allowed
+            ), f"Base PPT agent {ppt_agent!r} leaked into ppt_revision"
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +284,9 @@ class TestCustomPipelineComposesAcrossPipelines:
             for base in ("ppt", "user_stories", "prototype", "app_builder"):
                 exclusive -= set(PIPELINE_AGENTS[base])
             leaked = exclusive & custom_allowed
-            assert not leaked, f"revision-only agents leaked into custom: {sorted(leaked)}"
+            assert (
+                not leaked
+            ), f"revision-only agents leaked into custom: {sorted(leaked)}"
 
 
 # ---------------------------------------------------------------------------
@@ -300,10 +304,10 @@ class TestUnknownPipelineTypeReturnsEmptySet:
     @pytest.mark.parametrize(
         "bogus",
         [
-            "questionnaire",     # Synthetic, not a real run target.
-            "totally_made_up",   # Unknown name.
-            "",                  # Empty string.
-            "PPT",               # Wrong case.
+            "questionnaire",  # Synthetic, not a real run target.
+            "totally_made_up",  # Unknown name.
+            "",  # Empty string.
+            "PPT",  # Wrong case.
         ],
     )
     def test_unknown_pipeline_type_returns_empty_set(self, bogus: str) -> None:
@@ -343,8 +347,10 @@ class TestSupportedPipelineTypes:
 
     def test_all_revision_pipelines_are_supported(self) -> None:
         for rev in (
-            "user_stories_revision", "ppt_revision",
-            "prototype_revision", "app_builder_revision",
+            "user_stories_revision",
+            "ppt_revision",
+            "prototype_revision",
+            "app_builder_revision",
         ):
             assert rev in SUPPORTED_PIPELINE_TYPES
 
@@ -369,6 +375,7 @@ class TestSupportedPipelineTypes:
         assert "reverse_engineer" in SUPPORTED_PIPELINE_TYPES
         assert allowed_custom_agent_ids("reverse_engineer") == set()
         from agents.registry import get_pipeline_agents
+
         assert get_pipeline_agents("reverse_engineer") == []
 
 
@@ -404,18 +411,22 @@ class TestAllowListDerivedFromRegistry:
         # Every base pipeline's allow-list must now contain the synthetic.
         for base in ("user_stories", "ppt", "prototype", "app_builder", "custom"):
             allowed = allowed_custom_agent_ids(base)
-            assert synthetic in allowed, (
-                f"Synthetic agent did not propagate into {base!r} allow-list"
-            )
+            assert (
+                synthetic in allowed
+            ), f"Synthetic agent did not propagate into {base!r} allow-list"
 
         # Revision allow-lists must NOT pick up the synthetic — revisions are
         # tight by design (they don't fold in the custom pool).
-        for rev in ("ppt_revision", "user_stories_revision",
-                    "prototype_revision", "app_builder_revision"):
+        for rev in (
+            "ppt_revision",
+            "user_stories_revision",
+            "prototype_revision",
+            "app_builder_revision",
+        ):
             allowed = allowed_custom_agent_ids(rev)
-            assert synthetic not in allowed, (
-                f"Synthetic agent leaked into revision pipeline {rev!r}"
-            )
+            assert (
+                synthetic not in allowed
+            ), f"Synthetic agent leaked into revision pipeline {rev!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -464,8 +475,8 @@ class TestHandlerRejectionLogic:
         """
         agent_ids = [
             "ppt-brief-analyst",  # legit (real PPT agent)
-            "domain-analyst",        # user_stories — REJECT
-            "repo-scanner",          # nonexistent / reverse_engineer — REJECT
+            "domain-analyst",  # user_stories — REJECT
+            "repo-scanner",  # nonexistent / reverse_engineer — REJECT
         ]
         allowed = allowed_custom_agent_ids("ppt")
         rejected = [aid for aid in agent_ids if aid not in allowed]
@@ -478,7 +489,7 @@ class TestHandlerRejectionLogic:
         agent_ids = [
             "ppt-revision-agent",  # legit (ppt_revision's sole agent)
             "market-research-agent",  # custom utility — REJECT on revision
-            "ppt-composer",        # base PPT — REJECT on revision
+            "ppt-composer",  # base PPT — REJECT on revision
         ]
         allowed = allowed_custom_agent_ids("ppt_revision")
         rejected = [aid for aid in agent_ids if aid not in allowed]
@@ -504,8 +515,7 @@ class TestHandlerRejectionLogic:
         up-front ``SUPPORTED_PIPELINE_TYPES`` check).
         """
         allowed = allowed_custom_agent_ids("totally_bogus_pipeline")
-        rejected = [aid for aid in ["any-agent-id", "another-id"]
-                    if aid not in allowed]
+        rejected = [aid for aid in ["any-agent-id", "another-id"] if aid not in allowed]
         assert rejected == ["any-agent-id", "another-id"]
 
 
@@ -557,9 +567,7 @@ class TestModelOverrideValidation:
 
         valid_model = self._catalog_id()
         run_agents = {"prototype-specify", "prototype-build"}
-        err = _validate_model_overrides(
-            {"prototype-build": valid_model}, run_agents
-        )
+        err = _validate_model_overrides({"prototype-build": valid_model}, run_agents)
         assert err is None, f"valid override unexpectedly rejected: {err}"
 
     def test_unknown_model_id_is_rejected(self) -> None:
@@ -596,9 +604,7 @@ class TestModelOverrideValidation:
 
         valid_model = self._catalog_id()
         run_agents = {"prototype-specify", "prototype-build"}
-        err = _validate_model_overrides(
-            {"not-in-this-run": valid_model}, run_agents
-        )
+        err = _validate_model_overrides({"not-in-this-run": valid_model}, run_agents)
         assert err is not None, "unknown agent id MUST be rejected (T-06-07)"
         assert "not-in-this-run" in err
 
@@ -623,10 +629,10 @@ class TestModelOverrideValidation:
     @pytest.mark.parametrize(
         "bad",
         [
-            "evil_string",          # truthy str
-            ["prototype-build"],    # truthy list
-            42,                     # truthy int
-            ("a", "b"),             # truthy tuple
+            "evil_string",  # truthy str
+            ["prototype-build"],  # truthy list
+            42,  # truthy int
+            ("a", "b"),  # truthy tuple
         ],
     )
     def test_non_dict_overrides_are_rejected_not_raised(self, bad) -> None:
@@ -654,7 +660,5 @@ class TestModelOverrideValidation:
         flowing a non-string agent id into the run-agent membership check."""
         from app.api.run_engine import _validate_model_overrides
 
-        err = _validate_model_overrides(
-            {123: "some-model"}, {"prototype-build"}
-        )
+        err = _validate_model_overrides({123: "some-model"}, {"prototype-build"})
         assert err is not None, "non-string key MUST be rejected, not crash"

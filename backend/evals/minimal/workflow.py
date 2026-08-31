@@ -40,7 +40,9 @@ def list_workflows() -> list[str]:
     """Every workflow id on disk — a directory holding a `workflow.yaml`."""
     if not WORKFLOWS_DIR.exists():
         return []
-    return sorted(p.name for p in WORKFLOWS_DIR.iterdir() if (p / "workflow.yaml").exists())
+    return sorted(
+        p.name for p in WORKFLOWS_DIR.iterdir() if (p / "workflow.yaml").exists()
+    )
 
 
 def load_workflow(workflow_id: str) -> dict:
@@ -181,6 +183,8 @@ def _dataset_id(config: dict, workflow_id: str | None) -> str:
 
     path = dataset_path(config, workflow_id)
     try:
-        return json.loads(path.read_text(encoding="utf-8")).get("dataset_id") or path.stem
+        return (
+            json.loads(path.read_text(encoding="utf-8")).get("dataset_id") or path.stem
+        )
     except (json.JSONDecodeError, OSError):
         return path.stem

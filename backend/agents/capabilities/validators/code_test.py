@@ -28,7 +28,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents.capabilities.registry import register
-from agents.capabilities.validators.severity import map_severity  # single source (08-01)
+from agents.capabilities.validators.severity import (
+    map_severity,
+)  # single source (08-01)
 from agents.capabilities.validators._exec_support import (
     exec_granted,
     workspace_of,
@@ -90,7 +92,11 @@ class CodeTestValidator:
         except PermissionError as exc:  # never escapes (VALIDATOR-DENY safety net)
             issues = [Issue(severity="P1", message=f"code_test exec denied: {exc}")]
         except subprocess.TimeoutExpired:
-            issues = [Issue(severity="P1", message="code_test timed out (policy wall-clock cap)")]
+            issues = [
+                Issue(
+                    severity="P1", message="code_test timed out (policy wall-clock cap)"
+                )
+            ]
 
         await _record(target, "code_test", issues)
         return issues
@@ -105,7 +111,11 @@ def _parse(out: str) -> list[Issue]:
         for line in failed_lines:
             issues.append(Issue(severity="P0", message=line.strip()[:512]))
     elif summary:
-        issues.append(Issue(severity="P0", message=f"pytest reported failures: {summary.group(0)}"))
+        issues.append(
+            Issue(
+                severity="P0", message=f"pytest reported failures: {summary.group(0)}"
+            )
+        )
     return issues
 
 

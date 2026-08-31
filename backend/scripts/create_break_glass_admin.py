@@ -46,6 +46,7 @@ USAGE (from backend/)
 The password is read from the environment, never from an argument, so it does
 not land in shell history or the process table via argv.
 """
+
 import argparse
 import os
 import sys
@@ -170,7 +171,10 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         # Message carries the email at most, never the password.
-        print(f"ERROR: failed to create/rotate the break-glass admin: {exc}", file=sys.stderr)
+        print(
+            f"ERROR: failed to create/rotate the break-glass admin: {exc}",
+            file=sys.stderr,
+        )
         return EXIT_ERROR
     finally:
         db.close()

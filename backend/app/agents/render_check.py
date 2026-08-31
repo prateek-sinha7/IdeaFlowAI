@@ -110,7 +110,9 @@ class NavResult:
     href: str
     activated: str | None  # data-page id that became active, or None
     ok: bool
-    expected: str | None = None  # the first-path-segment page id we expected to activate
+    expected: str | None = (
+        None  # the first-path-segment page id we expected to activate
+    )
 
 
 @dataclass
@@ -150,6 +152,7 @@ def _subprocess_supported() -> bool:
     """
     import asyncio
     import sys
+
     if sys.platform != "win32":
         return True
     loop = asyncio.get_event_loop()
@@ -179,14 +182,24 @@ async def render_check(
     # "Task exception was never retrieved" spam. Bail out cleanly before entering
     # async_playwright() so no background task is ever created.
     if not _subprocess_supported():
-        logger.warning("render_check: subprocess spawning not supported on this platform — skipping render")
-        return RenderResult(ok=True, available=False, note="render_check not supported on this platform (subprocess unavailable)")
+        logger.warning(
+            "render_check: subprocess spawning not supported on this platform — skipping render"
+        )
+        return RenderResult(
+            ok=True,
+            available=False,
+            note="render_check not supported on this platform (subprocess unavailable)",
+        )
 
     try:
         from playwright.async_api import async_playwright
     except Exception as exc:  # noqa: BLE001 — unavailable browser is a skip, not an error
-        logger.warning("render_check: Playwright unavailable (%s) — skipping render", exc)
-        return RenderResult(ok=True, available=False, note=f"Playwright unavailable: {exc}")
+        logger.warning(
+            "render_check: Playwright unavailable (%s) — skipping render", exc
+        )
+        return RenderResult(
+            ok=True, available=False, note=f"Playwright unavailable: {exc}"
+        )
 
     if not path.is_file():
         return RenderResult(ok=False, note=f"file not found: {path}")
@@ -201,8 +214,12 @@ async def render_check(
             try:
                 browser = await pw.chromium.launch(args=["--no-sandbox"])
             except Exception as exc:  # noqa: BLE001 — browser binary absent → skip, not fail
-                logger.warning("render_check: Chromium launch failed (%s) — skipping", exc)
-                return RenderResult(ok=True, available=False, note=f"Chromium unavailable: {exc}")
+                logger.warning(
+                    "render_check: Chromium launch failed (%s) — skipping", exc
+                )
+                return RenderResult(
+                    ok=True, available=False, note=f"Chromium unavailable: {exc}"
+                )
         try:
             page = await browser.new_page()
             page.on(
@@ -252,7 +269,9 @@ async def render_check(
         finally:
             await browser.close()
     except Exception as exc:  # noqa: BLE001 — any other async_playwright() failure
-        logger.warning("render_check: async_playwright context failed (%s) — skipping", exc)
+        logger.warning(
+            "render_check: async_playwright context failed (%s) — skipping", exc
+        )
         return RenderResult(ok=True, available=False, note=f"render_check error: {exc}")
 
     ok = (

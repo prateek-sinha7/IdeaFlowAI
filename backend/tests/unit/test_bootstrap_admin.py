@@ -121,7 +121,9 @@ class TestCheckOnly:
         seed_user()
         assert check_only(session_factory) == EXIT_OK
 
-    def test_existing_non_admin_user_still_means_not_needed(self, session_factory, seed_user):
+    def test_existing_non_admin_user_still_means_not_needed(
+        self, session_factory, seed_user
+    ):
         """The invariant is "any row", not "an admin row" — see the module docstring."""
         seed_user(is_admin=False)
         assert check_only(session_factory) == EXIT_OK
@@ -138,14 +140,17 @@ class TestCheckOnly:
 
     def test_query_failure_is_exit_error(self):
         session = MagicMock()
-        session.query.side_effect = RuntimeError("relation \"users\" does not exist")
+        session.query.side_effect = RuntimeError('relation "users" does not exist')
         assert check_only(lambda: session) == EXIT_ERROR
         session.close.assert_called_once()
 
 
 class TestCreateAdminHappyPath:
     def test_creates_single_enterprise_admin(self, session_factory):
-        assert create_admin("admin@example.com", VALID_PASSWORD, session_factory) == EXIT_OK
+        assert (
+            create_admin("admin@example.com", VALID_PASSWORD, session_factory)
+            == EXIT_OK
+        )
 
         users = _users(session_factory)
         assert len(users) == 1
@@ -162,7 +167,10 @@ class TestCreateAdminHappyPath:
         assert verify_password(VALID_PASSWORD, stored) is True
 
     def test_email_is_normalised(self, session_factory):
-        assert create_admin("  Admin@Example.COM  ", VALID_PASSWORD, session_factory) == EXIT_OK
+        assert (
+            create_admin("  Admin@Example.COM  ", VALID_PASSWORD, session_factory)
+            == EXIT_OK
+        )
         assert _users(session_factory)[0].email == "admin@example.com"
 
     def test_timestamps_come_from_the_model_defaults(self, session_factory):
@@ -193,7 +201,10 @@ class TestCreateAdminIdempotency:
     def test_existing_user_is_a_successful_noop(self, session_factory, seed_user):
         seed_user("someone@example.com")
 
-        assert create_admin("admin@example.com", VALID_PASSWORD, session_factory) == EXIT_OK
+        assert (
+            create_admin("admin@example.com", VALID_PASSWORD, session_factory)
+            == EXIT_OK
+        )
 
         users = _users(session_factory)
         assert len(users) == 1
@@ -202,7 +213,10 @@ class TestCreateAdminIdempotency:
     def test_existing_non_admin_is_never_promoted(self, session_factory, seed_user):
         seed_user("basic@example.com", is_admin=False)
 
-        assert create_admin("admin@example.com", VALID_PASSWORD, session_factory) == EXIT_OK
+        assert (
+            create_admin("admin@example.com", VALID_PASSWORD, session_factory)
+            == EXIT_OK
+        )
 
         user = _users(session_factory)[0]
         assert user.is_admin is False
@@ -218,7 +232,12 @@ class TestCreateAdminIdempotency:
             first.created_at,
         )
 
-        assert create_admin("admin@example.com", "a-different-password-9876", session_factory) == EXIT_OK
+        assert (
+            create_admin(
+                "admin@example.com", "a-different-password-9876", session_factory
+            )
+            == EXIT_OK
+        )
 
         again = _users(session_factory)[0]
         assert (again.id, again.password_hash, again.created_at) == (
@@ -226,12 +245,17 @@ class TestCreateAdminIdempotency:
             original_hash,
             original_created,
         )
-        assert verify_password("a-different-password-9876", again.password_hash) is False
+        assert (
+            verify_password("a-different-password-9876", again.password_hash) is False
+        )
 
     def test_second_run_with_a_different_email_creates_nothing(self, session_factory):
         create_admin("first@example.com", VALID_PASSWORD, session_factory)
 
-        assert create_admin("second@example.com", VALID_PASSWORD, session_factory) == EXIT_OK
+        assert (
+            create_admin("second@example.com", VALID_PASSWORD, session_factory)
+            == EXIT_OK
+        )
 
         emails = [u.email for u in _users(session_factory)]
         assert emails == ["first@example.com"]
@@ -264,18 +288,27 @@ class TestCreateAdminValidation:
     def test_weak_password_is_rejected_without_touching_the_database(
         self, session_factory, password
     ):
-        assert create_admin("admin@example.com", password, session_factory) == EXIT_ERROR
+        assert (
+            create_admin("admin@example.com", password, session_factory) == EXIT_ERROR
+        )
         assert _users(session_factory) == []
 
     def test_minimum_length_password_is_accepted(self, session_factory):
-        assert create_admin("admin@example.com", "x" * MIN_PASSWORD_LENGTH, session_factory) == EXIT_OK
+        assert (
+            create_admin(
+                "admin@example.com", "x" * MIN_PASSWORD_LENGTH, session_factory
+            )
+            == EXIT_OK
+        )
 
     def test_validation_runs_before_a_session_is_opened(self):
         def exploding_factory():
             raise AssertionError("must not open a session for invalid input")
 
         assert create_admin(None, VALID_PASSWORD, exploding_factory) == EXIT_ERROR
-        assert create_admin("admin@example.com", "short", exploding_factory) == EXIT_ERROR
+        assert (
+            create_admin("admin@example.com", "short", exploding_factory) == EXIT_ERROR
+        )
 
 
 class TestCreateAdminFailureHandling:
@@ -283,7 +316,10 @@ class TestCreateAdminFailureHandling:
         def broken_factory():
             raise RuntimeError("connection refused")
 
-        assert create_admin("admin@example.com", VALID_PASSWORD, broken_factory) == EXIT_ERROR
+        assert (
+            create_admin("admin@example.com", VALID_PASSWORD, broken_factory)
+            == EXIT_ERROR
+        )
 
     def test_commit_failure_rolls_back_and_leaves_no_user(self, session_factory):
         real_session = session_factory()
@@ -309,7 +345,10 @@ class TestCreateAdminFailureHandling:
 
         monkeypatch.setattr(bootstrap_admin, "_lock_users_table", refuse_lock)
 
-        assert create_admin("admin@example.com", VALID_PASSWORD, session_factory) == EXIT_ERROR
+        assert (
+            create_admin("admin@example.com", VALID_PASSWORD, session_factory)
+            == EXIT_ERROR
+        )
         assert _users(session_factory) == []
 
 
@@ -352,12 +391,17 @@ class TestTableLockGating:
         monkeypatch.setattr(bootstrap_admin, "_lock_users_table", traced_lock)
         monkeypatch.setattr(bootstrap_admin, "_users_exist", traced_exists)
 
-        assert create_admin("admin@example.com", VALID_PASSWORD, session_factory) == EXIT_OK
+        assert (
+            create_admin("admin@example.com", VALID_PASSWORD, session_factory)
+            == EXIT_OK
+        )
         assert calls == ["lock", "check"]
 
 
 class TestSecretHygiene:
-    def test_password_never_reaches_logs_or_stdout(self, session_factory, capsys, caplog):
+    def test_password_never_reaches_logs_or_stdout(
+        self, session_factory, capsys, caplog
+    ):
         with caplog.at_level(logging.DEBUG):
             create_admin("admin@example.com", VALID_PASSWORD, session_factory)
 
@@ -366,7 +410,9 @@ class TestSecretHygiene:
         assert VALID_PASSWORD not in captured.err
         assert VALID_PASSWORD not in caplog.text
 
-    def test_rejection_message_does_not_echo_the_password(self, session_factory, caplog):
+    def test_rejection_message_does_not_echo_the_password(
+        self, session_factory, caplog
+    ):
         secret = "too-short"
         with caplog.at_level(logging.DEBUG):
             create_admin("admin@example.com", secret, session_factory)
@@ -408,7 +454,10 @@ class TestMain:
         monkeypatch.setattr("sys.stdin", io.StringIO(f"{VALID_PASSWORD}\r\n"))
 
         assert main(["--email", "admin@example.com", "--password-stdin"]) == EXIT_OK
-        assert verify_password(VALID_PASSWORD, _users(session_factory)[0].password_hash) is True
+        assert (
+            verify_password(VALID_PASSWORD, _users(session_factory)[0].password_hash)
+            is True
+        )
 
     def test_empty_stdin_is_an_error(self, session_factory, monkeypatch):
         monkeypatch.setattr("sys.stdin", io.StringIO(""))
@@ -473,8 +522,12 @@ class TestCognitoBranch:
         from app.core import cognito as cognito_module
 
         monkeypatch.setattr(cognito_module, "admin_create_user", admin_create_user)
-        monkeypatch.setattr(cognito_module, "admin_set_user_password", admin_set_user_password)
-        monkeypatch.setattr(cognito_module, "admin_add_user_to_group", admin_add_user_to_group)
+        monkeypatch.setattr(
+            cognito_module, "admin_set_user_password", admin_set_user_password
+        )
+        monkeypatch.setattr(
+            cognito_module, "admin_add_user_to_group", admin_add_user_to_group
+        )
         monkeypatch.setattr(cognito_module, "admin_delete_user", admin_delete_user)
         calls["sub"] = sub
         return calls
@@ -561,9 +614,9 @@ class TestCognitoBranch:
         )
 
         assert rc == EXIT_ERROR
-        assert fake_cognito.get("deleted_email") == "admin@example.com", (
-            "a failed local commit must compensate by deleting the pool user"
-        )
+        assert (
+            fake_cognito.get("deleted_email") == "admin@example.com"
+        ), "a failed local commit must compensate by deleting the pool user"
 
     def test_local_path_is_unaffected_when_provider_is_local(
         self, session_factory, fake_cognito
@@ -585,7 +638,9 @@ class TestCognitoBranch:
         assert row.cognito_sub is None
         assert row.password_hash is not None
         assert verify_password("a-valid-password-123", row.password_hash)
-        assert "created_email" not in fake_cognito, "the local path must not call Cognito"
+        assert (
+            "created_email" not in fake_cognito
+        ), "the local path must not call Cognito"
 
 
 class TestCognitoPartialProvisioningCompensation:
@@ -718,11 +773,13 @@ class TestCognitoPartialProvisioningCompensation:
         )
 
         assert rc == EXIT_ERROR
-        assert pool.delete_calls == ["admin@example.com"], (
-            f"a failure in {failing_step} must compensate by deleting the pool user"
-        )
+        assert pool.delete_calls == [
+            "admin@example.com"
+        ], f"a failure in {failing_step} must compensate by deleting the pool user"
         assert pool.users == set(), "the pool user was left orphaned"
-        assert _users(session_factory) == [], "no local row may survive a failed bootstrap"
+        assert (
+            _users(session_factory) == []
+        ), "no local row may survive a failed bootstrap"
 
     def test_missing_sub_in_create_response_deletes_the_pool_user(
         self, session_factory, cognito_provider, pool
@@ -784,9 +841,9 @@ class TestCognitoPartialProvisioningCompensation:
             session_factory=session_factory,
         )
 
-        assert len(pool.delete_calls) == 1, (
-            "both compensation sites fired for one failure"
-        )
+        assert (
+            len(pool.delete_calls) == 1
+        ), "both compensation sites fired for one failure"
 
     def test_retry_after_compensation_succeeds(
         self, session_factory, cognito_provider, pool
@@ -806,7 +863,8 @@ class TestCognitoPartialProvisioningCompensation:
 
         pool.fail_on = None
         assert (
-            create_admin("admin@example.com", VALID_PASSWORD, session_factory) == EXIT_OK
+            create_admin("admin@example.com", VALID_PASSWORD, session_factory)
+            == EXIT_OK
         )
 
         rows = _users(session_factory)
@@ -836,15 +894,15 @@ class TestCognitoPartialProvisioningCompensation:
 
         assert rc == EXIT_ERROR
         assert any("failed to compensate-delete" in m for m in bootstrap_logs)
-        assert any("admin_add_user_to_group" in m for m in bootstrap_logs), (
-            "the original failure must still be reported"
-        )
+        assert any(
+            "admin_add_user_to_group" in m for m in bootstrap_logs
+        ), "the original failure must still be reported"
         assert _users(session_factory) == []
 
     def test_successful_compensation_is_logged(
         self, session_factory, cognito_provider, pool, bootstrap_logs
     ):
-        """"Was the pool left dirty?" is the first post-failure question."""
+        """ "Was the pool left dirty?" is the first post-failure question."""
         pool.fail_on = "admin_set_user_password"
 
         create_admin(
@@ -853,9 +911,9 @@ class TestCognitoPartialProvisioningCompensation:
             session_factory=session_factory,
         )
 
-        assert any("compensated" in m for m in bootstrap_logs), (
-            "a successful pool-user cleanup must be visible to the operator"
-        )
+        assert any(
+            "compensated" in m for m in bootstrap_logs
+        ), "a successful pool-user cleanup must be visible to the operator"
 
     def test_no_compensation_log_leaks_the_password(
         self, session_factory, cognito_provider, pool, bootstrap_logs
@@ -871,6 +929,6 @@ class TestCognitoPartialProvisioningCompensation:
 
         logged = "\n".join(bootstrap_logs)
         assert VALID_PASSWORD not in logged
-        assert "admin@example.com" in logged, (
-            "the email is the identifier operators need in the cleanup log"
-        )
+        assert (
+            "admin@example.com" in logged
+        ), "the email is the identifier operators need in the cleanup log"

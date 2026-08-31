@@ -176,9 +176,9 @@ def test_sessionless_store_no_leak(monkeypatch):
     for _ in range(4):
         rows = asyncio.run(store.read_events(_RUN, after_seq=0))
         assert len(rows) == 3
-        assert engine.pool.checkedout() == baseline, (
-            "session-less store must return its connection after each read (no gc)"
-        )
+        assert (
+            engine.pool.checkedout() == baseline
+        ), "session-less store must return its connection after each read (no gc)"
     engine.dispose()
 
 

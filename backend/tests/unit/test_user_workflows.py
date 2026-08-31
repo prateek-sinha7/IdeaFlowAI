@@ -95,8 +95,16 @@ def api(db_session):
     return TestClient(app), state
 
 
-def _make_wf(db, *, wf_id="wf-1", user_id="owner", name="Seeded",
-             source="user", agents='["market-research-agent"]', **kw):
+def _make_wf(
+    db,
+    *,
+    wf_id="wf-1",
+    user_id="owner",
+    name="Seeded",
+    source="user",
+    agents='["market-research-agent"]',
+    **kw,
+):
     """Seed a WorkflowDefinition row directly (mirror ``_make_run``)."""
     import uuid
     from datetime import datetime, timezone
@@ -269,6 +277,7 @@ def test_post_reorders_consumer_first_to_producer_first(api, db_session):
     # And the PERSISTED row carries the producer-first order (not the sent order).
     row = db_session.query(WorkflowDefinition).filter_by(id=r.json()["id"]).first()
     import json as _json
+
     assert _json.loads(row.agents) == ["ppt-brief-analyst", "ppt-composer"]
 
 
@@ -306,7 +315,10 @@ def test_post_entitlement_gate_blocks_basic_tier(api):
 
 def test_post_duplicate_name_rejected(api):
     client, _ = api
-    assert client.post("/api/user-workflows", json=_valid_body(name="Dup")).status_code == 201
+    assert (
+        client.post("/api/user-workflows", json=_valid_body(name="Dup")).status_code
+        == 201
+    )
     r = client.post("/api/user-workflows", json=_valid_body(name="Dup"))
     assert r.status_code == 409, r.text
 
@@ -318,7 +330,9 @@ def test_list_scopes_to_owner_user_rows(api, db_session):
     client, _ = api
     _make_wf(db_session, wf_id="mine", user_id="owner", name="Mine", source="user")
     _make_wf(db_session, wf_id="file", user_id="owner", name="File", source="file")
-    _make_wf(db_session, wf_id="other", user_id="someone-else", name="Theirs", source="user")
+    _make_wf(
+        db_session, wf_id="other", user_id="someone-else", name="Theirs", source="user"
+    )
 
     r = client.get("/api/user-workflows")
     assert r.status_code == 200
@@ -413,7 +427,9 @@ def test_yaml_export_returns_manifest_as_yaml(api, db_session):
 
 def test_yaml_export_empty_manifest_returns_empty_document(api, db_session):
     client, _ = api
-    _make_wf(db_session, wf_id="y2", user_id="owner", source="user")  # manifest_json is None
+    _make_wf(
+        db_session, wf_id="y2", user_id="owner", source="user"
+    )  # manifest_json is None
 
     r = client.get("/api/user-workflows/y2/workflow.yaml")
     assert r.status_code == 200, r.text
@@ -449,7 +465,9 @@ def test_get_migrates_legacy_attached_skills_to_every_step(api, db_session):
     assert row.manifest_json["steps"][0]["skills"] == ["skill-a"]
     assert row.manifest_json["steps"][1]["skills"] == ["skill-a"]
     # attached_skills is RETAINED, not dropped/nulled.
-    assert row.attached_skills == [{"id": "skill-a", "name": "Skill A", "content": "..."}]
+    assert row.attached_skills == [
+        {"id": "skill-a", "name": "Skill A", "content": "..."}
+    ]
 
 
 def test_get_migration_is_idempotent_on_second_read(api, db_session):
@@ -608,7 +626,10 @@ def test_post_rejects_hostile_instance_id(api):
     for hostile in ("../../etc/passwd", "custom-agent:research-a", "Research-A", "-x"):
         body = _manifest_body()
         body["manifest"]["steps"][1]["instance_id"] = hostile
-        r = client.post("/api/user-workflows", json=body, )
+        r = client.post(
+            "/api/user-workflows",
+            json=body,
+        )
         assert r.status_code == 422, f"{hostile!r} was accepted: {r.text}"
         assert "instance_id" in r.text
 
@@ -635,7 +656,12 @@ def test_post_accepts_valid_depends_on_chain(api, db_session):
     client, _ = api
     body = _manifest_body()
     body["manifest"]["steps"] = [
-        {"agent": "custom-agent", "instance_id": "step-a", "name": "A", "depends_on": []},
+        {
+            "agent": "custom-agent",
+            "instance_id": "step-a",
+            "name": "A",
+            "depends_on": [],
+        },
         {
             "agent": "custom-agent",
             "instance_id": "step-b",

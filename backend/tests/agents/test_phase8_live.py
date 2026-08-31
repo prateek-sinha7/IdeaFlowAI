@@ -137,7 +137,8 @@ def _skip_if_creds_lapsed_mid_sweep() -> None:
     reason = live_harness.live_skip_reason()
     if reason is not None:
         pytest.skip(
-            "AWS SSO session expired mid-sweep — re-run after `aws sso login`: " + reason
+            "AWS SSO session expired mid-sweep — re-run after `aws sso login`: "
+            + reason
         )
 
 
@@ -162,7 +163,11 @@ def _text_model(t_in: int = 12, t_out: int = 7) -> ScriptedFakeChatModel:
     agent in a homogeneous pipeline (e.g. user_stories) deterministically.
     """
     return ScriptedFakeChatModel(
-        [_ScriptedTurn(texts=["phase8 scripted output. ", "line two."], usage=(t_in, t_out))]
+        [
+            _ScriptedTurn(
+                texts=["phase8 scripted output. ", "line two."], usage=(t_in, t_out)
+            )
+        ]
     )
 
 
@@ -644,14 +649,17 @@ class TestLiveHITL(_LiveCredsRecheckMixin):
         types = [e.get("type") for e in events]
         if gate is None:
             assert "done" in types, "expected a clean 'done' if the gate never fired"
-            pytest.xfail("model never called the gated tool — pause path unexercised this run")
+            pytest.xfail(
+                "model never called the gated tool — pause path unexercised this run"
+            )
         assert "done" not in types, "gate and done are mutually exclusive"
 
         final = await resume_paused_run(runner)
         tool_msgs = [
             m
             for m in final.get("messages", [])
-            if isinstance(m, ToolMessage) and getattr(m, "name", "") == "report_task_complete"
+            if isinstance(m, ToolMessage)
+            and getattr(m, "name", "") == "report_task_complete"
         ]
         assert tool_msgs, "the approved gated tool must execute after resume"
         state = await runner._graph.aget_state(runner.config)
@@ -699,9 +707,9 @@ class TestOfflineProof:
         # The stub HTML fails static_check; assert THAT is the only class of failure
         # (i.e. the harness + validator wiring is sound — no envelope/ordering/vocab
         # breakage). A render-valid build is proven separately below.
-        assert all("static_check" in f for f in failures), (
-            f"only the known stub static_check failure is expected offline, got: {failures}"
-        )
+        assert all(
+            "static_check" in f for f in failures
+        ), f"only the known stub static_check failure is expected offline, got: {failures}"
 
     @pytest.mark.asyncio
     async def test_prototype_render_valid_offline(self) -> None:
@@ -714,7 +722,9 @@ class TestOfflineProof:
         result = await _run_prototype(model=_valid_prototype_factory, fake_planner=True)
         assert result.completed and result.error is None
         failures = validate_capture(result, require_tokens=False)
-        assert failures == [], f"render-valid prototype should validate clean, got: {failures}"
+        assert (
+            failures == []
+        ), f"render-valid prototype should validate clean, got: {failures}"
 
     @pytest.mark.asyncio
     async def test_prototype_revision_offline_chained(self) -> None:
@@ -727,7 +737,9 @@ class TestOfflineProof:
         parent = await _run_prototype(model=_per_agent_factory, fake_planner=True)
         assert parent.completed and parent.run_id
         result = await _run_prototype_revision(
-            model=_revision_model_factory, parent_run_id=parent.run_id, fake_planner=True
+            model=_revision_model_factory,
+            parent_run_id=parent.run_id,
+            fake_planner=True,
         )
         assert result.completed and result.error is None
         # The edit was applied (Dashboard → Home) and the deliverable is the revised
@@ -844,7 +856,9 @@ def _valid_prototype_factory(agent_id: str) -> ScriptedFakeChatModel:
         return ScriptedFakeChatModel(
             [
                 _ScriptedTurn(
-                    texts=["## Task 1: Build the full HTML shell\nEverything in one task.\n"],
+                    texts=[
+                        "## Task 1: Build the full HTML shell\nEverything in one task.\n"
+                    ],
                     usage=(40, 30),
                 )
             ]
@@ -858,14 +872,21 @@ def _valid_prototype_factory(agent_id: str) -> ScriptedFakeChatModel:
                         (
                             "write_file",
                             json.dumps(
-                                {"file_path": "prototype.html", "content": _VALID_PROTOTYPE_HTML}
+                                {
+                                    "file_path": "prototype.html",
+                                    "content": _VALID_PROTOTYPE_HTML,
+                                }
                             ),
                             "c_wf",
                         ),
                         (
                             "report_task_complete",
                             json.dumps(
-                                {"task_number": 1, "task_title": "Shell", "summary": "built"}
+                                {
+                                    "task_number": 1,
+                                    "task_title": "Shell",
+                                    "summary": "built",
+                                }
                             ),
                             "c_rtc",
                         ),
@@ -994,7 +1015,9 @@ class TestOfflineHITL:
         from app.agents.deep_agent_runner import DeepAgentRunner
 
         @tool
-        def report_task_complete(task_number: int, task_title: str, summary: str = "") -> str:
+        def report_task_complete(
+            task_number: int, task_title: str, summary: str = ""
+        ) -> str:
             """Report a task complete (gated for HITL in this test)."""
             return f"done {task_number} {task_title}"
 
@@ -1004,7 +1027,9 @@ class TestOfflineHITL:
                 tool_calls=[
                     (
                         "report_task_complete",
-                        json.dumps({"task_number": 1, "task_title": "Shell", "summary": "x"}),
+                        json.dumps(
+                            {"task_number": 1, "task_title": "Shell", "summary": "x"}
+                        ),
                         "c1",
                     )
                 ],
@@ -1030,7 +1055,8 @@ class TestOfflineHITL:
         tool_msgs = [
             m
             for m in final.get("messages", [])
-            if isinstance(m, ToolMessage) and getattr(m, "name", "") == "report_task_complete"
+            if isinstance(m, ToolMessage)
+            and getattr(m, "name", "") == "report_task_complete"
         ]
         assert tool_msgs, "the approved gated tool must execute after resume"
         state = await runner._graph.aget_state(runner.config)
@@ -1094,7 +1120,9 @@ class TestCollectionSelfCheck:
             assert live_enabled() is True
         else:
             assert live_enabled() is False
-            assert runtime_reason.strip(), "a runtime skip must carry a human-readable reason"
+            assert (
+                runtime_reason.strip()
+            ), "a runtime skip must carry a human-readable reason"
 
     def test_live_hitl_skips_on_mid_sweep_credential_expiry(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1121,7 +1149,9 @@ class TestCollectionSelfCheck:
 
         msg = str(excinfo.value)
         assert "aws sso login" in msg, "the skip must carry the re-run command"
-        assert expiry_reason in msg, "the skip must surface the underlying expiry reason"
+        assert (
+            expiry_reason in msg
+        ), "the skip must surface the underlying expiry reason"
 
     def test_live_hitl_recheck_is_noop_when_creds_resolve(
         self, monkeypatch: pytest.MonkeyPatch

@@ -26,9 +26,13 @@ class ModelConfigurationError(RuntimeError):
     """Raised when no configured LLM provider (Anthropic, Bedrock, or Mistral) resolves."""
 
 
-def build_model(model: str | None = None, *, max_tokens: int | None = None,
-                 provider: str | None = None,
-                 disable_thinking: bool = False) -> "BaseChatModel":
+def build_model(
+    model: str | None = None,
+    *,
+    max_tokens: int | None = None,
+    provider: str | None = None,
+    disable_thinking: bool = False,
+) -> "BaseChatModel":
     """Return a configured chat model for an agent graph.
 
     ``model`` overrides the provider default (the user's per-run selection).
@@ -53,7 +57,8 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
         model_id = model or settings.MISTRAL_MODEL_ID
         logger.debug(
             "build_model: ChatMistralAI (explicit provider) model=%s max_tokens=%d",
-            model_id, max_tokens,
+            model_id,
+            max_tokens,
         )
         # ChatMistralAI's own default is timeout=120, which cannot deliver a
         # MAX_OUTPUT_TOKENS (32768) generation and silently truncates long ones
@@ -63,7 +68,8 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
         # budget for one streaming call — the 120 was an unstated default
         # nobody chose, not a policy.
         return ChatMistralAI(
-            model=model_id, api_key=settings.MISTRAL_API_KEY,
+            model=model_id,
+            api_key=settings.MISTRAL_API_KEY,
             timeout=settings.LLM_CALL_TIMEOUT_SECONDS,
         )
 
@@ -82,22 +88,33 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
     _ADAPTIVE_THINKING_MODEL_FRAGMENTS = ("sonnet-5", "opus-5", "fable-5", "mythos-5")
 
     def _thinking_type(mid: str) -> str:
-        return "adaptive" if any(f in mid for f in _ADAPTIVE_THINKING_MODEL_FRAGMENTS) else "enabled"
+        return (
+            "adaptive"
+            if any(f in mid for f in _ADAPTIVE_THINKING_MODEL_FRAGMENTS)
+            else "enabled"
+        )
 
     if settings.ANTHROPIC_API_KEY:
         from langchain_anthropic import ChatAnthropic
 
         model_id = model or settings.ANTHROPIC_MODEL_ID or "claude-haiku-4-5-20251001"
-        logger.debug("build_model: ChatAnthropic model=%s max_tokens=%d", model_id, max_tokens)
+        logger.debug(
+            "build_model: ChatAnthropic model=%s max_tokens=%d", model_id, max_tokens
+        )
         anthropic_kwargs: dict = dict(
             model=model_id,
             api_key=settings.ANTHROPIC_API_KEY,
             max_tokens=max_tokens,
         )
         if thinking_enabled:
-            anthropic_kwargs["thinking"] = {"type": _thinking_type(model_id), "budget_tokens": budget}
+            anthropic_kwargs["thinking"] = {
+                "type": _thinking_type(model_id),
+                "budget_tokens": budget,
+            }
             anthropic_kwargs["temperature"] = 1  # required when thinking is on
-        elif disable_thinking and any(f in model_id for f in _ADAPTIVE_THINKING_MODEL_FRAGMENTS):
+        elif disable_thinking and any(
+            f in model_id for f in _ADAPTIVE_THINKING_MODEL_FRAGMENTS
+        ):
             anthropic_kwargs["thinking"] = {"type": "disabled"}
         return ChatAnthropic(**anthropic_kwargs)
 
@@ -109,13 +126,16 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
     # botocore reads the bearer token from the PROCESS ENV, and pydantic loads .env
     # into settings without exporting it. Without this bridge a native run would
     # silently fall back to SigV4 ambient credentials instead of the token.
-    if settings.AWS_BEARER_TOKEN_BEDROCK and not os.environ.get("AWS_BEARER_TOKEN_BEDROCK"):
+    if settings.AWS_BEARER_TOKEN_BEDROCK and not os.environ.get(
+        "AWS_BEARER_TOKEN_BEDROCK"
+    ):
         os.environ["AWS_BEARER_TOKEN_BEDROCK"] = settings.AWS_BEARER_TOKEN_BEDROCK
 
     # Settings alone, deliberately NOT the ``model`` override — otherwise a
     # Mistral-only environment would read as Bedrock config and skip the fallback.
     bedrock_configured = bool(
-        (settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID) and settings.AWS_REGION
+        (settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID)
+        and settings.AWS_REGION
     )
     if not bedrock_configured:
         if settings.MISTRAL_API_KEY:
@@ -124,11 +144,13 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
             mistral_model_id = model or settings.MISTRAL_MODEL_ID
             logger.debug(
                 "build_model: ChatMistralAI (fallback) model=%s max_tokens=%d",
-                mistral_model_id, max_tokens,
+                mistral_model_id,
+                max_tokens,
             )
             # Same 120s-default problem as the explicit-provider branch above.
             return ChatMistralAI(
-                model=mistral_model_id, api_key=settings.MISTRAL_API_KEY,
+                model=mistral_model_id,
+                api_key=settings.MISTRAL_API_KEY,
                 timeout=settings.LLM_CALL_TIMEOUT_SECONDS,
             )
         raise ModelConfigurationError(
@@ -136,11 +158,15 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
             "BEDROCK_INFERENCE_PROFILE_ID + AWS_REGION for production, "
             "or MISTRAL_API_KEY for a free-tier fallback."
         )
-    model_id = model or settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID
+    model_id = (
+        model or settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID
+    )
     region = settings.AWS_REGION
     logger.debug(
         "build_model: ChatBedrockConverse model=%s region=%s max_tokens=%d",
-        model_id, region, max_tokens,
+        model_id,
+        region,
+        max_tokens,
     )
     # Passed as additional_model_request_fields only when non-empty, so the
     # thinking-disabled path never carries the kwarg at all.
@@ -157,7 +183,9 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None,
         if t_type == "enabled":
             thinking_field["budget_tokens"] = budget
         extra_fields["thinking"] = thinking_field
-    elif disable_thinking and any(f in model_id for f in _ADAPTIVE_THINKING_MODEL_FRAGMENTS):
+    elif disable_thinking and any(
+        f in model_id for f in _ADAPTIVE_THINKING_MODEL_FRAGMENTS
+    ):
         # Adaptive models enable thinking by default — explicitly disable it.
         extra_fields["thinking"] = {"type": "disabled"}
     bedrock_kwargs: dict = dict(
@@ -190,7 +218,9 @@ def _build_bedrock_bearer_session():
 
     import boto3
 
-    if settings.AWS_BEARER_TOKEN_BEDROCK and not os.environ.get("AWS_BEARER_TOKEN_BEDROCK"):
+    if settings.AWS_BEARER_TOKEN_BEDROCK and not os.environ.get(
+        "AWS_BEARER_TOKEN_BEDROCK"
+    ):
         os.environ["AWS_BEARER_TOKEN_BEDROCK"] = settings.AWS_BEARER_TOKEN_BEDROCK
     return boto3.Session()
 

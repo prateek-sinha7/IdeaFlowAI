@@ -128,7 +128,11 @@ class _PartWritingModel(ScriptedFakeChatModel):
             yield ChatGenerationChunk(
                 message=AIMessageChunk(
                     content="Done.",
-                    usage_metadata={"input_tokens": 4, "output_tokens": 2, "total_tokens": 6},
+                    usage_metadata={
+                        "input_tokens": 4,
+                        "output_tokens": 2,
+                        "total_tokens": 6,
+                    },
                     chunk_position="last",
                 )
             )
@@ -143,12 +147,18 @@ class _PartWritingModel(ScriptedFakeChatModel):
                 tool_call_chunks=[
                     {
                         "name": "write_file",
-                        "args": _j.dumps({"file_path": fname, "content": f"part {n}\n"}),
+                        "args": _j.dumps(
+                            {"file_path": fname, "content": f"part {n}\n"}
+                        ),
                         "id": f"c_w_{n}",
                         "index": 0,
                     }
                 ],
-                usage_metadata={"input_tokens": 12, "output_tokens": 6, "total_tokens": 18},
+                usage_metadata={
+                    "input_tokens": 12,
+                    "output_tokens": 6,
+                    "total_tokens": 18,
+                },
                 chunk_position="last",
             )
         )
@@ -204,6 +214,7 @@ async def _drive_fanout() -> tuple[list[dict], dict]:
     from agents.workflows.manifest import load_manifest
 
     from app.core.config import settings as _settings
+
     _settings.RUNS_ROOT = _RUNS_ROOT
 
     specs = _load_fixture_specs()
@@ -249,16 +260,43 @@ async def _drive_fanout() -> tuple[list[dict], dict]:
 
     # Probe the single spawn-path audit: every recorded subagent_runs row (FANOUT-10).
     from agents.execution_engine.kernel_services import KernelServices
+
     _orig_record = KernelServices.record_subagent_run
 
-    async def _probe_record(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None, worker_index=None, task_id=None):
+    async def _probe_record(
+        self,
+        *,
+        parent_step,
+        worker_agent,
+        depth,
+        isolation,
+        status,
+        tokens=None,
+        cost=None,
+        worker_index=None,
+        task_id=None,
+    ):
         probe["recorded_workers"].append(
-            dict(parent_step=parent_step, worker_agent=worker_agent, isolation=isolation, status=status, worker_index=worker_index, task_id=task_id)
+            dict(
+                parent_step=parent_step,
+                worker_agent=worker_agent,
+                isolation=isolation,
+                status=status,
+                worker_index=worker_index,
+                task_id=task_id,
+            )
         )
         return await _orig_record(
-            self, parent_step=parent_step, worker_agent=worker_agent, depth=depth,
-            isolation=isolation, status=status, tokens=tokens, cost=cost,
-            worker_index=worker_index, task_id=task_id,
+            self,
+            parent_step=parent_step,
+            worker_agent=worker_agent,
+            depth=depth,
+            isolation=isolation,
+            status=status,
+            tokens=tokens,
+            cost=cost,
+            worker_index=worker_index,
+            task_id=task_id,
         )
 
     for s in specs:
@@ -273,7 +311,9 @@ async def _drive_fanout() -> tuple[list[dict], dict]:
 
     engine = ExecutionEngine()
 
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs):
+    async def _fake_run_planner(
+        user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+    ):
         return engine._default_planning_context(user_message), "PROCEED"
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]
@@ -330,16 +370,22 @@ async def test_sc001_fanout_spawns_three_workers_and_merges_distinct_files() -> 
     assert not errors, f"sample_fanout errored: {errors}"
 
     # (1) 3 workers spawned — 3 subagent_runs rows recorded at the single spawn path.
-    assert len(probe["recorded_workers"]) == _FANOUT_WIDTH, (
-        f"expected {_FANOUT_WIDTH} subagent_runs rows, saw {probe['recorded_workers']}"
+    assert (
+        len(probe["recorded_workers"]) == _FANOUT_WIDTH
+    ), f"expected {_FANOUT_WIDTH} subagent_runs rows, saw {probe['recorded_workers']}"
+    assert all(
+        w["worker_agent"] == "sample-fanout-worker" for w in probe["recorded_workers"]
     )
-    assert all(w["worker_agent"] == "sample-fanout-worker" for w in probe["recorded_workers"])
 
     # The lifecycle events: a subagent_spawned + subagent_result per worker.
     spawned = [e for e in events if e.get("type") == "subagent_spawned"]
     results = [e for e in events if e.get("type") == "subagent_result"]
-    assert len(spawned) == _FANOUT_WIDTH, f"expected {_FANOUT_WIDTH} subagent_spawned, saw {len(spawned)}"
-    assert len(results) == _FANOUT_WIDTH, f"expected {_FANOUT_WIDTH} subagent_result, saw {len(results)}"
+    assert (
+        len(spawned) == _FANOUT_WIDTH
+    ), f"expected {_FANOUT_WIDTH} subagent_spawned, saw {len(spawned)}"
+    assert (
+        len(results) == _FANOUT_WIDTH
+    ), f"expected {_FANOUT_WIDTH} subagent_result, saw {len(results)}"
 
     # (3) The structured summary names every worker's status (offline isolation degrades
     #     to shared_read so the 3 workers write into the shared merged base; each
@@ -349,18 +395,21 @@ async def test_sc001_fanout_spawns_three_workers_and_merges_distinct_files() -> 
 
     # (2) 3 DISTINCT files produced in the merged base (deterministic, no conflict).
     sandbox_root = probe["sandbox_root"]
-    assert sandbox_root is not None and sandbox_root.is_dir(), "run sandbox missing on disk"
+    assert (
+        sandbox_root is not None and sandbox_root.is_dir()
+    ), "run sandbox missing on disk"
     produced = {
-        p.name for p in sandbox_root.rglob("*.txt")
+        p.name
+        for p in sandbox_root.rglob("*.txt")
         if _PART_RE.fullmatch(p.name) and ".worktrees" not in p.parts
     }
-    assert produced == {"part_1.txt", "part_2.txt", "part_3.txt"}, (
-        f"the 3 fan-out workers did not produce 3 distinct merged files: {sorted(produced)}"
-    )
+    assert (
+        produced == {"part_1.txt", "part_2.txt", "part_3.txt"}
+    ), f"the 3 fan-out workers did not produce 3 distinct merged files: {sorted(produced)}"
     # No merge_conflict event — copy_disjoint merged the disjoint files cleanly.
-    assert not any(e.get("type") == "merge_conflict" for e in events), (
-        "copy_disjoint reported a conflict over disjoint files"
-    )
+    assert not any(
+        e.get("type") == "merge_conflict" for e in events
+    ), "copy_disjoint reported a conflict over disjoint files"
 
     # (3b) Gap 6 (13-04 / F6): the DECLARED deliverable (serialized_sandbox) resolves
     # from the PRODUCED files — the final output is the filename:-block bundle of the
@@ -370,9 +419,9 @@ async def test_sc001_fanout_spawns_three_workers_and_merges_distinct_files() -> 
     assert complete, "no pipeline_complete event emitted"
     final_output = complete[-1]["data"]["final_output"]
     assert final_output and final_output.strip(), "final deliverable is empty"
-    assert "(no files written)" not in final_output, (
-        "serialized_sandbox found no deliverable files — the merge did not land"
-    )
+    assert (
+        "(no files written)" not in final_output
+    ), "serialized_sandbox found no deliverable files — the merge did not land"
     for part in ("part_1.txt", "part_2.txt", "part_3.txt"):
         assert f"filename: {part}" in final_output, (
             f"deliverable bundle missing produced file {part} — the declared "
@@ -386,16 +435,26 @@ def test_sc001_fanout_runs_on_registered_capabilities_only() -> None:
 
     discover()
     reg = CapabilityRegistry()
-    assert reg.is_registered("strategy", "fanout_batch"), "fanout_batch strategy not registered"
-    assert reg.is_registered("merge", "copy_disjoint"), "copy_disjoint merge not registered"
-    assert reg.is_registered("tool", "spawn_subagents"), "spawn_subagents tool not registered"
-    assert reg.is_registered("task_parser", "heading_tasks"), "heading_tasks parser not registered"
-    assert reg.is_registered("deliverable", "serialized_sandbox"), (
-        "serialized_sandbox deliverable not registered"
-    )
+    assert reg.is_registered(
+        "strategy", "fanout_batch"
+    ), "fanout_batch strategy not registered"
+    assert reg.is_registered(
+        "merge", "copy_disjoint"
+    ), "copy_disjoint merge not registered"
+    assert reg.is_registered(
+        "tool", "spawn_subagents"
+    ), "spawn_subagents tool not registered"
+    assert reg.is_registered(
+        "task_parser", "heading_tasks"
+    ), "heading_tasks parser not registered"
+    assert reg.is_registered(
+        "deliverable", "serialized_sandbox"
+    ), "serialized_sandbox deliverable not registered"
 
     # The manifest declares ONLY those registered capabilities (no kernel edit to run).
-    manifest_text = (_MANIFEST_HOME / _FIXTURE_ID / "workflow.yaml").read_text(encoding="utf-8")
+    manifest_text = (_MANIFEST_HOME / _FIXTURE_ID / "workflow.yaml").read_text(
+        encoding="utf-8"
+    )
     assert "strategy: fanout_batch" in manifest_text
     assert "spawn_subagents: true" in manifest_text
     assert "parser: heading_tasks" in manifest_text
@@ -417,16 +476,18 @@ def test_sc001_fanout_kernel_names_no_workflow() -> None:
     repo_root = Path(
         subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
     )
     engine_pkg = repo_root / "backend" / "agents" / "execution_engine"
     from tests.agents._portable_grep import grep_files_matching
 
     hits = grep_files_matching("sample_fanout", engine_pkg).stdout.strip()
-    assert hits == "", (
-        f"the kernel names the workflow sample_fanout (INV-1 violation) in:\n{hits}"
-    )
+    assert (
+        hits == ""
+    ), f"the kernel names the workflow sample_fanout (INV-1 violation) in:\n{hits}"
 
     # The SC-001 proof artifacts all live OUTSIDE the engine package (zero engine edit
     # to RUN this workflow — the manifest + worker AGENT.md + this test only).

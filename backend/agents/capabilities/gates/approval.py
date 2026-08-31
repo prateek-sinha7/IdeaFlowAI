@@ -118,9 +118,7 @@ class ApprovalGate:
 
     name = "approval"
 
-    async def evaluate_stream(
-        self, step: Any, ctx: Any
-    ) -> AsyncGenerator[Any, None]:
+    async def evaluate_stream(self, step: Any, ctx: Any) -> AsyncGenerator[Any, None]:
         """Stream the review-gate events AS PRODUCED, then a terminal ``GateOutcome``.
 
         F1 fix (Phase 13): same streaming protocol as ``HumanGate.evaluate_stream``
@@ -149,7 +147,10 @@ class ApprovalGate:
                 for r in rows
             ):
                 await write_gate_event(
-                    ctx, step_id, "approval", GATE_PASS,
+                    ctx,
+                    step_id,
+                    "approval",
+                    GATE_PASS,
                     {"reason": "prior approval this run"},
                 )
                 yield GateOutcome(outcome=GATE_PASS)
@@ -200,7 +201,8 @@ class ApprovalGate:
         # the exec step does NOT silently sign off; reject still wins (GATE_BLOCK).
         # The audit row records the honest non-PASS outcome (F9).
         outcome = (
-            GATE_BLOCK if rejected
+            GATE_BLOCK
+            if rejected
             else (GATE_WAIT_HUMAN if unwired_action_seen else GATE_PASS)
         )
         await write_gate_event(ctx, step_id, "approval", outcome, None)

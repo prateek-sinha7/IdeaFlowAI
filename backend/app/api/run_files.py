@@ -72,7 +72,9 @@ router = APIRouter(prefix="/api/runs", tags=["run-files"])
 
 # Document-only allow-list (T-30-04): the ext set that may land in the sandbox.
 # Images are payload-transient (30-03) → rejected here.
-_ALLOWED_EXTS: frozenset[str] = frozenset({"pdf", "docx", "pptx", "txt", "md", "csv", "json"})
+_ALLOWED_EXTS: frozenset[str] = frozenset(
+    {"pdf", "docx", "pptx", "txt", "md", "csv", "json"}
+)
 # The subset that carries an extractable-text sidecar (the sticky-context source).
 _EXTRACTABLE_EXTS: frozenset[str] = frozenset({"pdf", "docx", "pptx"})
 
@@ -325,12 +327,16 @@ async def upload_files(
                 raise
             logger.warning(
                 "upload_text durable mirror failed for run %s (%s) — DB write degraded",
-                run_id, exc,
+                run_id,
+                exc,
             )
 
     logger.info(
         "run upload: user=%s run=%s files=%d aggregate_bytes=%d",
-        current_user.id, run_id, len(results), aggregate,
+        current_user.id,
+        run_id,
+        len(results),
+        aggregate,
     )
     return {"run_id": run_id, "files": results}
 

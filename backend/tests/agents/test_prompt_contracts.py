@@ -69,7 +69,9 @@ def test_od_ppt_validator_deck_reemission_contract() -> None:
     # Positional prominence: the contract sits ABOVE the validation checklist
     # (live evidence showed a bottom-of-body contract losing to the checklist
     # framing above it).
-    assert body.index("exactly ONE `<artifact>` block") < body.index("## VALIDATION CHECKLIST")
+    assert body.index("exactly ONE `<artifact>` block") < body.index(
+        "## VALIDATION CHECKLIST"
+    )
 
     # No dual-contract drift: the old bottom `## OUTPUT CONTRACT` was deleted;
     # exactly one contract heading exists.
@@ -519,9 +521,11 @@ async def test_ppt_narration_only_validator_does_not_resolve_to_deck() -> None:
     # The resolver returned the raw narration — NOT a deck. This is the failure
     # the contract must prevent; pinning it makes the contract's necessity
     # test-visible.
-    assert "<section class=\"slide\"" not in fo
+    assert '<section class="slide"' not in fo
     assert "<!DOCTYPE html" not in fo
-    assert fo.lstrip().lower().startswith("running the final qa pass") or "QA pass" in fo
+    assert (
+        fo.lstrip().lower().startswith("running the final qa pass") or "QA pass" in fo
+    )
     # Engine world still mirrors deliverable == final_output (the leak is in the
     # CONTENT, not the wiring).
     assert result.deliverable == fo
@@ -551,6 +555,6 @@ async def test_ppt_status_artifact_first_wins_unwrap_over_deck() -> None:
     # The STATUS artifact's inner text won the unwrap...
     assert "QA pass" in fo
     # ...and the real deck that followed was discarded (first-match unwrap).
-    assert "<section class=\"slide\"" not in fo
+    assert '<section class="slide"' not in fo
     assert "<!DOCTYPE html" not in fo
     assert result.deliverable == fo

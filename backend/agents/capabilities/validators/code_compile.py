@@ -29,7 +29,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents.capabilities.registry import register
-from agents.capabilities.validators.severity import map_severity  # single source (08-01)
+from agents.capabilities.validators.severity import (
+    map_severity,
+)  # single source (08-01)
 from agents.capabilities.validators._exec_support import (
     exec_granted,
     target_py_files,
@@ -114,7 +116,12 @@ class CodeCompileValidator:
         except PermissionError as exc:  # never escapes (VALIDATOR-DENY safety net)
             issues = [Issue(severity="P1", message=f"code_compile exec denied: {exc}")]
         except subprocess.TimeoutExpired:
-            issues = [Issue(severity="P1", message="code_compile timed out (policy wall-clock cap)")]
+            issues = [
+                Issue(
+                    severity="P1",
+                    message="code_compile timed out (policy wall-clock cap)",
+                )
+            ]
 
         await _record(target, "code_compile", issues)
         return issues
@@ -126,7 +133,9 @@ def _parse(out: str) -> list[Issue]:
     for line in out.splitlines():
         line = line.strip()
         if line.startswith("COMPILE_FAIL "):
-            issues.append(Issue(severity="P0", message=line[len("COMPILE_FAIL ") :].strip()))
+            issues.append(
+                Issue(severity="P0", message=line[len("COMPILE_FAIL ") :].strip())
+            )
     return issues
 
 

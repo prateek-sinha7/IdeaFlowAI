@@ -34,7 +34,9 @@ def test_empty_payload_is_inert(tmp_path):
 
 def test_one_skill_writes_valid_frontmatter(tmp_path):
     sb = _sandbox(tmp_path)
-    result = stage_skills(sb, [{"id": "my-skill", "name": "My Skill", "content": "Do the thing."}])
+    result = stage_skills(
+        sb, [{"id": "my-skill", "name": "My Skill", "content": "Do the thing."}]
+    )
 
     assert result.staged == ["my-skill"]
     assert result.sources == ["/skills"]
@@ -95,7 +97,9 @@ def test_traversal_id_is_rejected(tmp_path):
     sb = _sandbox(tmp_path)
     parent_before = sorted(p.name for p in sb.base.iterdir())
 
-    result = stage_skills(sb, [{"id": "../escape", "name": "escape", "content": "Body."}])
+    result = stage_skills(
+        sb, [{"id": "../escape", "name": "escape", "content": "Body."}]
+    )
 
     assert result.staged == []
     assert len(result.errors) == 1
@@ -124,7 +128,9 @@ def test_est_tokens_formula(tmp_path):
 def test_yaml_metacharacter_id_is_rejected(tmp_path):
     """Test that an id with YAML metacharacters is safely rejected."""
     sb = _sandbox(tmp_path)
-    result = stage_skills(sb, [{"id": "evil: name", "name": "Evil", "content": "Body."}])
+    result = stage_skills(
+        sb, [{"id": "evil: name", "name": "Evil", "content": "Body."}]
+    )
 
     assert result.staged == []
     assert result.sources == []
@@ -154,7 +160,9 @@ def test_step_skills_narrow_staging_to_that_agent(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(skills_catalog, "list_global_skills", lambda: [catalog_entry])
 
-    run_level_skills = [{"id": "run-level", "name": "Run Level", "content": "Run-level body."}]
+    run_level_skills = [
+        {"id": "run-level", "name": "Run Level", "content": "Run-level body."}
+    ]
 
     # Agent A: step_skills = ["x"] → resolved via the catalog, narrowed to exactly x.
     sandbox_a = _sandbox(tmp_path / "a")
@@ -176,7 +184,9 @@ def test_skill_name_in_frontmatter_is_properly_quoted(tmp_path):
     """Test that the skill_id is properly quoted in frontmatter and parses correctly."""
     sb = _sandbox(tmp_path)
     skill_id = "my-skill"
-    result = stage_skills(sb, [{"id": skill_id, "name": "My Skill", "content": "Test body."}])
+    result = stage_skills(
+        sb, [{"id": skill_id, "name": "My Skill", "content": "Test body."}]
+    )
 
     assert result.staged == [skill_id]
     assert result.errors == []

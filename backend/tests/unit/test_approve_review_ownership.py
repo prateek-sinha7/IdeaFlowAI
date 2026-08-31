@@ -115,7 +115,10 @@ def test_owner_with_null_owner_id_is_allowed(_ws_db_env):
     owner = _seed_user(_ws_db_env, "owner")
     run_id = _seed_run(_ws_db_env, owner.id)
 
-    assert _ws_db_env._review_gate_owned_by(f"{run_id}:prototype-specify", owner.id) is True
+    assert (
+        _ws_db_env._review_gate_owned_by(f"{run_id}:prototype-specify", owner.id)
+        is True
+    )
 
 
 def test_cross_user_is_denied(_ws_db_env):
@@ -125,7 +128,10 @@ def test_cross_user_is_denied(_ws_db_env):
     attacker = _seed_user(_ws_db_env, "attacker")
     run_id = _seed_run(_ws_db_env, victim.id)
 
-    assert _ws_db_env._review_gate_owned_by(f"{run_id}:prototype-specify", attacker.id) is False
+    assert (
+        _ws_db_env._review_gate_owned_by(f"{run_id}:prototype-specify", attacker.id)
+        is False
+    )
 
 
 def test_unknown_run_is_denied(_ws_db_env):

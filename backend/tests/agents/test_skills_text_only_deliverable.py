@@ -119,7 +119,9 @@ class _ScriptedFakeChatModel(BaseChatModel):
             if i == last_i:
                 for tc_idx, (name, json_args, call_id) in enumerate(turn.tool_calls):
                     tcc.append(
-                        tool_call_chunk(name=name, args=json_args, id=call_id, index=tc_idx)
+                        tool_call_chunk(
+                            name=name, args=json_args, id=call_id, index=tc_idx
+                        )
                     )
                 if turn.usage is not None:
                     t_in, t_out = turn.usage
@@ -145,8 +147,12 @@ class _ScriptedFakeChatModel(BaseChatModel):
         run_manager: Any = None,
         **kwargs: Any,
     ) -> ChatResult:
-        chunks = list(self._stream(messages, stop=stop, run_manager=run_manager, **kwargs))
-        text = "".join(c.message.content for c in chunks if isinstance(c.message.content, str))
+        chunks = list(
+            self._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+        )
+        text = "".join(
+            c.message.content for c in chunks if isinstance(c.message.content, str)
+        )
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=text))])
 
 
@@ -187,7 +193,9 @@ def _attached_skill() -> list[dict]:
 
 
 @pytest.mark.asyncio
-async def test_text_only_agent_with_skill_streams_nonempty_deliverable(tmp_path, monkeypatch) -> None:
+async def test_text_only_agent_with_skill_streams_nonempty_deliverable(
+    tmp_path, monkeypatch
+) -> None:
     """domain-analyst (``tools: []``) in a run WITH a skill attached: the skill
     staging grants the full native fs tool set (``exclude_builtin_tools=False``)
     and suppresses the anti-fabrication ``_NO_TOOLS_PREAMBLE`` — confirmed via the
@@ -211,7 +219,9 @@ async def test_text_only_agent_with_skill_streams_nonempty_deliverable(tmp_path,
 
     # The anti-fabrication preamble is suppressed — skills present ⇒ the agent is
     # never told "you have NO tools" while it actually holds write_file.
-    assert "## Tool Availability" not in runner.system_prompt  # _NO_TOOLS_PREAMBLE suppressed
+    assert (
+        "## Tool Availability" not in runner.system_prompt
+    )  # _NO_TOOLS_PREAMBLE suppressed
 
     events = await _collect_events(runner, "go")
 
@@ -264,7 +274,9 @@ async def test_text_only_agent_writing_file_instead_of_streaming_yields_empty_de
                 tool_calls=[
                     (
                         "write_file",
-                        json.dumps({"file_path": "/answer.md", "content": "Fintech is large."}),
+                        json.dumps(
+                            {"file_path": "/answer.md", "content": "Fintech is large."}
+                        ),
                         "call_wf_1",
                     )
                 ],
@@ -287,7 +299,9 @@ async def test_text_only_agent_writing_file_instead_of_streaming_yields_empty_de
     assert [e for e in events if e["type"] == "error"] == []
 
     # The write_file call really fired through the graph (not a no-op stub).
-    write_calls = [e for e in events if e["type"] == "tool_call" and e["tool"] == "write_file"]
+    write_calls = [
+        e for e in events if e["type"] == "tool_call" and e["tool"] == "write_file"
+    ]
     assert len(write_calls) == 1
 
     # THE FINDING: no chunk events were streamed at all, so the engine-equivalent

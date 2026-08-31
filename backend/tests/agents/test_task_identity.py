@@ -27,6 +27,7 @@ from agents.workflows.plan import Task
 # normalize_task_content — reorder stability (heading ordinal strip)           #
 # --------------------------------------------------------------------------- #
 
+
 def _heading_task(task_num: int, title: str, rest: str) -> Task:
     """Build a heading-parser-shaped Task whose body INCLUDES the ``## Task N:`` header."""
     body = f"## Task {task_num}: {title}\n{rest}"
@@ -36,11 +37,15 @@ def _heading_task(task_num: int, title: str, rest: str) -> Task:
 def test_reorder_heading_yields_identical_normalized_content():
     # Same title/body, different ordinal in the header → normalization MUST be identical
     # (the ordinal token is stripped) so reordering the list does not rotate the key.
-    t_first = _heading_task(1, "Build the login form", "Add the fields and submit handler.")
-    t_third = _heading_task(3, "Build the login form", "Add the fields and submit handler.")
-    assert task_identity.normalize_task_content(t_first) == task_identity.normalize_task_content(
-        t_third
+    t_first = _heading_task(
+        1, "Build the login form", "Add the fields and submit handler."
     )
+    t_third = _heading_task(
+        3, "Build the login form", "Add the fields and submit handler."
+    )
+    assert task_identity.normalize_task_content(
+        t_first
+    ) == task_identity.normalize_task_content(t_third)
 
 
 def test_ordinal_token_stripped_from_first_line():
@@ -56,14 +61,18 @@ def test_ordinal_token_stripped_from_first_line():
 def test_editing_body_changes_normalized_content():
     t_a = _heading_task(1, "Build the login form", "Add the fields.")
     t_b = _heading_task(1, "Build the login form", "Add the fields and validation.")
-    assert task_identity.normalize_task_content(t_a) != task_identity.normalize_task_content(t_b)
+    assert task_identity.normalize_task_content(
+        t_a
+    ) != task_identity.normalize_task_content(t_b)
 
 
 def test_editing_title_changes_normalized_content():
     # A json-wave task whose title changes must rotate (edit-sensitivity).
     t_a = Task(id="w1", title="Render the header", body="")
     t_b = Task(id="w1", title="Render the footer", body="")
-    assert task_identity.normalize_task_content(t_a) != task_identity.normalize_task_content(t_b)
+    assert task_identity.normalize_task_content(
+        t_a
+    ) != task_identity.normalize_task_content(t_b)
 
 
 def test_editing_forward_fields_changes_normalized_content():
@@ -71,7 +80,9 @@ def test_editing_forward_fields_changes_normalized_content():
     # (RESEARCH §Normalization — the json disambiguation dimension).
     t_a = Task(id="w1", title="Patch section", body="edit it", targets=["#hero"])
     t_b = Task(id="w2", title="Patch section", body="edit it", targets=["#footer"])
-    assert task_identity.normalize_task_content(t_a) != task_identity.normalize_task_content(t_b)
+    assert task_identity.normalize_task_content(
+        t_a
+    ) != task_identity.normalize_task_content(t_b)
 
 
 def test_normalize_collapses_whitespace_and_newlines():
@@ -79,9 +90,9 @@ def test_normalize_collapses_whitespace_and_newlines():
     # same content normalize equal.
     t_crlf = Task(id="1", title="A", body="line one\r\n\r\n   line   two")
     t_lf = Task(id="1", title="A", body="line one line two")
-    assert task_identity.normalize_task_content(t_crlf) == task_identity.normalize_task_content(
-        t_lf
-    )
+    assert task_identity.normalize_task_content(
+        t_crlf
+    ) == task_identity.normalize_task_content(t_lf)
 
 
 def test_normalize_nfc_unicode_equivalence():
@@ -102,6 +113,7 @@ def test_normalize_returns_str():
 # --------------------------------------------------------------------------- #
 # occurrence_ordinals — duplicate-text disambiguation                          #
 # --------------------------------------------------------------------------- #
+
 
 def test_occurrence_ordinals_duplicate_text():
     # Two identical "Fix styling" tasks → ordinals 0 and 1; a distinct one → 0.
@@ -125,6 +137,7 @@ def test_occurrence_ordinals_left_to_right():
     # Three identical → 0,1,2 (left-to-right prior count).
     def t():
         return Task(id="x", title="same", body="same")
+
     assert task_identity.occurrence_ordinals([t(), t(), t()]) == [0, 1, 2]
 
 
@@ -185,6 +198,7 @@ def test_compute_task_key_canonical_json_key_order_stable():
 # end-to-end: reorder-safe, insert-safe, duplicate-safe, upstream-aware        #
 # --------------------------------------------------------------------------- #
 
+
 def test_key_is_reorder_safe_end_to_end():
     # Same upstream, two heading tasks reordered → same key (content-addressed).
     t1 = _heading_task(1, "Alpha", "do alpha")
@@ -202,9 +216,9 @@ def test_key_is_upstream_aware_end_to_end():
     # Same task text, rotated upstream hash → different key (spec/plan edit rotation).
     t = _heading_task(1, "Alpha", "do alpha")
     content = task_identity.normalize_task_content(t)
-    assert task_identity.compute_task_key("up-v1", content, 0) != task_identity.compute_task_key(
-        "up-v2", content, 0
-    )
+    assert task_identity.compute_task_key(
+        "up-v1", content, 0
+    ) != task_identity.compute_task_key("up-v2", content, 0)
 
 
 def test_key_is_duplicate_safe_end_to_end():
@@ -218,6 +232,7 @@ def test_key_is_duplicate_safe_end_to_end():
 
 
 # ── RESUME-16 common_prefix_length (the cumulative reconcile primitive) ──────
+
 
 def test_common_prefix_full_match():
     assert task_identity.common_prefix_length(["a", "b", "c"], ["a", "b", "c"]) == 3

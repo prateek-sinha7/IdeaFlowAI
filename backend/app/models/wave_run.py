@@ -32,16 +32,16 @@ class WaveRun(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id = Column(String, ForeignKey("workflow_runs.id"), nullable=False)
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
-    step = Column(String, nullable=False)            # the wave-scheduler step id
-    wave_index = Column(Integer, nullable=False)     # 0-based wave ordinal
-    task_ids = Column(JSON, nullable=False)          # §18 — task ids fanned out this wave
-    status = Column(String, nullable=False)          # running|completed|failed|cancelled (free String)
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
+    step = Column(String, nullable=False)  # the wave-scheduler step id
+    wave_index = Column(Integer, nullable=False)  # 0-based wave ordinal
+    task_ids = Column(JSON, nullable=False)  # §18 — task ids fanned out this wave
+    status = Column(
+        String, nullable=False
+    )  # running|completed|failed|cancelled (free String)
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
-    __table_args__ = (
-        Index("ix_wave_runs_run", "run_id"),
-    )
+    __table_args__ = (Index("ix_wave_runs_run", "run_id"),)

@@ -39,7 +39,9 @@ from pathlib import Path
 from typing import Any
 
 from agents.capabilities.registry import register
-from agents.capabilities.validators.severity import map_severity  # single source (08-01)
+from agents.capabilities.validators.severity import (
+    map_severity,
+)  # single source (08-01)
 
 
 # THE single API-prefix literal — a real module-level constant (per CONTEXT / SC-001),
@@ -163,6 +165,7 @@ def _iter_endpoint_paths(text: str):
                 yield pm.group(1)
         if httpget_window > 0:
             httpget_window -= 1
+
 
 # Endpoint paths that are NOT application API surface — infra/static roots that
 # legitimately live outside ``/api/v1`` (so flagging them would be a false positive).

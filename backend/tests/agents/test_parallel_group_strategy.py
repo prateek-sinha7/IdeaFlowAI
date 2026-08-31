@@ -18,6 +18,7 @@ latency is a flaky test. What can be pinned deterministically is that the strate
 hands all N requests to `run_fanout` in ONE call — because everything downstream of
 that call is the kernel's already-tested concurrency.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -46,7 +47,9 @@ def test_parallel_group_compiles_to_the_fanout_dispatcher():
     assert parent.fanout is not None
     assert parent.fanout.max_parallel == 3
     assert parent.fanout.workers == [
-        "custom-agent:apple", "custom-agent:ball", "custom-agent:cat",
+        "custom-agent:apple",
+        "custom-agent:ball",
+        "custom-agent:cat",
     ]
 
 
@@ -64,7 +67,9 @@ def test_children_leave_the_serial_loop_but_stay_in_the_plan():
     }
 
     assert set(children) == {
-        "custom-agent:apple", "custom-agent:ball", "custom-agent:cat",
+        "custom-agent:apple",
+        "custom-agent:ball",
+        "custom-agent:cat",
     }
     assert all(c.dispatched_by == "custom-agent:page" for c in children.values())
     # No edges between siblings — an edge would serialize them again.
@@ -79,7 +84,9 @@ def test_children_are_auto_allow_listed_for_the_spawn_gate():
     """
     compiled = compile_for_run("sample_subagents_parallel")
     assert set(compiled.allowed_workers) >= {
-        "custom-agent:apple", "custom-agent:ball", "custom-agent:cat",
+        "custom-agent:apple",
+        "custom-agent:ball",
+        "custom-agent:cat",
     }
 
 
@@ -95,23 +102,34 @@ def test_sequential_mode_is_unchanged():
 
     manifest = WorkflowManifest(
         id="seq-demo",
-        steps=[{
-            "agent": "custom-agent", "instance_id": "parent", "prompt": "p",
-            "subagents": {"mode": "sequential", "steps": [
-                {"agent": "custom-agent", "instance_id": "a", "prompt": "a"},
-                {"agent": "custom-agent", "instance_id": "b", "prompt": "b"},
-            ]},
-        }],
-        deliverable={}, planner="run", clarify={"mode": "auto", "defaults": []},
-        context_providers=[], seed_files={}, version=1,
+        steps=[
+            {
+                "agent": "custom-agent",
+                "instance_id": "parent",
+                "prompt": "p",
+                "subagents": {
+                    "mode": "sequential",
+                    "steps": [
+                        {"agent": "custom-agent", "instance_id": "a", "prompt": "a"},
+                        {"agent": "custom-agent", "instance_id": "b", "prompt": "b"},
+                    ],
+                },
+            }
+        ],
+        deliverable={},
+        planner="run",
+        clarify={"mode": "auto", "defaults": []},
+        context_providers=[],
+        seed_files={},
+        version=1,
     )
     out = WorkflowCompiler().compile(manifest, CapabilityRegistry())
     parent = next(s for s in out.steps if s.agent_id == "custom-agent:parent")
     b = next(s for s in out.steps if s.agent_id == "custom-agent:b")
 
-    assert parent.strategy == "single_shot"       # NOT parallel_group
+    assert parent.strategy == "single_shot"  # NOT parallel_group
     assert parent.fanout is None
-    assert b.depends_on == ["custom-agent:a"]     # still chained
+    assert b.depends_on == ["custom-agent:a"]  # still chained
     assert all(not s.dispatched_by for s in out.steps)  # still serially dispatched
     assert apple is not None
 
@@ -225,19 +243,20 @@ async def test_every_child_runs_exactly_once_end_to_end():
     events = await _drive("sample_subagents_parallel")
     assert events
 
-    started = [
-        e["data"].get("agent_id")
-        for e in events
-        if e["type"] == "agent_start"
-    ]
+    started = [e["data"].get("agent_id") for e in events if e["type"] == "agent_start"]
     # Each child now emits its own live agent_start (per-child streaming via the
     # fan-out side-channel queue), same as the parent — but EXACTLY ONCE each.
     # A `dispatched_by` regression would double a child's agent_start (once in
     # the serial loop, once as a worker); a missing fan-out wire would drop it
     # entirely. Order isn't asserted (workers race), only exactly-once-each.
-    assert sorted(started) == sorted([
-        "custom-agent:page", "custom-agent:apple", "custom-agent:ball", "custom-agent:cat",
-    ]), started
+    assert sorted(started) == sorted(
+        [
+            "custom-agent:page",
+            "custom-agent:apple",
+            "custom-agent:ball",
+            "custom-agent:cat",
+        ]
+    ), started
 
     spawned = [e for e in events if e["type"] == "subagent_spawned"]
     assert len(spawned) == 3, f"expected 3 spawned children, got {len(spawned)}"

@@ -48,7 +48,9 @@ class _GrepResult:
 # under backend/, but which do not exist in the CI checkout that the original Unix
 # `grep -rnE ... backend/` command scanned. Excluded so local runs match CI's on-disk
 # reality instead of false-failing on the grep target's own dependency source code.
-_ALWAYS_EXCLUDED_DIRS = frozenset({".venv", "venv", "__pycache__", ".pytest_cache", ".hypothesis", "node_modules"})
+_ALWAYS_EXCLUDED_DIRS = frozenset(
+    {".venv", "venv", "__pycache__", ".pytest_cache", ".hypothesis", "node_modules"}
+)
 
 
 def _portable_grep(
@@ -83,6 +85,7 @@ def _portable_grep(
     stdout = "\n".join(lines) + ("\n" if lines else "")
     return _GrepResult(returncode=0 if lines else 1, stdout=stdout)
 
+
 # tests/agents/test_migration_ledger.py → tests/agents → tests → backend → repo root
 _REPO = Path(__file__).resolve().parents[3]
 _LEDGER = _REPO / "specs/003-workflow-engine-decoupling/migration-ledger.md"
@@ -102,11 +105,37 @@ def _scope_for(item: str) -> Path:
     """The grep root for a checked row: the kernel for L1-L13, else whole backend/."""
     return _KERNEL if item in _KERNEL_SCOPED_ITEMS else _BACKEND
 
+
 # Item ids that MUST be present in the ledger (mirror of plan §31; T-03-02 mitigation).
 _REQUIRED_ITEMS = [
-    "L14", "L16", "D1", "L13", "L1", "L2/L9", "L3", "L4/L8", "L5", "L6",
-    "L7", "L10", "L11", "L12", "L15", "D2", "F1", "F2", "F3", "F4", "F5",
-    "R1", "D9", "D10", "D11", "IN-02", "FANOUT-PERSIST", "WAVE-PERSIST",
+    "L14",
+    "L16",
+    "D1",
+    "L13",
+    "L1",
+    "L2/L9",
+    "L3",
+    "L4/L8",
+    "L5",
+    "L6",
+    "L7",
+    "L10",
+    "L11",
+    "L12",
+    "L15",
+    "D2",
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "R1",
+    "D9",
+    "D10",
+    "D11",
+    "IN-02",
+    "FANOUT-PERSIST",
+    "WAVE-PERSIST",
 ]
 
 
@@ -166,7 +195,9 @@ def _checked_grep_rows(ledger_text: str | None = None) -> list[tuple[str, str | 
     CHECK-row gates → ``None`` (skipped by the parametrized test); real grep gates →
     the verbatim pattern. ``☐`` rows are omitted entirely (not yet enforced).
     """
-    text = ledger_text if ledger_text is not None else _LEDGER.read_text(encoding="utf-8")
+    text = (
+        ledger_text if ledger_text is not None else _LEDGER.read_text(encoding="utf-8")
+    )
     out: list[tuple[str, str | None]] = []
     for item, gate, status in _parse_rows(text):
         if "☑" not in status:
@@ -195,7 +226,9 @@ def test_deleted_pattern_absent_from_backend(item: str, pattern: str | None) -> 
     # the grep scans `backend/` including `tests/`, so a comment naming the
     # token matches itself.
     res = _portable_grep(pattern, scope, exclude_dir="evals")
-    scope_label = scope.relative_to(_BACKEND).as_posix() if scope != _BACKEND else "backend/"
+    scope_label = (
+        scope.relative_to(_BACKEND).as_posix() if scope != _BACKEND else "backend/"
+    )
     assert res.returncode != 0, (
         f"{item}: banned pattern is back in {scope_label} (move-don't-copy violation):\n"
         f"{res.stdout}"
@@ -225,18 +258,35 @@ def test_ledger_parses_and_phase7_flips_all_engine_leaks() -> None:
     assert not missing, f"ledger drifted from §31 — missing rows: {missing}"
     flipped = sorted(item for item, _g, status in rows if "☑" in status)
     expected = sorted(
-        ["L14", "L15", "L16", "D2",  # 0B / 1B
-         "L1", "L2/L9", "L3", "L4/L8", "L5", "L6", "L7", "L10", "L11", "L12", "L13",  # 07-05
-         "F2",  # 08-03 (Phase 3) — F2 tool-switch lifted to the tool_provider registry
-         "F1", "F3", "F5",  # 08-05 (Phase 3) — prompt policy (F1) / skill+hook providers (F3) / runtime adapter (F5)
-         "F4",  # 08-06 (Phase 3) — constitution sync-safe pre-warm; R12 _mem-only branch deleted
-         "R1",  # 09-02 (Phase 9) — RunSandbox refolded onto a has_git=False Workspace (RUNTIME-02 CHECK)
-         "D9",  # 09-06 (Phase 9) — CodingAgent build_model().ainvoke bypass DELETED (bypass-class grep → 0)
-         "D10",  # 09-06 (Phase 9) — /api/handoff routers + UserGithubCredential RETAINED-with-justification
-         "D11",  # 10-02 (Phase 10) — plan.py ExecutionPolicy forward-surface helper DELETED (INV-12 single surface)
-         "IN-02",  # 10-05 (Phase 10) — exec_command shell-exec closed (argv-list, 10-01); permanent no-shell ratchet
-         "FANOUT-PERSIST",  # 11-01 (Phase 11) — additive subagent_runs (0019) reversible CHECK row; single 0018→0019 head
-         "WAVE-PERSIST"]  # 12-01 (Phase 12) — additive wave_runs (0020) reversible CHECK; single 0019→0020 head
+        [
+            "L14",
+            "L15",
+            "L16",
+            "D2",  # 0B / 1B
+            "L1",
+            "L2/L9",
+            "L3",
+            "L4/L8",
+            "L5",
+            "L6",
+            "L7",
+            "L10",
+            "L11",
+            "L12",
+            "L13",  # 07-05
+            "F2",  # 08-03 (Phase 3) — F2 tool-switch lifted to the tool_provider registry
+            "F1",
+            "F3",
+            "F5",  # 08-05 (Phase 3) — prompt policy (F1) / skill+hook providers (F3) / runtime adapter (F5)
+            "F4",  # 08-06 (Phase 3) — constitution sync-safe pre-warm; R12 _mem-only branch deleted
+            "R1",  # 09-02 (Phase 9) — RunSandbox refolded onto a has_git=False Workspace (RUNTIME-02 CHECK)
+            "D9",  # 09-06 (Phase 9) — CodingAgent build_model().ainvoke bypass DELETED (bypass-class grep → 0)
+            "D10",  # 09-06 (Phase 9) — /api/handoff routers + UserGithubCredential RETAINED-with-justification
+            "D11",  # 10-02 (Phase 10) — plan.py ExecutionPolicy forward-surface helper DELETED (INV-12 single surface)
+            "IN-02",  # 10-05 (Phase 10) — exec_command shell-exec closed (argv-list, 10-01); permanent no-shell ratchet
+            "FANOUT-PERSIST",  # 11-01 (Phase 11) — additive subagent_runs (0019) reversible CHECK row; single 0018→0019 head
+            "WAVE-PERSIST",
+        ]  # 12-01 (Phase 12) — additive wave_runs (0020) reversible CHECK; single 0019→0020 head
     )
     assert flipped == expected, (
         f"Through Phase 7 + the 08-03 F2 flip + the 08-05 F1/F3/F5 flips + the 08-06 F4 "
@@ -265,9 +315,9 @@ def test_guard_fails_on_known_present_pattern() -> None:
         f"| FAKE | x | y | 9 | {present_token} | ☑ |\n"
     )
     rows = _checked_grep_rows(synthetic)
-    assert rows == [("FAKE", present_token)], (
-        f"classifier failed to yield the synthetic grep row: {rows}"
-    )
+    assert rows == [
+        ("FAKE", present_token)
+    ], f"classifier failed to yield the synthetic grep row: {rows}"
     _item, pattern = rows[0]
     assert pattern is not None, "a real grep gate was misclassified as a CHECK row"
 
@@ -289,4 +339,6 @@ def test_check_rows_classified_as_check() -> None:
             f"{by_item[check_item]!r}"
         )
     # And a known grep row must classify as a grep pattern (sanity, both directions).
-    assert not _is_check_gate(by_item["L5"]), "L5 (SKIP_PLANNER_FOR_PROTOTYPE) is a grep row"
+    assert not _is_check_gate(
+        by_item["L5"]
+    ), "L5 (SKIP_PLANNER_FOR_PROTOTYPE) is a grep row"

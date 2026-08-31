@@ -93,26 +93,62 @@ class _CancelRunner:
         await self.teardown_isolated_workspace(base_workspace, worker_ws)
 
     # -- subagent_runs audit --------------------------------------------------
-    async def record_subagent_run(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None, worker_index=None, task_id=None):
+    async def record_subagent_run(
+        self,
+        *,
+        parent_step,
+        worker_agent,
+        depth,
+        isolation,
+        status,
+        tokens=None,
+        cost=None,
+        worker_index=None,
+        task_id=None,
+    ):
         self._row_seq += 1
         row_id = f"row-{self._row_seq}"
-        self.recorded_rows.append(dict(id=row_id, worker_agent=worker_agent, status=status))
+        self.recorded_rows.append(
+            dict(id=row_id, worker_agent=worker_agent, status=status)
+        )
         return row_id
 
     async def update_subagent_run(self, row_id, *, status, tokens=None, cost=None):
         self.updated_rows.append(dict(id=row_id, status=status))
 
     # -- worker run + fragment persistence -----------------------------------
-    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None, **kw):
+    async def run_worker(
+        self,
+        step,
+        ctx,
+        *,
+        worker_index,
+        thread_id,
+        agent_id,
+        input,
+        workspace=None,
+        **kw,
+    ):
         self.entered.append(worker_index)
         if self._block:
             # Block until released — the test fires the cancel while we are in-flight.
             await self._release.wait()
         yield {"type": "agent_chunk", "data": {"worker": worker_index}}
 
-    async def write_fragment_artifact(self, *, producer_step, worker_agent, worker_index, content, location, kind="file_bundle"):
+    async def write_fragment_artifact(
+        self,
+        *,
+        producer_step,
+        worker_agent,
+        worker_index,
+        content,
+        location,
+        kind="file_bundle",
+    ):
         ref = f"frag-{worker_index}"
-        self.fragments_written.append(dict(worker=worker_index, ref=ref, location=location))
+        self.fragments_written.append(
+            dict(worker=worker_index, ref=ref, location=location)
+        )
         return ref
 
     def release(self) -> None:
@@ -121,13 +157,17 @@ class _CancelRunner:
 
 def _make_ctx(runner, *, cancel_event=None, depth=0):
     return SimpleNamespace(
-        runner=runner, depth=depth, budget=BudgetManager(),
+        runner=runner,
+        depth=depth,
+        budget=BudgetManager(),
         cancel_event=cancel_event,
     )
 
 
 def _make_step(agent_id="worker-a", *, mode="parallel", max_parallel=None):
-    fanout = SimpleNamespace(mode=mode, max_parallel=max_parallel, agent="self", count=None, workers=[])
+    fanout = SimpleNamespace(
+        mode=mode, max_parallel=max_parallel, agent="self", count=None, workers=[]
+    )
     return SimpleNamespace(agent_id=agent_id, fanout=fanout)
 
 
@@ -150,7 +190,9 @@ async def test_cancel_before_wave_spawns_nothing():
         async for _ev in run_fanout(requests, ctx, step=step):
             pass
 
-    assert runner.recorded_rows == [], "a pre-wave cancel must leave zero subagent_runs rows"
+    assert (
+        runner.recorded_rows == []
+    ), "a pre-wave cancel must leave zero subagent_runs rows"
     assert runner.allocated == [], "a pre-wave cancel must allocate no workspaces"
     assert runner.entered == [], "a pre-wave cancel must spawn no workers"
 
@@ -185,9 +227,9 @@ async def test_cancel_mid_parallel_marks_rows_cancelled_and_tears_down():
 
     # Every allocated workspace was torn down (zero-residue acceptance — no leaks).
     assert len(runner.allocated) >= 1
-    assert all(ws.torn_down for ws in runner.allocated), (
-        "some allocated isolated workspaces were NOT torn down on cancel (leak)"
-    )
+    assert all(
+        ws.torn_down for ws in runner.allocated
+    ), "some allocated isolated workspaces were NOT torn down on cancel (leak)"
     assert sorted(runner.torn_down) == sorted(ws.index for ws in runner.allocated)
 
     # Every recorded child row reached terminal `cancelled` (FANOUT-11).
@@ -199,9 +241,9 @@ async def test_cancel_mid_parallel_marks_rows_cancelled_and_tears_down():
         f"not every recorded child row was marked cancelled: "
         f"recorded={recorded_ids} cancelled={cancelled_ids}"
     )
-    assert not any(u["status"] == "complete" for u in runner.updated_rows), (
-        "a worker reported complete despite the mid-flight cancel"
-    )
+    assert not any(
+        u["status"] == "complete" for u in runner.updated_rows
+    ), "a worker reported complete despite the mid-flight cancel"
 
 
 @pytest.mark.asyncio
@@ -283,12 +325,20 @@ async def test_cancel_between_sequential_workers_stops_next_spawn():
     # between-workers _check_cancel trips before worker 1 spawns.
     _orig_run_worker = runner.run_worker
 
-    async def _hooked(step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None, **kw):
+    async def _hooked(
+        step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None, **kw
+    ):
         if worker_index == 0:
             cancel.set()
         async for ev in _orig_run_worker(
-            step, ctx, worker_index=worker_index, thread_id=thread_id,
-            agent_id=agent_id, input=input, workspace=workspace, **kw,
+            step,
+            ctx,
+            worker_index=worker_index,
+            thread_id=thread_id,
+            agent_id=agent_id,
+            input=input,
+            workspace=workspace,
+            **kw,
         ):
             yield ev
 
@@ -299,7 +349,9 @@ async def test_cancel_between_sequential_workers_stops_next_spawn():
             pass
 
     # Only worker 0 spawned; worker 1 + 2 never entered run_worker.
-    assert runner.entered == [0], f"sequential cancel did not stop the next spawn: {runner.entered}"
+    assert runner.entered == [
+        0
+    ], f"sequential cancel did not stop the next spawn: {runner.entered}"
     # Worker 0's row flipped complete (it finished before the cancel boundary); no other
     # row was recorded (workers 1/2 never spawned).
     assert len(runner.recorded_rows) == 1
@@ -333,7 +385,9 @@ async def test_cancel_before_merge_preserves_fragments_and_skips_merge():
         ws = await _orig_alloc(scope, step_, worker_index=worker_index)
         wdir = tmp / f"w{worker_index}"
         wdir.mkdir(parents=True, exist_ok=True)
-        (wdir / f"part_{worker_index}.txt").write_text(f"content-{worker_index}", encoding="utf-8")
+        (wdir / f"part_{worker_index}.txt").write_text(
+            f"content-{worker_index}", encoding="utf-8"
+        )
         ws._sandbox = SimpleNamespace(root=wdir)
         return ws
 
@@ -343,10 +397,18 @@ async def test_cancel_before_merge_preserves_fragments_and_skips_merge():
     # pre-merge _check_cancel trips. We hook the second worker's completion.
     _orig_run_worker = runner.run_worker
 
-    async def _hooked(step_, ctx_, *, worker_index, thread_id, agent_id, input, workspace=None, **kw):
+    async def _hooked(
+        step_, ctx_, *, worker_index, thread_id, agent_id, input, workspace=None, **kw
+    ):
         async for ev in _orig_run_worker(
-            step_, ctx_, worker_index=worker_index, thread_id=thread_id,
-            agent_id=agent_id, input=input, workspace=workspace, **kw,
+            step_,
+            ctx_,
+            worker_index=worker_index,
+            thread_id=thread_id,
+            agent_id=agent_id,
+            input=input,
+            workspace=workspace,
+            **kw,
         ):
             yield ev
         if worker_index == 1:
@@ -360,13 +422,13 @@ async def test_cancel_before_merge_preserves_fragments_and_skips_merge():
             events.append(ev)
 
     # Completed fragments were persisted BEFORE the cancel (retained, not lost).
-    assert len(runner.fragments_written) == 2, (
-        f"completed fragments were not persisted before cancel: {runner.fragments_written}"
-    )
+    assert (
+        len(runner.fragments_written) == 2
+    ), f"completed fragments were not persisted before cancel: {runner.fragments_written}"
     # The merge never ran (no merge_started / merge_completed event was yielded).
-    assert not any(e["type"].startswith("merge_") for e in events), (
-        "merge ran despite the pre-merge cancel"
-    )
+    assert not any(
+        e["type"].startswith("merge_") for e in events
+    ), "merge ran despite the pre-merge cancel"
     # Both workers' rows flipped complete (they finished); workspaces torn down.
     assert all(u["status"] == "complete" for u in runner.updated_rows)
     assert all(ws.torn_down for ws in runner.allocated)
@@ -422,7 +484,9 @@ async def test_terminal_run_stops_the_fanout_without_any_cancel_event():
         async for _ev in run_fanout(requests, ctx, step=step):
             pass
 
-    assert runner.terminal_checks > 0, "the fan-out boundary never consulted run terminality"
+    assert (
+        runner.terminal_checks > 0
+    ), "the fan-out boundary never consulted run terminality"
     assert runner.entered == [], "a terminal run must spawn no workers"
     assert runner.recorded_rows == [], (
         "a terminal run must write no subagent_runs rows — those rows are what "
@@ -441,11 +505,13 @@ async def test_non_terminal_run_is_undisturbed_by_the_terminality_check():
 
     events = [ev async for ev in run_fanout(requests, ctx, step=step)]
 
-    assert runner.terminal_checks > 0, "the boundary must consult terminality on the happy path too"
+    assert (
+        runner.terminal_checks > 0
+    ), "the boundary must consult terminality on the happy path too"
     assert sorted(runner.entered) == [0, 1], f"both workers must run: {runner.entered}"
-    assert [e["type"] for e in events if e["type"] == "merge_completed"], (
-        f"a healthy fan-out must still reach its merge: {[e['type'] for e in events]}"
-    )
+    assert [
+        e["type"] for e in events if e["type"] == "merge_completed"
+    ], f"a healthy fan-out must still reach its merge: {[e['type'] for e in events]}"
 
 
 def test_kernel_services_is_run_terminal_reads_the_real_state_machine():
@@ -481,6 +547,6 @@ def test_kernel_services_is_run_terminal_reads_the_real_state_machine():
     assert services.is_run_terminal() is False, "a running run is not terminal"
 
     machine.transition(run_id, "cancelled")
-    assert services.is_run_terminal() is True, (
-        "a cancelled run — what a review-gate rejection produces — must read terminal"
-    )
+    assert (
+        services.is_run_terminal() is True
+    ), "a cancelled run — what a review-gate rejection produces — must read terminal"

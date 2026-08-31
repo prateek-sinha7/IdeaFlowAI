@@ -67,12 +67,17 @@ def api(db_session):
     return TestClient(app), state
 
 
-_BODY = {"name": "Summariser", "prompt": "Summarise the input in one line.", "skills": []}
+_BODY = {
+    "name": "Summariser",
+    "prompt": "Summarise the input in one line.",
+    "skills": [],
+}
 
 
 # --------------------------------------------------------------------------
 # CRUD
 # --------------------------------------------------------------------------
+
 
 def test_create_returns_201_and_stamps_ownership(api, db_session):
     client, _ = api
@@ -116,6 +121,7 @@ def test_list_get_update_delete_roundtrip(api):
 # Ownership — the reason this file exists
 # --------------------------------------------------------------------------
 
+
 def test_cross_owner_read_is_404_not_403(api):
     """IDOR→404: a 403 would confirm the row exists for someone else."""
     client, state = api
@@ -157,6 +163,7 @@ def test_list_is_scoped_to_caller(api):
 # Validation
 # --------------------------------------------------------------------------
 
+
 def test_duplicate_name_for_same_user_is_409(api):
     client, _ = api
     assert client.post("/api/user-agents", json=_BODY).status_code == 201
@@ -171,13 +178,16 @@ def test_rename_onto_an_existing_name_is_409_but_self_rename_is_fine(api):
     client.post("/api/user-agents", json={**_BODY, "name": "Second"})
 
     # Renaming `first` onto the taken name collides...
-    assert client.patch(
-        f"/api/user-agents/{first['id']}", json={**_BODY, "name": "Second"}
-    ).status_code == 409
+    assert (
+        client.patch(
+            f"/api/user-agents/{first['id']}", json={**_BODY, "name": "Second"}
+        ).status_code
+        == 409
+    )
     # ...but saving `first` under its OWN name must not collide with itself.
-    assert client.patch(
-        f"/api/user-agents/{first['id']}", json=_BODY
-    ).status_code == 200
+    assert (
+        client.patch(f"/api/user-agents/{first['id']}", json=_BODY).status_code == 200
+    )
 
 
 def test_unknown_skill_id_is_rejected(api):
@@ -191,12 +201,17 @@ def test_unknown_skill_id_is_rejected(api):
 
 def test_blank_name_is_rejected(api):
     client, _ = api
-    assert client.post("/api/user-agents", json={**_BODY, "name": "   "}).status_code == 422
+    assert (
+        client.post("/api/user-agents", json={**_BODY, "name": "   "}).status_code
+        == 422
+    )
 
 
 def test_too_many_skills_is_rejected(api):
     client, _ = api
-    r = client.post("/api/user-agents", json={**_BODY, "skills": [f"s{i}" for i in range(50)]})
+    r = client.post(
+        "/api/user-agents", json={**_BODY, "skills": [f"s{i}" for i in range(50)]}
+    )
     assert r.status_code == 422
     assert "At most" in r.json()["detail"]
 

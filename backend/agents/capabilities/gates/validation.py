@@ -33,6 +33,7 @@ from typing import Any
 from agents.capabilities.gates.base import GATE_BLOCK, GATE_PASS, GateOutcome
 from agents.capabilities.gates.write import write_gate_event
 from agents.capabilities.registry import register
+
 # THE single canonical severity mapping (VALID-03 / 08-01) — IMPORTED, never
 # re-defined and never stubbed here. validators.severity is import-clean of any
 # @register/discover() side-effect, so importing it at gate-module import is safe.
@@ -108,7 +109,8 @@ class ValidationGate:
                     # gate; the validator owns the contract (08-04).
                     logger.warning(
                         "validation gate: validator %s emitted unknown severity %r",
-                        vname, internal,
+                        vname,
+                        internal,
                     )
                     label = "LOW"
                 labelled.append(
@@ -187,7 +189,9 @@ def _build_validation_target(
         return ctx
     try:
         return factory(
-            name=name, step=step_id, task_meta={"attempt": 0},
+            name=name,
+            step=step_id,
+            task_meta={"attempt": 0},
             require_render=require_render,
         )
     except TypeError:

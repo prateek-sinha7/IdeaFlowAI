@@ -146,7 +146,7 @@ REVISION_BASE_MAP: dict[str, str] = {
     "ppt_revision": "ppt",
     "user_stories_revision": "user_stories",
     "prototype_revision": "prototype",
-    "prototype_large_revision": "prototype",    # tiered large-revision manifest
+    "prototype_large_revision": "prototype",  # tiered large-revision manifest
     "prototype_feature_revision": "prototype",  # tiered feature-revision manifest
     "app_builder_revision": "app_builder",
     "custom_revision": "custom",
@@ -188,6 +188,7 @@ def get_pipeline_agents(pipeline_type: str) -> list[AgentSpec]:
 # data from the REAL pipeline-to-ID maps above + the on-disk AGENT.md files
 # (via the loader), so there is a single source of truth. Phase 6 (T3)
 # repoints ``app/api/agents.py`` and ``app/api/websocket.py`` here.
+
 
 def get_agent_by_id(agent_id: str) -> AgentSpec | None:
     """Return the AgentSpec for ``agent_id``, or ``None`` if it does not exist.

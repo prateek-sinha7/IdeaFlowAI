@@ -89,7 +89,9 @@ def list_templates(_: User = Depends(get_current_user)) -> list[dict[str, Any]]:
     response_model=TemplateDetail,
     summary="Full template payload incl. SKILL.md body",
 )
-def get_template(template_id: str, _: User = Depends(get_current_user)) -> dict[str, Any]:
+def get_template(
+    template_id: str, _: User = Depends(get_current_user)
+) -> dict[str, Any]:
     template = od_loader.get_template(template_id)
     if template is None:
         raise HTTPException(
@@ -200,7 +202,9 @@ def list_design_systems(_: User = Depends(get_current_user)) -> list[dict[str, A
     response_model=DesignSystemDetail,
     summary="Full DESIGN.md body for a design system",
 )
-def get_design_system(ds_id: str, _: User = Depends(get_current_user)) -> dict[str, Any]:
+def get_design_system(
+    ds_id: str, _: User = Depends(get_current_user)
+) -> dict[str, Any]:
     ds = od_loader.get_design_system(ds_id)
     if ds is None:
         raise HTTPException(
@@ -267,9 +271,14 @@ async def run_prototype(
     list of event shapes.
     """
     if od_loader.get_template(payload.template_id) is None:
-        raise HTTPException(status_code=404, detail=f"Template '{payload.template_id}' not found")
+        raise HTTPException(
+            status_code=404, detail=f"Template '{payload.template_id}' not found"
+        )
     if od_loader.get_design_system(payload.design_system_id) is None:
-        raise HTTPException(status_code=404, detail=f"Design system '{payload.design_system_id}' not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Design system '{payload.design_system_id}' not found",
+        )
 
     async def event_stream():
         try:
@@ -301,6 +310,7 @@ async def run_prototype(
 # URL fetch proxy — avoids CORS when user pastes a website URL as a custom
 # template. Auth-gated, size-limited, private-IP blocked.
 # ---------------------------------------------------------------------------
+
 
 def _is_private_url(url: str) -> bool:
     """Return True if the URL resolves to a private/loopback address."""
@@ -337,11 +347,15 @@ async def fetch_url_for_template(
 
     # Basic scheme validation
     if not re.match(r"^https?://", url, re.IGNORECASE):
-        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+        raise HTTPException(
+            status_code=400, detail="URL must start with http:// or https://"
+        )
 
     # Block private/loopback addresses (SSRF prevention)
     if _is_private_url(url):
-        raise HTTPException(status_code=400, detail="Private or loopback URLs are not allowed")
+        raise HTTPException(
+            status_code=400, detail="Private or loopback URLs are not allowed"
+        )
 
     MAX_BYTES = 2 * 1024 * 1024  # 2 MB
 
@@ -349,7 +363,9 @@ async def fetch_url_for_template(
         async with httpx.AsyncClient(follow_redirects=True, timeout=10.0) as client:
             response = await client.get(
                 url,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; FlowIn/1.0; +https://flowin.ai)"},
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; FlowIn/1.0; +https://flowin.ai)"
+                },
             )
             response.raise_for_status()
 

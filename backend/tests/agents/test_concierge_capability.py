@@ -72,7 +72,9 @@ def test_propose_tools_return_structured_intents() -> None:
     assert note.channel == "steering_note"
     assert note.params["note"] == "slow down on the schema"
 
-    rev = propose_revision.invoke({"instruction": "tighten the copy", "target": "ref-1"})
+    rev = propose_revision.invoke(
+        {"instruction": "tighten the copy", "target": "ref-1"}
+    )
     assert isinstance(rev, ProposalIntent)
     assert rev.channel == "revision"
     assert rev.params == {"instruction": "tighten the copy", "target": "ref-1"}
@@ -89,7 +91,9 @@ def test_propose_tools_return_structured_intents() -> None:
     assert bad.params["action"] == "request_changes"
 
 
-def test_propose_tools_invoke_no_execution_seam(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_propose_tools_invoke_no_execution_seam(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Proposal-only guard: no propose_* tool touches an execution seam.
 
     Spy the three consequential seams — the gate writer
@@ -156,14 +160,16 @@ def test_read_tools_go_through_scoped_store_and_deny_cross_owner() -> None:
             self._owner_id = owner_id
             self._rows_by_owner = rows_by_owner
 
-        async def read_events_of_types(self, run_id: str, types, *, limit: int,
-                                       after_seq: int = 0) -> list:
+        async def read_events_of_types(
+            self, run_id: str, types, *, limit: int, after_seq: int = 0
+        ) -> list:
             wanted = set(types)
             rows = self._rows_by_owner.get(self._owner_id, [])
             return [r for r in rows if r.type in wanted][-limit:]
 
-    victim_rows = [SimpleNamespace(seq=1, type="chat_message",
-                                   payload_json={"text": "secret"})]
+    victim_rows = [
+        SimpleNamespace(seq=1, type="chat_message", payload_json={"text": "secret"})
+    ]
 
     # Cross-owner: attacker store over the victim's data → nothing (default-deny).
     attacker_store = _DefaultDenyStore("attacker", {"victim": victim_rows})
@@ -201,8 +207,9 @@ def test_read_tools_serialize_rows_to_plain_dicts() -> None:
             self.created_at = datetime(2026, 7, 15, tzinfo=timezone.utc)
 
     class _Store:
-        async def read_events_of_types(self, run_id: str, types, *, limit: int,
-                                       after_seq: int = 0) -> list:
+        async def read_events_of_types(
+            self, run_id: str, types, *, limit: int, after_seq: int = 0
+        ) -> list:
             return [_FakeRow()]
 
     tools = ConciergeCapability._read_tools(_Store(), "run-1")
@@ -210,7 +217,9 @@ def test_read_tools_serialize_rows_to_plain_dicts() -> None:
     out = asyncio.new_event_loop().run_until_complete(read_events_tool.ainvoke({}))
 
     assert isinstance(out, list) and len(out) == 1
-    assert isinstance(out[0], dict), "read tool must return plain dicts (M2), not raw rows"
+    assert isinstance(
+        out[0], dict
+    ), "read tool must return plain dicts (M2), not raw rows"
     assert out[0]["type"] == "chat_message"
     assert out[0]["payload_json"] == {"text": "hi"}
     # datetime coerced to a JSON-safe ISO string, not a datetime object.
@@ -276,15 +285,15 @@ def test_response_rules_do_not_forbid_token_counts() -> None:
     prompt = ConciergeCapability._compose_system_prompt(
         SimpleNamespace(conversation_context=None, compiled=None)
     )
-    assert "token counts" not in prompt, (
-        "the prompt still forbids the very thing the token tool now answers"
-    )
+    assert (
+        "token counts" not in prompt
+    ), "the prompt still forbids the very thing the token tool now answers"
     # Deliberately untouched here — an open product question, not this fix's call.
     assert "model names" in prompt
     # The honesty rule, asserted on the same literal the prompt carries.
-    assert "I can't see that from here" in prompt, (
-        "the prompt must instruct the model to admit a blind spot, not invent a reason"
-    )
+    assert (
+        "I can't see that from here" in prompt
+    ), "the prompt must instruct the model to admit a blind spot, not invent a reason"
 
 
 def test_concierge_impl_imports_no_raw_orm() -> None:
@@ -292,7 +301,9 @@ def test_concierge_impl_imports_no_raw_orm() -> None:
     from pathlib import Path
 
     src = Path(concierge_mod.__file__).read_text(encoding="utf-8")
-    assert "app.models" not in src, "concierge must read only via ScopedStore, not raw ORM"
+    assert (
+        "app.models" not in src
+    ), "concierge must read only via ScopedStore, not raw ORM"
 
 
 # ── runner path: model reached ONLY via DeepAgentRunner, offline (INV-13) ────────
@@ -323,7 +334,9 @@ def test_converse_runs_scripted_model_through_runner_offline() -> None:
     )
 
     impl = ConciergeCapability()
-    out = asyncio.new_event_loop().run_until_complete(impl.converse(ctx, "what happened?"))
+    out = asyncio.new_event_loop().run_until_complete(
+        impl.converse(ctx, "what happened?")
+    )
     assert isinstance(out, str)
     assert out  # the scripted turn produced text
     # on_chunk=None is byte-behaviorally identical to today: the full concatenated text
@@ -422,7 +435,11 @@ def _proposing_model(action: str) -> ScriptedFakeChatModel:
             _ScriptedTurn(
                 texts=[f"Considering {action}. "],
                 tool_calls=[
-                    ("propose_gate_action", json.dumps({"action": action}), f"c_{action}")
+                    (
+                        "propose_gate_action",
+                        json.dumps({"action": action}),
+                        f"c_{action}",
+                    )
                 ],
                 usage=(10, 5),
             ),
@@ -436,7 +453,9 @@ class _NoopStore:
         return []
 
 
-def _concierge_ctx(model: ScriptedFakeChatModel, run_id: str, owner: str) -> SimpleNamespace:
+def _concierge_ctx(
+    model: ScriptedFakeChatModel, run_id: str, owner: str
+) -> SimpleNamespace:
     return SimpleNamespace(
         model=model,
         scoped_store=_NoopStore(),
@@ -457,7 +476,9 @@ def test_converse_surfaces_proposals_on_ctx_and_second_drain_is_empty() -> None:
     ctx = _concierge_ctx(_proposing_model("approve"), "run-drain", "owner-A")
     impl = ConciergeCapability()
 
-    answer = asyncio.new_event_loop().run_until_complete(impl.converse(ctx, "should I approve?"))
+    answer = asyncio.new_event_loop().run_until_complete(
+        impl.converse(ctx, "should I approve?")
+    )
     assert isinstance(answer, str)
 
     drained = ConciergeCapability.drain_proposals(ctx)
@@ -482,7 +503,9 @@ def test_no_self_scoped_proposal_buffer_on_capability() -> None:
     # No proposal state stored on the instance (only ctx carries it).
     assert not hasattr(impl, "_proposals")
     assert not hasattr(impl, "proposals")
-    assert not getattr(impl, "__dict__", {}), "capability instance must hold no per-request state"
+    assert not getattr(
+        impl, "__dict__", {}
+    ), "capability instance must hold no per-request state"
 
 
 def test_overlapping_converse_calls_are_ctx_isolated() -> None:
@@ -529,7 +552,9 @@ def test_converse_accumulates_usage_across_turns() -> None:
         [
             _ScriptedTurn(
                 texts=["Checking. "],
-                tool_calls=[("propose_gate_action", json.dumps({"action": "approve"}), "c1")],
+                tool_calls=[
+                    ("propose_gate_action", json.dumps({"action": "approve"}), "c1")
+                ],
                 usage=(10, 5),
             ),
             _ScriptedTurn(texts=["Done."], usage=(7, 3)),
@@ -559,7 +584,9 @@ def test_converse_reports_zero_usage_rather_than_estimating() -> None:
     unmeasured. Deriving a count from ``len(answer)`` would poison the cache-savings
     figures downstream (ISS-034), so the drain must leave the counters at 0.
     """
-    scripted = ScriptedFakeChatModel([_ScriptedTurn(texts=["A long answer body."], usage=None)])
+    scripted = ScriptedFakeChatModel(
+        [_ScriptedTurn(texts=["A long answer body."], usage=None)]
+    )
     ctx = _concierge_ctx(scripted, "run-nousage", "owner-A")
 
     impl = ConciergeCapability()
@@ -596,33 +623,66 @@ class _BigRunStore:
     for its own owner.
     """
 
-    def __init__(self, owner_id: str = "victim", *, cross_run_ref: bool = False) -> None:
+    def __init__(
+        self, owner_id: str = "victim", *, cross_run_ref: bool = False
+    ) -> None:
         self._owner_id = owner_id
         self.rows = self._build_rows()
         self.ref = SimpleNamespace(
-            id="ref-1", run_id="other-run" if cross_run_ref else "run-1",
-            kind="deliverable", producer_agent="build", version=3,
-            content="X" * 400_000, visibility="private",
+            id="ref-1",
+            run_id="other-run" if cross_run_ref else "run-1",
+            kind="deliverable",
+            producer_agent="build",
+            version=3,
+            content="X" * 400_000,
+            visibility="private",
         )
 
     @staticmethod
     def _build_rows() -> list:
         rows = [
             SimpleNamespace(seq=1, type="pipeline_start", payload_json={"total": 6}),
-            SimpleNamespace(seq=2, type="agent_start",
-                            payload_json={"agent_id": "build", "name": "Build Agent",
-                                          "role": "Prototype", "index": 0, "total": 6}),
+            SimpleNamespace(
+                seq=2,
+                type="agent_start",
+                payload_json={
+                    "agent_id": "build",
+                    "name": "Build Agent",
+                    "role": "Prototype",
+                    "index": 0,
+                    "total": 6,
+                },
+            ),
             # The row class that caused ISS-092 — never reachable through any tool.
-            SimpleNamespace(seq=3, type="agent_input", payload_json={"prompt": "P" * 480_000}),
-            SimpleNamespace(seq=4, type="planner_complete", payload_json={"plan": "Q" * 380_000}),
-            SimpleNamespace(seq=5, type="agent_complete",
-                            payload_json={"agent_id": "build", "name": "Build Agent",
-                                          "duration": 47.2, "output_length": 20985}),
-            SimpleNamespace(seq=6, type="chat_message", payload_json={"text": "what happened?"}),
-            SimpleNamespace(seq=7, type="chat_reply", payload_json={"text": "It built."}),
+            SimpleNamespace(
+                seq=3, type="agent_input", payload_json={"prompt": "P" * 480_000}
+            ),
+            SimpleNamespace(
+                seq=4, type="planner_complete", payload_json={"plan": "Q" * 380_000}
+            ),
+            SimpleNamespace(
+                seq=5,
+                type="agent_complete",
+                payload_json={
+                    "agent_id": "build",
+                    "name": "Build Agent",
+                    "duration": 47.2,
+                    "output_length": 20985,
+                },
+            ),
+            SimpleNamespace(
+                seq=6, type="chat_message", payload_json={"text": "what happened?"}
+            ),
+            SimpleNamespace(
+                seq=7, type="chat_reply", payload_json={"text": "It built."}
+            ),
         ]
-        rows += [SimpleNamespace(seq=8 + i, type="agent_chunk",
-                                 payload_json={"chunk": "c" * 160}) for i in range(11_993)]
+        rows += [
+            SimpleNamespace(
+                seq=8 + i, type="agent_chunk", payload_json={"chunk": "c" * 160}
+            )
+            for i in range(11_993)
+        ]
         return rows
 
     def _mine(self, rows: list) -> list:
@@ -631,8 +691,9 @@ class _BigRunStore:
     async def read_events(self, run_id: str, after_seq: int = 0) -> list:
         return self._mine([r for r in self.rows if r.seq > after_seq])
 
-    async def read_events_of_types(self, run_id: str, types, *, limit: int,
-                                   after_seq: int = 0) -> list:
+    async def read_events_of_types(
+        self, run_id: str, types, *, limit: int, after_seq: int = 0
+    ) -> list:
         wanted = set(types)
         hits = [r for r in self.rows if r.type in wanted and r.seq > after_seq]
         return self._mine(hits[-limit:] if limit else hits)
@@ -644,34 +705,56 @@ class _BigRunStore:
         return self.ref if self._owner_id == "victim" else None
 
     async def read_gate_events(self, run_id: str) -> list:
-        return self._mine([SimpleNamespace(id="g1", run_id="run-1", gate_key="review",
-                                           decision="approve", detail="looks good")])
+        return self._mine(
+            [
+                SimpleNamespace(
+                    id="g1",
+                    run_id="run-1",
+                    gate_key="review",
+                    decision="approve",
+                    detail="looks good",
+                )
+            ]
+        )
 
     async def get_run(self, run_id: str):
         if self._owner_id != "victim":
             return None
         import json as _json
 
-        return SimpleNamespace(id="run-1", status="completed", agent_outputs=_json.dumps([
-            # Each entry carries the FULL prompt as well as the output — 7.45M chars in
-            # the worst real row. Only ``output`` may ever reach the model, truncated.
-            {"agent_id": "build", "name": "Build Agent", "role": "Prototype",
-             "input_prompt": "I" * 300_000, "output": "O" * 300_000, "duration": 47.2},
-        ]),
+        return SimpleNamespace(
+            id="run-1",
+            status="completed",
+            agent_outputs=_json.dumps(
+                [
+                    # Each entry carries the FULL prompt as well as the output — 7.45M chars in
+                    # the worst real row. Only ``output`` may ever reach the model, truncated.
+                    {
+                        "agent_id": "build",
+                        "name": "Build Agent",
+                        "role": "Prototype",
+                        "input_prompt": "I" * 300_000,
+                        "output": "O" * 300_000,
+                        "duration": 47.2,
+                    },
+                ]
+            ),
             # The persisted blob in the REAL writer's shape (``run_commands`` writes all
             # seven keys as a JSON STRING). The cache counters and the uncached
             # counterfactual are here DELIBERATELY: they are what the token tool must
             # NOT surface. Every number is distinct so a field mix-up cannot pass by
             # coincidence.
-            token_usage=_json.dumps({
-                "total_input_tokens": 1234,
-                "total_output_tokens": 567,
-                "total_tokens": 1801,
-                "total_cache_read_tokens": 890,
-                "total_cache_write_tokens": 12,
-                "estimated_cost_usd": 0.0345,
-                "estimated_cost_full_usd": 0.0912,
-            }),
+            token_usage=_json.dumps(
+                {
+                    "total_input_tokens": 1234,
+                    "total_output_tokens": 567,
+                    "total_tokens": 1801,
+                    "total_cache_read_tokens": 890,
+                    "total_cache_write_tokens": 12,
+                    "estimated_cost_usd": 0.0345,
+                    "estimated_cost_full_usd": 0.0912,
+                }
+            ),
             # A sibling COLUMN (not part of the blob) — present so the "no model name"
             # assertion is load-bearing rather than vacuous.
             model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
@@ -681,7 +764,7 @@ class _BigRunStore:
 def _args_for(tool, *, ref_id: str = "ref-1", agent_name: str = "build") -> dict:
     """Build a minimal valid argument dict for any read tool, old surface or new."""
     args: dict = {}
-    for pname in (getattr(tool, "args", {}) or {}):
+    for pname in getattr(tool, "args", {}) or {}:
         if pname == "ref_id":
             args[pname] = ref_id
         elif pname == "agent_name":
@@ -712,8 +795,8 @@ def test_no_tool_returns_unbounded_event_history() -> None:
         size = len(str(_invoke(tool)))
         if size >= _TOOL_RESULT_CEILING:
             oversized.append(f"{tool.name}={size:,} chars")
-    assert not oversized, (
-        "unbounded read tool(s) — this is ISS-092: " + ", ".join(oversized)
+    assert not oversized, "unbounded read tool(s) — this is ISS-092: " + ", ".join(
+        oversized
     )
 
 
@@ -725,13 +808,18 @@ def test_read_tools_expose_only_the_bounded_allow_list() -> None:
     """
     names = {t.name for t in ConciergeCapability._read_tools(_BigRunStore(), "run-1")}
     assert names == {
-        "get_run_progress", "list_agents", "get_agent_output",
-        "list_artifacts", "get_artifact", "read_recent_events", "read_gate_history",
+        "get_run_progress",
+        "list_agents",
+        "get_agent_output",
+        "list_artifacts",
+        "get_artifact",
+        "read_recent_events",
+        "read_gate_history",
         "get_token_usage",
     }, f"unexpected Concierge read surface: {sorted(names)}"
-    assert {"read_events", "list_refs", "get_ref"} & names == set(), (
-        "a superseded unbounded tool is still exposed (INV-12: replace, do not shadow)"
-    )
+    assert (
+        {"read_events", "list_refs", "get_ref"} & names == set()
+    ), "a superseded unbounded tool is still exposed (INV-12: replace, do not shadow)"
 
 
 def test_read_recent_events_rejects_bulk_types() -> None:
@@ -746,15 +834,17 @@ def test_read_recent_events_rejects_bulk_types() -> None:
 
     out = _invoke(tool, types="agent_input,agent_chunk,planner_complete,tool_result")
     seen = {r.get("type") for r in out if isinstance(r, dict)}
-    assert not (seen & {"agent_input", "agent_chunk", "planner_complete", "tool_result"}), (
-        f"a bulk event type was reachable: {seen}"
-    )
+    assert not (
+        seen & {"agent_input", "agent_chunk", "planner_complete", "tool_result"}
+    ), f"a bulk event type was reachable: {seen}"
     # An honest empty result, not a silent fallback to everything.
     assert len(str(out)) < _TOOL_RESULT_CEILING
 
     # The default call still returns useful lifecycle rows (the tool is not inert).
     default = _invoke(tool)
-    assert any(r.get("type") == "agent_complete" for r in default if isinstance(r, dict))
+    assert any(
+        r.get("type") == "agent_complete" for r in default if isinstance(r, dict)
+    )
 
 
 def test_read_recent_events_caps_limit_and_row_size() -> None:
@@ -775,7 +865,9 @@ def test_get_artifact_truncates_and_flags() -> None:
     out = _invoke(tool)
     assert out["truncated"] is True
     assert len(out["content"]) <= 12_000
-    assert out["total_chars"] == 400_000, "must report the REAL size, not the truncated one"
+    assert (
+        out["total_chars"] == 400_000
+    ), "must report the REAL size, not the truncated one"
 
     # A model-supplied max_chars cannot escape the hard cap.
     big = _invoke(tool, max_chars=999_999)
@@ -793,9 +885,9 @@ def test_get_artifact_denies_cross_run_ref() -> None:
     tool = next(t for t in tools if t.name == "get_artifact")
 
     out = _invoke(tool)
-    assert out == {} or not out.get("content"), (
-        "cross-run artifact body leaked — run scoping is missing"
-    )
+    assert out == {} or not out.get(
+        "content"
+    ), "cross-run artifact body leaked — run scoping is missing"
 
 
 def test_list_artifacts_omits_content() -> None:
@@ -886,14 +978,22 @@ def test_get_token_usage_omits_cache_and_model_fields() -> None:
 
     out = _invoke(tool)
     assert set(out) == {
-        "available", "total_tokens", "input_tokens", "output_tokens",
+        "available",
+        "total_tokens",
+        "input_tokens",
+        "output_tokens",
         "estimated_cost_usd",
     }, f"the token tool widened its shape: {sorted(out)}"
 
     rendered = str(out)
-    for forbidden in ("total_cache_read_tokens", "total_cache_write_tokens",
-                      "cache_read_tokens", "cache_write_tokens", "model_id",
-                      "estimated_cost_full_usd"):
+    for forbidden in (
+        "total_cache_read_tokens",
+        "total_cache_write_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "model_id",
+        "estimated_cost_full_usd",
+    ):
         assert forbidden not in rendered, f"out-of-scope field leaked: {forbidden}"
 
 
@@ -914,7 +1014,9 @@ def test_get_token_usage_degrades_to_unavailable_not_zeros() -> None:
 
     class _MalformedUsageStore:
         async def get_run(self, run_id: str):
-            return SimpleNamespace(id="run-1", status="completed", token_usage="{not json")
+            return SimpleNamespace(
+                id="run-1", status="completed", token_usage="{not json"
+            )
 
     for store in (_NoUsageStore(), _MalformedUsageStore()):
         tools = ConciergeCapability._read_tools(store, "run-1")
@@ -922,12 +1024,15 @@ def test_get_token_usage_degrades_to_unavailable_not_zeros() -> None:
 
         out = _invoke(tool)  # degrade-not-crash: no exception reaches the model loop
         assert out["available"] is False
-        assert isinstance(out.get("error"), str) and out["error"].strip(), (
-            "the unavailable shape must carry a human-readable error string"
-        )
-        assert "total_tokens" not in out, "an absent measurement must not be reported as 0"
+        assert (
+            isinstance(out.get("error"), str) and out["error"].strip()
+        ), "the unavailable shape must carry a human-readable error string"
+        assert (
+            "total_tokens" not in out
+        ), "an absent measurement must not be reported as 0"
         numbers = [
-            v for v in out.values()
+            v
+            for v in out.values()
             if isinstance(v, (int, float)) and not isinstance(v, bool)
         ]
         assert not numbers, (
@@ -944,9 +1049,9 @@ def test_no_tool_accepts_a_run_id_argument() -> None:
     """
     for tool in ConciergeCapability._read_tools(_BigRunStore(), "run-1"):
         params = set(getattr(tool, "args", {}) or {})
-        assert "run_id" not in params, (
-            f"{tool.name} accepts a model-supplied run_id — scoping must stay a closure"
-        )
+        assert (
+            "run_id" not in params
+        ), f"{tool.name} accepts a model-supplied run_id — scoping must stay a closure"
 
 
 def test_every_read_tool_denies_cross_owner() -> None:
@@ -954,9 +1059,9 @@ def test_every_read_tool_denies_cross_owner() -> None:
     attacker_tools = ConciergeCapability._read_tools(_BigRunStore("attacker"), "run-1")
     for tool in attacker_tools:
         out = _invoke(tool)
-        assert not out or out == {} or out.get("error") or out.get("agents_started") == 0, (
-            f"{tool.name} leaked data across owners: {str(out)[:200]}"
-        )
+        assert (
+            not out or out == {} or out.get("error") or out.get("agents_started") == 0
+        ), f"{tool.name} leaked data across owners: {str(out)[:200]}"
 
 
 # ── the model's ACTUAL tool surface + prompt, captured off the runner ────────────
@@ -993,19 +1098,30 @@ class _CapturingModel(ScriptedFakeChatModel):
     def bind_tools(self, tools, **kwargs):  # noqa: ANN001, ANN003
         _BOUND_TOOL_NAMES.clear()
         _BOUND_TOOL_NAMES.extend(
-            getattr(t, "name", None) or getattr(t, "__name__", str(t)) for t in (tools or [])
+            getattr(t, "name", None) or getattr(t, "__name__", str(t))
+            for t in (tools or [])
         )
         return self
 
     def _stream(self, messages, stop=None, run_manager=None, **kwargs):  # noqa: ANN001
         for m in messages or []:
-            if m.__class__.__name__ == "SystemMessage" or getattr(m, "type", "") == "system":
+            if (
+                m.__class__.__name__ == "SystemMessage"
+                or getattr(m, "type", "") == "system"
+            ):
                 _SEEN_SYSTEM_PROMPTS.append(_render_content(m.content))
         return super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
 
 
 _FILESYSTEM_TOOLS = {
-    "write_file", "edit_file", "read_file", "ls", "glob", "grep", "write_todos", "task",
+    "write_file",
+    "edit_file",
+    "read_file",
+    "ls",
+    "glob",
+    "grep",
+    "write_todos",
+    "task",
 }
 
 
@@ -1018,9 +1134,13 @@ def test_concierge_model_sees_no_filesystem_tools() -> None:
     """
     _BOUND_TOOL_NAMES.clear()
     ctx = _concierge_ctx(
-        _CapturingModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))]), "run-fs", "owner-A"
+        _CapturingModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))]),
+        "run-fs",
+        "owner-A",
     )
-    asyncio.new_event_loop().run_until_complete(ConciergeCapability().converse(ctx, "hi"))
+    asyncio.new_event_loop().run_until_complete(
+        ConciergeCapability().converse(ctx, "hi")
+    )
 
     assert _BOUND_TOOL_NAMES, "no tools were bound — the capture seam did not fire"
     leaked = sorted(set(_BOUND_TOOL_NAMES) & _FILESYSTEM_TOOLS)
@@ -1044,9 +1164,9 @@ def test_excluding_builtins_does_not_flip_the_xml_sanitizer() -> None:
         model=ScriptedFakeChatModel([_ScriptedTurn(texts=["x"], usage=(1, 1))]),
         exclude_builtin_tools=True,
     )
-    assert runner._sanitize_fabricated_xml is False, (
-        "excluding built-ins must not turn on the fabricated-XML sanitizer"
-    )
+    assert (
+        runner._sanitize_fabricated_xml is False
+    ), "excluding built-ins must not turn on the fabricated-XML sanitizer"
 
 
 # ── multi-turn coherence must survive the deletion of read_events ────────────────
@@ -1063,12 +1183,20 @@ class _ChatHistoryStore(_BigRunStore):
         # keep-recent-verbatim / summarize-the-tail path it exists to prove.
         pad = "x" * 480
         for i in range(turns):
-            self.rows.append(SimpleNamespace(
-                seq=base + 1 + 2 * i, type="chat_message",
-                payload_json={"text": f"user question number {i} {pad}"}))
-            self.rows.append(SimpleNamespace(
-                seq=base + 2 + 2 * i, type="chat_reply",
-                payload_json={"text": f"assistant answer number {i} {pad}"}))
+            self.rows.append(
+                SimpleNamespace(
+                    seq=base + 1 + 2 * i,
+                    type="chat_message",
+                    payload_json={"text": f"user question number {i} {pad}"},
+                )
+            )
+            self.rows.append(
+                SimpleNamespace(
+                    seq=base + 2 + 2 * i,
+                    type="chat_reply",
+                    payload_json={"text": f"assistant answer number {i} {pad}"},
+                )
+            )
 
 
 def test_conversation_context_reaches_the_concierge_prompt_byte_verbatim() -> None:
@@ -1085,8 +1213,12 @@ def test_conversation_context_reaches_the_concierge_prompt_byte_verbatim() -> No
     store = _ChatHistoryStore(turns=10)
     ctx = SimpleNamespace(
         model=_CapturingModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))]),
-        scoped_store=store, run_id="run-1", owner_id="owner-A", workspace_id="ws-A",
-        compiled=None, current_spec_injects={"conversation"},
+        scoped_store=store,
+        run_id="run-1",
+        owner_id="owner-A",
+        workspace_id="ws-A",
+        compiled=None,
+        current_spec_injects={"conversation"},
     )
     asyncio.new_event_loop().run_until_complete(
         ConciergeCapability().converse(ctx, "and what about the last one?")
@@ -1096,7 +1228,9 @@ def test_conversation_context_reaches_the_concierge_prompt_byte_verbatim() -> No
     prompt = _SEEN_SYSTEM_PROMPTS[0]
     # The 6 most recent turns, byte-verbatim, in the prompt the model was given.
     for i in (7, 8, 9):
-        assert f"user: user question number {i}" in prompt, f"turn {i} lost from the prompt"
+        assert (
+            f"user: user question number {i}" in prompt
+        ), f"turn {i} lost from the prompt"
         assert f"assistant: assistant answer number {i}" in prompt
     # The older tail is summarized away rather than dropped silently or dumped whole.
     assert "user question number 0" not in prompt
@@ -1106,9 +1240,9 @@ def test_conversation_context_reaches_the_concierge_prompt_byte_verbatim() -> No
     # carries the role/rules/tool blocks, so the budget is asserted on the block).
     block = ctx.conversation_context
     assert block in prompt, "the composed transcript did not reach the model's prompt"
-    assert len(block) <= 6_000 + len("## Conversation\n\n"), (
-        f"conversation block exceeded its budget: {len(block)}"
-    )
+    assert len(block) <= 6_000 + len(
+        "## Conversation\n\n"
+    ), f"conversation block exceeded its budget: {len(block)}"
 
 
 def test_conversation_provider_stays_dormant_without_the_declared_inject() -> None:
@@ -1120,10 +1254,15 @@ def test_conversation_provider_stays_dormant_without_the_declared_inject() -> No
     _SEEN_SYSTEM_PROMPTS.clear()
     ctx = SimpleNamespace(
         model=_CapturingModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))]),
-        scoped_store=_ChatHistoryStore(turns=10), run_id="run-1",
-        owner_id="owner-A", workspace_id="ws-A", compiled=None,
+        scoped_store=_ChatHistoryStore(turns=10),
+        run_id="run-1",
+        owner_id="owner-A",
+        workspace_id="ws-A",
+        compiled=None,
     )
-    asyncio.new_event_loop().run_until_complete(ConciergeCapability().converse(ctx, "hi"))
+    asyncio.new_event_loop().run_until_complete(
+        ConciergeCapability().converse(ctx, "hi")
+    )
     assert "## Conversation" not in _SEEN_SYSTEM_PROMPTS[0]
 
 
@@ -1131,12 +1270,24 @@ def test_conversation_provider_stays_dormant_without_the_declared_inject() -> No
 
 _TOOL_NAME_UNIVERSE = {
     # superseded — must never be named again
-    "read_events", "list_refs", "get_ref", "read_gate_events",
+    "read_events",
+    "list_refs",
+    "get_ref",
+    "read_gate_events",
     # current read surface
-    "get_run_progress", "list_agents", "get_agent_output", "list_artifacts",
-    "get_artifact", "read_recent_events", "read_gate_history", "get_token_usage",
+    "get_run_progress",
+    "list_agents",
+    "get_agent_output",
+    "list_artifacts",
+    "get_artifact",
+    "read_recent_events",
+    "read_gate_history",
+    "get_token_usage",
     # proposal surface
-    "propose_steering_note", "propose_revision", "propose_chain", "propose_gate_action",
+    "propose_steering_note",
+    "propose_revision",
+    "propose_chain",
+    "propose_gate_action",
 }
 
 
@@ -1149,18 +1300,31 @@ def test_system_prompt_names_only_existing_tools() -> None:
     import re
 
     prompt = ConciergeCapability._compose_system_prompt(
-        SimpleNamespace(conversation_context=None, compiled=None,
-                        run_summary="Run title: t", run_status="running")
+        SimpleNamespace(
+            conversation_context=None,
+            compiled=None,
+            run_summary="Run title: t",
+            run_status="running",
+        )
     )
     built = {t.name for t in ConciergeCapability._read_tools(_BigRunStore(), "run-1")}
-    built |= {"propose_steering_note", "propose_revision", "propose_chain",
-              "propose_gate_action"}
+    built |= {
+        "propose_steering_note",
+        "propose_revision",
+        "propose_chain",
+        "propose_gate_action",
+    }
 
-    mentioned = {tok for tok in re.findall(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", prompt)}
+    mentioned = {
+        tok for tok in re.findall(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", prompt)
+    }
     stale = (mentioned & _TOOL_NAME_UNIVERSE) - built
     assert not stale, f"the prompt names tools that do not exist: {sorted(stale)}"
 
     missing = {
-        "get_run_progress", "list_artifacts", "get_artifact", "get_token_usage",
+        "get_run_progress",
+        "list_artifacts",
+        "get_artifact",
+        "get_token_usage",
     } - mentioned
     assert not missing, f"the prompt never tells the model about: {sorted(missing)}"

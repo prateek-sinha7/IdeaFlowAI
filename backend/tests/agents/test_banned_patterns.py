@@ -469,8 +469,7 @@ def test_inv1_no_kernel_workflow_name_branch() -> None:
         "INV-1 (SC-001): a workflow-name/agent-id branch is back in the kernel "
         "(agents/execution_engine/). The kernel must know NO workflow by name — "
         "route via the capability registry (resolve(kind, name)), never by workflow "
-        "identity. Offenders:\n"
-        + "\n".join(f"  {p}:{n}: {ln}" for p, n, ln in hits)
+        "identity. Offenders:\n" + "\n".join(f"  {p}:{n}: {ln}" for p, n, ln in hits)
     )
 
 
@@ -484,9 +483,9 @@ def test_inv1_gate_is_non_vacuous(tmp_path: Path) -> None:
     bad = tmp_path / "rogue_kernel.py"
     bad.write_text(
         "def route(pipeline_type, spec):\n"
-        "    if pipeline_type == \"prototype\":\n"
+        '    if pipeline_type == "prototype":\n'
         "        return 1\n"
-        "    if spec.id == \"prototype-build\":\n"
+        '    if spec.id == "prototype-build":\n'
         "        return 2\n",
         encoding="utf-8",
     )
@@ -559,9 +558,7 @@ class TestSC001RevisionPipelineCompliance:
             + "\n".join(f"  {p}:{n}: {ln}" for p, n, ln in hits)
         )
 
-    def test_no_pipeline_type_branch_gate_is_non_vacuous(
-        self, tmp_path: Path
-    ) -> None:
+    def test_no_pipeline_type_branch_gate_is_non_vacuous(self, tmp_path: Path) -> None:
         """Non-vacuity: scanner fires on an injected ``if pipeline_type ==`` line."""
         bad = tmp_path / "rogue_kernel.py"
         bad.write_text(

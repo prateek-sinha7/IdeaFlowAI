@@ -27,6 +27,7 @@ with Cognito. Mocking boto3 is unavoidable here (the point is to test what we
 SEND), so the test is deliberately narrow: it does not claim to prove Cognito
 accepts it — the live run did that.
 """
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -57,7 +58,9 @@ def test_secret_hash_differs_between_email_and_canonical_username(cognito_settin
     If this ever became false the rest of this module would be vacuous, so it is
     asserted explicitly rather than assumed.
     """
-    assert cognito.compute_secret_hash(EMAIL) != cognito.compute_secret_hash(CANONICAL_USERNAME)
+    assert cognito.compute_secret_hash(EMAIL) != cognito.compute_secret_hash(
+        CANONICAL_USERNAME
+    )
 
 
 def test_refresh_auth_hashes_the_value_it_is_given(cognito_settings):
@@ -102,7 +105,9 @@ def test_refresh_endpoint_passes_cognito_sub_not_email(cognito_settings, monkeyp
         captured["username"] = canonical_username
         return {"AuthenticationResult": {"AccessToken": "new-access-token"}}
 
-    monkeypatch.setattr("app.api.auth.decrypt_cognito_refresh_token", lambda _c: "plain-refresh")
+    monkeypatch.setattr(
+        "app.api.auth.decrypt_cognito_refresh_token", lambda _c: "plain-refresh"
+    )
     monkeypatch.setattr(cognito, "refresh_auth", fake_refresh_auth)
 
     from app.api.auth import refresh as refresh_endpoint
@@ -117,7 +122,9 @@ def test_refresh_endpoint_passes_cognito_sub_not_email(cognito_settings, monkeyp
     assert result.token == "new-access-token"
 
 
-def test_refresh_endpoint_falls_back_to_email_when_sub_is_missing(cognito_settings, monkeypatch):
+def test_refresh_endpoint_falls_back_to_email_when_sub_is_missing(
+    cognito_settings, monkeypatch
+):
     """A row predating sub-mapping still attempts a refresh rather than 500ing.
 
     Such a row should not exist after cutover (verify_cognito_cutover.py's C1
@@ -142,7 +149,9 @@ def test_refresh_endpoint_falls_back_to_email_when_sub_is_missing(cognito_settin
         captured["username"] = canonical_username
         return {"AuthenticationResult": {"AccessToken": "tok"}}
 
-    monkeypatch.setattr("app.api.auth.decrypt_cognito_refresh_token", lambda _c: "plain-refresh")
+    monkeypatch.setattr(
+        "app.api.auth.decrypt_cognito_refresh_token", lambda _c: "plain-refresh"
+    )
     monkeypatch.setattr(cognito, "refresh_auth", fake_refresh_auth)
 
     from app.api.auth import refresh as refresh_endpoint

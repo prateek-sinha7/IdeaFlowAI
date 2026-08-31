@@ -120,13 +120,17 @@ def _refresh_role_projection(user: User, groups: list[str], db: Session) -> None
     db.commit()
 
 
-def _cognito_auth_result_to_response(user: User, auth_result: dict, db: Session) -> AuthResponse:
+def _cognito_auth_result_to_response(
+    user: User, auth_result: dict, db: Session
+) -> AuthResponse:
     """Persist the refresh token + refresh the role projection, return AuthResponse."""
     access_token = auth_result["AccessToken"]
     refresh_token = auth_result.get("RefreshToken")
 
     if refresh_token:
-        user.encrypted_cognito_refresh_token = encrypt_cognito_refresh_token(refresh_token)
+        user.encrypted_cognito_refresh_token = encrypt_cognito_refresh_token(
+            refresh_token
+        )
 
     # Decode the access token's groups without a network round-trip -- we
     # just minted it, so a full offline JWKS verify is redundant; only the
@@ -392,9 +396,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
         # Email is included here precisely BECAUSE no user_id exists — without
         # it a credential-stuffing run would be invisible in the audit trail.
         # (auth_events hashes it; the plaintext never reaches the log line.)
-        auth_events.emit(
-            AuthEvent.LOGIN_FAILURE, email=request.email, reason=reason
-        )
+        auth_events.emit(AuthEvent.LOGIN_FAILURE, email=request.email, reason=reason)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -406,7 +408,9 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",
             )
-        if not user.password_hash or not verify_password(request.password, user.password_hash):
+        if not user.password_hash or not verify_password(
+            request.password, user.password_hash
+        ):
             auth_events.emit(
                 AuthEvent.LOGIN_FAILURE,
                 user_id=user.id,
@@ -432,7 +436,9 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
             auth_events.emit(AuthEvent.LOGIN_SUCCESS, user_id=user.id, provider="local")
         return AuthResponse(
             token=token,
-            user=UserResponse(id=user.id, email=user.email, tier=user.tier, is_admin=user.is_admin),
+            user=UserResponse(
+                id=user.id, email=user.email, tier=user.tier, is_admin=user.is_admin
+            ),
         )
 
     # Cognito path.
@@ -528,7 +534,9 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
             reason=_REASON_UNKNOWN_USER,
             challenge=request.challenge,
         )
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+        )
     if user.auth_provider != "cognito":
         auth_events.emit(
             AuthEvent.LOGIN_FAILURE,
@@ -537,7 +545,9 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
             reason=_REASON_CHALLENGE_NON_COGNITO,
             challenge=request.challenge,
         )
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+        )
 
     challenge_responses: dict[str, str] = {}
     if request.challenge == "NEW_PASSWORD_REQUIRED":
@@ -593,8 +603,14 @@ def login_challenge(request: LoginChallengeRequest, db: Session = Depends(get_db
         )
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "")
-        if code in ("NotAuthorizedException", "CodeMismatchException", "ExpiredCodeException"):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        if code in (
+            "NotAuthorizedException",
+            "CodeMismatchException",
+            "ExpiredCodeException",
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+            )
         logger.error("Cognito AdminRespondToAuthChallenge failed: %s", code)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -671,7 +687,9 @@ def refresh(
         )
 
     try:
-        refresh_token = decrypt_cognito_refresh_token(user.encrypted_cognito_refresh_token)
+        refresh_token = decrypt_cognito_refresh_token(
+            user.encrypted_cognito_refresh_token
+        )
     except Exception:  # noqa: BLE001 - InvalidToken or any decrypt failure
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -749,10 +767,14 @@ def logout(
 
     if user.auth_provider == "cognito" and user.encrypted_cognito_refresh_token:
         try:
-            refresh_token = decrypt_cognito_refresh_token(user.encrypted_cognito_refresh_token)
+            refresh_token = decrypt_cognito_refresh_token(
+                user.encrypted_cognito_refresh_token
+            )
             cognito.revoke_token(refresh_token)
         except Exception:  # noqa: BLE001 - logout must succeed even if Cognito is unreachable
-            logger.warning("Cognito RevokeToken failed for user %s during logout", user.id)
+            logger.warning(
+                "Cognito RevokeToken failed for user %s during logout", user.id
+            )
         finally:
             user.encrypted_cognito_refresh_token = None
             db.commit()
@@ -886,7 +908,10 @@ def verify_totp(
             detail="Authentication service unavailable",
         )
     auth_events.emit(
-        AuthEvent.MFA_ENROLLED, user_id=user.id, provider="cognito", factor=cognito.TOTP_FACTOR
+        AuthEvent.MFA_ENROLLED,
+        user_id=user.id,
+        provider="cognito",
+        factor=cognito.TOTP_FACTOR,
     )
     return {"message": "Two-factor authentication enabled."}
 
@@ -1033,7 +1058,11 @@ def disable_email_mfa(
             # caller is already authenticated. This is the opposite case: we are
             # about to REMOVE a control, and doing that on incomplete information
             # is how someone locks themselves out. Refuse and let them retry.
-            logger.error("Could not confirm TOTP before disabling email MFA for %s: %s", user.id, exc)
+            logger.error(
+                "Could not confirm TOTP before disabling email MFA for %s: %s",
+                user.id,
+                exc,
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Could not verify your other factors right now. Please try again.",
@@ -1126,7 +1155,9 @@ def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db
     # Break-glass accounts deliberately have NO self-service reset path: the
     # whole point is that it is administered out-of-band from a secret store.
     if user is not None and user.auth_provider == "local":
-        logger.warning("Password reset requested for the local/break-glass account; ignored.")
+        logger.warning(
+            "Password reset requested for the local/break-glass account; ignored."
+        )
         return generic
 
     try:
@@ -1221,6 +1252,7 @@ def confirm_forgot_password(
 
 class ChangePasswordRequest(BaseModel):
     """Request body for changing password."""
+
     current_password: str
     new_password: str
 
@@ -1252,7 +1284,9 @@ def change_password(
     user, payload = auth
 
     if user.auth_provider == "local":
-        if not user.password_hash or not verify_password(request.current_password, user.password_hash):
+        if not user.password_hash or not verify_password(
+            request.current_password, user.password_hash
+        ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Current password is incorrect",
@@ -1301,10 +1335,14 @@ def change_password(
     user.tokens_valid_from = datetime.now(timezone.utc)
     if user.encrypted_cognito_refresh_token:
         try:
-            old_refresh = decrypt_cognito_refresh_token(user.encrypted_cognito_refresh_token)
+            old_refresh = decrypt_cognito_refresh_token(
+                user.encrypted_cognito_refresh_token
+            )
             cognito.revoke_token(old_refresh)
         except Exception:  # noqa: BLE001 - best-effort; the token is being replaced regardless
-            logger.warning("Failed to revoke pre-change refresh token for user %s", user.id)
+            logger.warning(
+                "Failed to revoke pre-change refresh token for user %s", user.id
+            )
         user.encrypted_cognito_refresh_token = None
     db.commit()
 

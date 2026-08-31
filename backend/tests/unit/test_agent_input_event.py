@@ -71,7 +71,9 @@ def test_build_context_sources_empty_when_no_consumes():
     engine = ExecutionEngine()
     spec = _Spec("agent-a", produces=["agent-a"], consumes=[])
     agents = [spec]
-    sources = engine._build_context_sources(spec, agents, _ectx({"agent-a": "some output"}))
+    sources = engine._build_context_sources(
+        spec, agents, _ectx({"agent-a": "some output"})
+    )
     assert sources == []
 
 
@@ -135,7 +137,9 @@ async def test_planning_context_injected_into_context_message():
         "quality_targets": ["100% test coverage"],
         "execution_gate": "PROCEED",
     }
-    msg = await engine._compose_context_message(spec, 0, agents, "test brief", planning_context, _ectx())
+    msg = await engine._compose_context_message(
+        spec, 0, agents, "test brief", planning_context, _ectx()
+    )
     assert "## Planning Context" in msg
     assert "Build a login feature" in msg
     assert "React frontend" in msg
@@ -151,7 +155,9 @@ async def test_planning_context_not_injected_when_timed_out():
     spec = _Spec("agent-a", consumes=[])
     agents = [spec]
     planning_context = engine._default_planning_context("brief", timed_out=True)
-    msg = await engine._compose_context_message(spec, 0, agents, "brief", planning_context, _ectx())
+    msg = await engine._compose_context_message(
+        spec, 0, agents, "brief", planning_context, _ectx()
+    )
     # Timed-out context has planner_timed_out=True — no Planning Context block
     assert "## Planning Context" not in msg
 
@@ -161,6 +167,8 @@ async def test_user_request_always_present():
     engine = ExecutionEngine()
     spec = _Spec("agent-a", consumes=[])
     agents = [spec]
-    msg = await engine._compose_context_message(spec, 0, agents, "my user brief", {}, _ectx())
+    msg = await engine._compose_context_message(
+        spec, 0, agents, "my user brief", {}, _ectx()
+    )
     assert "my user brief" in msg
     assert "ORIGINAL USER REQUEST" in msg

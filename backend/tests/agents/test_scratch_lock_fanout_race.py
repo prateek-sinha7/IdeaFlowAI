@@ -46,16 +46,31 @@ def _make_services(ectx: ExecutionContext) -> KernelServices:
 
 
 @pytest.mark.asyncio
-async def test_concurrent_run_agent_calls_never_observe_each_others_task_block(monkeypatch):
+async def test_concurrent_run_agent_calls_never_observe_each_others_task_block(
+    monkeypatch,
+):
     ectx = ExecutionContext(run_id="race-run", owner_id="race-owner")
     services = _make_services(ectx)
 
     observed: dict[str, list[str]] = {}
 
     async def _scripted_run_agent(
-        spec, index, ordered_agents, user_message, sandbox, pipeline_run_id,
-        pipeline_type, planning_context, attached_skills, attached_hooks,
-        model_id, results, cancel_event, ectx_arg, *, invocation_gated=True,
+        spec,
+        index,
+        ordered_agents,
+        user_message,
+        sandbox,
+        pipeline_run_id,
+        pipeline_type,
+        planning_context,
+        attached_skills,
+        attached_hooks,
+        model_id,
+        results,
+        cancel_event,
+        ectx_arg,
+        *,
+        invocation_gated=True,
     ):
         # Yield control mid-invocation (twice) so a genuine race window is open —
         # a concurrently-running sibling's save/mutate would land here if the
@@ -65,7 +80,9 @@ async def test_concurrent_run_agent_calls_never_observe_each_others_task_block(m
             await asyncio.sleep(0)
         yield {"type": "agent_complete", "data": {"agent_id": spec.id}}
 
-    monkeypatch.setattr(services._engine, "_run_agent", _scripted_run_agent, raising=False)
+    monkeypatch.setattr(
+        services._engine, "_run_agent", _scripted_run_agent, raising=False
+    )
 
     class _Spec:
         def __init__(self, id_: str) -> None:
@@ -77,7 +94,11 @@ async def test_concurrent_run_agent_calls_never_observe_each_others_task_block(m
     async def _drive(worker_label: str) -> None:
         step = _Spec(worker_label)
         async for _ in services.run_agent(
-            step, ectx, task_number=1, total_tasks=2, task_block=f"task-for-{worker_label}",
+            step,
+            ectx,
+            task_number=1,
+            total_tasks=2,
+            task_block=f"task-for-{worker_label}",
         ):
             pass
 
@@ -107,9 +128,22 @@ async def test_scratch_lock_serializes_concurrent_bind_windows():
     max_concurrent = 0
 
     async def _scripted_run_agent(
-        spec, index, ordered_agents, user_message, sandbox, pipeline_run_id,
-        pipeline_type, planning_context, attached_skills, attached_hooks,
-        model_id, results, cancel_event, ectx_arg, *, invocation_gated=True,
+        spec,
+        index,
+        ordered_agents,
+        user_message,
+        sandbox,
+        pipeline_run_id,
+        pipeline_type,
+        planning_context,
+        attached_skills,
+        attached_hooks,
+        model_id,
+        results,
+        cancel_event,
+        ectx_arg,
+        *,
+        invocation_gated=True,
     ):
         nonlocal max_concurrent
         in_flight.append(spec.id)
@@ -130,7 +164,9 @@ async def test_scratch_lock_serializes_concurrent_bind_windows():
 
     async def _drive(worker_label: str) -> None:
         step = _Spec(worker_label)
-        async for _ in services.run_agent(step, ectx, task_number=1, total_tasks=3, task_block="x"):
+        async for _ in services.run_agent(
+            step, ectx, task_number=1, total_tasks=3, task_block="x"
+        ):
             pass
 
     await asyncio.gather(_drive("w0"), _drive("w1"), _drive("w2"))

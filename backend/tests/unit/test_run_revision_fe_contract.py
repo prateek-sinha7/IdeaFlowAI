@@ -113,7 +113,9 @@ def db_factory(monkeypatch):
     )
     Base.metadata.create_all(bind=engine)
     TestingSession = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-    monkeypatch.setattr("app.models.database.SessionLocal", TestingSession, raising=False)
+    monkeypatch.setattr(
+        "app.models.database.SessionLocal", TestingSession, raising=False
+    )
     try:
         yield TestingSession
     finally:
@@ -207,9 +209,9 @@ async def test_fe_exact_run_revision_dispatches_real_pipeline(db_factory) -> Non
     # started AND completed — the stub never emitted either event type.
     starts = [e for e in sent if e["type"] == "agent_start"]
     completes_agent = [e for e in sent if e["type"] == "agent_complete"]
-    assert any(e["data"].get("agent_id") == "ppt-revision-agent" for e in starts), (
-        "expected agent_start for ppt-revision-agent (real dispatch)"
-    )
+    assert any(
+        e["data"].get("agent_id") == "ppt-revision-agent" for e in starts
+    ), "expected agent_start for ppt-revision-agent (real dispatch)"
     assert any(
         e["data"].get("agent_id") == "ppt-revision-agent" for e in completes_agent
     ), "expected agent_complete for ppt-revision-agent (real dispatch)"
@@ -243,9 +245,9 @@ async def test_fe_exact_run_revision_dispatches_real_pipeline(db_factory) -> Non
     # is contiguous 1..N with no duplicates — the deleted _stamped_send wrapper
     # cannot double-stamp.
     seqs = [e["data"]["seq"] for e in sent]
-    assert seqs == list(range(1, len(seqs) + 1)), (
-        f"seq must be contiguous 1..N with no duplicates; got {seqs}"
-    )
+    assert seqs == list(
+        range(1, len(seqs) + 1)
+    ), f"seq must be contiguous 1..N with no duplicates; got {seqs}"
 
     # ── (f) Exact-kind lineage (SC2): exactly one ppt_output ref on the
     # revision run, content == final_output, derived_from == the PARENT's
@@ -315,9 +317,9 @@ async def test_revision_of_revision_resolves_via_exact_kind_chain_link_1(
     original_section = context_message.split(
         "=== ORIGINAL ARTIFACT (type: ppt_output) ===", 1
     )[1].split("=== END ORIGINAL ARTIFACT ===", 1)[0]
-    assert "Revised Title" in original_section, (
-        "chain link 1 must resolve the FIRST revision's REVISED deck as the original"
-    )
+    assert (
+        "Revised Title" in original_section
+    ), "chain link 1 must resolve the FIRST revision's REVISED deck as the original"
 
     # ── 4) And the second revision's own lineage ref chains off the FIRST
     # revision's exact-kind ref (derived_from == that ref's id).

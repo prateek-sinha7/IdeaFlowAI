@@ -121,10 +121,7 @@ def _events_of(events: list[dict], etype: str) -> list[dict]:
 
 
 def _agent_complete_ids(events: list[dict]) -> set[str]:
-    return {
-        e["data"].get("agent_id")
-        for e in _events_of(events, "agent_complete")
-    }
+    return {e["data"].get("agent_id") for e in _events_of(events, "agent_complete")}
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -155,13 +152,13 @@ async def test_all_agents_error_ends_pipeline_failed() -> None:
     assert data["agents_completed"] == 0
 
     # No pipeline_complete for a totally-failed run.
-    assert _events_of(events, "pipeline_complete") == [], (
-        "a totally-failed run must NEVER emit pipeline_complete (ISS-016)"
-    )
+    assert (
+        _events_of(events, "pipeline_complete") == []
+    ), "a totally-failed run must NEVER emit pipeline_complete (ISS-016)"
     # No (empty) agent_complete for any failed agent.
-    assert _agent_complete_ids(events) & set(ids) == set(), (
-        "ISS-016: a failed agent must NOT emit an (empty) agent_complete"
-    )
+    assert (
+        _agent_complete_ids(events) & set(ids) == set()
+    ), "ISS-016: a failed agent must NOT emit an (empty) agent_complete"
 
     assert engine._state_machine.get_state(run_id) == "failed"
 
@@ -184,9 +181,9 @@ async def test_partial_error_ends_degraded() -> None:
     events, engine, run_id, ids = await _drive_execute(error_ids={failed_id})
 
     # No total-collapse terminal — a partial failure completes (degraded).
-    assert _events_of(events, "pipeline_failed") == [], (
-        "a partially-failed run completes (degraded), not pipeline_failed"
-    )
+    assert (
+        _events_of(events, "pipeline_failed") == []
+    ), "a partially-failed run completes (degraded), not pipeline_failed"
     complete = _events_of(events, "pipeline_complete")
     assert len(complete) == 1, f"expected one pipeline_complete: {events}"
 
@@ -201,9 +198,9 @@ async def test_partial_error_ends_degraded() -> None:
     assert failed_id in err_ids
     completes = _agent_complete_ids(events)
     assert completed_id in completes, "the completing agent must emit agent_complete"
-    assert failed_id not in completes, (
-        "ISS-016: the failed agent must NOT emit an (empty) agent_complete"
-    )
+    assert (
+        failed_id not in completes
+    ), "ISS-016: the failed agent must NOT emit an (empty) agent_complete"
 
     assert engine._state_machine.get_state(run_id) == "completed"
 
@@ -239,9 +236,18 @@ def _prototype_build_html_turn() -> list[_ScriptedTurn]:
         _ScriptedTurn(
             texts=["Building the page. "],
             tool_calls=[
-                ("write_file", _j.dumps({"file_path": "prototype.html", "content": html}), "c_wf"),
-                ("report_task_complete",
-                 _j.dumps({"task_number": 1, "task_title": "Build", "summary": "did it"}), "c_rtc"),
+                (
+                    "write_file",
+                    _j.dumps({"file_path": "prototype.html", "content": html}),
+                    "c_wf",
+                ),
+                (
+                    "report_task_complete",
+                    _j.dumps(
+                        {"task_number": 1, "task_title": "Build", "summary": "did it"}
+                    ),
+                    "c_rtc",
+                ),
             ],
             usage=(50, 20),
         ),
@@ -283,7 +289,9 @@ async def _drive_prototype_with_build_task_failure(*, fail_on_build_call: int):
         if agent_id == "prototype-build":
             _build_calls["n"] += 1
             if _build_calls["n"] == fail_on_build_call:
-                ctx.model = ScriptedFakeChatModel([], raise_exc=ScriptedNonTransientError())
+                ctx.model = ScriptedFakeChatModel(
+                    [], raise_exc=ScriptedNonTransientError()
+                )
             else:
                 ctx.model = ScriptedFakeChatModel(_prototype_build_html_turn())
         else:
@@ -314,7 +322,9 @@ async def _drive_prototype_with_build_task_failure(*, fail_on_build_call: int):
     # ONE empty-block task). The DB half degrades on the offline FK miss (logged), exactly
     # as _scripted_model._drive relies on.
 
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs):
+    async def _fake_run_planner(
+        user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+    ):
         return engine._default_planning_context(user_message), "PROCEED"
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]
@@ -381,9 +391,9 @@ async def test_task_loop_task2_hard_error_ends_degraded() -> None:
 
     # A partial failure COMPLETES (degraded) — it must NOT collapse to pipeline_failed
     # (other agents + task 1 completed).
-    assert _events_of(events, "pipeline_failed") == [], (
-        "a partially-failed task_loop completes degraded, not pipeline_failed"
-    )
+    assert (
+        _events_of(events, "pipeline_failed") == []
+    ), "a partially-failed task_loop completes degraded, not pipeline_failed"
     complete = _events_of(events, "pipeline_complete")
     assert len(complete) == 1, f"expected one pipeline_complete: {events}"
     data = complete[0]["data"]
@@ -393,9 +403,9 @@ async def test_task_loop_task2_hard_error_ends_degraded() -> None:
         f"ISS-028: task 1 ok + task 2 hard-error must end DEGRADED, not a clean "
         f"pipeline_complete — got status={data.get('status')!r}, data={data!r}"
     )
-    assert "prototype-build" in (data.get("agents_failed") or []), (
-        f"the failed build agent must be listed in agents_failed; got {data!r}"
-    )
+    assert "prototype-build" in (
+        data.get("agents_failed") or []
+    ), f"the failed build agent must be listed in agents_failed; got {data!r}"
     assert engine._state_machine.get_state(run_id) == "completed"
 
 
@@ -451,13 +461,20 @@ class _CancelMidStreamModel(ScriptedFakeChatModel):
 
     def __init__(self, cancel_event: asyncio.Event, **kwargs):
         super().__init__(
-            [_ScriptedTurn(texts=["first chunk. ", "second chunk. ", "third chunk."], usage=(5, 3))],
+            [
+                _ScriptedTurn(
+                    texts=["first chunk. ", "second chunk. ", "third chunk."],
+                    usage=(5, 3),
+                )
+            ],
             **kwargs,
         )
         object.__setattr__(self, "_cancel_event", cancel_event)
 
     def _stream(self, messages, stop=None, run_manager=None, **kwargs):
-        for i, chunk in enumerate(super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs)):
+        for i, chunk in enumerate(
+            super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+        ):
             if i == 1:
                 # After the first chunk has been yielded+consumed, arm the cancel so the
                 # engine's per-chunk check raises on this (the 2nd) event.

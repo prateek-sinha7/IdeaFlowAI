@@ -48,7 +48,9 @@ class ChatSessionDetailResponse(BaseModel):
 # --- Endpoints ---
 
 
-@router.post("", response_model=ChatSessionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=ChatSessionResponse, status_code=status.HTTP_201_CREATED
+)
 def create_chat(
     request: CreateChatRequest = CreateChatRequest(),
     current_user: User = Depends(get_current_user),
@@ -129,7 +131,9 @@ def get_chat(
     )
 
 
-@router.delete("/{chat_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete(
+    "/{chat_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response
+)
 def delete_chat(
     chat_id: str,
     current_user: User = Depends(get_current_user),
@@ -159,7 +163,11 @@ def delete_chat(
     return None
 
 
-@router.put("/{chat_id}/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
+@router.put(
+    "/{chat_id}/messages",
+    response_model=MessageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def add_message(
     chat_id: str,
     request: AddMessageRequest,

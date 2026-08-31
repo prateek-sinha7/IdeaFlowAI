@@ -178,8 +178,12 @@ async def test_note_via_live_registry_renders_guidance_on_next_dispatch() -> Non
         assert resolved is ectx
 
         # A mid-run steering turn appends to the RESOLVED live ectx (the CHANNEL_STEERING seam).
-        apply_steering(resolved, {"text": "Prefer a minimalist layout", "sticky": False})
-        assert ectx.steering_notes == [{"text": "Prefer a minimalist layout", "sticky": False}]
+        apply_steering(
+            resolved, {"text": "Prefer a minimalist layout", "sticky": False}
+        )
+        assert ectx.steering_notes == [
+            {"text": "Prefer a minimalist layout", "sticky": False}
+        ]
 
         # The NEXT dispatch renders it as a === USER GUIDANCE === block and consumes it once.
         out = await _compose(engine, ectx)

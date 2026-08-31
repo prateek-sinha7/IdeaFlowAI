@@ -92,7 +92,9 @@ def test_cost_class_assignment() -> None:
     by_id = {e.id: e for e in ModelCatalog().list()}
     assert by_id["eu.anthropic.claude-haiku-4-5-20251001-v1:0"].cost_class == "cheap"
     assert by_id["us.anthropic.claude-3-5-haiku-20241022-v1:0"].cost_class == "cheap"
-    assert by_id["eu.anthropic.claude-sonnet-4-5-20250929-v1:0"].cost_class == "standard"
+    assert (
+        by_id["eu.anthropic.claude-sonnet-4-5-20250929-v1:0"].cost_class == "standard"
+    )
     assert by_id["eu.anthropic.claude-sonnet-4-6"].cost_class == "standard"
     assert by_id["eu.anthropic.claude-sonnet-4-20250514-v1:0"].cost_class == "standard"
     assert by_id["eu.anthropic.claude-opus-4-5-20251101-v1:0"].cost_class == "premium"
@@ -134,7 +136,8 @@ def test_catalog_is_kernel_pure() -> None:
     assert "app" not in {
         name.split(".")[0]
         for name in sys.modules
-        if name.startswith("app.") and "model_catalog" in repr(sys.modules.get(name, ""))
+        if name.startswith("app.")
+        and "model_catalog" in repr(sys.modules.get(name, ""))
     }
 
 

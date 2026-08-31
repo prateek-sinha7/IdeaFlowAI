@@ -77,7 +77,9 @@ class _SpyStore:
         self.appended: list[dict] = []
 
     async def append_event_next_seq(self, run_id, *, event_id, type, payload_json):
-        self.appended.append({"event_id": event_id, "type": type, "payload": payload_json})
+        self.appended.append(
+            {"event_id": event_id, "type": type, "payload": payload_json}
+        )
         return True, len(self.appended)
 
 
@@ -118,12 +120,14 @@ class TestSteeringDisposal:
         # 29-08 seam: appended to ectx.steering_notes; NOT held (non-consequential).
         assert ectx.steering_notes == [{"text": "prefer teal", "sticky": False}]
         assert res["disposed"] == "steering"
-        assert store.appended == []  # no concierge_proposal for a non-consequential note
+        assert (
+            store.appended == []
+        )  # no concierge_proposal for a non-consequential note
 
     @pytest.mark.asyncio
     async def test_steering_note_best_effort_without_ectx(self):
         # DEF-29-09-1: no live ectx handle today → best-effort no-op, must not raise.
-        res = await (_dispose(propose_steering_note.func(note="x"), ectx=None)[0])
+        res = await _dispose(propose_steering_note.func(note="x"), ectx=None)[0]
         assert res["disposed"] == "steering"
 
 
@@ -134,10 +138,13 @@ class TestGateDisposal:
         gk = "run-1:agent"
         art.arm(gk)
         intent = propose_gate_action.func(action="approve")
-        res = await (_dispose(
-            intent, confirmed=True, art_store=art, gate_key=gk,
+        res = await _dispose(
+            intent,
+            confirmed=True,
+            art_store=art,
+            gate_key=gk,
             wr_status="waiting_for_user",
-        )[0])
+        )[0]
         assert res["disposed"] == "gate"
         assert len(art.review_calls) == 1
         gate_key, kwargs = art.review_calls[0]
@@ -150,10 +157,13 @@ class TestGateDisposal:
         gk = "run-1:agent"
         art.arm(gk)
         intent = propose_gate_action.func(action="request_changes", rationale="tighten")
-        res = await (_dispose(
-            intent, confirmed=True, art_store=art, gate_key=gk,
+        res = await _dispose(
+            intent,
+            confirmed=True,
+            art_store=art,
+            gate_key=gk,
             wr_status="waiting_for_user",
-        )[0])
+        )[0]
         assert res["action"] == "redo"
         gate_key, kwargs = art.review_calls[0]
         assert kwargs["action"] == "redo"
@@ -165,10 +175,13 @@ class TestGateDisposal:
         gk = "run-1:analyze"
         art.arm(gk)
         intent = propose_gate_action.func(action="update_specs", rationale="RPT")
-        await (_dispose(
-            intent, confirmed=True, art_store=art, gate_key=gk,
+        await _dispose(
+            intent,
+            confirmed=True,
+            art_store=art,
+            gate_key=gk,
             wr_status="waiting_for_user",
-        )[0])
+        )[0]
         _, kwargs = art.review_calls[0]
         assert kwargs["action"] == "update_specs"
         assert kwargs["instructions"] == "RPT"
@@ -181,10 +194,13 @@ class TestGateDisposal:
         gk = "run-1:agent"
         art.arm(gk)
         intent = ProposalIntent(channel="gate_action", params={})  # no "action" key
-        res = await (_dispose(
-            intent, confirmed=True, art_store=art, gate_key=gk,
+        res = await _dispose(
+            intent,
+            confirmed=True,
+            art_store=art,
+            gate_key=gk,
             wr_status="waiting_for_user",
-        )[0])
+        )[0]
         assert res["action"] == "redo"  # request_changes → redo (non-consequential)
         _, kwargs = art.review_calls[0]
         assert kwargs.get("action") == "redo"
@@ -195,10 +211,13 @@ class TestGateDisposal:
         # KAN-100: a proposed gate resolution never resolves a stopped run.
         art = _SpyArtStore()
         with pytest.raises(HTTPException) as exc:
-            await (_dispose(
+            await _dispose(
                 propose_gate_action.func(action="approve"),
-                confirmed=True, art_store=art, gate_key="run-1:a", wr_status="cancelled",
-            )[0])
+                confirmed=True,
+                art_store=art,
+                gate_key="run-1:a",
+                wr_status="cancelled",
+            )[0]
         assert exc.value.status_code == 409
         assert exc.value.detail["code"] == "pipeline_not_running"
         assert art.review_calls == []  # NO write past the fence
@@ -208,11 +227,13 @@ class TestGateDisposal:
         # KAN-94: a gate no one is waiting on is not resolvable.
         art = _SpyArtStore()  # gate NOT armed
         with pytest.raises(HTTPException) as exc:
-            await (_dispose(
+            await _dispose(
                 propose_gate_action.func(action="approve"),
-                confirmed=True, art_store=art, gate_key="run-1:a",
+                confirmed=True,
+                art_store=art,
+                gate_key="run-1:a",
                 wr_status="waiting_for_user",
-            )[0])
+            )[0]
         assert exc.value.status_code == 409
         assert art.review_calls == []
 
@@ -224,8 +245,11 @@ class TestRevisionDisposal:
         driven: dict = {}
 
         def _fake_mint(db, *, user, parent_run_id, target_artifact_type, instruction):
-            minted.update(parent=parent_run_id, target=target_artifact_type,
-                          instruction=instruction)
+            minted.update(
+                parent=parent_run_id,
+                target=target_artifact_type,
+                instruction=instruction,
+            )
             return "child-1", f"{target_artifact_type}_revision"
 
         async def _fake_drive(**kwargs):
@@ -235,14 +259,22 @@ class TestRevisionDisposal:
         monkeypatch.setattr(rc, "_mint_revision_row", _fake_mint)
         monkeypatch.setattr(rc, "_drive_revision_to_queue", _fake_drive)
 
-        intent = propose_revision.func(instruction="bigger CTA", target="prototype_output")
-        res = await (_dispose(
-            intent, confirmed=True, wr_type="prototype", run_id="parent-1",
-        )[0])
+        intent = propose_revision.func(
+            instruction="bigger CTA", target="prototype_output"
+        )
+        res = await _dispose(
+            intent,
+            confirmed=True,
+            wr_type="prototype",
+            run_id="parent-1",
+        )[0]
         assert res["disposed"] == "revision"
         assert res["revision_run_id"] == "child-1"
-        assert minted == {"parent": "parent-1", "target": "prototype_output",
-                          "instruction": "bigger CTA"}
+        assert minted == {
+            "parent": "parent-1",
+            "target": "prototype_output",
+            "instruction": "bigger CTA",
+        }
         await asyncio.sleep(0)  # let the driver task start
         assert driven.get("parent_run_id") == "parent-1"
 
@@ -262,7 +294,7 @@ class TestRevisionDisposal:
         monkeypatch.setattr(rc, "_drive_revision_to_queue", _fake_drive)
 
         intent = propose_revision.func(instruction="x")  # target=""
-        await (_dispose(intent, confirmed=True, wr_type="ppt", run_id="p")[0])
+        await _dispose(intent, confirmed=True, wr_type="ppt", run_id="p")[0]
         assert captured["target"] == "ppt_output"
 
 
@@ -276,10 +308,13 @@ class TestConfirmChipHold:
     async def test_gate_proposal_held_when_unconfirmed(self):
         store = _SpyStore()
         art = _SpyArtStore()
-        res = await (_dispose(
+        res = await _dispose(
             propose_gate_action.func(action="approve"),
-            confirmed=False, store=store, art_store=art, gate_key="run-1:a",
-        )[0])
+            confirmed=False,
+            store=store,
+            art_store=art,
+            gate_key="run-1:a",
+        )[0]
         assert res["held"] is True
         # A concierge_proposal row is emitted; the seam is NOT called.
         assert len(store.appended) == 1
@@ -299,9 +334,11 @@ class TestConfirmChipHold:
 
         monkeypatch.setattr(rc, "_mint_revision_row", _fake_mint)
         store = _SpyStore()
-        res = await (_dispose(
-            propose_revision.func(instruction="v2"), confirmed=False, store=store,
-        )[0])
+        res = await _dispose(
+            propose_revision.func(instruction="v2"),
+            confirmed=False,
+            store=store,
+        )[0]
         assert res["held"] is True
         assert store.appended[0]["type"] == "concierge_proposal"
         assert minted["n"] == 0  # NOT executed until confirmed
@@ -386,9 +423,11 @@ def _seed_user(env, tag):
 
     db = env["Session"]()
     try:
-        u = User(id=str(uuid.uuid4()),
-                 email=f"conc-{tag}-{uuid.uuid4().hex[:8]}@example.com",
-                 password_hash="x")
+        u = User(
+            id=str(uuid.uuid4()),
+            email=f"conc-{tag}-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash="x",
+        )
         db.add(u)
         db.commit()
         db.refresh(u)
@@ -403,11 +442,21 @@ def _seed_run(env, user_id, *, status="running", workspace_id="ws-1"):
     run_id = str(uuid.uuid4())
     db = env["Session"]()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=user_id, owner_id=user_id, workspace_id=workspace_id,
-            title="t", type="prototype", status=status, input="i",
-            agent_count=1, session_id=user_id, created_at=datetime.now(timezone.utc),
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=user_id,
+                owner_id=user_id,
+                workspace_id=workspace_id,
+                title="t",
+                type="prototype",
+                status=status,
+                input="i",
+                agent_count=1,
+                session_id=user_id,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
         db.commit()
         return run_id
     finally:
@@ -420,11 +469,18 @@ def _seed_events(env, run_id, rows, *, owner_id, workspace_id="ws-1"):
     db = env["Session"]()
     try:
         for seq, etype, payload in rows:
-            db.add(RunEvent(
-                id=str(uuid.uuid4()), run_id=run_id, owner_id=owner_id,
-                workspace_id=workspace_id, seq=seq, event_id=str(uuid.uuid4()),
-                type=etype, payload_json=payload,
-            ))
+            db.add(
+                RunEvent(
+                    id=str(uuid.uuid4()),
+                    run_id=run_id,
+                    owner_id=owner_id,
+                    workspace_id=workspace_id,
+                    seq=seq,
+                    event_id=str(uuid.uuid4()),
+                    type=etype,
+                    payload_json=payload,
+                )
+            )
         db.commit()
     finally:
         db.close()
@@ -455,7 +511,7 @@ def _sse_frames(resp) -> list[dict]:
     frames: list[dict] = []
     for line in resp.text.splitlines():
         if line.startswith("data:"):
-            payload = line[len("data:"):].strip()
+            payload = line[len("data:") :].strip()
             if payload:
                 frames.append(json.loads(payload))
     return frames
@@ -474,7 +530,9 @@ class TestConciergeEndpoint:
         run_id = _seed_run(env, owner.id, status="running")
         env["state"]["user"] = owner
 
-        resp = _post(env, run_id, text="what's happening?", concierge=True, message_id="a1")
+        resp = _post(
+            env, run_id, text="what's happening?", concierge=True, message_id="a1"
+        )
         assert resp.status_code == 200, resp.text
         # BE-2: the fresh-Concierge branch STREAMS the POST body (text/event-stream). The
         # terminal chat_reply frame carries the full answer; the durable row is canonical.
@@ -499,7 +557,9 @@ class TestConciergeEndpoint:
         run_id = _seed_run(env, owner.id, status="running")
         env["state"]["user"] = owner
 
-        resp = _post(env, run_id, text="should I approve?", concierge=True, message_id="a2")
+        resp = _post(
+            env, run_id, text="should I approve?", concierge=True, message_id="a2"
+        )
         assert resp.status_code == 200, resp.text
         # BE-2: the held proposals ride the terminal chat_reply frame of the streamed body.
         terminal = next(f for f in _sse_frames(resp) if f["type"] == "chat_reply")
@@ -519,21 +579,33 @@ class TestConciergeEndpoint:
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="waiting_for_user")
         gate_key = f"{run_id}:prototype-specify"
-        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
-                     owner_id=owner.id)
+        _seed_events(
+            env,
+            run_id,
+            [(1, "review_gate_ready", {"gate_key": gate_key})],
+            owner_id=owner.id,
+        )
         _arm_review(env, gate_key)
         env["state"]["user"] = owner
 
         # ── Ask turn: surface + HOLD the proposal (writes the durable pending row). ──
-        ask = _post(env, run_id, text="should I approve?", concierge=True, message_id="mA")
+        ask = _post(
+            env, run_id, text="should I approve?", concierge=True, message_id="mA"
+        )
         assert ask.status_code == 200, ask.text
         assert len(_rows(env, run_id, "concierge_proposal")) >= 1
         seen_after_ask = list(fake.seen)
 
         # ── Confirm turn reuses the ask message_id (locates the pending row). ──
         resp = _post(
-            env, run_id, concierge=True, message_id="mA",
-            confirm_proposal={"channel": "gate_action", "params": {"action": "approve"}},
+            env,
+            run_id,
+            concierge=True,
+            message_id="mA",
+            confirm_proposal={
+                "channel": "gate_action",
+                "params": {"action": "approve"},
+            },
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["proposal"]["disposed"] == "gate"
@@ -543,7 +615,8 @@ class TestConciergeEndpoint:
         assert fake.seen == seen_after_ask
         # The durable row is now marked resolved (a replayed confirm would 404).
         resolved = [
-            r for r in _rows(env, run_id, "concierge_proposal")
+            r
+            for r in _rows(env, run_id, "concierge_proposal")
             if r.payload_json.get("status") == "resolved"
         ]
         assert len(resolved) == 1
@@ -570,7 +643,10 @@ class TestConciergeEndpoint:
         assert len(_rows(env, run_id, "concierge_proposal")) >= 1
 
         resp = _post(
-            env, run_id, concierge=True, message_id="mB",
+            env,
+            run_id,
+            concierge=True,
+            message_id="mB",
             confirm_proposal={
                 "channel": "revision",
                 "params": {"instruction": "make it pop", "target": "prototype_output"},
@@ -604,14 +680,24 @@ class TestConfirmHoldServerEnforced:
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="waiting_for_user")
         gate_key = f"{run_id}:prototype-specify"
-        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
-                     owner_id=owner.id)
+        _seed_events(
+            env,
+            run_id,
+            [(1, "review_gate_ready", {"gate_key": gate_key})],
+            owner_id=owner.id,
+        )
         _arm_review(env, gate_key)
         env["state"]["user"] = owner
 
         resp = _post(
-            env, run_id, concierge=True, message_id="ghost",
-            confirm_proposal={"channel": "gate_action", "params": {"action": "approve"}},
+            env,
+            run_id,
+            concierge=True,
+            message_id="ghost",
+            confirm_proposal={
+                "channel": "gate_action",
+                "params": {"action": "approve"},
+            },
         )
         assert resp.status_code == 404, resp.text
         # The gate was NOT resolved (no forged confirm executed).
@@ -627,8 +713,12 @@ class TestConfirmHoldServerEnforced:
         attacker = _seed_user(env, "attacker")
         run_id = _seed_run(env, owner.id, status="waiting_for_user")
         gate_key = f"{run_id}:prototype-specify"
-        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
-                     owner_id=owner.id)
+        _seed_events(
+            env,
+            run_id,
+            [(1, "review_gate_ready", {"gate_key": gate_key})],
+            owner_id=owner.id,
+        )
         _arm_review(env, gate_key)
 
         # The owner surfaces + holds a real pending proposal.
@@ -639,8 +729,14 @@ class TestConfirmHoldServerEnforced:
         # The attacker tries to confirm the victim's proposal → 404 (never sees the run).
         env["state"]["user"] = attacker
         resp = _post(
-            env, run_id, concierge=True, message_id="mV",
-            confirm_proposal={"channel": "gate_action", "params": {"action": "approve"}},
+            env,
+            run_id,
+            concierge=True,
+            message_id="mV",
+            confirm_proposal={
+                "channel": "gate_action",
+                "params": {"action": "approve"},
+            },
         )
         assert resp.status_code == 404, resp.text
         # The gate was NOT resolved by the attacker.
@@ -648,32 +744,45 @@ class TestConfirmHoldServerEnforced:
 
     def test_confirm_durable_params_win_over_forged_body(self, env, monkeypatch):
         # H1: the DURABLE row (request_changes) wins over a FORGED update_specs body.
-        rc_intent = propose_gate_action.func(action="request_changes", rationale="tighten")
+        rc_intent = propose_gate_action.func(
+            action="request_changes", rationale="tighten"
+        )
         fake = _FakeConcierge(answer="hold on", proposals=[rc_intent])
         monkeypatch.setattr(rc, "_resolve_concierge", lambda: fake)
 
         owner = _seed_user(env, "owner")
         run_id = _seed_run(env, owner.id, status="waiting_for_user")
         gate_key = f"{run_id}:prototype-specify"
-        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
-                     owner_id=owner.id)
+        _seed_events(
+            env,
+            run_id,
+            [(1, "review_gate_ready", {"gate_key": gate_key})],
+            owner_id=owner.id,
+        )
         _arm_review(env, gate_key)
         env["state"]["user"] = owner
 
         # Ask surfaces + holds a request_changes proposal (durable params).
-        ask = _post(env, run_id, text="what should I do?", concierge=True, message_id="mR")
+        ask = _post(
+            env, run_id, text="what should I do?", concierge=True, message_id="mR"
+        )
         assert ask.status_code == 200, ask.text
 
         # Confirm forges update_specs; the durable request_changes (→ redo) wins.
         resp = _post(
-            env, run_id, concierge=True, message_id="mR",
+            env,
+            run_id,
+            concierge=True,
+            message_id="mR",
             confirm_proposal={
                 "channel": "gate_action",
                 "params": {"action": "update_specs", "rationale": "FORGED"},
             },
         )
         assert resp.status_code == 200, resp.text
-        assert resp.json()["proposal"]["action"] == "redo"  # durable request_changes wins
+        assert (
+            resp.json()["proposal"]["action"] == "redo"
+        )  # durable request_changes wins
         recorded = env["store"]._questionnaire_responses.get(f"review:{gate_key}")
         assert recorded and recorded[0]["action"] == "redo"
         assert recorded[0]["approved"] is False

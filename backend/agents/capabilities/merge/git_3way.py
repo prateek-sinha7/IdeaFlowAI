@@ -49,7 +49,9 @@ class Git3WayMerge:
             runner = getattr(frag, "runner", None)
             branch = getattr(frag, "branch", None)
             base_commit = getattr(frag, "base_commit", "")
-            merge_fn = getattr(runner, "git_3way_merge", None) if runner is not None else None
+            merge_fn = (
+                getattr(runner, "git_3way_merge", None) if runner is not None else None
+            )
             if merge_fn is None or not branch:
                 # No reachable merge handle (offline / non-worktree fragment) — nothing
                 # to merge for this fragment; skip without fabricating a conflict.
@@ -58,13 +60,17 @@ class Git3WayMerge:
             conflict_paths = list((info or {}).get("conflicts", []) or [])
             if conflict_paths:
                 for path in conflict_paths:
-                    result.conflicts.append({
-                        "path": path,
-                        "sources": ["base", str(branch)],
-                        "hunks": {
-                            str(branch): str((info or {}).get("snippet", ""))[:_SNIPPET_CAP],
-                        },
-                    })
+                    result.conflicts.append(
+                        {
+                            "path": path,
+                            "sources": ["base", str(branch)],
+                            "hunks": {
+                                str(branch): str((info or {}).get("snippet", ""))[
+                                    :_SNIPPET_CAP
+                                ],
+                            },
+                        }
+                    )
             else:
                 result.applied.append(str(branch))
         return result

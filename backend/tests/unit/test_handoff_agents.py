@@ -126,7 +126,9 @@ async def test_classify_task_includes_transcript_excerpt() -> None:
     fake = _FakeModel("coding")
     long_excerpt = "X" * 5000
     with patch.object(classifier_mod, "build_model", return_value=fake):
-        await classifier_mod.classify_task("do the thing", transcript_excerpt=long_excerpt)
+        await classifier_mod.classify_task(
+            "do the thing", transcript_excerpt=long_excerpt
+        )
     human = fake.last_messages[-1]
     assert "Recent IDE conversation context:" in human.content
     # Trimmed to the trailing 2000 chars.
@@ -156,9 +158,7 @@ async def test_classify_task_includes_transcript_excerpt() -> None:
 async def test_test_agent_parses_and_defaults() -> None:
     """A minimal report gets the six defaulted keys (verdict → "concerns")."""
     with _patch_build_model(test_mod, '{"summary": "ok"}'):
-        report = await HandoffTestAgent().analyse(
-            task="t", repo_tree="", test_files={}
-        )
+        report = await HandoffTestAgent().analyse(task="t", repo_tree="", test_files={})
     assert report["summary"] == "ok"
     assert report["verdict"] == "concerns"
     assert report["tests_present"] == []
@@ -266,9 +266,7 @@ async def test_test_agent_sends_a_cache_eligible_system_prefix() -> None:
 async def test_compliance_agent_parses_and_defaults() -> None:
     """A minimal report gets defaulted keys (verdict → "approve_with_changes")."""
     with _patch_build_model(compliance_mod, '{"summary": "fine"}'):
-        report = await ComplianceAgent().review(
-            task="t", repo_tree="", edited_files={}
-        )
+        report = await ComplianceAgent().review(task="t", repo_tree="", edited_files={})
     assert report["summary"] == "fine"
     assert report["verdict"] == "approve_with_changes"
     assert report["findings"] == []
@@ -303,9 +301,7 @@ async def test_compliance_agent_uses_max_tokens_8000() -> None:
 async def test_compliance_agent_fenced_json() -> None:
     fenced = '```json\n{"summary": "wrapped", "verdict": "approve"}\n```'
     with _patch_build_model(compliance_mod, fenced):
-        report = await ComplianceAgent().review(
-            task="t", repo_tree="", edited_files={}
-        )
+        report = await ComplianceAgent().review(task="t", repo_tree="", edited_files={})
     assert report["summary"] == "wrapped"
     assert report["verdict"] == "approve"
 

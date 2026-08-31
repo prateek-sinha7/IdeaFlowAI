@@ -38,7 +38,9 @@ class TestProjection:
     def test_clarify_card_from_questionnaire_ready(self):
         from app.agents.chat_narrator import CARD_CLARIFY, project_milestone_card
 
-        card = project_milestone_card(self._event("questionnaire_ready", question_count=3))
+        card = project_milestone_card(
+            self._event("questionnaire_ready", question_count=3)
+        )
         assert card is not None
         assert card["card_kind"] == CARD_CLARIFY
         # KAN-114: questionnaire_ready narrator text is now the fixed conversational
@@ -50,7 +52,9 @@ class TestProjection:
     def test_clarify_card_from_questionnaire_complete(self):
         from app.agents.chat_narrator import CARD_CLARIFY, project_milestone_card
 
-        card = project_milestone_card(self._event("questionnaire_complete", question_count=2))
+        card = project_milestone_card(
+            self._event("questionnaire_complete", question_count=2)
+        )
         assert card["card_kind"] == CARD_CLARIFY
 
     def test_gate_card_from_review_gate_ready(self):
@@ -72,15 +76,21 @@ class TestProjection:
     def test_pipeline_card_from_failed_and_cancelled(self):
         from app.agents.chat_narrator import CARD_PIPELINE, project_milestone_card
 
-        assert project_milestone_card(self._event("pipeline_failed"))["card_kind"] == CARD_PIPELINE
         assert (
-            project_milestone_card(self._event("pipeline_cancelled"))["card_kind"] == CARD_PIPELINE
+            project_milestone_card(self._event("pipeline_failed"))["card_kind"]
+            == CARD_PIPELINE
+        )
+        assert (
+            project_milestone_card(self._event("pipeline_cancelled"))["card_kind"]
+            == CARD_PIPELINE
         )
 
     def test_pipeline_complete_without_deliverable_is_pipeline_card(self):
         from app.agents.chat_narrator import CARD_PIPELINE, project_milestone_card
 
-        card = project_milestone_card(self._event("pipeline_complete", final_output="text"))
+        card = project_milestone_card(
+            self._event("pipeline_complete", final_output="text")
+        )
         assert card["card_kind"] == CARD_PIPELINE
 
     def test_deliverable_card_from_pipeline_complete_with_artifact(self):
@@ -100,7 +110,9 @@ class TestProjection:
         # KAN-101 intra-run loop-back — distinct from a family revision run (D-02).
         from app.agents.chat_narrator import CARD_SPEC_REVISION, project_milestone_card
 
-        card = project_milestone_card(self._event("agent_start", spec_revision_attempt=2))
+        card = project_milestone_card(
+            self._event("agent_start", spec_revision_attempt=2)
+        )
         assert card["card_kind"] == CARD_SPEC_REVISION
         assert "cycle 2" in card["text"].lower()  # "Revising spec — cycle 2"
 
@@ -178,7 +190,9 @@ class TestDeepLinkNonceProjection:
     def _card(self):
         from app.agents.chat_narrator import project_milestone_card
 
-        return project_milestone_card({"type": "pipeline_start", "data": {"pipeline_run_id": "r"}})
+        return project_milestone_card(
+            {"type": "pipeline_start", "data": {"pipeline_run_id": "r"}}
+        )
 
     def test_distinct_cards_get_distinct_nonces(self):
         # The pure projection generates a fresh candidate nonce per card (side-effect-free
@@ -228,11 +242,21 @@ def _seed_run(store_env, *, owner_id, workspace_id="ws-1", status="running"):
     run_id = str(uuid.uuid4())
     db = store_env["Session"]()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=owner_id, owner_id=owner_id, workspace_id=workspace_id,
-            title="t", type="prototype", status=status, input="i",
-            agent_count=1, session_id=owner_id, created_at=datetime.now(timezone.utc),
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=owner_id,
+                owner_id=owner_id,
+                workspace_id=workspace_id,
+                title="t",
+                type="prototype",
+                status=status,
+                input="i",
+                agent_count=1,
+                session_id=owner_id,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
         db.commit()
         return run_id
     finally:
@@ -245,11 +269,18 @@ def _seed_events(store_env, run_id, rows, *, owner_id, workspace_id="ws-1"):
     db = store_env["Session"]()
     try:
         for seq, etype, payload in rows:
-            db.add(RunEvent(
-                id=str(uuid.uuid4()), run_id=run_id, owner_id=owner_id,
-                workspace_id=workspace_id, seq=seq, event_id=f"e{seq}",
-                type=etype, payload_json=payload,
-            ))
+            db.add(
+                RunEvent(
+                    id=str(uuid.uuid4()),
+                    run_id=run_id,
+                    owner_id=owner_id,
+                    workspace_id=workspace_id,
+                    seq=seq,
+                    event_id=f"e{seq}",
+                    type=etype,
+                    payload_json=payload,
+                )
+            )
         db.commit()
     finally:
         db.close()
@@ -287,10 +318,15 @@ class TestPersistence:
 
         owner = "owner-1"
         run_id = _seed_run(store_env, owner_id=owner)
-        event = {"type": "review_gate_ready", "event_id": "src-1",
-                 "data": {"pipeline_run_id": run_id, "gate_key": f"{run_id}:agent"}}
+        event = {
+            "type": "review_gate_ready",
+            "event_id": "src-1",
+            "data": {"pipeline_run_id": run_id, "gate_key": f"{run_id}:agent"},
+        }
 
-        created, seq, card = _run(persist_milestone_card(self._store(owner), run_id, event))[:3]
+        created, seq, card = _run(
+            persist_milestone_card(self._store(owner), run_id, event)
+        )[:3]
         assert created is True
         rows = _reply_rows(store_env, run_id)
         assert len(rows) == 1
@@ -304,12 +340,21 @@ class TestPersistence:
 
         owner = "owner-2"
         run_id = _seed_run(store_env, owner_id=owner)
-        _seed_events(store_env, run_id, [(1, "pipeline_start", {}), (2, "agent_start", {})],
-                     owner_id=owner)
-        event = {"type": "pipeline_complete", "event_id": "src-c",
-                 "data": {"pipeline_run_id": run_id, "deliverable_filename": "p.html"}}
+        _seed_events(
+            store_env,
+            run_id,
+            [(1, "pipeline_start", {}), (2, "agent_start", {})],
+            owner_id=owner,
+        )
+        event = {
+            "type": "pipeline_complete",
+            "event_id": "src-c",
+            "data": {"pipeline_run_id": run_id, "deliverable_filename": "p.html"},
+        }
 
-        created, seq, card = _run(persist_milestone_card(self._store(owner), run_id, event))[:3]
+        created, seq, card = _run(
+            persist_milestone_card(self._store(owner), run_id, event)
+        )[:3]
         assert seq == 3  # max(1,2)+1 — same contiguous seq the engine sink computes
 
     def test_replayed_milestone_is_idempotent_noop(self, store_env):
@@ -317,8 +362,11 @@ class TestPersistence:
 
         owner = "owner-3"
         run_id = _seed_run(store_env, owner_id=owner)
-        event = {"type": "pipeline_start", "event_id": "src-dup",
-                 "data": {"pipeline_run_id": run_id}}
+        event = {
+            "type": "pipeline_start",
+            "event_id": "src-dup",
+            "data": {"pipeline_run_id": run_id},
+        }
 
         r1 = _run(persist_milestone_card(self._store(owner), run_id, event))
         r2 = _run(persist_milestone_card(self._store(owner), run_id, event))  # replay
@@ -331,8 +379,11 @@ class TestPersistence:
 
         owner = "owner-4"
         run_id = _seed_run(store_env, owner_id=owner)
-        event = {"type": "agent_chunk", "event_id": "src-x",
-                 "data": {"pipeline_run_id": run_id, "chunk": "hi"}}
+        event = {
+            "type": "agent_chunk",
+            "event_id": "src-x",
+            "data": {"pipeline_run_id": run_id, "chunk": "hi"},
+        }
 
         assert _run(persist_milestone_card(self._store(owner), run_id, event)) is None
         assert _reply_rows(store_env, run_id) == []
@@ -346,8 +397,11 @@ class TestPersistence:
         owner = "owner-5"
         run_id = _seed_run(store_env, owner_id=owner)
         _seed_events(store_env, run_id, [(1, "pipeline_start", {})], owner_id=owner)
-        event = {"type": "pipeline_failed", "event_id": "src-f",
-                 "data": {"pipeline_run_id": run_id}}
+        event = {
+            "type": "pipeline_failed",
+            "event_id": "src-f",
+            "data": {"pipeline_run_id": run_id},
+        }
 
         # attacker store is scoped to a DIFFERENT owner — read_events default-denies.
         created, seq, _ = _run(
@@ -381,8 +435,11 @@ class TestDeepLinkNonceDB:
         from app.agents.chat_narrator import persist_milestone_card
 
         run_id = _seed_run(store_env, owner_id=owner_id, workspace_id=workspace_id)
-        event = {"type": "pipeline_start", "event_id": f"src-{uuid.uuid4().hex[:8]}",
-                 "data": {"pipeline_run_id": run_id}}
+        event = {
+            "type": "pipeline_start",
+            "event_id": f"src-{uuid.uuid4().hex[:8]}",
+            "data": {"pipeline_run_id": run_id},
+        }
         created, _seq, card = _run(
             persist_milestone_card(self._store(owner_id, workspace_id), run_id, event)
         )[:3]
@@ -416,7 +473,9 @@ class TestDeepLinkNonceDB:
         # owner+WORKSPACE scoped: a different workspace under the same owner → False.
         from app.agents.chat_narrator import consume_deep_link
 
-        nonce = self._mint_card_nonce(store_env, owner_id="owner-A", workspace_id="ws-1")
+        nonce = self._mint_card_nonce(
+            store_env, owner_id="owner-A", workspace_id="ws-1"
+        )
         assert _run(consume_deep_link(self._store("owner-A", "ws-2"), nonce)) is False
         assert _run(consume_deep_link(self._store("owner-A", "ws-1"), nonce)) is True
 
@@ -448,8 +507,11 @@ class TestDeepLinkNonceDB:
 
         owner = "owner-R"
         run_id = _seed_run(store_env, owner_id=owner)
-        event = {"type": "pipeline_start", "event_id": "src-replay",
-                 "data": {"pipeline_run_id": run_id}}
+        event = {
+            "type": "pipeline_start",
+            "event_id": "src-replay",
+            "data": {"pipeline_run_id": run_id},
+        }
         r1 = _run(persist_milestone_card(self._store(owner), run_id, event))
         r2 = _run(persist_milestone_card(self._store(owner), run_id, event))  # replay
         assert r1[0] is True and r2[0] is False
@@ -487,8 +549,11 @@ class TestEngineSinkWiring:
     def test_deliverable_event_persists_a_chat_reply_card(self, store_env):
         sink, run_id = self._armed_sink(store_env, "owner-1", with_narrator=True)
         event = self._stamped(
-            run_id, "pipeline_complete", "e-c",
-            deliverable_filename="prototype.html", deliverable_mimetype="text/html",
+            run_id,
+            "pipeline_complete",
+            "e-c",
+            deliverable_filename="prototype.html",
+            deliverable_mimetype="text/html",
         )
         _run(sink.emit_milestone_card(event))
         rows = _reply_rows(store_env, run_id)
@@ -498,7 +563,11 @@ class TestEngineSinkWiring:
 
     def test_non_milestone_event_persists_nothing(self, store_env):
         sink, run_id = self._armed_sink(store_env, "owner-2", with_narrator=True)
-        _run(sink.emit_milestone_card(self._stamped(run_id, "agent_chunk", "e-x", chunk="hi")))
+        _run(
+            sink.emit_milestone_card(
+                self._stamped(run_id, "agent_chunk", "e-x", chunk="hi")
+            )
+        )
         assert _reply_rows(store_env, run_id) == []
 
     def test_replayed_milestone_is_idempotent_noop(self, store_env):
@@ -515,7 +584,10 @@ class TestEngineSinkWiring:
         # No card is projected/persisted, so golden bytes are untouched (INV-3).
         sink, run_id = self._armed_sink(store_env, "owner-4", with_narrator=False)
         event = self._stamped(
-            run_id, "pipeline_complete", "e-c", deliverable_filename="p.html",
+            run_id,
+            "pipeline_complete",
+            "e-c",
+            deliverable_filename="p.html",
         )
         _run(sink.emit_milestone_card(event))
         assert _reply_rows(store_env, run_id) == []
@@ -531,7 +603,8 @@ class TestEngineSinkWiring:
         import agents.execution_engine.engine as engine_mod
 
         import_lines = [
-            ln for ln in inspect.getsource(engine_mod).splitlines()
+            ln
+            for ln in inspect.getsource(engine_mod).splitlines()
             if re.match(r"\s*(import |from )", ln)
         ]
         assert not any("chat_narrator" in ln for ln in import_lines)
@@ -541,13 +614,20 @@ class TestEngineSinkWiring:
         # — the engine loop relies on the returned seq to advance its own allocator past the
         # card, and uses reply_eid for the live SSE event_id (FIX-175).
         sink, run_id = self._armed_sink(store_env, "owner-ret", with_narrator=True)
-        result = _run(sink.emit_milestone_card(self._stamped(run_id, "pipeline_start", "e-r")))
+        result = _run(
+            sink.emit_milestone_card(self._stamped(run_id, "pipeline_start", "e-r"))
+        )
         assert result is not None
         created, seq, card, reply_eid = result
-        assert created is True and isinstance(seq, int) and card["card_kind"] == "pipeline"
+        assert (
+            created is True and isinstance(seq, int) and card["card_kind"] == "pipeline"
+        )
         assert isinstance(reply_eid, str) and reply_eid.startswith("chat_reply:")
         # A non-milestone (self-filtered) and the dormant default both return None.
-        assert _run(sink.emit_milestone_card(self._stamped(run_id, "agent_chunk", "e-r2"))) is None
+        assert (
+            _run(sink.emit_milestone_card(self._stamped(run_id, "agent_chunk", "e-r2")))
+            is None
+        )
 
 
 class TestEngineLoopCardSeqAllocation:
@@ -563,14 +643,21 @@ class TestEngineLoopCardSeqAllocation:
         async def fake_impl(*_args, _sink=None, **_kwargs):
             _sink.arm(store, run_id)
             yield {"type": "pipeline_start", "data": {"pipeline_run_id": run_id}}
-            yield {"type": "agent_chunk", "data": {"pipeline_run_id": run_id, "chunk": "x"}}
-            yield {"type": "pipeline_complete",
-                   "data": {"pipeline_run_id": run_id, "deliverable_filename": "p.html"}}
+            yield {
+                "type": "agent_chunk",
+                "data": {"pipeline_run_id": run_id, "chunk": "x"},
+            }
+            yield {
+                "type": "pipeline_complete",
+                "data": {"pipeline_run_id": run_id, "deliverable_filename": "p.html"},
+            }
 
         engine._execute_impl = fake_impl  # type: ignore[method-assign]
         out = []
         async for ev in engine.execute(
-            agents=[], user_message="", pipeline_run_id=run_id,
+            agents=[],
+            user_message="",
+            pipeline_run_id=run_id,
             milestone_sink=milestone_sink,
         ):
             out.append(ev)
@@ -586,9 +673,14 @@ class TestEngineLoopCardSeqAllocation:
         store = ScopedStore(owner_id=owner, workspace_id="ws-1")
         engine = ExecutionEngine()
 
-        out = _run(self._drive_execute(
-            engine, run_id=run_id, store=store, milestone_sink=persist_milestone_card,
-        ))
+        out = _run(
+            self._drive_execute(
+                engine,
+                run_id=run_id,
+                store=store,
+                milestone_sink=persist_milestone_card,
+            )
+        )
 
         # (a) LIVE: two chat_reply cards were YIELDED into the stream (emit live).
         yielded = [(e["type"], e["data"].get("seq")) for e in out]
@@ -604,11 +696,16 @@ class TestEngineLoopCardSeqAllocation:
         # (c) the DURABLE LOG holds every event at a UNIQUE, CONTIGUOUS seq (no drop, no dup):
         #     the run_events rows are exactly seqs 1..5 (3 engine events + 2 cards).
         from app.models.run_event import RunEvent
+
         db = store_env["Session"]()
         try:
-            seqs = [r.seq for r in db.query(RunEvent)
-                    .filter(RunEvent.run_id == run_id)
-                    .order_by(RunEvent.seq.asc()).all()]
+            seqs = [
+                r.seq
+                for r in db.query(RunEvent)
+                .filter(RunEvent.run_id == run_id)
+                .order_by(RunEvent.seq.asc())
+                .all()
+            ]
         finally:
             db.close()
         assert seqs == [1, 2, 3, 4, 5], seqs  # contiguous, no gap, no duplicate seq

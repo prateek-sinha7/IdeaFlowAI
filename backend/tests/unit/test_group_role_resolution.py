@@ -8,6 +8,7 @@ The precedence rule under test: LOWER precedence number wins (mirroring
 Cognito's own group-precedence semantics), and an unrecognised or absent tier
 group resolves to ``basic`` (fail closed).
 """
+
 import pytest
 
 from app.core.entitlements import (
@@ -37,7 +38,9 @@ class TestTierResolution:
         assert resolve_tier_from_groups([]) == DEFAULT_TIER == "basic"
 
     def test_unknown_groups_only_falls_back_to_basic(self):
-        assert resolve_tier_from_groups(["some-other-group", "flowin-admins"]) == "basic"
+        assert (
+            resolve_tier_from_groups(["some-other-group", "flowin-admins"]) == "basic"
+        )
 
     @pytest.mark.parametrize(
         "groups",
@@ -57,7 +60,9 @@ class TestTierResolution:
         assert resolve_tier_from_groups(groups) == "enterprise"
 
     def test_pro_beats_basic(self):
-        assert resolve_tier_from_groups(["flowin-tier-basic", "flowin-tier-pro"]) == "pro"
+        assert (
+            resolve_tier_from_groups(["flowin-tier-basic", "flowin-tier-pro"]) == "pro"
+        )
 
     def test_admin_group_does_not_affect_tier(self):
         """Role and tier are orthogonal — an admin is not implicitly enterprise."""
@@ -121,7 +126,9 @@ class TestProjectionPrecedence:
     def test_local_principal_uses_the_db_columns(self):
         """Break-glass has no group claim — the columns ARE the authority."""
         user = self._user(tier="enterprise", is_admin=True, auth_provider="local")
-        principal = Principal(provider="local", sub="local-uuid", jti="j", iat=0, groups=[])
+        principal = Principal(
+            provider="local", sub="local-uuid", jti="j", iat=0, groups=[]
+        )
         assert effective_tier(user, principal) == "enterprise"
         assert effective_is_admin(user, principal) is True
 

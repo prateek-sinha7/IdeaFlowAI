@@ -113,9 +113,4 @@ def is_token_revoked(jti: str, db: "Session") -> bool:
 
     if not jti:
         return False
-    return (
-        db.query(RevokedToken.id)
-        .filter(RevokedToken.jti == jti)
-        .first()
-        is not None
-    )
+    return db.query(RevokedToken.id).filter(RevokedToken.jti == jti).first() is not None

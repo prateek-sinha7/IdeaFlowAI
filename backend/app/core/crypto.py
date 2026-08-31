@@ -105,7 +105,11 @@ def decrypt_cognito_refresh_token(ciphertext: str) -> str:
     if not ciphertext:
         raise ValueError("ciphertext must be non-empty")
     try:
-        return _get_cognito_refresh_fernet().decrypt(ciphertext.encode("ascii")).decode("utf-8")
+        return (
+            _get_cognito_refresh_fernet()
+            .decrypt(ciphertext.encode("ascii"))
+            .decode("utf-8")
+        )
     except InvalidToken:
         raise
 

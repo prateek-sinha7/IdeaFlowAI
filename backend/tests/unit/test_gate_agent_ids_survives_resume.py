@@ -17,6 +17,7 @@ These tests are structural on purpose — they assert the value reaches
 ``_execute_impl``, which is the link that was missing. Whether ``_should_gate``
 then honours it is already covered by the gate suites.
 """
+
 import pytest
 
 from agents.execution_engine.engine import ExecutionEngine

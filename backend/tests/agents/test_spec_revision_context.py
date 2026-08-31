@@ -68,7 +68,9 @@ def _scripted_gate(calls: dict):
     least three times; later calls must approve rather than IndexError.
     """
 
-    async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs):
+    async def _gate(
+        pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs
+    ):
         i = calls["n"]
         calls["n"] += 1
         yield {
@@ -99,7 +101,9 @@ async def _drive_revision(mode: str):
     calls = {"n": 0}
 
     with _EngineHarness(
-        lambda aid, idx: ScriptedFakeChatModel(_text_turn(f"{aid} regenerated output. "))
+        lambda aid, idx: ScriptedFakeChatModel(
+            _text_turn(f"{aid} regenerated output. ")
+        )
     ) as h:
         h.engine._run_review_gate = _scripted_gate(calls)  # type: ignore[assignment]
         ectx = _make_ectx(run_id, gate_agent_ids=[ordered[2].id])
@@ -120,7 +124,9 @@ async def _drive_revision(mode: str):
             }
             results = [{"agent_id": ordered[2].id, "output": "PERSISTED ANALYSIS"}]
 
-        events = await _drive_agent(h.engine, ordered[2], ectx, results, ordered, index=2)
+        events = await _drive_agent(
+            h.engine, ordered[2], ectx, results, ordered, index=2
+        )
         thread_ids = list(h.thread_ids)
 
     prompts: dict[str, list[str]] = {}
@@ -141,9 +147,9 @@ async def test_revision_injects_prior_artifact_into_specify_dispatch(mode) -> No
     prompts, _ectx, _tids, ordered = await _drive_revision(mode)
     specify_id = ordered[0].id
 
-    assert specify_id in prompts, (
-        f"the {mode} consumer never re-dispatched the specify agent: {sorted(prompts)}"
-    )
+    assert (
+        specify_id in prompts
+    ), f"the {mode} consumer never re-dispatched the specify agent: {sorted(prompts)}"
     msg = prompts[specify_id][-1]
     assert REPORT in msg, "the analysis report must still reach the specify re-dispatch"
     assert PRIOR in msg, (
@@ -162,21 +168,23 @@ async def test_revision_prior_artifact_does_not_leak_to_plan_or_analyze() -> Non
 
     for aid in (plan_id, analyze_id):
         for msg in prompts.get(aid, []):
-            assert PRIOR_BLOCK not in msg, (
-                f"the prior-artifact block leaked into the {aid} dispatch"
-            )
+            assert (
+                PRIOR_BLOCK not in msg
+            ), f"the prior-artifact block leaked into the {aid} dispatch"
 
     # The analyzer consumes the plan agent only, so PRIOR cannot reach it through the
     # legitimate produces/consumes channel — its absence is a clean no-leak signal.
     for msg in prompts.get(analyze_id, []):
-        assert PRIOR not in msg, f"the prior artifact text leaked into the {analyze_id} dispatch"
+        assert (
+            PRIOR not in msg
+        ), f"the prior artifact text leaked into the {analyze_id} dispatch"
 
     # DIRECT attribute access, not getattr-with-default: pre-fix the field does not
     # exist, so this raises AttributeError and the test is a genuine RED instead of
     # passing vacuously against an unimplemented injection.
-    assert not ectx.spec_revision_prior_artifact, (
-        "the prior-artifact scratch field must be cleared when the sub-pipeline returns"
-    )
+    assert (
+        not ectx.spec_revision_prior_artifact
+    ), "the prior-artifact scratch field must be cleared when the sub-pipeline returns"
 
 
 @pytest.mark.asyncio
@@ -187,16 +195,16 @@ async def test_revision_dispatch_uses_a_fresh_checkpoint_thread() -> None:
     run_id = "rev-live"
     first_pass = f"{run_id}:{ordered[2].id}"
 
-    assert thread_ids[0] == first_pass, (
-        f"expected the first pass on the unsuffixed thread; got {thread_ids}"
-    )
+    assert (
+        thread_ids[0] == first_pass
+    ), f"expected the first pass on the unsuffixed thread; got {thread_ids}"
     sub_threads = thread_ids[1:]
-    assert len(sub_threads) == 3, (
-        f"the sub-pipeline must dispatch specify/plan/analyze; got {thread_ids}"
-    )
-    assert all(t.endswith(":rev1") for t in sub_threads), (
-        f"every revision dispatch must thread a fresh :rev1 checkpoint; got {sub_threads}"
-    )
-    assert first_pass not in sub_threads, (
-        f"a revision dispatch reused the first pass's thread id: {sub_threads}"
-    )
+    assert (
+        len(sub_threads) == 3
+    ), f"the sub-pipeline must dispatch specify/plan/analyze; got {thread_ids}"
+    assert all(
+        t.endswith(":rev1") for t in sub_threads
+    ), f"every revision dispatch must thread a fresh :rev1 checkpoint; got {sub_threads}"
+    assert (
+        first_pass not in sub_threads
+    ), f"a revision dispatch reused the first pass's thread id: {sub_threads}"

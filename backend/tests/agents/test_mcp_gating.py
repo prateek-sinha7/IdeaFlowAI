@@ -1,11 +1,11 @@
 """MCP-04 Wave-0 acceptance: security-gate + secrets gating for powerful MCP servers.
 
-  * a powerful/write server (filesystem/postgres) without the ``security`` gate +
-    a ``secrets`` grant → ``CompilerError`` (MCP-04);
-  * the same powerful server WITH ``security`` gate + ``secrets`` compiles (in a
-    TRUSTED manifest — a user manifest can never reference it at all, CAP-03);
-  * a read-scoped server (gitlab_read / jira_read) binds UNGATED (no security gate,
-    no secrets).
+* a powerful/write server (filesystem/postgres) without the ``security`` gate +
+  a ``secrets`` grant → ``CompilerError`` (MCP-04);
+* the same powerful server WITH ``security`` gate + ``secrets`` compiles (in a
+  TRUSTED manifest — a user manifest can never reference it at all, CAP-03);
+* a read-scoped server (gitlab_read / jira_read) binds UNGATED (no security gate,
+  no secrets).
 """
 
 from __future__ import annotations
@@ -17,7 +17,9 @@ from agents.workflows.compiler import CompilerError, WorkflowCompiler
 from agents.workflows.manifest import WorkflowManifest
 
 
-def _manifest(mcp_refs: list[str], *, gates: list | None = None, secrets: list | None = None) -> WorkflowManifest:
+def _manifest(
+    mcp_refs: list[str], *, gates: list | None = None, secrets: list | None = None
+) -> WorkflowManifest:
     tools: dict = {"mcp": list(mcp_refs)}
     if secrets is not None:
         tools["secrets"] = list(secrets)

@@ -67,11 +67,13 @@ def extract_final_output(events: list[dict]) -> str:
     than reading the on-disk sandbox. Raises if the run never completed.
     """
     completes = [e for e in events if e.get("type") == "pipeline_complete"]
-    assert completes, "run produced no pipeline_complete event (drove nothing / errored)"
+    assert (
+        completes
+    ), "run produced no pipeline_complete event (drove nothing / errored)"
     final_output = (completes[-1].get("data") or {}).get("final_output")
-    assert isinstance(final_output, str), (
-        f"pipeline_complete.final_output must be a str; got {type(final_output)!r}"
-    )
+    assert isinstance(
+        final_output, str
+    ), f"pipeline_complete.final_output must be a str; got {type(final_output)!r}"
     return final_output
 
 
@@ -99,7 +101,9 @@ def assert_deliverable_snapshot(name: str, deliverable: bytes) -> None:
         f"{name}: golden file missing — run the suite once with SNAPSHOT_UPDATE=1 "
         f"and COMMIT golden/{name} so the default run is a real byte assertion (D-07)."
     )
-    assert len(golden) > 0, f"{name}: committed golden is zero-byte (must be non-empty)."
+    assert (
+        len(golden) > 0
+    ), f"{name}: committed golden is zero-byte (must be non-empty)."
     assert deliverable == golden, (
         f"{name}: deliverable bytes diverged from the committed golden "
         f"(len now={len(deliverable)}, golden={len(golden)}). This is the SAFE-01 "

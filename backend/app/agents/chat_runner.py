@@ -252,7 +252,10 @@ class ChatRunner:
             elif section in context:
                 # Phase was executed and produced output
                 phase_output = context[section]
-                if isinstance(phase_output, dict) and phase_output.get("status") == "failed":
+                if (
+                    isinstance(phase_output, dict)
+                    and phase_output.get("status") == "failed"
+                ):
                     output_data[section] = phase_output
                 else:
                     output_data[section] = phase_output
@@ -299,9 +302,7 @@ class ChatRunner:
         # mode_prompt bookkeeping keys; everything else (discovery, requirements,
         # prior phase outputs, output_selection) is rendered into the block.
         filtered_context = {
-            k: v
-            for k, v in context.items()
-            if k not in ("mode", "mode_prompt")
+            k: v for k, v in context.items() if k not in ("mode", "mode_prompt")
         }
         if filtered_context:
             context_str = "\n".join(
@@ -344,8 +345,12 @@ class ChatRunner:
             context["mode_prompt"] = mode_prompt
 
         # ── Phase 0: Discovery ────────────────────────────────────────────
-        yield {"type": "phase_start", "section": "discovery", "chunk": None,
-               "data": {"phase": 0, "name": "Discovery"}}
+        yield {
+            "type": "phase_start",
+            "section": "discovery",
+            "chunk": None,
+            "data": {"phase": 0, "name": "Discovery"},
+        }
         try:
             logger.info("Chat Phase 0: Starting Discovery (streaming)")
             discovery_output_parts: list[str] = []
@@ -353,17 +358,25 @@ class ChatRunner:
                 self._compose_message(user_message, context)
             ):
                 discovery_output_parts.append(chunk)
-                yield {"type": "stream", "chunk": chunk, "section": "discovery", "data": None}
+                yield {
+                    "type": "stream",
+                    "chunk": chunk,
+                    "section": "discovery",
+                    "data": None,
+                }
 
             discovery_output = "".join(discovery_output_parts)
             context["discovery"] = {"output": discovery_output}
             output_selection = self._parse_output_selection(discovery_output)
             context["output_selection"] = output_selection
-            logger.info("Chat Phase 0: Complete. Output_Selection: %s", output_selection)
+            logger.info(
+                "Chat Phase 0: Complete. Output_Selection: %s", output_selection
+            )
         except asyncio.CancelledError:
             raise
         except Exception as e:
             from app.agents.llm_errors import map_exception
+
             logger.error("Chat Phase 0 (Discovery) failed: %s", e)
             context["discovery"] = {"status": "failed", "error": str(e)}
             output_selection = ["user_stories", "ppt", "prototype", "ui_design"]
@@ -380,11 +393,20 @@ class ChatRunner:
                     "phase": 0,
                 },
             }
-        yield {"type": "phase_end", "section": "discovery", "chunk": None, "data": {"phase": 0}}
+        yield {
+            "type": "phase_end",
+            "section": "discovery",
+            "chunk": None,
+            "data": {"phase": 0},
+        }
 
         # ── Phase 1: Requirements ─────────────────────────────────────────
-        yield {"type": "phase_start", "section": "requirements", "chunk": None,
-               "data": {"phase": 1, "name": "Requirements"}}
+        yield {
+            "type": "phase_start",
+            "section": "requirements",
+            "chunk": None,
+            "data": {"phase": 1, "name": "Requirements"},
+        }
         try:
             logger.info("Chat Phase 1: Starting Requirements (streaming)")
             requirements_parts: list[str] = []
@@ -392,7 +414,12 @@ class ChatRunner:
                 self._compose_message(user_message, context)
             ):
                 requirements_parts.append(chunk)
-                yield {"type": "stream", "chunk": chunk, "section": "requirements", "data": None}
+                yield {
+                    "type": "stream",
+                    "chunk": chunk,
+                    "section": "requirements",
+                    "data": None,
+                }
 
             requirements_output = "".join(requirements_parts)
             context["requirements"] = {"output": requirements_output}
@@ -401,6 +428,7 @@ class ChatRunner:
             raise
         except Exception as e:
             from app.agents.llm_errors import map_exception
+
             logger.error("Chat Phase 1 (Requirements) failed: %s", e)
             context["requirements"] = {"status": "failed", "error": str(e)}
             payload = map_exception(e)
@@ -415,7 +443,12 @@ class ChatRunner:
                     "phase": 1,
                 },
             }
-        yield {"type": "phase_end", "section": "requirements", "chunk": None, "data": {"phase": 1}}
+        yield {
+            "type": "phase_end",
+            "section": "requirements",
+            "chunk": None,
+            "data": {"phase": 1},
+        }
 
         # ── Phase 2: Conditional Routing (no events; computes active phases) ──
         active_phases = self._determine_active_phases(output_selection)
@@ -431,8 +464,12 @@ class ChatRunner:
             if runner is None:
                 continue
 
-            yield {"type": "phase_start", "section": section, "chunk": None,
-                   "data": {"phase": phase, "name": section}}
+            yield {
+                "type": "phase_start",
+                "section": section,
+                "chunk": None,
+                "data": {"phase": phase, "name": section},
+            }
             try:
                 logger.info("Chat Phase %s: Starting (%s) (streaming)", phase, section)
                 phase_parts: list[str] = []
@@ -440,7 +477,12 @@ class ChatRunner:
                     self._compose_message(user_message, context)
                 ):
                     phase_parts.append(chunk)
-                    yield {"type": "stream", "chunk": chunk, "section": section, "data": None}
+                    yield {
+                        "type": "stream",
+                        "chunk": chunk,
+                        "section": section,
+                        "data": None,
+                    }
 
                 phase_output = "".join(phase_parts)
 
@@ -458,6 +500,7 @@ class ChatRunner:
                 raise
             except Exception as e:
                 from app.agents.llm_errors import map_exception
+
                 logger.error("Chat Phase %s (%s) failed: %s", phase, section, e)
                 context[section] = {"status": "failed", "error": str(e)}
                 payload = map_exception(e)
@@ -472,7 +515,12 @@ class ChatRunner:
                         "phase": phase,
                     },
                 }
-            yield {"type": "phase_end", "section": section, "chunk": None, "data": {"phase": phase}}
+            yield {
+                "type": "phase_end",
+                "section": section,
+                "chunk": None,
+                "data": {"phase": phase},
+            }
 
         # ── Compile Final_Output ──────────────────────────────────────────
         final_output = self._compile_final_output(context, output_selection)

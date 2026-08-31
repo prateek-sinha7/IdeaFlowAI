@@ -31,19 +31,17 @@ class ExecRun(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id = Column(String, ForeignKey("workflow_runs.id"), nullable=False)
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
-    step = Column(String, nullable=False)            # the step/agent id that ran exec
-    argv_json = Column(JSON, nullable=False)         # the argv list (never shell str)
-    outcome = Column(String, nullable=False)         # allowed|denied|killed (free String)
-    exit_code = Column(Integer, nullable=True)       # None for denied/killed
-    duration_ms = Column(Integer, nullable=True)     # wall-clock ms for allowed
-    policy_snapshot_json = Column(JSON, nullable=True)   # allow/deny + caps snapshot
-    output_digest = Column(String, nullable=True)    # TRUNCATED digest, never raw secrets
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
+    step = Column(String, nullable=False)  # the step/agent id that ran exec
+    argv_json = Column(JSON, nullable=False)  # the argv list (never shell str)
+    outcome = Column(String, nullable=False)  # allowed|denied|killed (free String)
+    exit_code = Column(Integer, nullable=True)  # None for denied/killed
+    duration_ms = Column(Integer, nullable=True)  # wall-clock ms for allowed
+    policy_snapshot_json = Column(JSON, nullable=True)  # allow/deny + caps snapshot
+    output_digest = Column(String, nullable=True)  # TRUNCATED digest, never raw secrets
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
-    __table_args__ = (
-        Index("ix_exec_runs_run", "run_id"),
-    )
+    __table_args__ = (Index("ix_exec_runs_run", "run_id"),)

@@ -197,7 +197,9 @@ NODE_MODULES_PPTXGENJS = NODE_MODULES_DIR / "pptxgenjs"
 # allowing extra parallelism.
 _DEFAULT_MAX_CONCURRENT = 3
 try:
-    _MAX_CONCURRENT = max(1, int(os.environ.get("PPTX_MAX_CONCURRENT", _DEFAULT_MAX_CONCURRENT)))
+    _MAX_CONCURRENT = max(
+        1, int(os.environ.get("PPTX_MAX_CONCURRENT", _DEFAULT_MAX_CONCURRENT))
+    )
 except ValueError:
     _MAX_CONCURRENT = _DEFAULT_MAX_CONCURRENT
 _RENDER_SEMAPHORE = threading.BoundedSemaphore(_MAX_CONCURRENT)
@@ -390,8 +392,8 @@ def generate_pptx_from_code(js_code: str, title: str = "Presentation") -> bytes:
 
     # Strip markdown fences
     if func_code.startswith("```"):
-        func_code = re.sub(r'^```(?:javascript|js)?\s*\n?', '', func_code)
-        func_code = re.sub(r'\n?```\s*$', '', func_code)
+        func_code = re.sub(r"^```(?:javascript|js)?\s*\n?", "", func_code)
+        func_code = re.sub(r"\n?```\s*$", "", func_code)
 
     pptxgenjs_path = str(NODE_MODULES_PPTXGENJS).replace("\\", "/")
 
@@ -404,21 +406,30 @@ def generate_pptx_from_code(js_code: str, title: str = "Presentation") -> bytes:
     func_code = re.sub(r'color:\s*"#([0-9A-Fa-f]{6})"', r'color: "\1"', func_code)
     func_code = re.sub(r"color:\s*'#([0-9A-Fa-f]{6})'", r"color: '\1'", func_code)
     # 2. Fix 8-char hex colors
-    func_code = re.sub(r'color:\s*"([0-9A-Fa-f]{8})"', lambda m: f'color: "{m.group(1)[:6]}"', func_code)
+    func_code = re.sub(
+        r'color:\s*"([0-9A-Fa-f]{8})"',
+        lambda m: f'color: "{m.group(1)[:6]}"',
+        func_code,
+    )
     # 3. Fix negative shadow offsets
-    func_code = re.sub(r'offset:\s*-(\d+)', r'offset: \1', func_code)
+    func_code = re.sub(r"offset:\s*-(\d+)", r"offset: \1", func_code)
     # 4. Remove standalone .line property access (crashes in Node)
-    lines = func_code.split('\n')
+    lines = func_code.split("\n")
     safe_lines = []
     for line in lines:
         stripped = line.strip()
-        if (stripped and not stripped.startswith('//') and
-                '.line.' in stripped and 'line:' not in stripped and
-                'addShape' not in stripped and 'addText' not in stripped):
-            safe_lines.append(f'  // skipped: {stripped}')
+        if (
+            stripped
+            and not stripped.startswith("//")
+            and ".line." in stripped
+            and "line:" not in stripped
+            and "addShape" not in stripped
+            and "addText" not in stripped
+        ):
+            safe_lines.append(f"  // skipped: {stripped}")
         else:
             safe_lines.append(line)
-    func_code = '\n'.join(safe_lines)
+    func_code = "\n".join(safe_lines)
     # 5. Repair data URIs missing the `data:` scheme prefix. The LLM
     # occasionally emits an `addImage({ path: "image/svg+xml;base64,..." })`
     # or builds the string via concat (`"image/svg+xml;base64," + b64`)
@@ -439,19 +450,21 @@ def generate_pptx_from_code(js_code: str, title: str = "Presentation") -> bytes:
 
     # Replace writeFile/save with write("nodebuffer")
     for pattern in [
-        r'(?:await\s+)?pres\.writeFile\s*\(\s*\{[^}]*\}\s*\)',
-        r'(?:await\s+)?pres\.writeFile\s*\([^)]*\)',
-        r'(?:await\s+)?pres\.save\s*\([^)]*\)',
+        r"(?:await\s+)?pres\.writeFile\s*\(\s*\{[^}]*\}\s*\)",
+        r"(?:await\s+)?pres\.writeFile\s*\([^)]*\)",
+        r"(?:await\s+)?pres\.save\s*\([^)]*\)",
     ]:
         func_code = re.sub(pattern, 'return pres.write("nodebuffer")', func_code)
-    func_code = func_code.replace('return return', 'return')
+    func_code = func_code.replace("return return", "return")
 
     # Make function async
-    if 'async function generatePresentation' not in func_code:
-        func_code = func_code.replace('function generatePresentation', 'async function generatePresentation')
+    if "async function generatePresentation" not in func_code:
+        func_code = func_code.replace(
+            "function generatePresentation", "async function generatePresentation"
+        )
 
     # Wrap in one if no function found
-    if 'function generatePresentation' not in func_code:
+    if "function generatePresentation" not in func_code:
         func_code = f"async function generatePresentation() {{\n{func_code}\n}}"
 
     temp_dir = tempfile.mkdtemp(prefix="pptx_export_")
@@ -468,7 +481,7 @@ def generate_pptx_from_code(js_code: str, title: str = "Presentation") -> bytes:
     out_file = os.path.join(temp_dir, "output.pptx")
     out_path = out_file.replace("\\", "/")
 
-    node_script = f'''
+    node_script = f"""
 const fs = require("fs");
 const Module = require("module");
 const _orig = Module._resolveFilename;
@@ -594,7 +607,7 @@ async function main() {{
   }}
 }}
 main();
-'''
+"""
 
     with open(js_file, "w", encoding="utf-8") as f:
         f.write(node_script)
@@ -647,7 +660,8 @@ main();
         if out_size > _OUTPUT_MAX_BYTES:
             logger.error(
                 "PPTX output exceeded cap: %d bytes > %d",
-                out_size, _OUTPUT_MAX_BYTES,
+                out_size,
+                _OUTPUT_MAX_BYTES,
             )
             raise RuntimeError("Generated PPTX exceeded 50 MB cap")
 

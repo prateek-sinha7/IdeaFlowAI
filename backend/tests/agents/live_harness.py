@@ -118,7 +118,9 @@ if str(_BACKEND_ROOT) not in sys.path:
 # ── RUNS_ROOT must be set BEFORE app.core.config / sandbox import it ───────────
 # Reuse the same env var the scripted driver honours so a parent test that already
 # set it wins; otherwise a fresh temp dir.
-_RUNS_ROOT = os.environ.get("PARITY_RUNS_ROOT") or tempfile.mkdtemp(prefix="live-harness-runs-")
+_RUNS_ROOT = os.environ.get("PARITY_RUNS_ROOT") or tempfile.mkdtemp(
+    prefix="live-harness-runs-"
+)
 os.environ["RUNS_ROOT"] = _RUNS_ROOT
 # Force the InMemory checkpointer for the offline / non-Postgres path (no creds).
 os.environ.setdefault("ENV", "development")
@@ -420,7 +422,9 @@ def _default_approver(gate_key: str, data: dict) -> "tuple[bool, str | None]":
     return True, None
 
 
-async def _apply_gate(store: Any, approver: GateApprover, gate_key: str, data: dict) -> None:
+async def _apply_gate(
+    store: Any, approver: GateApprover, gate_key: str, data: dict
+) -> None:
     """Resolve an approver (sync OR async) and write the review response.
 
     Runs as a concurrent task while the engine is blocked on the gate's
@@ -480,7 +484,9 @@ async def manual_resume_engine_gate(
     from agents.artifact_store.store import get_artifact_store
 
     store = get_artifact_store()
-    await store.set_review_response(gate_key, approved=approved, edited_content=edited_content)
+    await store.set_review_response(
+        gate_key, approved=approved, edited_content=edited_content
+    )
 
 
 async def drive_engine_pipeline(
@@ -621,7 +627,12 @@ async def drive_engine_pipeline(
         _forced_ctx, _forced_verdict = planner_result
 
         async def _forced_run_planner(
-            user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+            user_message,
+            pipeline_run_id,
+            model_id,
+            cancel_event,
+            ptype="custom",
+            **kwargs,
         ):
             return dict(_forced_ctx), _forced_verdict
 
@@ -629,7 +640,12 @@ async def drive_engine_pipeline(
     elif fake_planner:
 
         async def _fake_run_planner(
-            user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+            user_message,
+            pipeline_run_id,
+            model_id,
+            cancel_event,
+            ptype="custom",
+            **kwargs,
         ):
             return engine._default_planning_context(user_message), "PROCEED"
 
@@ -681,9 +697,15 @@ async def drive_engine_pipeline(
     #    cancel_event and passes them by keyword. Accepting without forwarding is green on
     #    every arity check while dropping Stop (cancel_event) and the name-free SC-001
     #    discriminators. The four named parameters stay named — the body reads two of them.
-    async def _auto_resume_review_gate(pipeline_run_id, agent_id, agent_name, output, **kwargs):
+    async def _auto_resume_review_gate(
+        pipeline_run_id, agent_id, agent_name, output, **kwargs
+    ):
         async for _gev in _orig_review_gate(
-            pipeline_run_id, agent_id, agent_name, output, **kwargs,
+            pipeline_run_id,
+            agent_id,
+            agent_name,
+            output,
+            **kwargs,
         ):
             if auto_resume_gates and _gev.get("type") == "review_gate_ready":
                 result.gated = True
@@ -723,7 +745,9 @@ async def drive_engine_pipeline(
                     per, data.get("input_tokens", 0), data.get("output_tokens", 0)
                 )
                 _accumulate_usage(
-                    result.tokens, data.get("input_tokens", 0), data.get("output_tokens", 0)
+                    result.tokens,
+                    data.get("input_tokens", 0),
+                    data.get("output_tokens", 0),
                 )
 
             elif etype == "review_gate_ready":
@@ -951,8 +975,12 @@ def _make_handoff_github_patches(stack: contextlib.ExitStack) -> None:
 
     stack.enter_context(patch.object(gh, "clone", _fake_clone))
     stack.enter_context(patch.object(gh, "get_repo_metadata", _fake_get_repo_metadata))
-    stack.enter_context(patch.object(gh, "create_pull_request", _fake_create_pull_request))
-    stack.enter_context(patch.object(gh, "checkout_new_branch", lambda ws, b: _FakeGitResult(0)))
+    stack.enter_context(
+        patch.object(gh, "create_pull_request", _fake_create_pull_request)
+    )
+    stack.enter_context(
+        patch.object(gh, "checkout_new_branch", lambda ws, b: _FakeGitResult(0))
+    )
     stack.enter_context(patch.object(gh, "stage_all", lambda ws: _FakeGitResult(0)))
     stack.enter_context(patch.object(gh, "commit", lambda ws, m: _FakeGitResult(0)))
     stack.enter_context(patch.object(gh, "push", lambda t, p, ws, b: _FakeGitResult(0)))
@@ -1122,7 +1150,9 @@ async def drive_handoff(
                     result.label = data.get("resolved_mode", mode)
                 elif etype in ("agent_error", "handoff_error"):
                     if result.error is None:
-                        result.error = data.get("error") or data.get("message") or str(data)
+                        result.error = (
+                            data.get("error") or data.get("message") or str(data)
+                        )
         except BaseException as exc:  # noqa: BLE001 — capture the re-raise contract
             result.raised = exc
             if result.error is None:

@@ -158,9 +158,7 @@ def _reject_duplicate_name(
     existing saved-workflow precedent enforces it here and a mismatch between
     the two would be more confusing than the duplication.
     """
-    q = db.query(UserAgent).filter(
-        UserAgent.user_id == user.id, UserAgent.name == name
-    )
+    q = db.query(UserAgent).filter(UserAgent.user_id == user.id, UserAgent.name == name)
     if exclude_id is not None:
         q = q.filter(UserAgent.id != exclude_id)
     if q.first():

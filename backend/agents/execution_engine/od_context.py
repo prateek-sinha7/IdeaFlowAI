@@ -37,7 +37,9 @@ _TEMPLATES_DIR = od_loader._TEMPLATES_DIR
 EXAMPLE_MAX_CHARS = 120_000
 
 
-def _synthesize_custom_template(template_id: str, custom_template_body: str) -> dict[str, Any]:
+def _synthesize_custom_template(
+    template_id: str, custom_template_body: str
+) -> dict[str, Any]:
     """Build a minimal SKILL.md-equivalent template dict from a user-uploaded
     custom template (ISS-052 / KAN-158 fix).
 
@@ -116,7 +118,8 @@ def load_prototype_context(
             logger.info(
                 "Template '%s' not found in catalog — using synthesized custom "
                 "template from custom_template_body (%d chars)",
-                template_id, len(custom_template_body),
+                template_id,
+                len(custom_template_body),
             )
         elif template_id in (None, "", "none"):
             # KAN-87: no-template mode — user explicitly chose not to select a template.
@@ -228,7 +231,9 @@ def get_template_injection_parts(template_id: str) -> list[str]:
     return parts
 
 
-def get_example_html(template_id: str, max_chars: int = EXAMPLE_MAX_CHARS) -> str | None:
+def get_example_html(
+    template_id: str, max_chars: int = EXAMPLE_MAX_CHARS
+) -> str | None:
     """Return the template's example.html content, truncated to max_chars.
 
     The example HTML gives agents a concrete visual reference for the
@@ -276,7 +281,8 @@ def load_ppt_od_context(
             logger.info(
                 "PPT template '%s' not found in catalog — using synthesized "
                 "custom template from custom_template_body (%d chars)",
-                template_id, len(custom_template_body),
+                template_id,
+                len(custom_template_body),
             )
         else:
             raise LookupError(f"PPT template '{template_id}' not found")
@@ -298,7 +304,10 @@ def load_ppt_od_context(
         elif design_system_id:
             ds = od_loader.get_design_system(design_system_id)
             if ds is None:
-                logger.warning("Design system '%s' not found — proceeding without it", design_system_id)
+                logger.warning(
+                    "Design system '%s' not found — proceeding without it",
+                    design_system_id,
+                )
                 is_design_system_required = False
             else:
                 ds_body = ds["body"]
@@ -314,7 +323,9 @@ def load_ppt_od_context(
     seed = od_loader.get_template_seed(template_id)
     if seed:
         template_files["assets/template.html"] = seed
-    for _ref_name, _ref_content in (od_loader.get_template_references(template_id) or {}).items():
+    for _ref_name, _ref_content in (
+        od_loader.get_template_references(template_id) or {}
+    ).items():
         # get_template_references keys by stem; the SKILL.md instructions name the
         # files with their .md extension — seed at the exact instructed paths.
         if not _ref_name.endswith(".md"):

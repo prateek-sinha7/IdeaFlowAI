@@ -63,6 +63,7 @@ def env(monkeypatch):
     monkeypatch.setattr(db_module, "SessionLocal", TestingSession)
 
     import agents.artifact_store.store as store_mod
+
     store_mod._STORE = None
     store = store_mod.get_artifact_store()
 
@@ -159,8 +160,15 @@ def _run_status(env, run_id: str):
         db.close()
 
 
-def _seed_event(env, run_id: str, *, owner_id: str, workspace_id: str, seq: int,
-                type_: str = "pipeline_start") -> None:
+def _seed_event(
+    env,
+    run_id: str,
+    *,
+    owner_id: str,
+    workspace_id: str,
+    seq: int,
+    type_: str = "pipeline_start",
+) -> None:
     from app.models.run_event import RunEvent
 
     db = env["ws"]._get_db()
@@ -246,7 +254,10 @@ def test_answers_freeform_maps_to_freeform_question_id(env):
 
     resp = env["client"].post(
         f"/api/runs/{run_id}/answers",
-        json={"responses": [{"question_id": "r1_q1", "answer": "a"}], "freeform": "note"},
+        json={
+            "responses": [{"question_id": "r1_q1", "answer": "a"}],
+            "freeform": "note",
+        },
     )
     assert resp.status_code == 200, resp.text
     stored = env["store"]._questionnaire_responses[run_id]
@@ -276,13 +287,13 @@ def test_answers_unknown_run_is_denied(env):
     env["state"]["user"] = caller
     run_id = str(uuid.uuid4())
 
-    resp = env["client"].post(
-        f"/api/runs/{run_id}/answers", json={"responses": []}
-    )
+    resp = env["client"].post(f"/api/runs/{run_id}/answers", json={"responses": []})
     assert resp.status_code == 404
 
 
-@pytest.mark.parametrize("terminal_status", ["cancelled", "failed", "degraded", "completed"])
+@pytest.mark.parametrize(
+    "terminal_status", ["cancelled", "failed", "degraded", "completed"]
+)
 def test_answers_on_a_terminal_run_is_rejected(env, terminal_status):
     """API-001 (task.md R-05): before this fence, ``/answers`` had ZERO terminal
     check — unlike ``/gate`` (KAN-100) and ``/cancel`` (its own idempotent-terminal
@@ -376,9 +387,9 @@ def test_cancel_does_not_claim_success_without_a_live_driver(env):
     resp = env["client"].post(f"/api/runs/{run_id}/cancel")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["accepted"] is False, (
-        f"the endpoint claimed a cancellation nothing could perform: {body}"
-    )
+    assert (
+        body["accepted"] is False
+    ), f"the endpoint claimed a cancellation nothing could perform: {body}"
     assert body["cancelled"] is False
     assert body["status"] == "not_running"
 
@@ -431,9 +442,9 @@ def test_cancel_without_a_live_driver_is_made_durable(env):
     assert body["status"] == "cancelled"
 
     status_after, completed_at = _run_status(env, run_id)
-    assert status_after == "cancelled", (
-        f"the run is still {status_after!r} — the next boot will re-adopt and bill it"
-    )
+    assert (
+        status_after == "cancelled"
+    ), f"the run is still {status_after!r} — the next boot will re-adopt and bill it"
     assert completed_at is not None, "a terminal run must carry completed_at"
 
 
@@ -522,8 +533,9 @@ def test_durable_cancel_appends_past_an_already_occupied_seq(env):
     )
     for seq in (1, 2, 3):
         _seed_event(env, run_id, owner_id=owner.id, workspace_id=ws_id, seq=seq)
-    _seed_event(env, run_id, owner_id=owner.id, workspace_id=ws_id, seq=4,
-                type_="chat_message")  # the racing chat-lane row, already at max+1
+    _seed_event(
+        env, run_id, owner_id=owner.id, workspace_id=ws_id, seq=4, type_="chat_message"
+    )  # the racing chat-lane row, already at max+1
     env["state"]["user"] = owner
 
     original_max_seq = ScopedStore._max_event_seq
@@ -543,9 +555,9 @@ def test_durable_cancel_appends_past_an_already_occupied_seq(env):
 
     assert resp.status_code == 200, resp.text
     rows = _events(env, run_id)
-    assert (5, "pipeline_cancelled") in rows, (
-        f"the audit row was dropped on a seq collision instead of re-appended: {rows}"
-    )
+    assert (
+        (5, "pipeline_cancelled") in rows
+    ), f"the audit row was dropped on a seq collision instead of re-appended: {rows}"
     assert _run_status(env, run_id)[0] == "cancelled"
 
 
@@ -562,7 +574,9 @@ def test_durable_cancel_survives_a_failed_audit_append(env):
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "cancelled"
     assert _run_status(env, run_id)[0] == "cancelled"
-    assert _events(env, run_id) == [], "the append could not succeed here — and must not"
+    assert (
+        _events(env, run_id) == []
+    ), "the append could not succeed here — and must not"
 
 
 def test_cross_owner_cancel_writes_nothing(env):
@@ -577,7 +591,9 @@ def test_cross_owner_cancel_writes_nothing(env):
 
     resp = env["client"].post(f"/api/runs/{run_id}/cancel")
     assert resp.status_code == 404
-    assert _run_status(env, run_id) == before, "a cross-owner Stop wrote to the victim's run"
+    assert (
+        _run_status(env, run_id) == before
+    ), "a cross-owner Stop wrote to the victim's run"
     assert _events(env, run_id) == []
 
 
@@ -644,8 +660,13 @@ def test_the_non_terminal_status_set_has_exactly_one_definition():
     from agents.execution_engine.engine import NON_TERMINAL_RUN_STATUSES
 
     expected = {
-        "running", "planning", "clarifying", "waiting_for_user",
-        "generating", "analyzing", "revising",
+        "running",
+        "planning",
+        "clarifying",
+        "waiting_for_user",
+        "generating",
+        "analyzing",
+        "revising",
     }
     assert set(NON_TERMINAL_RUN_STATUSES) == expected
 
@@ -674,9 +695,9 @@ def test_the_non_terminal_status_set_has_exactly_one_definition():
                     rel = path.relative_to(backend).as_posix()
                     definitions.append(f"{rel}:{node.lineno}")
 
-    assert len(definitions) == 1, (
-        f"the non-terminal status set is defined {len(definitions)} times: {definitions}"
-    )
+    assert (
+        len(definitions) == 1
+    ), f"the non-terminal status set is defined {len(definitions)} times: {definitions}"
     assert definitions[0].startswith("agents/execution_engine/engine.py:"), definitions
 
 
@@ -730,9 +751,9 @@ def test_the_terminal_status_set_has_exactly_one_definition():
 
     definitions = _find_literal_set_definitions(expected)
 
-    assert len(definitions) == 1, (
-        f"the terminal status set is defined {len(definitions)} times: {definitions}"
-    )
+    assert (
+        len(definitions) == 1
+    ), f"the terminal status set is defined {len(definitions)} times: {definitions}"
     assert definitions[0].startswith("agents/execution_engine/engine.py:"), definitions
 
 
@@ -870,9 +891,13 @@ async def test_launch_driver_cancellation_is_durable(env, monkeypatch):
     await _drive_launch(env, user, run_id)
 
     rows = _terminal_rows(env, run_id)
-    assert len(rows) == 1, f"expected exactly one durable pipeline_cancelled row, got {rows}"
+    assert (
+        len(rows) == 1
+    ), f"expected exactly one durable pipeline_cancelled row, got {rows}"
     _seq, _type, event_id, payload = rows[0]
-    assert event_id, "the durable row must carry a real event_id (the replay de-dup key)"
+    assert (
+        event_id
+    ), "the durable row must carry a real event_id (the replay de-dup key)"
     assert payload.get("pipeline_run_id") == run_id
     # and the status the driver itself writes is unchanged
     assert _run_status(env, run_id)[0] == "cancelled"
@@ -922,9 +947,9 @@ async def test_a_cancelled_driver_reconciles_to_cancelled_not_failed(env, monkey
     await _drive_launch(env, user, run_id)
     await _reconcile_terminal_status(run_id)
 
-    assert _run_status(env, run_id)[0] == "cancelled", (
-        "the reconcile overwrote the owner's Stop with the D2 fail-safe"
-    )
+    assert (
+        _run_status(env, run_id)[0] == "cancelled"
+    ), "the reconcile overwrote the owner's Stop with the D2 fail-safe"
 
 
 @pytest.mark.asyncio
@@ -949,6 +974,8 @@ async def test_revision_driver_cancellation_is_durable(env, monkeypatch):
     )
 
     rows = _terminal_rows(env, run_id)
-    assert len(rows) == 1, f"expected exactly one durable pipeline_cancelled row, got {rows}"
+    assert (
+        len(rows) == 1
+    ), f"expected exactly one durable pipeline_cancelled row, got {rows}"
     assert rows[0][2], "the durable row must carry a real event_id"
     assert _run_status(env, run_id)[0] == "cancelled"

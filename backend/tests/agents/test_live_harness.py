@@ -28,7 +28,11 @@ import os
 
 import pytest
 
-from tests.agents._scripted_model import ScriptedFakeChatModel, _ScriptedTurn, _scripts_for
+from tests.agents._scripted_model import (
+    ScriptedFakeChatModel,
+    _ScriptedTurn,
+    _scripts_for,
+)
 from tests.agents.live_harness import (
     CaptureResult,
     TokenTotals,
@@ -52,7 +56,11 @@ from tests.agents.live_harness import (
 def _text_model(t_in: int = 12, t_out: int = 7) -> ScriptedFakeChatModel:
     """A pure-text scripted model (one turn, with usage) reused by every agent."""
     return ScriptedFakeChatModel(
-        [_ScriptedTurn(texts=["harness scripted output. ", "line two."], usage=(t_in, t_out))]
+        [
+            _ScriptedTurn(
+                texts=["harness scripted output. ", "line two."], usage=(t_in, t_out)
+            )
+        ]
     )
 
 
@@ -105,7 +113,9 @@ class TestEngineWorldOffline:
         agg_out = sum(t.output for t in result.per_agent_tokens.values())
         assert (agg_in, agg_out) == (result.tokens.input, result.tokens.output)
         # One entry per pipeline agent (user_stories has 6).
-        assert len(result.per_agent_tokens) == result.event_types().count("agent_complete")
+        assert len(result.per_agent_tokens) == result.event_types().count(
+            "agent_complete"
+        )
 
         # ── Cost is computed from tokens at Haiku pricing (non-negative). ────
         assert result.cost_usd() >= 0.0
@@ -126,7 +136,9 @@ class TestEngineWorldOffline:
             "runs_root": settings.RUNS_ROOT,
         }
 
-        await drive_engine_pipeline("user_stories", model=_text_model(), fake_planner=True)
+        await drive_engine_pipeline(
+            "user_stories", model=_text_model(), fake_planner=True
+        )
 
         assert factory_mod.create_runner is before["factory_create_runner"]
         assert engine_mod.create_runner is before["engine_create_runner"]
@@ -136,8 +148,12 @@ class TestEngineWorldOffline:
     @pytest.mark.asyncio
     async def test_repeated_drives_are_independent(self) -> None:
         """Two drives in one process yield distinct run ids + independent captures."""
-        r1 = await drive_engine_pipeline("user_stories", model=_text_model(), fake_planner=True)
-        r2 = await drive_engine_pipeline("user_stories", model=_text_model(), fake_planner=True)
+        r1 = await drive_engine_pipeline(
+            "user_stories", model=_text_model(), fake_planner=True
+        )
+        r2 = await drive_engine_pipeline(
+            "user_stories", model=_text_model(), fake_planner=True
+        )
         assert r1.run_id != r2.run_id
         assert r1.completed and r2.completed
         # The state machine is a per-run singleton — a leaked/reused id would error.
@@ -167,9 +183,12 @@ class TestEngineWorldOffline:
         # The deliverable is the prototype.html read back from the run sandbox.
         assert result.deliverable and "<" in result.deliverable
         # All four prototype agents contributed tokens.
-        assert {"prototype-specify", "prototype-plan", "prototype-build", "prototype-validate"} <= set(
-            result.per_agent_tokens
-        )
+        assert {
+            "prototype-specify",
+            "prototype-plan",
+            "prototype-build",
+            "prototype-validate",
+        } <= set(result.per_agent_tokens)
 
 
 # ===========================================================================
@@ -270,8 +289,16 @@ class TestChatWorldOffline:
         assert result.error is None
         assert isinstance(result.final_output, dict)
         assert set(result.final_output.keys()) == {
-            "auth", "realtime", "dashboard", "discovery", "requirements",
-            "user_stories", "ppt", "prototype", "ui_design", "ui_preview",
+            "auth",
+            "realtime",
+            "dashboard",
+            "discovery",
+            "requirements",
+            "user_stories",
+            "ppt",
+            "prototype",
+            "ui_design",
+            "ui_preview",
         }
         # Chat's artifact is the dict, not a string deliverable.
         assert result.deliverable is None
@@ -320,8 +347,13 @@ class TestHandoffWorldOffline:
         assert types[-1] == "pipeline_complete"
         # The event vocabulary is the handoff WS envelope set.
         assert set(types) <= {
-            "phase_start", "phase_end", "agent_thinking", "agent_complete",
-            "agent_error", "pr_created", "pipeline_complete",
+            "phase_start",
+            "phase_end",
+            "agent_thinking",
+            "agent_complete",
+            "agent_error",
+            "pr_created",
+            "pipeline_complete",
         }
         # Coding mode reaches the PR branch.
         assert "pr_created" in types
@@ -376,7 +408,9 @@ class TestRunnerLevelGate:
         from tests.agents.live_harness import capture_runner_stream, resume_paused_run
 
         @tool
-        def report_task_complete(task_number: int, task_title: str, summary: str = "") -> str:
+        def report_task_complete(
+            task_number: int, task_title: str, summary: str = ""
+        ) -> str:
             """Report a task complete (gated for HITL in this test)."""
             return f"done {task_number} {task_title}"
 
@@ -386,7 +420,9 @@ class TestRunnerLevelGate:
                 tool_calls=[
                     (
                         "report_task_complete",
-                        json.dumps({"task_number": 1, "task_title": "Shell", "summary": "x"}),
+                        json.dumps(
+                            {"task_number": 1, "task_title": "Shell", "summary": "x"}
+                        ),
                         "c1",
                     )
                 ],
@@ -414,7 +450,8 @@ class TestRunnerLevelGate:
         tool_msgs = [
             m
             for m in final.get("messages", [])
-            if isinstance(m, ToolMessage) and getattr(m, "name", "") == "report_task_complete"
+            if isinstance(m, ToolMessage)
+            and getattr(m, "name", "") == "report_task_complete"
         ]
         assert tool_msgs, "the approved gated tool must execute after resume"
         state = await runner._graph.aget_state(runner.config)
@@ -439,7 +476,9 @@ class TestOptInAndCost:
     def test_cost_usd_haiku_pricing(self) -> None:
         """cost_usd uses $0.25/M input + $1.25/M output (accepts TokenTotals or dict)."""
         # 1M input + 1M output = 0.25 + 1.25 = 1.50 USD.
-        assert cost_usd(TokenTotals(input=1_000_000, output=1_000_000, total=2_000_000)) == pytest.approx(1.50)
+        assert cost_usd(
+            TokenTotals(input=1_000_000, output=1_000_000, total=2_000_000)
+        ) == pytest.approx(1.50)
         # Same via a plain dict (composes with CaptureResult.tokens.as_dict()).
         assert cost_usd({"input": 1_000_000, "output": 0}) == pytest.approx(0.25)
         assert cost_usd({"input": 0, "output": 1_000_000}) == pytest.approx(1.25)
@@ -474,9 +513,7 @@ class TestClarifyAutoAnswerOffline:
         async def _no_llm(*args, **kwargs):
             raise RuntimeError("offline test: no LLM clarify generation")
 
-        monkeypatch.setattr(
-            "app.agents.cached_invoke.cached_invoke", _no_llm
-        )
+        monkeypatch.setattr("app.agents.cached_invoke.cached_invoke", _no_llm)
 
         ctx = ExecutionEngine()._default_planning_context(
             "Build user stories for a task-management web app."

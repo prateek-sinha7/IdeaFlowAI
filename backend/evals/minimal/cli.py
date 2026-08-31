@@ -30,24 +30,36 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="eval")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_run = sub.add_parser("run", help="dispatch a config's dataset — the only command that spends")
+    p_run = sub.add_parser(
+        "run", help="dispatch a config's dataset — the only command that spends"
+    )
     p_run.add_argument("config")
     p_run.add_argument("--stage")
     p_run.add_argument("--from", dest="from_run")
-    p_run.add_argument("--into", help="append this stage to an EXISTING run id, seeding from its prior stage")
+    p_run.add_argument(
+        "--into",
+        help="append this stage to an EXISTING run id, seeding from its prior stage",
+    )
     p_run.add_argument("--repeats", type=int, default=1)
-    p_run.add_argument("--model", help="dispatch model id (default: settings.MISTRAL_MODEL_ID, "
-                                        "currently mistral-small-latest). e.g. mistral-large-latest")
+    p_run.add_argument(
+        "--model",
+        help="dispatch model id (default: settings.MISTRAL_MODEL_ID, "
+        "currently mistral-small-latest). e.g. mistral-large-latest",
+    )
     # Default is the UNSET sentinel, not DEFAULT_PROVIDER: an omitted flag must
     # let the config's own `provider:` through (prototype_smoke_bedrock.yaml
     # pins bedrock). Passing it explicitly still overrides the config.
-    p_run.add_argument("--provider", default=run_module.UNSET,
-                        help="dispatch provider: mistral | bedrock (aws) | anthropic. "
-                             f"Default: the config's `provider:`, else {run_module.DEFAULT_PROVIDER}")
+    p_run.add_argument(
+        "--provider",
+        default=run_module.UNSET,
+        help="dispatch provider: mistral | bedrock (aws) | anthropic. "
+        f"Default: the config's `provider:`, else {run_module.DEFAULT_PROVIDER}",
+    )
     p_run.set_defaults(handler=_cmd_run)
 
     p_chain = sub.add_parser(
-        "chain", help="dispatch a config stage by stage into one run (no judging)")
+        "chain", help="dispatch a config stage by stage into one run (no judging)"
+    )
     p_chain.add_argument("config")
     p_chain.add_argument("--stage", help="just this stage")
     p_chain.add_argument("--into", help="append to an EXISTING run id — how you resume")
@@ -57,7 +69,8 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     p_chain.set_defaults(handler=_cmd_chain)
 
     p_judge = sub.add_parser(
-        "judge", help="check + score + report a stored run, by folder name")
+        "judge", help="check + score + report a stored run, by folder name"
+    )
     p_judge.add_argument("run_id", help="a run id, or a path to its folder")
     p_judge.add_argument("--stage", help="just this stage")
     p_judge.add_argument("--advise", action="store_true")
@@ -69,22 +82,33 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     p_score = sub.add_parser("score", help="re-judge stored responses")
     p_score.add_argument("run_id")
     p_score.add_argument("--stage")
-    p_score.add_argument("--advise", action="store_true",
-                          help="one extra model call proposing a prompt edit from the weaknesses")
+    p_score.add_argument(
+        "--advise",
+        action="store_true",
+        help="one extra model call proposing a prompt edit from the weaknesses",
+    )
     # The rubric pins the judge (workflows/<id>/rubrics/*.yaml: provider
     # mistral, model mistral-large-latest). These override it for ONE invocation, so a second
     # opinion never means editing — and then remembering to unedit — a rubric.
-    p_score.add_argument("--judge-provider",
-                          help="override the rubric's judge provider: mistral | bedrock (aws) | "
-                               "anthropic. Alone, it also clears the rubric's judge model, since "
-                               "a Mistral model id is not a Bedrock one")
-    p_score.add_argument("--judge-model",
-                          help="override the rubric's judge model id (e.g. "
-                               "eu.anthropic.claude-sonnet-4-5-20250929-v1:0). Default with "
-                               "--judge-provider bedrock: settings.BEDROCK_INFERENCE_PROFILE_ID")
-    p_score.add_argument("--concurrency", type=int, default=1,
-                          help="judge N rows at once (default 1 = sequential). Mistral does not "
-                                "publish free-tier limits; check your console before raising this")
+    p_score.add_argument(
+        "--judge-provider",
+        help="override the rubric's judge provider: mistral | bedrock (aws) | "
+        "anthropic. Alone, it also clears the rubric's judge model, since "
+        "a Mistral model id is not a Bedrock one",
+    )
+    p_score.add_argument(
+        "--judge-model",
+        help="override the rubric's judge model id (e.g. "
+        "eu.anthropic.claude-sonnet-4-5-20250929-v1:0). Default with "
+        "--judge-provider bedrock: settings.BEDROCK_INFERENCE_PROFILE_ID",
+    )
+    p_score.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        help="judge N rows at once (default 1 = sequential). Mistral does not "
+        "publish free-tier limits; check your console before raising this",
+    )
     p_score.set_defaults(handler=_cmd_score)
 
     p_checks = sub.add_parser("checks", help="deterministic checks only")
@@ -98,29 +122,43 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     p_compare.set_defaults(handler=_cmd_compare)
 
     p_clone = sub.add_parser(
-        "clone", help="copy a run's artifacts into a new run id, minus the judge verdicts")
+        "clone",
+        help="copy a run's artifacts into a new run id, minus the judge verdicts",
+    )
     p_clone.add_argument("run_id")
-    p_clone.add_argument("--label", default="rejudge",
-                          help="appended to the new run id (default: rejudge). Use something "
-                               "that names the second opinion, e.g. `awsjudge`")
+    p_clone.add_argument(
+        "--label",
+        default="rejudge",
+        help="appended to the new run id (default: rejudge). Use something "
+        "that names the second opinion, e.g. `awsjudge`",
+    )
     p_clone.set_defaults(handler=_cmd_clone)
 
     p_workflows = sub.add_parser(
-        "workflows", help="list workflows and validate their wiring — free, no dispatch")
-    p_workflows.add_argument("workflow_id", nargs="?",
-                              help="just this one (default: every workflow on disk)")
+        "workflows", help="list workflows and validate their wiring — free, no dispatch"
+    )
+    p_workflows.add_argument(
+        "workflow_id", nargs="?", help="just this one (default: every workflow on disk)"
+    )
     p_workflows.set_defaults(handler=_cmd_workflows)
 
     p_report = sub.add_parser("report", help="rebuild .runs/report.html")
     p_report.set_defaults(handler=_cmd_report)
 
     p_advice = sub.add_parser(
-        "advice", help="pool every run's advice into prompts/advices.json")
-    p_advice.add_argument("--out", default=None,
-                           help="output path (default evals/minimal/prompts/advices.json)")
-    p_advice.add_argument("--summary", action="store_true",
-                           help="also print the per-stage table. The stale-advice warning "
-                                "prints either way — it is a fact about the file just written")
+        "advice", help="pool every run's advice into prompts/advices.json"
+    )
+    p_advice.add_argument(
+        "--out",
+        default=None,
+        help="output path (default evals/minimal/prompts/advices.json)",
+    )
+    p_advice.add_argument(
+        "--summary",
+        action="store_true",
+        help="also print the per-stage table. The stale-advice warning "
+        "prints either way — it is a fact about the file just written",
+    )
     p_advice.set_defaults(handler=_cmd_advice)
 
     return parser.parse_args(argv)
@@ -128,8 +166,13 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
 
 def _cmd_run(args: argparse.Namespace) -> int:
     run_id = run_module.run(
-        args.config, stage=args.stage, from_run=args.from_run, into=args.into,
-        repeats=args.repeats, model=args.model, provider=args.provider,
+        args.config,
+        stage=args.stage,
+        from_run=args.from_run,
+        into=args.into,
+        repeats=args.repeats,
+        model=args.model,
+        provider=args.provider,
     )
     print(run_id)
     for stage in [args.stage] if args.stage else store.list_phases(run_id):
@@ -160,8 +203,13 @@ def _cmd_chain(args: argparse.Namespace) -> int:
     for index, stage in enumerate(stages, start=1):
         _progress(f"==> dispatch ({index}/{len(stages)}): {stage}")
         run_id = run_module.run(
-            args.config, stage=stage, into=run_id, from_run=run_id,
-            repeats=args.repeats, model=args.model, provider=args.provider,
+            args.config,
+            stage=stage,
+            into=run_id,
+            from_run=run_id,
+            repeats=args.repeats,
+            model=args.model,
+            provider=args.provider,
         )
         if index == 1:
             # Early, and to stderr as well as the final stdout line: a later
@@ -175,8 +223,12 @@ def _cmd_chain(args: argparse.Namespace) -> int:
         if rows and all(row.get("errored") for row in rows):
             reason = rows[0].get("error_reason") or "errored"
             _progress(f"==> STOPPED at {stage}: {reason}")
-            _progress(f"==> {index - 1}/{len(stages)} stage(s) completed and stored. Resume with:")
-            _progress(f"      evals/minimal/eval.sh {args.config} --stage {stage} --into {run_id}")
+            _progress(
+                f"==> {index - 1}/{len(stages)} stage(s) completed and stored. Resume with:"
+            )
+            _progress(
+                f"      evals/minimal/eval.sh {args.config} --stage {stage} --into {run_id}"
+            )
             _progress("    then judge what you have:")
             _progress(f"      evals/minimal/judge.sh {run_id}")
             print(run_id)
@@ -211,20 +263,29 @@ def _cmd_judge(args: argparse.Namespace) -> int:
         _progress(f"==> checks ({index}/{len(stages)}): {stage} — deterministic, free")
         _cmd_checks(argparse.Namespace(target=run_id, stage=stage))
         report.build_report()
-        _progress(f"==> judge ({index}/{len(stages)}): {stage} — verifying evidence, then judging"
-                  f"{' + advising' if args.advise else ''}")
-        code = _cmd_score(argparse.Namespace(
-            run_id=run_id, stage=stage, advise=args.advise,
-            judge_provider=args.judge_provider, judge_model=args.judge_model,
-            concurrency=args.concurrency,
-        ))
+        _progress(
+            f"==> judge ({index}/{len(stages)}): {stage} — verifying evidence, then judging"
+            f"{' + advising' if args.advise else ''}"
+        )
+        code = _cmd_score(
+            argparse.Namespace(
+                run_id=run_id,
+                stage=stage,
+                advise=args.advise,
+                judge_provider=args.judge_provider,
+                judge_model=args.judge_model,
+                concurrency=args.concurrency,
+            )
+        )
         report.build_report()
         # STOP on a failed evidence check. Judging on would spend real tokens
         # producing numbers whose meaning is already in question, and the run
         # is stored — re-judging after fixing the wiring costs no dispatch.
         if code != 0:
-            _progress(f"==> STOPPED at {stage}: upstream evidence check failed. "
-                      f"Nothing further was judged.")
+            _progress(
+                f"==> STOPPED at {stage}: upstream evidence check failed. "
+                f"Nothing further was judged."
+            )
             return code
 
     errored = [
@@ -284,7 +345,8 @@ def _with_judge_override(rubric: dict, provider: str | None, model: str | None) 
 def _cmd_score(args: argparse.Namespace) -> int:
     for stage in [args.stage] if args.stage else store.list_phases(args.run_id):
         rubric = _with_judge_override(
-            _load_rubric(args.run_id, stage), args.judge_provider, args.judge_model)
+            _load_rubric(args.run_id, stage), args.judge_provider, args.judge_model
+        )
         rows = store.read_phase(args.run_id, "run", stage)
         checks_ok = _checks_ok(args.run_id, stage)
         on_call = _call_logger(args.run_id, stage)
@@ -297,14 +359,23 @@ def _cmd_score(args: argparse.Namespace) -> int:
         if problems := _verify_upstream(args.run_id, stage, rubric, upstream, rows):
             for problem in problems:
                 print(f"UPSTREAM FAILED  {problem}")
-            print(f"\nRefusing to judge {stage!r}: the rubric's evidence is not present, and a "
-                  f"judge that cannot see it will still return a score.\nNothing was spent. "
-                  f"Fix the workflow's `seed_as`/`deliverable` names or the rubric's `upstream:` "
-                  f"list, then re-run `score` (no re-dispatch needed).")
+            print(
+                f"\nRefusing to judge {stage!r}: the rubric's evidence is not present, and a "
+                f"judge that cannot see it will still return a score.\nNothing was spent. "
+                f"Fix the workflow's `seed_as`/`deliverable` names or the rubric's `upstream:` "
+                f"list, then re-run `score` (no re-dispatch needed)."
+            )
             return 2
-        payload = asyncio.run(_judge_rows(
-            rows, rubric, checks_ok, on_call, args.concurrency, upstream=upstream,
-        ))
+        payload = asyncio.run(
+            _judge_rows(
+                rows,
+                rubric,
+                checks_ok,
+                on_call,
+                args.concurrency,
+                upstream=upstream,
+            )
+        )
         if args.advise:
             # Advice is a BONUS on top of a verdict already paid for. Letting
             # it raise discarded that verdict — the write below never ran — so
@@ -312,7 +383,8 @@ def _cmd_score(args: argparse.Namespace) -> int:
             # when `_advise`'s `read_config` raised FileNotFoundError.
             try:
                 payload["advice"] = asyncio.run(
-                    _advise(args.run_id, stage, payload, rubric, on_call))
+                    _advise(args.run_id, stage, payload, rubric, on_call)
+                )
             except Exception as exc:  # noqa: BLE001 - never lose a paid verdict to a bonus call
                 payload["advice"] = {"text": "", "note": f"advice skipped: {exc}"}
         store.write_phase(args.run_id, "judge", stage, payload)
@@ -326,12 +398,16 @@ def _call_logger(run_id: str, stage: str):
     Row id is stamped in by `_judge_rows`, which is the only caller that
     knows which row a given call belongs to.
     """
+
     def sink(record: dict) -> None:
         store.log_call(run_id, stage, {"stage": stage, **record})
+
     return sink
 
 
-async def _advise(run_id: str, stage: str, payload: dict, rubric: dict, on_call=None) -> dict:
+async def _advise(
+    run_id: str, stage: str, payload: dict, rubric: dict, on_call=None
+) -> dict:
     """One extra model call per stage: cluster this stage's weaknesses/
     strengths (exact-text, most-cited first — same rule the report's
     Advice card uses) and ask for a proposed edit to the agent's REAL
@@ -343,8 +419,11 @@ async def _advise(run_id: str, stage: str, payload: dict, rubric: dict, on_call=
     agent_id = store.read_config(run_id)["agents"][stage]["agent_id"]
     system_prompt = run_module.compose_agent_prompt(agent_id)
     result = await judge.advise(
-        system_prompt=system_prompt, weaknesses=weaknesses, strengths=strengths,
-        judge_config=rubric.get("judge") or {}, on_call=on_call,
+        system_prompt=system_prompt,
+        weaknesses=weaknesses,
+        strengths=strengths,
+        judge_config=rubric.get("judge") or {},
+        on_call=on_call,
         # The rubric's own dimension ids ARE the category vocabulary — advice
         # then clusters against the axes the stage is actually scored on,
         # instead of whatever noun the model reached for.
@@ -352,8 +431,10 @@ async def _advise(run_id: str, stage: str, payload: dict, rubric: dict, on_call=
     )
     return {
         "advice": result.advice,
-        "errored": result.errored, "error_reason": result.error_reason,
-        "tokens_in": result.tokens_in, "tokens_out": result.tokens_out,
+        "errored": result.errored,
+        "error_reason": result.error_reason,
+        "tokens_in": result.tokens_in,
+        "tokens_out": result.tokens_out,
     }
 
 
@@ -368,7 +449,9 @@ def _tally(lists) -> list[str]:
 
 
 def _upstream_files(
-    run_id: str, stage: str, allow: list[str] | None = None,
+    run_id: str,
+    stage: str,
+    allow: list[str] | None = None,
 ) -> dict[tuple, dict[str, str]]:
     """Every PRIOR stage's output for this run, keyed (row_id, repeat), under
     the filename that stage was seeded into the sandbox as.
@@ -410,12 +493,17 @@ def _upstream_files(
         for row in prior_rows:
             text = row.get("response") or ""
             if text and not row.get("errored"):
-                files.setdefault((row["row_id"], row.get("repeat", 0)), {})[str(path)] = text
+                files.setdefault((row["row_id"], row.get("repeat", 0)), {})[
+                    str(path)
+                ] = text
     return files
 
 
 def _verify_upstream(
-    run_id: str, stage: str, rubric: dict, upstream: dict[tuple, dict[str, str]],
+    run_id: str,
+    stage: str,
+    rubric: dict,
+    upstream: dict[tuple, dict[str, str]],
     rows: list[dict],
 ) -> list[str]:
     """Prove the judge will actually receive this rubric's declared evidence.
@@ -439,7 +527,9 @@ def _verify_upstream(
     """
     declared = list(rubric.get("upstream") or [])
     if not declared:
-        print(f"{stage}   upstream OK — none declared (first stage; the brief is its evidence)")
+        print(
+            f"{stage}   upstream OK — none declared (first stage; the brief is its evidence)"
+        )
         return []
 
     config = store.read_config(run_id)
@@ -454,22 +544,28 @@ def _verify_upstream(
         if missing:
             problems.append(
                 f"{stage}/{row['row_id']}: rubric declares upstream {declared}, but "
-                f"{missing} missing or empty (present: {sorted(files) or 'nothing'})")
+                f"{missing} missing or empty (present: {sorted(files) or 'nothing'})"
+            )
             continue
         parts, notes = [], []
         for name in declared:
             source_stage = producer.get(name)
-            source_text = _stage_response(run_id, source_stage, key) if source_stage else None
+            source_text = (
+                _stage_response(run_id, source_stage, key) if source_stage else None
+            )
             if source_text is None or source_text != files[name]:
                 problems.append(
                     f"{stage}/{row['row_id']}: upstream {name!r} does not match the stored "
                     f"output of {source_stage!r} — the judge would be reading something other "
-                    f"than what that stage produced")
+                    f"than what that stage produced"
+                )
                 continue
             parts.append(f"{name} ({len(files[name]):,} chars, from {source_stage})")
             if files[name] == (row.get("response") or ""):
-                notes.append(f"{name} is byte-identical to this stage's own output — "
-                             f"it changed nothing")
+                notes.append(
+                    f"{name} is byte-identical to this stage's own output — "
+                    f"it changed nothing"
+                )
         if parts:
             print(f"{stage}   upstream OK — {row['row_id']}: {', '.join(parts)}")
         for note in notes:
@@ -508,8 +604,12 @@ def _stage_response(run_id: str, stage: str, key: tuple) -> str | None:
 
 
 async def _judge_rows(
-    rows: list[dict], rubric: dict, checks_ok: dict[str, bool], on_call=None,
-    concurrency: int = 1, upstream: dict[tuple, dict[str, str]] | None = None,
+    rows: list[dict],
+    rubric: dict,
+    checks_ok: dict[str, bool],
+    on_call=None,
+    concurrency: int = 1,
+    upstream: dict[tuple, dict[str, str]] | None = None,
 ) -> dict:
     """Judge every non-errored row. A malformed reply drops that ROW from
     `results` (R-09) but records WHY in `errors` — a dropped row used to
@@ -544,11 +644,20 @@ async def _judge_rows(
 
     async def judge_one(row: dict) -> tuple[str, dict]:
         if row.get("errored"):
-            return "error", {"row_id": row["row_id"], "reason": "dispatch errored, never judged"}
-        row_log = (lambda rec, _row=row["row_id"]: on_call({"row_id": _row, **rec})) if on_call else None
+            return "error", {
+                "row_id": row["row_id"],
+                "reason": "dispatch errored, never judged",
+            }
+        row_log = (
+            (lambda rec, _row=row["row_id"]: on_call({"row_id": _row, **rec}))
+            if on_call
+            else None
+        )
         async with semaphore:
             verdict = await judge.judge(
-                row["response"], rubric=rubric, prompt=row.get("prompt", ""),
+                row["response"],
+                rubric=rubric,
+                prompt=row.get("prompt", ""),
                 upstream=(upstream or {}).get((row["row_id"], row.get("repeat", 0))),
                 on_call=row_log,
             )
@@ -560,7 +669,9 @@ async def _judge_rows(
         # own findings COST, not from the number it volunteered — see
         # judge.SEVERITY_COST for why. Both are always stored so the gap
         # between them stays visible.
-        priced = (rubric.get("scoring") == "severity_priced") and bool(verdict.sub_scores_priced)
+        priced = (rubric.get("scoring") == "severity_priced") and bool(
+            verdict.sub_scores_priced
+        )
         sub_scores = verdict.sub_scores_priced if priced else verdict.sub_scores
         return "result", {
             "row_id": row["row_id"],
@@ -588,7 +699,9 @@ async def _judge_rows(
         # The judge ASKED for, recorded even when every row errored — the one
         # case where no row carries `judge_model` and the stage would
         # otherwise look unjudged rather than judged-and-rate-limited.
-        "judge_requested": {k: (rubric.get("judge") or {}).get(k) for k in ("provider", "model")},
+        "judge_requested": {
+            k: (rubric.get("judge") or {}).get(k) for k in ("provider", "model")
+        },
     }
 
 
@@ -612,14 +725,19 @@ def _checks_ok(run_id: str, stage: str) -> dict[str, bool]:
 def _weighted_total(sub_scores: dict[str, int], rubric: dict) -> float:
     weights = {d["id"]: d.get("weight", 0) for d in rubric.get("dimensions", [])}
     total_weight = sum(weights.get(name, 0) for name in sub_scores) or 1
-    return sum(sub_scores[name] * weights.get(name, 0) for name in sub_scores) / total_weight
+    return (
+        sum(sub_scores[name] * weights.get(name, 0) for name in sub_scores)
+        / total_weight
+    )
 
 
 def _cmd_checks(args: argparse.Namespace) -> int:
     path = Path(args.target)
     if path.is_file():
         finding = checks.check_html(path.read_text(encoding="utf-8"))
-        print(f"ok={finding['ok']}  issues={len(finding['issues'])}  warnings={len(finding['warnings'])}")
+        print(
+            f"ok={finding['ok']}  issues={len(finding['issues'])}  warnings={len(finding['warnings'])}"
+        )
         return 0
     run_id = args.target
     for stage in [args.stage] if args.stage else store.list_phases(run_id):
@@ -672,7 +790,9 @@ def _cmd_workflows(args: argparse.Namespace) -> int:
     import agents.loader
 
     problems: list[str] = []
-    for workflow_id in ([args.workflow_id] if args.workflow_id else workflow.list_workflows()):
+    for workflow_id in (
+        [args.workflow_id] if args.workflow_id else workflow.list_workflows()
+    ):
         definition = workflow.load_workflow(workflow_id)
         order = definition.get("order") or []
         print(f"\n{workflow_id}  ({len(order)} stages: {', '.join(order)})")
@@ -687,15 +807,24 @@ def _cmd_workflows(args: argparse.Namespace) -> int:
                 agent_note = ""
             except Exception as exc:  # noqa: BLE001 - report every problem, never stop at the first
                 agent_note = "  ← UNKNOWN AGENT"
-                problems.append(f"{workflow_id}/{stage}: cannot load agent {agent_id!r} ({exc})")
-            print(f"  {stage:<10} {str(agent_id):<24} -> {str(artifact):<20} checks={checker}{agent_note}")
+                problems.append(
+                    f"{workflow_id}/{stage}: cannot load agent {agent_id!r} ({exc})"
+                )
+            print(
+                f"  {stage:<10} {str(agent_id):<24} -> {str(artifact):<20} checks={checker}{agent_note}"
+            )
             if not artifact:
-                problems.append(f"{workflow_id}/{stage}: declares neither seed_as nor deliverable")
-            if stage_def.get("checks") not in (None, "none") \
-                    and stage_def["checks"] not in checks.CHECKERS:
+                problems.append(
+                    f"{workflow_id}/{stage}: declares neither seed_as nor deliverable"
+                )
+            if (
+                stage_def.get("checks") not in (None, "none")
+                and stage_def["checks"] not in checks.CHECKERS
+            ):
                 problems.append(
                     f"{workflow_id}/{stage}: unknown checker {stage_def['checks']!r} "
-                    f"(known: {sorted(checks.CHECKERS)} or 'none')")
+                    f"(known: {sorted(checks.CHECKERS)} or 'none')"
+                )
             try:
                 rubric = workflow.load_rubric(definition, stage)
             except FileNotFoundError as exc:
@@ -705,7 +834,8 @@ def _cmd_workflows(args: argparse.Namespace) -> int:
                     if name not in produced:
                         problems.append(
                             f"{workflow_id}/{stage}: rubric wants upstream {name!r}, which no "
-                            f"earlier stage produces (produced so far: {sorted(produced) or 'nothing'})")
+                            f"earlier stage produces (produced so far: {sorted(produced) or 'nothing'})"
+                        )
             if artifact:
                 produced.add(str(artifact))
     for problem in problems:
@@ -738,21 +868,28 @@ def _cmd_advice(args: argparse.Namespace) -> int:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     for workflow_id, entry in sorted(payload.get("workflows", {}).items()):
         if args.summary:
-            print(f"\n{workflow_id}: {entry['unique']} unique / {entry['total']} total "
-                  f"({len(payload.get('runs', []))} runs)")
+            print(
+                f"\n{workflow_id}: {entry['unique']} unique / {entry['total']} total "
+                f"({len(payload.get('runs', []))} runs)"
+            )
         for stage, facts in entry.get("stages", {}).items():
             if args.summary:
                 categories = ", ".join(
-                    f"{name}={c['unique']}" for name, c in facts["categories"].items())
-                print(f"  {stage:<9} {str(facts.get('agent_id')):<24} "
-                      f"unique={facts['unique']:<4} {categories}")
+                    f"{name}={c['unique']}" for name, c in facts["categories"].items()
+                )
+                print(
+                    f"  {stage:<9} {str(facts.get('agent_id')):<24} "
+                    f"unique={facts['unique']:<4} {categories}"
+                )
             hashes = facts.get("system_prompt_hashes") or []
             if len(hashes) > 1:
-                print(f"\nWARNING  {workflow_id}/{stage} ({facts.get('agent_id')}) mixes advice "
-                      f"from {len(hashes)} prompt versions.\n"
-                      "         Suggestions collected against a replaced prompt body describe\n"
-                      "         text that no longer exists. Split by `system_prompt_hashes`\n"
-                      "         before applying.")
+                print(
+                    f"\nWARNING  {workflow_id}/{stage} ({facts.get('agent_id')}) mixes advice "
+                    f"from {len(hashes)} prompt versions.\n"
+                    "         Suggestions collected against a replaced prompt body describe\n"
+                    "         text that no longer exists. Split by `system_prompt_hashes`\n"
+                    "         before applying."
+                )
     return 0
 
 
@@ -767,7 +904,9 @@ def _load_rubric(run_id: str, stage: str) -> dict:
 
 
 def _hash(payload) -> str:
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
 
 
 def _stage_line(run_id: str, stage: str) -> str:
@@ -779,8 +918,13 @@ def _stage_line(run_id: str, stage: str) -> str:
     deliverable must be impossible to miss — but stated as its own verdict
     instead of by corrupting the judge number next to it.
     """
-    parts = [stage, _judge_fact(run_id, stage), _checks_fact(run_id, stage),
-              _completed_fact(run_id, stage), _gate_fact(run_id, stage)]
+    parts = [
+        stage,
+        _judge_fact(run_id, stage),
+        _checks_fact(run_id, stage),
+        _completed_fact(run_id, stage),
+        _gate_fact(run_id, stage),
+    ]
     return "   ".join(p for p in parts if p)
 
 
@@ -823,7 +967,7 @@ def _checks_fact(run_id: str, stage: str) -> str:
     except FileNotFoundError:
         return "checks -- (n=0)"
     if result.get("skipped"):
-        return "checks n/a"   # prose stage — nothing here is HTML to check
+        return "checks n/a"  # prose stage — nothing here is HTML to check
     checked = result.get("rows_checked", 0)
     ok = result.get("rows_ok", 0)
     pct = (ok / checked * 100) if checked else 0.0

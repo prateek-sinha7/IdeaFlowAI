@@ -44,9 +44,9 @@ logger = logging.getLogger(__name__)
 _PENDING_LINEAGE_TASKS: set = set()
 
 # ── documented caps (module constants, REPO-01 acceptance) ───────────────────
-MAX_FILE_BYTES = 1_000_000          # skip any single file larger than ~1 MB
+MAX_FILE_BYTES = 1_000_000  # skip any single file larger than ~1 MB
 MAX_TOTAL_INVENTORY_BYTES = 50_000_000  # stop accumulating past ~50 MB total
-_BINARY_SNIFF_BYTES = 8192          # read this many bytes to sniff for a null byte
+_BINARY_SNIFF_BYTES = 8192  # read this many bytes to sniff for a null byte
 
 _FLOWINIGNORE = ".flowinignore"
 _DEP_FILES = ("requirements.txt", "pyproject.toml", "package.json")

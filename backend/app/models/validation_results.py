@@ -30,17 +30,15 @@ class ValidationResult(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id = Column(String, ForeignKey("workflow_runs.id"), nullable=False)
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
-    step = Column(String, nullable=False)            # the step/agent id validated
-    validator = Column(String, nullable=False)       # registered validator name
-    severity = Column(String, nullable=True)         # CRITICAL|HIGH|MEDIUM|LOW (worst issue)
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
+    step = Column(String, nullable=False)  # the step/agent id validated
+    validator = Column(String, nullable=False)  # registered validator name
+    severity = Column(String, nullable=True)  # CRITICAL|HIGH|MEDIUM|LOW (worst issue)
     attempt = Column(Integer, nullable=False, default=0)  # fix-loop attempt number
-    issues = Column(JSON, nullable=True)             # list of Issue records
+    issues = Column(JSON, nullable=True)  # list of Issue records
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
-    __table_args__ = (
-        Index("ix_validation_results_run_step", "run_id", "step"),
-    )
+    __table_args__ = (Index("ix_validation_results_run_step", "run_id", "step"),)

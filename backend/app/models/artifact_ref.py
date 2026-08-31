@@ -31,20 +31,18 @@ class ArtifactRef(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id = Column(String, ForeignKey("workflow_runs.id"), nullable=False)
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
-    kind = Column(String, nullable=False)            # typed artifact kind
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
+    kind = Column(String, nullable=False)  # typed artifact kind
     producer_step = Column(String, nullable=False)
     producer_agent = Column(String, nullable=False)
     task_id = Column(String, nullable=True)
-    content = Column(Text, nullable=False)           # inline content (D-01)
-    content_hash = Column(String, nullable=False)    # sha256 hexdigest of content
+    content = Column(Text, nullable=False)  # inline content (D-01)
+    content_hash = Column(String, nullable=False)  # sha256 hexdigest of content
     location = Column(String, nullable=False)
-    version = Column(Integer, nullable=False)        # monotonic per (run, kind)
+    version = Column(Integer, nullable=False)  # monotonic per (run, kind)
     parents = Column(JSON, nullable=True, default=list)  # lineage parent ids
-    derived_from = Column(
-        String, ForeignKey("artifact_refs.id"), nullable=True
-    )
+    derived_from = Column(String, ForeignKey("artifact_refs.id"), nullable=True)
     visibility = Column(
         String, nullable=False, default="private", server_default="private"
     )

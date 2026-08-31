@@ -42,8 +42,10 @@ async def run_prototype_pipeline(
     """
     try:
         od_context = load_prototype_od_context(
-            template_id, design_system_id,
-            custom_ds_body=custom_ds_body, custom_template_body=custom_template_body,
+            template_id,
+            design_system_id,
+            custom_ds_body=custom_ds_body,
+            custom_template_body=custom_template_body,
         )
     except LookupError as exc:
         yield {"type": "pipeline_error", "error": str(exc)}
@@ -72,10 +74,18 @@ async def run_prototype_pipeline(
             # planner/gate/workflow events as-is (frontend ignores unknowns).
             if etype == "pipeline_complete":
                 final_output = data.get("final_output", "")
-                yield {"type": "pipeline_complete", "final_html": final_output,
-                       "duration": data.get("total_duration", 0)}
-            elif etype in ("agent_start", "agent_chunk", "agent_complete",
-                           "agent_error", "pipeline_start"):
+                yield {
+                    "type": "pipeline_complete",
+                    "final_html": final_output,
+                    "duration": data.get("total_duration", 0),
+                }
+            elif etype in (
+                "agent_start",
+                "agent_chunk",
+                "agent_complete",
+                "agent_error",
+                "pipeline_start",
+            ):
                 yield {"type": etype, **data}
             else:
                 # planner_start, planner_complete, gate_status, workflow_validated,

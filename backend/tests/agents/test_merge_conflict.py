@@ -66,8 +66,14 @@ class _FakeBaseWorkspace:
 
 
 class _MergeRunner:
-    def __init__(self, base_workspace, *, worker_files, hitl_events=None,
-                 merge_agent_resolves=None):
+    def __init__(
+        self,
+        base_workspace,
+        *,
+        worker_files,
+        hitl_events=None,
+        merge_agent_resolves=None,
+    ):
         self.run_id = "run-m"
         self.allowed_workers = []
         self.workspace = base_workspace
@@ -84,7 +90,19 @@ class _MergeRunner:
     def agent_exists(self, agent_id):
         return True
 
-    async def record_subagent_run(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None, worker_index=None, task_id=None):
+    async def record_subagent_run(
+        self,
+        *,
+        parent_step,
+        worker_agent,
+        depth,
+        isolation,
+        status,
+        tokens=None,
+        cost=None,
+        worker_index=None,
+        task_id=None,
+    ):
         self._row_seq += 1
         return f"row-{self._row_seq}"
 
@@ -97,7 +115,10 @@ class _MergeRunner:
 
         root = Path(tempfile.mkdtemp())
         self._tmp_roots[worker_index] = root
-        ws = _FakeWorkerWorkspace(root, branch=(f"fanout/{step}/{worker_index}" if scope == "worktree" else None))
+        ws = _FakeWorkerWorkspace(
+            root,
+            branch=(f"fanout/{step}/{worker_index}" if scope == "worktree" else None),
+        )
         # Pre-write the worker's files into its isolated root (the "worker output").
         for relpath, content in self._worker_files.get(worker_index, {}).items():
             ws.write_file(relpath, content)
@@ -106,25 +127,59 @@ class _MergeRunner:
     async def reclaim_isolated_workspace(self, base_workspace, worker_ws):
         return None
 
-    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None, **kw):
+    async def run_worker(
+        self,
+        step,
+        ctx,
+        *,
+        worker_index,
+        thread_id,
+        agent_id,
+        input,
+        workspace=None,
+        **kw,
+    ):
         yield {"type": "agent_chunk", "data": {"worker": worker_index}}
 
     def resolve_merge_strategy(self, name):
         discover()
         return CapabilityRegistry().resolve("merge", name)
 
-    async def write_fragment_artifact(self, *, producer_step, worker_agent, worker_index, content, location, kind="file_bundle"):
+    async def write_fragment_artifact(
+        self,
+        *,
+        producer_step,
+        worker_agent,
+        worker_index,
+        content,
+        location,
+        kind="file_bundle",
+    ):
         ref_id = f"frag-{worker_index}"
-        self.fragment_artifacts.append(dict(id=ref_id, step=producer_step, worker=worker_index, location=location, content=content))
+        self.fragment_artifacts.append(
+            dict(
+                id=ref_id,
+                step=producer_step,
+                worker=worker_index,
+                location=location,
+                content=content,
+            )
+        )
         return ref_id
 
-    async def write_merge_conflict_artifact(self, *, producer_step, conflicts, payload=None):
+    async def write_merge_conflict_artifact(
+        self, *, producer_step, conflicts, payload=None
+    ):
         ref_id = f"conflict-{len(self.conflict_artifacts)}"
-        self.conflict_artifacts.append(dict(id=ref_id, step=producer_step, conflicts=conflicts, payload=payload))
+        self.conflict_artifacts.append(
+            dict(id=ref_id, step=producer_step, conflicts=conflicts, payload=payload)
+        )
         return ref_id
 
     async def run_human_gate(self, step, *, output="", payload=None):
-        self.hitl_calls.append({"step": getattr(step, "agent_id", None), "payload": payload})
+        self.hitl_calls.append(
+            {"step": getattr(step, "agent_id", None), "payload": payload}
+        )
         for ev in self._hitl_events:
             yield ev
 
@@ -133,16 +188,34 @@ class _MergeRunner:
         if self._merge_agent_resolves is None:
             return False
         idx = attempt - 1
-        return self._merge_agent_resolves[idx] if idx < len(self._merge_agent_resolves) else False
+        return (
+            self._merge_agent_resolves[idx]
+            if idx < len(self._merge_agent_resolves)
+            else False
+        )
 
 
 def _make_ctx(runner):
     from agents.execution_engine.budget import BudgetManager
+
     return SimpleNamespace(runner=runner, depth=0, budget=BudgetManager())
 
 
-def _make_step(agent_id="worker-a", *, on_conflict="human_gate", merge_agent=None, mode="sequential"):
-    fanout = SimpleNamespace(mode=mode, max_parallel=2, agent="self", count=None, workers=[], merge_agent=merge_agent)
+def _make_step(
+    agent_id="worker-a",
+    *,
+    on_conflict="human_gate",
+    merge_agent=None,
+    mode="sequential",
+):
+    fanout = SimpleNamespace(
+        mode=mode,
+        max_parallel=2,
+        agent="self",
+        count=None,
+        workers=[],
+        merge_agent=merge_agent,
+    )
     return SimpleNamespace(agent_id=agent_id, fanout=fanout, on_conflict=on_conflict)
 
 
@@ -189,7 +262,9 @@ async def test_multi_file_worker_persists_every_fragment_file():
     ctx = _make_ctx(runner)
     step = _make_step()
 
-    events = await _collect(run_fanout([{"agent": "self", "input": "t0"}], ctx, step=step))
+    events = await _collect(
+        run_fanout([{"agent": "self", "input": "t0"}], ctx, step=step)
+    )
 
     # BOTH files persisted (the old code kept only the alphabetically-first one).
     locations = {f["location"] for f in runner.fragment_artifacts}
@@ -213,7 +288,10 @@ async def test_conflict_writes_artifact_and_emits_event():
     runner = _MergeRunner(
         base,
         worker_files={0: {"shared.txt": "FROM-0"}, 1: {"shared.txt": "FROM-1"}},
-        hitl_events=[{"type": "review_gate_ready", "data": {"output": {}}}, {"type": "review_gate_resolved", "data": {}}],
+        hitl_events=[
+            {"type": "review_gate_ready", "data": {"output": {}}},
+            {"type": "review_gate_resolved", "data": {}},
+        ],
     )
     ctx = _make_ctx(runner)
     step = _make_step(on_conflict="human_gate")
@@ -308,7 +386,10 @@ async def test_merge_agent_resolves_within_bound():
 
     assert len(runner.merge_agent_calls) == 2
     assert runner.hitl_calls == []  # resolved within bound → no fallback
-    assert any(e["type"] == "merge_completed" and e["data"].get("resolved_by") == "merge_agent" for e in events)
+    assert any(
+        e["type"] == "merge_completed" and e["data"].get("resolved_by") == "merge_agent"
+        for e in events
+    )
 
 
 @pytest.mark.asyncio
@@ -407,7 +488,9 @@ async def test_crashed_merge_strategy_emits_merge_failed():
     ctx = _make_ctx(runner)
     step = _make_step(on_conflict="human_gate")
 
-    events = await _collect(run_fanout([{"agent": "self", "input": "t0"}], ctx, step=step))
+    events = await _collect(
+        run_fanout([{"agent": "self", "input": "t0"}], ctx, step=step)
+    )
 
     failed = [e for e in events if e["type"] == "merge_failed"]
     assert len(failed) == 1
@@ -447,7 +530,9 @@ def _real_ks_for_merge_agent():
         engine=_FakeEngine(),
         ectx=_Ectx(),
         sandbox=None,
-        ordered_agents=[SimpleNamespace(id="merge-worker", name="M", role="r", icon="i")],
+        ordered_agents=[
+            SimpleNamespace(id="merge-worker", name="M", role="r", icon="i")
+        ],
         user_message="go",
         pipeline_run_id="run-ma",
         pipeline_type="custom",
@@ -483,9 +568,16 @@ async def test_kernel_services_run_merge_agent_opts_out_of_the_inline_gate():
     ks, calls = _real_ks_for_merge_agent()
     captured: dict = {}
 
-    async def _capture_run_agent(step, ctx, *, task_number=None, total_tasks=None,
-                                 task_block=None, skeleton=None,
-                                 invocation_gated=True):
+    async def _capture_run_agent(
+        step,
+        ctx,
+        *,
+        task_number=None,
+        total_tasks=None,
+        task_block=None,
+        skeleton=None,
+        invocation_gated=True,
+    ):
         captured["invocation_gated"] = invocation_gated
         yield {"type": "agent_chunk", "data": {}}
 
@@ -522,17 +614,27 @@ async def test_merge_conflict_artifact_is_owner_scoped():
     from agents.authz import ScopedStore
     from agents.artifacts.graph import ArtifactRef
 
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     Base.metadata.create_all(bind=engine)
     Session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     session = Session()
 
     alice = ScopedStore(owner_id="alice", workspace_id="ws-a", session=session)
     ref = ArtifactRef(
-        id="mc-1", kind="merge_conflict", owner_id="alice", workspace_id="ws-a",
-        run_id="run-mc", producer_step="fanout-step", producer_agent="fanout-step",
-        task_id=None, content='{"conflicts": [{"path": "shared.txt"}]}',
-        content_hash="h", location="merge_conflict/fanout-step.json", version=1,
+        id="mc-1",
+        kind="merge_conflict",
+        owner_id="alice",
+        workspace_id="ws-a",
+        run_id="run-mc",
+        producer_step="fanout-step",
+        producer_agent="fanout-step",
+        task_id=None,
+        content='{"conflicts": [{"path": "shared.txt"}]}',
+        content_hash="h",
+        location="merge_conflict/fanout-step.json",
+        version=1,
         visibility="private",
     )
     await alice.write_ref(ref)

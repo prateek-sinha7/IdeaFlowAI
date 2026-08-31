@@ -49,9 +49,9 @@ def _assert_golden(name: str, actual: bytes) -> None:
         write_golden_bytes(name, actual)
         pytest.skip(f"golden {name} regenerated ({len(actual)} bytes)")
     expected = read_golden_bytes(name)
-    assert expected is not None, (
-        f"golden {name} missing — generate it once with SNAPSHOT_UPDATE=1"
-    )
+    assert (
+        expected is not None
+    ), f"golden {name} missing — generate it once with SNAPSHOT_UPDATE=1"
     assert actual == expected, (
         f"composed system prompt changed for {name}. If this is spec 011 work, the "
         f"change is a REGRESSION (R-04 / D6), not a golden to re-baseline."

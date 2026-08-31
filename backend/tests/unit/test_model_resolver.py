@@ -128,7 +128,9 @@ def test_none_tier_does_not_block_lower():
 
 def test_workflow_policy_with_none_model_is_skipped():
     """A workflow ModelPolicy whose .model is None is skipped (default-factory ModelPolicy today)."""
-    r = _resolver(workflow_model=ModelPolicy(), session_model_id=HAIKU)  # .model == None
+    r = _resolver(
+        workflow_model=ModelPolicy(), session_model_id=HAIKU
+    )  # .model == None
     spec = FakeSpec(id="agent-x", model=None)
     assert r.resolve(spec, None) == HAIKU
 
@@ -226,7 +228,10 @@ class _FakeClientError(Exception):
 
     def __init__(self, code: str, status: int = 429):
         super().__init__(code)
-        self.response = {"Error": {"Code": code}, "ResponseMetadata": {"HTTPStatusCode": status}}
+        self.response = {
+            "Error": {"Code": code},
+            "ResponseMetadata": {"HTTPStatusCode": status},
+        }
 
 
 class ThrottlingException(Exception):
@@ -246,12 +251,23 @@ def test_throttle_predicate_true_for_bedrock_throttling_type():
 
 
 def test_throttle_predicate_true_for_client_error_429():
-    assert _is_transient_throttle(_FakeClientError("ThrottlingException", status=429)) is True
+    assert (
+        _is_transient_throttle(_FakeClientError("ThrottlingException", status=429))
+        is True
+    )
 
 
 def test_throttle_predicate_true_for_client_error_5xx():
-    assert _is_transient_throttle(_FakeClientError("ServiceUnavailableException", status=503)) is True
-    assert _is_transient_throttle(_FakeClientError("InternalServerException", status=500)) is True
+    assert (
+        _is_transient_throttle(
+            _FakeClientError("ServiceUnavailableException", status=503)
+        )
+        is True
+    )
+    assert (
+        _is_transient_throttle(_FakeClientError("InternalServerException", status=500))
+        is True
+    )
 
 
 def test_throttle_predicate_true_for_anthropic_ratelimit():
@@ -267,7 +283,10 @@ def test_throttle_predicate_false_for_validation():
 
 
 def test_throttle_predicate_false_for_access_denied():
-    assert _is_transient_throttle(_FakeClientError("AccessDeniedException", status=403)) is False
+    assert (
+        _is_transient_throttle(_FakeClientError("AccessDeniedException", status=403))
+        is False
+    )
 
 
 def test_throttle_predicate_false_for_generic_value_error():

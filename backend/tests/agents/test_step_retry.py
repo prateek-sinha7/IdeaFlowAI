@@ -120,7 +120,9 @@ class _FakeStore:
 
 def _step(*, max_attempts, agent_id="agent-a", backoff=0.0, on=None):
     retry = (
-        RetryPolicy(max_attempts=max_attempts, backoff_seconds=backoff, on=on or ["transient"])
+        RetryPolicy(
+            max_attempts=max_attempts, backoff_seconds=backoff, on=on or ["transient"]
+        )
         if max_attempts is not None
         else None
     )
@@ -134,6 +136,7 @@ async def _collect(engine, step, ctx, strategy):
 @pytest.fixture(autouse=True)
 def _noop_sleep(monkeypatch):
     """Monkeypatch the module-level backoff seam to a no-op (keep tests fast)."""
+
     async def _noop(_seconds):
         return None
 
@@ -230,16 +233,29 @@ async def test_reuse_skips_agent_invocation():
     # step_completed event under the SAME (step_id, input_hash) whose
     # output_ref_id points at the artifact that still exists in the graph.
     existing = ctx.artifacts.write_ref(
-        run_id=ctx.run_id, owner_id=ctx.owner_id, workspace_id=ctx.workspace_id,
-        kind="summary", producer_step="agent-a", producer_agent="agent-a",
-        task_id=None, content="prior body", location="memory://prior",
+        run_id=ctx.run_id,
+        owner_id=ctx.owner_id,
+        workspace_id=ctx.workspace_id,
+        kind="summary",
+        producer_step="agent-a",
+        producer_agent="agent-a",
+        task_id=None,
+        content="prior body",
+        location="memory://prior",
     )
     input_hash = engine._compute_step_input_hash(step, ctx)
-    ctx.scoped_store = _FakeStore([
-        _RunEventRow("step_completed", {
-            "step": "agent-a", "input_hash": input_hash, "output_ref_id": existing.id,
-        })
-    ])
+    ctx.scoped_store = _FakeStore(
+        [
+            _RunEventRow(
+                "step_completed",
+                {
+                    "step": "agent-a",
+                    "input_hash": input_hash,
+                    "output_ref_id": existing.id,
+                },
+            )
+        ]
+    )
 
     events = await _collect(engine, step, ctx, strategy)
 
@@ -340,7 +356,9 @@ async def test_pipeline_cancelled_event_suppresses_step_completed():
     events = await _collect(engine, step, ctx, strategy)
 
     types = [e["type"] for e in events]
-    assert "pipeline_cancelled" in types, "the terminal event itself must still be forwarded"
+    assert (
+        "pipeline_cancelled" in types
+    ), "the terminal event itself must still be forwarded"
     assert "step_completed" not in types, (
         "a step whose strategy signaled pipeline_cancelled must NEVER also get "
         "step_completed — that would claim success for a step that was cancelled"
@@ -352,7 +370,10 @@ async def test_pipeline_cancelled_event_suppresses_step_completed():
 async def test_unrecoverable_agent_error_event_suppresses_step_completed():
     engine = ExecutionEngine()
     strategy = _CooperativeTerminalStrategy(
-        {"type": "agent_error", "data": {"agent_id": "agent-a", "error": "fatal", "recoverable": False}}
+        {
+            "type": "agent_error",
+            "data": {"agent_id": "agent-a", "error": "fatal", "recoverable": False},
+        }
     )
     ctx = _FakeCtx()
     step = _step(max_attempts=3)
@@ -374,7 +395,10 @@ async def test_recoverable_agent_error_still_completes():
     still appends a result) is UNCHANGED behavior: step_completed still fires."""
     engine = ExecutionEngine()
     strategy = _CooperativeTerminalStrategy(
-        {"type": "agent_error", "data": {"agent_id": "agent-a", "error": "timeout", "recoverable": True}}
+        {
+            "type": "agent_error",
+            "data": {"agent_id": "agent-a", "error": "timeout", "recoverable": True},
+        }
     )
     ctx = _FakeCtx()
     step = _step(max_attempts=3)

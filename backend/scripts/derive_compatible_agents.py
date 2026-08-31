@@ -48,30 +48,137 @@ from app.agents.skills_catalog import (  # noqa: E402
 )
 
 # ─── Tunables ────────────────────────────────────────────────────────────
-MIN_OVERLAP = 2          # raw shared-token count required to consider a candidate
-MIN_COVERAGE = 0.20      # overlap / len(skill_tokens) required to consider a candidate
-MAX_CANDIDATES = 12      # more than this and the skill reads as generic, not specific
-HIGH_CONFIDENCE = 0.55   # confidence at/above this writes the field; below leaves it absent
+MIN_OVERLAP = 2  # raw shared-token count required to consider a candidate
+MIN_COVERAGE = 0.20  # overlap / len(skill_tokens) required to consider a candidate
+MAX_CANDIDATES = 12  # more than this and the skill reads as generic, not specific
+HIGH_CONFIDENCE = (
+    0.55  # confidence at/above this writes the field; below leaves it absent
+)
 
 _STOPWORDS = {
-    "the", "and", "for", "with", "this", "that", "from", "into", "your",
-    "when", "then", "than", "over", "under", "using", "use", "used",
-    "build", "builds", "building", "create", "creates", "creating",
-    "design", "designs", "designing", "develop", "develops", "developing",
-    "implement", "implements", "implementing", "review", "reviews",
-    "reviewing", "best", "practice", "practices", "pattern", "patterns",
-    "skill", "skills", "agent", "agents", "workflow", "workflows",
-    "code", "codebase", "file", "files", "project", "projects", "task",
-    "tasks", "system", "systems", "application", "applications", "app",
-    "apps", "data", "user", "users", "make", "making", "help", "helps",
-    "helping", "provide", "provides", "providing", "you", "are", "all",
-    "any", "can", "should", "will", "not", "each", "per", "via", "based",
-    "including", "include", "includes", "across", "within", "without",
-    "about", "such", "these", "those", "have", "has", "had", "how",
-    "what", "which", "one", "two", "new", "existing", "output", "outputs",
-    "input", "inputs", "content", "generate", "generates", "generating",
-    "generation", "ensure", "ensures", "ensuring", "process", "processes",
-    "processing", "specific", "general", "common", "given", "well",
+    "the",
+    "and",
+    "for",
+    "with",
+    "this",
+    "that",
+    "from",
+    "into",
+    "your",
+    "when",
+    "then",
+    "than",
+    "over",
+    "under",
+    "using",
+    "use",
+    "used",
+    "build",
+    "builds",
+    "building",
+    "create",
+    "creates",
+    "creating",
+    "design",
+    "designs",
+    "designing",
+    "develop",
+    "develops",
+    "developing",
+    "implement",
+    "implements",
+    "implementing",
+    "review",
+    "reviews",
+    "reviewing",
+    "best",
+    "practice",
+    "practices",
+    "pattern",
+    "patterns",
+    "skill",
+    "skills",
+    "agent",
+    "agents",
+    "workflow",
+    "workflows",
+    "code",
+    "codebase",
+    "file",
+    "files",
+    "project",
+    "projects",
+    "task",
+    "tasks",
+    "system",
+    "systems",
+    "application",
+    "applications",
+    "app",
+    "apps",
+    "data",
+    "user",
+    "users",
+    "make",
+    "making",
+    "help",
+    "helps",
+    "helping",
+    "provide",
+    "provides",
+    "providing",
+    "you",
+    "are",
+    "all",
+    "any",
+    "can",
+    "should",
+    "will",
+    "not",
+    "each",
+    "per",
+    "via",
+    "based",
+    "including",
+    "include",
+    "includes",
+    "across",
+    "within",
+    "without",
+    "about",
+    "such",
+    "these",
+    "those",
+    "have",
+    "has",
+    "had",
+    "how",
+    "what",
+    "which",
+    "one",
+    "two",
+    "new",
+    "existing",
+    "output",
+    "outputs",
+    "input",
+    "inputs",
+    "content",
+    "generate",
+    "generates",
+    "generating",
+    "generation",
+    "ensure",
+    "ensures",
+    "ensuring",
+    "process",
+    "processes",
+    "processing",
+    "specific",
+    "general",
+    "common",
+    "given",
+    "well",
 }
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
@@ -131,7 +238,11 @@ def build_agent_vocabs() -> list[AgentVocab]:
             spec.role,
             spec.description,
         )
-        vocabs.append(AgentVocab(id=spec.id, name=spec.name, role=spec.role, tokens=frozenset(tokens)))
+        vocabs.append(
+            AgentVocab(
+                id=spec.id, name=spec.name, role=spec.role, tokens=frozenset(tokens)
+            )
+        )
     return vocabs
 
 
@@ -146,7 +257,9 @@ def _skill_confidence(candidates: list[Candidate]) -> float:
     return round(strength * specificity, 3)
 
 
-def derive_for_skill(skill: GlobalSkillEntry, agent_vocabs: list[AgentVocab]) -> SkillDerivation:
+def derive_for_skill(
+    skill: GlobalSkillEntry, agent_vocabs: list[AgentVocab]
+) -> SkillDerivation:
     skill_tokens = tokenize(skill.name, skill.id.replace("-", " "), skill.description)
 
     scored: list[Candidate] = []
@@ -155,7 +268,9 @@ def derive_for_skill(skill: GlobalSkillEntry, agent_vocabs: list[AgentVocab]) ->
         overlap = len(overlap_tokens)
         coverage = overlap / len(skill_tokens) if skill_tokens else 0.0
         if overlap >= MIN_OVERLAP and coverage >= MIN_COVERAGE:
-            scored.append(Candidate(agent_id=av.id, overlap=overlap, coverage=round(coverage, 3)))
+            scored.append(
+                Candidate(agent_id=av.id, overlap=overlap, coverage=round(coverage, 3))
+            )
 
     scored.sort(key=lambda c: (-c.overlap, -c.coverage, c.agent_id))
     if len(scored) > MAX_CANDIDATES:
@@ -258,6 +373,7 @@ def apply_write(derivation: SkillDerivation) -> bool:
 
 # ─── Reporting ─────────────────────────────────────────────────────────
 
+
 def print_summary(derivations: list[SkillDerivation]) -> None:
     total = len(derivations)
     matched = [d for d in derivations if d.written]
@@ -286,7 +402,9 @@ def print_summary(derivations: list[SkillDerivation]) -> None:
 
 
 def main() -> int:
-    parser = ArgumentParser(description="Derive compatible_agents candidates for the skills catalog")
+    parser = ArgumentParser(
+        description="Derive compatible_agents candidates for the skills catalog"
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -302,7 +420,9 @@ def main() -> int:
 
     apply_mode = args.apply
     if apply_mode and args.dry_run:
-        print("--apply and --dry-run both given; --dry-run wins, nothing will be written.")
+        print(
+            "--apply and --dry-run both given; --dry-run wins, nothing will be written."
+        )
         apply_mode = False
 
     agent_vocabs = build_agent_vocabs()

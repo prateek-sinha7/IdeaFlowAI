@@ -86,7 +86,9 @@ def stage_skills(
         resolved_skills_dir = sandbox.path_for("skills")
         skills_dir = resolved_skills_dir
         if resolved_skills_dir.is_dir():
-            on_disk = sorted(p.name for p in resolved_skills_dir.iterdir() if p.is_dir())
+            on_disk = sorted(
+                p.name for p in resolved_skills_dir.iterdir() if p.is_dir()
+            )
     except Exception:  # noqa: BLE001 - trace-only, must never raise
         resolved_skills_dir = None
         on_disk = []
@@ -159,7 +161,7 @@ def stage_skills(
         if not skill_id:
             errors.append("skipped skill with no id or name")
             continue
-        if not re.match(r'^[A-Za-z0-9._-]+$', skill_id) or skill_id in ('.', '..'):
+        if not re.match(r"^[A-Za-z0-9._-]+$", skill_id) or skill_id in (".", ".."):
             errors.append(f"{skill_id}: unsafe skill id")
             continue
         if not content.strip():
@@ -170,7 +172,9 @@ def stage_skills(
         description = catalog_entry.description if catalog_entry else f"{name} skill."
         if len(description) > _MAX_DESCRIPTION:
             description = description[:_MAX_DESCRIPTION]
-            errors.append(f"{skill_id}: description clamped to {_MAX_DESCRIPTION} chars")
+            errors.append(
+                f"{skill_id}: description clamped to {_MAX_DESCRIPTION} chars"
+            )
 
         description_yaml = _escape_yaml_double_quoted(description)
         escaped_id = _escape_yaml_double_quoted(skill_id)
@@ -180,7 +184,9 @@ def stage_skills(
         try:
             target = sandbox.path_for(f"skills/{skill_id}/SKILL.md")
             target.parent.mkdir(parents=True, exist_ok=True)
-            if not (target.exists() and target.read_text(encoding="utf-8") == file_text):
+            if not (
+                target.exists() and target.read_text(encoding="utf-8") == file_text
+            ):
                 target.write_text(file_text)
             staged.append(skill_id)
         except (OSError, ValueError) as exc:
@@ -197,7 +203,14 @@ def stage_skills(
         # What the deepagents preamble will actually advertise to the model —
         # the most useful line for debugging why a skill was or wasn't chosen.
         advertised = [
-            (skill_id, (catalog[skill_id].description if skill_id in catalog else f"{skill_id} skill.")[:80])
+            (
+                skill_id,
+                (
+                    catalog[skill_id].description
+                    if skill_id in catalog
+                    else f"{skill_id} skill."
+                )[:80],
+            )
             for skill_id in staged
         ]
         logger.debug("skills_block %s model will see %s", who, advertised)

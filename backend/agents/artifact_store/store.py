@@ -82,7 +82,9 @@ class ArtifactStore:
         logger.debug(
             "ArtifactStore: questionnaire responses set for run=%s (%d responses, "
             "skip_clarification=%s)",
-            pipeline_run_id, len(responses), skip_clarification,
+            pipeline_run_id,
+            len(responses),
+            skip_clarification,
         )
 
     async def get_questionnaire_responses(
@@ -134,17 +136,21 @@ class ArtifactStore:
         the extra keys are inert for any reader that does not look for them.
         """
         key = f"review:{gate_key}"
-        self._questionnaire_responses[key] = [{
-            "approved": approved,
-            "edited_content": edited_content,
-            "action": action,
-            "instructions": instructions,
-        }]
+        self._questionnaire_responses[key] = [
+            {
+                "approved": approved,
+                "edited_content": edited_content,
+                "action": action,
+                "instructions": instructions,
+            }
+        ]
         event = await self.get_review_event(gate_key)
         event.set()
         logger.debug(
             "ArtifactStore: review gate response set for key=%s approved=%s action=%s",
-            gate_key, approved, action,
+            gate_key,
+            approved,
+            action,
         )
 
     async def get_review_response(self, gate_key: str) -> dict | None:
@@ -186,7 +192,11 @@ class ArtifactStore:
         # ``review:{run_id}:{agent_id}`` — scan only once with a list comprehension
         # to avoid mutating the dict while iterating.
         review_prefix = f"review:{run_id}:"
-        stale_keys = [k for k in self._resume_events if k == f"review:{run_id}" or k.startswith(review_prefix)]
+        stale_keys = [
+            k
+            for k in self._resume_events
+            if k == f"review:{run_id}" or k.startswith(review_prefix)
+        ]
         for k in stale_keys:
             self._resume_events.pop(k, None)
         logger.debug("ArtifactStore: evicted HITL state for run=%s", run_id)

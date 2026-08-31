@@ -342,10 +342,7 @@ def list_runs(
         WorkflowRun.created_at,
         WorkflowRun.completed_at,
     ]
-    query = (
-        db.query(*_LIST_COLS)
-        .filter(WorkflowRun.user_id == current_user.id)
-    )
+    query = db.query(*_LIST_COLS).filter(WorkflowRun.user_id == current_user.id)
 
     if type:
         query = query.filter(WorkflowRun.type == type)
@@ -359,11 +356,7 @@ def list_runs(
     response.headers["X-Total-Count"] = str(total)
 
     runs = (
-        query
-        .order_by(WorkflowRun.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
+        query.order_by(WorkflowRun.created_at.desc()).offset(offset).limit(limit).all()
     )
     # Compute the owned root for the whole page once (batched ancestor walk); a
     # NULL-parent page issues zero extra queries (POR §4.2 latency invariant).
@@ -407,10 +400,13 @@ def export_pptx(
 
     # Strategy 1: Get Agent 3 output from workflow DB
     if not js_code and workflow_id:
-        wr = db.query(WorkflowRun).filter(
-            WorkflowRun.id == workflow_id,
-            WorkflowRun.user_id == current_user.id
-        ).first()
+        wr = (
+            db.query(WorkflowRun)
+            .filter(
+                WorkflowRun.id == workflow_id, WorkflowRun.user_id == current_user.id
+            )
+            .first()
+        )
         if wr and wr.agent_outputs:
             try:
                 outputs = json.loads(wr.agent_outputs)
@@ -424,17 +420,20 @@ def export_pptx(
     # Strategy 2: Extract from HTML
     if not js_code and html_content:
         # Find generatePresentation function in script tags
-        scripts = re.findall(r'<script[^>]*>([\s\S]*?)</script>', html_content)
+        scripts = re.findall(r"<script[^>]*>([\s\S]*?)</script>", html_content)
         for script in scripts:
-            m = re.search(r'((?:async\s+)?function\s+generatePresentation\s*\([^)]*\)\s*\{)', script)
+            m = re.search(
+                r"((?:async\s+)?function\s+generatePresentation\s*\([^)]*\)\s*\{)",
+                script,
+            )
             if m:
                 start = m.start()
                 depth = 0
                 end = start
                 for i in range(m.end() - 1, len(script)):
-                    if script[i] == '{':
+                    if script[i] == "{":
                         depth += 1
-                    elif script[i] == '}':
+                    elif script[i] == "}":
                         depth -= 1
                         if depth == 0:
                             end = i + 1
@@ -445,15 +444,18 @@ def export_pptx(
 
         # Also try full HTML search
         if not js_code:
-            m = re.search(r'((?:async\s+)?function\s+generatePresentation\s*\([^)]*\)\s*\{)', html_content)
+            m = re.search(
+                r"((?:async\s+)?function\s+generatePresentation\s*\([^)]*\)\s*\{)",
+                html_content,
+            )
             if m:
                 start = m.start()
                 depth = 0
                 end = start
                 for i in range(start, len(html_content)):
-                    if html_content[i] == '{':
+                    if html_content[i] == "{":
                         depth += 1
-                    elif html_content[i] == '}':
+                    elif html_content[i] == "}":
                         depth -= 1
                         if depth == 0:
                             end = i + 1
@@ -514,7 +516,9 @@ def get_run(
     return _run_response(workflow_run, roots[workflow_run.id])
 
 
-@router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete(
+    "/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response
+)
 def delete_run(
     workflow_id: str,
     current_user: User = Depends(get_current_user),
@@ -546,16 +550,36 @@ def delete_run(
     # ── Delete child rows in dependency order before removing the parent ──────
     # All 9 audit tables FK into workflow_runs.id with no ON DELETE CASCADE.
     # Column names differ per table — confirmed from each model file.
-    db.query(RunEvent).filter(RunEvent.run_id == workflow_id).delete(synchronize_session=False)
-    db.query(ArtifactRef).filter(ArtifactRef.run_id == workflow_id).delete(synchronize_session=False)
-    db.query(WorkflowClarification).filter(WorkflowClarification.workflow_run_id == workflow_id).delete(synchronize_session=False)
-    db.query(GateEvent).filter(GateEvent.run_id == workflow_id).delete(synchronize_session=False)
-    db.query(HookRun).filter(HookRun.run_id == workflow_id).delete(synchronize_session=False)
-    db.query(ExecRun).filter(ExecRun.run_id == workflow_id).delete(synchronize_session=False)
-    db.query(RunCapabilities).filter(RunCapabilities.run_id == workflow_id).delete(synchronize_session=False)
-    db.query(ValidationResult).filter(ValidationResult.run_id == workflow_id).delete(synchronize_session=False)
-    db.query(SubagentRun).filter(SubagentRun.parent_run_id == workflow_id).delete(synchronize_session=False)
-    db.query(WaveRun).filter(WaveRun.run_id == workflow_id).delete(synchronize_session=False)
+    db.query(RunEvent).filter(RunEvent.run_id == workflow_id).delete(
+        synchronize_session=False
+    )
+    db.query(ArtifactRef).filter(ArtifactRef.run_id == workflow_id).delete(
+        synchronize_session=False
+    )
+    db.query(WorkflowClarification).filter(
+        WorkflowClarification.workflow_run_id == workflow_id
+    ).delete(synchronize_session=False)
+    db.query(GateEvent).filter(GateEvent.run_id == workflow_id).delete(
+        synchronize_session=False
+    )
+    db.query(HookRun).filter(HookRun.run_id == workflow_id).delete(
+        synchronize_session=False
+    )
+    db.query(ExecRun).filter(ExecRun.run_id == workflow_id).delete(
+        synchronize_session=False
+    )
+    db.query(RunCapabilities).filter(RunCapabilities.run_id == workflow_id).delete(
+        synchronize_session=False
+    )
+    db.query(ValidationResult).filter(ValidationResult.run_id == workflow_id).delete(
+        synchronize_session=False
+    )
+    db.query(SubagentRun).filter(SubagentRun.parent_run_id == workflow_id).delete(
+        synchronize_session=False
+    )
+    db.query(WaveRun).filter(WaveRun.run_id == workflow_id).delete(
+        synchronize_session=False
+    )
 
     # ── Self-referential FK: null out parent_run_id on any child revision runs ─
     # Deleting the parent while revision children point to it via parent_run_id
@@ -576,15 +600,17 @@ def delete_run(
 # for use as context in the next chained pipeline.
 # ---------------------------------------------------------------------------
 
+
 class ChainContextResponse(BaseModel):
     """Structured context extracted from a completed workflow run."""
+
     workflow_id: str
     pipeline_type: str
     title: str
-    brief: str                          # Original user input
-    structured_summary: str             # Extracted text content (not HTML)
-    agent_summaries: list[dict]         # Per-agent key outputs
-    context_block: str                  # Ready-to-inject context string
+    brief: str  # Original user input
+    structured_summary: str  # Extracted text content (not HTML)
+    agent_summaries: list[dict]  # Per-agent key outputs
+    context_block: str  # Ready-to-inject context string
 
 
 def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
@@ -608,6 +634,7 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
     # (stored before FIX-087), the nested markers would break parseRunInput on the FE.
     # Generic regex — no pipeline-name literals (SC-001/INV-1).
     import re as _re_ctx
+
     _marker_re = _re_ctx.compile(r"===.*?===", _re_ctx.DOTALL)
 
     def _clean_for_context(text: str) -> str:
@@ -615,12 +642,16 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
         if "===" not in text:
             return text
         # For title: extract revision instruction or brief via the same logic as _clean_run_title
-        rev_match = _re_ctx.search(r"===\s*REVISION REQUEST\s*===\s*(.*?)\s*(?:===|$)", text, _re_ctx.DOTALL)
+        rev_match = _re_ctx.search(
+            r"===\s*REVISION REQUEST\s*===\s*(.*?)\s*(?:===|$)", text, _re_ctx.DOTALL
+        )
         if rev_match:
             return rev_match.group(1).split("\n")[0].strip()
         # Strip all === ... === blocks and return first non-empty line
         stripped = _marker_re.sub("", text).strip()
-        return stripped.split("\n")[0].strip() if stripped else text.split("\n")[0].strip()
+        return (
+            stripped.split("\n")[0].strip() if stripped else text.split("\n")[0].strip()
+        )
 
     title = _clean_for_context(title)
     # For brief, just take the first clean line before any context block
@@ -667,7 +698,9 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
                 if slides:
                     lines.append(f"\nSlide Plan ({len(slides)} slides):")
                     for s in slides:
-                        lines.append(f"  Slide {s.get('index', '?')}: {s.get('title', '')} [{s.get('type', '')}]")
+                        lines.append(
+                            f"  Slide {s.get('index', '?')}: {s.get('title', '')} [{s.get('type', '')}]"
+                        )
                         if s.get("content"):
                             lines.append(f"    Content: {str(s['content'])[:200]}")
                 return "\n".join(lines)
@@ -681,10 +714,14 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
         spec_text = extract_spec(analyst_output)
         if spec_text:
             structured_summary = f"Presentation Slide Plan:\n{spec_text}"
-            agent_summaries.append({"agent": "Presentation Strategist", "summary": spec_text[:500]})
+            agent_summaries.append(
+                {"agent": "Presentation Strategist", "summary": spec_text[:500]}
+            )
         elif analyst_output:
             structured_summary = analyst_output[:3000]
-            agent_summaries.append({"agent": "Presentation Strategist", "summary": analyst_output[:500]})
+            agent_summaries.append(
+                {"agent": "Presentation Strategist", "summary": analyst_output[:500]}
+            )
 
     elif pipeline_type in ("user_stories", "user_stories_revision"):
         # Extract from backlog compiler (last agent)
@@ -694,13 +731,15 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
             compiler_output = workflow_run.output or ""
         if compiler_output:
             structured_summary = compiler_output[:4000]
-            agent_summaries.append({"agent": "Backlog Compiler", "summary": compiler_output[:500]})
+            agent_summaries.append(
+                {"agent": "Backlog Compiler", "summary": compiler_output[:500]}
+            )
 
     elif pipeline_type in (
         "prototype",
         "prototype_revision",
-        "prototype_large_revision",   # tiered revision — no spec-writer output
-        "prototype_feature_revision", # tiered revision — no spec-writer output
+        "prototype_large_revision",  # tiered revision — no spec-writer output
+        "prototype_feature_revision",  # tiered revision — no spec-writer output
     ):
         # The spec writer (first agent) emits a Markdown spec wrapped in
         # <spec>...</spec>. Read THAT — not the HTML deliverable, and not the
@@ -708,19 +747,26 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
         # (the old lookup always returned "" → empty chain context).
         # For prototype_revision, the revision agent doesn't have a spec writer —
         # use the revision instruction extracted from the run's input instead.
-        spec_output = get_agent_output("prototype-specify") or get_agent_output("prototype-plan")
+        spec_output = get_agent_output("prototype-specify") or get_agent_output(
+            "prototype-plan"
+        )
         if spec_output:
             m = re.search(r"<spec>([\s\S]*?)</spec>", spec_output)
-            spec_text = (m.group(1).strip() if m else spec_output)
+            spec_text = m.group(1).strip() if m else spec_output
             structured_summary = f"Prototype Specification:\n{spec_text[:3500]}"
             agent_summaries.append({"agent": "Spec Writer", "summary": spec_text[:500]})
-        elif pipeline_type in ("prototype_revision", "prototype_large_revision", "prototype_feature_revision"):
+        elif pipeline_type in (
+            "prototype_revision",
+            "prototype_large_revision",
+            "prototype_feature_revision",
+        ):
             # Tiered revision runs have no spec-writer output — extract the
             # revision instruction from the run's input as a fallback summary.
             # NOTE: get_chain_context should have walked up to the root prototype
             # run before calling this; this branch only fires if the walk failed
             # (e.g. a direct call with a revision run_id and no root found).
             import re as _re_local
+
             rev_match = _re_local.search(
                 r"===\s*REVISION REQUEST\s*===\s*\n(.*?)\n===\s*END REQUEST\s*===",
                 workflow_run.input or "",
@@ -729,7 +775,9 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
             if rev_match:
                 instruction = rev_match.group(1).strip()
                 structured_summary = f"Prototype Revision: {instruction}"
-                agent_summaries.append({"agent": "Revision Specialist", "summary": instruction[:500]})
+                agent_summaries.append(
+                    {"agent": "Revision Specialist", "summary": instruction[:500]}
+                )
 
     elif pipeline_type in ("app_builder", "app_builder_revision"):
         # Extract from system design agent
@@ -738,10 +786,14 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
         parts = []
         if stories_output:
             parts.append(f"User Stories:\n{stories_output[:1500]}")
-            agent_summaries.append({"agent": "App User Stories", "summary": stories_output[:300]})
+            agent_summaries.append(
+                {"agent": "App User Stories", "summary": stories_output[:300]}
+            )
         if design_output:
             parts.append(f"System Design:\n{design_output[:1500]}")
-            agent_summaries.append({"agent": "System Design", "summary": design_output[:300]})
+            agent_summaries.append(
+                {"agent": "System Design", "summary": design_output[:300]}
+            )
         structured_summary = "\n\n".join(parts)
 
     elif pipeline_type in ("mulesoft_to_springboot",):
@@ -918,7 +970,7 @@ def _build_lineage_tree(refs: list, *, include_content: bool) -> list[dict]:
         pids: list[str] = []
         if r.derived_from and r.derived_from in ids:
             pids.append(r.derived_from)
-        for pid in (r.parents or []):
+        for pid in r.parents or []:
             if pid in ids and pid not in pids:
                 pids.append(pid)
         return pids
@@ -1086,6 +1138,7 @@ async def get_run_events(
         ],
     }
 
+
 class FamilyMemberResponse(BaseModel):
     """One run in a revision family (POR §4.3). Carries only the lightweight
     listing fields — NOT the heavy input/output/agent_outputs bodies — since the
@@ -1095,7 +1148,7 @@ class FamilyMemberResponse(BaseModel):
     type: str
     title: str
     status: str
-    revision_index: int          # 1-based chronological position within the family
+    revision_index: int  # 1-based chronological position within the family
     parent_run_id: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
@@ -1204,7 +1257,10 @@ def _owned_family_members(
             # canonical base type differs from the root's. Uses _canonical_base
             # (strip the ``_revision`` suffix) so prototype roots
             # correctly admit ``prototype_revision`` children (both → ``prototype``).
-            if root_base_type is not None and _canonical_base(child.type) != root_base_type:
+            if (
+                root_base_type is not None
+                and _canonical_base(child.type) != root_base_type
+            ):
                 continue
             visited.add(child.id)
             members[child.id] = child
@@ -1263,12 +1319,12 @@ class RunSummaryResponse(BaseModel):
     title: str
     type: str
     status: str
-    input: Optional[str] = None        # the owner's OWN top-level brief/prompt (run.input)
+    input: Optional[str] = None  # the owner's OWN top-level brief/prompt (run.input)
     duration: Optional[float] = None
     agent_count: int
     token_usage: dict
     error: Optional[str] = None
-    agents: list                       # per-agent breakdown (summary-safe fields only)
+    agents: list  # per-agent breakdown (summary-safe fields only)
     root_id: str
     members: list[FamilyMemberResponse]
 

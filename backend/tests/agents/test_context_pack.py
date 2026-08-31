@@ -74,11 +74,16 @@ def repo_tree(tmp_path: Path) -> Path:
 
 
 def test_context_selector_picks_siblings_and_imports() -> None:
-    candidates = ["pkg/main.py", "pkg/helpers.py", "pkg/sibling.py", "other/unrelated.py"]
+    candidates = [
+        "pkg/main.py",
+        "pkg/helpers.py",
+        "pkg/sibling.py",
+        "other/unrelated.py",
+    ]
     target_content = "from pkg.helpers import do\n"
     neighbors = context_selector("pkg/main.py", candidates, target_content)
-    assert "pkg/helpers.py" in neighbors   # imported
-    assert "pkg/sibling.py" in neighbors   # same-directory sibling
+    assert "pkg/helpers.py" in neighbors  # imported
+    assert "pkg/sibling.py" in neighbors  # same-directory sibling
     assert "other/unrelated.py" not in neighbors  # unrelated, excluded
     assert "pkg/main.py" not in neighbors  # never the target itself
 

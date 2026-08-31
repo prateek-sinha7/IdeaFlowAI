@@ -53,12 +53,24 @@ def test_spawn_subagents_tool_emits_structured_request_only():
 
 def test_spawn_subagents_tool_module_is_spawn_free():
     """FANOUT-01 / T-11-01-04: the tool module imports no spawn machinery."""
-    mod = Path(__file__).resolve().parents[2] / "app" / "agents" / "tools" / "runner_tools.py"
+    mod = (
+        Path(__file__).resolve().parents[2]
+        / "app"
+        / "agents"
+        / "tools"
+        / "runner_tools.py"
+    )
     src = mod.read_text(encoding="utf-8")
     # No asyncio / run_fanout / kernel import anywhere in the tool module.
-    body = "\n".join(line for line in src.splitlines() if not line.lstrip().startswith("#"))
-    assert "asyncio" not in body, "spawn_subagents must not import/use asyncio (spawn-free)"
-    assert "run_fanout" not in body, "spawn_subagents must not reference run_fanout (spawn-free)"
+    body = "\n".join(
+        line for line in src.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert (
+        "asyncio" not in body
+    ), "spawn_subagents must not import/use asyncio (spawn-free)"
+    assert (
+        "run_fanout" not in body
+    ), "spawn_subagents must not reference run_fanout (spawn-free)"
     assert "execution_engine" not in body, "the tool module must not import the kernel"
 
 

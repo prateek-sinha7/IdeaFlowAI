@@ -50,13 +50,76 @@ _DISPATCHABLE = sorted(_MANIFEST_BACKED_IDS - {"chat", "reverse_engineer"})
 # with the manifests — update this copy when a manifest's defaults deliberately
 # change.
 _EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
-    "ppt": ["target_audience", "tone_and_style", "key_objectives", "slide_count", "content_depth", "data_availability", "visual_style", "key_sections"],
-    "prototype": ["target_audience", "scope", "priority", "style", "user_journeys", "key_screens", "interactions", "personas"],
-    "user_stories": ["target_audience", "scope", "priority", "technology", "personas", "user_journeys", "business_rules", "compliance_security"],
-    "app_builder": ["technology", "scope", "target_audience", "security", "user_journeys", "data_model", "integrations", "performance"],
-    "mulesoft_to_springboot": ["scope", "technology", "timeline", "priority", "integration_patterns", "target_infrastructure", "data_migration", "compliance_security"],
-    "dotnet_to_azure": ["scope", "technology", "timeline", "priority", "azure_services", "data_migration", "integration_patterns", "compliance_security"],
-    "custom": ["target_audience", "key_objectives", "scope", "priority", "output_format", "constraints", "domain", "assumptions"],
+    "ppt": [
+        "target_audience",
+        "tone_and_style",
+        "key_objectives",
+        "slide_count",
+        "content_depth",
+        "data_availability",
+        "visual_style",
+        "key_sections",
+    ],
+    "prototype": [
+        "target_audience",
+        "scope",
+        "priority",
+        "style",
+        "user_journeys",
+        "key_screens",
+        "interactions",
+        "personas",
+    ],
+    "user_stories": [
+        "target_audience",
+        "scope",
+        "priority",
+        "technology",
+        "personas",
+        "user_journeys",
+        "business_rules",
+        "compliance_security",
+    ],
+    "app_builder": [
+        "technology",
+        "scope",
+        "target_audience",
+        "security",
+        "user_journeys",
+        "data_model",
+        "integrations",
+        "performance",
+    ],
+    "mulesoft_to_springboot": [
+        "scope",
+        "technology",
+        "timeline",
+        "priority",
+        "integration_patterns",
+        "target_infrastructure",
+        "data_migration",
+        "compliance_security",
+    ],
+    "dotnet_to_azure": [
+        "scope",
+        "technology",
+        "timeline",
+        "priority",
+        "azure_services",
+        "data_migration",
+        "integration_patterns",
+        "compliance_security",
+    ],
+    "custom": [
+        "target_audience",
+        "key_objectives",
+        "scope",
+        "priority",
+        "output_format",
+        "constraints",
+        "domain",
+        "assumptions",
+    ],
     # clarify.mode: skip — these take their topic straight from the run input and
     # ask nothing. Visible to this test only since ADR-0005 derived
     # SUPPORTED_PIPELINE_TYPES from disk, which swept the sample_* workflows in.
@@ -192,17 +255,19 @@ def test_compiled_clarify_defaults_match_engine_dict(pipeline_type: str) -> None
 # was dropped here too: the od_ppt/ppt collapse (commit ef32ef88) deleted its
 # workflow.yaml and removed it from SUPPORTED_PIPELINE_TYPES, so it can never
 # reach `_DISPATCHABLE`.
-_RUN_REVISION_DISPATCHED = frozenset({
-    "ppt_revision",
-    "prototype_revision",
-    "user_stories_revision",
-    # Added with the composed-workflow revision manifest, which declares
-    # planner: skip like its siblings but was never listed here.
-    "custom_revision",
-    # Flipped to planner: skip — it was authored as `run` and so could never be
-    # revision-dispatched (CR-02 refused it; the run died with 0 events).
-    "app_builder_revision",
-})
+_RUN_REVISION_DISPATCHED = frozenset(
+    {
+        "ppt_revision",
+        "prototype_revision",
+        "user_stories_revision",
+        # Added with the composed-workflow revision manifest, which declares
+        # planner: skip like its siblings but was never listed here.
+        "custom_revision",
+        # Flipped to planner: skip — it was authored as `run` and so could never be
+        # revision-dispatched (CR-02 refused it; the run died with 0 events).
+        "app_builder_revision",
+    }
+)
 
 # Sibling trap: keep in lockstep with tests/agents/test_manifest_parity.py's
 # _PLANNER_SKIP_IDS.

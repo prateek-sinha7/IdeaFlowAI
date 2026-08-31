@@ -40,7 +40,7 @@ from tests.agents._scripted_model import (  # noqa: E402  (import-for-side-effec
 # derives a concrete fallback chain (standard → [cheap]). Chosen from the live
 # catalog (ModelCatalog().list()): sonnet = standard, haiku = cheap.
 PRIMARY_STANDARD = "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"  # standard
-FALLBACK_CHEAP = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"     # cheap
+FALLBACK_CHEAP = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"  # cheap
 ONLY_CHEAP = FALLBACK_CHEAP  # cheap → chain_for == [] → single-entry chain
 
 
@@ -195,8 +195,7 @@ async def test_throttle_advances() -> None:
         f"stale checkpoint instead of restarting cleanly (CR-02)"
     )
     assert retry_tid.startswith(primary_tid), (
-        f"retry thread_id {retry_tid!r} should derive from the base "
-        f"{primary_tid!r}"
+        f"retry thread_id {retry_tid!r} should derive from the base " f"{primary_tid!r}"
     )
 
 
@@ -350,20 +349,20 @@ async def test_non_transient_propagates() -> None:
     assert errs[-1]["data"]["agent_id"] == "domain-analyst"
     # No completed result was recorded (no empty agent_complete for the failed agent).
     assert not _results, "a runner-errored agent must not record a completed result"
-    assert not [e for e in events if e.get("type") == "agent_complete"], (
-        "ISS-016: a failed agent must NOT emit an (empty) agent_complete"
-    )
+    assert not [
+        e for e in events if e.get("type") == "agent_complete"
+    ], "ISS-016: a failed agent must NOT emit an (empty) agent_complete"
 
     # (2) End-to-end: a single-agent run collapses to pipeline_failed (F3 terminal).
     full_events, agent_id, engine, run_id = await _drive_execute_single_non_transient(
         primary=PRIMARY_STANDARD,
     )
     failed = [e for e in full_events if e.get("type") == "pipeline_failed"]
-    assert len(failed) == 1, (
-        f"single-agent non-transient run must end pipeline_failed: {full_events}"
-    )
-    assert [e for e in full_events if e.get("type") == "pipeline_complete"] == [], (
-        "a totally-failed run must NEVER emit pipeline_complete (ISS-016/F3)"
-    )
+    assert (
+        len(failed) == 1
+    ), f"single-agent non-transient run must end pipeline_failed: {full_events}"
+    assert [
+        e for e in full_events if e.get("type") == "pipeline_complete"
+    ] == [], "a totally-failed run must NEVER emit pipeline_complete (ISS-016/F3)"
     assert agent_id in failed[0]["data"]["agents_failed"]
     assert engine._state_machine.get_state(run_id) == "failed"

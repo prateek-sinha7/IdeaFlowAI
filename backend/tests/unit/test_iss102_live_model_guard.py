@@ -25,8 +25,9 @@ def test_guard_blocks_bedrock_client_construction():
     from langchain_aws import ChatBedrockConverse
 
     with pytest.raises(LiveModelClientConstructed) as exc:
-        ChatBedrockConverse(model="anthropic.claude-haiku-4-5-20251001-v1:0",
-                            region_name="eu-central-1")
+        ChatBedrockConverse(
+            model="anthropic.claude-haiku-4-5-20251001-v1:0", region_name="eu-central-1"
+        )
     # The message must name the offending test, or a CI failure is unactionable.
     assert "test_guard_blocks_bedrock_client_construction" in str(exc.value)
     assert "ChatBedrockConverse" in str(exc.value)

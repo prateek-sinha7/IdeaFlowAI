@@ -120,8 +120,7 @@ _BUILTIN_TOOLS: frozenset[str] = frozenset(
 # equivalent) — linear on max_tokens-capped model output, no nested quantifiers
 # (T-13-02-04 ReDoS disposition).
 _FABRICATED_TOOL_XML_RE: re.Pattern[str] = re.compile(
-    r"<function_calls>[\s\S]*?</function_calls>"
-    r"|<invoke\b[^>]*>[\s\S]*?</invoke>"
+    r"<function_calls>[\s\S]*?</function_calls>" r"|<invoke\b[^>]*>[\s\S]*?</invoke>"
 )
 
 # WR-01 (13 review fix): a TRUNCATED span — output cut at max_tokens mid-XML — has
@@ -349,7 +348,11 @@ class DeepAgentRunner:
 
         # ── Tool exclusion: library sub-agents OFF (always), built-ins off
         #    for text-only agents (Task #25) ──────────────────────────────
-        excluded = _BUILTIN_TOOLS if exclude_builtin_tools else frozenset({_LIBRARY_SUBAGENT_TOOL})
+        excluded = (
+            _BUILTIN_TOOLS
+            if exclude_builtin_tools
+            else frozenset({_LIBRARY_SUBAGENT_TOOL})
+        )
         if skills_sources:
             # A run with staged skills must leave the filesystem tools bound —
             # the agent has to be able to CARRY OUT the skill's procedure, not
@@ -399,7 +402,9 @@ class DeepAgentRunner:
         # ── Disk filesystem backend (per-run sandbox), when provided ──────
         backend = None
         if run_sandbox is not None:
-            backend = FilesystemBackend(root_dir=str(run_sandbox.root), virtual_mode=True)
+            backend = FilesystemBackend(
+                root_dir=str(run_sandbox.root), virtual_mode=True
+            )
 
         # ── Assemble the graph ────────────────────────────────────────────
         # subagents=None + the tool-filter middleware together guarantee the
@@ -412,7 +417,10 @@ class DeepAgentRunner:
             tools=self.tools,
             system_prompt=system_prompt,
             subagents=None,
-            middleware=[_ToolFilterMiddleware(excluded=excluded), _BedrockCachePointsMiddleware()],
+            middleware=[
+                _ToolFilterMiddleware(excluded=excluded),
+                _BedrockCachePointsMiddleware(),
+            ],
             backend=backend,
             checkpointer=checkpointer,
             interrupt_on=interrupt_on,
@@ -424,8 +432,11 @@ class DeepAgentRunner:
         prompt_chars = len(system_prompt)
         hook_section_start = system_prompt.find("## Active Behavioral Hooks")
         hook_preview = (
-            system_prompt[hook_section_start:hook_section_start + 120].replace("\n", " ")
-            if hook_section_start != -1 else ""
+            system_prompt[hook_section_start : hook_section_start + 120].replace(
+                "\n", " "
+            )
+            if hook_section_start != -1
+            else ""
         )
         logger.debug(
             "DeepAgentRunner system_prompt: agent=%s chars=%d has_hooks=%s hook_preview='%s'",
@@ -583,10 +594,13 @@ class DeepAgentRunner:
                     # trace line below. Never raises — a missing/oddly-shaped dict
                     # just yields nothing.
                     try:
-                        chunk_kwargs = getattr(event["data"]["chunk"], "additional_kwargs", {}) or {}
-                        chunk_reasoning = chunk_kwargs.get("reasoning_content") or _extract_thinking(
-                            event["data"]["chunk"].content
+                        chunk_kwargs = (
+                            getattr(event["data"]["chunk"], "additional_kwargs", {})
+                            or {}
                         )
+                        chunk_reasoning = chunk_kwargs.get(
+                            "reasoning_content"
+                        ) or _extract_thinking(event["data"]["chunk"].content)
                         if chunk_reasoning:
                             turn_reasoning += str(chunk_reasoning)
                             yield {"type": "thinking", "thinking": str(chunk_reasoning)}
@@ -650,7 +664,9 @@ class DeepAgentRunner:
                     try:
                         end_msg_text = _extract_text(getattr(msg, "content", "") or "")
                         if end_msg_text:
-                            model_logger.debug("output: %s", _one_line(end_msg_text, 400))
+                            model_logger.debug(
+                                "output: %s", _one_line(end_msg_text, 400)
+                            )
                     except Exception:
                         pass
 
@@ -664,12 +680,17 @@ class DeepAgentRunner:
                     # advertised in the prompt) — log it at INFO so it's visible
                     # without turning on full DEBUG tracing.
                     if event["name"] == "read_file":
-                        path_arg = tool_args.get("file_path") or tool_args.get("path") or ""
-                        skill_match = re.match(r'^\.?/?skills/([^/]+)/SKILL\.md$', path_arg)
+                        path_arg = (
+                            tool_args.get("file_path") or tool_args.get("path") or ""
+                        )
+                        skill_match = re.match(
+                            r"^\.?/?skills/([^/]+)/SKILL\.md$", path_arg
+                        )
                         if skill_match:
                             logger.info(
                                 "skill_used: agent read skill %s (%s)",
-                                skill_match.group(1), path_arg,
+                                skill_match.group(1),
+                                path_arg,
                             )
                             # No sandbox reference is held by this runner (only
                             # used transiently in __init__ to build the
@@ -678,12 +699,17 @@ class DeepAgentRunner:
                             # emit the same structured info as a plain debug line.
                             logger.debug(
                                 "audit_log skill_used %s",
-                                {"agent": agent_label, "skill": skill_match.group(1), "file": path_arg},
+                                {
+                                    "agent": agent_label,
+                                    "skill": skill_match.group(1),
+                                    "file": path_arg,
+                                },
                             )
                     logger.debug("graph_tool_node %s -> %s", agent_label, event["name"])
                     tool_logger.debug(
                         "tool_call: %s args=%.120s",
-                        event["name"], tool_args,
+                        event["name"],
+                        tool_args,
                     )
                     yield {
                         "type": "tool_call",
@@ -701,7 +727,9 @@ class DeepAgentRunner:
                     # falls back to the value itself if it is already a plain return.
                     output = event["data"].get("output", "")
                     result_text = str(getattr(output, "content", output))
-                    tool_logger.debug("tool_result: %s -> %.120s", event["name"], result_text)
+                    tool_logger.debug(
+                        "tool_result: %s -> %.120s", event["name"], result_text
+                    )
                     yield {
                         "type": "tool_result",
                         "tool": event["name"],
@@ -710,7 +738,9 @@ class DeepAgentRunner:
 
             logger.debug(
                 "graph_done %s: %d model turn(s), %d chars of reply",
-                agent_label, model_turn, len(full_output),
+                agent_label,
+                model_turn,
+                len(full_output),
             )
 
             # ── End of the event stream — HITL interrupt detection (task #27) ──
@@ -765,7 +795,8 @@ class DeepAgentRunner:
                 logger.warning(
                     "DeepAgentRunner.astream_events: re-raising transient throttle "
                     "for engine fallback (model=%s): %s",
-                    self.model_id, exc,
+                    self.model_id,
+                    exc,
                 )
                 raise
             logger.exception("DeepAgentRunner.astream_events failed: %s", exc)
@@ -866,7 +897,9 @@ class DeepAgentRunner:
                             }
                         )
                     else:  # pragma: no cover — defensive
-                        action_requests.append({"name": None, "args": {}, "raw": str(req)})
+                        action_requests.append(
+                            {"name": None, "args": {}, "raw": str(req)}
+                        )
                 for cfg in value.get("review_configs", []) or []:
                     if isinstance(cfg, dict):
                         review_configs.append(

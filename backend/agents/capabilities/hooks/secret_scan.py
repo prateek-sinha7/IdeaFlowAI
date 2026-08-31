@@ -144,12 +144,7 @@ def _event_payload(event: Any) -> str:
     pass rather than aborting the write.
     """
     if isinstance(event, dict):
-        value = (
-            event.get("payload")
-            or event.get("content")
-            or event.get("text")
-            or ""
-        )
+        value = event.get("payload") or event.get("content") or event.get("text") or ""
     else:
         value = (
             getattr(event, "payload", None)

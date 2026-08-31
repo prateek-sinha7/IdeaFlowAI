@@ -28,7 +28,10 @@ import asyncio
 
 import pytest
 
-from app.agents.deep_agent_runner import _BedrockCachePointsMiddleware, _extract_thinking
+from app.agents.deep_agent_runner import (
+    _BedrockCachePointsMiddleware,
+    _extract_thinking,
+)
 from app.core.config import settings
 
 
@@ -233,7 +236,11 @@ def test_extract_thinking_bedrock_block():
     content = [
         {
             "type": "reasoning_content",
-            "reasoning_content": {"type": "text", "text": "I need to calculate", "signature": "abc"},
+            "reasoning_content": {
+                "type": "text",
+                "text": "I need to calculate",
+                "signature": "abc",
+            },
         }
     ]
     assert _extract_thinking(content) == "I need to calculate"
@@ -246,7 +253,10 @@ def test_extract_thinking_ignores_text_blocks():
 
 def test_extract_thinking_mixed_blocks_extracts_only_thinking():
     content = [
-        {"type": "reasoning_content", "reasoning_content": {"type": "text", "text": "reasoning "}},
+        {
+            "type": "reasoning_content",
+            "reasoning_content": {"type": "text", "text": "reasoning "},
+        },
         {"type": "text", "text": "answer"},
     ]
     assert _extract_thinking(content) == "reasoning "

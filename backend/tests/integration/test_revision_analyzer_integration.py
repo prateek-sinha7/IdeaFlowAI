@@ -64,6 +64,7 @@ def app_client(monkeypatch, tmp_path):
     monkeypatch.setenv("DATABASE_URL", db_url)
 
     from app.core.config import settings
+
     settings.DATABASE_URL = db_url
 
     test_engine = create_engine(db_url, connect_args={"check_same_thread": False})
@@ -72,9 +73,12 @@ def app_client(monkeypatch, tmp_path):
     # Stamp alembic_version so the lifespan check passes.
     with test_engine.begin() as conn:
         from sqlalchemy import text
-        conn.execute(text(
-            "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR PRIMARY KEY)"
-        ))
+
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR PRIMARY KEY)"
+            )
+        )
         conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('0002')"))
 
     TestSession = sessionmaker(bind=test_engine, autocommit=False, autoflush=False)
@@ -87,14 +91,17 @@ def app_client(monkeypatch, tmp_path):
             db.close()
 
     from app.main import app
+
     app.dependency_overrides[get_db] = override_get_db
 
     import app.models.database as db_module
+
     monkeypatch.setattr(db_module, "engine", test_engine)
     monkeypatch.setattr(db_module, "SessionLocal", TestSession)
 
     # Patch _get_db in run_commands to return the test session directly
     import app.api.run_commands as rc
+
     monkeypatch.setattr(rc, "_get_db", TestSession)
 
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -109,7 +116,9 @@ def auth_headers(app_client):
     """Create an enterprise-tier user and return JWT auth headers."""
     session = app_client.SessionLocal()
     try:
-        create_user(session, "tester@example.com", "testpassword1234", tier="enterprise")
+        create_user(
+            session, "tester@example.com", "testpassword1234", tier="enterprise"
+        )
     finally:
         session.close()
 
@@ -156,7 +165,9 @@ def parent_run(app_client, auth_headers):
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
-def _make_run_analyzer_coroutine(tier: str = _FAKE_TIER, solution: str = _FAKE_SOLUTION):
+def _make_run_analyzer_coroutine(
+    tier: str = _FAKE_TIER, solution: str = _FAKE_SOLUTION
+):
     """Return an async function that acts as run_analyzer, emitting the standard 3 events."""
 
     async def _run_analyzer(
@@ -166,36 +177,42 @@ def _make_run_analyzer_coroutine(tier: str = _FAKE_TIER, solution: str = _FAKE_S
         parent_run_id: str,
         model_id=None,
     ) -> tuple[str, str]:
-        await event_queue.put({
-            "type": "agent_start",
-            "data": {
-                "agent_id": "prototype-revision-analyzer",
-                "name": "Prototype Revision Analyzer",
-                "role": "analyzer",
-                "icon": "🔍",
-                "index": 1,
-                "total": 1,
-            },
-        })
-        await event_queue.put({
-            "type": "agent_complete",
-            "data": {
-                "agent_id": "prototype-revision-analyzer",
-                "name": "Prototype Revision Analyzer",
-                "duration": 0.1,
-                "output_length": len(solution),
-                "input_tokens": 100,
-                "output_tokens": 50,
-                "total_tokens": 150,
-            },
-        })
-        await event_queue.put({
-            "type": "revision_analyzer_complete",
-            "data": {
-                "tier": tier,
-                "solution_preview": solution[:200],
-            },
-        })
+        await event_queue.put(
+            {
+                "type": "agent_start",
+                "data": {
+                    "agent_id": "prototype-revision-analyzer",
+                    "name": "Prototype Revision Analyzer",
+                    "role": "analyzer",
+                    "icon": "🔍",
+                    "index": 1,
+                    "total": 1,
+                },
+            }
+        )
+        await event_queue.put(
+            {
+                "type": "agent_complete",
+                "data": {
+                    "agent_id": "prototype-revision-analyzer",
+                    "name": "Prototype Revision Analyzer",
+                    "duration": 0.1,
+                    "output_length": len(solution),
+                    "input_tokens": 100,
+                    "output_tokens": 50,
+                    "total_tokens": 150,
+                },
+            }
+        )
+        await event_queue.put(
+            {
+                "type": "revision_analyzer_complete",
+                "data": {
+                    "tier": tier,
+                    "solution_preview": solution[:200],
+                },
+            }
+        )
         return (tier, solution)
 
     return _run_analyzer
@@ -226,9 +243,9 @@ class TestCreateRevisionEventOrdering:
                 },
                 headers=auth_headers,
             )
-        assert resp.status_code == 200, (
-            f"Expected 200, got {resp.status_code}: {resp.text}"
-        )
+        assert (
+            resp.status_code == 200
+        ), f"Expected 200, got {resp.status_code}: {resp.text}"
         body = resp.json()
         assert "run_id" in body
         assert body["run_id"]  # Non-empty UUID
@@ -242,20 +259,37 @@ class TestCreateRevisionEventOrdering:
         """
         captured_events: list[dict] = []
 
-        async def _capturing_run_analyzer(instruction, existing_html, event_queue,
-                                          parent_run_id, model_id=None):
+        async def _capturing_run_analyzer(
+            instruction, existing_html, event_queue, parent_run_id, model_id=None
+        ):
             tier, solution = _FAKE_TIER, _FAKE_SOLUTION
-            await event_queue.put({
-                "type": "agent_start",
-                "data": {"agent_id": "prototype-revision-analyzer", "name": "Prototype Revision Analyzer",
-                         "role": "analyzer", "icon": "🔍", "index": 1, "total": 1},
-            })
-            await event_queue.put({
-                "type": "agent_complete",
-                "data": {"agent_id": "prototype-revision-analyzer", "name": "Prototype Revision Analyzer",
-                         "duration": 0.1, "output_length": 10,
-                         "input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-            })
+            await event_queue.put(
+                {
+                    "type": "agent_start",
+                    "data": {
+                        "agent_id": "prototype-revision-analyzer",
+                        "name": "Prototype Revision Analyzer",
+                        "role": "analyzer",
+                        "icon": "🔍",
+                        "index": 1,
+                        "total": 1,
+                    },
+                }
+            )
+            await event_queue.put(
+                {
+                    "type": "agent_complete",
+                    "data": {
+                        "agent_id": "prototype-revision-analyzer",
+                        "name": "Prototype Revision Analyzer",
+                        "duration": 0.1,
+                        "output_length": 10,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                }
+            )
             evt = {
                 "type": "revision_analyzer_complete",
                 "data": {"tier": tier, "solution_preview": solution[:200]},
@@ -272,19 +306,24 @@ class TestCreateRevisionEventOrdering:
         ):
             resp = app_client.post(
                 f"/api/runs/{parent_run}/revisions",
-                json={"target_artifact_type": "prototype_output", "instruction": _FAKE_INSTRUCTION},
+                json={
+                    "target_artifact_type": "prototype_output",
+                    "instruction": _FAKE_INSTRUCTION,
+                },
                 headers=auth_headers,
             )
         assert resp.status_code == 200
 
         # Verify the event was captured with the required payload keys
-        assert len(captured_events) == 1, "Expected exactly one revision_analyzer_complete event"
+        assert (
+            len(captured_events) == 1
+        ), "Expected exactly one revision_analyzer_complete event"
         evt = captured_events[0]
         assert evt["type"] == "revision_analyzer_complete"
         assert "tier" in evt["data"], "revision_analyzer_complete must have data.tier"
-        assert "solution_preview" in evt["data"], (
-            "revision_analyzer_complete must have data.solution_preview"
-        )
+        assert (
+            "solution_preview" in evt["data"]
+        ), "revision_analyzer_complete must have data.solution_preview"
         assert evt["data"]["tier"] == _FAKE_TIER
         assert evt["data"]["solution_preview"] == _FAKE_SOLUTION[:200]
 
@@ -309,17 +348,23 @@ class TestCreateRevisionEventOrdering:
         ):
             resp = app_client.post(
                 f"/api/runs/{parent_run}/revisions",
-                json={"target_artifact_type": "prototype_output", "instruction": _FAKE_INSTRUCTION},
+                json={
+                    "target_artifact_type": "prototype_output",
+                    "instruction": _FAKE_INSTRUCTION,
+                },
                 headers=auth_headers,
             )
         assert resp.status_code == 200
         child_run_id = resp.json()["run_id"]
 
         from app.models.workflow import WorkflowRun
+
         session = app_client.SessionLocal()
         try:
             child_run = (
-                session.query(WorkflowRun).filter(WorkflowRun.id == child_run_id).first()
+                session.query(WorkflowRun)
+                .filter(WorkflowRun.id == child_run_id)
+                .first()
             )
             assert child_run is not None, "Child revision run was not minted"
             assert child_run.agent_count == expected_agent_count, (
@@ -354,13 +399,16 @@ class TestCreateRevisionEventOrdering:
         ):
             resp = app_client.post(
                 f"/api/runs/{parent_run}/revisions",
-                json={"target_artifact_type": "prototype_output", "instruction": _FAKE_INSTRUCTION},
+                json={
+                    "target_artifact_type": "prototype_output",
+                    "instruction": _FAKE_INSTRUCTION,
+                },
                 headers=auth_headers,
             )
         assert resp.status_code == 200
-        assert "analyzer_solution" in captured_kwargs, (
-            "_drive_revision_to_queue must receive analyzer_solution kwarg"
-        )
+        assert (
+            "analyzer_solution" in captured_kwargs
+        ), "_drive_revision_to_queue must receive analyzer_solution kwarg"
         assert captured_kwargs["analyzer_solution"] == _FAKE_SOLUTION
 
     def test_non_prototype_revision_does_not_call_run_analyzer(
@@ -395,6 +443,7 @@ class TestCreateRevisionEventOrdering:
             session.close()
 
         import app.agents.revision_analyzer as ra
+
         run_analyzer_mock = AsyncMock(return_value=(_FAKE_TIER, _FAKE_SOLUTION))
 
         with (
@@ -403,7 +452,10 @@ class TestCreateRevisionEventOrdering:
         ):
             _resp = app_client.post(
                 f"/api/runs/{us_run_id}/revisions",
-                json={"target_artifact_type": "user_stories_output", "instruction": "Add more stories"},
+                json={
+                    "target_artifact_type": "user_stories_output",
+                    "instruction": "Add more stories",
+                },
                 headers=auth_headers,
             )
 
@@ -432,28 +484,49 @@ class TestConciergeRevisionPath:
         """
         captured_calls: list[dict] = []
 
-        async def _capturing_run_analyzer(instruction, existing_html, event_queue,
-                                          parent_run_id, model_id=None):
-            captured_calls.append({
-                "instruction": instruction,
-                "existing_html": existing_html,
-                "parent_run_id": parent_run_id,
-            })
-            await event_queue.put({
-                "type": "agent_start",
-                "data": {"agent_id": "prototype-revision-analyzer", "name": "Prototype Revision Analyzer",
-                         "role": "analyzer", "icon": "🔍", "index": 1, "total": 1},
-            })
-            await event_queue.put({
-                "type": "agent_complete",
-                "data": {"agent_id": "prototype-revision-analyzer", "name": "Prototype Revision Analyzer",
-                         "duration": 0.05, "output_length": 5,
-                         "input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-            })
-            await event_queue.put({
-                "type": "revision_analyzer_complete",
-                "data": {"tier": "small", "solution_preview": ""},
-            })
+        async def _capturing_run_analyzer(
+            instruction, existing_html, event_queue, parent_run_id, model_id=None
+        ):
+            captured_calls.append(
+                {
+                    "instruction": instruction,
+                    "existing_html": existing_html,
+                    "parent_run_id": parent_run_id,
+                }
+            )
+            await event_queue.put(
+                {
+                    "type": "agent_start",
+                    "data": {
+                        "agent_id": "prototype-revision-analyzer",
+                        "name": "Prototype Revision Analyzer",
+                        "role": "analyzer",
+                        "icon": "🔍",
+                        "index": 1,
+                        "total": 1,
+                    },
+                }
+            )
+            await event_queue.put(
+                {
+                    "type": "agent_complete",
+                    "data": {
+                        "agent_id": "prototype-revision-analyzer",
+                        "name": "Prototype Revision Analyzer",
+                        "duration": 0.05,
+                        "output_length": 5,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                }
+            )
+            await event_queue.put(
+                {
+                    "type": "revision_analyzer_complete",
+                    "data": {"tier": "small", "solution_preview": ""},
+                }
+            )
             return ("small", "")
 
         revision_instruction = "Make the heading blue"
@@ -475,13 +548,18 @@ class TestConciergeRevisionPath:
             me = app_client.get("/api/auth/me", headers=auth_headers)
             user_id = me.json()["id"]
             from app.models.user import User
+
             fake_user = User(id=user_id, email="tester@example.com", tier="enterprise")
 
             # ProposalIntent lives in concierge.py, not chat_router
             from app.agents.chat.concierge import ProposalIntent
+
             intent = ProposalIntent(
                 channel="revision",
-                params={"instruction": revision_instruction, "target": "prototype_output"},
+                params={
+                    "instruction": revision_instruction,
+                    "target": "prototype_output",
+                },
             )
 
             asyncio.get_event_loop().run_until_complete(
@@ -501,13 +579,13 @@ class TestConciergeRevisionPath:
             )
 
         # Verify run_analyzer was called with instruction and parent output HTML
-        assert len(captured_calls) == 1, (
-            f"Expected run_analyzer to be called once, was called {len(captured_calls)} times"
-        )
+        assert (
+            len(captured_calls) == 1
+        ), f"Expected run_analyzer to be called once, was called {len(captured_calls)} times"
         call_args = captured_calls[0]
-        assert call_args["instruction"] == revision_instruction, (
-            f"Expected instruction={revision_instruction!r}, got {call_args['instruction']!r}"
-        )
+        assert (
+            call_args["instruction"] == revision_instruction
+        ), f"Expected instruction={revision_instruction!r}, got {call_args['instruction']!r}"
         assert call_args["existing_html"] == _FAKE_HTML, (
             "Concierge path must source existing_html from parent run output column, "
             f"got: {call_args['existing_html'][:80]!r}"
@@ -521,6 +599,7 @@ class TestConciergeRevisionPath:
         Validates: Requirement 3.1 guard (only prototype revisions use the analyzer).
         """
         import app.agents.revision_analyzer as ra
+
         run_analyzer_mock = AsyncMock(return_value=("small", ""))
 
         async def _run():
@@ -533,11 +612,15 @@ class TestConciergeRevisionPath:
             mock_art_store.review_event_pending = MagicMock(return_value=False)
 
             from app.models.user import User
+
             fake_user = User(id="user-1", email="tester@example.com", tier="enterprise")
 
             intent = ProposalIntent(
                 channel="revision",
-                params={"instruction": "Add more user stories", "target": "user_stories_output"},
+                params={
+                    "instruction": "Add more user stories",
+                    "target": "user_stories_output",
+                },
             )
 
             fake_run_id = str(uuid.uuid4())
@@ -589,8 +672,11 @@ class TestFallbackChain:
         async def _run():
             import app.agents.revision_analyzer as ra
             import app.agents.model_factory as mf
+
             with (
-                patch.object(mf, "build_model", side_effect=RuntimeError("LLM unavailable")),
+                patch.object(
+                    mf, "build_model", side_effect=RuntimeError("LLM unavailable")
+                ),
                 # _classify_revision_tier is lazy-imported inside run_analyzer's except block
                 # from app.api.run_commands — patch it at the source
                 patch("app.api.run_commands._classify_revision_tier", classify_mock),
@@ -616,11 +702,15 @@ class TestFallbackChain:
 
         Validates: Requirement 3.7
         """
+
         async def _run():
             import app.agents.revision_analyzer as ra
             import app.agents.model_factory as mf
+
             with (
-                patch.object(mf, "build_model", side_effect=RuntimeError("LLM unavailable")),
+                patch.object(
+                    mf, "build_model", side_effect=RuntimeError("LLM unavailable")
+                ),
                 patch(
                     "app.api.run_commands._classify_revision_tier",
                     side_effect=RuntimeError("Fallback also broken"),
@@ -636,7 +726,9 @@ class TestFallbackChain:
 
         tier, solution = asyncio.get_event_loop().run_until_complete(_run())
         assert tier == "large", f"Double-failure must default to 'large', got {tier!r}"
-        assert solution == "", f"Double-failure must return empty solution, got {solution!r}"
+        assert (
+            solution == ""
+        ), f"Double-failure must return empty solution, got {solution!r}"
 
     def test_create_revision_proceeds_on_run_analyzer_failure(
         self, app_client, auth_headers, parent_run
@@ -646,8 +738,10 @@ class TestFallbackChain:
 
         Validates: Requirement 3.6 — analyzer failure degrades gracefully.
         """
-        async def _fallback_run_analyzer(instruction, existing_html, event_queue,
-                                         parent_run_id, model_id=None):
+
+        async def _fallback_run_analyzer(
+            instruction, existing_html, event_queue, parent_run_id, model_id=None
+        ):
             # Simulates what run_analyzer does internally: catches and returns default
             return ("large", "")
 
@@ -659,12 +753,15 @@ class TestFallbackChain:
         ):
             resp = app_client.post(
                 f"/api/runs/{parent_run}/revisions",
-                json={"target_artifact_type": "prototype_output", "instruction": _FAKE_INSTRUCTION},
+                json={
+                    "target_artifact_type": "prototype_output",
+                    "instruction": _FAKE_INSTRUCTION,
+                },
                 headers=auth_headers,
             )
-        assert resp.status_code == 200, (
-            f"create_revision must succeed even when run_analyzer falls back: {resp.text}"
-        )
+        assert (
+            resp.status_code == 200
+        ), f"create_revision must succeed even when run_analyzer falls back: {resp.text}"
         assert "run_id" in resp.json()
 
     def test_double_failure_in_endpoint_proceeds_with_large_tier_pipeline(
@@ -675,8 +772,10 @@ class TestFallbackChain:
 
         Validates: Requirement 3.7
         """
-        async def _double_fail_default(instruction, existing_html, event_queue,
-                                       parent_run_id, model_id=None):
+
+        async def _double_fail_default(
+            instruction, existing_html, event_queue, parent_run_id, model_id=None
+        ):
             return ("large", "")
 
         captured_drive_kwargs: dict = {}
@@ -693,15 +792,18 @@ class TestFallbackChain:
         ):
             resp = app_client.post(
                 f"/api/runs/{parent_run}/revisions",
-                json={"target_artifact_type": "prototype_output", "instruction": _FAKE_INSTRUCTION},
+                json={
+                    "target_artifact_type": "prototype_output",
+                    "instruction": _FAKE_INSTRUCTION,
+                },
                 headers=auth_headers,
             )
 
         assert resp.status_code == 200
         # Double-failure gives empty analyzer_solution
-        assert captured_drive_kwargs.get("analyzer_solution") == "", (
-            "Double-failure path must forward empty analyzer_solution"
-        )
+        assert (
+            captured_drive_kwargs.get("analyzer_solution") == ""
+        ), "Double-failure path must forward empty analyzer_solution"
         # Target must be derived from "large" tier
         expected_target = _REVISION_TIER_TARGET_MAP["large"]
         assert captured_drive_kwargs.get("target_artifact_type") == expected_target, (
@@ -841,6 +943,7 @@ class TestEctxStorageFailure:
         # Use a SimpleNamespace as a fake ectx that raises on analyzer_solution set
         class _BadSetter:
             """A stand-in ectx whose analyzer_solution setter always raises."""
+
             def __setattr__(self, name, value):
                 if name == "analyzer_solution":
                     raise RuntimeError("Storage backend down!")
@@ -861,9 +964,9 @@ class TestEctxStorageFailure:
         _ectx_register_with_solution("test-broken", ectx_like)
 
         # Register was still called despite the setter raising
-        assert register_called == ["test-broken"], (
-            "register_live_ectx must be called even when analyzer_solution setter raises"
-        )
+        assert register_called == [
+            "test-broken"
+        ], "register_live_ectx must be called even when analyzer_solution setter raises"
         # The failure was noted
         assert len(warning_logged) == 1
         assert "Storage backend down!" in warning_logged[0]
@@ -884,12 +987,15 @@ class TestEctxStorageFailure:
         ):
             resp = app_client.post(
                 f"/api/runs/{parent_run}/revisions",
-                json={"target_artifact_type": "prototype_output", "instruction": _FAKE_INSTRUCTION},
+                json={
+                    "target_artifact_type": "prototype_output",
+                    "instruction": _FAKE_INSTRUCTION,
+                },
                 headers=auth_headers,
             )
-        assert resp.status_code == 200, (
-            f"Endpoint must succeed even with soft ectx storage: {resp.text}"
-        )
+        assert (
+            resp.status_code == 200
+        ), f"Endpoint must succeed even with soft ectx storage: {resp.text}"
 
 
 # ── Test: Tier-to-pipeline mapping ──────────────────────────────────────────
@@ -901,11 +1007,14 @@ class TestTierToPipelineMapping:
     Validates: Requirement 3.2, Property 6
     """
 
-    @pytest.mark.parametrize("tier,expected_target", [
-        ("small", "prototype_output"),
-        ("large", "prototype_large_output"),
-        ("feature", "prototype_feature_output"),
-    ])
+    @pytest.mark.parametrize(
+        "tier,expected_target",
+        [
+            ("small", "prototype_output"),
+            ("large", "prototype_large_output"),
+            ("feature", "prototype_feature_output"),
+        ],
+    )
     def test_tier_drives_effective_target(
         self, tier, expected_target, app_client, auth_headers, parent_run
     ):
@@ -918,23 +1027,42 @@ class TestTierToPipelineMapping:
         async def _mock_drive(**kwargs):
             captured_drive_kwargs.update(kwargs)
 
-        async def _tier_mock(instruction, existing_html, event_queue,
-                             parent_run_id, model_id=None):
-            await event_queue.put({
-                "type": "agent_start",
-                "data": {"agent_id": "prototype-revision-analyzer", "name": "Prototype Revision Analyzer",
-                         "role": "analyzer", "icon": "🔍", "index": 1, "total": 1},
-            })
-            await event_queue.put({
-                "type": "agent_complete",
-                "data": {"agent_id": "prototype-revision-analyzer", "name": "Prototype Revision Analyzer",
-                         "duration": 0.01, "output_length": 5,
-                         "input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-            })
-            await event_queue.put({
-                "type": "revision_analyzer_complete",
-                "data": {"tier": tier, "solution_preview": ""},
-            })
+        async def _tier_mock(
+            instruction, existing_html, event_queue, parent_run_id, model_id=None
+        ):
+            await event_queue.put(
+                {
+                    "type": "agent_start",
+                    "data": {
+                        "agent_id": "prototype-revision-analyzer",
+                        "name": "Prototype Revision Analyzer",
+                        "role": "analyzer",
+                        "icon": "🔍",
+                        "index": 1,
+                        "total": 1,
+                    },
+                }
+            )
+            await event_queue.put(
+                {
+                    "type": "agent_complete",
+                    "data": {
+                        "agent_id": "prototype-revision-analyzer",
+                        "name": "Prototype Revision Analyzer",
+                        "duration": 0.01,
+                        "output_length": 5,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                }
+            )
+            await event_queue.put(
+                {
+                    "type": "revision_analyzer_complete",
+                    "data": {"tier": tier, "solution_preview": ""},
+                }
+            )
             return (tier, "")
 
         import app.agents.revision_analyzer as ra
@@ -945,12 +1073,17 @@ class TestTierToPipelineMapping:
         ):
             resp = app_client.post(
                 f"/api/runs/{parent_run}/revisions",
-                json={"target_artifact_type": "prototype_output", "instruction": _FAKE_INSTRUCTION},
+                json={
+                    "target_artifact_type": "prototype_output",
+                    "instruction": _FAKE_INSTRUCTION,
+                },
                 headers=auth_headers,
             )
 
         if resp.status_code == 200:
-            assert captured_drive_kwargs.get("target_artifact_type") == expected_target, (
+            assert (
+                captured_drive_kwargs.get("target_artifact_type") == expected_target
+            ), (
                 f"Tier {tier!r} must map to target {expected_target!r}, "
                 f"got {captured_drive_kwargs.get('target_artifact_type')!r}"
             )
@@ -975,11 +1108,11 @@ class TestTierToPipelineMapping:
         assert "feature" in _REVISION_TIER_TARGET_MAP
         # All three must map to distinct artifact types
         targets = list(_REVISION_TIER_TARGET_MAP.values())
-        assert len(set(targets)) == 3, (
-            f"All three tiers must map to distinct targets, got: {_REVISION_TIER_TARGET_MAP}"
-        )
+        assert (
+            len(set(targets)) == 3
+        ), f"All three tiers must map to distinct targets, got: {_REVISION_TIER_TARGET_MAP}"
         # Each target must end with "_output"
         for tier, target in _REVISION_TIER_TARGET_MAP.items():
-            assert target.endswith("_output"), (
-                f"Tier {tier!r} maps to {target!r} which does not end with '_output'"
-            )
+            assert target.endswith(
+                "_output"
+            ), f"Tier {tier!r} maps to {target!r} which does not end with '_output'"

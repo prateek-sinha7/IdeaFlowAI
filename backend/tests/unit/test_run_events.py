@@ -359,7 +359,10 @@ async def test_engine_sink_survives_a_raced_seq_instead_of_losing_the_event(db_s
 
     await sink.persist(1, "engine-1", "agent_complete", {"seq": 1})
     await sink.persist(
-        2, "engine-2", "review_gate_ready", {"seq": 2, "gate_key": "run-1:domain-analyst"}
+        2,
+        "engine-2",
+        "review_gate_ready",
+        {"seq": 2, "gate_key": "run-1:domain-analyst"},
     )
 
     # The user rejects through the chat lane. The app writer allocates max(seq)+1 → 3,

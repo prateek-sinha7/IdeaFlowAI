@@ -44,15 +44,19 @@ def main(dry_run: bool = False) -> int:
             if has_new_id:
                 continue
             count += 1
-            print(f"  {'[dry-run] ' if dry_run else ''}cancelling run {wr.id} "
-                  f"(status={wr.status}, type={wr.type})")
+            print(
+                f"  {'[dry-run] ' if dry_run else ''}cancelling run {wr.id} "
+                f"(status={wr.status}, type={wr.type})"
+            )
             if not dry_run:
                 wr.status = "cancelled"
                 wr.error = "legacy_runner_cutover"
                 wr.completed_at = datetime.now(timezone.utc)
         if not dry_run:
             db.commit()
-        print(f"\n{'Would cancel' if dry_run else 'Cancelled'} {count} legacy in-flight run(s).")
+        print(
+            f"\n{'Would cancel' if dry_run else 'Cancelled'} {count} legacy in-flight run(s)."
+        )
         return 0
     finally:
         db.close()

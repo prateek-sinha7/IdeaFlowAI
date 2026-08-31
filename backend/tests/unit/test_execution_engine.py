@@ -18,7 +18,10 @@ from agents.execution_engine.state_machine import (
     StateMachine,
     StateMachineError,
 )
-from agents.execution_engine.clarify_engine import ClarifyEngine, MAX_CLARIFICATION_ROUNDS
+from agents.execution_engine.clarify_engine import (
+    ClarifyEngine,
+    MAX_CLARIFICATION_ROUNDS,
+)
 from agents.artifact_store.store import ArtifactStore, get_artifact_store
 import agents.artifact_store.store as _store_mod
 
@@ -73,7 +76,9 @@ def test_state_machine_full_lifecycle():
 # ---------------------------------------------------------------------------
 
 
-async def _unresolved_generate_questions(self, planning_context, round_num, clarify_agent):
+async def _unresolved_generate_questions(
+    self, planning_context, round_num, clarify_agent
+):
     """Test double for ``ClarifyEngine._generate_questions``.
 
     KAN-124 (commit 90ad687e) made ``_merge_answers`` auto-fill each
@@ -136,8 +141,10 @@ async def test_clarify_engine_pause_resume_cycle():
         if e["type"] == "questionnaire_ready":
             await store.set_questionnaire_responses(
                 pipeline_run_id,
-                [{"question_id": q["question_id"], "answer": "answered"}
-                 for q in e["data"]["questions"]],
+                [
+                    {"question_id": q["question_id"], "answer": "answered"}
+                    for q in e["data"]["questions"]
+                ],
             )
 
     ctx = {
@@ -160,7 +167,9 @@ async def test_clarify_engine_pause_resume_cycle():
 async def test_clarify_engine_asks_once_then_limit_reached(monkeypatch):
     """Default one-round-then-run: unresolved after the single round emits
     clarification_limit_reached (the accepted terminal 'proceed') and PROCEEDs."""
-    monkeypatch.setattr(ClarifyEngine, "_generate_questions", _unresolved_generate_questions)
+    monkeypatch.setattr(
+        ClarifyEngine, "_generate_questions", _unresolved_generate_questions
+    )
     engine = ClarifyEngine()
     store = get_artifact_store()
     pipeline_run_id = "run-clarify-3"
@@ -172,8 +181,10 @@ async def test_clarify_engine_asks_once_then_limit_reached(monkeypatch):
             # Answer with empty strings so missing_information is never resolved
             await store.set_questionnaire_responses(
                 pipeline_run_id,
-                [{"question_id": q["question_id"], "answer": ""}
-                 for q in e["data"]["questions"]],
+                [
+                    {"question_id": q["question_id"], "answer": ""}
+                    for q in e["data"]["questions"]
+                ],
             )
 
     # 5 missing items, all answered empty → never resolves → single round only
@@ -194,7 +205,9 @@ async def test_clarify_engine_asks_once_then_limit_reached(monkeypatch):
 @pytest.mark.asyncio
 async def test_clarify_engine_rounds_knob_allows_multi_round(monkeypatch):
     """max_rounds opts into multi-round; empty answers loop up to the ceiling."""
-    monkeypatch.setattr(ClarifyEngine, "_generate_questions", _unresolved_generate_questions)
+    monkeypatch.setattr(
+        ClarifyEngine, "_generate_questions", _unresolved_generate_questions
+    )
     engine = ClarifyEngine()
     store = get_artifact_store()
     pipeline_run_id = "run-clarify-multi"
@@ -205,8 +218,10 @@ async def test_clarify_engine_rounds_knob_allows_multi_round(monkeypatch):
         if e["type"] == "questionnaire_ready":
             await store.set_questionnaire_responses(
                 pipeline_run_id,
-                [{"question_id": q["question_id"], "answer": ""}
-                 for q in e["data"]["questions"]],
+                [
+                    {"question_id": q["question_id"], "answer": ""}
+                    for q in e["data"]["questions"]
+                ],
             )
 
     ctx = {
@@ -323,7 +338,9 @@ async def test_clarify_engine_empty_submit_proceeds_after_one_round(monkeypatch)
     """One-round-then-run: an empty submit (no force-proceed flag) no longer
     re-asks — the questionnaire is asked exactly once, then the run PROCEEDs via
     the terminal clarification_limit_reached (default max_rounds=1)."""
-    monkeypatch.setattr(ClarifyEngine, "_generate_questions", _unresolved_generate_questions)
+    monkeypatch.setattr(
+        ClarifyEngine, "_generate_questions", _unresolved_generate_questions
+    )
     engine = ClarifyEngine()
     store = get_artifact_store()
     pipeline_run_id = "run-clarify-noflag"
@@ -364,8 +381,10 @@ async def test_clarify_engine_asks_once_then_proceeds_on_subset():
             questions = e["data"]["questions"]
             # Answer only the FIRST question; leave the rest blank (a subset).
             responses = [
-                {"question_id": q["question_id"],
-                 "answer": "subset-answer" if idx == 0 else ""}
+                {
+                    "question_id": q["question_id"],
+                    "answer": "subset-answer" if idx == 0 else "",
+                }
                 for idx, q in enumerate(questions)
             ]
             await store.set_questionnaire_responses(pipeline_run_id, responses)
@@ -397,8 +416,10 @@ async def test_clarify_engine_caps_questions_at_5():
             captured_question_counts.append(len(e["data"]["questions"]))
             await store.set_questionnaire_responses(
                 pipeline_run_id,
-                [{"question_id": q["question_id"], "answer": "x"}
-                 for q in e["data"]["questions"]],
+                [
+                    {"question_id": q["question_id"], "answer": "x"}
+                    for q in e["data"]["questions"]
+                ],
             )
 
     ctx = {

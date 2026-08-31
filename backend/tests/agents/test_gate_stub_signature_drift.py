@@ -38,7 +38,14 @@ ENGINE = BACKEND / "agents" / "execution_engine" / "engine.py"
 METHOD = "_run_review_gate"
 
 # Vendored / generated trees carry no stubs and would only slow the sweep.
-_SKIP_DIR_PARTS = {".git", "node_modules", "__pycache__", "site-packages", ".venv", "venv"}
+_SKIP_DIR_PARTS = {
+    ".git",
+    "node_modules",
+    "__pycache__",
+    "site-packages",
+    ".venv",
+    "venv",
+}
 
 # A resolver that silently finds nothing degrades to a vacuous pass over time. These floors
 # make that failure loud. They are deliberately slack — they catch "the sweep broke", not
@@ -73,13 +80,19 @@ def _signature_of(fn: ast.AST, *, drop_self: bool) -> inspect.Signature:
     for index, arg in enumerate(positional):
         if drop_self and index == 0 and arg.arg in ("self", "cls"):
             continue
-        kind = P.POSITIONAL_ONLY if index < len(args.posonlyargs) else P.POSITIONAL_OR_KEYWORD
+        kind = (
+            P.POSITIONAL_ONLY
+            if index < len(args.posonlyargs)
+            else P.POSITIONAL_OR_KEYWORD
+        )
         default = P.empty if index < first_defaulted else ...
         params.append(P(arg.arg, kind, default=default))
     if args.vararg:
         params.append(P(args.vararg.arg, P.VAR_POSITIONAL))
     for arg, node in zip(args.kwonlyargs, args.kw_defaults, strict=False):
-        params.append(P(arg.arg, P.KEYWORD_ONLY, default=(P.empty if node is None else ...)))
+        params.append(
+            P(arg.arg, P.KEYWORD_ONLY, default=(P.empty if node is None else ...))
+        )
     if args.kwarg:
         params.append(P(args.kwarg.arg, P.VAR_KEYWORD))
     return inspect.Signature(params)
@@ -92,7 +105,12 @@ def _scope_chain(tree: ast.Module) -> dict[ast.AST, ast.AST | None]:
     def walk(node: ast.AST, scope: ast.AST) -> None:
         for child in ast.iter_child_nodes(node):
             enclosing[child] = scope
-            walk(child, child if (_is_func(child) or isinstance(child, ast.ClassDef)) else scope)
+            walk(
+                child,
+                child
+                if (_is_func(child) or isinstance(child, ast.ClassDef))
+                else scope,
+            )
 
     walk(tree, tree)
     return enclosing
@@ -144,7 +162,9 @@ def _returned_inner_def(factory: ast.AST) -> ast.AST | None:
 
 
 class _Stub:
-    def __init__(self, path: Path, lineno: int, label: str, fn: ast.AST | None, drop_self: bool):
+    def __init__(
+        self, path: Path, lineno: int, label: str, fn: ast.AST | None, drop_self: bool
+    ):
         self.rel = path.relative_to(BACKEND).as_posix()
         self.lineno = lineno  # where the stub is installed / declared
         self.label = label
@@ -164,9 +184,7 @@ class _Stub:
 
 def _python_files() -> list[Path]:
     return sorted(
-        p
-        for p in BACKEND.rglob("*.py")
-        if not _SKIP_DIR_PARTS.intersection(p.parts)
+        p for p in BACKEND.rglob("*.py") if not _SKIP_DIR_PARTS.intersection(p.parts)
     )
 
 
@@ -177,8 +195,18 @@ def _collect_stubs() -> list[_Stub]:
     for path in _python_files():
         try:
             tree = _parse(path)
-        except SyntaxError as exc:  # a file this guard cannot read is a hole, not a pass
-            stubs.append(_Stub(path, getattr(exc, "lineno", 0) or 0, f"<unparseable: {exc}>", None, False))
+        except (
+            SyntaxError
+        ) as exc:  # a file this guard cannot read is a hole, not a pass
+            stubs.append(
+                _Stub(
+                    path,
+                    getattr(exc, "lineno", 0) or 0,
+                    f"<unparseable: {exc}>",
+                    None,
+                    False,
+                )
+            )
             continue
         enclosing = _scope_chain(tree)
 
@@ -189,15 +217,27 @@ def _collect_stubs() -> list[_Stub]:
                 value = node.value
                 if isinstance(value, ast.Name):
                     fn = _resolve_name(value.id, node, tree, enclosing)
-                    stubs.append(_Stub(path, node.lineno, value.id, fn, drop_self=False))
+                    stubs.append(
+                        _Stub(path, node.lineno, value.id, fn, drop_self=False)
+                    )
                 elif isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
                     factory = _resolve_name(value.func.id, node, tree, enclosing)
-                    inner = _returned_inner_def(factory) if factory is not None else None
+                    inner = (
+                        _returned_inner_def(factory) if factory is not None else None
+                    )
                     label = f"{value.func.id}() -> {getattr(inner, 'name', '?')}"
-                    stubs.append(_Stub(path, node.lineno, label, inner, drop_self=False))
+                    stubs.append(
+                        _Stub(path, node.lineno, label, inner, drop_self=False)
+                    )
                 else:
                     stubs.append(
-                        _Stub(path, node.lineno, f"<unresolvable: {ast.unparse(value)}>", None, False)
+                        _Stub(
+                            path,
+                            node.lineno,
+                            f"<unresolvable: {ast.unparse(value)}>",
+                            None,
+                            False,
+                        )
                     )
 
             if isinstance(node, ast.ClassDef):
@@ -206,7 +246,13 @@ def _collect_stubs() -> list[_Stub]:
                         if path == ENGINE and node.name == "ExecutionEngine":
                             continue  # the real method, not a double
                         stubs.append(
-                            _Stub(path, member.lineno, f"{node.name}.{METHOD}", member, drop_self=True)
+                            _Stub(
+                                path,
+                                member.lineno,
+                                f"{node.name}.{METHOD}",
+                                member,
+                                drop_self=True,
+                            )
                         )
     return stubs
 
@@ -216,9 +262,16 @@ def _real_parameters() -> list[str]:
     for node in ast.walk(tree):
         if _is_func(node) and node.name == METHOD:  # type: ignore[attr-defined]
             args = node.args  # type: ignore[attr-defined]
-            names = [a.arg for a in list(args.posonlyargs) + list(args.args) + list(args.kwonlyargs)]
+            names = [
+                a.arg
+                for a in list(args.posonlyargs)
+                + list(args.args)
+                + list(args.kwonlyargs)
+            ]
             return [n for n in names if n != "self"]
-    raise AssertionError(f"{METHOD} not found in {ENGINE} — this guard's premise is gone")
+    raise AssertionError(
+        f"{METHOD} not found in {ENGINE} — this guard's premise is gone"
+    )
 
 
 # ───────────────────────────── the tests ─────────────────────────────
@@ -246,7 +299,9 @@ def test_bind_predicate_actually_discriminates() -> None:
     _signature_of(pinned, drop_self=False).bind(**{p: None for p in real})
 
     with pytest.raises(TypeError):
-        _signature_of(pinned, drop_self=False).bind(**{p: None for p in [*real, "a_new_param"]})
+        _signature_of(pinned, drop_self=False).bind(
+            **{p: None for p in [*real, "a_new_param"]}
+        )
 
 
 def test_stub_census_is_not_vacuous() -> None:
@@ -283,7 +338,9 @@ def test_every_gate_stub_accepts_the_real_signature() -> None:
                 + list(stub.fn.args.kwonlyargs)  # type: ignore[attr-defined]
             }
             missing = [p for p in real if p not in accepted]
-            broken.append(f"  {where} — {stub.label}(): {exc}\n      cannot accept: {missing}")
+            broken.append(
+                f"  {where} — {stub.label}(): {exc}\n      cannot accept: {missing}"
+            )
 
     report = []
     if unresolved:

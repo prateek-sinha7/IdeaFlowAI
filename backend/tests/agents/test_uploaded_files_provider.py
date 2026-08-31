@@ -154,7 +154,9 @@ def test_missing_sidecar_text_is_skipped() -> None:
     sb = _FakeSandbox()
     sb.write(
         f"{_UPLOADS_PREFIX}manifest.json",
-        json.dumps([{"name": "brief.pdf", "mime": "application/pdf", "has_text": True}]),
+        json.dumps(
+            [{"name": "brief.pdf", "mime": "application/pdf", "has_text": True}]
+        ),
     )
     assert _load(_ctx(sb)) == {}
 
@@ -232,8 +234,12 @@ _OPT_IN_PROVIDERS = ["uploaded_files"]
 def _spec(agent_id: str, *, injects=("uploaded_files",)):
     """A minimal agnostic spec: only ``injects`` opts into the provider loop."""
     return SimpleNamespace(
-        id=agent_id, name=agent_id.title(), role="tester",
-        injects=list(injects), tools=[], consumes=[],
+        id=agent_id,
+        name=agent_id.title(),
+        role="tester",
+        injects=list(injects),
+        tools=[],
+        consumes=[],
     )
 
 
@@ -253,8 +259,12 @@ def _staged_ectx(providers=_OPT_IN_PROVIDERS) -> ExecutionContext:
 
 async def _compose(engine, ectx, spec, ordered) -> str:
     return await engine._compose_context_message(
-        spec=spec, index=ordered.index(spec), ordered_agents=ordered,
-        user_message="build me a thing", planning_context={}, ectx=ectx,
+        spec=spec,
+        index=ordered.index(spec),
+        ordered_agents=ordered,
+        user_message="build me a thing",
+        planning_context={},
+        ectx=ectx,
     )
 
 
@@ -302,9 +312,9 @@ async def test_sc001_engine_has_zero_reference_to_the_capability() -> None:
     import agents.execution_engine.engine as engine_mod
 
     source = inspect.getsource(engine_mod)
-    assert "uploaded_files" not in source, (
-        "engine.py references 'uploaded_files' — SC-001 requires zero engine coupling"
-    )
+    assert (
+        "uploaded_files" not in source
+    ), "engine.py references 'uploaded_files' — SC-001 requires zero engine coupling"
 
 
 @pytest.mark.asyncio
@@ -324,7 +334,9 @@ async def test_inv3_dormant_case_is_byte_identical_to_baseline() -> None:
     baseline_ectx = ExecutionContext(run_id="r-baseline", owner_id="o-baseline")
     baseline_ectx.runner = SimpleNamespace(sandbox=_FakeSandbox())
     baseline_ectx.compiled_context_providers = []
-    baseline_msg = await _compose(engine, ectx=baseline_ectx, spec=spec, ordered=ordered)
+    baseline_msg = await _compose(
+        engine, ectx=baseline_ectx, spec=spec, ordered=ordered
+    )
 
     assert "## Uploaded Files" not in dormant_msg
     assert _UPLOAD_TEXT not in dormant_msg
@@ -358,21 +370,31 @@ class _FakeScopedStore:
         return list(self._rows)
 
 
-def _durable_rows(entries: list[dict], texts: dict[str, str], *, base_version: int = 1) -> list:
+def _durable_rows(
+    entries: list[dict], texts: dict[str, str], *, base_version: int = 1
+) -> list:
     """Build the durable rows the ingest dual-write persists: one sidecar row per
     doc + one manifest snapshot row (all kind=upload_text, monotonic version)."""
     rows = []
     version = base_version
     for name, text in texts.items():
-        rows.append(SimpleNamespace(
-            location=f"{_UPLOADS_PREFIX}{name}.txt",
-            content=text, version=version, kind="upload_text",
-        ))
+        rows.append(
+            SimpleNamespace(
+                location=f"{_UPLOADS_PREFIX}{name}.txt",
+                content=text,
+                version=version,
+                kind="upload_text",
+            )
+        )
         version += 1
-    rows.append(SimpleNamespace(
-        location=f"{_UPLOADS_PREFIX}manifest.json",
-        content=json.dumps(entries), version=version, kind="upload_text",
-    ))
+    rows.append(
+        SimpleNamespace(
+            location=f"{_UPLOADS_PREFIX}manifest.json",
+            content=json.dumps(entries),
+            version=version,
+            kind="upload_text",
+        )
+    )
     return rows
 
 
@@ -409,9 +431,9 @@ def test_durable_body_byte_equivalent_to_disk() -> None:
     disk_body = _load(_ctx(_stage_uploads(entries, texts)))["uploaded_files_context"]
     # DURABLE body (wiped sandbox + the SAME content in the store).
     store = _FakeScopedStore(_durable_rows(entries, texts), run_id="r-wiped")
-    durable_body = _load(
-        _durable_ctx(_FakeSandbox(), store, run_id="r-wiped")
-    )["uploaded_files_context"]
+    durable_body = _load(_durable_ctx(_FakeSandbox(), store, run_id="r-wiped"))[
+        "uploaded_files_context"
+    ]
     assert disk_body == durable_body  # byte-identical by construction
 
 
@@ -422,7 +444,9 @@ def test_disk_wins_when_both_present() -> None:
     store = _FakeScopedStore(
         _durable_rows(entries, {"brief.pdf": "DURABLE CONTENT"}), run_id="r-wiped"
     )
-    body = _load(_durable_ctx(disk_sb, store, run_id="r-wiped"))["uploaded_files_context"]
+    body = _load(_durable_ctx(disk_sb, store, run_id="r-wiped"))[
+        "uploaded_files_context"
+    ]
     assert "DISK CONTENT" in body
     assert "DURABLE CONTENT" not in body
 
@@ -467,6 +491,8 @@ async def test_wiped_resume_three_agent_sticky_context() -> None:
 
     for spec in ordered:
         msg = await _compose(engine, ectx, spec, ordered)
-        assert _UPLOAD_TEXT in msg, f"upload text missing from {spec.id} on wiped resume"
+        assert (
+            _UPLOAD_TEXT in msg
+        ), f"upload text missing from {spec.id} on wiped resume"
         assert "## Uploaded Files" in msg
         assert "brief.pdf" in msg

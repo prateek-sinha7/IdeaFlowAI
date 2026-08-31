@@ -41,11 +41,25 @@ from agents.workflows.manifest import WorkflowManifest
 # verbatim onto the raw step dict so the compiler's strict-key rejection — INV-5 —
 # names it, never this module). Kept aligned with compiler._ALLOWED_STEP_KEYS.
 _LEVER_KEYS: frozenset[str] = frozenset(
-    {"validators", "gates", "model", "retry", "injects", "compaction", "post_step",
-     "fix", "fanout", "on_conflict", "tools", "hooks", "task_source", "depends_on",
-     # ADR-0010 — per-agent skills, the composer's replacement for run-level
-     # ``attached_skills``.
-     "skills"}
+    {
+        "validators",
+        "gates",
+        "model",
+        "retry",
+        "injects",
+        "compaction",
+        "post_step",
+        "fix",
+        "fanout",
+        "on_conflict",
+        "tools",
+        "hooks",
+        "task_source",
+        "depends_on",
+        # ADR-0010 — per-agent skills, the composer's replacement for run-level
+        # ``attached_skills``.
+        "skills",
+    }
 )
 
 
@@ -146,9 +160,19 @@ def _synthesize_step(agent_id: str, sel: dict | None) -> dict:
     # tick a skill in the composer, watch it persist, and have it silently never
     # reach the agent. ``skills`` is a plain list of catalog ids with no capability
     # reference, so it carries no trust=user gate.
-    for key in ("injects", "compaction", "post_step", "fix", "fanout",
-                "on_conflict", "tools", "hooks", "task_source", "depends_on",
-                "skills"):
+    for key in (
+        "injects",
+        "compaction",
+        "post_step",
+        "fix",
+        "fanout",
+        "on_conflict",
+        "tools",
+        "hooks",
+        "task_source",
+        "depends_on",
+        "skills",
+    ):
         if sel.get(key) is not None:
             step[key] = sel[key]
 
@@ -185,10 +209,7 @@ def synthesize_manifest(
     wf_limits = limits
     if wf_limits is None and isinstance(sel_map.get("__workflow__"), dict):
         wf_limits = sel_map["__workflow__"].get("limits")
-    steps = [
-        _synthesize_step(aid, sel_map.get(aid))
-        for aid in agent_ids
-    ]
+    steps = [_synthesize_step(aid, sel_map.get(aid)) for aid in agent_ids]
     return WorkflowManifest(
         id=base_pipeline_type,
         steps=steps,

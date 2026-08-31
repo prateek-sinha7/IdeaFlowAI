@@ -97,7 +97,9 @@ class FanoutBatchStrategy:
             # synthesizes count identical worker requests — the declared field is
             # honored, not decorative. The kernel still owns selection/clamping.
             fanout_spec = getattr(step, "fanout", None)
-            count = getattr(fanout_spec, "count", None) if fanout_spec is not None else None
+            count = (
+                getattr(fanout_spec, "count", None) if fanout_spec is not None else None
+            )
             if count and int(count) > 0:
                 requests = [{"agent": "self", "input": ""} for _ in range(int(count))]
 

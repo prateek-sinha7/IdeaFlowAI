@@ -46,14 +46,18 @@ _FIXTURE = (
 # tests; this one pins the FINAL measured counts after ITEM 3 (render un-dedup) +
 # ITEM 4 (static router-dead).
 _FULL_FIXTURE = (
-    Path(__file__).parent / "fixtures" / "imc-inventory-certificate-management-full.html"
+    Path(__file__).parent
+    / "fixtures"
+    / "imc-inventory-certificate-management-full.html"
 ).resolve()
 # B — the FIXED-router regression fixture (quick-260701-go2 round 3): the same SPA with
 # an alias/parametric routes ARRAY + a scoped ``.page-section[data-page]`` navigateTo.
 # It MUST PASS both tiers (static ok=True 0 dead/0 router-dead; render ok=True 17/17).
 # Committed ALONGSIDE the trimmed + full fixtures (additive).
 _FIXED_FIXTURE = (
-    Path(__file__).parent / "fixtures" / "imc-inventory-certificate-management-fixed.html"
+    Path(__file__).parent
+    / "fixtures"
+    / "imc-inventory-certificate-management-fixed.html"
 ).resolve()
 # BLANK-NAV — the round-4 must-fail regression fixture (null-honesty guard). A small
 # multi-section hash-router SPA whose router pins ``is-active`` on the nav ``<a
@@ -61,9 +65,7 @@ _FIXED_FIXTURE = (
 # render_check must report every route dead with ``activated is None`` (a blank page),
 # never coerced to the nav anchor's data-page name. This is the guard that would have
 # caught A's coercion bug today. Committed additively.
-_BLANK_FIXTURE = (
-    Path(__file__).parent / "fixtures" / "blank-nav.html"
-).resolve()
+_BLANK_FIXTURE = (Path(__file__).parent / "fixtures" / "blank-nav.html").resolve()
 # MIS-ROUTE — fixture C, the round-5 wrong-section regression fixture
 # (quick-260701-kml). Construction (a): a hand-authored SPA with NO parseable routes
 # table (its map is named ``swap``, not ``routes``) so ``expected`` = first-path-segment;
@@ -72,9 +74,7 @@ _BLANK_FIXTURE = (
 # render_check must fire the wrong-section branch (``activated is not None AND activated
 # != expected``) end-to-end for the first time — distinct from the round-4 blank/null
 # path and from a blanket-fail (dashboard is correct). Committed additively.
-_MIS_ROUTE_FIXTURE = (
-    Path(__file__).parent / "fixtures" / "mis-route.html"
-).resolve()
+_MIS_ROUTE_FIXTURE = (Path(__file__).parent / "fixtures" / "mis-route.html").resolve()
 
 # ── FINAL measured counts on the full fixture (A). MEASURED under the round-3
 # route-table-aware validators (quick-260701-go2) — these SUPERSEDE the round-2 pins
@@ -82,13 +82,17 @@ _MIS_ROUTE_FIXTURE = (
 # links dedupe per unreachable target (11 → 5); render is unchanged (A's runtime is
 # genuinely broken — navigateTo activates the sidebar <a>, not the <section>). Pinned as
 # EXACT integers — a drift here is a real behavioral regression. ──
-_FULL_STATIC_DEAD_LINKS = 5    # round-3: deduped unreachable targets — was 11 (round-2)
-_FULL_STATIC_ROUTER_DEAD = 0   # router-dead: A's routes resolve, none section-less-in-map
-_FULL_RENDER_SIDEBAR_DEAD = 17  # round-4: ALL 17 dead — #/dashboard no longer coerced to
+_FULL_STATIC_DEAD_LINKS = 5  # round-3: deduped unreachable targets — was 11 (round-2)
+_FULL_STATIC_ROUTER_DEAD = (
+    0  # router-dead: A's routes resolve, none section-less-in-map
+)
+_FULL_RENDER_SIDEBAR_DEAD = (
+    17  # round-4: ALL 17 dead — #/dashboard no longer coerced to
+)
 #                                 a nav-link name (the router pins is-active on the nav
 #                                 <a data-page>, not the <section>; null-honesty reads
 #                                 that blank page as None → dead, was 16 in round-3)
-_FULL_RENDER_NAV_TOTAL = 17     # total NavResults exercised (all 17 now dead)
+_FULL_RENDER_NAV_TOTAL = 17  # total NavResults exercised (all 17 now dead)
 # Overlap between the static dead/router-dead TARGETS and the render dead TARGETS
 # (first-path-segment). Measured value — asserted EXACTLY (not "disjoint").
 _FULL_STATIC_RENDER_OVERLAP = 2  # {'certificates', 'inventory'} (round-3 measured)
@@ -157,8 +161,13 @@ class _FakeRunner:
         self, step, validator, *, severity=None, attempt=0, issues=None
     ):
         self.records.append(
-            {"step": step, "validator": validator, "severity": severity,
-             "attempt": attempt, "issues": issues}
+            {
+                "step": step,
+                "validator": validator,
+                "severity": severity,
+                "attempt": attempt,
+                "issues": issues,
+            }
         )
         return f"vr-{len(self.records)}"
 
@@ -210,9 +219,9 @@ def test_scenario1_render_flags_fixture(tmp_path):
 
 
 def test_scenario2_nav_ok_pure():
-    assert _nav_ok("dashboard", "dashboard") is True       # correct activation
-    assert _nav_ok("settings", "dashboard") is False       # wrong-section activation
-    assert _nav_ok(None, "dashboard") is False             # nothing activated
+    assert _nav_ok("dashboard", "dashboard") is True  # correct activation
+    assert _nav_ok("settings", "dashboard") is False  # wrong-section activation
+    assert _nav_ok(None, "dashboard") is False  # nothing activated
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -267,7 +276,9 @@ def test_scenario3_coverage_finding_end_to_end(tmp_path):
 @pytest.mark.asyncio
 async def test_scenario4a_html_render_require_render_emits_one_p0():
     """html_render.validate (fake render available=False) + require_render=true → 1 P0."""
-    runner = _FakeRunner(RenderResult(ok=True, available=False, note="Chromium unavailable"))
+    runner = _FakeRunner(
+        RenderResult(ok=True, available=False, note="Chromium unavailable")
+    )
     target = _Target(runner, require_render=True)
     hr = CapabilityRegistry().resolve("validator", "html_render")
     issues = await hr.validate(target)
@@ -287,15 +298,17 @@ class _GateRunner:
         self.gate_events: list[dict] = []
         self.validation_records: list[dict] = []
 
-    def deliverable_context(self, *, name, step="", content=None, task_meta=None,
-                            require_render=None):
+    def deliverable_context(
+        self, *, name, step="", content=None, task_meta=None, require_render=None
+    ):
         return _Target(self, require_render=require_render, step=step)
 
     async def render_check(self, path):
         return self._render
 
-    async def record_validation_result(self, step, validator, *, severity=None,
-                                       attempt=0, issues=None):
+    async def record_validation_result(
+        self, step, validator, *, severity=None, attempt=0, issues=None
+    ):
         self.validation_records.append({"validator": validator, "severity": severity})
         return "vr-1"
 
@@ -307,8 +320,12 @@ class _GateRunner:
 @pytest.mark.asyncio
 async def test_scenario4b_require_render_drives_validation_gate_block():
     """The P0 drives the EXISTING ValidationGate.evaluate → GATE_BLOCK (no new outcome)."""
-    runner = _GateRunner(RenderResult(ok=True, available=False, note="Chromium unavailable"))
-    ctx = SimpleNamespace(runner=runner, deliverable=SimpleNamespace(name="prototype.html"))
+    runner = _GateRunner(
+        RenderResult(ok=True, available=False, note="Chromium unavailable")
+    )
+    ctx = SimpleNamespace(
+        runner=runner, deliverable=SimpleNamespace(name="prototype.html")
+    )
     step = SimpleNamespace(
         agent_id="prototype-revision-agent",
         validators=["html_render"],
@@ -322,17 +339,22 @@ async def test_scenario4b_require_render_drives_validation_gate_block():
 
 
 @pytest.mark.asyncio
-async def test_scenario4c_fixloop_render_unavailable_no_fix_thread(tmp_path, monkeypatch):
+async def test_scenario4c_fixloop_render_unavailable_no_fix_thread(
+    tmp_path, monkeypatch
+):
     """_run_validation_fix_loop (clean static + render unavailable + require_render=true)
     does NOT re-invoke the sub-agent (create_runner never called)."""
     from agents.execution_engine import engine as engine_mod
 
     html_file = tmp_path / "prototype.html"
-    html_file.write_text("<!doctype html><html><body>ok</body></html>", encoding="utf-8")
+    html_file.write_text(
+        "<!doctype html><html><body>ok</body></html>", encoding="utf-8"
+    )
 
     # Clean static, render unavailable (skip).
     monkeypatch.setattr(
-        engine_mod, "static_check",
+        engine_mod,
+        "static_check",
         lambda p: SimpleNamespace(ok=True, issues=[], summary=lambda: "OK"),
         raising=False,
     )
@@ -343,9 +365,11 @@ async def test_scenario4c_fixloop_render_unavailable_no_fix_thread(tmp_path, mon
     # engine._run_validation_fix_loop imports these names locally from the app modules.
     import app.agents.render_check as rc_mod
     import app.agents.static_check as sc_mod
+
     monkeypatch.setattr(rc_mod, "render_check", _fake_render, raising=True)
     monkeypatch.setattr(
-        sc_mod, "static_check",
+        sc_mod,
+        "static_check",
         lambda p: SimpleNamespace(ok=True, issues=[], summary=lambda: "OK"),
         raising=True,
     )
@@ -383,7 +407,9 @@ async def test_scenario4c_fixloop_render_unavailable_no_fix_thread(tmp_path, mon
 async def test_scenario5_require_render_false_passes_but_records_skip():
     """html_render.validate returns [] (pass) BUT a distinct validator_skipped row is
     recorded (severity=SKIPPED) — the skip is never swallowed."""
-    runner = _FakeRunner(RenderResult(ok=True, available=False, note="Chromium unavailable"))
+    runner = _FakeRunner(
+        RenderResult(ok=True, available=False, note="Chromium unavailable")
+    )
     target = _Target(runner, require_render=False)
     hr = CapabilityRegistry().resolve("validator", "html_render")
     issues = await hr.validate(target)
@@ -415,7 +441,8 @@ def test_scenario7_producer_classification_failure_not_skip():
     """A RenderResult with available=True + a dead nav / page_errors is ok=False but
     available=True (a FAILURE, never a skip)."""
     dead = RenderResult(
-        ok=False, available=True,
+        ok=False,
+        available=True,
         nav_results=[NavResult(href="#/x", activated=None, ok=False, expected="x")],
     )
     assert dead.available is True and dead.ok is False
@@ -452,7 +479,12 @@ def test_scenario8_render_zero_new_issues_on_goldens(name, tmp_path):
         pytest.skip("Chromium/Playwright unavailable — browser-gated")
     rr = asyncio.run(render_check((_GOLDEN_DIR / f"{name}.html").resolve()))
     assert rr.available is True
-    assert rr.ok is True, (rr.nav_results, rr.coverage_errors, rr.console_errors, rr.page_errors)
+    assert rr.ok is True, (
+        rr.nav_results,
+        rr.coverage_errors,
+        rr.console_errors,
+        rr.page_errors,
+    )
     assert not rr.coverage_errors
     assert not [n for n in rr.nav_results if not n.ok]
 
@@ -494,8 +526,10 @@ def test_scenario9_router_dead_emitted_when_map_present():
     assert len(router_dead) == 1, r.issues
     assert "reports" in router_dead[0]
     # 'reports' HAS a section → it is NOT reported as a plain dead nav link.
-    assert not any("dead nav link" in i and "router-dead" not in i and "reports" in i
-                   for i in r.issues), r.issues
+    assert not any(
+        "dead nav link" in i and "router-dead" not in i and "reports" in i
+        for i in r.issues
+    ), r.issues
 
 
 def test_scenario9_router_dead_deduped_per_target():
@@ -625,7 +659,9 @@ def _static_dead_and_router_dead_targets(result) -> set[str]:
     targets: set[str] = set()
     for issue in result.issues:
         if issue.startswith("dead nav link"):
-            m = re.search(r"route '([^']+)'", issue) or re.search(r"href '([^']+)'", issue)
+            m = re.search(r"route '([^']+)'", issue) or re.search(
+                r"href '([^']+)'", issue
+            )
             if m:
                 targets.add(_href_target_id(m.group(1)))
         elif issue.startswith("router-dead"):
@@ -639,7 +675,9 @@ def test_scenario12_full_fixture_is_committed():
     """The full 414KB regression fixture is committed alongside the trimmed one."""
     assert _FULL_FIXTURE.is_file(), f"full fixture missing: {_FULL_FIXTURE}"
     assert _FIXTURE.is_file(), "the trimmed fixture must be KEPT (additive)"
-    assert _FULL_FIXTURE.stat().st_size > 400_000, "full fixture should be the ~414KB file"
+    assert (
+        _FULL_FIXTURE.stat().st_size > 400_000
+    ), "full fixture should be the ~414KB file"
 
 
 def test_scenario12_static_final_counts_pinned():
@@ -714,7 +752,9 @@ async def test_scenario12_full_fixture_fail_closed_offline():
 def test_scenario13_fixed_fixture_is_committed():
     """The FIXED (B) regression fixture is committed alongside the trimmed + full ones."""
     assert _FIXED_FIXTURE.is_file(), f"fixed fixture missing: {_FIXED_FIXTURE}"
-    assert _FIXED_FIXTURE.stat().st_size > 400_000, "fixed fixture should be the ~417KB file"
+    assert (
+        _FIXED_FIXTURE.stat().st_size > 400_000
+    ), "fixed fixture should be the ~417KB file"
 
 
 def test_scenario13_B_passes_static():
@@ -732,7 +772,12 @@ def test_scenario13_B_passes_render(tmp_path):
         pytest.skip("Chromium/Playwright unavailable — browser-gated")
     rr = asyncio.run(render_check(_FIXED_FIXTURE))
     assert rr.available is True
-    assert rr.ok is True, (rr.nav_results, rr.coverage_errors, rr.console_errors, rr.page_errors)
+    assert rr.ok is True, (
+        rr.nav_results,
+        rr.coverage_errors,
+        rr.console_errors,
+        rr.page_errors,
+    )
     assert [n for n in rr.nav_results if not n.ok] == [], rr.nav_results
     assert not rr.coverage_errors, rr.coverage_errors
     # Spot-check: at least one alias/:id route (an href with a '/') resolved to a
@@ -812,7 +857,9 @@ def test_scenario14_blank_nav_every_route_activates_nothing(tmp_path):
 
 def test_scenario15_mis_route_fixture_is_committed():
     """The mis-route (round-5) wrong-section fixture is committed alongside the others."""
-    assert _MIS_ROUTE_FIXTURE.is_file(), f"mis-route fixture missing: {_MIS_ROUTE_FIXTURE}"
+    assert (
+        _MIS_ROUTE_FIXTURE.is_file()
+    ), f"mis-route fixture missing: {_MIS_ROUTE_FIXTURE}"
 
 
 def test_scenario15_wrong_section_fires_end_to_end(tmp_path):
@@ -824,13 +871,19 @@ def test_scenario15_wrong_section_fires_end_to_end(tmp_path):
         pytest.skip("Chromium/Playwright unavailable — browser-gated")
     rr = asyncio.run(render_check(_MIS_ROUTE_FIXTURE))
     assert rr.available is True
-    assert rr.ok is False, (rr.nav_results, rr.coverage_errors, rr.console_errors, rr.page_errors)
+    assert rr.ok is False, (
+        rr.nav_results,
+        rr.coverage_errors,
+        rr.console_errors,
+        rr.page_errors,
+    )
     assert rr.nav_results, "expected the mis-route routes to be discovered/exercised"
     # The wrong-section branch fires end-to-end: >=1 NavResult with a real-but-wrong
     # activation (activated is not None AND activated != expected). This is the FIRST
     # time this render path is exercised against Chromium (was _nav_ok unit-only).
     wrong = [
-        n for n in rr.nav_results
+        n
+        for n in rr.nav_results
         if n.activated is not None and n.activated != n.expected
     ]
     assert wrong, [(n.href, n.activated, n.expected) for n in rr.nav_results]
@@ -847,9 +900,9 @@ def test_scenario15_wrong_section_fires_end_to_end(tmp_path):
     ]
     # NOT a blanket-fail: at least one CORRECT route — the #/dashboard route resolves
     # to its own section (swap[dashboard] == dashboard).
-    assert any(
-        n.ok and n.activated == n.expected for n in rr.nav_results
-    ), [(n.href, n.activated, n.expected, n.ok) for n in rr.nav_results]
+    assert any(n.ok and n.activated == n.expected for n in rr.nav_results), [
+        (n.href, n.activated, n.expected, n.ok) for n in rr.nav_results
+    ]
     dash = [n for n in rr.nav_results if n.href == "#/dashboard"]
     assert dash and dash[0].activated == "dashboard" and dash[0].ok is True, dash
     # No false coverage-0 (3 real <section data-page> discovered/exercised).

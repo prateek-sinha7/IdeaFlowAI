@@ -218,9 +218,9 @@ async def test_live_bedrock_hitl_pause_then_resume() -> None:
 
     # ── Validate the gate payload shape ───────────────────────────────────
     interrupt = gate_evt["interrupt"]
-    assert gate_evt.get("thread_id") == runner.thread_id, (
-        "gate event must carry the runner's thread_id for Phase-3 resume routing"
-    )
+    assert (
+        gate_evt.get("thread_id") == runner.thread_id
+    ), "gate event must carry the runner's thread_id for Phase-3 resume routing"
     action_names = [req.get("name") for req in interrupt.get("action_requests", [])]
     assert GATED_TOOL in action_names, (
         f"gate payload must reference the gated tool {GATED_TOOL!r}; "
@@ -228,11 +228,13 @@ async def test_live_bedrock_hitl_pause_then_resume() -> None:
     )
     # interrupt_ids are the resume handles; at least one must be present so Phase 3
     # could target the pending interrupt. (We resume with a single value below.)
-    assert interrupt.get("interrupt_ids"), (
-        f"gate payload must carry interrupt_ids (resume handles); got {interrupt}"
-    )
+    assert interrupt.get(
+        "interrupt_ids"
+    ), f"gate payload must carry interrupt_ids (resume handles); got {interrupt}"
     # The graph must genuinely be paused (a node queued in `next`).
-    assert interrupt.get("next"), f"a paused gate must report a non-empty next; got {interrupt}"
+    assert interrupt.get(
+        "next"
+    ), f"a paused gate must report a non-empty next; got {interrupt}"
 
     # ── RESUME: approve the single pending action_request ──────────────────
     # Exactly ONE Decision per pending action_request (the middleware validates
@@ -244,9 +246,9 @@ async def test_live_bedrock_hitl_pause_then_resume() -> None:
 
     # ── Assert terminal + the gated tool actually executed ─────────────────
     final_state = await runner._graph.aget_state(runner.config)
-    assert final_state.next == (), (
-        f"resumed run must reach a terminal state (next == ()); got next={final_state.next!r}"
-    )
+    assert (
+        final_state.next == ()
+    ), f"resumed run must reach a terminal state (next == ()); got next={final_state.next!r}"
 
     final_messages = final_state.values.get("messages", [])
     tool_messages = [
@@ -262,8 +264,10 @@ async def test_live_bedrock_hitl_pause_then_resume() -> None:
     # Our tool returns "recorded: <summary>"; confirm the real tool body ran
     # (not a synthetic respond/reject message).
     tm = tool_messages[-1]
-    print(f"[resume] terminal next={final_state.next!r}; "
-          f"ToolMessage(name={tm.name!r}, content={tm.content!r})")
+    print(
+        f"[resume] terminal next={final_state.next!r}; "
+        f"ToolMessage(name={tm.name!r}, content={tm.content!r})"
+    )
     assert str(tm.content).startswith("recorded:"), (
         f"the gated tool's real body must have run on approve (returns 'recorded: …'); "
         f"got ToolMessage content {tm.content!r}"

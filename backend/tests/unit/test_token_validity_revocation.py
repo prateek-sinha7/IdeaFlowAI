@@ -20,6 +20,7 @@ Two properties are pinned deliberately:
 
 Pure logic, no AWS and no DB session needed.
 """
+
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -95,7 +96,10 @@ class TestTokensValidFromTrigger:
     def test_applies_to_the_local_break_glass_path_too(self):
         """Revocation is provider-agnostic — break-glass is not exempt."""
         user = _user(auth_provider="local", tokens_valid_from=NOW)
-        assert is_revoked_by_token_validity(user, _principal(NOW_EPOCH - 1, "local")) is True
+        assert (
+            is_revoked_by_token_validity(user, _principal(NOW_EPOCH - 1, "local"))
+            is True
+        )
 
 
 class TestMaxOfBothStamps:

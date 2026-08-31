@@ -100,8 +100,6 @@ def render_behavioral_block(attached_hooks: Any) -> str:
             hook_lines.append(f"- **{name}** ({event}): {description or trigger}")
     if not hook_lines:
         return ""
-    return (
-        f"{_BEHAVIORAL_HEADER}\n\n"
-        f"{_BEHAVIORAL_PREAMBLE}\n\n"
-        + "\n".join(hook_lines)
+    return f"{_BEHAVIORAL_HEADER}\n\n" f"{_BEHAVIORAL_PREAMBLE}\n\n" + "\n".join(
+        hook_lines
     )

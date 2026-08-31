@@ -27,7 +27,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents.capabilities.registry import register
-from agents.capabilities.validators.severity import map_severity  # single source (08-01)
+from agents.capabilities.validators.severity import (
+    map_severity,
+)  # single source (08-01)
 from agents.capabilities.validators._exec_support import (
     exec_granted,
     target_py_files,
@@ -45,7 +47,9 @@ class Issue:
 # A ruff finding line: ``path:line:col: CODE message`` (CODE may be a rule like
 # ``F401`` or ``SyntaxError``). The ``-q`` flag suppresses the summary so only the
 # finding lines remain.
-_FINDING_RE = re.compile(r"^(?P<path>[^:\s][^:]*):(?P<line>\d+):(?P<col>\d+):\s+(?P<rest>.+)$")
+_FINDING_RE = re.compile(
+    r"^(?P<path>[^:\s][^:]*):(?P<line>\d+):(?P<col>\d+):\s+(?P<rest>.+)$"
+)
 
 
 @register(
@@ -92,14 +96,21 @@ class CodeLintValidator:
         issues = []
         try:
             # --output-format=concise + -q → one finding per line, no summary noise.
-            out = ws.exec_command(
-                ["ruff", "check", "--output-format=concise", "-q", *py_files]
-            ) or ""
+            out = (
+                ws.exec_command(
+                    ["ruff", "check", "--output-format=concise", "-q", *py_files]
+                )
+                or ""
+            )
             issues = _parse(out)
         except PermissionError as exc:  # never escapes (VALIDATOR-DENY safety net)
             issues = [Issue(severity="P1", message=f"code_lint exec denied: {exc}")]
         except subprocess.TimeoutExpired:
-            issues = [Issue(severity="P1", message="code_lint timed out (policy wall-clock cap)")]
+            issues = [
+                Issue(
+                    severity="P1", message="code_lint timed out (policy wall-clock cap)"
+                )
+            ]
 
         await _record(target, "code_lint", issues)
         return issues
@@ -120,7 +131,9 @@ def _parse(out: str) -> list[Issue]:
         issues.append(
             Issue(
                 severity=severity,
-                message=f"{m.group('path')}:{m.group('line')}:{m.group('col')}: {rest}"[:512],
+                message=f"{m.group('path')}:{m.group('line')}:{m.group('col')}: {rest}"[
+                    :512
+                ],
             )
         )
     return issues

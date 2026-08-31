@@ -114,10 +114,12 @@ def test_html_skeleton_is_faithful_to_source() -> None:
         (ln for ln in skeleton.splitlines() if ln.startswith("Pages already built")),
         "",
     )
-    assert built_line, "skeleton must report the filled sections via a 'Pages already built' line"
-    assert "dashboard" in built_line and "settings" in built_line, (
-        f"both data-page ids must appear in the built-pages line, got: {built_line!r}"
-    )
+    assert (
+        built_line
+    ), "skeleton must report the filled sections via a 'Pages already built' line"
+    assert (
+        "dashboard" in built_line and "settings" in built_line
+    ), f"both data-page ids must appear in the built-pages line, got: {built_line!r}"
 
     # Routes map and :root design tokens are carried into the skeleton.
     assert "Routes map" in skeleton, "skeleton must carry the routes map"

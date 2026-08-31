@@ -47,6 +47,7 @@ class ChainEntry:
 
     Represents a source workflow that may offer "chain into me" after its run.
     """
+
     id: str
     beta: bool = False
     text: str = ""  # action label for the chain-suggestion UI (e.g., "Ship the code")
@@ -64,10 +65,10 @@ class WorkflowManifest:
 
     # ── Required ──────────────────────────────────────────────────────────
     id: str
-    steps: list                       # raw step dicts; compiler builds Step (may be [])
-    deliverable: dict                 # {strategy: ..., name: ...}
-    planner: str                      # "run" | "skip"
-    clarify: dict                     # {mode, defaults}
+    steps: list  # raw step dicts; compiler builds Step (may be [])
+    deliverable: dict  # {strategy: ..., name: ...}
+    planner: str  # "run" | "skip"
+    clarify: dict  # {mode, defaults}
 
     # ── Optional with defaults ────────────────────────────────────────────
     context_providers: list = field(default_factory=list)
@@ -258,8 +259,7 @@ def build_manifest_from_dict(data: object, source_label: str) -> WorkflowManifes
     # ── Top level must be a mapping ───────────────────────────────────────
     if not isinstance(data, dict):
         raise ManifestValidationError(
-            f"{file_str}: top-level must be a mapping, got "
-            f"{type(data).__name__!r}"
+            f"{file_str}: top-level must be a mapping, got " f"{type(data).__name__!r}"
         )
 
     # ── Strict-key rejection (D-08 / INV-5) ───────────────────────────────
@@ -273,9 +273,7 @@ def build_manifest_from_dict(data: object, source_label: str) -> WorkflowManifes
     # ── Required fields present (MAN-01 — name the missing one) ────────────
     for req in _REQUIRED_KEYS:
         if req not in data:
-            raise ManifestValidationError(
-                f"{file_str}: missing required field '{req}'"
-            )
+            raise ManifestValidationError(f"{file_str}: missing required field '{req}'")
 
     # ── Per-field type checks (each error NAMES the field) ─────────────────
     manifest_id = _require_str(data, "id", file_str)

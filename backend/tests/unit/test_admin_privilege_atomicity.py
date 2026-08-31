@@ -90,7 +90,9 @@ class _Req:
 
 
 def _client_error(code: str) -> ClientError:
-    return ClientError({"Error": {"Code": code, "Message": "boom"}}, "AdminAddUserToGroup")
+    return ClientError(
+        {"Error": {"Code": code, "Message": "boom"}}, "AdminAddUserToGroup"
+    )
 
 
 class TestTierUpdateAtomicity:

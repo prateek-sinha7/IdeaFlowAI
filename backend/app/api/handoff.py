@@ -126,7 +126,9 @@ def _aware(dt: datetime | None) -> datetime | None:
     return dt.replace(tzinfo=timezone.utc)
 
 
-def _serialise(session: HandoffSession, issuer_email: str | None, has_pat: bool) -> HandoffSessionView:
+def _serialise(
+    session: HandoffSession, issuer_email: str | None, has_pat: bool
+) -> HandoffSessionView:
     output: dict[str, Any] | None = None
     if session.pipeline_output:
         try:
@@ -187,7 +189,9 @@ def receive_handoff(
     it up after they click the URL.
     """
     if payload.mode not in _ALLOWED_MODES:
-        raise HTTPException(status_code=422, detail=f"mode must be one of {sorted(_ALLOWED_MODES)}")
+        raise HTTPException(
+            status_code=422, detail=f"mode must be one of {sorted(_ALLOWED_MODES)}"
+        )
 
     if len(payload.transcript.encode("utf-8")) > settings.HANDOFF_MAX_TRANSCRIPT_BYTES:
         raise HTTPException(
@@ -273,9 +277,14 @@ async def start_handoff(
     if sess is None or sess.issuer_user_id != user.id:
         raise HTTPException(status_code=404, detail="Handoff not found")
     if sess.status not in (HANDOFF_STATUS_PENDING, HANDOFF_STATUS_FAILED):
-        raise HTTPException(status_code=409, detail=f"Handoff already in state {sess.status!r}")
+        raise HTTPException(
+            status_code=409, detail=f"Handoff already in state {sess.status!r}"
+        )
     if (_aware(sess.expires_at) or _now()) < _now():
-        raise HTTPException(status_code=410, detail="Handoff has expired; create a new one from your IDE")
+        raise HTTPException(
+            status_code=410,
+            detail="Handoff has expired; create a new one from your IDE",
+        )
 
     pat_row = (
         db.query(UserGithubCredential)
@@ -386,7 +395,9 @@ async def _run_pipeline_background(
     finally:
         db = SessionLocal()
         try:
-            sess = db.query(HandoffSession).filter(HandoffSession.id == handoff_id).first()
+            sess = (
+                db.query(HandoffSession).filter(HandoffSession.id == handoff_id).first()
+            )
             if sess is not None:
                 now = _now()
                 if error_msg is not None:

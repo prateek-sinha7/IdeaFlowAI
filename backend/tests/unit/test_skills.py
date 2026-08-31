@@ -29,6 +29,7 @@ import pytest
 # Fixtures — redirect module-level paths to tmp_path
 # ============================================================
 
+
 @pytest.fixture
 def skills_sandbox(tmp_path: Path) -> Iterator[Path]:
     """Point the skills module at a fresh tmp_path for the duration of a test.
@@ -61,6 +62,7 @@ def skills_sandbox(tmp_path: Path) -> Iterator[Path]:
 # ============================================================
 # Storage layer — save / list / delete / resolve
 # ============================================================
+
 
 class TestSaveCustomSkill:
     """Tests for save_custom_skill."""
@@ -101,7 +103,11 @@ class TestUserIsolation:
 
     def test_b_cannot_read_a(self, skills_sandbox):
         """User A writes skill X — User B reading skill X gets no content."""
-        from app.agents.skills import save_custom_skill, get_skill_content, _user_skill_path
+        from app.agents.skills import (
+            save_custom_skill,
+            get_skill_content,
+            _user_skill_path,
+        )
 
         save_custom_skill("story-writer", "secret-A", user_id="user-A")
 
@@ -196,7 +202,11 @@ class TestResolutionOrder:
         global resolver — they see global + defaults but never another
         user's customisation.
         """
-        from app.agents.skills import save_custom_skill, get_skill_content, DEFAULT_SKILLS
+        from app.agents.skills import (
+            save_custom_skill,
+            get_skill_content,
+            DEFAULT_SKILLS,
+        )
 
         save_custom_skill("story-writer", "USER-A-CONTENT", user_id="user-A")
 
@@ -210,7 +220,11 @@ class TestDeleteCustomSkill:
     """delete_custom_skill must only ever touch the calling user's path."""
 
     def test_deletes_own_file(self, skills_sandbox):
-        from app.agents.skills import save_custom_skill, delete_custom_skill, _user_skill_path
+        from app.agents.skills import (
+            save_custom_skill,
+            delete_custom_skill,
+            _user_skill_path,
+        )
 
         save_custom_skill("story-writer", "x", user_id="user-A")
         path = _user_skill_path("user-A", "story-writer")
@@ -226,7 +240,11 @@ class TestDeleteCustomSkill:
 
     def test_cannot_delete_other_users_file(self, skills_sandbox):
         """User B asking to delete agent X must not touch User A's file."""
-        from app.agents.skills import save_custom_skill, delete_custom_skill, _user_skill_path
+        from app.agents.skills import (
+            save_custom_skill,
+            delete_custom_skill,
+            _user_skill_path,
+        )
 
         save_custom_skill("story-writer", "A's content", user_id="user-A")
         a_path = _user_skill_path("user-A", "story-writer")
@@ -242,6 +260,7 @@ class TestDeleteCustomSkill:
 # ============================================================
 # API layer — endpoint behaviour with the auth dependency overridden
 # ============================================================
+
 
 @pytest.fixture
 def api_client(skills_sandbox):

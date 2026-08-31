@@ -18,6 +18,7 @@ tampered signature · expired · wrong issuer · wrong ``client_id`` ·
 missing ``jti`` · missing ``sub`` · algorithm confusion · key substitution ·
 JWKS cache reuse, TTL staleness, and single-refetch key rotation.
 """
+
 from __future__ import annotations
 
 import base64
@@ -204,7 +205,9 @@ class TestSignatureIntegrity:
         header, payload, signature = token.split(".")
         # Flip the last character of the signature — the payload still parses,
         # which is exactly why the signature check has to be the gate.
-        forged = f"{header}.{payload}.{signature[:-1]}{'A' if signature[-1] != 'A' else 'B'}"
+        forged = (
+            f"{header}.{payload}.{signature[:-1]}{'A' if signature[-1] != 'A' else 'B'}"
+        )
 
         with pytest.raises(CognitoVerificationError):
             cognito.verify_cognito_access_token(forged)

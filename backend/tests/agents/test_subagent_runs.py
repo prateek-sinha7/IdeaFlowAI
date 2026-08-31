@@ -86,27 +86,31 @@ def test_0019_reversible_offline(fresh_db_url: str) -> None:
     command.upgrade(cfg, "0019")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
-    assert inspector.has_table("subagent_runs"), "subagent_runs missing after upgrade 0019"
+    assert inspector.has_table(
+        "subagent_runs"
+    ), "subagent_runs missing after upgrade 0019"
     cols = {c["name"] for c in inspector.get_columns("subagent_runs")}
-    assert _EXPECTED_SUBAGENT_COLUMNS.issubset(cols), (
-        f"subagent_runs missing columns: {sorted(_EXPECTED_SUBAGENT_COLUMNS - cols)}"
-    )
+    assert _EXPECTED_SUBAGENT_COLUMNS.issubset(
+        cols
+    ), f"subagent_runs missing columns: {sorted(_EXPECTED_SUBAGENT_COLUMNS - cols)}"
     engine.dispose()
 
     # downgrade to 0018 drops subagent_runs (the 0018→0019 step is reversible).
     command.downgrade(cfg, "0018")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
-    assert not inspector.has_table("subagent_runs"), (
-        "downgrade to 0018 must drop subagent_runs"
-    )
+    assert not inspector.has_table(
+        "subagent_runs"
+    ), "downgrade to 0018 must drop subagent_runs"
     engine.dispose()
 
     # upgrade back to 0019 recreates it.
     command.upgrade(cfg, "0019")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
-    assert inspector.has_table("subagent_runs"), "subagent_runs missing after re-upgrade"
+    assert inspector.has_table(
+        "subagent_runs"
+    ), "subagent_runs missing after re-upgrade"
     engine.dispose()
 
 
@@ -134,7 +138,9 @@ def test_0026_reversible_offline(fresh_db_url: str) -> None:
     command.upgrade(cfg, "0026")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
-    assert inspector.has_table("subagent_runs"), "subagent_runs missing after upgrade 0026"
+    assert inspector.has_table(
+        "subagent_runs"
+    ), "subagent_runs missing after upgrade 0026"
     cols = {c["name"] for c in inspector.get_columns("subagent_runs")}
     assert "task_id" in cols, "task_id missing after upgrade 0026"
     assert "worker_index" in cols, "worker_index missing after upgrade 0026"
@@ -149,15 +155,15 @@ def test_0026_reversible_offline(fresh_db_url: str) -> None:
     command.downgrade(cfg, "0025")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
-    assert inspector.has_table("subagent_runs"), (
-        "downgrade to 0025 must keep subagent_runs (only the 2 new columns drop)"
-    )
+    assert inspector.has_table(
+        "subagent_runs"
+    ), "downgrade to 0025 must keep subagent_runs (only the 2 new columns drop)"
     cols = {c["name"] for c in inspector.get_columns("subagent_runs")}
     assert "task_id" not in cols, "downgrade 0025 must drop task_id"
     assert "worker_index" not in cols, "downgrade 0025 must drop worker_index"
-    assert _EXPECTED_SUBAGENT_COLUMNS.issubset(cols), (
-        "downgrade 0025 must keep the pre-0026 columns"
-    )
+    assert _EXPECTED_SUBAGENT_COLUMNS.issubset(
+        cols
+    ), "downgrade 0025 must keep the pre-0026 columns"
     engine.dispose()
 
     # upgrade back to 0026 re-adds the two columns (reversible).
@@ -165,9 +171,9 @@ def test_0026_reversible_offline(fresh_db_url: str) -> None:
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
     cols = {c["name"] for c in inspector.get_columns("subagent_runs")}
-    assert "task_id" in cols and "worker_index" in cols, (
-        "re-upgrade 0026 must re-add task_id + worker_index"
-    )
+    assert (
+        "task_id" in cols and "worker_index" in cols
+    ), "re-upgrade 0026 must re-add task_id + worker_index"
     engine.dispose()
 
 
@@ -213,8 +219,8 @@ async def test_record_subagent_run_writes_scoped_row(db_session):
     row = rows[0]
     assert row.id == row_id
     assert row.parent_run_id == "parent-run-1"
-    assert row.owner_id == "alice"        # AUTHZ-01
-    assert row.workspace_id == "ws-1"     # AUTHZ-01
+    assert row.owner_id == "alice"  # AUTHZ-01
+    assert row.workspace_id == "ws-1"  # AUTHZ-01
     assert row.parent_step == "build"
     assert row.worker_agent == "prototype-build"
     assert row.depth == 1
@@ -411,9 +417,9 @@ async def test_wave_requests_carry_task_id():
     assert captured, "run_fanout was never called"
     all_reqs = [r for wave in captured for r in wave]
     assert all_reqs, "no requests were dispatched"
-    assert all("task_id" in r for r in all_reqs), (
-        f"a wave request is missing task_id: {all_reqs}"
-    )
+    assert all(
+        "task_id" in r for r in all_reqs
+    ), f"a wave request is missing task_id: {all_reqs}"
     # RESUME-14: the request task_id is the content-addressed key (this fake exposes no
     # upstream_context_hash handle → the strategy folds an empty upstream; all-distinct
     # content → ordinals 0). The key wraps the author id.
@@ -449,7 +455,11 @@ def test_budget_module_constants_present():
 
 def test_budget_manager_reserve_is_a_stub_seam():
     """reserve() records units and returns WITHOUT raising (enforcement is 11-04)."""
-    from agents.execution_engine.budget import BudgetManager, BudgetExceeded, BudgetSnapshot
+    from agents.execution_engine.budget import (
+        BudgetManager,
+        BudgetExceeded,
+        BudgetSnapshot,
+    )
 
     mgr = BudgetManager()
     # The stub seam never raises in this plan (FANOUT-09 enforcement lands 11-04).
@@ -493,7 +503,9 @@ def test_execution_context_has_budget_field():
 def test_fanout_spec_additive_fields():
     from agents.workflows.plan import FanoutSpec
 
-    spec = FanoutSpec(mode="parallel", max_parallel=2, agent="self", count=3, workers=["w1"])
+    spec = FanoutSpec(
+        mode="parallel", max_parallel=2, agent="self", count=3, workers=["w1"]
+    )
     assert spec.mode == "parallel"
     assert spec.max_parallel == 2
     assert spec.agent == "self"
@@ -524,7 +536,12 @@ def test_compiler_materializes_fanout_and_allowed_workers():
             {
                 "agent": "worker-a",
                 "strategy": "single_shot",
-                "fanout": {"mode": "parallel", "max_parallel": 3, "agent": "self", "count": 3},
+                "fanout": {
+                    "mode": "parallel",
+                    "max_parallel": 3,
+                    "agent": "self",
+                    "count": 3,
+                },
             }
         ],
         deliverable={"strategy": "streamed_text", "name": "out.txt"},
@@ -578,7 +595,9 @@ def test_compiler_materializes_on_conflict_and_merge_agent():
         WorkflowManifest(
             id="default-wf",
             steps=[{"agent": "worker-a", "strategy": "single_shot"}],
-            deliverable={}, planner="skip", clarify={"mode": "off", "defaults": []},
+            deliverable={},
+            planner="skip",
+            clarify={"mode": "off", "defaults": []},
         ),
         registry,
     )

@@ -31,8 +31,8 @@ class McpCredential(Base):
     __tablename__ = "mcp_credentials"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
     # Free String (NO sa.Enum): the catalog mcp_server name.
     server = Column(String, nullable=False)
     # Granted scope (e.g. 'gitlab_read' / 'jira_read' / 'slack_post'); free String.

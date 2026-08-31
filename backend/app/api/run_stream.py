@@ -230,7 +230,9 @@ async def _iter_sse_frames(
             # chat_message, chat_usage, run_resuming — which without this reach the
             # client anonymous and get re-keyed (and so re-rendered) by the consumer.
             yield _sse_frame(
-                r.seq, r.type, {**(r.payload_json or {}), "event_id": r.event_id, "seq": r.seq}
+                r.seq,
+                r.type,
+                {**(r.payload_json or {}), "event_id": r.event_id, "seq": r.seq},
             )
             replayed_through_seq = r.seq
             replayed_event_ids.add(r.event_id)
@@ -287,7 +289,9 @@ async def _iter_sse_frames(
         if after_seq > 0 and not run_is_terminal:
             dangling = await _dangling_review_gate(store, run_id)
             if dangling is not None and dangling.seq <= after_seq:
-                yield _sse_frame(dangling.seq, "review_gate_ready", dangling.payload_json)
+                yield _sse_frame(
+                    dangling.seq, "review_gate_ready", dangling.payload_json
+                )
 
         # 4. Live drain — forward new events off the shared per-run queue until the None
         #    sentinel (pipeline finished) or the client disconnects. sse-starlette's built-in
@@ -337,7 +341,11 @@ async def _iter_sse_frames(
                 # replay (the persist-before-live-queue race documented above) — skip
                 # it here instead of yielding it a second time.
                 continue
-            seq = data.get("seq", replayed_through_seq) if isinstance(data, dict) else replayed_through_seq
+            seq = (
+                data.get("seq", replayed_through_seq)
+                if isinstance(data, dict)
+                else replayed_through_seq
+            )
             yield _sse_frame(seq, event.get("type", "message"), data)
             replayed_through_seq = seq
             if event.get("type") in _STREAM_TERMINAL_TYPES:
@@ -349,7 +357,10 @@ async def _iter_sse_frames(
             # to hit the timeout branch above.
             if revocation_check is not None:
                 _events_since_revocation_check += 1
-                if _events_since_revocation_check >= settings.SSE_REVOCATION_CHECK_EVERY_N_EVENTS:
+                if (
+                    _events_since_revocation_check
+                    >= settings.SSE_REVOCATION_CHECK_EVERY_N_EVENTS
+                ):
                     _events_since_revocation_check = 0
                     reason = await revocation_check()
                     if reason:
@@ -493,13 +504,13 @@ async def stream_run_events(
         try:
             if _revocation_jti and is_token_revoked(_revocation_jti, rdb):
                 return "logged_out"
-            fresh_user = (
-                rdb.query(User).filter(User.id == _revocation_user_id).first()
-            )
+            fresh_user = rdb.query(User).filter(User.id == _revocation_user_id).first()
             if fresh_user is None:
                 return "account_removed"
             principal = Principal(
-                provider="cognito" if fresh_user.auth_provider == "cognito" else "local",
+                provider="cognito"
+                if fresh_user.auth_provider == "cognito"
+                else "local",
                 sub=_revocation_user_id,
                 jti=_revocation_jti,
                 iat=_revocation_iat,
@@ -512,7 +523,9 @@ async def stream_run_events(
 
     # D11 (KAN-139): log every stream open/close so A1's 429 storm, A2's event
     # theft, and D7's pool drops are diagnosable from the application layer.
-    _close_reason: list[str] = ["client_disconnect"]  # mutable to let the generator update it
+    _close_reason: list[str] = [
+        "client_disconnect"
+    ]  # mutable to let the generator update it
 
     async def _iter_with_logging() -> AsyncIterator[dict]:
         nonlocal _close_reason
@@ -531,6 +544,7 @@ async def stream_run_events(
                 if isinstance(frame_type, str):
                     try:
                         import json as _json
+
                         parsed = _json.loads(frame_type)
                         ft = parsed.get("type", "")
                     except Exception:

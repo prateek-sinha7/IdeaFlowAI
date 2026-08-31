@@ -169,12 +169,22 @@ class _StampFakeRunner:
         for i, _req in enumerate(requests):
             yield {
                 "type": "subagent_spawned",
-                "data": {"worker": i, "agent": "w", "isolation": "shared_read", "depth": 0},
+                "data": {
+                    "worker": i,
+                    "agent": "w",
+                    "isolation": "shared_read",
+                    "depth": 0,
+                },
             }
         for i, _req in enumerate(requests):
             yield {
                 "type": "subagent_result",
-                "data": {"worker": i, "agent": "w", "row_id": f"r{i}", "status": "complete"},
+                "data": {
+                    "worker": i,
+                    "agent": "w",
+                    "row_id": f"r{i}",
+                    "status": "complete",
+                },
             }
         # A non-subagent event must pass through unchanged (no wave_index injected).
         yield {"type": "agent_chunk", "data": {"text": "x"}}
@@ -189,7 +199,9 @@ class _StampCtx:
 class _StampStep:
     def __init__(self, agent_id):
         self.agent_id = agent_id
-        self.task_source = type("TS", (), {"source_step": "plan", "parser": "json_tasks"})()
+        self.task_source = type(
+            "TS", (), {"source_step": "plan", "parser": "json_tasks"}
+        )()
 
 
 @pytest.mark.asyncio
@@ -224,9 +236,9 @@ async def test_subagent_events_carry_wave_index_and_step():
     for e in subagent_events:
         data = e["data"]
         assert "wave_index" in data, f"subagent event missing wave_index: {e}"
-        assert isinstance(data["wave_index"], int), (
-            f"wave_index must be a number, got {type(data['wave_index'])}: {e}"
-        )
+        assert isinstance(
+            data["wave_index"], int
+        ), f"wave_index must be a number, got {type(data['wave_index'])}: {e}"
         assert data.get("step") == "wave-step", f"subagent event missing step: {e}"
         # The existing flat worker index is preserved (not renamed / nested).
         assert "worker" in data and isinstance(data["worker"], int)
@@ -234,10 +246,13 @@ async def test_subagent_events_carry_wave_index_and_step():
     # The wave_index actually matches the wave the workers belong to: wave 0 workers carry
     # wave_index 0, wave 1 workers carry wave_index 1.
     wave_indices = sorted({e["data"]["wave_index"] for e in subagent_events})
-    assert wave_indices == [0, 1], f"subagent events did not span both waves: {wave_indices}"
+    assert wave_indices == [
+        0,
+        1,
+    ], f"subagent events did not span both waves: {wave_indices}"
 
     # A non-subagent event is NOT stamped with wave_index (pass-through unchanged).
     chunk = [e for e in events if e.get("type") == "agent_chunk"]
-    assert chunk and "wave_index" not in chunk[0]["data"], (
-        "a non-subagent event was wrongly stamped with wave_index"
-    )
+    assert (
+        chunk and "wave_index" not in chunk[0]["data"]
+    ), "a non-subagent event was wrongly stamped with wave_index"

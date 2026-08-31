@@ -36,6 +36,7 @@ def _is_unfilled(value: Optional[str]) -> bool:
 @dataclass
 class RemediationEntry:
     """A single entry in a remediation record section."""
+
     case_id: str
     owner: Optional[str] = None
     reason: Optional[str] = None
@@ -106,16 +107,62 @@ class RemediationRecordParser:
         content = self.record_path.read_text(encoding="utf-8", errors="replace")
 
         # Extract each section and parse its table
-        self._parse_section(content, "## Dispositions", self.dispositions, ["Case ID", "Classification", "Owner", "Date", "Resolving Change"])
-        self._parse_section(content, "## Disabled Tests", self.disabled_tests, ["Case ID", "Suite", "Directive", "Owner", "Reason", "Expiry"])
-        self._parse_section(content, "## Coverage Exclusions", self.coverage_exclusions, ["Pattern", "Justification", "Owner", "Expiry"])
-        self._parse_section(content, "## Accessibility Waivers", self.accessibility_waivers, ["Violation", "Surface", "Rationale", "Owner", "Expiry"])
-        self._parse_section(content, "## Coverage Thresholds", self.coverage_thresholds, ["Module", "Metric", "Baseline", "Target", "Owner", "Target Date"])
-        self._parse_section(content, "## Performance Thresholds", self.performance_thresholds, ["Scenario", "Metric", "Threshold", "Owner"])
-        self._parse_section(content, "## Security Approvals", self.security_approvals, ["Change", "Approver", "Date"])
-        self._parse_section(content, "## Completion Links", self.completion_links, ["Task ID", "Verifying Test", "Execution Evidence"])
+        self._parse_section(
+            content,
+            "## Dispositions",
+            self.dispositions,
+            ["Case ID", "Classification", "Owner", "Date", "Resolving Change"],
+        )
+        self._parse_section(
+            content,
+            "## Disabled Tests",
+            self.disabled_tests,
+            ["Case ID", "Suite", "Directive", "Owner", "Reason", "Expiry"],
+        )
+        self._parse_section(
+            content,
+            "## Coverage Exclusions",
+            self.coverage_exclusions,
+            ["Pattern", "Justification", "Owner", "Expiry"],
+        )
+        self._parse_section(
+            content,
+            "## Accessibility Waivers",
+            self.accessibility_waivers,
+            ["Violation", "Surface", "Rationale", "Owner", "Expiry"],
+        )
+        self._parse_section(
+            content,
+            "## Coverage Thresholds",
+            self.coverage_thresholds,
+            ["Module", "Metric", "Baseline", "Target", "Owner", "Target Date"],
+        )
+        self._parse_section(
+            content,
+            "## Performance Thresholds",
+            self.performance_thresholds,
+            ["Scenario", "Metric", "Threshold", "Owner"],
+        )
+        self._parse_section(
+            content,
+            "## Security Approvals",
+            self.security_approvals,
+            ["Change", "Approver", "Date"],
+        )
+        self._parse_section(
+            content,
+            "## Completion Links",
+            self.completion_links,
+            ["Task ID", "Verifying Test", "Execution Evidence"],
+        )
 
-    def _parse_section(self, content: str, section_header: str, target_list: list, expected_columns: list) -> None:
+    def _parse_section(
+        self,
+        content: str,
+        section_header: str,
+        target_list: list,
+        expected_columns: list,
+    ) -> None:
         """
         Parse a single markdown table section.
 
@@ -164,7 +211,9 @@ class RemediationRecordParser:
                 continue
 
             # Split the row by pipes and clean
-            cells = [cell.strip() for cell in line.split("|")[1:-1]]  # Skip empty first/last
+            cells = [
+                cell.strip() for cell in line.split("|")[1:-1]
+            ]  # Skip empty first/last
             if len(cells) == 0:
                 continue
 
@@ -173,7 +222,9 @@ class RemediationRecordParser:
             if entry and entry.case_id != "(placeholder)":
                 target_list.append(entry)
 
-    def _create_entry(self, section_header: str, cells: list[str], expected_columns: list) -> Optional[RemediationEntry]:
+    def _create_entry(
+        self, section_header: str, cells: list[str], expected_columns: list
+    ) -> Optional[RemediationEntry]:
         """Create a RemediationEntry from table cells."""
         if len(cells) == 0:
             return None

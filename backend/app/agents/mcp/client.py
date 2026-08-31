@@ -93,7 +93,10 @@ class McpClientAdapter:
             for server, names in allowed.items():
                 for sep in _PREFIX_SEPS:
                     prefix = f"{server}{sep}"
-                    if tool_name.startswith(prefix) and tool_name[len(prefix):] in names:
+                    if (
+                        tool_name.startswith(prefix)
+                        and tool_name[len(prefix) :] in names
+                    ):
                         return True
             return False
 

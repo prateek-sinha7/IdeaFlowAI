@@ -48,8 +48,15 @@ class _FakeRunner:
     (the seam the opendesign provider reaches the heavy od_loader reads through,
     Assumption A6) and the sandbox + parent-file reader for previous_run."""
 
-    def __init__(self, *, od_context=None, injection_parts=None, example=None,
-                 sandbox=None, parent_files=None) -> None:
+    def __init__(
+        self,
+        *,
+        od_context=None,
+        injection_parts=None,
+        example=None,
+        sandbox=None,
+        parent_files=None,
+    ) -> None:
         self.od_context = od_context
         self._injection_parts = injection_parts or []
         self._example = example
@@ -100,10 +107,19 @@ class _FakeScopedStore:
 
 
 class _Ctx:
-    def __init__(self, runner, *, od_context=None, scoped_store=None,
-                 parent_run_id=None, current_spec_tools=None,
-                 build_task_number="", current_spec_injects=None,
-                 is_revision_workflow=False, deliverable=None) -> None:
+    def __init__(
+        self,
+        runner,
+        *,
+        od_context=None,
+        scoped_store=None,
+        parent_run_id=None,
+        current_spec_tools=None,
+        build_task_number="",
+        current_spec_injects=None,
+        is_revision_workflow=False,
+        deliverable=None,
+    ) -> None:
         self.runner = runner
         self.od_context = od_context
         self.scoped_store = scoped_store
@@ -121,7 +137,8 @@ class _Ctx:
         # path (CR-02); per-test overrides drive the tools:[] planning-agent + the
         # task-2+ suppression cases.
         self.current_spec_tools = (
-            {"prototype_emit_only"} if current_spec_tools is None
+            {"prototype_emit_only"}
+            if current_spec_tools is None
             else set(current_spec_tools)
         )
         # CR-02 (07-09): the engine threads the DECLARED injects onto the ctx so the
@@ -130,7 +147,8 @@ class _Ctx:
         # existing positive block assertions keep passing; per-test overrides drive
         # the per-block gate cases.
         self.current_spec_injects = (
-            {"template", "design_system"} if current_spec_injects is None
+            {"template", "design_system"}
+            if current_spec_injects is None
             else set(current_spec_injects)
         )
         self.build_task_number = build_task_number
@@ -282,7 +300,8 @@ async def test_opendesign_example_never_reaches_tools_empty_planning_agent():
     )
     planner = await OpenDesignProvider().load(
         _Ctx(
-            runner, od_context=_OD,
+            runner,
+            od_context=_OD,
             current_spec_tools=set(),  # tools:[]
             current_spec_injects={"template", "design_system"},
         )
@@ -311,8 +330,10 @@ async def test_opendesign_build_task_2_plus_suppresses_ds_template_example():
 
     # Task 2 — suppression active.
     t2_ctx = _Ctx(
-        runner, od_context=_OD,
-        current_spec_tools={"prototype_emit_only"}, build_task_number="2",
+        runner,
+        od_context=_OD,
+        current_spec_tools={"prototype_emit_only"},
+        build_task_number="2",
     )
     t2 = await OpenDesignProvider().load(t2_ctx)
     assert "ACTIVE DESIGN SYSTEM: midnight" not in t2
@@ -325,8 +346,10 @@ async def test_opendesign_build_task_2_plus_suppresses_ds_template_example():
 
     # Task 1 — no suppression; all three blocks present.
     t1_ctx = _Ctx(
-        runner, od_context=_OD,
-        current_spec_tools={"prototype_emit_only"}, build_task_number="1",
+        runner,
+        od_context=_OD,
+        current_spec_tools={"prototype_emit_only"},
+        build_task_number="1",
     )
     t1 = await OpenDesignProvider().load(t1_ctx)
     assert "ACTIVE DESIGN SYSTEM: midnight" in t1
@@ -371,8 +394,10 @@ async def test_context_message_parity_build_task_1_vs_task_2():
 
     # ── Build task 1 — full ordered block set, exact bytes ──────────────────────
     t1_ctx = _Ctx(
-        runner, od_context=_OD,
-        current_spec_tools={"prototype_emit_only"}, build_task_number="1",
+        runner,
+        od_context=_OD,
+        current_spec_tools={"prototype_emit_only"},
+        build_task_number="1",
     )
     t1 = await OpenDesignProvider().load(t1_ctx)
     # The non-part blocks keep their named keys; the injection parts are RAW-keyed
@@ -393,8 +418,10 @@ async def test_context_message_parity_build_task_1_vs_task_2():
 
     # ── Build task 2 — suppressed: seed injection part only ─────────────────────
     t2_ctx = _Ctx(
-        runner, od_context=_OD,
-        current_spec_tools={"prototype_emit_only"}, build_task_number="2",
+        runner,
+        od_context=_OD,
+        current_spec_tools={"prototype_emit_only"},
+        build_task_number="2",
     )
     t2 = await OpenDesignProvider().load(t2_ctx)
     assert list(t2.keys()) == [f"{RAW_BLOCK_PREFIX}injection-part-0"]
@@ -460,12 +487,16 @@ async def test_previous_run_seeds_same_owner_parent():
     runner = _FakeRunner(
         sandbox=sandbox,
         parent_files={
-            "spec.md": "SPEC", "design.md": "DESIGN", "tasks.md": "TASKS",
+            "spec.md": "SPEC",
+            "design.md": "DESIGN",
+            "tasks.md": "TASKS",
         },
     )
     store = _FakeScopedStore(cross_owner=False)
     ctx = _Ctx(
-        runner, scoped_store=store, parent_run_id="parent-1",
+        runner,
+        scoped_store=store,
+        parent_run_id="parent-1",
         is_revision_workflow=True,  # declared revision-intent (WR-06)
     )
 
@@ -473,7 +504,9 @@ async def test_previous_run_seeds_same_owner_parent():
 
     assert store.assert_called is True
     assert sandbox.written == {
-        "spec.md": "SPEC", "design.md": "DESIGN", "tasks.md": "TASKS",
+        "spec.md": "SPEC",
+        "design.md": "DESIGN",
+        "tasks.md": "TASKS",
     }
 
 
@@ -486,7 +519,9 @@ async def test_previous_run_cross_owner_permission_error_propagates():
     )
     store = _FakeScopedStore(cross_owner=True)
     ctx = _Ctx(
-        runner, scoped_store=store, parent_run_id="parent-evil",
+        runner,
+        scoped_store=store,
+        parent_run_id="parent-evil",
         is_revision_workflow=True,  # declared revision-intent (WR-06)
     )
 
@@ -503,7 +538,9 @@ async def test_previous_run_noop_without_parent():
     sandbox = _FakeSandbox()
     runner = _FakeRunner(sandbox=sandbox)
     ctx = _Ctx(
-        runner, scoped_store=_FakeScopedStore(), parent_run_id=None,
+        runner,
+        scoped_store=_FakeScopedStore(),
+        parent_run_id=None,
         is_revision_workflow=True,
     )
     out = await PreviousRunProvider().load(ctx)
@@ -526,7 +563,9 @@ async def test_previous_run_forward_build_with_stray_parent_does_not_seed():
     )
     store = _FakeScopedStore(cross_owner=True)  # would raise IF assert_owns ran
     ctx = _Ctx(
-        runner, scoped_store=store, parent_run_id="parent-1",
+        runner,
+        scoped_store=store,
+        parent_run_id="parent-1",
         is_revision_workflow=False,  # forward build — NOT a declared revision
     )
 
@@ -534,7 +573,7 @@ async def test_previous_run_forward_build_with_stray_parent_does_not_seed():
 
     assert out == {}
     assert store.assert_called is False  # never asserted (no PermissionError raised)
-    assert sandbox.written == {}         # nothing seeded
+    assert sandbox.written == {}  # nothing seeded
 
 
 @pytest.mark.asyncio
@@ -556,15 +595,17 @@ async def test_previous_run_unexpected_store_error_fails_closed():
     )
     store = _FakeScopedStore(unexpected_error=True)
     ctx = _Ctx(
-        runner, scoped_store=store, parent_run_id="parent-1",
+        runner,
+        scoped_store=store,
+        parent_run_id="parent-1",
         is_revision_workflow=True,  # declared revision-intent (WR-06)
     )
 
     out = await PreviousRunProvider().load(ctx)
 
     assert out == {}
-    assert store.assert_called is True   # the ownership check WAS attempted
-    assert sandbox.written == {}         # but FAILED CLOSED — nothing seeded
+    assert store.assert_called is True  # the ownership check WAS attempted
+    assert sandbox.written == {}  # but FAILED CLOSED — nothing seeded
 
 
 # ===========================================================================
@@ -579,17 +620,38 @@ async def test_opendesign_example_gate_is_builder_or_template_example_inject():
     inject — NEVER merely because it holds the ``workspace`` tool set. A revert to the
     ``"workspace" in spec_tools`` gate re-leaks example.html into the planner-shaped
     ppt-brief-analyst and FAILS case (3)."""
-    runner = _FakeRunner(od_context=_OD,
-        injection_parts=["=== TEMPLATE SEED ===\nseed"], example="<html>example</html>")
+    runner = _FakeRunner(
+        od_context=_OD,
+        injection_parts=["=== TEMPLATE SEED ===\nseed"],
+        example="<html>example</html>",
+    )
     EX_KEY = "TEMPLATE EXAMPLE (example.html): web-prototype"
-    builder = await OpenDesignProvider().load(_Ctx(runner, od_context=_OD,
-        current_spec_tools={"prototype_emit_only"}, current_spec_injects={"template", "design_system"}))
+    builder = await OpenDesignProvider().load(
+        _Ctx(
+            runner,
+            od_context=_OD,
+            current_spec_tools={"prototype_emit_only"},
+            current_spec_injects={"template", "design_system"},
+        )
+    )
     assert EX_KEY in builder
-    composer = await OpenDesignProvider().load(_Ctx(runner, od_context=_OD,
-        current_spec_tools={"workspace"}, current_spec_injects={"template", "design_system", "template_example"}))
+    composer = await OpenDesignProvider().load(
+        _Ctx(
+            runner,
+            od_context=_OD,
+            current_spec_tools={"workspace"},
+            current_spec_injects={"template", "design_system", "template_example"},
+        )
+    )
     assert EX_KEY in composer
-    analyst = await OpenDesignProvider().load(_Ctx(runner, od_context=_OD,
-        current_spec_tools={"workspace"}, current_spec_injects={"template"}))
+    analyst = await OpenDesignProvider().load(
+        _Ctx(
+            runner,
+            od_context=_OD,
+            current_spec_tools={"workspace"},
+            current_spec_injects={"template"},
+        )
+    )
     assert EX_KEY not in analyst
     assert not any(k.startswith("TEMPLATE EXAMPLE") for k in analyst)
     assert "ACTIVE TEMPLATE (SKILL.md): web-prototype" in analyst
@@ -616,7 +678,8 @@ async def test_opendesign_composer_example_not_truncated():
     # Composer-shaped ctx: workspace tool + the DECLARED template_example inject (single-shot
     # composer → build_task_number defaults to "" so no task-2+ suppression).
     ctx = _Ctx(
-        runner, od_context=_OD,
+        runner,
+        od_context=_OD,
         current_spec_tools={"workspace"},
         current_spec_injects={"template", "design_system", "template_example"},
     )
@@ -630,6 +693,7 @@ async def test_opendesign_composer_example_not_truncated():
 def test_od_ppt_agents_template_example_inject_wiring():
     """Frontmatter half of the fix: ppt-composer declares ``template_example``; brief-analyst does not."""
     from agents.loader import load_agent_spec
+
     composer = load_agent_spec("ppt-composer")
     analyst = load_agent_spec("ppt-brief-analyst")
     assert "template_example" in composer.injects and "template" in composer.injects

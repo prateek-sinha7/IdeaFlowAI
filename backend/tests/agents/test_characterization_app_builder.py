@@ -50,7 +50,9 @@ async def test_app_builder_event_snapshot() -> None:
 
     seen = {e.get("type") for e in events}
     unknown = seen - _DOCUMENTED_EVENT_TYPES
-    assert not unknown, f"app_builder emitted UNDOCUMENTED event type(s): {sorted(unknown)}"
+    assert (
+        not unknown
+    ), f"app_builder emitted UNDOCUMENTED event type(s): {sorted(unknown)}"
 
     for ev in events:
         required = _REQUIRED_DATA_KEYS.get(ev.get("type"))

@@ -47,7 +47,9 @@ class TestTopicSlug:
         """When truncation would end on '-', strip it."""
         # Create input that, when converted to kebab, will have '-' at position 40
         # "word-word-word..." where hyphens end up at strategic positions
-        input_with_hyphens = "a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-long-tail"
+        input_with_hyphens = (
+            "a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p-q-r-s-t-u-v-w-x-y-z-long-tail"
+        )
         result = topic_slug(input_with_hyphens)
         assert len(result) <= 40
         assert not result.endswith("-"), f"Result ends on '-': {result}"
@@ -92,7 +94,10 @@ class TestArtifactName:
 
     def test_hyphenated_instance_id(self):
         """Hyphens in instance_id are preserved."""
-        assert artifact_name("research-agent-one", "my-topic") == "research-agent-one-my-topic.md"
+        assert (
+            artifact_name("research-agent-one", "my-topic")
+            == "research-agent-one-my-topic.md"
+        )
 
     def test_numeric_instance_id(self):
         """Numbers in instance_id are preserved."""
@@ -108,12 +113,12 @@ class TestArtifactName:
         this function refuses rather than trusts.
         """
         for hostile in (
-            "custom-agent:research-a",   # a synthetic agent id, not an instance_id
-            "../../etc/passwd",          # traversal
-            "a/b",                       # separator
-            "Research-A",                # uppercase — not the slug shape
-            "-leading",                  # must start alphanumeric
-            "",                          # empty
+            "custom-agent:research-a",  # a synthetic agent id, not an instance_id
+            "../../etc/passwd",  # traversal
+            "a/b",  # separator
+            "Research-A",  # uppercase — not the slug shape
+            "-leading",  # must start alphanumeric
+            "",  # empty
         ):
             with pytest.raises(ValueError, match="instance_id"):
                 artifact_name(hostile, "topic")

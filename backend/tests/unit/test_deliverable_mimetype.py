@@ -22,7 +22,9 @@ import pytest
 
 from agents.capabilities.deliverables._mimetype import default_mimetype
 from agents.capabilities.deliverables.ppt import PptResolver
-from agents.capabilities.deliverables.serialized_sandbox import SerializedSandboxResolver
+from agents.capabilities.deliverables.serialized_sandbox import (
+    SerializedSandboxResolver,
+)
 from agents.capabilities.deliverables.single_file import SingleFileResolver
 from agents.capabilities.deliverables.streamed_text import StreamedTextResolver
 from agents.capabilities.registry import CapabilityRegistry

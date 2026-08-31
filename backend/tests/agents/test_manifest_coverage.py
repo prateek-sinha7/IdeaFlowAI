@@ -36,9 +36,7 @@ _BASE = Path(__file__).resolve().parents[2] / "agents" / "workflows"
 _PROMPTS = Path(__file__).resolve().parents[2] / "agents" / "prompts"
 
 _MANIFEST_BACKED_IDS = sorted(
-    pt
-    for pt in SUPPORTED_PIPELINE_TYPES
-    if (_BASE / pt / "workflow.yaml").exists()
+    pt for pt in SUPPORTED_PIPELINE_TYPES if (_BASE / pt / "workflow.yaml").exists()
 )
 
 

@@ -120,9 +120,9 @@ async def test_wire_parity_matches_golden(pipeline: str) -> None:
         "— the INV-3 characterization baseline must stay chat-dormant."
     )
     # must_haves: every recorded frame carries a 'type'.
-    assert all("type" in f for f in golden), (
-        f"{_golden_name(pipeline)} golden has a frame missing 'type'."
-    )
+    assert all(
+        "type" in f for f in golden
+    ), f"{_golden_name(pipeline)} golden has a frame missing 'type'."
 
     # The binding compare: recorded WS frame sequence vs the SSE projection of the
     # freshly-derived run_events. `golden` IS the recorded ws_frames argument.

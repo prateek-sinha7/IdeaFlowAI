@@ -48,6 +48,7 @@ Read-only. This script never writes to either store — it reports, and leaves
 remediation to a human, because every failure mode here has more than one
 defensible fix.
 """
+
 import argparse
 import os
 import sys

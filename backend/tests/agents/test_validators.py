@@ -84,9 +84,14 @@ def db_session():
 def _seed_run(session, *, run_id, owner_id, workspace_id):
     session.add(
         WorkflowRun(
-            id=run_id, user_id=owner_id, title="t", type="prototype",
-            status="running", input="idea",
-            owner_id=owner_id, workspace_id=workspace_id,
+            id=run_id,
+            user_id=owner_id,
+            title="t",
+            type="prototype",
+            status="running",
+            input="idea",
+            owner_id=owner_id,
+            workspace_id=workspace_id,
         )
     )
     session.commit()
@@ -141,12 +146,21 @@ class _FakeRunner:
         self, step, validator, *, severity=None, attempt=0, issues=None
     ):
         self.records.append(
-            {"step": step, "validator": validator, "severity": severity,
-             "attempt": attempt, "issues": issues}
+            {
+                "step": step,
+                "validator": validator,
+                "severity": severity,
+                "attempt": attempt,
+                "issues": issues,
+            }
         )
         return await self._store.record_validation_result(
-            self.run_id, step, validator,
-            severity=severity, attempt=attempt, issues=issues,
+            self.run_id,
+            step,
+            validator,
+            severity=severity,
+            attempt=attempt,
+            issues=issues,
         )
 
 
@@ -188,11 +202,14 @@ async def test_html_static_reaches_static_check_via_handle(db_session, tmp_path)
         warnings=["orphan section: data-page='y' has no nav link"],
     )
     runner = _FakeRunner(
-        static_result=static_result, render_result=_RenderResult(),
-        store=store, run_id="run-1",
+        static_result=static_result,
+        render_result=_RenderResult(),
+        store=store,
+        run_id="run-1",
     )
-    target = _Target(name="prototype.html", runner=runner,
-                     path=tmp_path / "prototype.html")
+    target = _Target(
+        name="prototype.html", runner=runner, path=tmp_path / "prototype.html"
+    )
 
     hs = CapabilityRegistry().resolve("validator", "html_static")
     issues = await hs.validate(target)
@@ -215,10 +232,15 @@ async def test_html_render_degrades_offline(db_session, tmp_path):
     runner = _FakeRunner(
         static_result=_StaticResult(ok=True),
         render_result=_RenderResult(available=False),
-        store=store, run_id="run-2",
+        store=store,
+        run_id="run-2",
     )
-    target = _Target(name="prototype.html", runner=runner,
-                     path=tmp_path / "prototype.html", step="prototype-build")
+    target = _Target(
+        name="prototype.html",
+        runner=runner,
+        path=tmp_path / "prototype.html",
+        step="prototype-build",
+    )
     hr = CapabilityRegistry().resolve("validator", "html_render")
     issues = await hr.validate(target)
     assert issues == []
@@ -236,14 +258,17 @@ async def test_html_render_flags_console_and_nav_errors(db_session, tmp_path):
     runner = _FakeRunner(
         static_result=_StaticResult(ok=True),
         render_result=_RenderResult(
-            ok=False, available=True,
+            ok=False,
+            available=True,
             console_errors=["Uncaught TypeError: x is not a function"],
             nav_results=[_NavResult(href="#/dead", ok=False)],
         ),
-        store=store, run_id="run-3",
+        store=store,
+        run_id="run-3",
     )
-    target = _Target(name="prototype.html", runner=runner,
-                     path=tmp_path / "prototype.html")
+    target = _Target(
+        name="prototype.html", runner=runner, path=tmp_path / "prototype.html"
+    )
     hr = CapabilityRegistry().resolve("validator", "html_render")
     issues = await hr.validate(target)
     assert len(issues) == 2
@@ -262,23 +287,31 @@ async def test_validator_run_writes_validation_results_row(db_session, tmp_path)
     store = ScopedStore(owner_id="dave", workspace_id="ws-4", session=db_session)
     runner = _FakeRunner(
         static_result=_StaticResult(ok=False, issues=["boom"]),
-        render_result=_RenderResult(), store=store, run_id="run-4",
+        render_result=_RenderResult(),
+        store=store,
+        run_id="run-4",
     )
-    target = _Target(name="prototype.html", runner=runner,
-                     path=tmp_path / "prototype.html", step="prototype-build",
-                     task_meta={"attempt": 1})
+    target = _Target(
+        name="prototype.html",
+        runner=runner,
+        path=tmp_path / "prototype.html",
+        step="prototype-build",
+        task_meta={"attempt": 1},
+    )
     hs = CapabilityRegistry().resolve("validator", "html_static")
     await hs.validate(target)
 
-    rows = db_session.query(ValidationResult).filter(
-        ValidationResult.run_id == "run-4"
-    ).all()
+    rows = (
+        db_session.query(ValidationResult)
+        .filter(ValidationResult.run_id == "run-4")
+        .all()
+    )
     assert len(rows) == 1
     row = rows[0]
     assert row.owner_id == "dave"
     assert row.workspace_id == "ws-4"
     assert row.validator == "html_static"
-    assert row.severity == "CRITICAL"   # worst issue P0 -> CRITICAL
+    assert row.severity == "CRITICAL"  # worst issue P0 -> CRITICAL
     assert row.attempt == 1
 
     # Cross-owner read returns nothing (default-deny precedent, T-08-04-ID).
@@ -381,7 +414,7 @@ async def test_fixloop_drives_off_fixpolicy_deliverable():
     )
     assert engine.calls, "engine fix-loop was not invoked"
     call = engine.calls[0]
-    assert call["filename"] == "app.py"     # config-driven, NOT prototype.html
+    assert call["filename"] == "app.py"  # config-driven, NOT prototype.html
     assert call["max_attempts"] == 3
 
 
@@ -391,11 +424,14 @@ async def test_fixloop_filename_backcompat_wraps_default_policy():
     engine = _FakeEngine()
     kernel = _make_kernel(engine)
     await kernel.run_validation_fix_loop(
-        _FakeStep(), task_num=1, total_tasks=1, filename="prototype.html",
+        _FakeStep(),
+        task_num=1,
+        total_tasks=1,
+        filename="prototype.html",
     )
     call = engine.calls[0]
     assert call["filename"] == "prototype.html"
-    assert call["max_attempts"] == 2   # the Phase-7 default bound
+    assert call["max_attempts"] == 2  # the Phase-7 default bound
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -418,11 +454,15 @@ async def test_tier_spec_plan_coverage_flags_gap(db_session):
     _seed_run(db_session, run_id="run-t4", owner_id="alice", workspace_id="ws-1")
     store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
     runner = _FakeRunner(
-        static_result=_StaticResult(ok=True), render_result=_RenderResult(),
-        store=store, run_id="run-t4",
+        static_result=_StaticResult(ok=True),
+        render_result=_RenderResult(),
+        store=store,
+        run_id="run-t4",
     )
     target = _Target(
-        name="tasks.md", runner=runner, step="planner",
+        name="tasks.md",
+        runner=runner,
+        step="planner",
         task_meta={
             "spec_text": "## Authentication\n## Payments\n",
             "plan_text": "## Task 1: build authentication login form\n",
@@ -441,11 +481,15 @@ async def test_tier_task_done_when_flags_unmet_criterion(db_session):
     _seed_run(db_session, run_id="run-t5", owner_id="alice", workspace_id="ws-1")
     store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
     runner = _FakeRunner(
-        static_result=_StaticResult(ok=True), render_result=_RenderResult(),
-        store=store, run_id="run-t5",
+        static_result=_StaticResult(ok=True),
+        render_result=_RenderResult(),
+        store=store,
+        run_id="run-t5",
     )
     target = _Target(
-        name="app.py", runner=runner, step="code-gen",
+        name="app.py",
+        runner=runner,
+        step="code-gen",
         task_meta={"done_when": ["renders a pricing table", "exports a CSV report"]},
         content="def render_pricing_table(): ...",
     )
@@ -462,11 +506,15 @@ async def test_tier_design_quality_is_non_blocking(db_session):
     _seed_run(db_session, run_id="run-t6", owner_id="alice", workspace_id="ws-1")
     store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
     runner = _FakeRunner(
-        static_result=_StaticResult(ok=True), render_result=_RenderResult(),
-        store=store, run_id="run-t6",
+        static_result=_StaticResult(ok=True),
+        render_result=_RenderResult(),
+        store=store,
+        run_id="run-t6",
     )
     target = _Target(
-        name="prototype.html", runner=runner, step="prototype-build",
+        name="prototype.html",
+        runner=runner,
+        step="prototype-build",
         content=(
             "<html><body><p>Lorem ipsum placeholder</p>"
             "<img src='x.png'></body></html>"
@@ -487,22 +535,31 @@ async def test_tier_validators_write_validation_results_rows(db_session):
     _seed_run(db_session, run_id="run-t7", owner_id="alice", workspace_id="ws-1")
     store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
     runner = _FakeRunner(
-        static_result=_StaticResult(ok=True), render_result=_RenderResult(),
-        store=store, run_id="run-t7",
+        static_result=_StaticResult(ok=True),
+        render_result=_RenderResult(),
+        store=store,
+        run_id="run-t7",
     )
     registry = CapabilityRegistry()
     target = _Target(
-        name="x", runner=runner, step="s",
-        task_meta={"done_when": ["does a thing not present"],
-                   "spec_text": "## Foo\n", "plan_text": ""},
+        name="x",
+        runner=runner,
+        step="s",
+        task_meta={
+            "done_when": ["does a thing not present"],
+            "spec_text": "## Foo\n",
+            "plan_text": "",
+        },
         content="unrelated body",
     )
     for name in ("spec_plan_coverage", "task_done_when", "design_quality"):
         await registry.resolve("validator", name).validate(target)
 
-    rows = db_session.query(ValidationResult).filter(
-        ValidationResult.run_id == "run-t7"
-    ).all()
+    rows = (
+        db_session.query(ValidationResult)
+        .filter(ValidationResult.run_id == "run-t7")
+        .all()
+    )
     written = {r.validator for r in rows}
     assert {"spec_plan_coverage", "task_done_when", "design_quality"} <= written
     assert all(r.owner_id == "alice" for r in rows)
@@ -545,8 +602,9 @@ class _RoutingRunner:
         self.deliverable_contexts.append(
             {"name": name, "step": step, "task_meta": dict(task_meta or {})}
         )
-        return _Target(name=name, runner=self, step=step,
-                       task_meta=dict(task_meta or {}))
+        return _Target(
+            name=name, runner=self, step=step, task_meta=dict(task_meta or {})
+        )
 
     def static_check(self, path):
         return self.static_result
@@ -582,7 +640,7 @@ async def test_task_loop_runs_registered_validators_via_policy_and_handle():
     policy = strat._fix_policy(runner, step, "prototype.html")
     assert policy is not None
     assert policy.deliverable == "prototype.html"
-    assert policy.max_attempts == 2   # no declared step.fix → Phase-7 default
+    assert policy.max_attempts == 2  # no declared step.fix → Phase-7 default
 
     # Running the declared validators writes validation_results rows per attempt
     # via the handle — and yields NO event (additive / event-free, D-06).

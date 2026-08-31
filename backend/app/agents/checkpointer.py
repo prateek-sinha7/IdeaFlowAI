@@ -23,12 +23,14 @@ from app.core.config import settings
 logger = logging.getLogger("app.agents.checkpointer")
 
 _checkpointer = None  # cached process-wide singleton
-_pool = None          # AsyncConnectionPool when on Postgres
-_closed = False       # D7 (KAN-139): one-way latch set by close_checkpointer()
+_pool = None  # AsyncConnectionPool when on Postgres
+_closed = False  # D7 (KAN-139): one-way latch set by close_checkpointer()
 
 
 def _is_postgres() -> bool:
-    return settings.DATABASE_URL.startswith(("postgresql://", "postgresql+", "postgres://"))
+    return settings.DATABASE_URL.startswith(
+        ("postgresql://", "postgresql+", "postgres://")
+    )
 
 
 async def get_checkpointer():
@@ -141,4 +143,6 @@ async def close_checkpointer() -> None:
         try:
             await pool_to_close.close()
         except Exception as exc:  # noqa: BLE001 — non-raising, latch already set
-            logger.warning("close_checkpointer: pool.close() raised (non-fatal): %s", exc)
+            logger.warning(
+                "close_checkpointer: pool.close() raised (non-fatal): %s", exc
+            )

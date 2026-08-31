@@ -68,9 +68,7 @@ class HumanGate:
 
     name = "human"
 
-    async def evaluate_stream(
-        self, step: Any, ctx: Any
-    ) -> AsyncGenerator[Any, None]:
+    async def evaluate_stream(self, step: Any, ctx: Any) -> AsyncGenerator[Any, None]:
         """Stream the review-gate events AS PRODUCED, then a terminal ``GateOutcome``.
 
         F1 fix (Phase 13): the delegate (``run_human_gate`` → ``_run_review_gate``)
@@ -131,13 +129,17 @@ class HumanGate:
         # NOT silently advance. Reject still wins (GATE_BLOCK). This also writes an
         # HONEST audit row (F9) instead of a misleading GATE_PASS.
         outcome = (
-            GATE_BLOCK if rejected
+            GATE_BLOCK
+            if rejected
             else (GATE_WAIT_HUMAN if unwired_action_seen else GATE_PASS)
         )
         # The audit row keeps a CONTENT-FREE detail (no user payload persisted in
         # gate_events); the edited content itself rides the GateOutcome only.
         await write_gate_event(
-            ctx, step_id, "human", outcome,
+            ctx,
+            step_id,
+            "human",
+            outcome,
             {"edited": True} if (edited_content and not rejected) else None,
         )
         detail = (

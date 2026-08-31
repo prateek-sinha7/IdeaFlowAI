@@ -90,7 +90,9 @@ class CaptureContractError(AssertionError):
     The full list of failures is on :attr:`failures` and rendered in the message.
     """
 
-    def __init__(self, failures: list[str], *, world: str = "", label: str = "") -> None:
+    def __init__(
+        self, failures: list[str], *, world: str = "", label: str = ""
+    ) -> None:
         self.failures = list(failures)
         self.world = world
         self.label = label
@@ -322,14 +324,18 @@ def _extract_prototype_html(deliverable: str) -> str | None:
 DeliverableRule = Callable[..., list[str]]
 
 
-def _rule_text_nonempty(deliverable: str | None, *, allow_render: bool = True) -> list[str]:
+def _rule_text_nonempty(
+    deliverable: str | None, *, allow_render: bool = True
+) -> list[str]:
     """Validity for text/markup pipelines: the deliverable is simply non-empty."""
     if deliverable is None:
         return ["deliverable is None (run did not complete or produced no output)"]
     if not str(deliverable).strip():
         return ["deliverable is empty"]
     if str(deliverable).strip() == _EMPTY_DELIVERABLE_SENTINEL:
-        return [f"deliverable is the empty-sandbox sentinel {_EMPTY_DELIVERABLE_SENTINEL!r}"]
+        return [
+            f"deliverable is the empty-sandbox sentinel {_EMPTY_DELIVERABLE_SENTINEL!r}"
+        ]
     return []
 
 
@@ -357,7 +363,9 @@ def _rule_codegen_filename_blocks(
     # so this is a belt-and-braces non-empty-path check.
     bad = [p for p in blocks if not p.strip()]
     if bad:
-        return [f"code-gen deliverable has {len(bad)} filename block(s) with an empty path"]
+        return [
+            f"code-gen deliverable has {len(bad)} filename block(s) with an empty path"
+        ]
     return []
 
 
@@ -509,9 +517,7 @@ def _check_required_keys(result: CaptureResult, required: frozenset[str]) -> lis
     return failures
 
 
-def _check_known_vocabulary(
-    result: CaptureResult, known: frozenset[str]
-) -> list[str]:
+def _check_known_vocabulary(result: CaptureResult, known: frozenset[str]) -> list[str]:
     """Flag any event ``type`` not in the world's known vocabulary (regression)."""
     failures: list[str] = []
     seen_unknown: set[str] = set()
@@ -564,7 +570,9 @@ def _check_terminal(result: CaptureResult) -> list[str]:
     return failures
 
 
-def _check_completed_flag(result: CaptureResult, *, require_completed: bool) -> list[str]:
+def _check_completed_flag(
+    result: CaptureResult, *, require_completed: bool
+) -> list[str]:
     if require_completed and not result.completed:
         return [
             f"result.completed is False (error={result.error!r}, "
@@ -714,7 +722,9 @@ def _check_chat(result: CaptureResult, *, require_completed: bool) -> list[str]:
     # Also validate the mirrored CaptureResult.final_output when present.
     if result.final_output is not None:
         failures.extend(
-            _validate_chat_final_output(result.final_output, where="result.final_output")
+            _validate_chat_final_output(
+                result.final_output, where="result.final_output"
+            )
         )
     elif require_completed:
         failures.append("chat result.final_output is None (expected the 10-key dict)")
@@ -734,7 +744,9 @@ def _validate_chat_final_output(data, *, where: str) -> list[str]:
             bits.append(f"missing={sorted(missing)}")
         if extra:
             bits.append(f"extra={sorted(extra)}")
-        return [f"chat {where} key set != the 10 FinalOutputModel keys ({'; '.join(bits)})"]
+        return [
+            f"chat {where} key set != the 10 FinalOutputModel keys ({'; '.join(bits)})"
+        ]
     return []
 
 
@@ -753,7 +765,9 @@ def _check_handoff(result: CaptureResult, *, require_completed: bool) -> list[st
 
     if output is None:
         if not _has_error(result):
-            failures.append("handoff produced no pipeline_output (and no error captured)")
+            failures.append(
+                "handoff produced no pipeline_output (and no error captured)"
+            )
         return failures
 
     if not isinstance(output, dict):
@@ -958,7 +972,9 @@ class _CostRow:
 
     @property
     def usd(self) -> float:
-        return cost_usd(TokenTotals(input=self.input, output=self.output, total=self.total))
+        return cost_usd(
+            TokenTotals(input=self.input, output=self.output, total=self.total)
+        )
 
 
 def _as_results(result_or_results) -> list[CaptureResult]:
@@ -988,17 +1004,15 @@ def summarize_cost(result_or_results) -> str:
     name_w = max(
         [len("agent / capture")]
         + [len(f"{r.world}:{r.label}") for r in results]
-        + [
-            len(aid)
-            for r in results
-            for aid in r.per_agent_tokens
-        ]
+        + [len(aid) for r in results for aid in r.per_agent_tokens]
         + [len("TOTAL")],
         default=20,
     )
     name_w = max(name_w, 20)
 
-    def _fmt_row(name: str, inp: int, out: int, total: int, usd: float, *, indent: str = "  ") -> str:
+    def _fmt_row(
+        name: str, inp: int, out: int, total: int, usd: float, *, indent: str = "  "
+    ) -> str:
         return (
             f"{indent}{name:<{name_w}}  "
             f"{inp:>10,}  {out:>10,}  {total:>11,}  ${usd:>9.4f}"
@@ -1018,9 +1032,11 @@ def summarize_cost(result_or_results) -> str:
     grand_in = grand_out = 0
     for r in results:
         lines.append("")
-        lines.append(f"[{r.world}:{r.label}]"
-                     + (f"  run_id={r.run_id}" if r.run_id else "")
-                     + (f"  ({r.duration_s:.1f}s)" if r.duration_s else ""))
+        lines.append(
+            f"[{r.world}:{r.label}]"
+            + (f"  run_id={r.run_id}" if r.run_id else "")
+            + (f"  ({r.duration_s:.1f}s)" if r.duration_s else "")
+        )
         lines.append(_hdr())
         lines.append("  " + "-" * (name_w + 48))
         # Per-agent rows (sorted for stable output).
@@ -1038,7 +1054,11 @@ def summarize_cost(result_or_results) -> str:
     grand = _CostRow("GRAND TOTAL", grand_in, grand_out)
     lines.append("")
     lines.append("=" * (name_w + 50))
-    lines.append(_fmt_row(grand.label, grand.input, grand.output, grand.total, grand.usd, indent=""))
+    lines.append(
+        _fmt_row(
+            grand.label, grand.input, grand.output, grand.total, grand.usd, indent=""
+        )
+    )
     lines.append(f"captures={len(results)}  grand cost=${grand.usd:.4f}")
     lines.append("=" * (name_w + 50))
     return "\n".join(lines)

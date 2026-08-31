@@ -37,7 +37,9 @@ DEFAULT_API_KEY_TTL_DAYS = 90
 
 def default_api_key_expiry(now: datetime | None = None) -> datetime:
     """Expiry stamp for a newly-minted key."""
-    return (now or datetime.now(timezone.utc)) + timedelta(days=DEFAULT_API_KEY_TTL_DAYS)
+    return (now or datetime.now(timezone.utc)) + timedelta(
+        days=DEFAULT_API_KEY_TTL_DAYS
+    )
 
 
 def mint_api_key() -> tuple[str, str, str]:

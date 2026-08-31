@@ -90,6 +90,8 @@ def test_module_imports_no_legacy_factory_or_engine_internals() -> None:
         for ln in import_lines
         if "agents.factory" in ln or "execution_engine.engine" in ln or "engine" in ln
     ]
-    assert offenders == [], f"context.py imports legacy engine/factory internals: {offenders}"
+    assert (
+        offenders == []
+    ), f"context.py imports legacy engine/factory internals: {offenders}"
     # Positive: the only imports are stdlib dataclasses + __future__ annotations.
     assert any("from dataclasses import" in ln for ln in import_lines)

@@ -144,7 +144,9 @@ def parse_github_url(url: str) -> RepoTarget:
 
 def _credentialed_clone_url(target: RepoTarget, pat: str) -> str:
     """Build the PAT-embedded clone URL. Never logged."""
-    return f"https://x-access-token:{pat}@{target.host}/{target.owner}/{target.repo}.git"
+    return (
+        f"https://x-access-token:{pat}@{target.host}/{target.owner}/{target.repo}.git"
+    )
 
 
 def _redact(text: str, secrets: Iterable[str]) -> str:

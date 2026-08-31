@@ -60,19 +60,19 @@ async def test_routed_prototype_dispatches_via_task_loop_and_single_shot(monkeyp
     assert events, "routed prototype produced no events"
 
     # The build agent routed through task_loop; the planning/validate agents through single_shot.
-    assert "prototype-build" in routed_via_task_loop, (
-        f"build step did NOT dispatch via task_loop (task_loop saw {routed_via_task_loop})"
-    )
-    assert "prototype-build" not in routed_via_single_shot, (
-        "build step wrongly dispatched via single_shot"
-    )
+    assert (
+        "prototype-build" in routed_via_task_loop
+    ), f"build step did NOT dispatch via task_loop (task_loop saw {routed_via_task_loop})"
+    assert (
+        "prototype-build" not in routed_via_single_shot
+    ), "build step wrongly dispatched via single_shot"
     for non_build in ("prototype-specify", "prototype-plan", "prototype-validate"):
-        assert non_build in routed_via_single_shot, (
-            f"{non_build} did NOT dispatch via single_shot (single_shot saw {routed_via_single_shot})"
-        )
-        assert non_build not in routed_via_task_loop, (
-            f"{non_build} wrongly dispatched via task_loop"
-        )
+        assert (
+            non_build in routed_via_single_shot
+        ), f"{non_build} did NOT dispatch via single_shot (single_shot saw {routed_via_single_shot})"
+        assert (
+            non_build not in routed_via_task_loop
+        ), f"{non_build} wrongly dispatched via task_loop"
 
 
 @pytest.mark.asyncio
@@ -86,16 +86,21 @@ async def test_routed_prototype_emits_task_loop_progress_and_html_deliverable():
     events = await _drive("prototype")
 
     progress = [e for e in events if e.get("type") == "task_loop_progress"]
-    assert progress, "routed prototype emitted no task_loop_progress (build loop did not run)"
+    assert (
+        progress
+    ), "routed prototype emitted no task_loop_progress (build loop did not run)"
     # The scripted prototype-plan emits exactly 2 tasks → 2 loop-progress events.
     task_numbers = sorted(e["data"]["task_number"] for e in progress)
-    assert task_numbers == [1, 2], f"expected per-task progress for 2 tasks, got {task_numbers}"
+    assert task_numbers == [
+        1,
+        2,
+    ], f"expected per-task progress for 2 tasks, got {task_numbers}"
 
     deliverable = extract_final_output(events)
     assert deliverable, "routed prototype produced an empty deliverable"
-    assert "<" in deliverable and "section" in deliverable.lower(), (
-        "routed prototype deliverable is not the built HTML"
-    )
+    assert (
+        "<" in deliverable and "section" in deliverable.lower()
+    ), "routed prototype deliverable is not the built HTML"
 
 
 @pytest.mark.asyncio
@@ -119,11 +124,17 @@ async def test_routed_deliverable_resolution_is_capability_routed():
         events = await _drive("prototype")
 
     assert events, "routed prototype produced no events"
-    assert ("deliverable", "single_file") in seen, (
-        f"deliverable was NOT resolved via the single_file capability (resolves seen: {seen})"
-    )
-    assert ("strategy", "task_loop") in seen, "build did not resolve the task_loop strategy"
-    assert ("strategy", "single_shot") in seen, "non-build steps did not resolve single_shot"
+    assert (
+        ("deliverable", "single_file") in seen
+    ), f"deliverable was NOT resolved via the single_file capability (resolves seen: {seen})"
+    assert (
+        "strategy",
+        "task_loop",
+    ) in seen, "build did not resolve the task_loop strategy"
+    assert (
+        "strategy",
+        "single_shot",
+    ) in seen, "non-build steps did not resolve single_shot"
 
 
 @pytest.mark.asyncio
@@ -153,7 +164,10 @@ async def test_routed_prototype_injects_via_opendesign_provider():
         f"prototype did NOT route OD injection through the opendesign provider "
         f"(resolves seen: {sorted(set(seen))})"
     )
-    assert ("deliverable", "single_file") in seen, "prototype deliverable not single_file"
+    assert (
+        "deliverable",
+        "single_file",
+    ) in seen, "prototype deliverable not single_file"
 
 
 @pytest.mark.asyncio
@@ -181,4 +195,7 @@ async def test_routed_prototype_revision_seeds_via_previous_run_provider():
         f"prototype_revision did NOT route the parent seed through previous_run "
         f"(resolves seen: {sorted(set(seen))})"
     )
-    assert ("deliverable", "single_file") in seen, "revision deliverable not single_file"
+    assert (
+        "deliverable",
+        "single_file",
+    ) in seen, "revision deliverable not single_file"

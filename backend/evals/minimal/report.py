@@ -25,7 +25,12 @@ HERE = Path(__file__).resolve().parent
 REPORT_PATH = HERE / "report.html"
 
 _EMPTY_STAGE = {
-    "judge": None, "judge_errors": [], "checks": None, "completed": 0, "total": 0, "rows": [],
+    "judge": None,
+    "judge_errors": [],
+    "checks": None,
+    "completed": 0,
+    "total": 0,
+    "rows": [],
     "advice": None,
 }
 
@@ -39,10 +44,18 @@ def build_report(output_path: str | Path | None = None) -> Path:
     path = Path(output_path) if output_path else REPORT_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    path.write_text(_page({
-        "warnings": warnings, "runs": runs, "generated_at": generated_at,
-        "summary": _overall(runs), "advice": _advice_index(runs),
-    }), encoding="utf-8")
+    path.write_text(
+        _page(
+            {
+                "warnings": warnings,
+                "runs": runs,
+                "generated_at": generated_at,
+                "summary": _overall(runs),
+                "advice": _advice_index(runs),
+            }
+        ),
+        encoding="utf-8",
+    )
     return path
 
 
@@ -75,11 +88,17 @@ def export_advice(output_path: str | Path | None = None) -> Path:
     # advice and the `.vN.md` drafts it argues about sit in one directory.
     path = Path(output_path) if output_path else HERE / "prompts" / "advices.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "runs": [r["run_id"] for r in runs],
-        "workflows": index,
-    }, indent=2), encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            {
+                "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "runs": [r["run_id"] for r in runs],
+                "workflows": index,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     return path
 
 
@@ -113,18 +132,23 @@ def _overall(runs: list[dict]) -> dict:
                         severity[key] = severity.get(key, 0) + 1
                 tokens_by_stage[stage] = (
                     tokens_by_stage.get(stage, 0)
-                    + int(verdict.get("tokens_in") or 0) + int(verdict.get("tokens_out") or 0)
+                    + int(verdict.get("tokens_in") or 0)
+                    + int(verdict.get("tokens_out") or 0)
                 )
             # The gap this harness exists to expose: content the judge liked
             # sitting on a deliverable that does not run. Only meaningful
             # where BOTH numbers exist.
             judge = facts.get("judge")
             if judge and judge.get("mean") is not None and checks and checks.get("n"):
-                divergence.append({
-                    "run_id": run["run_id"], "stage": stage,
-                    "judge": judge["mean"], "checks": checks["pct"],
-                    "gap": judge["mean"] - checks["pct"],
-                })
+                divergence.append(
+                    {
+                        "run_id": run["run_id"],
+                        "stage": stage,
+                        "judge": judge["mean"],
+                        "checks": checks["pct"],
+                        "gap": judge["mean"] - checks["pct"],
+                    }
+                )
     divergence.sort(key=lambda d: -d["gap"])
     return {
         "pipelines": sorted(pipelines),
@@ -160,23 +184,32 @@ def _advice_index(runs: list[dict]) -> dict:
             # under the older split shape still appears in the history.
             items = list(payload.get("advice") or [])
             for legacy in ("add", "remove"):
-                items += [{**i, "action": i.get("action", legacy)}
-                           for i in (payload.get(legacy) or []) if isinstance(i, dict)]
+                items += [
+                    {**i, "action": i.get("action", legacy)}
+                    for i in (payload.get(legacy) or [])
+                    if isinstance(i, dict)
+                ]
             for item in items:
                 if not isinstance(item, dict) or not item.get("description"):
                     continue
                 category = item.get("category") or "uncategorised"
                 bucket = (
-                    index.setdefault(workflow, {"stages": {}})
-                    ["stages"].setdefault(stage, {"categories": {}})
-                    ["categories"].setdefault(category, {})
+                    index.setdefault(workflow, {"stages": {}})["stages"]
+                    .setdefault(stage, {"categories": {}})["categories"]
+                    .setdefault(category, {})
                 )
                 action = item.get("action") or "add"
                 key = (action, " ".join(str(item["description"]).split()))
-                entry = bucket.setdefault(key, {
-                    "action": action, "description": item["description"],
-                    "advisory_score": 0, "reasons": [], "runs": [],
-                })
+                entry = bucket.setdefault(
+                    key,
+                    {
+                        "action": action,
+                        "description": item["description"],
+                        "advisory_score": 0,
+                        "reasons": [],
+                        "runs": [],
+                    },
+                )
                 entry["advisory_score"] = max(
                     entry["advisory_score"], int(item.get("advisory_score") or 0)
                 )
@@ -188,15 +221,21 @@ def _advice_index(runs: list[dict]) -> dict:
             # own bucket, rather than vanishing from the history.
             if payload.get("text"):
                 bucket = (
-                    index.setdefault(workflow, {"stages": {}})
-                    ["stages"].setdefault(stage, {"categories": {}})
-                    ["categories"].setdefault("prose (pre-structured)", {})
+                    index.setdefault(workflow, {"stages": {}})["stages"]
+                    .setdefault(stage, {"categories": {}})["categories"]
+                    .setdefault("prose (pre-structured)", {})
                 )
                 key = ("add", " ".join(payload["text"].split()))
-                entry = bucket.setdefault(key, {
-                    "action": "add", "description": payload["text"],
-                    "advisory_score": 0, "reasons": [], "runs": [],
-                })
+                entry = bucket.setdefault(
+                    key,
+                    {
+                        "action": "add",
+                        "description": payload["text"],
+                        "advisory_score": 0,
+                        "reasons": [],
+                        "runs": [],
+                    },
+                )
                 entry["runs"].append(run["run_id"])
 
     out: dict[str, dict] = {}
@@ -209,17 +248,25 @@ def _advice_index(runs: list[dict]) -> dict:
             categories = {}
             for category, bucket in sorted(st["categories"].items()):
                 entries = sorted(
-                    ({**e, "count": len(e["runs"]),
-                      "prompt_state": _prompt_state(e["runs"], by_run, live)}
-                     for e in bucket.values()),
+                    (
+                        {
+                            **e,
+                            "count": len(e["runs"]),
+                            "prompt_state": _prompt_state(e["runs"], by_run, live),
+                        }
+                        for e in bucket.values()
+                    ),
                     # OPEN advice first, SUPERSEDED last. A suggestion written
                     # against a prompt body that has since been replaced was
                     # either applied or made moot by whatever replaced it —
                     # either way it is not work remaining, and sorting it
                     # among the live items is what makes a pool of 115 read as
                     # 115 open problems when most of it may be history.
-                    key=lambda e: (_STATE_RANK.get(e["prompt_state"], 9),
-                                    -e["advisory_score"], -e["count"]),
+                    key=lambda e: (
+                        _STATE_RANK.get(e["prompt_state"], 9),
+                        -e["advisory_score"],
+                        -e["count"],
+                    ),
                 )
                 categories[category] = {
                     "entries": entries,
@@ -232,7 +279,9 @@ def _advice_index(runs: list[dict]) -> dict:
                 "unique": sum(c["unique"] for c in categories.values()),
                 "total": sum(c["total"] for c in categories.values()),
                 "open": sum(
-                    1 for c in categories.values() for e in c["entries"]
+                    1
+                    for c in categories.values()
+                    for e in c["entries"]
                     if e["prompt_state"] == "current"
                 ),
                 **provenance,
@@ -273,7 +322,9 @@ def _advice_provenance(runs: list[dict], workflow: str, stage: str) -> dict:
         contributing.append(run["run_id"])
         try:
             config = store.read_config(run["run_id"])
-            agent_id = ((config.get("agents") or {}).get(stage) or {}).get("agent_id") or agent_id
+            agent_id = ((config.get("agents") or {}).get(stage) or {}).get(
+                "agent_id"
+            ) or agent_id
         except (FileNotFoundError, KeyError, TypeError):
             pass
         # From the RUN phase, not the summarized rows — `_summarize_stage`
@@ -286,7 +337,9 @@ def _advice_provenance(runs: list[dict], workflow: str, stage: str) -> dict:
                 if digest not in hashes:
                     hashes.append(digest)
     return {
-        "agent_id": agent_id, "system_prompt_hashes": hashes, "runs": contributing,
+        "agent_id": agent_id,
+        "system_prompt_hashes": hashes,
+        "runs": contributing,
         "current_prompt_hash": _live_prompt_hash(agent_id),
         "hash_by_run": by_run,
     }
@@ -326,6 +379,7 @@ def _live_prompt_hash(agent_id: str | None) -> str | None:
         return None
     try:
         from evals.minimal import run as run_module
+
         return run_module._hash_prompt(run_module.compose_agent_prompt(agent_id))
     except Exception:  # noqa: BLE001 - provenance must never break the report
         return None
@@ -388,11 +442,15 @@ def _run_totals(per_stage: dict) -> dict:
     Stages that were never judged/checked are EXCLUDED rather than counted as
     zero: a mean over "no verdict" is not a verdict.
     """
-    judged = [s["judge"]["mean"] for s in per_stage.values()
-              if s.get("judge") and s["judge"].get("mean") is not None]
+    judged = [
+        s["judge"]["mean"]
+        for s in per_stage.values()
+        if s.get("judge") and s["judge"].get("mean") is not None
+    ]
     checked = [s["checks"]["pct"] for s in per_stage.values() if s.get("checks")]
     gate_failed = sum(
-        1 for s in per_stage.values()
+        1
+        for s in per_stage.values()
         if s.get("checks") and s["checks"].get("n") and s["checks"]["pct"] < 100.0
     )
     return {
@@ -410,7 +468,9 @@ def _run_totals(per_stage: dict) -> dict:
 def _summarize_stage(run_id: str, stage: str) -> dict:
     """One stage's facts, rows folded together with their judge verdict and
     checks summary so report.js never has to join three arrays client-side."""
-    rows_raw, judge_by_row, judge_errors, checks_by_row, checks_summary, advice = _read_stage(run_id, stage)
+    rows_raw, judge_by_row, judge_errors, checks_by_row, checks_summary, advice = (
+        _read_stage(run_id, stage)
+    )
     judge_agg = score.aggregate(list(judge_by_row.values())) if judge_by_row else None
 
     inherited_names = _inherited_names(run_id, stage)
@@ -425,8 +485,11 @@ def _summarize_stage(run_id: str, stage: str) -> dict:
             # seeded as spec.md/tasks.md/analysis.md, every later stage's
             # snapshot contains them too. Rendering that list unfiltered put
             # three other phases' documents at the bottom of every stage page.
-            "artifacts": {k: v for k, v in (row.get("artifacts") or {}).items()
-                          if k not in inherited_names},
+            "artifacts": {
+                k: v
+                for k, v in (row.get("artifacts") or {}).items()
+                if k not in inherited_names
+            },
             "inherited": sorted(set(row.get("artifacts") or {}) & inherited_names),
             "judge": _row_judge(judge_by_row.get(row["row_id"])),
             "checks_summary": (checks_by_row.get(row["row_id"]) or {}).get("summary"),
@@ -466,7 +529,7 @@ def _inherited_names(run_id: str, stage: str) -> set[str]:
         return set()
     return {
         (agents.get(prior) or {}).get("seed_as")
-        for prior in order[:order.index(stage)]
+        for prior in order[: order.index(stage)]
     } - {None}
 
 
@@ -492,8 +555,11 @@ def _artifact_href(run_id: str, stage: str) -> str | None:
 
 
 def _read_stage(
-    run_id: str, stage: str,
-) -> tuple[list[dict], dict[str, dict], list[dict], dict[str, dict], dict | None, dict | None]:
+    run_id: str,
+    stage: str,
+) -> tuple[
+    list[dict], dict[str, dict], list[dict], dict[str, dict], dict | None, dict | None
+]:
     """Every stored artifact for one stage, tolerating any of the three being absent."""
     rows_raw: list[dict] = []
     judge_by_row: dict[str, dict] = {}
@@ -523,16 +589,22 @@ def _read_stage(
         rows_checked = score_payload.get("rows_checked", 0)
         # A stage with no HTML deliverable was never checked — report nothing
         # rather than 0.0, which would read as a failure it never had.
-        checks_summary = None if score_payload.get("skipped") else {
-            "pct": (score_payload.get("rows_ok", 0) / rows_checked * 100) if rows_checked else 0.0,
-            "n": rows_checked,
-            # Which half failed, and why — `render` ran the page, `static`
-            # only linted it, and the report must not imply they are equal.
-            "static_ok": score_payload.get("rows_static_ok", rows_checked),
-            "render_ok": score_payload.get("rows_render_ok", rows_checked),
-            "reasons": score_payload.get("reasons") or [],
-            "advisories": score_payload.get("advisories") or [],
-        }
+        checks_summary = (
+            None
+            if score_payload.get("skipped")
+            else {
+                "pct": (score_payload.get("rows_ok", 0) / rows_checked * 100)
+                if rows_checked
+                else 0.0,
+                "n": rows_checked,
+                # Which half failed, and why — `render` ran the page, `static`
+                # only linted it, and the report must not imply they are equal.
+                "static_ok": score_payload.get("rows_static_ok", rows_checked),
+                "render_ok": score_payload.get("rows_render_ok", rows_checked),
+                "reasons": score_payload.get("reasons") or [],
+                "advisories": score_payload.get("advisories") or [],
+            }
+        )
     except FileNotFoundError:
         pass
     return rows_raw, judge_by_row, judge_errors, checks_by_row, checks_summary, advice

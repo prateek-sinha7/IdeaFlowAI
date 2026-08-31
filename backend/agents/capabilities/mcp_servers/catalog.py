@@ -61,7 +61,9 @@ class GithubMcpServer(_McpServerBase):
 
     name = "github"
     transport = "streamable_http"
-    exposed_tools = frozenset({"list_issues", "get_issue", "list_pull_requests", "get_repository"})
+    exposed_tools = frozenset(
+        {"list_issues", "get_issue", "list_pull_requests", "get_repository"}
+    )
     scope = "github_read"
     powerful = False
 
@@ -77,7 +79,9 @@ class GitlabMcpServer(_McpServerBase):
 
     name = "gitlab"
     transport = "streamable_http"
-    exposed_tools = frozenset({"list_issues", "get_issue", "list_merge_requests", "get_project"})
+    exposed_tools = frozenset(
+        {"list_issues", "get_issue", "list_merge_requests", "get_project"}
+    )
     scope = "gitlab_read"
     powerful = False
 

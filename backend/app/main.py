@@ -63,7 +63,10 @@ logger = logging.getLogger("app.main")
 
 langsmith_enabled = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
 if langsmith_enabled:
-    logger.info("🔍 LangSmith tracing ENABLED — project: %s", os.getenv("LANGSMITH_PROJECT", "default"))
+    logger.info(
+        "🔍 LangSmith tracing ENABLED — project: %s",
+        os.getenv("LANGSMITH_PROJECT", "default"),
+    )
 else:
     logger.info("LangSmith tracing disabled")
 
@@ -73,11 +76,16 @@ async def lifespan(app: FastAPI):
     """Application lifespan: create database tables on startup."""
     logger.info("🚀 Starting VelocityAI Backend...")
     if settings.ANTHROPIC_API_KEY:
-        logger.info("   LLM provider: anthropic-direct (model=%s)", settings.ANTHROPIC_MODEL_ID or "claude-haiku-4-5")
+        logger.info(
+            "   LLM provider: anthropic-direct (model=%s)",
+            settings.ANTHROPIC_MODEL_ID or "claude-haiku-4-5",
+        )
     elif settings.AWS_BEARER_TOKEN_BEDROCK:
         logger.info(
             "   LLM provider: bedrock-bearer-token (model=%s region=%s)",
-            settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID or "NOT SET",
+            settings.BEDROCK_INFERENCE_PROFILE_ID
+            or settings.BEDROCK_MODEL_ID
+            or "NOT SET",
             settings.AWS_REGION or "NOT SET",
         )
     else:
@@ -121,6 +129,7 @@ async def lifespan(app: FastAPI):
     # can be resumed by user action (FR-011, SC-007 — within 30s of startup).
     try:
         from agents.execution_engine.engine import get_execution_engine
+
         engine_instance = get_execution_engine()
         # ── 12-09 Gap 2a: wire the engine→WS live-task bridge BEFORE the
         # restore scan, so auto-resumed runs register their queue+task in the
@@ -128,6 +137,7 @@ async def lifespan(app: FastAPI):
         # is the SINGLE wiring site — the engine never imports app.api (the
         # import-linter forbidden direction); the app layer injects callbacks.
         from app.api import run_engine as _ws_bridge
+
         engine_instance._resume_register_queue = _ws_bridge._register_resume_queue
         engine_instance._resume_register_task = _ws_bridge._register_resume_task
         engine_instance._resume_cleanup = _ws_bridge._cleanup_pipeline
@@ -146,6 +156,7 @@ async def lifespan(app: FastAPI):
         # engine.execute(...) at launch; app→app import (the kernel never imports app.*).
         from app.api.run_commands import register_live_ectx, unregister_live_ectx
         from app.agents.chat_narrator import persist_milestone_card
+
         engine_instance._resume_live_ectx_register = register_live_ectx
         engine_instance._resume_live_ectx_unregister = unregister_live_ectx
         engine_instance._resume_milestone_sink = persist_milestone_card
@@ -157,6 +168,7 @@ async def lifespan(app: FastAPI):
         # /summary, analytics, export). App→app import (the kernel never imports app.*); fired
         # from _drive_resumed_stream's finally, reading the owner-scoped durable tail.
         from app.api.run_commands import persist_resume_output_columns
+
         engine_instance._resume_output_persist_sink = persist_resume_output_columns
         await engine_instance.restore_non_terminal_runs()
     except Exception as _startup_exc:
@@ -189,7 +201,9 @@ async def lifespan(app: FastAPI):
                     _rows = (
                         _db.query(WorkflowRun.id)
                         .filter(
-                            WorkflowRun.status.notin_(("completed", "failed", "cancelled", "degraded"))
+                            WorkflowRun.status.notin_(
+                                ("completed", "failed", "cancelled", "degraded")
+                            )
                         )
                         .all()
                     )
@@ -241,7 +255,9 @@ async def lifespan(app: FastAPI):
         _summary = await shutdown_run_infrastructure()
         logger.info("shutdown summary: %s", json.dumps(_summary, default=str))
     except Exception as _shutdown_exc:  # noqa: BLE001
-        logger.error("Shutdown teardown failed (non-fatal): %s", _shutdown_exc, exc_info=True)
+        logger.error(
+            "Shutdown teardown failed (non-fatal): %s", _shutdown_exc, exc_info=True
+        )
     logger.info("🔴 Shut down complete.")
 
 

@@ -57,7 +57,9 @@ class TestBedrockMapping:
     def test_bedrock_read_timeout_maps_to_timeout(self):
         from botocore.exceptions import ReadTimeoutError
 
-        result = map_exception(ReadTimeoutError(endpoint_url="https://example", error="x"))
+        result = map_exception(
+            ReadTimeoutError(endpoint_url="https://example", error="x")
+        )
         assert result.code == "timeout"
         assert result.recoverable is True
 

@@ -42,12 +42,7 @@ def test_two_top_level_tasks() -> None:
 
 
 def test_task_body_is_byte_identical_to_extract_task_block() -> None:
-    text = (
-        "## Task 1: Foo\n"
-        "Body of foo.\n\n"
-        "## Task 2: Bar\n"
-        "Body of bar.\n"
-    )
+    text = "## Task 1: Foo\n" "Body of foo.\n\n" "## Task 2: Bar\n" "Body of bar.\n"
     _count, task_source = _count_plan_tasks(text)
     tasks = _parser().parse(text)
     assert tasks[0].body == _extract_task_block(task_source, 1)

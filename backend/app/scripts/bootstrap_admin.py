@@ -362,7 +362,9 @@ def _compensate_delete_cognito_admin(email: str) -> None:
     except Exception:  # noqa: BLE001 - best-effort; already in an error path
         logger.error("failed to compensate-delete the orphaned Cognito admin %s", email)
     else:
-        logger.info("compensated: deleted the partially provisioned Cognito admin %s", email)
+        logger.info(
+            "compensated: deleted the partially provisioned Cognito admin %s", email
+        )
 
 
 def _read_password_from_stdin() -> str | None:
@@ -417,12 +419,16 @@ def main(argv: list[str] | None = None) -> int:
         # credentials — silently ignoring them would hide a scripting mistake
         # that leaves an environment un-bootstrapped.
         if args.email or args.password_stdin:
-            logger.error("--check-only cannot be combined with --email/--password-stdin")
+            logger.error(
+                "--check-only cannot be combined with --email/--password-stdin"
+            )
             return EXIT_ERROR
         return check_only()
 
     if not args.email or not args.password_stdin:
-        logger.error("both --email and --password-stdin are required to create an administrator")
+        logger.error(
+            "both --email and --password-stdin are required to create an administrator"
+        )
         parser.print_usage(sys.stderr)
         return EXIT_ERROR
 

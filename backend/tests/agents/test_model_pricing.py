@@ -137,9 +137,15 @@ def test_resolve_exact_catalog_id() -> None:
     "variant_id,seed_id",
     [
         # (b) region/version-normalized variants resolve to the seed entry's pricing.
-        ("us.anthropic.claude-haiku-4-5-20251001-v1:0", "eu.anthropic.claude-haiku-4-5-20251001-v1:0"),
+        (
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+        ),
         ("claude-opus-4-5", "eu.anthropic.claude-opus-4-5-20251101-v1:0"),
-        ("global.anthropic.claude-sonnet-4-5-20250929-v1:0", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"),
+        (
+            "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        ),
         ("apac.anthropic.claude-opus-4-6-v1", "eu.anthropic.claude-opus-4-6-v1"),
     ],
 )
@@ -233,8 +239,8 @@ def test_both_cost_sites_use_the_shared_pricing_function(site: Path) -> None:
     per-token rate literal of its own — so a rate change has exactly one home
     (``agents/capabilities/model_catalog.py``) and the two sites cannot drift."""
     src = _read_cost_site(site)
-    assert _SHARED_IMPORT in src, (
-        f"{site.name} must import the shared pricing function ({_SHARED_IMPORT})"
-    )
+    assert (
+        _SHARED_IMPORT in src
+    ), f"{site.name} must import the shared pricing function ({_SHARED_IMPORT})"
     found = [lit for lit in _RATE_LITERALS if lit in src]
     assert not found, f"{site.name} carries hand-rolled rate literal(s) {found}"

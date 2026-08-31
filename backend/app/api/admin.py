@@ -53,7 +53,10 @@ _TIER_TO_GROUP = {
 
 # ─── Guards ───────────────────────────────────────────────────────────────────
 
-def require_admin(auth: tuple[User, dict] = Depends(get_current_user_with_payload)) -> User:
+
+def require_admin(
+    auth: tuple[User, dict] = Depends(get_current_user_with_payload),
+) -> User:
     """Dependency that raises 403 if the caller is not an admin.
 
     Also applies the admin-MFA gate (Phase 6 item 1). The gate is a no-op unless
@@ -107,6 +110,7 @@ def require_admin(auth: tuple[User, dict] = Depends(get_current_user_with_payloa
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
+
 class AdminUserResponse(BaseModel):
     id: str
     email: str
@@ -152,7 +156,12 @@ def _run_count(db: Session, user_id: str) -> int:
     from app.models.workflow import WorkflowRun
     from sqlalchemy import func
 
-    return db.query(func.count(WorkflowRun.id)).filter(WorkflowRun.user_id == user_id).scalar() or 0
+    return (
+        db.query(func.count(WorkflowRun.id))
+        .filter(WorkflowRun.user_id == user_id)
+        .scalar()
+        or 0
+    )
 
 
 def _to_response(user: User, db: Session) -> AdminUserResponse:
@@ -168,6 +177,7 @@ def _to_response(user: User, db: Session) -> AdminUserResponse:
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
+
 
 @router.get("/users", response_model=list[AdminUserResponse])
 def list_users(
@@ -231,7 +241,9 @@ def update_user_tier(
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     if user.auth_provider == "cognito":
         new_group = _TIER_TO_GROUP[request.tier]
@@ -250,7 +262,8 @@ def update_user_tier(
             code = exc.response.get("Error", {}).get("Code", "")
             logger.error(
                 "Cognito group lookup failed for %s during tier update: %s",
-                user.email, code,
+                user.email,
+                code,
             )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -334,7 +347,9 @@ def update_user_role(
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     if user.auth_provider == "cognito":
         # P1 fix (COGNITO-AUTH-QA-BUGS.md "Privilege Mutation"): commit the
@@ -377,7 +392,9 @@ def update_user_role(
     return _to_response(user, db)
 
 
-@router.post("/users", response_model=AdminUserResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/users", response_model=AdminUserResponse, status_code=status.HTTP_201_CREATED
+)
 def create_user(
     request: CreateUserRequest,
     admin: User = Depends(require_admin),
@@ -451,14 +468,20 @@ def create_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Password does not meet the password policy.",
             )
-        logger.error("Cognito AdminCreateUser flow failed for %s: %s", request.email, code)
+        logger.error(
+            "Cognito AdminCreateUser flow failed for %s: %s", request.email, code
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not create the user at the identity provider.",
         )
 
     cognito_sub = next(
-        (attr["Value"] for attr in create_resp["User"]["Attributes"] if attr["Name"] == "sub"),
+        (
+            attr["Value"]
+            for attr in create_resp["User"]["Attributes"]
+            if attr["Name"] == "sub"
+        ),
         None,
     )
 
@@ -482,7 +505,9 @@ def create_user(
         try:
             cognito.admin_delete_user(request.email)
         except Exception:  # noqa: BLE001 - best-effort cleanup
-            logger.error("Failed to compensate-delete orphaned Cognito user %s", request.email)
+            logger.error(
+                "Failed to compensate-delete orphaned Cognito user %s", request.email
+            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to persist the new user locally; the identity-provider account was rolled back.",
@@ -530,7 +555,9 @@ def reset_user_password(
     """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     if len(request.new_password) < 8:
         raise HTTPException(
@@ -600,7 +627,9 @@ def reset_user_password(
     }
 
 
-@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete(
+    "/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response
+)
 def delete_user(
     user_id: str,
     admin: User = Depends(require_admin),
@@ -620,7 +649,9 @@ def delete_user(
         )
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     if user.auth_provider == "cognito":
         try:
@@ -628,7 +659,9 @@ def delete_user(
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "")
             if code != "UserNotFoundException":
-                logger.error("Cognito AdminDeleteUser failed for %s: %s", user.email, code)
+                logger.error(
+                    "Cognito AdminDeleteUser failed for %s: %s", user.email, code
+                )
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="Could not delete the user at the identity provider.",

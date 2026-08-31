@@ -66,6 +66,7 @@ def resolve_launch_od_context(
         load_ppt_od_context,
         load_prototype_od_context,
     )
+
     base_pipeline_type = resolve_alias(pipeline_type)
 
     # ── ELIGIBILITY (name-free — the SC-001 win) ──────────────────────────────

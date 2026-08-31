@@ -83,7 +83,9 @@ def parse_analyzer_output(raw: str) -> str:
     sections = _split_h2_sections(raw)
     body = _find_section(sections, "Solution Plan")
     if body is None:
-        logger.warning("parse_analyzer_output: ## Solution Plan section not found in output")
+        logger.warning(
+            "parse_analyzer_output: ## Solution Plan section not found in output"
+        )
         return ""
     return body
 
@@ -193,17 +195,19 @@ async def run_analyzer(
             existing_html=existing_html,
         )
 
-        await event_queue.put({
-            "type": "agent_start",
-            "data": {
-                "agent_id": "prototype-revision-analyzer",
-                "name": "Prototype Revision Analyzer",
-                "role": "analyzer",
-                "icon": "🔍",
-                "index": 1,
-                "total": 1,
-            },
-        })
+        await event_queue.put(
+            {
+                "type": "agent_start",
+                "data": {
+                    "agent_id": "prototype-revision-analyzer",
+                    "name": "Prototype Revision Analyzer",
+                    "role": "analyzer",
+                    "icon": "🔍",
+                    "index": 1,
+                    "total": 1,
+                },
+            }
+        )
 
         # Lazy imports to avoid circular dependencies at module load time.
         from app.agents.model_factory import build_model  # noqa: PLC0415
@@ -235,38 +239,45 @@ async def run_analyzer(
         solution = parse_analyzer_output(raw_content)
         tier = "large"  # tier no longer extracted here; run_analyzer is deprecated dead code
 
-        await event_queue.put({
-            "type": "agent_complete",
-            "data": {
-                "agent_id": "prototype-revision-analyzer",
-                "name": "Prototype Revision Analyzer",
-                "duration": duration,
-                "output_length": len(response.content),
-                "input_tokens": (
-                    getattr(response.usage_metadata, "input_tokens", 0)
-                    if hasattr(response, "usage_metadata") and response.usage_metadata
-                    else 0
-                ),
-                "output_tokens": (
-                    getattr(response.usage_metadata, "output_tokens", 0)
-                    if hasattr(response, "usage_metadata") and response.usage_metadata
-                    else 0
-                ),
-                "total_tokens": (
-                    getattr(response.usage_metadata, "total_tokens", 0)
-                    if hasattr(response, "usage_metadata") and response.usage_metadata
-                    else 0
-                ),
-            },
-        })
+        await event_queue.put(
+            {
+                "type": "agent_complete",
+                "data": {
+                    "agent_id": "prototype-revision-analyzer",
+                    "name": "Prototype Revision Analyzer",
+                    "duration": duration,
+                    "output_length": len(response.content),
+                    "input_tokens": (
+                        getattr(response.usage_metadata, "input_tokens", 0)
+                        if hasattr(response, "usage_metadata")
+                        and response.usage_metadata
+                        else 0
+                    ),
+                    "output_tokens": (
+                        getattr(response.usage_metadata, "output_tokens", 0)
+                        if hasattr(response, "usage_metadata")
+                        and response.usage_metadata
+                        else 0
+                    ),
+                    "total_tokens": (
+                        getattr(response.usage_metadata, "total_tokens", 0)
+                        if hasattr(response, "usage_metadata")
+                        and response.usage_metadata
+                        else 0
+                    ),
+                },
+            }
+        )
 
-        await event_queue.put({
-            "type": "revision_analyzer_complete",
-            "data": {
-                "tier": tier,
-                "solution_preview": solution[:200],
-            },
-        })
+        await event_queue.put(
+            {
+                "type": "revision_analyzer_complete",
+                "data": {
+                    "tier": tier,
+                    "solution_preview": solution[:200],
+                },
+            }
+        )
 
         return (tier, solution)
 
@@ -278,6 +289,7 @@ async def run_analyzer(
         )
         try:
             from app.api.run_commands import _classify_revision_tier  # noqa: PLC0415
+
             tier = await _classify_revision_tier(instruction, parent_run_id, model_id)
             return (tier, "")
         except Exception as exc2:

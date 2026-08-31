@@ -87,8 +87,9 @@ def api(db_session):
     return TestClient(app), state
 
 
-def _make_run(db, *, run_id="run-1", user_id="owner", type="prototype",
-              status="completed", **kw):
+def _make_run(
+    db, *, run_id="run-1", user_id="owner", type="prototype", status="completed", **kw
+):
     run = WorkflowRun(
         id=run_id,
         user_id=user_id,
@@ -148,7 +149,10 @@ class TestRelocatedShapes:
     def test_chain_context_returns_block(self, api, db_session):
         client, _ = api
         _make_run(
-            db_session, run_id="r1", type="user_stories", status="completed",
+            db_session,
+            run_id="r1",
+            type="user_stories",
+            status="completed",
             output="THE BACKLOG TEXT",
         )
         resp = client.get("/api/runs/r1/chain-context")
@@ -209,8 +213,10 @@ class TestExportPptxSanitization:
 
         # Stub the heavy pptx generation so the test stays unit-level.
         import app.services.pptx_export as pptx_export
+
         monkeypatch.setattr(
-            pptx_export, "generate_pptx_from_code",
+            pptx_export,
+            "generate_pptx_from_code",
             lambda code, title="Presentation": b"PPTXBYTES",
         )
 
@@ -227,12 +233,21 @@ class TestExportPptxSanitization:
         # inert filename text (its `:` and CRLF are gone), so we assert on the
         # injection-bearing characters, not the word.
         assert "\r" not in cd and "\n" not in cd
-        assert ":" not in cd.split('filename="', 1)[1]  # no header-injecting colon in the name
-        assert '\\"' not in cd and 'evil"' not in cd     # the quote was neutralized
+        assert (
+            ":" not in cd.split('filename="', 1)[1]
+        )  # no header-injecting colon in the name
+        assert '\\"' not in cd and 'evil"' not in cd  # the quote was neutralized
         # The sanitized filename keeps only allow-listed chars.
         assert 'filename="' in cd
         name = cd.split('filename="', 1)[1].rstrip('"')
-        assert name.replace(".pptx", "").replace(".", "").replace("_", "").replace("-", "").isalnum() or name == "Presentation.pptx"
+        assert (
+            name.replace(".pptx", "")
+            .replace(".", "")
+            .replace("_", "")
+            .replace("-", "")
+            .isalnum()
+            or name == "Presentation.pptx"
+        )
 
     def test_export_pptx_requires_code(self, api):
         client, _ = api

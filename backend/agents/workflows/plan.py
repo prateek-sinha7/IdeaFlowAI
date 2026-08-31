@@ -177,18 +177,18 @@ class TaskSource:
     INV-5).
     """
 
-    kind: str = "none"            # none | inline | parsed | file
-    parser: str | None = None     # capability name, e.g. "heading_tasks"
-    target: str | None = None     # file/section the tasks come from
+    kind: str = "none"  # none | inline | parsed | file
+    parser: str | None = None  # capability name, e.g. "heading_tasks"
+    target: str | None = None  # file/section the tasks come from
     source_step: str | None = None  # DECLARED task-plan producer step id (CR-05)
-    spec_step: str | None = None    # DECLARED spec producer step id (CR-05)
+    spec_step: str | None = None  # DECLARED spec producer step id (CR-05)
 
 
 @dataclass
 class FixPolicy:
     """Validation fix-loop policy (Q23/Q25). INERT in Phase 4 (Phase 7)."""
 
-    mode: str = "off"             # off | internal | gated
+    mode: str = "off"  # off | internal | gated
     max_attempts: int = 0
 
 
@@ -205,10 +205,10 @@ class FanoutSpec:
     owns the selection control flow.
     """
 
-    mode: str | None = None       # parallel | sequential
+    mode: str | None = None  # parallel | sequential
     max_parallel: int | None = None
-    agent: str | None = None      # worker agent; None/"self" = step's own agent ×count
-    count: int | None = None      # self×N multiplicity
+    agent: str | None = None  # worker agent; None/"self" = step's own agent ×count
+    count: int | None = None  # self×N multiplicity
     workers: list[str] = field(default_factory=list)  # named worker ids (heterogeneous)
     # The designated merge-agent worker for on_conflict=merge_agent (11-03 / FANOUT-08).
     # Pure data: the kernel _resolve_conflict bounds it at MERGE_AGENT_MAX_ATTEMPTS then
@@ -281,8 +281,8 @@ class DeliverableSpec:
     misclassified as in-place revisions.
     """
 
-    strategy: str | None = None   # capability name (deliverable resolver)
-    name: str | None = None       # e.g. "prototype.html"
+    strategy: str | None = None  # capability name (deliverable resolver)
+    name: str | None = None  # e.g. "prototype.html"
     revises_existing: bool = False  # DECLARED revision-intent (07-10 / WR-04/WR-06)
     # DECLARED deliverable shape hint (ISS-021 / 18-01): an optional author-set
     # mimetype the engine emits on pipeline_complete so the FE renderer dispatches
@@ -328,11 +328,13 @@ class Task:
     body: str
 
     # ── Forward surface (defaulted; INERT in Phase 4) ─────────────────────
-    targets: list[str] = field(default_factory=list)        # section selectors / file paths
+    targets: list[str] = field(default_factory=list)  # section selectors / file paths
     depends_on: list[str] = field(default_factory=list)
     parallel: bool = False
-    conflict_keys: list[str] = field(default_factory=list)  # wave scheduling (Q32/Q33) + merge
-    done_when: list[str] = field(default_factory=list)      # Tier#5 / validators
+    conflict_keys: list[str] = field(
+        default_factory=list
+    )  # wave scheduling (Q32/Q33) + merge
+    done_when: list[str] = field(default_factory=list)  # Tier#5 / validators
     inputs: dict = field(default_factory=dict)
     outputs: dict = field(default_factory=dict)
 
@@ -355,11 +357,13 @@ class Step:
     agent_id: str
 
     # ── Phase-4-consumed (defaulted) ──────────────────────────────────────
-    strategy: str = "single_shot"                            # Q8/Q9 — capability name
-    gates: list[str] = field(default_factory=list)           # §9 — gate capability names
-    hooks: list[str] = field(default_factory=list)           # §30 — executable-hook capability names (08-08 / CR-01/WR-03)
-    task_source: TaskSource | None = None                    # Q10a/b
-    post_step: str | None = None                             # post_step capability name (07-10 / CR-06)
+    strategy: str = "single_shot"  # Q8/Q9 — capability name
+    gates: list[str] = field(default_factory=list)  # §9 — gate capability names
+    hooks: list[str] = field(
+        default_factory=list
+    )  # §30 — executable-hook capability names (08-08 / CR-01/WR-03)
+    task_source: TaskSource | None = None  # Q10a/b
+    post_step: str | None = None  # post_step capability name (07-10 / CR-06)
     # Per-step render-fail-closed knob (quick-260701-bob / REQUIRE-RENDER-KNOB): when
     # True a render-unavailable html_render fails CLOSED (P0 → ValidationGate →
     # GATE_BLOCK); when None (default) the consumers fall back to
@@ -374,13 +378,13 @@ class Step:
 
     # ── Forward surface (declared, INERT in Phase 4) ──────────────────────
     tools: ToolPermissions = field(default_factory=ToolPermissions)  # INV-9 / §8
-    model: ModelPolicy | None = None                         # §20
-    validators: list[str] = field(default_factory=list)      # Q21 — capability names
-    fix: FixPolicy | None = None                             # Q23/Q25
-    compaction: str | None = None                            # Q35 — capability name
-    fanout: FanoutSpec | None = None                         # Q12
-    on_conflict: str = "human_gate"                          # §13
-    retry: RetryPolicy | None = None                         # §21
+    model: ModelPolicy | None = None  # §20
+    validators: list[str] = field(default_factory=list)  # Q21 — capability names
+    fix: FixPolicy | None = None  # Q23/Q25
+    compaction: str | None = None  # Q35 — capability name
+    fanout: FanoutSpec | None = None  # Q12
+    on_conflict: str = "human_gate"  # §13
+    retry: RetryPolicy | None = None  # §21
     injects: list[str] = field(default_factory=list)
     # Declared step-to-step DAG edges (consumed by _validate_dag's Kahn topo-sort).
     # Empty for every linear-sequence manifest (parity); a declared list is the
@@ -392,9 +396,9 @@ class Step:
     # instance_id: stable, immutable per-node slug; drives the artifact name and the
     # synthetic agent id (R-03/R-03a). Empty for every built-in step (parity).
     instance_id: str = ""
-    display_name: str = ""        # user-editable label; never affects instance_id
-    prompt: str = ""              # per-instance purpose text; custom-agent steps only
-    skills: list[str] = field(default_factory=list)   # per-step skill ids (R-01)
+    display_name: str = ""  # user-editable label; never affects instance_id
+    prompt: str = ""  # per-instance purpose text; custom-agent steps only
+    skills: list[str] = field(default_factory=list)  # per-step skill ids (R-01)
 
     # ── Wave-scheduling surface (step-level concurrency) ──────────────────
     # COMPILER-DERIVED, never authored: absent from `_ALLOWED_STEP_KEYS`, so INV-5
@@ -465,14 +469,14 @@ class CompiledWorkflow:
     id: str
 
     # ── Phase-4-consumed (defaulted) ──────────────────────────────────────
-    steps: list[Step] = field(default_factory=list)          # topo-validated DAG (may be [])
+    steps: list[Step] = field(default_factory=list)  # topo-validated DAG (may be [])
     context_providers: list[str] = field(default_factory=list)  # Q28 — capability names
     # input_providers: the workflow's declared input_provider capability names
     # (image-input Wave 1). Dormant — every existing manifest omits the key ⇒ []. Pure data.
     input_providers: list[str] = field(default_factory=list)
-    seed_files: dict = field(default_factory=dict)           # Q29
+    seed_files: dict = field(default_factory=dict)  # Q29
     deliverable: DeliverableSpec = field(default_factory=DeliverableSpec)  # Q26
-    planner: str = "run"                                     # "skip" | "run" (Q30)
+    planner: str = "run"  # "skip" | "run" (Q30)
     clarify: ClarifySpec = field(default_factory=ClarifySpec)  # mode + defaults (Q30)
 
     # allowed_workers: the workflow-level named-worker allow-list (Phase 11 / FANOUT-03).
@@ -482,7 +486,7 @@ class CompiledWorkflow:
     # entry (it reuses the step's own agent).
     allowed_workers: list[str] = field(default_factory=list)
 
-    capabilities: dict = field(default_factory=dict)   # {"internet": bool} (R-07)
+    capabilities: dict = field(default_factory=dict)  # {"internet": bool} (R-07)
 
     # chat: the workflow's optional chat/concierge DATA block (Plan 33-05 / INV-5).
     # Carried verbatim from ``WorkflowManifest.chat`` by the compiler — the run
@@ -494,5 +498,5 @@ class CompiledWorkflow:
 
     # ── Forward surface (declared, INERT in Phase 4) ──────────────────────
     model: ModelPolicy = field(default_factory=ModelPolicy)  # workflow default (§20)
-    repo: RepoSpec | None = None                             # §15 (brownfield)
-    limits: Limits = field(default_factory=Limits)           # Q18/Q44
+    repo: RepoSpec | None = None  # §15 (brownfield)
+    limits: Limits = field(default_factory=Limits)  # Q18/Q44

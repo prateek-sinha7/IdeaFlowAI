@@ -87,8 +87,8 @@ _DEFAULT_DELIVERABLE_NAME = "prototype.html"
 # ``task_source.source_step``/``spec_step``; these are the fallbacks the STRATEGY (not
 # the kernel/compiler — INV-5) applies when a manifest omits them, so a manifest that
 # forgets the declaration still resolves the prototype producers.
-_DEFAULT_SOURCE_STEP = "prototype-plan"      # task-plan producer
-_DEFAULT_SPEC_STEP = "prototype-specify"     # spec producer
+_DEFAULT_SOURCE_STEP = "prototype-plan"  # task-plan producer
+_DEFAULT_SPEC_STEP = "prototype-specify"  # spec producer
 
 # Legacy reference-file names (07-11 / CR-07). The reference files the build loop
 # writes before the per-task loop. Honored positionally as (spec, design, tasks); the
@@ -239,7 +239,9 @@ class TaskLoopStrategy:
             _ordinals = task_identity.occurrence_ordinals(tasks)
             _task_keys = [
                 task_identity.compute_task_key(
-                    _upstream_hash, task_identity.normalize_task_content(t), _ordinals[i]
+                    _upstream_hash,
+                    task_identity.normalize_task_content(t),
+                    _ordinals[i],
                 )
                 for i, t in enumerate(tasks)
             ]
@@ -269,7 +271,9 @@ class TaskLoopStrategy:
         _completed_ordered: list[str] = []
         if _resume_ordered:
             _completed_ordered = _resume_ordered.get(agent_id, []) or []
-        _prefix_skip = task_identity.common_prefix_length(_task_keys, _completed_ordered)
+        _prefix_skip = task_identity.common_prefix_length(
+            _task_keys, _completed_ordered
+        )
 
         for task_num in range(1, total_tasks + 1):
             if cancel_event is not None and cancel_event.is_set():
@@ -285,7 +289,9 @@ class TaskLoopStrategy:
             if task_num - 1 < _prefix_skip:
                 logger.info(
                     "task_loop: skipping already-completed task %d on resume "
-                    "(common-prefix p=%d)", task_num, _prefix_skip
+                    "(common-prefix p=%d)",
+                    task_num,
+                    _prefix_skip,
                 )
                 continue
 
@@ -314,7 +320,9 @@ class TaskLoopStrategy:
                             if skel:
                                 task_skeleton = skel
                     except Exception as exc:  # noqa: BLE001 — compaction must not abort the build
-                        logger.warning("task_loop: compaction failed (%s) — continuing", exc)
+                        logger.warning(
+                            "task_loop: compaction failed (%s) — continuing", exc
+                        )
 
             # Emit loop progress so the frontend knows which task is running.
             yield {
@@ -496,7 +504,8 @@ class TaskLoopStrategy:
             except Exception as exc:  # noqa: BLE001 — an audit validator never aborts the build
                 logger.warning(
                     "task_loop: registered validator %r raised (%s) — continuing",
-                    vname, exc,
+                    vname,
+                    exc,
                 )
 
     # ------------------------------------------------------------------
@@ -521,9 +530,7 @@ class TaskLoopStrategy:
         so the fallback fires → byte-identical (Pitfall 2).
         """
         task_source_decl = getattr(step, "task_source", None)
-        spec_step = (
-            getattr(task_source_decl, "spec_step", None) or _DEFAULT_SPEC_STEP
-        )
+        spec_step = getattr(task_source_decl, "spec_step", None) or _DEFAULT_SPEC_STEP
         source_step = (
             getattr(task_source_decl, "source_step", None) or _DEFAULT_SOURCE_STEP
         )
@@ -575,15 +582,22 @@ class TaskLoopStrategy:
                         logger.info(
                             "task_loop: seeded template.html for revision reference "
                             "(%d chars, template=%s)",
-                            len(_example), _tid,
+                            len(_example),
+                            _tid,
                         )
                 except Exception as _te:  # noqa: BLE001
-                    logger.debug("task_loop: could not seed template.html (%s): %s", _tid, _te)
+                    logger.debug(
+                        "task_loop: could not seed template.html (%s): %s", _tid, _te
+                    )
 
             logger.info(
                 "task_loop: wrote reference files (%s=%s, %s=%s, %s=%s)",
-                spec_name, bool(spec_text), design_name, bool(design_sections),
-                tasks_name, bool(tasks_text),
+                spec_name,
+                bool(spec_text),
+                design_name,
+                bool(design_sections),
+                tasks_name,
+                bool(tasks_text),
             )
         except Exception as exc:  # noqa: BLE001 — never let a write failure abort the build
             logger.warning("task_loop: failed writing reference files: %s", exc)
@@ -604,4 +618,3 @@ class TaskLoopStrategy:
             return self._registry.resolve("compaction", name)
         except (KeyError, RuntimeError):
             return None
-

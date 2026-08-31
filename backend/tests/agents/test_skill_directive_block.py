@@ -43,14 +43,18 @@ def test_step_skills_add_nothing_to_the_composed_prompt():
     the sandbox and points deepagents at ``/skills`` — but that happens on the
     filesystem seam, not in this prompt.
     """
-    with_skills = _compose(AgentContext(user_request="Build a todo app", step_skills=["some-skill"]))
+    with_skills = _compose(
+        AgentContext(user_request="Build a todo app", step_skills=["some-skill"])
+    )
     without = _compose(AgentContext(user_request="Build a todo app"))
 
     assert with_skills == without
 
 
 def test_no_skills_directive_text_anywhere():
-    composed = _compose(AgentContext(user_request="Build a todo app", step_skills=["some-skill"]))
+    composed = _compose(
+        AgentContext(user_request="Build a todo app", step_skills=["some-skill"])
+    )
 
     assert "Skills available at /skills/" not in composed
     assert "/skills/<id>/SKILL.md" not in composed
@@ -67,6 +71,8 @@ def test_the_slot_is_gone_from_the_policy_order():
 def test_empty_and_absent_step_skills_are_identical():
     """Unchanged from the original R-16 guarantee."""
     baseline = _compose(AgentContext(user_request="Build a todo app"))
-    explicit_empty = _compose(AgentContext(user_request="Build a todo app", step_skills=[]))
+    explicit_empty = _compose(
+        AgentContext(user_request="Build a todo app", step_skills=[])
+    )
 
     assert baseline == explicit_empty

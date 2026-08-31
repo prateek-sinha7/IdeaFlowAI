@@ -67,7 +67,9 @@ class HtmlFragmentMerge:
         set_section = getattr(base, "set_section", None)
         writer = set_section if callable(set_section) else getattr(base, "write", None)
         claimed: dict[str, tuple[str, str]] = {}
-        conflicted: set[str] = set()  # evicted sections are NEVER applied (no silent overwrite)
+        conflicted: set[str] = (
+            set()
+        )  # evicted sections are NEVER applied (no silent overwrite)
 
         ordered = sorted(list(fragments or []), key=lambda f: _name_of(f, ""))
         for fi, frag in enumerate(ordered):
@@ -77,18 +79,22 @@ class HtmlFragmentMerge:
                 if sid in conflicted:
                     continue
                 if sid in base_sections and base_sections[sid] != html:
-                    result.conflicts.append(self._conflict(
-                        sid, [("base", base_sections[sid]), (frag_name, html)]
-                    ))
+                    result.conflicts.append(
+                        self._conflict(
+                            sid, [("base", base_sections[sid]), (frag_name, html)]
+                        )
+                    )
                     conflicted.add(sid)
                     claimed.pop(sid, None)
                     continue
                 if sid in claimed:
                     prev_name, prev_html = claimed[sid]
                     if prev_html != html:
-                        result.conflicts.append(self._conflict(
-                            sid, [(prev_name, prev_html), (frag_name, html)]
-                        ))
+                        result.conflicts.append(
+                            self._conflict(
+                                sid, [(prev_name, prev_html), (frag_name, html)]
+                            )
+                        )
                         conflicted.add(sid)
                         claimed.pop(sid, None)
                     continue

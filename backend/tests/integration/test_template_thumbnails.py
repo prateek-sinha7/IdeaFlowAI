@@ -37,7 +37,9 @@ def _write_template(root, template_id: str, *, mode: str, thumbnail: bool) -> No
         f"---\nname: {template_id}\ndescription: test\nod:\n  mode: {mode}\n---\n# body\n",
         encoding="utf-8",
     )
-    (folder / "example.html").write_text("<html><body>hi</body></html>", encoding="utf-8")
+    (folder / "example.html").write_text(
+        "<html><body>hi</body></html>", encoding="utf-8"
+    )
     if thumbnail:
         (folder / "thumbnail.jpg").write_bytes(_JPEG_MAGIC)
 

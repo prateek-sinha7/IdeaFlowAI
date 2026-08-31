@@ -162,7 +162,9 @@ class TestSummaryOwnerAggregation:
                     "output": "SUPER SECRET API KEY sk-abc123",
                     "input_prompt": "PRIVATE PROMPT BODY",
                     "thinking_text": "internal chain of thought",
-                    "tool_calls": [{"tool": "read_file", "args": {"path": "/etc/passwd"}}],
+                    "tool_calls": [
+                        {"tool": "read_file", "args": {"path": "/etc/passwd"}}
+                    ],
                 },
                 {
                     "agent_id": "prototype-build",
@@ -223,7 +225,9 @@ class TestSummaryOwnerAggregation:
                     "output": "SUPER SECRET API KEY sk-abc123",
                     "input_prompt": "PRIVATE PROMPT BODY",
                     "thinking_text": "internal chain of thought",
-                    "tool_calls": [{"tool": "read_file", "args": {"path": "/etc/passwd"}}],
+                    "tool_calls": [
+                        {"tool": "read_file", "args": {"path": "/etc/passwd"}}
+                    ],
                 }
             ],
         )

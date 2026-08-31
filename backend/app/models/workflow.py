@@ -3,7 +3,17 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
 
@@ -35,7 +45,9 @@ class WorkflowRun(Base):
     # status: "degraded"). Distinct from "failed" (no deliverable at all).
     input = Column(Text, nullable=False)  # The user's idea/prompt
     output = Column(Text, nullable=True)  # JSON string of final output
-    agent_outputs = Column(Text, nullable=True)  # JSON array of per-agent thinking/output
+    agent_outputs = Column(
+        Text, nullable=True
+    )  # JSON array of per-agent thinking/output
     agent_count = Column(Integer, nullable=False, default=0)
     duration = Column(Float, nullable=True)  # Total execution time in seconds
     error = Column(Text, nullable=True)  # Error message if failed
@@ -50,9 +62,11 @@ class WorkflowRun(Base):
     # in migration 0013 — WorkflowRun.id is now the single run identifier used
     # end-to-end by the engine, state machine, and artifact store.
     parent_run_id = Column(String, ForeignKey("workflow_runs.id"), nullable=True)
-    session_id = Column(String, nullable=True)           # = user_id (JWT sub)
-    execution_gate = Column(String, nullable=True)       # PROCEED | CLARIFY_REQUIRED
-    execution_strategy = Column(String, nullable=True)   # sequential | parallel | conditional
+    session_id = Column(String, nullable=True)  # = user_id (JWT sub)
+    execution_gate = Column(String, nullable=True)  # PROCEED | CLARIFY_REQUIRED
+    execution_strategy = Column(
+        String, nullable=True
+    )  # sequential | parallel | conditional
     planning_context_unavailable = Column(
         Boolean, nullable=True, default=False, server_default="0"
     )
@@ -61,11 +75,11 @@ class WorkflowRun(Base):
     # are backfilled for existing rows (owner_id = user_id, a default per-run
     # workspace) — see migration 0014. plan_id (Phase 4) and budget_snapshot_json
     # (Phase 11) are forward fields, nullable until those phases populate them.
-    owner_id = Column(String, nullable=True)             # AUTHZ-01 (backfilled)
-    workspace_id = Column(String, nullable=True)         # AUTHZ-01 (backfilled)
+    owner_id = Column(String, nullable=True)  # AUTHZ-01 (backfilled)
+    workspace_id = Column(String, nullable=True)  # AUTHZ-01 (backfilled)
     source_run_id = Column(String, nullable=True)
-    plan_id = Column(String, nullable=True)              # Phase 4 forward field
-    budget_snapshot_json = Column(JSON, nullable=True)   # Phase 11 forward field
+    plan_id = Column(String, nullable=True)  # Phase 4 forward field
+    budget_snapshot_json = Column(JSON, nullable=True)  # Phase 11 forward field
 
     # Phase 22 columns (added additively by migration 0022 — UXFIX-02 / D-19).
     # The engine ALREADY emits deliverable_mimetype/deliverable_filename on every
@@ -119,4 +133,6 @@ class WorkflowRun(Base):
     # (The legacy ``artifacts`` -> WorkflowArtifact relationship was removed in 05-07
     #  when the thin ``workflow_artifacts`` table was dropped; artifacts now live in
     #  the persisted ``artifact_refs`` table — see app/models/artifact_ref.py.)
-    clarifications = relationship("WorkflowClarification", back_populates="workflow_run", lazy="dynamic")
+    clarifications = relationship(
+        "WorkflowClarification", back_populates="workflow_run", lazy="dynamic"
+    )

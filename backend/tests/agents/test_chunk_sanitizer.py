@@ -42,9 +42,11 @@ from tests.agents._scripted_model import (
 # tool-using agent (tools:[workspace] → sanitize is an identity no-op). Chosen as REAL
 # specs off the registry so the gate is the runner capability, not an agent-name literal.
 # Both have empty `consumes` so each drives as a satisfiable single-agent pipeline offline.
-_TOOLLESS_AGENT = "domain-analyst"          # user_stories pipeline, tools:[]
+_TOOLLESS_AGENT = "domain-analyst"  # user_stories pipeline, tools:[]
 _TOOLLESS_PIPELINE = "user_stories"
-_TOOLUSING_AGENT = "prototype-revision-agent"  # prototype_revision pipeline, tools:[workspace]
+_TOOLUSING_AGENT = (
+    "prototype-revision-agent"  # prototype_revision pipeline, tools:[workspace]
+)
 _TOOLUSING_PIPELINE = "prototype_revision"
 
 
@@ -67,6 +69,7 @@ async def _drive_single_agent(
     from agents.registry import get_pipeline_agents
 
     from app.core.config import settings as _settings
+
     _settings.RUNS_ROOT = _RUNS_ROOT
 
     specs = get_pipeline_agents(pipeline_type)
@@ -98,8 +101,9 @@ async def _drive_single_agent(
 
     engine = ExecutionEngine()
 
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event,
-                                ptype="custom", **kwargs):
+    async def _fake_run_planner(
+        user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+    ):
         return engine._default_planning_context(user_message), "PROCEED"
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]
@@ -151,20 +155,22 @@ _SPLIT_DELTAS = [
 @pytest.mark.asyncio
 async def test_split_tool_xml_stripped_for_toolless_agent() -> None:
     """SPLIT-across-deltas (tool-less): no fabricated tool-XML in the emitted stream."""
-    emitted = await _drive_single_agent(_TOOLLESS_AGENT, _TOOLLESS_PIPELINE, _SPLIT_DELTAS)
+    emitted = await _drive_single_agent(
+        _TOOLLESS_AGENT, _TOOLLESS_PIPELINE, _SPLIT_DELTAS
+    )
     joined = "".join(emitted)
 
-    assert "<function_calls>" not in joined, (
-        f"fabricated <function_calls> leaked into the tool-less agent_chunk stream: {joined!r}"
-    )
-    assert "<invoke" not in joined, (
-        f"fabricated <invoke leaked into the tool-less agent_chunk stream: {joined!r}"
-    )
+    assert (
+        "<function_calls>" not in joined
+    ), f"fabricated <function_calls> leaked into the tool-less agent_chunk stream: {joined!r}"
+    assert (
+        "<invoke" not in joined
+    ), f"fabricated <invoke leaked into the tool-less agent_chunk stream: {joined!r}"
     # No single emitted chunk leaks a partial opener that is never closed.
     for chunk in emitted:
-        assert "<function_calls>" not in chunk and "<invoke" not in chunk, (
-            f"a single emitted chunk leaked a tool-XML opener: {chunk!r}"
-        )
+        assert (
+            "<function_calls>" not in chunk and "<invoke" not in chunk
+        ), f"a single emitted chunk leaked a tool-XML opener: {chunk!r}"
     # Legitimate content on BOTH sides of the split span survives (nothing swallowed).
     assert "Here is the result. " in joined, f"legit prefix dropped: {joined!r}"
     assert "Done analyzing." in joined, f"legit suffix dropped: {joined!r}"
@@ -173,7 +179,9 @@ async def test_split_tool_xml_stripped_for_toolless_agent() -> None:
 @pytest.mark.asyncio
 async def test_split_tool_xml_untouched_for_tooluse_agent() -> None:
     """Identical SPLIT stream for a tool-USING agent → emitted chunks byte-identical."""
-    emitted = await _drive_single_agent(_TOOLUSING_AGENT, _TOOLUSING_PIPELINE, _SPLIT_DELTAS)
+    emitted = await _drive_single_agent(
+        _TOOLUSING_AGENT, _TOOLUSING_PIPELINE, _SPLIT_DELTAS
+    )
 
     # The tool-using runner's sanitize_output is an identity no-op (gate False), so the
     # buffer is inert and every delta passes through verbatim, in order.
@@ -187,20 +195,20 @@ async def test_split_tool_xml_untouched_for_tooluse_agent() -> None:
 async def test_single_chunk_tool_xml_stripped_for_toolless_agent() -> None:
     """Whole `<function_calls>…</function_calls>` in ONE delta (tool-less) → stripped."""
     deltas = [
-        'Prefix text. '
+        "Prefix text. "
         '<function_calls><invoke name="read_file">'
         '<parameter name="path">x</parameter></invoke></function_calls>'
-        ' Suffix text.',
+        " Suffix text.",
     ]
     emitted = await _drive_single_agent(_TOOLLESS_AGENT, _TOOLLESS_PIPELINE, deltas)
     joined = "".join(emitted)
 
-    assert "<function_calls>" not in joined and "<invoke" not in joined, (
-        f"single-chunk fabricated tool-XML not stripped: {joined!r}"
-    )
-    assert "Prefix text. " in joined and " Suffix text." in joined, (
-        f"legit surrounding content dropped: {joined!r}"
-    )
+    assert (
+        "<function_calls>" not in joined and "<invoke" not in joined
+    ), f"single-chunk fabricated tool-XML not stripped: {joined!r}"
+    assert (
+        "Prefix text. " in joined and " Suffix text." in joined
+    ), f"legit surrounding content dropped: {joined!r}"
 
 
 @pytest.mark.asyncio
@@ -218,7 +226,9 @@ async def test_clean_stream_passes_through_unchanged_for_toolless_agent() -> Non
 
 
 @pytest.mark.asyncio
-async def test_lone_lt_and_html_at_boundaries_chunk_identical_for_toolless_agent() -> None:
+async def test_lone_lt_and_html_at_boundaries_chunk_identical_for_toolless_agent() -> (
+    None
+):
     """WR-01: tool-less prose with ``<`` / ``<div>`` / ``a < b`` at chunk boundaries.
 
     A tool-less agent streaming HTML/JSX/markdown/inequalities legitimately ends
@@ -267,9 +277,9 @@ async def test_never_closed_opener_flushed_and_stripped_at_stream_end() -> None:
     # The legit prefix is never swallowed by the held buffer / flush.
     assert "Real answer text. " in joined, f"legit prefix lost at flush: {joined!r}"
     # The never-closed fabricated opener is stripped (not leaked) at the flush.
-    assert "<function_calls>" not in joined and "<invoke" not in joined, (
-        f"never-closed opener leaked through the flush: {joined!r}"
-    )
+    assert (
+        "<function_calls>" not in joined and "<invoke" not in joined
+    ), f"never-closed opener leaked through the flush: {joined!r}"
 
 
 @pytest.mark.asyncio
@@ -282,7 +292,10 @@ async def test_benign_held_tail_survives_flush_no_content_loss() -> None:
     emitted output therefore equals the joined input — the tail survives. This pins
     the OTHER direction of the flush contract: a held benign tail is NOT swallowed.
     """
-    deltas = ["Result is ", "x <f"]  # final "<f" is held (>=2-char partial), never completed
+    deltas = [
+        "Result is ",
+        "x <f",
+    ]  # final "<f" is held (>=2-char partial), never completed
     emitted = await _drive_single_agent(_TOOLLESS_AGENT, _TOOLLESS_PIPELINE, deltas)
 
     assert "".join(emitted) == "".join(deltas), (

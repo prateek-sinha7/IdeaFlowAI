@@ -92,7 +92,12 @@ def test_gitlab_read_binds_only_gitlab_read_tools() -> None:
 
     assert exposed["gitlab"] == set(CATALOG["gitlab"].exposed_tools)
     # The gitlab allow-list is read-only (no write/delete tool leaks in).
-    assert exposed["gitlab"] == {"list_issues", "get_issue", "list_merge_requests", "get_project"}
+    assert exposed["gitlab"] == {
+        "list_issues",
+        "get_issue",
+        "list_merge_requests",
+        "get_project",
+    }
 
 
 def test_intersection_gates_an_ungranted_integration_scope() -> None:
@@ -102,7 +107,9 @@ def test_intersection_gates_an_ungranted_integration_scope() -> None:
     ceiling is NOT effective — the intersection drops it, so no provider activates.
     """
     owner = ToolPermissions(integrations=["github_read", "gitlab_read"])
-    workflow = ToolPermissions(integrations=["gitlab_read"])  # ceiling omits github_read
+    workflow = ToolPermissions(
+        integrations=["gitlab_read"]
+    )  # ceiling omits github_read
     step = ToolPermissions(integrations=["github_read", "gitlab_read"])
 
     effective = intersect_permissions(owner, workflow, step)

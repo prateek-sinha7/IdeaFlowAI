@@ -65,22 +65,29 @@ def test_intersection_requires_grant_at_all_three_levels() -> None:
     assert eff.write_files is True
 
     # Drop the grant at any single level → effective off.
-    assert intersect_permissions(
-        ToolPermissions(write_files=False), workflow, step
-    ).write_files is False
-    assert intersect_permissions(
-        owner, ToolPermissions(write_files=False), step
-    ).write_files is False
-    assert intersect_permissions(
-        owner, workflow, ToolPermissions(write_files=False)
-    ).write_files is False
+    assert (
+        intersect_permissions(
+            ToolPermissions(write_files=False), workflow, step
+        ).write_files
+        is False
+    )
+    assert (
+        intersect_permissions(
+            owner, ToolPermissions(write_files=False), step
+        ).write_files
+        is False
+    )
+    assert (
+        intersect_permissions(
+            owner, workflow, ToolPermissions(write_files=False)
+        ).write_files
+        is False
+    )
 
 
 def test_ungranted_step_yields_no_privileged_perms() -> None:
     """A step with default ToolPermissions binds no write/exec/network/spawn."""
-    eff = intersect_permissions(
-        ToolPermissions(), ToolPermissions(), ToolPermissions()
-    )
+    eff = intersect_permissions(ToolPermissions(), ToolPermissions(), ToolPermissions())
     assert eff.read_files is True  # the one default-ON permission
     assert eff.write_files is False
     assert eff.git is False

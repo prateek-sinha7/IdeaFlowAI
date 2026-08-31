@@ -148,7 +148,9 @@ class ComplianceAgent:
         for path, contents in edited_files.items():
             snippet = contents
             if len(snippet) > 8000:
-                snippet = snippet[:8000] + f"\n\n... (truncated, {len(contents)} total bytes)"
+                snippet = (
+                    snippet[:8000] + f"\n\n... (truncated, {len(contents)} total bytes)"
+                )
             parts.append(f"\n=== EDITED FILE: {path} ===\n{snippet}")
 
         # ISS-033: route the direct ainvoke through the ONE shared cached-invoke helper
@@ -165,7 +167,9 @@ class ComplianceAgent:
         try:
             report = _extract_json(raw)
         except (json.JSONDecodeError, ValueError) as exc:
-            logger.warning("ComplianceAgent JSON parse failed: %s; raw=%s", exc, raw[:500])
+            logger.warning(
+                "ComplianceAgent JSON parse failed: %s; raw=%s", exc, raw[:500]
+            )
             raise
         report.setdefault("summary", "")
         report.setdefault("verdict", "approve_with_changes")

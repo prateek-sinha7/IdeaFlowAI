@@ -86,9 +86,14 @@ def db_session():
 def _seed_run(session, *, run_id, owner_id, workspace_id):
     session.add(
         WorkflowRun(
-            id=run_id, user_id=owner_id, title="t", type="app_builder",
-            status="running", input="idea",
-            owner_id=owner_id, workspace_id=workspace_id,
+            id=run_id,
+            user_id=owner_id,
+            title="t",
+            type="app_builder",
+            status="running",
+            input="idea",
+            owner_id=owner_id,
+            workspace_id=workspace_id,
         )
     )
     session.commit()
@@ -118,12 +123,21 @@ class _FakeRunner:
         self, step, validator, *, severity=None, attempt=0, issues=None
     ):
         self.records.append(
-            {"step": step, "validator": validator, "severity": severity,
-             "attempt": attempt, "issues": issues}
+            {
+                "step": step,
+                "validator": validator,
+                "severity": severity,
+                "attempt": attempt,
+                "issues": issues,
+            }
         )
         return await self._store.record_validation_result(
-            self.run_id, step, validator,
-            severity=severity, attempt=attempt, issues=issues,
+            self.run_id,
+            step,
+            validator,
+            severity=severity,
+            attempt=attempt,
+            issues=issues,
         )
 
 
@@ -146,7 +160,9 @@ def _make_target(tmp_path, db_session, *, infra_files: dict[str, str]):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(body, encoding="utf-8")
-    runner = _FakeRunner(sandbox=_FakeSandbox(root=tmp_path), store=store, run_id="run-1")
+    runner = _FakeRunner(
+        sandbox=_FakeSandbox(root=tmp_path), store=store, run_id="run-1"
+    )
     return _Target(name="app", runner=runner), runner
 
 
@@ -164,7 +180,7 @@ async def test_violation_yields_one_p2_issue_and_records_row(tmp_path, db_sessio
         infra_files={
             "Dockerfile": (
                 "FROM node:20\n"
-                'HEALTHCHECK CMD curl -f http://localhost:8080/health || exit 1\n'
+                "HEALTHCHECK CMD curl -f http://localhost:8080/health || exit 1\n"
             ),
         },
     )
@@ -187,7 +203,9 @@ async def test_nginx_location_violation_is_flagged(tmp_path, db_session):
     target, runner = _make_target(
         tmp_path,
         db_session,
-        infra_files={"nginx.conf": "server {\n  location /users {\n    proxy_pass http://app;\n  }\n}\n"},
+        infra_files={
+            "nginx.conf": "server {\n  location /users {\n    proxy_pass http://app;\n  }\n}\n"
+        },
     )
     validator = ApiPrefixValidator()
     issues = await validator.validate(target)
@@ -227,9 +245,10 @@ async def test_k8s_httpget_probe_path_violation_is_flagged(tmp_path, db_session)
     validator = ApiPrefixValidator()
     issues = await validator.validate(target)
     # Both the liveness (/healthz) and readiness (/ready) probe paths violate.
-    assert [i.severity for i in issues] == ["P2", "P2"], (
-        f"both k8s httpGet probe paths must be flagged, got {issues!r}"
-    )
+    assert [i.severity for i in issues] == [
+        "P2",
+        "P2",
+    ], f"both k8s httpGet probe paths must be flagged, got {issues!r}"
     messages = " ".join(i.message for i in issues)
     assert "/healthz" in messages and "/ready" in messages
 
@@ -259,9 +278,9 @@ async def test_ingress_rule_path_violation_is_flagged(tmp_path, db_session):
     )
     validator = ApiPrefixValidator()
     issues = await validator.validate(target)
-    assert [i.severity for i in issues] == ["P2"], (
-        f"an ingress rule path /products must be flagged, got {issues!r}"
-    )
+    assert [i.severity for i in issues] == [
+        "P2"
+    ], f"an ingress rule path /products must be flagged, got {issues!r}"
     assert "/products" in issues[0].message
 
 
@@ -288,9 +307,9 @@ async def test_nginx_regex_location_anchor_is_flagged(tmp_path, db_session):
     )
     validator = ApiPrefixValidator()
     issues = await validator.validate(target)
-    assert [i.severity for i in issues] == ["P2"], (
-        f"a regex-location ~ ^/users/ must be flagged, got {issues!r}"
-    )
+    assert [i.severity for i in issues] == [
+        "P2"
+    ], f"a regex-location ~ ^/users/ must be flagged, got {issues!r}"
     assert "/users" in issues[0].message
 
 
@@ -319,9 +338,9 @@ async def test_nginx_proxy_pass_target_is_not_flagged(tmp_path, db_session):
     )
     validator = ApiPrefixValidator()
     issues = await validator.validate(target)
-    assert issues == [], (
-        f"an internal proxy_pass target must NOT be flagged (false positive), got {issues!r}"
-    )
+    assert (
+        issues == []
+    ), f"an internal proxy_pass target must NOT be flagged (false positive), got {issues!r}"
 
 
 @pytest.mark.asyncio
@@ -352,9 +371,9 @@ async def test_k8s_and_ingress_under_api_v1_are_clean(tmp_path, db_session):
     )
     validator = ApiPrefixValidator()
     issues = await validator.validate(target)
-    assert issues == [], (
-        f"compliant /api/v1 probe + ingress paths must be clean, got {issues!r}"
-    )
+    assert (
+        issues == []
+    ), f"compliant /api/v1 probe + ingress paths must be clean, got {issues!r}"
 
 
 @pytest.mark.asyncio
@@ -389,9 +408,9 @@ async def test_yaml_hostpath_and_cache_path_not_flagged(tmp_path, db_session):
     )
     validator = ApiPrefixValidator()
     issues = await validator.validate(target)
-    assert issues == [], (
-        f"unrelated filesystem path: keys must NOT be flagged, got {issues!r}"
-    )
+    assert (
+        issues == []
+    ), f"unrelated filesystem path: keys must NOT be flagged, got {issues!r}"
 
 
 @pytest.mark.asyncio
@@ -422,9 +441,7 @@ async def test_external_urls_yield_zero_issues(tmp_path, db_session):
     )
     validator = ApiPrefixValidator()
     issues = await validator.validate(target)
-    assert issues == [], (
-        f"external (FQDN) URLs must yield ZERO issues, got {issues!r}"
-    )
+    assert issues == [], f"external (FQDN) URLs must yield ZERO issues, got {issues!r}"
 
 
 @pytest.mark.asyncio
@@ -442,9 +459,9 @@ async def test_bare_app_healthcheck_url_is_flagged(tmp_path, db_session):
     )
     validator = ApiPrefixValidator()
     issues = await validator.validate(target)
-    assert [i.severity for i in issues] == ["P2"], (
-        f"a bare app-local /health URL must yield exactly one P2 issue, got {issues!r}"
-    )
+    assert [i.severity for i in issues] == [
+        "P2"
+    ], f"a bare app-local /health URL must yield exactly one P2 issue, got {issues!r}"
     assert "/health" in issues[0].message
 
 
@@ -471,9 +488,9 @@ async def test_bare_path_compose_healthcheck_is_flagged(tmp_path, db_session):
     )
     validator = ApiPrefixValidator()
     issues = await validator.validate(target)
-    assert [i.severity for i in issues] == ["P2"], (
-        f"a bare-path compose test: healthcheck must yield one P2 issue, got {issues!r}"
-    )
+    assert [i.severity for i in issues] == [
+        "P2"
+    ], f"a bare-path compose test: healthcheck must yield one P2 issue, got {issues!r}"
     assert "/health" in issues[0].message
 
 
@@ -494,7 +511,9 @@ async def test_bare_path_healthcheck_under_api_v1_is_clean(tmp_path, db_session)
     )
     validator = ApiPrefixValidator()
     issues = await validator.validate(target)
-    assert issues == [], f"a /api/v1 bare-path healthcheck must be clean, got {issues!r}"
+    assert (
+        issues == []
+    ), f"a /api/v1 bare-path healthcheck must be clean, got {issues!r}"
 
 
 @pytest.mark.asyncio
@@ -506,7 +525,7 @@ async def test_clean_api_v1_target_yields_zero_issues(tmp_path, db_session):
         infra_files={
             "Dockerfile": (
                 "FROM node:20\n"
-                'HEALTHCHECK CMD curl -f http://localhost:8080/api/v1/health || exit 1\n'
+                "HEALTHCHECK CMD curl -f http://localhost:8080/api/v1/health || exit 1\n"
             ),
             "nginx.conf": "server {\n  location /api/v1/ {\n    proxy_pass http://app;\n  }\n}\n",
         },
@@ -594,7 +613,7 @@ async def test_gate_wiring_emits_validation_warning(tmp_path, db_session):
         infra_files={
             "Dockerfile": (
                 "FROM node:20\n"
-                'HEALTHCHECK CMD curl -f http://localhost:8080/health || exit 1\n'
+                "HEALTHCHECK CMD curl -f http://localhost:8080/health || exit 1\n"
             ),
         },
     )
@@ -619,7 +638,9 @@ async def test_gate_wiring_emits_validation_warning(tmp_path, db_session):
     ctx = _Ctx(runner)
     outcome = await ValidationGate().evaluate(_Step(), ctx)
 
-    warning_events = [e for e in outcome.events if e.get("type") == "validation_warning"]
+    warning_events = [
+        e for e in outcome.events if e.get("type") == "validation_warning"
+    ]
     assert warning_events, (
         "the validation gate MUST emit a validation_warning on a residual P2 — this is "
         "the event that would break the byte-identical app_builder golden (INV-3)"

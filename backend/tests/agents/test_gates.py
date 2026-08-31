@@ -108,7 +108,12 @@ class _ExecPolicy:
     """Minimal bound ExecutionPolicy stand-in (the constrained exec profile)."""
 
     def __init__(
-        self, *, exec_allow=None, cpu_seconds=60, mem_mb=512, wall_seconds=120,
+        self,
+        *,
+        exec_allow=None,
+        cpu_seconds=60,
+        mem_mb=512,
+        wall_seconds=120,
         network=False,
     ) -> None:
         self.exec_allow = list(exec_allow if exec_allow is not None else ["python3"])
@@ -212,7 +217,9 @@ async def test_security_gate_passes_file_trust_exec_with_approval_and_profile():
     runner = _RecordingRunner(workspace=_Workspace())  # policy has ["python3"]
     ctx = _Ctx(runner)
     gate = CapabilityRegistry().resolve("gate", "security")
-    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+    step = _Step(
+        tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file"
+    )
 
     result = await gate.evaluate(step, ctx)
     assert result.outcome == GATE_PASS
@@ -227,7 +234,9 @@ async def test_security_gate_passes_exec_when_workspace_not_yet_bound():
     unbound workspace, RESEARCH Open Question 2)."""
     runner = _RecordingRunner(workspace=None)
     gate = CapabilityRegistry().resolve("gate", "security")
-    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+    step = _Step(
+        tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file"
+    )
 
     result = await gate.evaluate(step, _Ctx(runner))
     assert result.outcome == GATE_PASS
@@ -238,7 +247,9 @@ async def test_security_gate_blocks_network_request_unchanged():
     """A network request BLOCKS regardless of trust (unchanged — T-10-03-02)."""
     runner = _RecordingRunner(workspace=_Workspace())
     gate = CapabilityRegistry().resolve("gate", "security")
-    step = _Step(tools=_ToolGrant(network=True), gates=["security", "approval"], trust="file")
+    step = _Step(
+        tools=_ToolGrant(network=True), gates=["security", "approval"], trust="file"
+    )
 
     result = await gate.evaluate(step, _Ctx(runner))
     assert result.outcome == GATE_BLOCK
@@ -250,7 +261,11 @@ async def test_security_gate_blocks_secrets_request_unchanged():
     """A secrets request BLOCKS regardless of trust (unchanged — T-10-03-02)."""
     runner = _RecordingRunner(workspace=_Workspace())
     gate = CapabilityRegistry().resolve("gate", "security")
-    step = _Step(tools=_ToolGrant(secrets=["MY_KEY"]), gates=["security", "approval"], trust="file")
+    step = _Step(
+        tools=_ToolGrant(secrets=["MY_KEY"]),
+        gates=["security", "approval"],
+        trust="file",
+    )
 
     result = await gate.evaluate(step, _Ctx(runner))
     assert result.outcome == GATE_BLOCK
@@ -276,7 +291,9 @@ async def test_security_gate_blocks_exec_with_empty_bound_profile():
     constrained profile must be attached when the workspace is bound)."""
     runner = _RecordingRunner(workspace=_Workspace(policy=_ExecPolicy(exec_allow=[])))
     gate = CapabilityRegistry().resolve("gate", "security")
-    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+    step = _Step(
+        tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file"
+    )
 
     result = await gate.evaluate(step, _Ctx(runner))
     assert result.outcome == GATE_BLOCK
@@ -324,7 +341,9 @@ async def test_approval_gate_first_exec_pauses_with_d04_payload():
     review = [{"type": "review_gate_ready", "data": {"output": "ignored"}}]
     runner = _RecordingRunner(review, workspace=_Workspace())
     gate = CapabilityRegistry().resolve("gate", "approval")
-    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+    step = _Step(
+        tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file"
+    )
 
     result = await gate.evaluate(step, _Ctx(runner))
 
@@ -346,7 +365,9 @@ async def test_approval_gate_approve_resolves_to_pass():
     review = [{"type": "review_gate_approved", "data": {}}]
     runner = _RecordingRunner(review, workspace=_Workspace())
     gate = CapabilityRegistry().resolve("gate", "approval")
-    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+    step = _Step(
+        tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file"
+    )
 
     result = await gate.evaluate(step, _Ctx(runner))
     assert result.outcome == GATE_PASS
@@ -360,7 +381,9 @@ async def test_approval_gate_reject_resolves_to_block():
     review = [{"type": "_gate_rejected"}]
     runner = _RecordingRunner(review, workspace=_Workspace())
     gate = CapabilityRegistry().resolve("gate", "approval")
-    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+    step = _Step(
+        tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file"
+    )
 
     result = await gate.evaluate(step, _Ctx(runner))
     assert result.outcome == GATE_BLOCK
@@ -375,7 +398,9 @@ async def test_approval_gate_second_exec_does_not_re_pause_d03():
     review = [{"type": "review_gate_ready", "data": {}}]  # would fire IF delegated
     runner = _RecordingRunner(review, prior_gate_rows=prior, workspace=_Workspace())
     gate = CapabilityRegistry().resolve("gate", "approval")
-    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+    step = _Step(
+        tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file"
+    )
 
     result = await gate.evaluate(step, _Ctx(runner))
     assert result.outcome == GATE_PASS
@@ -391,7 +416,9 @@ async def test_approval_gate_offline_no_handle_waits_for_human():
     wait_human gate_events row."""
     runner = _NoHandleRunner()
     gate = CapabilityRegistry().resolve("gate", "approval")
-    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+    step = _Step(
+        tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file"
+    )
 
     result = await gate.evaluate(step, _Ctx(runner))
     assert result.outcome == GATE_WAIT_HUMAN
@@ -494,10 +521,17 @@ class _DeliverableCtxRunner(_RecordingRunner):
 
         return _Result()
 
-    async def record_validation_result(self, step, validator, *, severity, attempt, issues):
+    async def record_validation_result(
+        self, step, validator, *, severity, attempt, issues
+    ):
         self.validation_results.append(
-            {"step": step, "validator": validator, "severity": severity,
-             "attempt": attempt, "issues": issues}
+            {
+                "step": step,
+                "validator": validator,
+                "severity": severity,
+                "attempt": attempt,
+                "issues": issues,
+            }
         )
         return f"vr-{len(self.validation_results)}"
 
@@ -633,7 +667,9 @@ async def test_engine_pre_phase_skips_post_only_validation_gate():
     engine = _engine()
     step = _GatedStep(gates=["validation"], validators=["v_blk"])
 
-    events, outcomes = await _collect_gates(engine, step, _Ctx(_RecordingRunner()), phase="pre")
+    events, outcomes = await _collect_gates(
+        engine, step, _Ctx(_RecordingRunner()), phase="pre"
+    )
     assert events == [] and outcomes == []
 
 
@@ -642,10 +678,15 @@ async def test_engine_post_phase_runs_validation_gate_only():
     """The validation gate fires in the POST phase; a pre-step gate does not."""
     _register_fake_validator("v_warn", [_Issue("P2")])
     engine = _engine()
-    step = _GatedStep(gates=["security", "validation"], validators=["v_warn"],
-                      tools=_ToolGrant(exec=True))
+    step = _GatedStep(
+        gates=["security", "validation"],
+        validators=["v_warn"],
+        tools=_ToolGrant(exec=True),
+    )
 
-    events, outcomes = await _collect_gates(engine, step, _Ctx(_RecordingRunner()), phase="post")
+    events, outcomes = await _collect_gates(
+        engine, step, _Ctx(_RecordingRunner()), phase="post"
+    )
     # Only validation runs in post — it warns (P2) and passes; security is pre-only.
     assert GATE_PASS in outcomes
     assert any(e["type"] == "validation_warning" for e in events)
@@ -659,7 +700,9 @@ async def test_engine_no_declared_gates_is_noop():
     engine = _engine()
     step = _GatedStep(gates=[])
     for phase in ("pre", "post"):
-        events, outcomes = await _collect_gates(engine, step, _Ctx(_RecordingRunner()), phase=phase)
+        events, outcomes = await _collect_gates(
+            engine, step, _Ctx(_RecordingRunner()), phase=phase
+        )
         assert events == [] and outcomes == []
 
 
@@ -688,7 +731,9 @@ async def test_engine_block_with_empty_events_still_halts(monkeypatch):
     registry_mod._IMPLS[("gate", "security")] = _SilentBlockGate()
     step = _GatedStep(gates=["security"], tools=_ToolGrant(exec=True))
 
-    events, outcomes = await _collect_gates(engine, step, _Ctx(_RecordingRunner()), phase="pre")
+    events, outcomes = await _collect_gates(
+        engine, step, _Ctx(_RecordingRunner()), phase="pre"
+    )
     # No event was emitted (the stream is unchanged — no None leaks through)...
     assert events == []
     # ...but the block outcome is observable so the caller halts the step (WR-04).
@@ -708,7 +753,9 @@ async def test_engine_gate_that_raises_is_swallowed_not_aborting():
 
     registry_mod._IMPLS[("gate", "validation")] = _BoomGate()
     step = _GatedStep(gates=["validation"])
-    events, outcomes = await _collect_gates(engine, step, _Ctx(_RecordingRunner()), phase="post")
+    events, outcomes = await _collect_gates(
+        engine, step, _Ctx(_RecordingRunner()), phase="post"
+    )
     assert events == [] and outcomes == []
 
 
@@ -724,19 +771,21 @@ async def test_blocking_gate_short_circuits_remaining_declared_gates():
     open an HITL pause for a step that will be skipped regardless (pre-fix the
     loop continued to the next gate and asked the user to approve a dead step)."""
     engine = _engine()
-    runner = _RecordingRunner(review_events=[
-        {"type": "review_gate_ready", "data": {"gate_key": "run-x:step-x"}},
-        {"type": "review_gate_approved", "data": {"edited": False}},
-    ])
+    runner = _RecordingRunner(
+        review_events=[
+            {"type": "review_gate_ready", "data": {"gate_key": "run-x:step-x"}},
+            {"type": "review_gate_approved", "data": {"edited": False}},
+        ]
+    )
     # network=True → the real security gate BLOCKS unconditionally.
     step = _GatedStep(gates=["security", "human"], tools=_ToolGrant(network=True))
 
     events, outcomes = await _collect_gates(engine, step, _Ctx(runner), phase="pre")
     assert GATE_BLOCK in outcomes
     # The human gate's HITL delegate was NEVER invoked …
-    assert runner.delegate_payloads == [], (
-        "the human gate opened a pause after a blocking security gate (WR-07)"
-    )
+    assert (
+        runner.delegate_payloads == []
+    ), "the human gate opened a pause after a blocking security gate (WR-07)"
     # … and no review_gate_* event leaked into the stream.
     assert not any(e.get("type", "").startswith("review_gate") for e in events)
 
@@ -761,9 +810,9 @@ async def test_fail_closed_gate_exception_maps_to_block_not_pass():
         engine, step, _Ctx(_RecordingRunner()), phase="pre", details=details
     )
     assert events == []  # no UI event — the sentinel alone carries the halt
-    assert outcomes == [GATE_BLOCK], (
-        f"a raised fail-closed gate must yield exactly one block sentinel: {outcomes}"
-    )
+    assert outcomes == [
+        GATE_BLOCK
+    ], f"a raised fail-closed gate must yield exactly one block sentinel: {outcomes}"
     assert details and details[0] and details[0]["gate"] == "security"
 
 
@@ -818,10 +867,12 @@ async def test_human_gate_threads_edited_content_into_outcome_detail():
 
 @pytest.mark.asyncio
 async def test_human_gate_without_edit_has_no_detail():
-    runner = _RecordingRunner(review_events=[
-        {"type": "review_gate_ready", "data": {"gate_key": "run-x:step-x"}},
-        {"type": "review_gate_approved", "data": {"edited": False}},
-    ])
+    runner = _RecordingRunner(
+        review_events=[
+            {"type": "review_gate_ready", "data": {"gate_key": "run-x:step-x"}},
+            {"type": "review_gate_approved", "data": {"edited": False}},
+        ]
+    )
     gate = CapabilityRegistry().resolve("gate", "human")
 
     result = await gate.evaluate(_Step(), _Ctx(runner))
@@ -836,7 +887,9 @@ async def test_approval_gate_explicitly_ignores_edited_content():
     to. The gate discards it explicitly (logged) and threads NO detail."""
     runner = _RecordingRunner(review_events=list(_EDIT_REVIEW_SCRIPT))
     gate = CapabilityRegistry().resolve("gate", "approval")
-    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+    step = _Step(
+        tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file"
+    )
 
     result = await gate.evaluate(step, _Ctx(runner))
     assert result.outcome == GATE_PASS
@@ -860,7 +913,9 @@ async def test_engine_sentinel_carries_human_gate_edit_detail():
 
 
 @pytest.mark.asyncio
-async def test_apply_declared_gate_edit_rewrites_upstream_artifact_and_result(monkeypatch):
+async def test_apply_declared_gate_edit_rewrites_upstream_artifact_and_result(
+    monkeypatch,
+):
     """The kernel applies a declared-gate edit to the UPSTREAM step: a new typed
     ref version + the results entry + the running review payload (inline parity)."""
     engine = _engine()
@@ -928,7 +983,14 @@ class _FakeReviewEngine:
         self.seen_cancel = None
 
     async def _run_review_gate(
-        self, *, pipeline_run_id, agent_id, agent_name, output, cancel_event=None, **kwargs
+        self,
+        *,
+        pipeline_run_id,
+        agent_id,
+        agent_name,
+        output,
+        cancel_event=None,
+        **kwargs,
     ):
         # ``**kwargs`` absorbs the engine parameters run_human_gate does not forward TODAY.
         # Without it this double is one forwarded parameter away from the ISS-074 TypeError.
@@ -1013,7 +1075,9 @@ async def test_run_human_gate_threads_cancel_event_into_review_gate(monkeypatch)
 
     _ = [e async for e in ks.run_human_gate(object(), output="agent html output")]
 
-    assert fake_engine.seen_cancel is ev  # the run-scoped cancel_event reached the delegate
+    assert (
+        fake_engine.seen_cancel is ev
+    )  # the run-scoped cancel_event reached the delegate
 
 
 @pytest.mark.asyncio
@@ -1064,7 +1128,8 @@ def test_host_seam_exec_grant_detection_over_compiled_steps():
     def _grants(steps):
         # Mirror engine.execute()'s _plan_grants_exec predicate verbatim.
         return any(
-            bool(getattr(getattr(s, "tools", None), "exec", False)) for s in (steps or [])
+            bool(getattr(getattr(s, "tools", None), "exec", False))
+            for s in (steps or [])
         )
 
     no_exec = [_Step(tools=_ToolGrant(exec=False)), _Step(tools=_ToolGrant(exec=False))]
@@ -1075,7 +1140,9 @@ def test_host_seam_exec_grant_detection_over_compiled_steps():
     assert _grants(one_exec) is True
 
 
-def test_host_seam_resolves_local_runtime_and_binds_exec_workspace(tmp_path, monkeypatch):
+def test_host_seam_resolves_local_runtime_and_binds_exec_workspace(
+    tmp_path, monkeypatch
+):
     """When the plan grants exec, the local runtime_env resolves + create_workspace(
     exec=True, recorder=...) returns a Workspace carrying a constrained policy that
     the security gate's profile check accepts (allow-list non-empty)."""

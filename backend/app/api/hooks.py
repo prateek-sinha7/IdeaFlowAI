@@ -36,5 +36,8 @@ def get_hooks_library(
         "hooks": [asdict(e) for e in entries],
         "total_count": len(entries),
         "events": [{"id": "all", "label": "All"}]
-        + [{"id": e, "label": e.replace("_", " "), "icon": _get_icon_for_event(e)} for e in events],
+        + [
+            {"id": e, "label": e.replace("_", " "), "icon": _get_icon_for_event(e)}
+            for e in events
+        ],
     }

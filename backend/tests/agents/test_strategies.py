@@ -23,6 +23,7 @@ import pytest
 from agents.capabilities import registry as registry_mod
 from agents.capabilities.strategies.single_shot import SingleShotStrategy
 from agents.capabilities.strategies.task_loop import TaskLoopStrategy
+
 # The fix-selection logic has a SINGLE canonical home — the engine (INV-3/INV-12,
 # same import test_phase5_fixloop_selection.py uses). NEVER import it from task_loop.
 from agents.execution_engine.engine import _select_issues_to_fix
@@ -145,7 +146,9 @@ class _FakeRunner:
         self.sandbox = sandbox if sandbox is not None else _FakeSandbox()
         # static_check returns the next scripted result each call (defaults clean).
         self._static_results = list(static_results or [_FakeStatic()])
-        self._render_result = render_result if render_result is not None else _FakeRender()
+        self._render_result = (
+            render_result if render_result is not None else _FakeRender()
+        )
         self.od_context = od_context
         # WR-05: when set, run_validation_fix_loop writes this HTML to prototype.html
         # (simulating a fix-loop edit). persist_task_html records the typed dual-write.
@@ -163,7 +166,13 @@ class _FakeRunner:
         self.static_calls = 0
 
     async def run_agent(
-        self, step, ctx, *, task_number=None, total_tasks=None, task_block=None,
+        self,
+        step,
+        ctx,
+        *,
+        task_number=None,
+        total_tasks=None,
+        task_block=None,
         skeleton=None,
     ):
         # WR-01 (07-09): the task-2+ skeleton is passed via a dedicated `skeleton`
@@ -226,12 +235,16 @@ class _FakeRunner:
             if attempt >= _MAX_FIX_ATTEMPTS:
                 return
             attempt += 1
-            fix_message = (
-                f"=== VALIDATION ERRORS (fix {filename}) ===\n"
-                + "\n".join(f"- {e}" for e in error_lines)
+            fix_message = f"=== VALIDATION ERRORS (fix {filename}) ===\n" + "\n".join(
+                f"- {e}" for e in error_lines
             )
             self.fix_calls.append(
-                {"task_num": task_num, "attempt": attempt, "agent_id": agent_id, "message": fix_message}
+                {
+                    "task_num": task_num,
+                    "attempt": attempt,
+                    "agent_id": agent_id,
+                    "message": fix_message,
+                }
             )
 
     def latest_typed_content(self, producer_step):
@@ -244,7 +257,12 @@ class _FakeRunner:
         return "u-fake"
 
     async def persist_task_html(
-        self, task_num, agent_id="prototype-build", *, filename="prototype.html", task_key=None
+        self,
+        task_num,
+        agent_id="prototype-build",
+        *,
+        filename="prototype.html",
+        task_key=None,
     ):
         """Typed dual-write — record the call + mirror the on-disk content into the typed
         graph (so latest_typed_content(agent_id) reflects the persisted content).
@@ -254,7 +272,9 @@ class _FakeRunner:
         """
         self.persist_filenames.append(filename)
         html = self.sandbox.read(filename)
-        self.persist_calls.append({"task_num": task_num, "html": html, "task_key": task_key})
+        self.persist_calls.append(
+            {"task_num": task_num, "html": html, "task_key": task_key}
+        )
         if html:
             self._typed[agent_id] = html
 
@@ -335,7 +355,11 @@ async def test_task_loop_writes_reference_files_before_loop() -> None:
     assert sandbox.read("spec.md") == "the spec text"
     assert sandbox.read("tasks.md") == _TWO_TASK_PLAN
     design = sandbox.read("design.md")
-    assert design is not None and "ACTIVE TEMPLATE" in design and "ACTIVE DESIGN SYSTEM" in design
+    assert (
+        design is not None
+        and "ACTIVE TEMPLATE" in design
+        and "ACTIVE DESIGN SYSTEM" in design
+    )
 
 
 @pytest.mark.asyncio
@@ -382,7 +406,9 @@ async def test_task_loop_requests_html_skeleton_compaction_for_task_2() -> None:
         # (latest_typed_content("prototype-build")). persist_task_html (called after each
         # task) dual-writes the on-disk prototype.html into the typed graph, so the task-2
         # compaction reads the persisted task-1 HTML.
-        sandbox = _FakeSandbox(files={"prototype.html": "<html>page1 full content</html>"})
+        sandbox = _FakeSandbox(
+            files={"prototype.html": "<html>page1 full content</html>"}
+        )
         runner = _FakeRunner(
             agent_events=[{"type": "agent_chunk", "data": {"text": "."}}],
             typed_content={"prototype-plan": _TWO_TASK_PLAN},
@@ -449,7 +475,10 @@ async def test_task_loop_repersists_typed_artifact_after_fix_changes_html() -> N
     assert runner.persist_calls[0]["html"] == "<html>PRE-FIX</html>"
     assert runner.persist_calls[1]["html"] == "<html>POST-FIX (corrected)</html>"
     # The typed graph now reflects the FIXED HTML (what prototype-validate will read).
-    assert runner.latest_typed_content("prototype-build") == "<html>POST-FIX (corrected)</html>"
+    assert (
+        runner.latest_typed_content("prototype-build")
+        == "<html>POST-FIX (corrected)</html>"
+    )
 
 
 @pytest.mark.asyncio

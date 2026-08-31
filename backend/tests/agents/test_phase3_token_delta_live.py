@@ -126,6 +126,7 @@ assert hasattr(_Engine, "_compose_context_message"), (
 # Live drive helpers.
 # ---------------------------------------------------------------------------
 
+
 # The full-HTML injection block the OLD (pre-0C) path emitted for build tasks 2+.
 # We reconstruct it here so the compaction-OFF baseline run injects exactly what the
 # engine did before the 03-01 edit (cap at 120k, matching the legacy pre-0C branch —
@@ -246,27 +247,37 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
                 "compaction", "html_skeleton"
             )
 
-            async def _full_html_compose_ctx(spec, index, ordered_agents,
-                                             user_message, planning_context, ectx):
+            async def _full_html_compose_ctx(
+                spec, index, ordered_agents, user_message, planning_context, ectx
+            ):
                 msg = await _orig_compose_ctx(
-                    spec=spec, index=index, ordered_agents=ordered_agents,
+                    spec=spec,
+                    index=index,
+                    ordered_agents=ordered_agents,
                     user_message=user_message,
-                    planning_context=planning_context, ectx=ectx,
+                    planning_context=planning_context,
+                    ectx=ectx,
                 )
                 if spec.id == "prototype-build":
                     task_num_str = ectx.build_task_number
                     is_2_plus = task_num_str not in ("", "1")
-                    current_html = engine._latest_typed_content(
-                        ectx, "prototype-build"
-                    ) or ""
-                    if is_2_plus and current_html and not current_html.startswith("[Error:"):
+                    current_html = (
+                        engine._latest_typed_content(ectx, "prototype-build") or ""
+                    )
+                    if (
+                        is_2_plus
+                        and current_html
+                        and not current_html.startswith("[Error:")
+                    ):
                         skeleton = _skeleton_compactor.compact(current_html)
                         skeleton_block = (
                             f"\n=== CURRENT PROTOTYPE (skeleton — call "
                             f"read_file('prototype.html') for full content before "
                             f"editing) ===\n{skeleton}\n=== END CURRENT PROTOTYPE ==="
                         )
-                        msg = msg.replace(skeleton_block, _full_html_block(current_html))
+                        msg = msg.replace(
+                            skeleton_block, _full_html_block(current_html)
+                        )
                 return msg
 
             # Safe with NO restore ONLY because ``engine`` is a fresh per-call
@@ -276,8 +287,14 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
             # silently carry into the compaction-ON run — restore it then. (IN-02)
             engine._compose_context_message = _full_html_compose_ctx  # type: ignore[assignment]
 
-        async def _fake_run_planner(user_message, pipeline_run_id, model_id,
-                                    cancel_event, ptype="custom", **kwargs):
+        async def _fake_run_planner(
+            user_message,
+            pipeline_run_id,
+            model_id,
+            cancel_event,
+            ptype="custom",
+            **kwargs,
+        ):
             return engine._default_planning_context(user_message), "PROCEED"
 
         engine._run_planner = _fake_run_planner  # type: ignore[assignment]
@@ -306,7 +323,9 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
             "craft_block": "Keep markup semantic; wire every nav link.",
             "is_design_system_required": True,
         }
-        run_id = f"live-tokdelta-{'on' if compaction_on else 'off'}-{_uuid.uuid4().hex[:8]}"
+        run_id = (
+            f"live-tokdelta-{'on' if compaction_on else 'off'}-{_uuid.uuid4().hex[:8]}"
+        )
         events: list[dict] = []
         async for ev in engine.execute(
             agents=list(specs),
@@ -434,8 +453,10 @@ async def test_token_delta_live() -> None:
     print("  Reproduction:")
     print("    aws sso login --profile personal-sso")
     print("    RUN_LIVE_BEDROCK=1 AWS_PROFILE=personal-sso \\")
-    print("      python3.11 -m pytest "
-          "tests/agents/test_phase3_token_delta_live.py -v -s")
+    print(
+        "      python3.11 -m pytest "
+        "tests/agents/test_phase3_token_delta_live.py -v -s"
+    )
     print("=" * 72)
 
     assert tokens_on < tokens_off, (

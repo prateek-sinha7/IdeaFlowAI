@@ -147,7 +147,9 @@ def verify_credential(token: str, *, allow_expired: bool = False) -> Principal:
             )
         except CognitoVerificationError:
             if not settings.AUTH_ALLOW_LEGACY_JWT and not settings.BREAK_GLASS_ENABLED:
-                raise CredentialInvalid("Cognito verification failed and legacy fallback disabled")
+                raise CredentialInvalid(
+                    "Cognito verification failed and legacy fallback disabled"
+                )
             # Fall through -- either the dual-accept window is open, or the
             # break-glass account may be presenting a legacy token even with
             # AUTH_ALLOW_LEGACY_JWT off (break-glass always accepts local
@@ -175,7 +177,9 @@ def verify_credential(token: str, *, allow_expired: bool = False) -> Principal:
         provider="local",
         sub=sub,
         jti=payload.get("jti"),
-        iat=int(payload["iat"]) if isinstance(payload.get("iat"), (int, float)) else None,
+        iat=int(payload["iat"])
+        if isinstance(payload.get("iat"), (int, float))
+        else None,
         exp=exp_int,
         groups=[],
     )

@@ -34,6 +34,7 @@ logger = logging.getLogger("app.services.od_loader")
 # Paths
 # ---------------------------------------------------------------------------
 
+
 # OpenDesign assets (skills/opendesign) sit in different places by layout:
 #   * local repo:  backend/app/services/od_loader.py → skills/ at the repo root
 #                  (parents[3]).
@@ -67,6 +68,7 @@ def _resolve_od_root() -> Path:
         if fallback.is_dir():
             return fallback
     return Path("/app/skills/opendesign")  # legacy bind-mount target
+
 
 _OD_ROOT = _resolve_od_root()
 _TEMPLATES_DIR = _OD_ROOT / "design-templates"
@@ -273,7 +275,9 @@ def get_template_references(template_id: str) -> dict[str, str]:
     if out:
         logger.debug(
             "Loaded %d reference file(s) for template '%s': %s",
-            len(out), template_id, list(out.keys()),
+            len(out),
+            template_id,
+            list(out.keys()),
         )
     return out
 
@@ -329,7 +333,12 @@ def get_template_asset_path(template_id: str, asset_relpath: str) -> Path | None
     non-regular file. Mirrors the containment check in ``RunSandbox.path_for``.
     """
     # template_id is a single path segment — reject anything that could escape it.
-    if not template_id or template_id in (".", "..") or "/" in template_id or "\\" in template_id:
+    if (
+        not template_id
+        or template_id in (".", "..")
+        or "/" in template_id
+        or "\\" in template_id
+    ):
         return None
     base = (_TEMPLATES_DIR / template_id / "assets").resolve()
     candidate = (base / str(asset_relpath).lstrip("/")).resolve()
@@ -346,9 +355,7 @@ def get_template_asset_path(template_id: str, asset_relpath: str) -> Path | None
 # ---------------------------------------------------------------------------
 
 _CATEGORY_RE = re.compile(r"^>\s*Category:\s*(.+?)\s*$", re.MULTILINE)
-_BLURB_RE = re.compile(
-    r"^>\s*Category:[^\n]*\n>\s*(.+?)\s*$", re.MULTILINE
-)
+_BLURB_RE = re.compile(r"^>\s*Category:[^\n]*\n>\s*(.+?)\s*$", re.MULTILINE)
 _H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 
 
@@ -392,15 +399,16 @@ def _all_design_systems() -> list[dict[str, Any]]:
         parsed = _load_one_design_system(folder)
         if parsed is not None:
             result.append(parsed)
-    logger.info("Loaded %d OpenDesign design systems from %s", len(result), _DESIGN_SYSTEMS_DIR)
+    logger.info(
+        "Loaded %d OpenDesign design systems from %s", len(result), _DESIGN_SYSTEMS_DIR
+    )
     return result
 
 
 def list_design_systems() -> list[dict[str, Any]]:
     """Slim list for the picker dropdown — no ``body``."""
     return [
-        {k: v for k, v in ds.items() if k != "body"}
-        for ds in _all_design_systems()
+        {k: v for k, v in ds.items() if k != "body"} for ds in _all_design_systems()
     ]
 
 

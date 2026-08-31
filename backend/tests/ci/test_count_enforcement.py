@@ -54,7 +54,9 @@ class TestCountValidator:
         with open(self.baseline_path) as f:
             data = yaml.safe_load(f)
             if "baselines" not in data:
-                raise ValueError("Invalid baseline file format: missing 'baselines' key")
+                raise ValueError(
+                    "Invalid baseline file format: missing 'baselines' key"
+                )
             return data["baselines"]
 
     def collect_pytest_count(self, *test_args) -> Optional[int]:
@@ -249,7 +251,9 @@ class TestCountValidator:
         results["pytest"] = {
             "baseline": self.baselines.get("pytest"),
             "collected": pytest_count,
-            "match": pytest_count == self.baselines.get("pytest") if pytest_count else False,
+            "match": pytest_count == self.baselines.get("pytest")
+            if pytest_count
+            else False,
         }
 
         # Collect vitest count
@@ -257,7 +261,9 @@ class TestCountValidator:
         results["vitest"] = {
             "baseline": self.baselines.get("vitest"),
             "collected": vitest_count,
-            "match": vitest_count == self.baselines.get("vitest") if vitest_count else False,
+            "match": vitest_count == self.baselines.get("vitest")
+            if vitest_count
+            else False,
         }
 
         # Collect Playwright mocked count
@@ -265,7 +271,9 @@ class TestCountValidator:
         results["playwright_mocked"] = {
             "baseline": self.baselines.get("playwright_mocked"),
             "collected": pw_count,
-            "match": pw_count == self.baselines.get("playwright_mocked") if pw_count else False,
+            "match": pw_count == self.baselines.get("playwright_mocked")
+            if pw_count
+            else False,
         }
 
         # All must match
@@ -281,7 +289,9 @@ class TestCountValidator:
             if not data.get("match", False):
                 baseline = data.get("baseline", "unknown")
                 collected = data.get("collected", "unknown")
-                lines.append(f"  {suite_name}: baseline={baseline}, collected={collected}")
+                lines.append(
+                    f"  {suite_name}: baseline={baseline}, collected={collected}"
+                )
 
         return "\n".join(lines)
 
@@ -306,7 +316,9 @@ class SkipEnforcementLinter:
         self.repo_root = repo_root
 
         if remediation_record_path is None:
-            remediation_record_path = self.repo_root / ".planning" / "REMEDIATION-RECORD.md"
+            remediation_record_path = (
+                self.repo_root / ".planning" / "REMEDIATION-RECORD.md"
+            )
         self.remediation_record_path = Path(remediation_record_path)
 
         self.recorded_skips = self._load_recorded_skips()
@@ -317,7 +329,9 @@ class SkipEnforcementLinter:
         if not self.remediation_record_path.exists():
             return set()
 
-        content = self.remediation_record_path.read_text(encoding="utf-8", errors="replace")
+        content = self.remediation_record_path.read_text(
+            encoding="utf-8", errors="replace"
+        )
 
         # Extract case IDs from Disabled Tests section
         recorded = set()
@@ -376,12 +390,14 @@ class SkipEnforcementLinter:
                         test_name = f"skip_at_line_{i}"
 
                     if test_name not in self.recorded_skips:
-                        findings.append({
-                            "file": str(test_file.relative_to(self.repo_root)),
-                            "line": i,
-                            "directive": "pytest.skip()",
-                            "case_id": test_name,
-                        })
+                        findings.append(
+                            {
+                                "file": str(test_file.relative_to(self.repo_root)),
+                                "line": i,
+                                "directive": "pytest.skip()",
+                                "case_id": test_name,
+                            }
+                        )
 
                 # Check for @pytest.mark.skip
                 if "@pytest.mark.skip" in line:
@@ -394,12 +410,14 @@ class SkipEnforcementLinter:
                             break
 
                     if test_name and test_name not in self.recorded_skips:
-                        findings.append({
-                            "file": str(test_file.relative_to(self.repo_root)),
-                            "line": i,
-                            "directive": "@pytest.mark.skip",
-                            "case_id": test_name,
-                        })
+                        findings.append(
+                            {
+                                "file": str(test_file.relative_to(self.repo_root)),
+                                "line": i,
+                                "directive": "@pytest.mark.skip",
+                                "case_id": test_name,
+                            }
+                        )
 
         self.findings.extend(findings)
         return findings
@@ -429,24 +447,28 @@ class SkipEnforcementLinter:
                     match = re.search(r'test\.skip\(\s*["\']([^"\']+)["\']', line)
                     test_name = match.group(1) if match else f"skip_at_line_{i}"
                     if test_name not in self.recorded_skips:
-                        findings.append({
-                            "file": str(test_file.relative_to(self.repo_root)),
-                            "line": i,
-                            "directive": "test.skip()",
-                            "case_id": test_name,
-                        })
+                        findings.append(
+                            {
+                                "file": str(test_file.relative_to(self.repo_root)),
+                                "line": i,
+                                "directive": "test.skip()",
+                                "case_id": test_name,
+                            }
+                        )
 
                 # Check for test.fixme()
                 if "test.fixme(" in line:
                     match = re.search(r'test\.fixme\(\s*["\']([^"\']+)["\']', line)
                     test_name = match.group(1) if match else f"fixme_at_line_{i}"
                     if test_name not in self.recorded_skips:
-                        findings.append({
-                            "file": str(test_file.relative_to(self.repo_root)),
-                            "line": i,
-                            "directive": "test.fixme()",
-                            "case_id": test_name,
-                        })
+                        findings.append(
+                            {
+                                "file": str(test_file.relative_to(self.repo_root)),
+                                "line": i,
+                                "directive": "test.fixme()",
+                                "case_id": test_name,
+                            }
+                        )
 
         self.findings.extend(findings)
         return findings

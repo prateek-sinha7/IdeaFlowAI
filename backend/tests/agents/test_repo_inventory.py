@@ -70,7 +70,9 @@ def repo_tree(tmp_path: Path) -> Path:
     (tmp_path / "secret.txt").write_text("password=123\n", encoding="utf-8")
     (tmp_path / "scratch.tmp").write_text("temp\n", encoding="utf-8")
     # A dependency manifest.
-    (tmp_path / "requirements.txt").write_text("flask==3.0.0\n# comment\nrequests\n", encoding="utf-8")
+    (tmp_path / "requirements.txt").write_text(
+        "flask==3.0.0\n# comment\nrequests\n", encoding="utf-8"
+    )
     return tmp_path
 
 

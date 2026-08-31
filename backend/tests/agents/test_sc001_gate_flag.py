@@ -158,9 +158,9 @@ def test_eligibility_introduces_no_agent_id_literal() -> None:
     elig_lines = [ln for ln in lines if "update_specs_eligible" in ln]
     assert elig_lines, "update_specs_eligible never appears in engine.py"
     for ln in elig_lines:
-        assert "prototype-" not in ln, (
-            f"eligibility line names a workflow/agent literal (SC-001 leak): {ln!r}"
-        )
+        assert (
+            "prototype-" not in ln
+        ), f"eligibility line names a workflow/agent literal (SC-001 leak): {ln!r}"
     # The declared eligible-kind set is pure artifact kinds — no agent-id leak.
     assert all(
         "prototype" not in k for k in ExecutionEngine._UPDATE_SPECS_ELIGIBLE_KINDS

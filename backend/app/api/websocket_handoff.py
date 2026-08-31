@@ -128,7 +128,16 @@ async def websocket_handoff(websocket: WebSocket, token: str) -> None:
     try:
         # Send an immediate "subscribed" event so the frontend knows the
         # channel is live before the first pipeline event arrives.
-        await websocket.send_text(json.dumps({"type": "handoff_ready", "chunk": None, "section": None, "data": {"token": token}}))
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "type": "handoff_ready",
+                    "chunk": None,
+                    "section": None,
+                    "data": {"token": token},
+                }
+            )
+        )
 
         # P1 fix (COGNITO-AUTH-QA-BUGS.md "Stream Revocation"): the docstring
         # of this handler previously claimed re-authentication happened "per

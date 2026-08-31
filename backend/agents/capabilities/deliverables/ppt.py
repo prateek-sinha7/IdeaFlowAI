@@ -65,4 +65,6 @@ class PptResolver:
 
     def resolve(self, ctx: Any) -> Any:
         last_streamed = getattr(ctx, "last_streamed", "") or ""
-        return unwrap_artifact(strip_pre_slide_body_text(sanitize_carousel_deck_html(last_streamed)))
+        return unwrap_artifact(
+            strip_pre_slide_body_text(sanitize_carousel_deck_html(last_streamed))
+        )

@@ -62,6 +62,7 @@ def redact_db_url(url: str) -> str:
         netloc = f"{netloc}:{parts.port}"
     return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
+
 # Resolve the backend directory (where this file lives: backend/app/core/config.py)
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 ENV_FILE = BACKEND_DIR / ".env"
@@ -451,7 +452,9 @@ class Settings(BaseSettings):
     # DEBUG locally; production sets WARNING. An unrecognised value logs a
     # warning and falls back to INFO rather than crashing at startup.
     LOG_LEVEL_APP: str = ""  # "" = derive from ENV (see app/core/logging.py)
-    LOG_FORMAT: str = ""  # "" = auto (pretty in development, json elsewhere); "json" | "pretty"
+    LOG_FORMAT: str = (
+        ""  # "" = auto (pretty in development, json elsewhere); "json" | "pretty"
+    )
     # JSON-formatted logs carry these two static fields on every line so a
     # CloudWatch Logs Insights query can filter/group by service+environment
     # without string-parsing the message. SERVICE_NAME defaults per-process;

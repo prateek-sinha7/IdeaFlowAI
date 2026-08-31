@@ -116,7 +116,9 @@ def matrix(monkeypatch):
     monkeypatch.setattr(
         _db_mod,
         "SessionLocal",
-        sessionmaker(bind=engine, autocommit=False, autoflush=False, expire_on_commit=False),
+        sessionmaker(
+            bind=engine, autocommit=False, autoflush=False, expire_on_commit=False
+        ),
     )
 
     # Fresh per-test artifact-store singleton (the per-process gate-arm registry).
@@ -135,7 +137,8 @@ def matrix(monkeypatch):
     state: dict = {"user": _FakeUser(id="owner")}
     app.dependency_overrides[get_current_user] = lambda: state["user"]
     app.dependency_overrides[get_current_user_with_payload] = lambda: (
-        state["user"], {"jti": None, "iat": None}
+        state["user"],
+        {"jti": None, "iat": None},
     )
     app.dependency_overrides[get_db] = lambda: (yield session)
     client = TestClient(app)
@@ -159,7 +162,9 @@ def matrix(monkeypatch):
 # ────────────────────────────────────────────────────────────────────────────
 # Seeding helpers
 # ────────────────────────────────────────────────────────────────────────────
-def _seed_run(db, *, run_id="run-1", owner_id="owner", workspace_id="ws-1", status="running"):
+def _seed_run(
+    db, *, run_id="run-1", owner_id="owner", workspace_id="ws-1", status="running"
+):
     db.add(
         WorkflowRun(
             id=run_id,
@@ -225,11 +230,7 @@ def _drive(gen) -> list[dict]:
 def _replay_only(parsed: list[dict]) -> list[dict]:
     """The durable-replay frames — drop the synthetic ``stream_attached`` handshake and
     the D-14g ``review_gate_ready`` re-arm (neither is a durable run_events row)."""
-    return [
-        p
-        for p in parsed
-        if p["type"] not in ("stream_attached",)
-    ]
+    return [p for p in parsed if p["type"] not in ("stream_attached",)]
 
 
 def _rows_from_replay(parsed_replay: list[dict]) -> list[dict]:
@@ -243,11 +244,11 @@ def _rows_from_replay(parsed_replay: list[dict]) -> list[dict]:
 def _assert_contiguous_deduped_ordered(parsed_replay: list[dict]) -> None:
     """Bind the replayed frame sequence to the 29-01 projection contract:
 
-      * ORDERED by seq  — the ``id:`` (seq) cursors are STRICTLY ascending.
-      * DEDUPED          — no seq (hence no event_id) appears twice.
-      * PROJECTION-EXACT — each frame's rendered body is byte-identical to what the
-        single-source-of-truth ``run_event_to_sse_frame`` projection produces for the
-        same row (so the endpoint cannot silently diverge from the canonical rendering).
+    * ORDERED by seq  — the ``id:`` (seq) cursors are STRICTLY ascending.
+    * DEDUPED          — no seq (hence no event_id) appears twice.
+    * PROJECTION-EXACT — each frame's rendered body is byte-identical to what the
+      single-source-of-truth ``run_event_to_sse_frame`` projection produces for the
+      same row (so the endpoint cannot silently diverge from the canonical rendering).
     """
     seqs = [int(p["id"]) for p in parsed_replay]
     assert seqs == sorted(seqs), f"frames not ordered by seq: {seqs}"
@@ -260,11 +261,11 @@ def _assert_contiguous_deduped_ordered(parsed_replay: list[dict]) -> None:
         ref_body = None
         for line in ref_frame.splitlines():
             if line.startswith("data:"):
-                ref_body = json.loads(line[len("data:"):].strip())
+                ref_body = json.loads(line[len("data:") :].strip())
         assert ref_body is not None
-        assert {"type": p["type"], "data": p["data"]} == ref_body, (
-            "endpoint frame body diverged from the 29-01 projection rendering"
-        )
+        assert (
+            {"type": p["type"], "data": p["data"]} == ref_body
+        ), "endpoint frame body diverged from the 29-01 projection rendering"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -274,8 +275,13 @@ class TestFreshAttach:
     def test_fresh_replays_from_zero_then_goes_live(self, matrix):
         db = matrix["db"]
         _seed_run(db, status="running")
-        _seed_events(db, [(1, "agent_start", {"seq": 1, "agent": "a"}),
-                          (2, "agent_chunk", {"seq": 2, "text": "hi"})])
+        _seed_events(
+            db,
+            [
+                (1, "agent_start", {"seq": 1, "agent": "a"}),
+                (2, "agent_chunk", {"seq": 2, "text": "hi"}),
+            ],
+        )
         q: asyncio.Queue = asyncio.Queue()
 
         async def _run():
@@ -284,12 +290,16 @@ class TestFreshAttach:
             await q.put({"type": "pipeline_complete", "data": {"seq": 4}})
             await q.put(None)  # sentinel
             return await _collect(
-                _iter_sse_frames(run_id="run-1", store=_store(db), after_seq=0, live_queue=q)
+                _iter_sse_frames(
+                    run_id="run-1", store=_store(db), after_seq=0, live_queue=q
+                )
             )
 
         parsed = [_parse(f) for f in asyncio.run(_run())]
         # Full durable replay from seq 0, ascending, deduped, projection-exact.
-        replay = [p for p in parsed if p["type"] != "stream_attached" and int(p["id"]) <= 2]
+        replay = [
+            p for p in parsed if p["type"] != "stream_attached" and int(p["id"]) <= 2
+        ]
         assert [p["id"] for p in replay] == ["1", "2"]
         _assert_contiguous_deduped_ordered(replay)
         # Handshake marks the run live, then the live tail drains and the terminal ends it.
@@ -307,15 +317,26 @@ class TestMidStreamResume:
     def test_resume_replays_only_after_cursor_no_dupes(self, matrix):
         db = matrix["db"]
         _seed_run(db, status="running")
-        _seed_events(db, [(1, "agent_start", {"seq": 1}),
-                          (2, "agent_chunk", {"seq": 2}),
-                          (3, "agent_chunk", {"seq": 3}),
-                          (4, "agent_complete", {"seq": 4})])
+        _seed_events(
+            db,
+            [
+                (1, "agent_start", {"seq": 1}),
+                (2, "agent_chunk", {"seq": 2}),
+                (3, "agent_chunk", {"seq": 3}),
+                (4, "agent_complete", {"seq": 4}),
+            ],
+        )
         # Last-Event-ID = 2 → only seq 3, 4 replay; 1 and 2 are NEVER re-sent (no dupes).
-        parsed = _drive(_iter_sse_frames(run_id="run-1", store=_store(db), after_seq=2, live_queue=None))
+        parsed = _drive(
+            _iter_sse_frames(
+                run_id="run-1", store=_store(db), after_seq=2, live_queue=None
+            )
+        )
         replay = [p for p in parsed if p["type"] != "stream_attached"]
         assert [p["id"] for p in replay] == ["3", "4"]
-        assert all(int(p["id"]) > 2 for p in replay), "resumed replay re-sent an acked frame"
+        assert all(
+            int(p["id"]) > 2 for p in replay
+        ), "resumed replay re-sent an acked frame"
         _assert_contiguous_deduped_ordered(replay)
 
     def test_last_event_id_header_resumes_over_http(self, matrix):
@@ -324,16 +345,25 @@ class TestMidStreamResume:
         db = matrix["db"]
         client = matrix["client"]
         _seed_run(db, status="completed")
-        _seed_events(db, [(1, "agent_start", {"seq": 1}),
-                          (2, "agent_chunk", {"seq": 2}),
-                          (3, "pipeline_complete", {"seq": 3})])
+        _seed_events(
+            db,
+            [
+                (1, "agent_start", {"seq": 1}),
+                (2, "agent_chunk", {"seq": 2}),
+                (3, "pipeline_complete", {"seq": 3}),
+            ],
+        )
         with client.stream(
             "GET", "/api/runs/run-1/events/stream", headers={"Last-Event-ID": "2"}
         ) as resp:
             assert resp.status_code == 200
             assert "text/event-stream" in resp.headers["content-type"]
             text = "".join(resp.iter_text())
-        ids = [ln.split("id:", 1)[1].strip() for ln in text.splitlines() if ln.startswith("id:")]
+        ids = [
+            ln.split("id:", 1)[1].strip()
+            for ln in text.splitlines()
+            if ln.startswith("id:")
+        ]
         assert "3" in ids and "1" not in ids and "2" not in ids
         assert "stream_attached" in text
 
@@ -345,14 +375,18 @@ class TestLiveAttach:
     def test_running_run_marks_live_true_after_tail(self, matrix):
         db = matrix["db"]
         _seed_run(db, status="running")
-        _seed_events(db, [(1, "agent_start", {"seq": 1}), (2, "agent_chunk", {"seq": 2})])
+        _seed_events(
+            db, [(1, "agent_start", {"seq": 1}), (2, "agent_chunk", {"seq": 2})]
+        )
         q: asyncio.Queue = asyncio.Queue()
 
         async def _run():
             await q.put({"type": "pipeline_complete", "data": {"seq": 3}})
             await q.put(None)
             return await _collect(
-                _iter_sse_frames(run_id="run-1", store=_store(db), after_seq=0, live_queue=q)
+                _iter_sse_frames(
+                    run_id="run-1", store=_store(db), after_seq=0, live_queue=q
+                )
             )
 
         parsed = [_parse(f) for f in asyncio.run(_run())]
@@ -376,13 +410,19 @@ class TestTerminalAttach:
     def test_completed_run_full_replay_then_closes(self, matrix):
         db = matrix["db"]
         _seed_run(db, status="completed")
-        rows = [(1, "agent_start", {"seq": 1}),
-                (2, "agent_chunk", {"seq": 2, "text": "x"}),
-                (3, "pipeline_complete", {"seq": 3, "final_output": "done"})]
+        rows = [
+            (1, "agent_start", {"seq": 1}),
+            (2, "agent_chunk", {"seq": 2, "text": "x"}),
+            (3, "pipeline_complete", {"seq": 3, "final_output": "done"}),
+        ]
         _seed_events(db, rows)
         # live_queue=None → a finished run has no queue; the generator MUST terminate after
         # the handshake (a completing _drive() is itself the no-hang proof).
-        parsed = _drive(_iter_sse_frames(run_id="run-1", store=_store(db), after_seq=0, live_queue=None))
+        parsed = _drive(
+            _iter_sse_frames(
+                run_id="run-1", store=_store(db), after_seq=0, live_queue=None
+            )
+        )
         replay = [p for p in parsed if p["type"] != "stream_attached"]
         assert [p["id"] for p in replay] == ["1", "2", "3"]
         _assert_contiguous_deduped_ordered(replay)
@@ -396,22 +436,46 @@ class TestTerminalAttach:
         db = matrix["db"]
         # A scripted engine event stream (offline) → its recorded WS frames + durable rows.
         engine_events = [
-            {"type": "agent_start", "data": {"seq": 1, "event_id": "e1", "agent_id": "a"}},
-            {"type": "agent_chunk", "data": {"seq": 2, "event_id": "e2", "chunk": "hello"}},
-            {"type": "review_gate_ready", "data": {"seq": 3, "event_id": "e3", "gate_key": "gk"}},
+            {
+                "type": "agent_start",
+                "data": {"seq": 1, "event_id": "e1", "agent_id": "a"},
+            },
+            {
+                "type": "agent_chunk",
+                "data": {"seq": 2, "event_id": "e2", "chunk": "hello"},
+            },
+            {
+                "type": "review_gate_ready",
+                "data": {"seq": 3, "event_id": "e3", "gate_key": "gk"},
+            },
             {"type": "review_gate_approved", "data": {"seq": 4, "event_id": "e4"}},
-            {"type": "pipeline_complete", "data": {"seq": 5, "event_id": "e5", "final_output": "d"}},
+            {
+                "type": "pipeline_complete",
+                "data": {"seq": 5, "event_id": "e5", "final_output": "d"},
+            },
         ]
-        ws_frames = [ws_frame_from_engine_event(ev, section="prototype") for ev in engine_events]
-        ref_rows = [{"seq": ev["data"]["seq"], "type": ev["type"], "payload": ev["data"]}
-                    for ev in engine_events]
+        ws_frames = [
+            ws_frame_from_engine_event(ev, section="prototype") for ev in engine_events
+        ]
+        ref_rows = [
+            {"seq": ev["data"]["seq"], "type": ev["type"], "payload": ev["data"]}
+            for ev in engine_events
+        ]
         _seed_run(db, run_id="wp-run", status="completed")
-        _seed_events(db, [(r["seq"], r["type"], r["payload"]) for r in ref_rows], run_id="wp-run")
+        _seed_events(
+            db, [(r["seq"], r["type"], r["payload"]) for r in ref_rows], run_id="wp-run"
+        )
 
-        parsed = _drive(_iter_sse_frames(run_id="wp-run", store=_store(db), after_seq=0, live_queue=None))
+        parsed = _drive(
+            _iter_sse_frames(
+                run_id="wp-run", store=_store(db), after_seq=0, live_queue=None
+            )
+        )
         # Reconstruct rows from the endpoint's replay (drop the handshake; the gate is
         # RESOLVED here so no re-arm frame is emitted).
-        endpoint_rows = _rows_from_replay([p for p in parsed if p["type"] != "stream_attached"])
+        endpoint_rows = _rows_from_replay(
+            [p for p in parsed if p["type"] != "stream_attached"]
+        )
         assert endpoint_rows, "terminal attach produced no replay frames (vacuous)"
         assert_wire_parity(ws_frames, endpoint_rows)
 
@@ -448,32 +512,60 @@ class TestRestartReArm:
         trust survives a restart)."""
         db = matrix["db"]
         # Fresh store = no armed gate in memory (mirrors a restart); no live queue.
-        assert not matrix["store"]._resume_events, "restart harness must start with an empty gate registry"
+        assert not matrix[
+            "store"
+        ]._resume_events, "restart harness must start with an empty gate registry"
         _seed_run(db, status="waiting_for_user")
-        _seed_events(db, [(1, "agent_start", {"seq": 1}),
-                          (2, "agent_complete", {"seq": 2}),
-                          (3, "review_gate_ready", {"seq": 3, "agent_id": "prototype-specify", "gate_key": "gk"})])
+        _seed_events(
+            db,
+            [
+                (1, "agent_start", {"seq": 1}),
+                (2, "agent_complete", {"seq": 2}),
+                (
+                    3,
+                    "review_gate_ready",
+                    {"seq": 3, "agent_id": "prototype-specify", "gate_key": "gk"},
+                ),
+            ],
+        )
         # Client cursor already PAST the gate frame — without D-14g re-arm it would never
         # re-open. Full-log re-arm re-emits it from seq 0.
         before = db.query(RunEvent).count()
-        parsed = _drive(_iter_sse_frames(run_id="run-1", store=_store(db), after_seq=3, live_queue=None))
+        parsed = _drive(
+            _iter_sse_frames(
+                run_id="run-1", store=_store(db), after_seq=3, live_queue=None
+            )
+        )
         after = db.query(RunEvent).count()
 
         rearmed = [p for p in parsed if p["type"] == "review_gate_ready"]
-        assert len(rearmed) == 1, "a paused gate must re-emit review_gate_ready on attach (D-14g)"
+        assert (
+            len(rearmed) == 1
+        ), "a paused gate must re-emit review_gate_ready on attach (D-14g)"
         assert rearmed[0]["data"]["gate_key"] == "gk"
-        assert after == before, "gate re-arm must be READ-ONLY (no run_events mutation, ND-9)"
+        assert (
+            after == before
+        ), "gate re-arm must be READ-ONLY (no run_events mutation, ND-9)"
 
     def test_resolved_gate_does_not_reemit_after_restart(self, matrix):
         db = matrix["db"]
         _seed_run(db, status="running")
-        _seed_events(db, [(1, "review_gate_ready", {"seq": 1, "gate_key": "gk"}),
-                          (2, "review_gate_approved", {"seq": 2}),
-                          (3, "agent_start", {"seq": 3})])
-        parsed = _drive(_iter_sse_frames(run_id="run-1", store=_store(db), after_seq=3, live_queue=None))
-        assert [p for p in parsed if p["type"] == "review_gate_ready"] == [], (
-            "a resolved gate must NOT re-arm on attach"
+        _seed_events(
+            db,
+            [
+                (1, "review_gate_ready", {"seq": 1, "gate_key": "gk"}),
+                (2, "review_gate_approved", {"seq": 2}),
+                (3, "agent_start", {"seq": 3}),
+            ],
         )
+        parsed = _drive(
+            _iter_sse_frames(
+                run_id="run-1", store=_store(db), after_seq=3, live_queue=None
+            )
+        )
+        assert [
+            p for p in parsed if p["type"] == "review_gate_ready"
+        ] == [], "a resolved gate must NOT re-arm on attach"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -508,10 +600,15 @@ class TestGateAnswerWhileStreamDown:
 
         # 1. Paused at a still-open gate; no stream attached.
         _seed_run(db, run_id=run_id, status="waiting_for_user")
-        _seed_events(db, [(1, "agent_start", {"seq": 1}),
-                          (2, "agent_complete", {"seq": 2}),
-                          (3, "review_gate_ready", {"seq": 3, "gate_key": gate_key})],
-                     run_id=run_id)
+        _seed_events(
+            db,
+            [
+                (1, "agent_start", {"seq": 1}),
+                (2, "agent_complete", {"seq": 2}),
+                (3, "review_gate_ready", {"seq": 3, "gate_key": gate_key}),
+            ],
+            run_id=run_id,
+        )
         # Arm the gate exactly as _run_review_gate does (KAN-94 ground truth: armed-but-unset).
         store._resume_events[f"review:{gate_key}"] = asyncio.Event()
 
@@ -531,24 +628,38 @@ class TestGateAnswerWhileStreamDown:
         assert store._resume_events[f"review:{gate_key}"].is_set()
 
         # 3. The resumed engine persists the resolution + subsequent events durably.
-        _seed_events(db, [(4, "review_gate_approved", {"seq": 4, "gate_key": gate_key}),
-                          (5, "agent_start", {"seq": 5, "agent_id": "prototype-plan"}),
-                          (6, "pipeline_complete", {"seq": 6, "final_output": "done"})],
-                     run_id=run_id)
+        _seed_events(
+            db,
+            [
+                (4, "review_gate_approved", {"seq": 4, "gate_key": gate_key}),
+                (5, "agent_start", {"seq": 5, "agent_id": "prototype-plan"}),
+                (6, "pipeline_complete", {"seq": 6, "final_output": "done"}),
+            ],
+            run_id=run_id,
+        )
 
         # 4. REATTACH — replay from the pre-answer cursor (seq 3). The resolution + the
         #    following events replay IN ORDER; the resolved gate does NOT re-arm.
-        parsed = _drive(_iter_sse_frames(run_id=run_id, store=_store(db), after_seq=3, live_queue=None))
+        parsed = _drive(
+            _iter_sse_frames(
+                run_id=run_id, store=_store(db), after_seq=3, live_queue=None
+            )
+        )
         replay = [p for p in parsed if p["type"] != "stream_attached"]
-        assert [p["type"] for p in replay] == [
-            "review_gate_approved", "agent_start", "pipeline_complete",
-        ], "the gate resolution + subsequent events must replay in order on reattach (SC-2)"
+        assert (
+            [p["type"] for p in replay]
+            == [
+                "review_gate_approved",
+                "agent_start",
+                "pipeline_complete",
+            ]
+        ), "the gate resolution + subsequent events must replay in order on reattach (SC-2)"
         assert [p["id"] for p in replay] == ["4", "5", "6"]
         _assert_contiguous_deduped_ordered(replay)
         # The now-resolved gate must NOT re-arm on the reattach (the answer stuck).
-        assert [p for p in replay if p["type"] == "review_gate_ready"] == [], (
-            "an answered gate must not re-open on reattach (SC-2 durable resolution)"
-        )
+        assert (
+            [p for p in replay if p["type"] == "review_gate_ready"] == []
+        ), "an answered gate must not re-open on reattach (SC-2 durable resolution)"
 
     def test_gate_answer_survives_a_full_fresh_reattach_from_zero(self, matrix):
         """The strongest SC-2 framing: even a client that lost ALL cursor state
@@ -561,20 +672,34 @@ class TestGateAnswerWhileStreamDown:
         gate_key = f"{run_id}:prototype-specify"
 
         _seed_run(db, run_id=run_id, status="waiting_for_user")
-        _seed_events(db, [(1, "agent_start", {"seq": 1}),
-                          (2, "review_gate_ready", {"seq": 2, "gate_key": gate_key})],
-                     run_id=run_id)
+        _seed_events(
+            db,
+            [
+                (1, "agent_start", {"seq": 1}),
+                (2, "review_gate_ready", {"seq": 2, "gate_key": gate_key}),
+            ],
+            run_id=run_id,
+        )
         store._resume_events[f"review:{gate_key}"] = asyncio.Event()
 
         matrix["state"]["user"] = _FakeUser(id="owner")
         resp = client.post(f"/api/runs/{run_id}/gate", json={"gate_key": gate_key})
         assert resp.status_code == 200, resp.text
 
-        _seed_events(db, [(3, "review_gate_approved", {"seq": 3, "gate_key": gate_key}),
-                          (4, "pipeline_complete", {"seq": 4})],
-                     run_id=run_id)
+        _seed_events(
+            db,
+            [
+                (3, "review_gate_approved", {"seq": 3, "gate_key": gate_key}),
+                (4, "pipeline_complete", {"seq": 4}),
+            ],
+            run_id=run_id,
+        )
 
-        parsed = _drive(_iter_sse_frames(run_id=run_id, store=_store(db), after_seq=0, live_queue=None))
+        parsed = _drive(
+            _iter_sse_frames(
+                run_id=run_id, store=_store(db), after_seq=0, live_queue=None
+            )
+        )
         replay = [p for p in parsed if p["type"] != "stream_attached"]
         assert [p["id"] for p in replay] == ["1", "2", "3", "4"]
         _assert_contiguous_deduped_ordered(replay)

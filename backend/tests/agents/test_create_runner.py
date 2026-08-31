@@ -186,7 +186,9 @@ class _ScriptedFakeChatModel(BaseChatModel):
             if i == last_i:
                 for tc_idx, (name, json_args, call_id) in enumerate(turn.tool_calls):
                     tcc.append(
-                        tool_call_chunk(name=name, args=json_args, id=call_id, index=tc_idx)
+                        tool_call_chunk(
+                            name=name, args=json_args, id=call_id, index=tc_idx
+                        )
                     )
                 if turn.usage is not None:
                     t_in, t_out = turn.usage
@@ -213,8 +215,12 @@ class _ScriptedFakeChatModel(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         # Fallback non-streaming path; collapses the scripted turn into one message.
-        chunks = list(self._stream(messages, stop=stop, run_manager=run_manager, **kwargs))
-        text = "".join(c.message.content for c in chunks if isinstance(c.message.content, str))
+        chunks = list(
+            self._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+        )
+        text = "".join(
+            c.message.content for c in chunks if isinstance(c.message.content, str)
+        )
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=text))])
 
 
@@ -280,7 +286,9 @@ def _od_context() -> dict:
 
 
 @pytest.mark.asyncio
-async def test_text_only_agent_streams_pure_text_no_tools(tmp_path, monkeypatch) -> None:
+async def test_text_only_agent_streams_pure_text_no_tools(
+    tmp_path, monkeypatch
+) -> None:
     """text-only class (``tools == []`` → spec 012 / R-22, D-07: universal fs grant,
     ``exclude_builtin_tools=False``).
 
@@ -319,7 +327,9 @@ async def test_text_only_agent_streams_pure_text_no_tools(tmp_path, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_text_only_agent_write_file_survives_into_deliverable(tmp_path, monkeypatch) -> None:
+async def test_text_only_agent_write_file_survives_into_deliverable(
+    tmp_path, monkeypatch
+) -> None:
     """AC-12 (spec 012 / R-22, D-07): a PREVIOUSLY text-only agent (``domain-analyst``,
     ``tools: []``, no skills attached — the plain no-grant case) can now call the
     native ``write_file`` tool, and the written file survives on the sandbox disk
@@ -335,7 +345,9 @@ async def test_text_only_agent_write_file_survives_into_deliverable(tmp_path, mo
                 tool_calls=[
                     (
                         _WRITE_FILE_TOOL,
-                        json.dumps({"file_path": "/answer.md", "content": "Fintech is large."}),
+                        json.dumps(
+                            {"file_path": "/answer.md", "content": "Fintech is large."}
+                        ),
                         "call_wf_1",
                     )
                 ],
@@ -345,21 +357,28 @@ async def test_text_only_agent_write_file_survives_into_deliverable(tmp_path, mo
         ]
     )
     ctx = AgentContext(
-        user_request="analyze fintech", model=fake, user_id="u-text-write", run_id="run-text-write"
+        user_request="analyze fintech",
+        model=fake,
+        user_id="u-text-write",
+        run_id="run-text-write",
     )
     runner = create_runner("domain-analyst", ctx)
 
     events = await _collect_events(runner, "go")
 
     assert _events_of(events, "error") == []
-    write_calls = [e for e in _events_of(events, "tool_call") if e["tool"] == _WRITE_FILE_TOOL]
+    write_calls = [
+        e for e in _events_of(events, "tool_call") if e["tool"] == _WRITE_FILE_TOOL
+    ]
     assert len(write_calls) == 1
 
     from app.agents.sandbox import serialize_sandbox_deliverable
 
     sandbox_root = _sandbox_root_for(ctx)
     written = sandbox_root / "answer.md"
-    assert written.is_file(), f"expected file at {written}; tree={list(sandbox_root.rglob('*'))}"
+    assert (
+        written.is_file()
+    ), f"expected file at {written}; tree={list(sandbox_root.rglob('*'))}"
     assert written.read_text(encoding="utf-8") == "Fintech is large."
 
     deliverable = serialize_sandbox_deliverable(sandbox_root)
@@ -373,7 +392,9 @@ async def test_text_only_agent_write_file_survives_into_deliverable(tmp_path, mo
 
 
 @pytest.mark.asyncio
-async def test_code_gen_agent_writes_file_to_sandbox_disk(tmp_path, monkeypatch) -> None:
+async def test_code_gen_agent_writes_file_to_sandbox_disk(
+    tmp_path, monkeypatch
+) -> None:
     """code-gen class (``tools == ["workspace"]`` → native fs tools, no custom tool).
 
     Key assertions: a scripted ``write_file`` call (native name + args) writes
@@ -417,13 +438,19 @@ async def test_code_gen_agent_writes_file_to_sandbox_disk(tmp_path, monkeypatch)
     # FilesystemBackend at (virtual_mode maps the absolute /src/app.py under it).
     sandbox_root = _sandbox_root_for(ctx)
     written = sandbox_root / "src" / "app.py"
-    assert written.is_file(), f"expected file at {written}; tree={list(sandbox_root.rglob('*'))}"
+    assert (
+        written.is_file()
+    ), f"expected file at {written}; tree={list(sandbox_root.rglob('*'))}"
     assert written.read_text(encoding="utf-8") == content
 
     # The write_file tool actually fired through the graph (round-trip, not a stub).
-    write_calls = [e for e in _events_of(events, "tool_call") if e["tool"] == _WRITE_FILE_TOOL]
+    write_calls = [
+        e for e in _events_of(events, "tool_call") if e["tool"] == _WRITE_FILE_TOOL
+    ]
     assert len(write_calls) == 1
-    assert set(write_calls[0]["args"]) == _WRITE_FILE_ARGS  # native arg schema on record
+    assert (
+        set(write_calls[0]["args"]) == _WRITE_FILE_ARGS
+    )  # native arg schema on record
     assert _events_of(events, "tool_result")  # a tool_result followed
 
     # PROOF #2 — the model was offered the native fs tools, but NOT ``task``.
@@ -439,7 +466,9 @@ async def test_code_gen_agent_writes_file_to_sandbox_disk(tmp_path, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_prototype_build_writes_html_and_reports_task(tmp_path, monkeypatch) -> None:
+async def test_prototype_build_writes_html_and_reports_task(
+    tmp_path, monkeypatch
+) -> None:
     """prototype-build class (``tools == ["prototype_emit_only"]`` + ``od_context``).
 
     Key assertions: a scripted ``write_file`` writes ``prototype.html`` to the sandbox
@@ -506,7 +535,9 @@ async def test_prototype_build_writes_html_and_reports_task(tmp_path, monkeypatc
 
     # PROOF #2 — report_task_complete tool_call carried the progress args Phase 3 reads.
     report_calls = [
-        e for e in _events_of(events, "tool_call") if e["tool"] == "report_task_complete"
+        e
+        for e in _events_of(events, "tool_call")
+        if e["tool"] == "report_task_complete"
     ]
     assert len(report_calls) == 1
     assert report_calls[0]["args"]["task_number"] == 1
@@ -514,7 +545,9 @@ async def test_prototype_build_writes_html_and_reports_task(tmp_path, monkeypatc
 
     # PROOF #3 — a report_task_complete tool_result was emitted (right name + payload).
     report_results = [
-        e for e in _events_of(events, "tool_result") if e["tool"] == "report_task_complete"
+        e
+        for e in _events_of(events, "tool_result")
+        if e["tool"] == "report_task_complete"
     ]
     assert len(report_results) == 1
     # The store-free runner tool returns this exact confirmation string.
@@ -533,7 +566,9 @@ async def test_prototype_build_writes_html_and_reports_task(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_planning_agent_exposes_only_planning_tools(tmp_path, monkeypatch) -> None:
+async def test_planning_agent_exposes_only_planning_tools(
+    tmp_path, monkeypatch
+) -> None:
     """planning class (``tools == ["planning"]`` → ``exclude_builtin_tools=True``).
 
     Key assertion (recording bind_tools): the model is offered EXACTLY the
@@ -564,7 +599,9 @@ async def test_planning_agent_exposes_only_planning_tools(tmp_path, monkeypatch)
     # EXACTLY the planning tools — nothing more, nothing less.
     assert seen == expected, f"saw {sorted(seen)}, expected {sorted(expected)}"
     # And explicitly: none of the native built-ins leaked through (exclude=True).
-    assert seen.isdisjoint({"write_file", "read_file", "edit_file", "ls", "glob", "grep"})
+    assert seen.isdisjoint(
+        {"write_file", "read_file", "edit_file", "ls", "glob", "grep"}
+    )
     assert "write_todos" not in seen
     assert "task" not in seen
 
@@ -734,7 +771,9 @@ def test_internet_stub_tools_bound_return_the_stub_message() -> None:
     )
 
 
-def test_internet_capability_off_prompt_is_byte_identical_to_no_capabilities_field() -> None:
+def test_internet_capability_off_prompt_is_byte_identical_to_no_capabilities_field() -> (
+    None
+):
     """With the flag off (default vs. explicit False), the composed prompt for an
     existing agent is unaffected — the capabilities field is inert until set."""
     from agents.factory import _compose_system_prompt
@@ -742,7 +781,9 @@ def test_internet_capability_off_prompt_is_byte_identical_to_no_capabilities_fie
 
     spec = load_agent_spec("epic-architect")
     ctx_default = AgentContext(user_request="test request")
-    ctx_explicit_off = AgentContext(user_request="test request", capabilities={"internet": False})
+    ctx_explicit_off = AgentContext(
+        user_request="test request", capabilities={"internet": False}
+    )
 
     prompt_default = _compose_system_prompt(spec, ctx_default)
     prompt_off = _compose_system_prompt(spec, ctx_explicit_off)
@@ -761,14 +802,18 @@ def test_internet_capability_off_prompt_is_byte_identical_to_no_capabilities_fie
 # ===========================================================================
 
 
-def _skill_payload(skill_id: str = "test-skill", *, content: str = "Do the thing.") -> dict:
+def _skill_payload(
+    skill_id: str = "test-skill", *, content: str = "Do the thing."
+) -> dict:
     """A minimal user-attached-skill payload matching ``skills_catalog``'s shape
     (``id``/``name``/``content`` — ``content`` is the frontmatter-stripped body,
     per ``app/agents/skill_staging.py``'s module docstring)."""
     return {"id": skill_id, "name": skill_id, "content": content}
 
 
-def test_no_skills_attached_builds_agent_without_skills_middleware(tmp_path, monkeypatch) -> None:
+def test_no_skills_attached_builds_agent_without_skills_middleware(
+    tmp_path, monkeypatch
+) -> None:
     """No ``attached_skills`` → ``create_deep_agent`` is called with ``skills=None``.
 
     The runner keeps no public reference to the compiled graph's middleware
@@ -796,7 +841,10 @@ def test_no_skills_attached_builds_agent_without_skills_middleware(tmp_path, mon
 
     fake = _ScriptedFakeChatModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))])
     ctx = AgentContext(
-        user_request="analyze fintech", model=fake, user_id="u-noskill", run_id="run-noskill"
+        user_request="analyze fintech",
+        model=fake,
+        user_id="u-noskill",
+        run_id="run-noskill",
     )
     create_runner("domain-analyst", ctx)
 
@@ -804,7 +852,9 @@ def test_no_skills_attached_builds_agent_without_skills_middleware(tmp_path, mon
     assert captured["skills"] is None
 
 
-def test_no_skills_attached_text_only_agent_has_no_preamble(tmp_path, monkeypatch) -> None:
+def test_no_skills_attached_text_only_agent_has_no_preamble(
+    tmp_path, monkeypatch
+) -> None:
     """spec 012 / R-22, D-07: no skills + a text-only (``tools: []``) agent still
     gets the universal fs grant, so ``_NO_TOOLS_PREAMBLE`` is ABSENT — the prompt
     must never claim "no tools" while the agent holds ``write_file``."""
@@ -814,7 +864,10 @@ def test_no_skills_attached_text_only_agent_has_no_preamble(tmp_path, monkeypatc
 
     fake = _ScriptedFakeChatModel([_ScriptedTurn(texts=["ok"], usage=(1, 1))])
     ctx = AgentContext(
-        user_request="analyze fintech", model=fake, user_id="u-noskill2", run_id="run-noskill2"
+        user_request="analyze fintech",
+        model=fake,
+        user_id="u-noskill2",
+        run_id="run-noskill2",
     )
     runner = create_runner("domain-analyst", ctx)
 
@@ -911,7 +964,9 @@ def test_create_runner_skill_staging_is_idempotent(tmp_path, monkeypatch) -> Non
     assert second_mtime_ns == first_mtime_ns
 
 
-def test_all_agents_in_a_run_see_the_same_staged_skill_set(tmp_path, monkeypatch) -> None:
+def test_all_agents_in_a_run_see_the_same_staged_skill_set(
+    tmp_path, monkeypatch
+) -> None:
     """Spec 011 R-01: no per-agent scoping exists. Building runners for THREE
     different agent ids against the same run sandbox (same user_id/run_id)
     yields the identical ``ctx.skills_delivery.sources`` for every one."""
@@ -937,7 +992,9 @@ def test_all_agents_in_a_run_see_the_same_staged_skill_set(tmp_path, monkeypatch
     assert len(set(tuple(s) for s in sources_seen)) == 1
 
 
-def test_traversal_skill_id_is_rejected_and_never_written(tmp_path, monkeypatch) -> None:
+def test_traversal_skill_id_is_rejected_and_never_written(
+    tmp_path, monkeypatch
+) -> None:
     """An attached skill whose ``id`` is ``"../escape"`` is rejected: it does
     NOT appear in ``.staged``, it produces an entry in ``.errors``, and no
     file is created outside ``<sandbox>/skills/``."""

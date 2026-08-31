@@ -60,7 +60,9 @@ _KEEP_RECENT = 4
 def test_chat_history_stays_under_budget() -> None:
     """SC-2 under-budget gate: a long transcript compacts to ``<= budget`` chars."""
     full = "\n".join(_TRANSCRIPT)
-    assert len(full) > _BUDGET, "fixture must exceed the budget so compaction is exercised"
+    assert (
+        len(full) > _BUDGET
+    ), "fixture must exceed the budget so compaction is exercised"
 
     compacted = ChatHistoryCompaction().compact(
         _TRANSCRIPT, budget=_BUDGET, keep_recent=_KEEP_RECENT
@@ -82,8 +84,12 @@ def test_recent_turns_are_verbatim_and_old_turns_are_summarized() -> None:
     assert _TRANSCRIPT[-1] in compacted, "the newest turn's exact text must be present"
 
     # (b) The oldest turn's verbatim body is ABSENT — replaced by a summary marker.
-    assert _OLD_SENTINEL not in compacted, "the oldest turn must be summarized (not verbatim)"
-    assert "summarized" in compacted, "the older tail must be replaced by a summary marker"
+    assert (
+        _OLD_SENTINEL not in compacted
+    ), "the oldest turn must be summarized (not verbatim)"
+    assert (
+        "summarized" in compacted
+    ), "the older tail must be replaced by a summary marker"
 
 
 def test_short_transcript_is_returned_verbatim() -> None:

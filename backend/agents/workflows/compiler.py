@@ -98,10 +98,10 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "depends_on",
         # spec 012 / per-agent-skills-custom-agents: per-instance identity + scoping.
         "instance_id",  # stable, immutable node slug (R-02/R-03)
-        "name",         # user-editable display label; never affects instance_id (R-02)
-        "prompt",       # per-instance purpose text; custom-agent steps only (R-02/R-06)
-        "skills",       # per-step skill ids (R-01)
-        "subagents",    # declarative child-step group (R-02/R-04)
+        "name",  # user-editable display label; never affects instance_id (R-02)
+        "prompt",  # per-instance purpose text; custom-agent steps only (R-02/R-06)
+        "skills",  # per-step skill ids (R-01)
+        "subagents",  # declarative child-step group (R-02/R-04)
         "produces_solution_plan",  # post-step solution-plan extraction flag
     }
 )
@@ -121,7 +121,9 @@ _ALLOWED_SUBAGENTS_KEYS: frozenset[str] = frozenset(
 # child-group execution strategy (parallel/sequential/fanout) is selected by this NAME
 # — never by a workflow-name/pipeline-id branch (INV-1) — and an unregistered mode is
 # rejected at compile time (fail-loud) rather than silently defaulting.
-_ALLOWED_SUBAGENT_MODES: frozenset[str] = frozenset({"parallel", "sequential", "fanout"})
+_ALLOWED_SUBAGENT_MODES: frozenset[str] = frozenset(
+    {"parallel", "sequential", "fanout"}
+)
 
 # instance_id shape (spec 012 R-03): a lowercase-kebab slug, immutable once assigned.
 _INSTANCE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -268,9 +270,7 @@ class WorkflowCompiler:
         # cap may RAISE above the default ceiling; under an UNTRUSTED (user/db) manifest
         # a cap that RAISES any ceiling is a CompilerError naming the dimension (user/db
         # may only LOWER — the 08-03/10-02 precedent).
-        limits = self._compile_limits(
-            getattr(manifest, "limits", None), trusted, where
-        )
+        limits = self._compile_limits(getattr(manifest, "limits", None), trusted, where)
 
         # ── Topo-validate the Step DAG (cycle-free, no duplicate agents) ──────
         self._validate_dag(steps)
@@ -725,9 +725,7 @@ class WorkflowCompiler:
         """Map one raw step dict → a typed ``Step``, validating each reference."""
         agent_id = raw.get("agent")
         if not isinstance(agent_id, str) or not agent_id.strip():
-            raise CompilerError(
-                f"step missing a non-empty 'agent' id: {raw!r}"
-            )
+            raise CompilerError(f"step missing a non-empty 'agent' id: {raw!r}")
         where = f"step '{agent_id}'"
 
         # Strict step-level key rejection (D-08 / INV-5): a DSL/control-flow
@@ -770,8 +768,7 @@ class WorkflowCompiler:
             # if the capability package is not yet loaded).
             _DEFAULT_AUDIT_HOOKS = ["audit_logger", "secret_scan"]
             hooks = [
-                h for h in _DEFAULT_AUDIT_HOOKS
-                if registry.is_registered("hook", h)
+                h for h in _DEFAULT_AUDIT_HOOKS if registry.is_registered("hook", h)
             ]
         else:
             hooks = list(_raw_hooks or [])
@@ -787,7 +784,9 @@ class WorkflowCompiler:
             self._check_trust(registry, "validator", v, trusted, where)
 
         compaction = raw.get("compaction")
-        if compaction is not None and not registry.is_registered("compaction", compaction):
+        if compaction is not None and not registry.is_registered(
+            "compaction", compaction
+        ):
             raise CompilerError(f"unknown compaction '{compaction}' in {where}")
         if compaction is not None:
             self._check_trust(registry, "compaction", compaction, trusted, where)
@@ -894,9 +893,9 @@ class WorkflowCompiler:
         # a key keeps the dataclass default (None / []), so every existing manifest
         # is byte-identical (parity) — the 5 characterization goldens declare none
         # of these per-step keys, so the merge/resolve consumers see the same input.
-        model = self._compile_model_policy(raw.get("model"), where)        # WIRE-01
-        retry = self._compile_retry_policy(raw.get("retry"), where)        # WIRE-02
-        injects = list(raw.get("injects") or [])                          # WIRE-03
+        model = self._compile_model_policy(raw.get("model"), where)  # WIRE-01
+        retry = self._compile_retry_policy(raw.get("retry"), where)  # WIRE-02
+        injects = list(raw.get("injects") or [])  # WIRE-03
         fix = self._compile_fix_policy(raw.get("fix"), where)
         depends_on = list(raw.get("depends_on") or [])
         # Per-step render fail-closed knob (quick-260701-bob / REQUIRE-RENDER-KNOB).
@@ -1288,9 +1287,7 @@ class WorkflowCompiler:
         upstream: set[str] = set()
         for step in steps:
             task_source = step.task_source
-            source_step = (
-                task_source.source_step if task_source is not None else None
-            )
+            source_step = task_source.source_step if task_source is not None else None
             if step.strategy == "fanout_batch" and source_step:
                 if source_step not in upstream:
                     where = f"step '{step.agent_id}'"
@@ -1321,9 +1318,7 @@ class WorkflowCompiler:
         seen: set[str] = set()
         for agent_id in ids:
             if agent_id in seen:
-                raise CompilerError(
-                    f"duplicate step agent id '{agent_id}' in workflow"
-                )
+                raise CompilerError(f"duplicate step agent id '{agent_id}' in workflow")
             seen.add(agent_id)
 
         # Build the dependency graph from any declared depends_on among steps in

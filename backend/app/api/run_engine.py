@@ -62,9 +62,7 @@ _CANCEL_EVENTS: dict[str, asyncio.Event] = {}
 # `_validate_images` is the chokepoint (T-frv-01 DoS / T-frv-02 tampering):
 # a decompression-flood / count / aggregate-size vector is rejected here BEFORE
 # the multimodal HumanMessage is checkpointed + re-sent on model-fallback retry.
-_IMAGE_ALLOWED_MIMES = frozenset(
-    {"image/png", "image/jpeg", "image/webp", "image/gif"}
-)
+_IMAGE_ALLOWED_MIMES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
 _IMAGE_MAX_BYTES_PER_IMAGE = int(3.75 * 1024 * 1024)  # ~3.75 MB raw per image
 _IMAGE_MAX_COUNT = 20  # max images per run
 _IMAGE_MAX_AGGREGATE_BYTES = 8 * 1024 * 1024  # ~8 MB raw across all images
@@ -134,11 +132,13 @@ def _cleanup_pipeline(pipeline_run_id: str) -> None:
     # load). Both forget_run() methods are idempotent.
     try:
         from agents.artifact_store.store import get_artifact_store
+
         get_artifact_store().forget_run(pipeline_run_id)
     except Exception:  # noqa: BLE001 — best-effort, never block cleanup
         pass
     try:
         from agents.execution_engine.state_machine import get_state_machine
+
         get_state_machine().forget_run(pipeline_run_id)
     except Exception:  # noqa: BLE001 — best-effort, never block cleanup
         pass
@@ -343,9 +343,7 @@ async def _dispatch_event_to_subscribers(
             fed by a pump that does not own its generation.
     """
     async with _SUBSCRIBERS_LOCK:
-        queues = [
-            q for (q, gen) in _SUBSCRIBERS.get(run_id, ()) if gen == generation
-        ]
+        queues = [q for (q, gen) in _SUBSCRIBERS.get(run_id, ()) if gen == generation]
     for q in queues:
         try:
             q.put_nowait(event)
@@ -367,9 +365,7 @@ async def _dispatch_sentinel_to_subscribers(
     never close a subscriber that attached to the NEW generation's queue.
     """
     async with _SUBSCRIBERS_LOCK:
-        queues = [
-            q for (q, gen) in _SUBSCRIBERS.get(run_id, ()) if gen == generation
-        ]
+        queues = [q for (q, gen) in _SUBSCRIBERS.get(run_id, ()) if gen == generation]
     for q in queues:
         try:
             q.put_nowait(None)
@@ -429,7 +425,8 @@ async def _pump_run_events(run_id: str, queue: asyncio.Queue, generation: int) -
             except Exception:  # noqa: BLE001 - one bad event must not kill the pump
                 logger.exception(
                     "SSE pump: failed to dispatch event for run=%s gen=%s",
-                    run_id, generation,
+                    run_id,
+                    generation,
                 )
     except asyncio.CancelledError:
         raise
@@ -656,9 +653,7 @@ def _validate_images(
         mime_type = image.get("mime_type")
         data = image.get("data")
         if not isinstance(mime_type, str) or not isinstance(data, str):
-            return (
-                f"images[{index}] must carry a string mime_type + string data"
-            )
+            return f"images[{index}] must carry a string mime_type + string data"
         if mime_type not in _IMAGE_ALLOWED_MIMES:
             return (
                 f"images[{index}] has unsupported mime_type {mime_type!r}; "
@@ -789,11 +784,7 @@ def _review_gate_run_is_terminal(gate_key: str) -> bool:
         return False
     db = _get_db()
     try:
-        row = (
-            db.query(WorkflowRun.status)
-            .filter(WorkflowRun.id == run_id)
-            .first()
-        )
+        row = db.query(WorkflowRun.status).filter(WorkflowRun.id == run_id).first()
     finally:
         db.close()
     if row is None:

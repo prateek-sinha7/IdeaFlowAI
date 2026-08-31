@@ -162,7 +162,6 @@ When analyzing a domain:
 Use structured markdown with clear sections.
 Always include a "Constraints" section even if minimal.
 """,
-
     "persona-researcher": """# Skill: Persona Research Expert
 
 ## Instructions
@@ -184,7 +183,6 @@ When creating personas:
 | Tech Level | Low/Medium/High |
 | Quote | A sentence that captures their mindset |
 """,
-
     "story-writer": """# Skill: INVEST Story Writing
 
 ## Instructions
@@ -202,7 +200,6 @@ Every story MUST pass the INVEST criteria:
 - Stories that are too large (> 13 points)
 - Stories with vague acceptance criteria
 """,
-
     "acceptance-criteria-gen": """# Skill: Given/When/Then Expert
 
 ## Instructions
@@ -223,7 +220,6 @@ Write acceptance criteria using Gherkin-style syntax:
 - **When** I submit an incorrect password
 - **Then** I see "Invalid credentials" error and the attempt counter increases by 1
 """,
-
     "react-code-generator": """# Skill: React + Tailwind Code Generation
 
 ## Instructions
@@ -246,7 +242,6 @@ Generate production-quality React components:
 - Inputs: rounded-lg border border-gray-700/30 bg-black/50 px-4 py-2
 - Headers: flex items-center justify-between border-b border-gray-700/30 px-6 py-4
 """,
-
     "export-formatter": """# Skill: PptxGenJS Code Generation
 
 ## Instructions
@@ -275,6 +270,7 @@ Generate correct PptxGenJS JavaScript code following these rules:
 # Path helpers
 # ============================================================
 
+
 def _user_skill_path(user_id: str, agent_id: str) -> Path:
     """Resolve the on-disk path for a user's custom skill file."""
     return USER_SKILLS_DIR / user_id / agent_id / "SKILL.md"
@@ -288,6 +284,7 @@ def _global_skill_path(agent_id: str) -> Path:
 # ============================================================
 # Resolution
 # ============================================================
+
 
 def read_user_skill(agent_id: str, user_id: str) -> Optional[str]:
     """Read the user's own custom skill file, with no fallback.
@@ -361,9 +358,13 @@ def get_skill_content(agent_id: str, user_id: Optional[str] = None) -> Optional[
         skill_path = PPTX_SKILLS_DIR / "skill.md"
         parts = []
         if skill_path.exists():
-            parts.append(f"=== PPTX DESIGN SKILL (skill.md) ===\n{skill_path.read_text(encoding='utf-8')}")
+            parts.append(
+                f"=== PPTX DESIGN SKILL (skill.md) ===\n{skill_path.read_text(encoding='utf-8')}"
+            )
         if pptxgenjs_path.exists():
-            parts.append(f"=== PPTXGENJS API REFERENCE (pptxgenjs.md) ===\n{pptxgenjs_path.read_text(encoding='utf-8')}")
+            parts.append(
+                f"=== PPTXGENJS API REFERENCE (pptxgenjs.md) ===\n{pptxgenjs_path.read_text(encoding='utf-8')}"
+            )
         if parts:
             return "\n\n".join(parts)
 
@@ -399,6 +400,7 @@ Include at least 2 data/chart slides with specific numbers."""
 # ============================================================
 # User-scoped CRUD
 # ============================================================
+
 
 def save_custom_skill(agent_id: str, content: str, user_id: str) -> str:
     """Persist a user's custom skill file at the per-user namespaced path.

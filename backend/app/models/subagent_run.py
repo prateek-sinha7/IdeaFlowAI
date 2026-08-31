@@ -32,21 +32,27 @@ class SubagentRun(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     parent_run_id = Column(String, ForeignKey("workflow_runs.id"), nullable=False)
-    owner_id = Column(String, nullable=False)        # AUTHZ-01
-    workspace_id = Column(String, nullable=False)    # AUTHZ-01
-    parent_step = Column(String, nullable=False)     # the fan-out step id that spawned it
-    worker_agent = Column(String, nullable=False)    # resolved worker agent id
-    depth = Column(Integer, nullable=False)          # sub-run nesting depth
-    isolation = Column(String, nullable=False)       # shared_read|sub_sandbox|worktree (free String)
-    status = Column(String, nullable=False)          # running|complete|failed|cancelled (free String)
-    tokens = Column(Integer, nullable=True)          # accumulated child tokens
-    cost = Column(JSON, nullable=True)               # cost_class-weighted (€ dormant)
-    task_id = Column(String, nullable=True)          # RESUME-06: plan-global task id (skip-cursor key)
-    worker_index = Column(Integer, nullable=True)    # RESUME-06: wave-local worker position (audit)
+    owner_id = Column(String, nullable=False)  # AUTHZ-01
+    workspace_id = Column(String, nullable=False)  # AUTHZ-01
+    parent_step = Column(String, nullable=False)  # the fan-out step id that spawned it
+    worker_agent = Column(String, nullable=False)  # resolved worker agent id
+    depth = Column(Integer, nullable=False)  # sub-run nesting depth
+    isolation = Column(
+        String, nullable=False
+    )  # shared_read|sub_sandbox|worktree (free String)
+    status = Column(
+        String, nullable=False
+    )  # running|complete|failed|cancelled (free String)
+    tokens = Column(Integer, nullable=True)  # accumulated child tokens
+    cost = Column(JSON, nullable=True)  # cost_class-weighted (€ dormant)
+    task_id = Column(
+        String, nullable=True
+    )  # RESUME-06: plan-global task id (skip-cursor key)
+    worker_index = Column(
+        Integer, nullable=True
+    )  # RESUME-06: wave-local worker position (audit)
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
-    __table_args__ = (
-        Index("ix_subagent_runs_parent", "parent_run_id"),
-    )
+    __table_args__ = (Index("ix_subagent_runs_parent", "parent_run_id"),)

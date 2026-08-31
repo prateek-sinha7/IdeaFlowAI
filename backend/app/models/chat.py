@@ -37,9 +37,7 @@ class Message(Base):
     __tablename__ = "messages"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    chat_session_id = Column(
-        String, ForeignKey("chat_sessions.id"), nullable=False
-    )
+    chat_session_id = Column(String, ForeignKey("chat_sessions.id"), nullable=False)
     role = Column(String, nullable=False)  # "user" | "assistant" | "system"
     content = Column(Text, nullable=False)
     created_at = Column(

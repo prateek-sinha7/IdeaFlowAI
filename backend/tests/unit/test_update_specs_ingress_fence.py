@@ -72,6 +72,7 @@ def env(monkeypatch):
     monkeypatch.setattr(db_module, "SessionLocal", TestingSession)
 
     import agents.artifact_store.store as store_mod
+
     store_mod._STORE = None
     store = store_mod.get_artifact_store()
 
@@ -101,9 +102,11 @@ def _seed_user(env, tag: str) -> _FakeUser:
 
     db = env["Session"]()
     try:
-        u = User(id=str(uuid.uuid4()),
-                 email=f"iss053-{tag}-{uuid.uuid4().hex[:8]}@example.com",
-                 password_hash="x")
+        u = User(
+            id=str(uuid.uuid4()),
+            email=f"iss053-{tag}-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash="x",
+        )
         db.add(u)
         db.commit()
         db.refresh(u)
@@ -118,11 +121,21 @@ def _seed_run(env, user_id: str, *, status: str = "waiting_for_user") -> str:
     run_id = str(uuid.uuid4())
     db = env["Session"]()
     try:
-        db.add(WorkflowRun(
-            id=run_id, user_id=user_id, owner_id=user_id, workspace_id="ws-1",
-            title="t", type="prototype", status=status, input="i",
-            agent_count=1, session_id=user_id, created_at=datetime.now(timezone.utc),
-        ))
+        db.add(
+            WorkflowRun(
+                id=run_id,
+                user_id=user_id,
+                owner_id=user_id,
+                workspace_id="ws-1",
+                title="t",
+                type="prototype",
+                status=status,
+                input="i",
+                agent_count=1,
+                session_id=user_id,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
         db.commit()
         return run_id
     finally:
@@ -135,11 +148,18 @@ def _publish_gate_ready(env, run_id, owner_id, payload, *, seq=1):
 
     db = env["Session"]()
     try:
-        db.add(RunEvent(
-            id=str(uuid.uuid4()), run_id=run_id, owner_id=owner_id,
-            workspace_id="ws-1", seq=seq, event_id=str(uuid.uuid4()),
-            type="review_gate_ready", payload_json=payload,
-        ))
+        db.add(
+            RunEvent(
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=owner_id,
+                workspace_id="ws-1",
+                seq=seq,
+                event_id=str(uuid.uuid4()),
+                type="review_gate_ready",
+                payload_json=payload,
+            )
+        )
         db.commit()
     finally:
         db.close()
@@ -190,9 +210,9 @@ def test_gate_endpoint_rejects_update_specs_at_an_ineligible_gate(env):
 
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["code"] == _CODE
-    assert _recorded(env, gate_key) is None, (
-        "the gate seam was written despite the gate advertising update_specs_eligible=False"
-    )
+    assert (
+        _recorded(env, gate_key) is None
+    ), "the gate seam was written despite the gate advertising update_specs_eligible=False"
 
 
 def test_gate_endpoint_allows_update_specs_at_an_eligible_gate(env):
@@ -216,7 +236,8 @@ def test_gate_endpoint_leaves_the_other_actions_untouched(env, action):
     _owner, run_id, gate_key = _setup(env, eligible=False, tag=f"g-{action}")
 
     resp = env["client"].post(
-        f"/api/runs/{run_id}/gate", json={"gate_key": gate_key, "action": action},
+        f"/api/runs/{run_id}/gate",
+        json={"gate_key": gate_key, "action": action},
     )
 
     assert resp.status_code == 200, resp.text
@@ -235,8 +256,12 @@ def test_messages_route_rejects_update_specs_at_an_ineligible_gate(env):
 
     resp = env["client"].post(
         f"/api/runs/{run_id}/messages",
-        json={"message_id": uuid.uuid4().hex, "text": "",
-              "action": "update_specs", "analysis_report": "x"},
+        json={
+            "message_id": uuid.uuid4().hex,
+            "text": "",
+            "action": "update_specs",
+            "analysis_report": "x",
+        },
     )
 
     assert resp.status_code == 409, resp.text
@@ -249,8 +274,12 @@ def test_messages_route_allows_update_specs_at_an_eligible_gate(env):
 
     resp = env["client"].post(
         f"/api/runs/{run_id}/messages",
-        json={"message_id": uuid.uuid4().hex, "text": "",
-              "action": "update_specs", "analysis_report": "RPT"},
+        json={
+            "message_id": uuid.uuid4().hex,
+            "text": "",
+            "action": "update_specs",
+            "analysis_report": "RPT",
+        },
     )
 
     assert resp.status_code == 200, resp.text
@@ -284,7 +313,9 @@ class _SpyStore:
         self.appended: list[dict] = []
 
     async def append_event_next_seq(self, run_id, *, event_id, type, payload_json):
-        self.appended.append({"event_id": event_id, "type": type, "payload": payload_json})
+        self.appended.append(
+            {"event_id": event_id, "type": type, "payload": payload_json}
+        )
         return True, 1
 
 
@@ -369,11 +400,17 @@ def test_predicate_abstains_when_the_latest_ready_is_a_different_gate(env):
     run_id = _seed_run(env, owner.id)
     other_key = f"{run_id}:prototype-specify"
     _publish_gate_ready(
-        env, run_id, owner.id,
-        {"gate_key": other_key, "update_specs_eligible": False}, seq=1,
+        env,
+        run_id,
+        owner.id,
+        {"gate_key": other_key, "update_specs_eligible": False},
+        seq=1,
     )
 
-    assert env["ws"]._review_gate_advertises_update_specs(f"{run_id}:prototype-analyze") is True
+    assert (
+        env["ws"]._review_gate_advertises_update_specs(f"{run_id}:prototype-analyze")
+        is True
+    )
 
 
 def test_predicate_reads_the_LATEST_verdict_not_the_first(env):
@@ -384,12 +421,18 @@ def test_predicate_reads_the_LATEST_verdict_not_the_first(env):
     run_id = _seed_run(env, owner.id)
     gate_key = f"{run_id}:prototype-analyze"
     _publish_gate_ready(
-        env, run_id, owner.id,
-        {"gate_key": gate_key, "update_specs_eligible": True}, seq=1,
+        env,
+        run_id,
+        owner.id,
+        {"gate_key": gate_key, "update_specs_eligible": True},
+        seq=1,
     )
     _publish_gate_ready(
-        env, run_id, owner.id,
-        {"gate_key": gate_key, "update_specs_eligible": False}, seq=2,
+        env,
+        run_id,
+        owner.id,
+        {"gate_key": gate_key, "update_specs_eligible": False},
+        seq=2,
     )
 
     assert env["ws"]._review_gate_advertises_update_specs(gate_key) is False
