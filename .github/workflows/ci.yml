@@ -263,7 +263,7 @@ jobs:
 
       # Phase 8: Cache Playwright browser (~400 MB, 90s install time)
       - name: Cache Playwright browser
-        uses: actions/cache@13aacd865c20de90d75de3b17ebe84f7a17d57d2 # v4.0.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ hashFiles('frontend/package-lock.json') }}
