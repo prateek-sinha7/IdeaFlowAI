@@ -106,17 +106,20 @@ class TestPrototypePipelineEndpointReturnsRealRegistry:
             f"retired prototype_v1 ids leaked into the endpoint: {set(ids) & legacy_v1}"
         )
 
+    @pytest.mark.issue("ISS-636")
     def test_prototype_endpoint_gate_values(self, api_client):
-        """``gate`` is the new additive field. specify + plan are default-gated
-        (``Human_Gate`` frontmatter); build + validate are ungated (``None``).
+        """``gate`` is the new additive field, and EVERY prototype agent is
+        ungated (``None``). FIX-323 removed the static ``gate: Human_Gate``
+        frontmatter deliberately — a review gate is now an explicit per-run
+        ``gate_agent_ids`` opt-in — so this pins the ABSENCE of a static
+        default: one silently coming back fails here.
         """
         resp = api_client.get("/api/agents/pipelines/prototype")
         assert resp.status_code == 200, resp.text
         gate_by_id = {a["id"]: a["gate"] for a in resp.json()["agents"]}
-        assert gate_by_id["prototype-specify"] == "Human_Gate"
-        assert gate_by_id["prototype-plan"] == "Human_Gate"
-        assert gate_by_id["prototype-build"] is None
-        assert gate_by_id["prototype-validate"] is None
+        assert all(g is None for g in gate_by_id.values()), (
+            f"a static prototype gate came back: {gate_by_id}"
+        )
 
     def test_prototype_endpoint_descriptions_non_empty(self, api_client):
         """T1's loader fallback guarantees a non-empty ``description`` (falls
@@ -168,6 +171,7 @@ class TestAgentLibraryEndpoint:
     expose the additive ``gate`` field, and include the real prototype ids.
     """
 
+    @pytest.mark.issue("ISS-636")
     def test_library_returns_200_with_gate_and_real_prototype_ids(self, api_client):
         resp = api_client.get("/api/agents/library")
         assert resp.status_code == 200, resp.text
@@ -181,9 +185,10 @@ class TestAgentLibraryEndpoint:
         # gate is exposed on every entry (value may be None).
         for a in body["agents"]:
             assert "gate" in a
-        # The default-gated prototype agents carry their Human_Gate marker.
+        # No prototype agent carries a static gate — FIX-323 removed those
+        # defaults; gating is an explicit per-run gate_agent_ids opt-in.
         gate_by_id = {a["id"]: a["gate"] for a in body["agents"]}
-        assert gate_by_id["prototype-specify"] == "Human_Gate"
+        assert gate_by_id["prototype-specify"] is None
 
 
 # ---------------------------------------------------------------------------

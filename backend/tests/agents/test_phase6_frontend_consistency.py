@@ -209,7 +209,8 @@ class TestFrontendMatchesRealRegistry:
             f"frontend-only={fe_ids - be_ids}, backend-only={be_ids - fe_ids}"
         )
 
-    def test_gate_values_match_real_registry(self, frontend_agents, category):
+    @pytest.mark.issue("ISS-636")
+    def test_gate_values_match_real_registry(self, frontend_agents, category, request):
         fe_gate = {
             a["id"]: a["gate"]
             for a in frontend_agents
@@ -226,7 +227,7 @@ class TestPrototypeAndPptSpecifics:
     """Explicit pins for the two reconciled pipelines (belt-and-braces on top of
     the parametrized set/gate equality above)."""
 
-    def test_prototype_real_ids_and_human_gate(self, frontend_agents):
+    def test_prototype_real_ids_and_no_static_gate(self, frontend_agents):
         fe = {
             a["id"]: a["gate"]
             for a in frontend_agents
@@ -239,12 +240,12 @@ class TestPrototypeAndPptSpecifics:
             "prototype-build",
             "prototype-validate",
         }
-        # specify + plan + analyze are Human_Gate agents; build + validate are None.
-        assert fe["prototype-specify"] == "Human_Gate"
-        assert fe["prototype-plan"] == "Human_Gate"
-        assert fe["prototype-analyze"] == "Human_Gate"
-        assert fe["prototype-build"] is None
-        assert fe["prototype-validate"] is None
+        # FIX-323 removed every static prototype gate ("user opts in
+        # explicitly"), so the regenerated data must carry `gate: null` on all
+        # five — a re-added Human_Gate default fails here.
+        assert all(g is None for g in fe.values()), (
+            f"a static prototype gate came back into the frontend data: {fe}"
+        )
 
     def test_ppt_real_od_ids(self, frontend_agents):
         fe_ids = {a["id"] for a in frontend_agents if a["pipeline_type"] == "ppt"}
@@ -361,7 +362,7 @@ class TestPipelineCategoryCounts:
         cats = self._categories()
         assert cats["ppt"] == 3, "ppt category count must be 3 (od_ppt agents)"
         # prototype grew 4 -> 5: the prototype-analyze agent (a Spec Kit-style
-        # cross-artifact analysis step, Human_Gate) was added to the pipeline.
+        # cross-artifact analysis step) was added to the pipeline.
         assert cats["prototype"] == 5, "prototype category count must be 5 (+ prototype-analyze)"
 
     def test_category_counts_match_real_registry(self):

@@ -167,8 +167,10 @@ class TestPipelineAgentsParity:
             "ppt_revision": 1,
             "prototype": 5,
             # KAN-108 (416341b0) added the Revision Validation Agent, taking
-            # this pipeline from 1 agent to 2.
-            "prototype_revision": 2,
+            # this pipeline from 1 agent to 2. revision-pipeline-refactor
+            # (e0f6beeed) promoted prototype-revision-analyzer to step 0 of the
+            # manifest; ISS-631 made it a roster member too, taking it to 3.
+            "prototype_revision": 3,
             "app_builder": 15,
             "app_builder_revision": 1,
             "mulesoft_to_springboot": 13,

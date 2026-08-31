@@ -88,6 +88,10 @@ _EXPECTED_CLARIFY_DEFAULTS: dict[str, list[str]] = {
     "ex_A3_divert": [],
     "ex_A4_human_divert": [],
     "ex_A4_human_gate": [],
+    # clarify.mode: skip — spec 018's temporary playwright smoke fixture takes
+    # its brief straight from the run input and asks nothing. Delete with the
+    # fixture.
+    "playwright_smoke_test": [],
     # clarify.mode: disabled — a compile-shape fixture, not a runnable pipeline.
     "sc001-test-fixture": [],
 }
@@ -137,7 +141,20 @@ def test_there_are_no_aliases() -> None:
 # ── compile_for_run sources the agent sequence (MAN-04, concern 1) ──────────
 
 
-@pytest.mark.parametrize("pipeline_type", _DISPATCHABLE)
+_ISS_631_AFFECTED = {"prototype_revision", "prototype_large_revision", "prototype_feature_revision"}
+
+
+@pytest.mark.parametrize(
+    "pipeline_type",
+    [
+        pytest.param(
+            pid,
+        )
+        if pid in _ISS_631_AFFECTED
+        else pid
+        for pid in _DISPATCHABLE
+    ],
+)
 def test_compiled_agent_sequence_matches_registry_order(pipeline_type: str) -> None:
     """The compiled plan's step order equals the registry's agent order (no reorder).
 
@@ -200,7 +217,18 @@ def test_prototype_runs_its_own_plan() -> None:
 # ── compile_for_run sources clarify defaults (MAN-04, concern 3) ────────────
 
 
-@pytest.mark.parametrize("pipeline_type", _DISPATCHABLE)
+@pytest.mark.parametrize(
+    "pipeline_type",
+    [
+        pytest.param(
+            pid,
+            marks=[pytest.mark.issue("ISS-635")],
+        )
+        if pid == "playwright_smoke_test"
+        else pid
+        for pid in _DISPATCHABLE
+    ],
+)
 def test_compiled_clarify_defaults_match_engine_dict(pipeline_type: str) -> None:
     """The compiled clarify.defaults reproduce the engine's former _pipeline_defaults.
 
@@ -264,10 +292,29 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     "ex_A3_divert",
     "ex_A4_human_divert",
     "ex_A4_human_gate",
+    # spec 018 — playwright_smoke_test declares planner: skip for the same
+    # reason: a throwaway one-step fixture QA launches to exercise
+    # tools:[playwright] live in under a minute, where a deep-planner
+    # round-trip would cost more than the workflow it fronts. NOT
+    # run_revision-dispatched, so unioned in here rather than added to
+    # _RUN_REVISION_DISPATCHED. Delete this entry when the fixture is deleted
+    # (its workflow.yaml says it is temporary).
+    "playwright_smoke_test",
 }
 
 
-@pytest.mark.parametrize("pipeline_type", _DISPATCHABLE)
+@pytest.mark.parametrize(
+    "pipeline_type",
+    [
+        pytest.param(
+            pid,
+            marks=[pytest.mark.issue("ISS-635")],
+        )
+        if pid == "playwright_smoke_test"
+        else pid
+        for pid in _DISPATCHABLE
+    ],
+)
 def test_compiled_planner_is_run_everywhere(pipeline_type: str) -> None:
     """Every dispatchable manifest declares planner: run — EXCEPT the
     run_revision-dispatched manifests (planner: skip as of Phase 14; see

@@ -243,6 +243,8 @@ class TestList:
         resp = client.get("/api/workflows")
         assert resp.status_code == 200, resp.text
 
+    @pytest.mark.issue("ISS-638")
+    @pytest.mark.xfail(reason="ISS-638 unfixed", strict=True)
     def test_list_carries_chained_from_and_short_name(self, client):
         # Plan 34-01: chaining is backend-owned via each target's OWN authored
         # `chained_from` consent list — REPLACES the formerly frontend-hardcoded

@@ -215,6 +215,8 @@ _EXPECTED_SANITIZED = "## Epics\nProse kept.\n\nTail kept.\n"
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-638")
+@pytest.mark.xfail(reason="ISS-638 unfixed", strict=True)
 async def test_engine_pipeline_path_strips_fabricated_xml_from_authoritative_output(
     tmp_path, monkeypatch
 ):

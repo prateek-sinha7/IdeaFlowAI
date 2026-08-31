@@ -3,13 +3,13 @@
 `POST /api/auth/register` validates its body against `RegisterRequest` (which
 still enforces `password: str = Field(..., min_length=8)`) before the handler
 itself unconditionally 403s ("self-registration is disabled") — see
-`app/api/auth.py:73-88`. Because `app/main.py` registers no
-`RequestValidationError` handler anywhere in the app (grep confirms zero
-`exception_handler`/`RequestValidationError` hits under `backend/app/`),
-FastAPI/Pydantic's default 422 handler serializes its standard error shape,
-which embeds the *entire rejected value* in `detail[].input` — so a too-short
-password submitted to this endpoint round-trips back to the client in
-plaintext inside the 422 body.
+`app/api/auth.py:73-88`. Without a `RequestValidationError` handler on the
+application, FastAPI/Pydantic's default 422 handler serializes its standard
+error shape, which embeds the *entire rejected value* in `detail[].input` — so
+a too-short password submitted to this endpoint would round-trip back to the
+client in plaintext inside the 422 body. `app/main.py:331` registers that
+handler (FIX-332); this test mounts the real `app.main.app` so it can observe
+it (ISS-357 — a bare `FastAPI()` never could).
 
 Same in-memory-SQLite + real `TestClient` harness as `test_login_timing_and_pii.py`.
 """
@@ -17,13 +17,11 @@ Same in-memory-SQLite + real `TestClient` harness as `test_login_timing_and_pii.
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.auth import router as auth_router
 from app.models.database import Base, get_db
 from app.models.revoked_token import RevokedToken  # noqa: F401
 from app.models.user import User  # noqa: F401
@@ -48,12 +46,18 @@ def client():
         finally:
             db.close()
 
-    app = FastAPI()
-    app.include_router(auth_router)
+    # ISS-357: the REAL application object — the RequestValidationError handler
+    # this test exists to prove lives on `app.main.app` (`app/main.py:331`), so a
+    # bare `FastAPI()` carrying only `auth_router` falls back to FastAPI's default
+    # 422 handler and can never see it. Imported late, and deliberately NOT entered
+    # as a context manager: `with TestClient(app)` runs the lifespan, and booting
+    # the real application runs restore_non_terminal_runs() against the real DB
+    # (see tests/unit/test_shutdown_reachability.py:65).
+    from app.main import app
+
     app.dependency_overrides[get_db] = override_get_db
 
-    with TestClient(app) as test_client:
-        yield test_client
+    yield TestClient(app)
 
     app.dependency_overrides.clear()
     Base.metadata.drop_all(bind=engine)

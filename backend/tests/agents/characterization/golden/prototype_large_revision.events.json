@@ -14,21 +14,21 @@
           "icon": "🗂️",
           "id": "prototype-revision-planner",
           "name": "Revision Planner Agent",
-          "order": 1,
+          "order": 2,
           "role": "Revision Task Decomposition"
         },
         {
           "icon": "🏗️",
           "id": "prototype-build",
           "name": "Build Agent",
-          "order": 4,
+          "order": 5,
           "role": "Incremental HTML Construction"
         },
         {
           "icon": "✅",
           "id": "prototype-validate",
           "name": "Validation Agent",
-          "order": 5,
+          "order": 6,
           "role": "Structural Validation & Delivery"
         }
       ],

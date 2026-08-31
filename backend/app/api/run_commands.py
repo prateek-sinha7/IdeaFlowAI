@@ -2527,6 +2527,7 @@ async def launch_run(
         allowed_custom_agent_ids,
         get_pipeline_agents,
     )
+    from agents.workflows.artifacts import CUSTOM_AGENT_PREFIX
     from app.api.user_workflows import _owned
 
     # ── Detect which of the 3 launch shapes this request is (see LaunchSource) ─
@@ -2704,9 +2705,27 @@ async def launch_run(
             allowed_ids = allowed_custom_agent_ids(base_pipeline_type)
             rejected = [aid for aid in agent_ids if aid not in allowed_ids]
             if rejected:
+                # ISS-182: a rejected `custom-agent:<instance_id>` was never typed
+                # by the caller — it is a blank custom-agent step that an override
+                # saved before FIX-306 stopped the composer offering the template.
+                # It has no AGENT.md, so it can never reach this allow-list, and
+                # FIX-306 repaired only NEW saves: existing rows still 400 on every
+                # launch. Name the step and where to fix it instead of a bare id
+                # dump, which reads as "you sent something malformed".
+                _stale = [
+                    aid for aid in rejected if aid.startswith(CUSTOM_AGENT_PREFIX)
+                ]
+                _error = f"Invalid agent_ids for {pipeline_type!r}: {rejected}"
+                if _stale:
+                    _error += (
+                        f". {_stale} came from a blank custom-agent step in your "
+                        f"saved override of {base_pipeline_type!r} — it has no agent "
+                        "file to run. Open the workflow in Advanced, remove or "
+                        "replace that step, and save."
+                    )
                 raise _reject(
                     "invalid_agent_ids",
-                    f"Invalid agent_ids for {pipeline_type!r}: {rejected}",
+                    _error,
                     rejected_agent_ids=rejected,
                 )
             agents = [load_agent_spec(aid) for aid in agent_ids]

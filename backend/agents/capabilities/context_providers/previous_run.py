@@ -309,6 +309,19 @@ class PreviousRunProvider:
         if runner is None:
             return
 
+        # ── Seed ONCE per run (ISS-638) ──────────────────────────────────────────
+        # ``load`` is re-invoked per agent by the generic context injector, not just
+        # at run entry, so this helper runs once per step. The first invocation
+        # SLIMS ``runner.user_message`` (the markers are replaced by a file pointer),
+        # so every later invocation reads "no markers" and falls into the Concierge
+        # parent-read below — overwriting the artifact the previous step just edited
+        # in place with the PARENT run's older copy, and clobbering the stashed
+        # ``revision_original_html`` with it. ``revision_original_html`` is set by
+        # both seed paths below, so its presence means "this run already has its
+        # editable artifact" — there is nothing left to seed.
+        if getattr(ctx, "revision_original_html", None):
+            return
+
         user_message = getattr(runner, "user_message", None) or ""
         existing = _extract_existing_artifact(user_message)
 

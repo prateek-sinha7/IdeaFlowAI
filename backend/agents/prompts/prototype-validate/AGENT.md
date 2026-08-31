@@ -14,7 +14,7 @@ id: prototype-validate
 max_tokens: 32768
 model: us.anthropic.claude-sonnet-5
 name: Validation Agent
-order: 5
+order: 6
 pipeline_type:
 - prototype
 - prototype_revision

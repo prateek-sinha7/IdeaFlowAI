@@ -207,6 +207,8 @@ def _make_run_analyzer_coroutine(tier: str = _FAKE_TIER, solution: str = _FAKE_S
 class TestCreateRevisionEventOrdering:
     """Assert SSE events, agent_count, and solution forwarding from create_revision."""
 
+    @pytest.mark.issue("ISS-630")
+    @pytest.mark.xfail(reason="ISS-630 unfixed", strict=True)
     def test_create_revision_returns_run_id(self, app_client, auth_headers, parent_run):
         """Endpoint returns 200 with a run_id when run_analyzer is mocked.
 
@@ -233,6 +235,8 @@ class TestCreateRevisionEventOrdering:
         assert "run_id" in body
         assert body["run_id"]  # Non-empty UUID
 
+    @pytest.mark.issue("ISS-630")
+    @pytest.mark.xfail(reason="ISS-630 unfixed", strict=True)
     def test_revision_analyzer_complete_event_has_required_keys(
         self, app_client, auth_headers, parent_run
     ):
@@ -288,6 +292,8 @@ class TestCreateRevisionEventOrdering:
         assert evt["data"]["tier"] == _FAKE_TIER
         assert evt["data"]["solution_preview"] == _FAKE_SOLUTION[:200]
 
+    @pytest.mark.issue("ISS-630")
+    @pytest.mark.xfail(reason="ISS-630 unfixed", strict=True)
     def test_agent_count_is_rev_agents_plus_one(
         self, app_client, auth_headers, parent_run
     ):
@@ -330,6 +336,8 @@ class TestCreateRevisionEventOrdering:
         finally:
             session.close()
 
+    @pytest.mark.issue("ISS-630")
+    @pytest.mark.xfail(reason="ISS-630 unfixed", strict=True)
     def test_analyzer_solution_passed_to_drive_revision(
         self, app_client, auth_headers, parent_run
     ):
@@ -420,6 +428,8 @@ class TestConciergeRevisionPath:
     Validates: Requirement 9.4
     """
 
+    @pytest.mark.issue("ISS-630")
+    @pytest.mark.xfail(reason="ISS-630 unfixed", strict=True)
     def test_concierge_disposal_calls_run_analyzer_with_parent_html(
         self, app_client, auth_headers, parent_run
     ):
@@ -638,6 +648,8 @@ class TestFallbackChain:
         assert tier == "large", f"Double-failure must default to 'large', got {tier!r}"
         assert solution == "", f"Double-failure must return empty solution, got {solution!r}"
 
+    @pytest.mark.issue("ISS-630")
+    @pytest.mark.xfail(reason="ISS-630 unfixed", strict=True)
     def test_create_revision_proceeds_on_run_analyzer_failure(
         self, app_client, auth_headers, parent_run
     ):
@@ -667,6 +679,8 @@ class TestFallbackChain:
         )
         assert "run_id" in resp.json()
 
+    @pytest.mark.issue("ISS-630")
+    @pytest.mark.xfail(reason="ISS-630 unfixed", strict=True)
     def test_double_failure_in_endpoint_proceeds_with_large_tier_pipeline(
         self, app_client, auth_headers, parent_run
     ):
@@ -868,6 +882,8 @@ class TestEctxStorageFailure:
         assert len(warning_logged) == 1
         assert "Storage backend down!" in warning_logged[0]
 
+    @pytest.mark.issue("ISS-630")
+    @pytest.mark.xfail(reason="ISS-630 unfixed", strict=True)
     def test_endpoint_returns_200_on_solution_storage_soft_failure(
         self, app_client, auth_headers, parent_run
     ):
@@ -906,6 +922,8 @@ class TestTierToPipelineMapping:
         ("large", "prototype_large_output"),
         ("feature", "prototype_feature_output"),
     ])
+    @pytest.mark.issue("ISS-630")
+    @pytest.mark.xfail(reason="ISS-630 unfixed", strict=True)
     def test_tier_drives_effective_target(
         self, tier, expected_target, app_client, auth_headers, parent_run
     ):

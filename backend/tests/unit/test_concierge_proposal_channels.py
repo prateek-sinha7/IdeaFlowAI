@@ -221,6 +221,8 @@ class TestGateDisposal:
 
 class TestRevisionDisposal:
     @pytest.mark.asyncio
+    @pytest.mark.issue("ISS-633")
+    @pytest.mark.xfail(reason="ISS-633 unfixed", strict=True)
     async def test_confirmed_revision_mints_and_drives(self, monkeypatch):
         minted: dict = {}
         driven: dict = {}

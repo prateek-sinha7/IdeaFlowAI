@@ -219,16 +219,16 @@ class Settings(BaseSettings):
     #    3  Concierge cancel-and-wait    run_shutdown.py step 1 escalation
     #    3  pump drain                   run_shutdown.py step 2b
     #    3  pump cancel-and-wait         run_shutdown.py step 2b escalation
+    #    1  checkpointer pool close      run_shutdown.py step 4 (ISS-106)
     #   ──
-    #   24  with SHUTDOWN_STOP_RUNS off. Turning it on adds a driver drain plus its
-    #       escalation (+3 +3) for 30s — AT the SIGKILL line, which is the arithmetic
+    #   25  with SHUTDOWN_STOP_RUNS off. Turning it on adds a driver drain plus its
+    #       escalation (+3 +3) for 31s — PAST the SIGKILL line, which is the arithmetic
     #       reason production keeps it off. tests/unit/test_shutdown_reachability.py
     #       asserts this sum against the parsed stop_grace_period instead of trusting
     #       this comment: the previous version claimed "under 25s" while omitting both
     #       escalations and the pump drain entirely.
-    #       These are the BOUNDED waits only. Step 4's close_checkpointer() awaits
-    #       pool.close() with no timeout (checkpointer.py:142), so it sits on top of
-    #       the 24s and the true worst case is unbounded — ISS-106.
+    #       Every wait on the path is now bounded: ISS-106 put a timeout around step 4's
+    #       pool.close(), which used to sit unbounded on top of the drains.
     # A Concierge turn owns the ONLY durable write of its chat_reply row
     # (run_commands.py:1356) and is explicitly never cancelled on client
     # disconnect - so it is AWAITED, not cancelled, and only cut past this bound.
@@ -236,6 +236,11 @@ class Settings(BaseSettings):
     # How long to wait for run-transport teardown (pump tasks after A2, queue
     # sentinels) before escalating to task.cancel().
     SHUTDOWN_TASK_DRAIN_SECONDS: float = 3.0
+    # ISS-106: how long step 4's close_checkpointer() may spend inside pool.close()
+    # before abandoning it. A wedged Postgres close (in-flight statement, dead socket,
+    # unresponsive server) used to be unbounded and sat AFTER every drain above, i.e.
+    # directly against the SIGKILL deadline, with the shutdown summary never logged.
+    SHUTDOWN_CHECKPOINTER_CLOSE_SECONDS: float = 1.0
     # D8/D9 conflict switch - see the D8 investigation section I11. When False the
     # shutdown leaves in-flight runs non-terminal so the next boot's
     # restore_non_terminal_runs auto-resumes them (the shipped Phase 45-50 tier).

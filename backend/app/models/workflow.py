@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
 
@@ -20,6 +20,16 @@ class WorkflowRun(Base):
         # DESC (migration 0030). Declared here so `alembic check` / test_alembic.py
         # see the model and the migration agree.
         Index("ix_workflow_runs_user_created", "user_id", "created_at"),
+        # ISS-637: the sparse unique share-token index created by migration 0040.
+        # Declared here — with the same partial WHERE clause — so the model and
+        # the migration agree and `alembic check` / test_alembic.py see no drift.
+        Index(
+            "uq_workflow_runs_share_token",
+            "share_token",
+            unique=True,
+            sqlite_where=text("share_token IS NOT NULL"),
+            postgresql_where=text("share_token IS NOT NULL"),
+        ),
     )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))

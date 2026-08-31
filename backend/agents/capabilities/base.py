@@ -45,6 +45,16 @@ class ExecutionStrategy(Protocol):
 
     name: str
 
+    # ISS-131: does ``run`` dispatch the step's OWN agent inline (through
+    # ``ctx.runner.run_agent``)? The kernel's step-boundary declared-``human``
+    # gate dedupe reads this generically off the RESOLVED capability, so it never
+    # has to infer it from a strategy NAME (INV-1). A spawn-only strategy (it
+    # produces child invocations only, which opt out of the inline invocation gate
+    # — ISS-097) declares ``False``, so its step's DECLARED gate is not deduped
+    # against an inline review gate that never fires. OPTIONAL: absent ⇒ read as
+    # ``True``, so every existing strategy is unchanged.
+    runs_agent_inline: bool
+
     def run(self, step: Any, ctx: Any) -> AsyncIterator[dict]:
         """Drive one step, yielding the engine's event dicts."""
         ...

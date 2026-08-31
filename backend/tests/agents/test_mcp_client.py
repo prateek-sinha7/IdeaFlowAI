@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 
 import pytest
+from langchain_core.language_models import BaseChatModel
+from langchain_core.outputs import ChatResult
 
 _STUB = str(Path(__file__).resolve().parent / "fixtures" / "stub_mcp_server.py")
 
@@ -29,6 +31,24 @@ def _stub_config() -> dict:
             "transport": "stdio",
         }
     }
+
+
+class _NeverInvokedChatModel(BaseChatModel):
+    """A scripted ``BaseChatModel`` for ``create_deep_agent`` (ISS-118).
+
+    ``create_deep_agent`` accepts a model INSTANCE as well as a provider string; the
+    string form (``"anthropic:..."``) makes langchain's ``init_chat_model`` construct a
+    real ``ChatAnthropic`` inside the library, which is a live client built offline.
+    This test only inspects the constructed graph, so it hands over an instance that
+    fails loudly rather than bills if anything ever invokes it.
+    """
+
+    @property
+    def _llm_type(self) -> str:
+        return "never-invoked-chat-model"
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+        raise AssertionError("the graph is inspected, never run — this model must not be invoked")
 
 
 def _text_of(result) -> str:
@@ -85,7 +105,7 @@ async def test_bound_mcp_tool_augments_a_deepagents_agent() -> None:
     # We do NOT invoke the model (offline / no creds) — the acceptance is that the
     # MCP tool binds INTO the runtime (augment, never replace): the constructed
     # graph carries the tool by name. No network, no model call.
-    agent = create_deep_agent(tools=list(mcp_tools), model="anthropic:claude-3-5-haiku-latest")
+    agent = create_deep_agent(tools=list(mcp_tools), model=_NeverInvokedChatModel())
     assert agent is not None
 
     # The bound tool is a LangChain BaseTool (has name + ainvoke) — the exact shape

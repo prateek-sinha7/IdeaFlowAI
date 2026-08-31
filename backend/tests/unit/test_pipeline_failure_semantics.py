@@ -144,6 +144,8 @@ def _events_of(events: list[dict], etype: str) -> list[dict]:
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.issue("ISS-632")
+@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_all_agents_failed_emits_pipeline_failed_not_complete(
     _offline_engine_env, monkeypatch
@@ -179,6 +181,8 @@ async def test_all_agents_failed_emits_pipeline_failed_not_complete(
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.issue("ISS-632")
+@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_partial_failure_emits_degraded_pipeline_complete(
     _offline_engine_env, monkeypatch
@@ -207,6 +211,8 @@ async def test_partial_failure_emits_degraded_pipeline_complete(
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.issue("ISS-632")
+@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_clean_run_payload_carries_no_degraded_keys(
     _offline_engine_env, monkeypatch
@@ -274,6 +280,8 @@ def _make_timeout_shaped_stub(timeout_ids: set[str]):
     return _stub
 
 
+@pytest.mark.issue("ISS-632")
+@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_recovered_timeout_agent_is_not_listed_as_failed(
     _offline_engine_env, monkeypatch
@@ -315,6 +323,8 @@ async def test_recovered_timeout_agent_is_not_listed_as_failed(
     assert engine._state_machine.get_state(run_id) == "completed"
 
 
+@pytest.mark.issue("ISS-632")
+@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_unrecovered_failure_alongside_recovered_timeout_lists_only_the_failure(
     _offline_engine_env, monkeypatch

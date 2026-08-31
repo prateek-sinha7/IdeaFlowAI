@@ -15,28 +15,28 @@
           "icon": "🗂️",
           "id": "prototype-plan",
           "name": "Task Planner Agent",
-          "order": 2,
+          "order": 3,
           "role": "Build Planning & Task Decomposition"
         },
         {
           "icon": "🔍",
           "id": "prototype-analyze",
           "name": "Spec Kit Analyzer",
-          "order": 3,
+          "order": 4,
           "role": "Cross-Artifact Quality Analysis"
         },
         {
           "icon": "🏗️",
           "id": "prototype-build",
           "name": "Build Agent",
-          "order": 4,
+          "order": 5,
           "role": "Incremental HTML Construction"
         },
         {
           "icon": "✅",
           "id": "prototype-validate",
           "name": "Validation Agent",
-          "order": 5,
+          "order": 6,
           "role": "Structural Validation & Delivery"
         }
       ],

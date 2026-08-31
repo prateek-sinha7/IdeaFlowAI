@@ -8,7 +8,7 @@ icon: 🗂️
 id: prototype-revision-planner
 max_tokens: 32768
 name: Revision Planner Agent
-order: 1
+order: 2
 pipeline_type: prototype_large_revision
 produces:
 - prototype-revision-planner

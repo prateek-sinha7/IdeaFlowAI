@@ -1,7 +1,7 @@
 ---
-built_from_commit: 90ec542a036f56f4f261a4ffe2db25d5c01216d6
+built_from_commit: 923b0d4fd6638c383ff404ea5dc69f2ed7c7d644
 built_at: 2026-08-17
-cards_indexed: 1094
+cards_indexed: 1121
 modules_indexed: 36
 ---
 
@@ -64,9 +64,9 @@ FastAPI (backend/app/api) <-> SSE/WS <-> frontend (Next.js)
 | type | total | open/active |
 |---|---|---|
 | adr | 34 | 34 |
-| fix | 428 | 77 |
-| issue | 496 | 197 |
-| bug | 136 | 28 |
+| fix | 451 | 81 |
+| issue | 500 | 180 |
+| bug | 136 | 25 |
 
 **adr (34):**
 - [ADR-0001](cards/20260727-ADR-0001.md) — That terminal frames mark the connection non-reconnecting synchronously inside the frame dispatcher

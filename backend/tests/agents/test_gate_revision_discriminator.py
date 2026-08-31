@@ -73,35 +73,36 @@ async def _first_ready(engine, **gate_kwargs) -> dict:
 
 @pytest.mark.asyncio
 async def test_each_gate_firing_carries_a_distinct_revision_stamp() -> None:
-    """Over ONE cycle the three analyze-gate firings publish three DIFFERENT stamps.
+    """Over ONE cycle the two analyze-gate firings publish two DIFFERENT stamps.
 
-    ``[0]`` no revision has run (0, False); ``[1]`` cycle 1 is on the stack (1, True);
-    ``[2]`` cycle 1 has returned (1, False). Pairwise distinctness is the whole point —
-    it is what lets the UI (and the FE's one-action latch, whose reset effect keys on
-    ``output`` + ``gateKey``, NEITHER of which changes between ``[1]`` and ``[2]``) tell
-    the two identical-looking gates apart.
+    ``[0]`` no revision has run (0, False); ``[1]`` cycle 1 has returned (1, False).
+    Pairwise distinctness is the whole point — it is what lets the UI (and the FE's
+    one-action latch, whose reset effect keys on ``output`` + ``gateKey``) tell the
+    firings of one gate slot apart.
+
+    ISS-072 removed the third firing (the analyze re-run's in-pass gate), which is the one
+    that made ``revision_in_flight`` load-bearing HERE: it and the re-opened gate shared a
+    cycle index and were separated by that flag alone. With it suppressed, the two
+    surviving analyze firings differ in ``revision_cycle``. The flag stays published and
+    stays live — it is still True at the specify/plan re-dispatches' own gates, which a run
+    that opts them into ``gate_agent_ids`` still opens inside the pass.
     """
     from tests.agents.test_spec_revision_cycles import _drive_cycles
 
     records, _tids, _ectx, _ordered, _events = await _drive_cycles("iss052-stamp", {0})
 
-    assert len(records) == 3, (
-        f"expected 3 gate firings for one cycle; got {[r['firing'] for r in records]}"
+    assert len(records) == 2, (
+        f"expected 2 gate firings for one cycle; got {[r['firing'] for r in records]}"
     )
     stamps = _stamps(records)
 
-    assert stamps == [(0, False), (1, True), (1, False)], (
-        "the outer / in-pass / re-opened analyze gates must publish "
-        f"(0,False)/(1,True)/(1,False); got {stamps}"
+    assert stamps == [(0, False), (1, False)], (
+        "the outer / re-opened analyze gates must publish (0,False)/(1,False); "
+        f"got {stamps}"
     )
-    assert len(set(stamps)) == 3, (
+    assert len(set(stamps)) == 2, (
         "two gate firings published the SAME discriminator, so they are still "
         f"indistinguishable on the wire (ISS-052); got {stamps}"
-    )
-    # The load-bearing pair: same gate_key, same output, same cycle — only in-flight differs.
-    assert stamps[1][0] == stamps[2][0] and stamps[1][1] != stamps[2][1], (
-        "the in-pass and re-opened gates belong to the SAME cycle and must be separated by "
-        f"the in-flight flag alone; got {stamps[1]} vs {stamps[2]}"
     )
 
 
@@ -115,19 +116,19 @@ async def test_a_second_cycle_advances_the_published_cycle_index() -> None:
     """
     from tests.agents.test_spec_revision_cycles import _drive_cycles
 
-    records, _tids, _ectx, _ordered, _events = await _drive_cycles("iss052-second", {0, 2})
+    records, _tids, _ectx, _ordered, _events = await _drive_cycles("iss052-second", {0, 1})
 
-    assert len(records) == 5, (
-        f"expected 5 gate firings for two cycles; got {[r['firing'] for r in records]}"
+    assert len(records) == 3, (
+        f"expected 3 gate firings for two cycles; got {[r['firing'] for r in records]}"
     )
     cycles = [r[_CYCLE] for r in records]
 
-    assert cycles == [0, 1, 1, 2, 2], (
+    assert cycles == [0, 1, 2], (
         f"the cycle index must advance 0 -> 1 -> 2 across two sibling cycles; got {cycles}"
     )
-    assert [r[_IN_FLIGHT] for r in records] == [False, True, False, True, False], (
-        "the in-flight flag must be True at exactly the two in-pass gates; got "
-        f"{[r[_IN_FLIGHT] for r in records]}"
+    assert [r[_IN_FLIGHT] for r in records] == [False, False, False], (
+        "every SURVIVING analyze firing is outside the pass since ISS-072 suppressed the "
+        f"in-pass one; got {[r[_IN_FLIGHT] for r in records]}"
     )
 
 

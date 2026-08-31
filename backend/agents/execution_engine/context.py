@@ -352,6 +352,24 @@ class ExecutionContext:
     # non-revision run ⇒ INV-3 byte-parity holds. Transient per-run scratch (INV-2), no
     # storage: no migration, no table, no column.
     revision_high_water: int = 0
+    # suppress_review_gate: the generic "this dispatch does not pause for the inter-agent
+    # human review gate" marker, honoured by ``_should_gate`` (ISS-072). The fourth member
+    # of the publish-around-one-dispatch scratch family beside ``spec_revision_context`` /
+    # ``spec_revision_prior_artifact``, set and RESTORED by the same
+    # ``_run_spec_revision_sub_pipeline`` try/finally and by object identity against the
+    # spec being re-dispatched — never an agent id or workflow name (INV-1 / SC-001).
+    #
+    # Its one publisher suppresses the ANALYZE re-run's own gate inside a revision pass:
+    # that firing shows the user the content they are about to be shown again at the gate
+    # re-opened once the pass returns (same producer, same bytes), offers a strictly
+    # smaller action set, and approving it has no externally visible effect — so one
+    # "Update the Specs" click cost two approvals for one review. The specify/plan
+    # in-pass gates are WANTED and keep firing, which is why this is a per-dispatch marker
+    # and not a read of ``revision_attempt`` (that would suppress all three).
+    #
+    # Default False ⇒ DORMANT on every dispatch outside a revision pass ⇒ INV-3 byte-parity
+    # holds. Transient per-run scratch (INV-2 — never on the engine singleton).
+    suppress_review_gate: bool = False
     # steering_notes: the consume-once MID-RUN steering queue (D-06 / CHAT-03 /
     # ND-11 — the THIRD member of the consume-once injection-seam family beside
     # ``redo_directive`` and KAN-101's ``spec_revision_context``; COEXIST, not

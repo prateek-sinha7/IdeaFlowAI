@@ -199,23 +199,26 @@ class TestRevisionPipelineRosters:
     """
 
     def test_prototype_revision_roster(self):
-        """prototype_revision pipeline must contain exactly the two expected agents in order."""
+        """prototype_revision pipeline must contain exactly the three expected agents in order."""
         assert list_agent_ids("prototype_revision") == [
+            "prototype-revision-analyzer",
             "prototype-revision-agent",
             "prototype-validate",
         ]
 
     def test_prototype_large_revision_roster(self):
-        """prototype_large_revision pipeline must contain exactly the three expected agents in order."""
+        """prototype_large_revision pipeline must contain exactly the four expected agents in order."""
         assert list_agent_ids("prototype_large_revision") == [
+            "prototype-revision-analyzer",
             "prototype-revision-planner",
             "prototype-build",
             "prototype-validate",
         ]
 
     def test_prototype_feature_revision_roster(self):
-        """prototype_feature_revision pipeline must contain exactly the four expected agents in order."""
+        """prototype_feature_revision pipeline must contain exactly the five expected agents in order."""
         assert list_agent_ids("prototype_feature_revision") == [
+            "prototype-revision-analyzer",
             "prototype-revision-feature-specify",
             "prototype-plan",
             "prototype-build",
@@ -256,6 +259,7 @@ class TestRosterCompletenessProperty:
         "prototype_feature_revision",
     ]
 
+    @pytest.mark.issue("ISS-631")
     @pytest.mark.parametrize("pipeline_type", REVISION_PIPELINES)
     def test_roster_matches_workflow_yaml_steps_in_order(self, pipeline_type: str):
         """Registry roster for each revision pipeline equals the workflow.yaml step agents in manifest order."""
@@ -277,6 +281,7 @@ class TestRosterCompletenessProperty:
             f"Pipeline {pipeline_type!r}: registry returned extra agents not in workflow.yaml: {extra!r}"
         )
 
+    @pytest.mark.issue("ISS-631")
     @pytest.mark.parametrize("pipeline_type", REVISION_PIPELINES)
     def test_roster_missing_no_yaml_agents(self, pipeline_type: str):
         """Registry must include every agent declared in the workflow.yaml steps for that pipeline."""

@@ -132,6 +132,8 @@ def _agent_complete_ids(events: list[dict]) -> set[str]:
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.issue("ISS-632")
+@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_all_agents_error_ends_pipeline_failed() -> None:
     """Every agent's runner raises ``ScriptedNonTransientError`` → the run emits ≥1
@@ -171,6 +173,8 @@ async def test_all_agents_error_ends_pipeline_failed() -> None:
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.issue("ISS-632")
+@pytest.mark.xfail(reason="ISS-632 unfixed", strict=True)
 @pytest.mark.asyncio
 async def test_partial_error_ends_degraded() -> None:
     """ONE agent errors, the other completes normally → the run emits

@@ -670,6 +670,15 @@ def _compose_system_prompt(
     return composed
 
 
+# Defensive ceiling for the injected Constitution block (ISS-402). The saved value
+# is bounded only by WorkflowMemory's 1,048,576-char store cap, and this block is
+# prepended to EVERY governed agent's prompt on EVERY run — so an oversized paste
+# inflates every future run's prompt invisibly. 32,000 chars is 8x the Settings
+# editor's 4,000-char product ceiling (FIX-364), so nothing a user can save today —
+# nor the over-limit values saved before that ceiling was enforced — is trimmed.
+_CONSTITUTION_MAX_CHARS = 32_000
+
+
 def _inject_constitution(ctx: AgentContext) -> str:
     """Inject the per-user Constitution as a guardrail (FR-012 / T068).
 
@@ -685,10 +694,28 @@ def _inject_constitution(ctx: AgentContext) -> str:
     where the deleted ``_mem``-only running-loop branch silently dropped it. Returns the
     empty string when no Constitution is pre-warmed (graceful no-op; the characterization
     runs carry none → snapshots byte-identical).
+
+    Bounded at ``_CONSTITUTION_MAX_CHARS`` before injection (ISS-402): this is the one
+    place every governed agent's Constitution block is assembled, so the size guard
+    lives here once rather than in any AGENT.md or manifest.
     """
     constitution = getattr(ctx, "prewarmed_constitution", None)
     if not constitution:
         return ""
+
+    # The ONLY truncation point in the injection path (ISS-402) — one guard here
+    # covers every governed agent and every workflow, current and future.
+    if len(constitution) > _CONSTITUTION_MAX_CHARS:
+        omitted = len(constitution) - _CONSTITUTION_MAX_CHARS
+        logger.warning(
+            "_inject_constitution: Constitution exceeds the %d-char injection "
+            "ceiling — truncated, %d chars omitted",
+            _CONSTITUTION_MAX_CHARS, omitted,
+        )
+        constitution = (
+            constitution[:_CONSTITUTION_MAX_CHARS]
+            + f"\n\n[... Constitution truncated — {omitted} chars omitted ...]"
+        )
 
     return (
         "## Constitution (Governing Principles — Supreme Authority)\n\n"

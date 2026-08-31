@@ -140,6 +140,14 @@ _PLANNER_SKIP_IDS = _RUN_REVISION_DISPATCHED | {
     "ex_A3_divert",
     "ex_A4_human_divert",
     "ex_A4_human_gate",
+    # spec 018 — playwright_smoke_test declares planner: skip for the same
+    # reason: a throwaway one-step fixture QA launches to exercise
+    # tools:[playwright] live in under a minute, where a deep-planner
+    # round-trip would cost more than the workflow it fronts. NOT
+    # run_revision-dispatched, so unioned in here rather than added to
+    # _RUN_REVISION_DISPATCHED. Delete this entry when the fixture is deleted
+    # (its workflow.yaml says it is temporary).
+    "playwright_smoke_test",
 }
 
 # Hard-copied VERBATIM from each pipeline's `agents/workflows/<id>/workflow.yaml`
@@ -184,6 +192,10 @@ _ENGINE_PIPELINE_DEFAULTS: dict[str, list[str]] = {
     "ex_A3_divert": [],
     "ex_A4_human_divert": [],
     "ex_A4_human_gate": [],
+    # clarify.mode: skip — spec 018's temporary playwright smoke fixture takes
+    # its brief straight from the run input and asks nothing. Delete with the
+    # fixture.
+    "playwright_smoke_test": [],
     # clarify.mode: disabled — a compile-shape fixture, not a runnable pipeline.
     "sc001-test-fixture": [],
 }
@@ -220,7 +232,15 @@ def test_prototype_planner_runs() -> None:
 
 @pytest.mark.parametrize(
     "workflow_id",
-    sorted(set(_MANIFEST_BACKED_IDS) - set(_INTERNAL_PIPELINES)),
+    [
+        pytest.param(
+            wid,
+            marks=[pytest.mark.issue("ISS-635")],
+        )
+        if wid == "playwright_smoke_test"
+        else wid
+        for wid in sorted(set(_MANIFEST_BACKED_IDS) - set(_INTERNAL_PIPELINES))
+    ],
 )
 def test_planner_run_everywhere(workflow_id: str) -> None:
     plan = _compile(workflow_id)
@@ -294,7 +314,18 @@ def test_run_revision_revision_agents_declare_no_template_injects() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("workflow_id", _MANIFEST_BACKED_IDS)
+@pytest.mark.parametrize(
+    "workflow_id",
+    [
+        pytest.param(
+            wid,
+            marks=[pytest.mark.issue("ISS-635")],
+        )
+        if wid == "playwright_smoke_test"
+        else wid
+        for wid in _MANIFEST_BACKED_IDS
+    ],
+)
 def test_clarify_defaults_match_engine(workflow_id: str) -> None:
     plan = _compile(workflow_id)
     # od_prototype is an alias (no manifest); every real id resolves to itself.

@@ -2774,6 +2774,21 @@ class ExecutionEngine:
                     from agents.workflows.plan import Step as _Step
 
                     step = _Step(agent_id=spec.id, strategy=strategy_name)
+                # ── ISS-131: does this step run its OWN agent inline? ─────────────
+                # Both ``inline_gated`` dedupe reads below PREDICT that the inline
+                # ``_run_agent`` → ``_run_review_gate`` path covers this agent, and
+                # skip the step's DECLARED ``human`` gate on that prediction. For a
+                # spawn-only strategy the prediction is stale — the strategy replaces
+                # the step's own dispatch with child invocations, which opt out of the
+                # inline gate (ISS-097) — so the declared gate was skipped for a gate
+                # that never opens and the step got NO gate at all. The STRATEGY
+                # declares the fact (``runs_agent_inline`` on the ExecutionStrategy
+                # port) and the kernel reads it off the resolved capability; no
+                # strategy-name list here (INV-1/SC-001). Absent ⇒ True, so every
+                # inline-dispatching strategy is byte-identical (INV-3).
+                _runs_agent_inline = self._strategy_runs_agent_inline(
+                    strategy_name, _registry
+                )
                 # ── [D-03] Pre-step gates (security/approval/human) ──────────────
                 # A step's declared ``gates: [...]`` evaluate in order at the step
                 # BOUNDARY. The pre-step gates (security/approval/human) run BEFORE
@@ -2795,8 +2810,9 @@ class ExecutionEngine:
                     # double-prompts the user (pre-step with an empty payload,
                     # then post-step with the real output). Dedupe: the inline
                     # gate wins (the legacy, output-bearing UX); the declared
-                    # ``human`` gate is skipped for this step only.
-                    inline_gated=self._should_gate(spec, ectx),
+                    # ``human`` gate is skipped for this step only. ISS-131: only
+                    # when the strategy actually runs this agent inline.
+                    inline_gated=self._should_gate(spec, ectx) and _runs_agent_inline,
                 ):
                     # WR-04: skip the terminal (None, outcome) sentinel when
                     # forwarding (keeps the emitted stream identical) but still
@@ -3022,8 +3038,9 @@ class ExecutionEngine:
                     # ``_run_review_gate`` inside ``_run_agent``, once from the
                     # declared gate evaluated here. Symptom in the suite: a
                     # duplicate ``review_gate_ready`` and ``['block','block']``
-                    # where one outcome was expected.
-                    inline_gated=self._should_gate(spec, ectx),
+                    # where one outcome was expected. ISS-131: only when the
+                    # strategy actually runs this agent inline.
+                    inline_gated=self._should_gate(spec, ectx) and _runs_agent_inline,
                 ):
                     # WR-04: skip the terminal (None, outcome) sentinel when
                     # forwarding (keeps the emitted stream identical) but still
@@ -4517,7 +4534,7 @@ class ExecutionEngine:
                         agent_id=spec.id,
                         agent_name=spec.name,
                         output=output,
-                        redoable=True,
+                        redoable=self._redoable(ectx),
                         update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
                         revision_cycle=_rev_cycle,
@@ -4624,7 +4641,7 @@ class ExecutionEngine:
                 # Re-open the gate directly — skip the model call entirely.
                 if self._should_gate(spec, ectx, invocation_gated=invocation_gated):
                     # SC-001: derive the update-specs eligibility STRUCTURALLY from the
-                    # artifact-kind (name-free), mirroring redoable's inline True.
+                    # artifact-kind (name-free), mirroring redoable's own predicate.
                     _ek = self._artifact_kind_for(spec)
                     # ISS-052: name WHICH firing this is. The analyze gate opened inside a
                     # revision pass and the one re-opened after it returns share a gate_key
@@ -4639,7 +4656,7 @@ class ExecutionEngine:
                         agent_id=spec.id,
                         agent_name=spec.name,
                         output=output,
-                        redoable=True,
+                        redoable=self._redoable(ectx),
                         update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
                         revision_cycle=_rev_cycle,
@@ -5759,12 +5776,13 @@ class ExecutionEngine:
                 # Whether THIS agent gates is the effective per-run decision (default
                 # = today's static `gate: Human_Gate` set; see _should_gate / the
                 # `gate_agent_ids` param on execute()). REDO-GATE: the inline call site
-                # passes redoable=True (a structural path, name-free — SC-001) so the
-                # FE offers Redo on every LIVE human gate; the _gate_redo branch below
+                # passes the computed _redoable verdict (a structural path, name-free —
+                # SC-001) so the FE offers Redo on every LIVE human gate except a per-task
+                # build dispatch (ISS-090); the _gate_redo branch below
                 # re-runs THIS agent via the enclosing while-loop (flat stack, F2).
                 if self._should_gate(spec, ectx, invocation_gated=invocation_gated):
                     # SC-001: derive the update-specs eligibility STRUCTURALLY from the
-                    # artifact-kind (name-free), mirroring redoable's inline True.
+                    # artifact-kind (name-free), mirroring redoable's own predicate.
                     _ek = self._artifact_kind_for(spec)
                     # ISS-052: name WHICH firing this is. The analyze gate opened inside a
                     # revision pass and the one re-opened after it returns share a gate_key
@@ -5779,7 +5797,7 @@ class ExecutionEngine:
                         agent_id=spec.id,
                         agent_name=spec.name,
                         output=output,
-                        redoable=True,
+                        redoable=self._redoable(ectx),
                         update_specs_eligible=self._update_specs_eligible(_ek, ectx),
                         artifact_kind=_ek,
                         revision_cycle=_rev_cycle,
@@ -6207,9 +6225,20 @@ class ExecutionEngine:
         worker, a bounded merge-agent attempt — passes ``False``. It defaults
         ``True``, so every step-shaped invocation is byte-identical (INV-3).
 
+        ``ectx.suppress_review_gate`` (ISS-072) vetoes the whole predicate for the ONE
+        dispatch it is published around. It is set by object identity, never by an agent
+        id (INV-1), and its only publisher is ``_run_spec_revision_sub_pipeline``'s analyze
+        re-run — the firing that showed the user the content they are about to be shown
+        again at the gate re-opened after the pass returns. Read here rather than at the
+        three ``_run_agent`` gate branches so all three (restart re-entry, pending
+        re-open, live post-stream) and the two ``inline_gated`` dedupe reads honour it
+        from ONE rule (INV-12). Default False ⇒ dormant everywhere else (INV-3).
+
         Only selects *which* agents trigger the gate; the gate itself
         (``_run_review_gate`` + its ``review_gate_*`` events) is unchanged.
         """
+        if getattr(ectx, "suppress_review_gate", False):
+            return False
         gate_ids = ectx.gate_agent_ids
         selected = (
             spec.id in set(gate_ids)
@@ -6217,6 +6246,29 @@ class ExecutionEngine:
             else getattr(spec, "gate", None) == "Human_Gate"
         )
         return invocation_gated and selected
+
+    def _strategy_runs_agent_inline(self, strategy_name: str, registry) -> bool:
+        """Does ``strategy_name``'s capability run the step's OWN agent inline (ISS-131)?
+
+        The step-boundary ``inline_gated`` dedupe skips a step's DECLARED ``human``
+        gate when it predicts the inline ``_run_agent`` → ``_run_review_gate`` path
+        will review the same agent on the same gate_key. That prediction holds only
+        for a strategy that actually dispatches the step's own agent; a spawn-only
+        strategy produces child invocations, which pass ``invocation_gated=False``
+        (ISS-097), so the inline gate never fires and the dedupe silently ate a gate
+        the author declared.
+
+        The fact is DECLARED by the strategy (``runs_agent_inline`` on the
+        ``ExecutionStrategy`` port) and read here off the RESOLVED capability — the
+        kernel never infers it from a strategy name (INV-1). An unresolvable name
+        (defensive; a compile-validated plan never carries one) and a strategy that
+        declares nothing both read as ``True``, the pre-ISS-131 behaviour (INV-3).
+        """
+        try:
+            strategy = registry.resolve("strategy", strategy_name)
+        except (KeyError, RuntimeError):
+            return True
+        return bool(getattr(strategy, "runs_agent_inline", True))
 
     # ------------------------------------------------------------------
     # Executable hook firing (08-07 / HOOK-01..04) — the D-09 lifecycle seam
@@ -6702,6 +6754,7 @@ class ExecutionEngine:
         _saved_attempt = ectx.revision_attempt
         _saved_context = getattr(ectx, "spec_revision_context", "")
         _saved_prior = ectx.spec_revision_prior_artifact
+        _saved_suppress = getattr(ectx, "suppress_review_gate", False)
 
         # Read the document under revision ONCE, before the loop — the max-version typed
         # read (F5 discipline), so a rehydrated graph's arbitrary insertion order cannot
@@ -6743,6 +6796,19 @@ class ExecutionEngine:
                 ectx.spec_revision_prior_artifact = (
                     prior_artifact if sub_spec is specify_spec else ""
                 )
+
+                # ISS-072: SUPPRESS the ANALYZE re-run's own review gate. That firing
+                # showed the user the very content the gate re-opened after this pass
+                # returns is about to show again (same producer, same bytes), offered a
+                # strictly smaller action set, and approving it had no externally visible
+                # effect — one "Update the Specs" click cost two approvals for one review.
+                # Identity against the spec object, not an id string (INV-1) — the
+                # specify/plan in-pass gates are WANTED and keep firing, which is why this
+                # is a per-dispatch marker rather than a read of ``revision_attempt``.
+                # Honoured in ``_should_gate`` (the ONE predicate all three gate branches
+                # route through) and RESTORED in the finally below alongside the rest of
+                # this pass's scratch.
+                ectx.suppress_review_gate = sub_spec is analyze_spec
 
                 # Re-run the agent — reuses the FULL _run_agent path (INV-12).
                 async for event in self._run_agent(
@@ -6795,6 +6861,7 @@ class ExecutionEngine:
             ectx.spec_revision_context = _saved_context
             ectx.spec_revision_prior_artifact = _saved_prior
             ectx.revision_attempt = _saved_attempt
+            ectx.suppress_review_gate = _saved_suppress
 
         # Emit internal signal carrying the new analysis text so the gate consumer
         # can re-open the gate with the correct output.
@@ -7002,8 +7069,9 @@ class ExecutionEngine:
         On redo: yields `_gate_redo` (internal signal to re-run the gated agent).
 
         ``redoable`` (REDO-GATE F1b) is a GENERIC discriminator stamped on
-        ``review_gate_ready.data`` — True ONLY from the inline call site (a
-        structural path, NOT a workflow/agent-id literal — SC-001). The FE renders
+        ``review_gate_ready.data`` — True ONLY from the inline call site, and there only
+        when ``_redoable`` says so (ISS-090: a structural predicate, NOT a
+        workflow/agent-id literal — SC-001). The FE renders
         the Redo button IFF ``redoable``; a declared/user-composed ``gate:human``
         step (which calls this primitive via ``run_human_gate`` with the default
         ``redoable=False``) therefore shows NO Redo button. It is added to
@@ -7064,7 +7132,8 @@ class ExecutionEngine:
                 "gate_key": gate_key,
                 "output": output,
                 # REDO-GATE F1b: generic FE fence — True only from the inline call
-                # site (stripped by _VOLATILE_STRIP_KEYS so the goldens stay byte-id).
+                # site, and there only per _redoable (ISS-090; stripped by
+                # _VOLATILE_STRIP_KEYS so the goldens stay byte-id).
                 "redoable": redoable,
                 # SC-001 / KAN-101: generic name-free update-specs discriminator —
                 # True only from the inline analyze/spec call site (derived from
@@ -7128,6 +7197,25 @@ class ExecutionEngine:
             # while-loop re-runs the agent. The declared-path consumers (human/approval
             # gate) CONSUME this signal safely (T-human) — never PASS, never leak.
             if action == "redo":
+                # ISS-090: the redo verdict this firing PUBLISHED is BINDING, exactly as
+                # the update_specs verdict is below (ISS-053) — ``gate_key`` names a gate
+                # SLOT, not a firing, so a replayed earlier click lands on whichever
+                # firing is armed now, no crafting required. The FE never offers Redo when
+                # the flag is False, so nothing legitimate arrives here. The degrade is
+                # KEEP WAITING for the same reason update_specs keeps waiting: approving
+                # would be fail-open on a HITL gate and rejecting would cancel the user's
+                # run. The declared/user gate path (default ``redoable=False``) already
+                # mapped a stray redo to a non-PASS outcome in ``HumanGate`` (REDO-GATE
+                # F1a); this makes the shared primitive itself fail-closed, so a redo
+                # arriving by any other route is refused before it re-runs an agent.
+                if not redoable:
+                    logger.warning(
+                        "Review gate redo REFUSED: pipeline=%s agent=%s — this firing "
+                        "published redoable=False; gate stays open (ISS-090)",
+                        pipeline_run_id, agent_id,
+                    )
+                    event.clear()
+                    continue
                 self._state_machine.transition(pipeline_run_id, "generating")
                 logger.info(
                     "Review gate redo: pipeline=%s agent=%s has_instructions=%s",
@@ -7612,7 +7700,7 @@ class ExecutionEngine:
         NON_TERMINAL list + the state machine untouched (Open Q2). The marker rides the
         SAME owner-scoped append path as every other event; best-effort (a persist
         failure logs and proceeds — the resume still drives, just without the audit
-        marker). The ``seq`` is the next durable seq for the run (read + 1).
+        marker). The ``seq`` is the next durable seq for the run (tail probe + 1).
 
         12-09: the marker's workspace is the run's RECOVERED real workspace_id
         (``_recover_workspace_id`` — the run_events-sourced value the sink wrote
@@ -7625,17 +7713,23 @@ class ExecutionEngine:
         NULL, the same logged-warning degrade as today.
 
         DB-001 (task.md R-02): the seq allocation used to be a single unretried
-        read-``max(seq)+1``-then-``append_event`` — exactly the race
-        :meth:`agents.authz.ScopedStore.append_event_next_seq` exists to close (a
-        concurrent resume attempt, or the run's own event sink, can compute the
-        same ``seq`` first and this insert loses silently under the old bare
-        ``except Exception: log and swallow``). This now allocates through that
-        same optimistic-retry-on-``IntegrityError`` method the chat lane already
-        uses, so a raced seq is re-derived and retried (bounded, 8 attempts)
-        instead of being dropped. A retry-exhaustion failure is a real,
-        unresolved conflict (not a transient "no durable substrate" case) and is
-        re-raised — the marker is best-effort only for genuinely missing
-        durable state, never for a swallowed write collision.
+        read-``max(seq)+1``-then-``append_event`` — a race a concurrent resume
+        attempt, or the run's own event sink, wins silently under the bare
+        ``except Exception: log and swallow``. ISS-125: it now rides the SAME
+        collision-safe pair the engine sink and the durable-cancel writer use —
+        the bounded :meth:`agents.authz.ScopedStore._max_event_seq` index probe
+        for the tail, then
+        :meth:`agents.authz.ScopedStore.append_event_at_or_after`, which
+        re-appends past a racing writer (bounded, 8 attempts) instead of dropping
+        the row. NOT ``append_event_next_seq``: that allocator re-reads EVERY row
+        of the run per attempt to derive one integer (the local corpus holds a
+        36k-row run), which is the same cost that rules it out for the engine
+        sink. The marker mints a fresh ``event_id`` per call, so it never needs
+        that method's ``(run_id, event_id)`` idempotent no-op. A rejection no
+        retry can resolve (no durable substrate, a None recovered workspace)
+        surfaces out of the allocator and degrades through the best-effort
+        except below — the marker is audit-only, but nothing is ever swallowed
+        inside the allocator.
         """
         # Capture the row's scalars UP FRONT so the best-effort except never
         # touches the ORM object (a lazy-attribute load on a session a failed
@@ -7646,25 +7740,16 @@ class ExecutionEngine:
         try:
             workspace_id = await self._recover_workspace_id(owner_id, run_id)
             store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
-            await store.append_event_next_seq(
+            await store.append_event_at_or_after(
                 run_id,
-                event_id=str(uuid.uuid4()),
-                type="run_resuming",
-                payload_json={
+                (await store._max_event_seq(run_id)) + 1,
+                str(uuid.uuid4()),
+                "run_resuming",
+                {
                     "pipeline_run_id": run_id,
                     "prior_status": prior_status,
                     "reason": "backend_restart_in_process_resume",
                 },
-            )
-        except RuntimeError as exc:
-            # append_event_next_seq exhausted its retry budget — a REAL, surfaced
-            # seq conflict (task.md R-02 oracle: "no swallowed write, deterministic
-            # retry or surfaced terminal error"). Still degrades the marker itself
-            # (it is audit-only) but does not hide the conflict as a generic
-            # "no durable substrate" case.
-            logger.error(
-                "_stamp_resume_marker(%s) exhausted seq-allocation retries: %s",
-                run_id, exc,
             )
         except Exception as exc:  # noqa: BLE001 — the marker is best-effort audit
             logger.warning("_stamp_resume_marker(%s) failed: %s", run_id, exc)
@@ -7860,7 +7945,7 @@ class ExecutionEngine:
         # Validate the pipeline is registered (compile_for_run succeeds) as the
         # fail-fast check instead of relying on an empty get_pipeline_agents() result.
         try:
-            compile_for_run(revision_pipeline_type)
+            _compiled_revision = compile_for_run(revision_pipeline_type)
         except Exception:
             raise ValueError(
                 f"No revision pipeline is registered for target_artifact_type "
@@ -7966,11 +8051,19 @@ class ExecutionEngine:
                     workspace_id=original.workspace_id,
                     kind=target_artifact_type,
                     producer_step="revision",
-                    # Derived from the resolved spec list (IN-05 spirit, SC-001 —
-                    # no agent-id literal): revision pipelines are 1-2 single_shot
+                    # Derived from the COMPILED PLAN (IN-05 spirit, SC-001 — no
+                    # agent-id literal): revision pipelines are 1-2 single_shot
                     # steps and the LAST agent's streamed output is the declared
-                    # deliverable.
-                    producer_agent=agents[-1].id,
+                    # deliverable. Read off ``_compiled_revision.steps``, NOT the
+                    # ``agents`` local: revision-pipeline-refactor emptied that list
+                    # so execute() rebuilds the roster from the manifest, which left
+                    # ``agents[-1]`` raising IndexError — the except arm below then
+                    # turned EVERY revision's exact-kind lineage write into
+                    # state_restoration_failed and FR-014 chain link 1 was never
+                    # persisted. The plan is the same source execute() rebuilds from
+                    # (_specs_from_plan(compiled.steps)), so this is the agent that
+                    # actually ran last.
+                    producer_agent=_compiled_revision.steps[-1].agent_id,
                     task_id=None,
                     content=final_output,
                     location=f"artifact_refs/{target_artifact_type}",
@@ -8291,6 +8384,39 @@ class ExecutionEngine:
             artifact_kind in self._UPDATE_SPECS_ELIGIBLE_KINDS
             and not getattr(ectx, "revision_attempt", 0)
         )
+
+    def _redoable(self, ectx) -> bool:
+        """Does THIS gate firing advertise the "Request changes" (Redo) affordance?
+
+        The mirror of ``_update_specs_eligible`` (ISS-090). ``redoable`` used to be an
+        inline ``True`` literal at all three inline call sites, so one of the two gate
+        flags was a rule and the other was an unfenced affordance. The rule is stated
+        HERE, once, and it is STRUCTURAL — no workflow name and no agent id appears here
+        or at any call site (INV-1 / SC-001).
+
+        The inline (engine-driven) gate offers Redo EXCEPT on a **per-task build
+        dispatch**. ``ectx.build_task_number`` is generic scratch the ``task_loop``
+        strategy binds around exactly one per-task ``_run_agent`` invocation and restores
+        in a ``finally`` (``KernelServices.run_agent``), so it is non-empty for precisely
+        that dispatch's duration — the same "an existing published field doubles as the
+        in-flight signal" idiom condition 2 of ``_update_specs_eligible`` uses on
+        ``revision_attempt``, so this invents no parallel state (INV-12).
+
+        That dispatch is the one whose redo semantics differ from what the button
+        promises: it already carries a COMPACTED view of the deliverable, which is why
+        ``_consume_redo`` withholds the injected subject there (FIX-228). Withholding the
+        affordance is that same fact stated at the layer that advertises it. Every other
+        firing — including a single_shot build — is unchanged (INV-3); only an agent a
+        user ticked into a per-run ``gate_agent_ids`` whose step runs a task loop loses
+        the button, and that is the firing ISS-090 names.
+
+        Like ``update_specs_eligible`` the verdict is BINDING, not advisory: it is
+        published on ``review_gate_ready`` and then ENFORCED in ``_run_review_gate``,
+        which refuses a ``redo`` response the firing never advertised and keeps the gate
+        waiting (the ISS-053 degrade). The declared/user gate path rides the default
+        ``redoable=False`` and never reaches this predicate.
+        """
+        return not (getattr(ectx, "build_task_number", "") or "")
 
     def _stamp_revision_marks(self, ectx) -> tuple[int, bool]:
         """Which spec-revision cycle is THIS gate firing part of, and is it inside it?

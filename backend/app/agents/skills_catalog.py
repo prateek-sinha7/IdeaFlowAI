@@ -89,6 +89,17 @@ def _get_icon_for_category(category: str) -> str:
     return _CATEGORY_TO_ICON.get(category, "Award")
 
 
+def skill_source_dir(skill_id: str) -> Path:
+    """Absolute path of a catalog skill's own folder.
+
+    The folder holds ``SKILL.md`` plus whatever sibling reference files the body
+    points at ("see ``root-cause-tracing.md`` in this directory"). Staging needs
+    those siblings, and the folder layout is this module's knowledge, not the
+    stager's (ISS-185). Not guaranteed to exist — the caller checks.
+    """
+    return _GLOBAL_SKILL_DIR / skill_id
+
+
 def _load_one(skill_dir: Path) -> GlobalSkillEntry:
     skill_id = skill_dir.name
     skill_file = skill_dir / "SKILL.md"

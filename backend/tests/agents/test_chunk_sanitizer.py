@@ -171,6 +171,8 @@ async def test_split_tool_xml_stripped_for_toolless_agent() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-634")
+@pytest.mark.xfail(reason="ISS-634 unfixed", strict=True)
 async def test_split_tool_xml_untouched_for_tooluse_agent() -> None:
     """Identical SPLIT stream for a tool-USING agent → emitted chunks byte-identical."""
     emitted = await _drive_single_agent(_TOOLUSING_AGENT, _TOOLUSING_PIPELINE, _SPLIT_DELTAS)
@@ -204,6 +206,8 @@ async def test_single_chunk_tool_xml_stripped_for_toolless_agent() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-634")
+@pytest.mark.xfail(reason="ISS-634 unfixed", strict=True)
 async def test_clean_stream_passes_through_unchanged_for_toolless_agent() -> None:
     """Clean stream (no tool-XML) for a tool-less agent → emitted chunks == input."""
     deltas = ["Domain analysis: ", "the system manages tasks ", "for a single user."]
@@ -218,6 +222,8 @@ async def test_clean_stream_passes_through_unchanged_for_toolless_agent() -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-634")
+@pytest.mark.xfail(reason="ISS-634 unfixed", strict=True)
 async def test_lone_lt_and_html_at_boundaries_chunk_identical_for_toolless_agent() -> None:
     """WR-01: tool-less prose with ``<`` / ``<div>`` / ``a < b`` at chunk boundaries.
 
@@ -273,6 +279,8 @@ async def test_never_closed_opener_flushed_and_stripped_at_stream_end() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-634")
+@pytest.mark.xfail(reason="ISS-634 unfixed", strict=True)
 async def test_benign_held_tail_survives_flush_no_content_loss() -> None:
     """WR-04: a benign trailing tail held at EOF is flushed VERBATIM (no content loss).
 

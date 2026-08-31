@@ -388,6 +388,7 @@ async def test_nonexistent_artifact_raises(engine: ExecutionEngine, db_factory) 
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-633")
 async def test_revision_stores_new_version_with_lineage(engine: ExecutionEngine, db_factory) -> None:
     """The revision run persists a NEW exact-kind ref whose content is
     execute()'s final_output (the scripted REVISED deck, unwrapped) with
@@ -1111,6 +1112,7 @@ async def test_planner_run_target_rejected_before_dispatch(
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-633")
 async def test_prototype_revision_now_dispatches_successfully(
     engine: ExecutionEngine, db_factory
 ) -> None:

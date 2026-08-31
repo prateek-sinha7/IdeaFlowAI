@@ -70,7 +70,15 @@ class _RecordingChatModel(BaseChatModel):
 
 def _make_recording_bedrock(usage_metadata: dict | None = None, text: str = "ok"):
     """A REAL ``ChatBedrockConverse`` subclass (so ``isinstance`` gates fire) whose
-    generate is stubbed to record kwargs + return a canned response — no network."""
+    generate is stubbed to record kwargs + return a canned response — no network.
+
+    Built with ``model_construct`` (ISS-118): that is pydantic's own no-validation
+    constructor, so ``ChatBedrockConverse.__init__`` — the seam that resolves
+    credentials and builds the boto3 ``bedrock-runtime`` client — never runs, while the
+    instance stays a genuine subclass for the ``isinstance`` gate in
+    ``cached_invoke._bedrock_cache_control``. Nothing here reads the boto client
+    (``_agenerate`` is overridden), so it is left unset rather than exempting these
+    tests from the ISS-102 live-model guard."""
     from langchain_aws import ChatBedrockConverse
 
     class _RecordingBedrock(ChatBedrockConverse):
@@ -91,8 +99,8 @@ def _make_recording_bedrock(usage_metadata: dict | None = None, text: str = "ok"
         async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
             return self._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
 
-    return _RecordingBedrock(
-        model="anthropic.claude-3-haiku-20240307-v1:0",
+    return _RecordingBedrock.model_construct(
+        model_id="anthropic.claude-3-haiku-20240307-v1:0",  # ``model`` is the field alias
         region_name="us-east-1",
         max_tokens=8,
     )
@@ -308,3 +316,28 @@ async def test_compliance_agent_delegates(monkeypatch):
     assert captured["system"] == agent.system_prompt
     assert captured["model"] is sentinel_model
     assert len(sunk) == 1
+
+
+# ---------------------------------------------------------------------------
+# ISS-120 — per-call override (caching is currently ONE process-wide switch)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.issue("ISS-120")
+@pytest.mark.asyncio
+async def test_cached_invoke_supports_per_call_cache_override(monkeypatch):
+    """ISS-120 — a short, single-turn call must be able to opt OUT of prompt
+    caching without flipping the process-wide ``BEDROCK_PROMPT_CACHE_ENABLED``
+    flag (which would affect every other concurrent call too). Today the ONLY
+    gate is that global setting, read at call time in both
+    ``_bedrock_cache_control`` and ``_BedrockCachePointsMiddleware`` — there is
+    no per-call / per-step override anywhere (card ISS-120)."""
+    monkeypatch.setattr(ci_mod.settings, "BEDROCK_PROMPT_CACHE_ENABLED", True)
+    model = _make_recording_bedrock()
+
+    # A caller declaring this turn single-turn/short should be able to suppress
+    # the cache point on just THIS call, leaving the global flag (and every
+    # other concurrent call) untouched.
+    await cached_invoke("brief", system="SYS", model=model, enable_cache=False)
+
+    assert "cache_control" not in (model.recorded_kwargs or {})

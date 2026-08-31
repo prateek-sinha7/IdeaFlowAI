@@ -11,7 +11,7 @@ icon: "🔍"
 id: prototype-analyze
 max_tokens: 32768
 name: Spec Kit Analyzer
-order: 3
+order: 4
 pipeline_type: prototype
 produces:
 - prototype-analyze

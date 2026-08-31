@@ -212,15 +212,21 @@ class TestAgentMdSmoke:
         assert fm["order"] == 1
 
     def test_analyzer_agent_md_frontmatter_pipeline_type(self) -> None:
-        """prototype-revision-analyzer AGENT.md: pipeline_type == 'prototype_revision_analyzer'.
+        """prototype-revision-analyzer AGENT.md: pipeline_type names all three revision pipelines.
 
-        The analyzer is an app-layer pre-pipeline agent. It uses its own unique
-        pipeline_type so it is NOT included in PIPELINE_AGENTS['prototype_revision'],
-        which would shift engine-side indices and break the INV-3 golden snapshots.
-        The agent is still discoverable via load_agent_spec (AC 1.3).
+        The analyzer stopped being an app-layer pre-pipeline agent at
+        revision-pipeline-refactor (e0f6beeed), which promoted it to step 0 of all
+        three revision manifests. Its former private ``prototype_revision_analyzer``
+        type kept it OUT of PIPELINE_AGENTS, so the registry roster no longer matched
+        the manifest steps (ISS-631). It now declares membership in the pipelines it
+        actually runs in, which is what the roster property test derives from the YAML.
         """
         fm = _load_frontmatter(_ANALYZER_AGENT_MD)
-        assert fm["pipeline_type"] == "prototype_revision_analyzer"
+        assert fm["pipeline_type"] == [
+            "prototype_revision",
+            "prototype_large_revision",
+            "prototype_feature_revision",
+        ]
 
     def test_analyzer_agent_md_frontmatter_max_tokens(self) -> None:
         """prototype-revision-analyzer AGENT.md: max_tokens == 4096."""
@@ -239,13 +245,14 @@ class TestAgentMdSmoke:
         )
 
     def test_revision_agent_order_is_two(self) -> None:
-        """prototype-revision-agent AGENT.md: order == 1.
+        """prototype-revision-agent AGENT.md: order == 2.
 
-        The prototype-revision-analyzer has pipeline_type='prototype_revision_analyzer'
-        (not 'prototype_revision'), so it is NOT a member of the prototype_revision
-        pipeline and prototype-revision-agent remains at order=1 (INV-3 safe).
+        The prototype-revision-analyzer is step 0 of the prototype_revision manifest
+        and a roster member at order=1 (ISS-631), so prototype-revision-agent is the
+        SECOND step and its order value has to say so — ``list_agent_ids`` sorts the
+        roster by this field and the roster must equal the manifest step order.
         """
         fm = _load_frontmatter(_REVISION_AGENT_MD)
-        assert fm["order"] == 1, (
-            f"Expected order=1 (prototype-revision-agent is first pipeline step), got order={fm['order']!r}"
+        assert fm["order"] == 2, (
+            f"Expected order=2 (prototype-revision-agent follows the analyzer), got order={fm['order']!r}"
         )

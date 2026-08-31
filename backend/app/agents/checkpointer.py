@@ -16,6 +16,7 @@ even before ``langgraph-checkpoint-postgres`` is installed.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from app.core.config import settings
@@ -126,6 +127,13 @@ async def close_checkpointer() -> None:
        already null so the process state is consistent even on a failed close.
     4. **RuntimeError guard in get_checkpointer()**: callers after close get an
        immediate error, not a fresh pool that nothing will ever close.
+    5. **Bounded (ISS-106)**: ``pool.close()`` is wrapped in ``asyncio.wait_for`` at
+       ``SHUTDOWN_CHECKPOINTER_CLOSE_SECONDS``. This is step 4 of
+       ``shutdown_run_infrastructure()`` and runs after the bounded drains, so an
+       unbounded wait here pushes teardown past the container's stop grace period
+       and gets the process SIGKILLed mid-shutdown. Abandoning the close is safe
+       for exactly the reasons above: the latch is set and the globals are null
+       before the pool is touched.
     Idempotent: calling twice is safe (second call returns immediately at the latch).
     """
     global _checkpointer, _pool, _closed
@@ -139,6 +147,16 @@ async def close_checkpointer() -> None:
     _checkpointer = None
     if pool_to_close is not None:
         try:
-            await pool_to_close.close()
+            await asyncio.wait_for(
+                pool_to_close.close(),
+                timeout=settings.SHUTDOWN_CHECKPOINTER_CLOSE_SECONDS,
+            )
+        except asyncio.TimeoutError:  # must precede Exception — it is a subclass
+            logger.warning(
+                "close_checkpointer: pool.close() did not finish within %.1fs and was "
+                "abandoned (ISS-106); the process is exiting, so its connections go "
+                "with it. Teardown stays inside the container stop grace period.",
+                settings.SHUTDOWN_CHECKPOINTER_CLOSE_SECONDS,
+            )
         except Exception as exc:  # noqa: BLE001 — non-raising, latch already set
             logger.warning("close_checkpointer: pool.close() raised (non-fatal): %s", exc)
