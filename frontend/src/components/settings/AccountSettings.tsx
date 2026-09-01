@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { routes } from "@/lib/routes";
@@ -372,7 +372,12 @@ export function AccountSettings({ onBack, initialSection }: AccountSettingsProps
                       >
                         <option value="">System Default (Claude Haiku 4.5)</option>
                         {availableModels.map(m => (
-                          <option key={m.id} value={m.id}>{m.name} · {m.tier}</option>
+                          // ISS-430: disabled + lock suffix for models the account's tier
+                          // may not use, so the gate is visible before Save rather than
+                          // only surfacing as a 403 banner after the fact.
+                          <option key={m.id} value={m.id} disabled={m.allowed === false}>
+                            {m.allowed === false ? "🔒 " : ""}{m.name} · {m.tier}
+                          </option>
                         ))}
                       </select>
                       {/* Description + tier badge of selected model */}
@@ -520,6 +525,13 @@ function ConstitutionSection({ content, setContent, loadedValue, setLoadedValue 
   const [deleting, setDeleting] = useState(false);
   const [status, setStatus] = useState<"idle" | "saved" | "deleted" | "error">("idle");
 
+  // ISS-581: React StrictMode double-invokes the mount effect, so the GET can
+  // fire twice. If the second response arrives AFTER the user has started
+  // typing, the unconditional setContent(loaded) overwrites their draft.
+  // This ref flips to true the first time the user edits the textarea and
+  // prevents any subsequent fetch response from clobbering their work.
+  const userHasEdited = useRef(false);
+
   // Load current constitution on mount
   useEffect(() => {
     const token = getToken();
@@ -533,7 +545,12 @@ function ConstitutionSection({ content, setContent, loadedValue, setLoadedValue 
       .then((r) => r.json())
       .then((data) => {
         const loaded = data.content || "";
-        setContent(loaded);
+        // Only overwrite editor content if the user hasn't started typing yet.
+        // A second invocation from StrictMode or an in-flight duplicate request
+        // must not silently undo a draft the user is actively editing.
+        if (!userHasEdited.current) {
+          setContent(loaded);
+        }
         setLoadedValue(loaded);
       })
       .catch(() => {})
@@ -629,7 +646,7 @@ function ConstitutionSection({ content, setContent, loadedValue, setLoadedValue 
         ) : (
           <textarea
             value={content}
-            onChange={(e) => { setContent(e.target.value); setStatus("idle"); }}
+            onChange={(e) => { userHasEdited.current = true; setContent(e.target.value); setStatus("idle"); }}
             aria-label="Constitution content"
             name="constitution"
             maxLength={CONSTITUTION_MAX_CHARS}

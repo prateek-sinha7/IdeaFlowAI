@@ -1397,6 +1397,8 @@ export interface ModelOption {
   name: string;
   description: string;
   tier: "fast" | "balanced" | "powerful";
+  /** ISS-430: true when the current account's tier may select this model. */
+  allowed?: boolean;
 }
 
 export interface UserPreferences {

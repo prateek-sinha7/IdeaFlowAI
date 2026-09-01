@@ -18,8 +18,8 @@
     "passwordEnvOverride": "E2E_BASE_PASSWORD",
     "credentials": [
       {
-        "email": "qa-admin@flowinqa.com",
-        "password": "flowin-e2e-pass",
+        "email": "test@hexaware.com",
+        "password": "hexaware@123",
         "tier": "enterprise",
         "isAdmin": true
       },

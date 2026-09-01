@@ -6,7 +6,7 @@ memory. Updated by the closer after every domain run.
 | # | domain | cards | status | closed | reopened | escalated | report |
 |---|--------|-------|--------|--------|----------|-----------|--------|
 | 1 | warmup | 4 | DONE | 2 | 0 | 2 | [20260831-domain-01-warmup.md](reports/20260831-domain-01-warmup.md) |
-| 2 | frontend·settings | 4 | NOT STARTED | – | – | – | – |
+| 2 | frontend·settings | 4 | DONE | 3+1already | 0 | 0 | [20260831-domain-02-frontend-settings.md](reports/20260831-domain-02-frontend-settings.md) |
 | 3 | frontend·lib | 4 | NOT STARTED | – | – | – | – |
 | 4 | tests·integration | 5 | NOT STARTED | – | – | – | – |
 | 5 | frontend·preview | 7 | NOT STARTED | – | – | – | – |

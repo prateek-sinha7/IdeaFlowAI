@@ -291,26 +291,41 @@ def test_basic_tier_cannot_persist_a_powerful_model(page, shot):
     """ISS-292 — a basic-tier account must not be able to select and persist
     a "powerful"-tier (premium) model such as Claude Opus 4.6.
 
-    Assertion is on the OUTCOME (does the selection survive a reload) rather
-    than on any specific rejection UI, since the fix may reject at save time,
-    hide the option entirely, or something else — all of those leave the
-    basic-tier account's `preferred_model` unchanged.
+    ISS-430 changed the affordance: the API now returns an ``allowed`` flag per
+    model, and the selector renders non-entitled options as ``disabled``.
+    The test therefore asserts the affordance (option is offered but disabled)
+    AND the outcome (even if somehow selected, it must not survive a reload).
     """
     open_model_tab(page)
     original = page.locator(L.MODEL_SELECT).input_value()
 
     options = page.locator(f"{L.MODEL_SELECT} option").evaluate_all(
-        "opts => opts.map(o => ({value: o.value, text: o.textContent}))"
+        "opts => opts.map(o => ({value: o.value, text: o.textContent, disabled: o.disabled}))"
     )
     opus = next((o for o in options if "Opus" in (o["text"] or "")), None)
     assert opus, f"no Opus (powerful-tier) option offered at all: {options}"
 
+    # ISS-430 key assertion: the option must be present but disabled for basic tier,
+    # giving a clear affordance instead of a silent 403 after Save.
+    assert opus.get("disabled"), (
+        f"ISS-430: Opus option is offered and ENABLED for a basic-tier account — "
+        f"non-entitled models must be rendered disabled so the gate is visible "
+        f"before Save, not only as a 403 banner after it. option={opus}"
+    )
+
     try:
         with shot(
             "basic-opus-blocked",
-            "When a basic-tier account selects a powerful model and saves",
+            "When a basic-tier account tries to select a powerful model",
         ):
-            page.select_option(L.MODEL_SELECT, opus["value"])
+            # The option is disabled, so select_option raises error:optionnotenabled.
+            # Force-set via JS to verify the backend 403 also fires (defence-in-depth).
+            page.evaluate(
+                "(v) => { const s = document.querySelector('[name=\"default-model\"]'); "
+                "if (s) s.value = v; }",
+                opus["value"],
+            )
+            page.locator(L.MODEL_SELECT).dispatch_event("change")
             expect(page.locator(L.SAVE_MODEL)).to_be_enabled(timeout=10_000)
             page.click(L.SAVE_MODEL)
             page.wait_for_timeout(settings.SETTLE_MS)
@@ -463,10 +478,10 @@ def test_clear_constitution_requires_confirmation_before_deleting(page, shot):
             expect(page.get_by_text("Constitution saved")).to_be_visible()
 
         with shot("iss320-clear-clicked", "And I click Clear without confirming"):
-            # A future confirm step is expected to surface as a native dialog;
-            # dismiss it the way a user backing out of a destructive action
-            # would, and prove the persisted value survived.
-            page.on("dialog", lambda dialog: dialog.dismiss())
+            # The autouse dismiss_native_dialogs fixture (conftest.py) already
+            # dismisses every native dialog — no second handler needed here.
+            # ISS-581: adding a redundant page.on() caused Playwright to raise
+            # "Cannot dismiss dialog which is already handled!" when both fired.
             page.click(L.CLEAR_CONSTITUTION)
             page.wait_for_timeout(settings.SETTLE_MS)
 
@@ -580,21 +595,15 @@ def test_switching_tabs_away_from_constitution_requires_confirmation_for_unsaved
             expect(page.get_by_text("Constitution saved")).to_have_count(0)
 
         with shot("tab-switch-attempted", "And I click the Profile tab"):
-            # conftest's dismiss_native_dialogs fixture auto-dismisses dialogs
-            # registered AFTER this handler. Registering ours first with .once()
-            # gives our handler priority so we can capture the message and dismiss
-            # it ourselves — then assert it appeared.
-            dialogs_captured: list[str] = []
-
-            def _capture_and_dismiss(dialog) -> None:
-                # ISS-482: record every dialog message so assertions can be
-                # specific about what the confirm said, not just that it fired.
-                dialogs_captured.append(dialog.message)
-                dialog.dismiss()  # "Cancel" — keep the draft
-
-            page.once("dialog", _capture_and_dismiss)
+            # The autouse dismiss_native_dialogs fixture (conftest.py) already
+            # handles every dialog and records each message into page.native_dialogs.
+            # ISS-581: adding a page.once() here conflicted with that handler —
+            # both fired and Playwright raised "Cannot dismiss dialog which is
+            # already handled!". Read page.native_dialogs instead.
+            dialogs_before = len(page.native_dialogs)
             page.click(L.tab("tab-profile"))
             page.wait_for_timeout(settings.SETTLE_MS)
+            dialogs_captured = page.native_dialogs[dialogs_before:]
 
         # ASSERTION 1 (ISS-482 core): a confirm dialog must have fired before the
         # tab switch committed. Without the fix, none fires and the draft is gone.

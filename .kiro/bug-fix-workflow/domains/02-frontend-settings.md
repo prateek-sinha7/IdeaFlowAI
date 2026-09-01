@@ -18,4 +18,4 @@ Notes:
 Collision note: AccountSettings.tsx is this domain's alone. ISS-482 also appears in
 domain 13's confirm-dialog class campaign — it is OWNED here (its primary fix site
 is AccountSettings.tsx); domain 13 must not touch it.
-Status: NOT STARTED.
+Status: DONE — FIX-420 (B1/ISS-354), FIX-421 (B2/ISS-581+ISS-430). ISS-482 was already resolved (FIX-386).

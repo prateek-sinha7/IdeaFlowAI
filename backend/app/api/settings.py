@@ -311,10 +311,19 @@ def revoke_api_key(
 def get_preferences(
     user: User = Depends(get_current_user),
 ) -> UserPreferencesResponse:
-    """Return the user's current preferences and the list of available models."""
+    """Return the user's current preferences and the list of available models.
+
+    ISS-430: each model now carries an ``allowed`` flag so the frontend can
+    render a lock / disabled state before the user clicks Save, rather than
+    surfacing the tier gate only as a 403 banner after the fact.
+    """
+    models = [
+        {**m, "allowed": can_use_model(user.tier, m["id"])[0]}
+        for m in AVAILABLE_MODELS
+    ]
     return UserPreferencesResponse(
         preferred_model=user.preferred_model,
-        available_models=AVAILABLE_MODELS,
+        available_models=models,
     )
 
 
@@ -355,9 +364,13 @@ def update_preferences(
     # post-refresh re-read of the row. A concurrent PUT's commit can land
     # between our commit() and refresh(), and reading user.preferred_model
     # here would make this 200 body report the OTHER request's model.
+    models = [
+        {**m, "allowed": can_use_model(user.tier, m["id"])[0]}
+        for m in AVAILABLE_MODELS
+    ]
     return UserPreferencesResponse(
         preferred_model=model_id,
-        available_models=AVAILABLE_MODELS,
+        available_models=models,
     )
 
 

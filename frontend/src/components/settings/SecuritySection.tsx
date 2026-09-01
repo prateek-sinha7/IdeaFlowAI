@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { ShieldCheck, ShieldAlert, Mail, Smartphone, RefreshCw } from "lucide-react";
@@ -109,10 +109,19 @@ export function SecuritySection() {
     void load();
   }, [load]);
 
+  // ISS-354: disabled={pending} only flips after a React commit, leaving a
+  // pre-render window where a second click re-enters the handler. This ref
+  // provides a synchronous in-task lock that closes that window, mirroring the
+  // submittingRef pattern from FIX-345 (login page).
+  const togglingRef = useRef(false);
+
   const toggleEmailMfa = useCallback(
     async (enable: boolean) => {
+      if (togglingRef.current) return;
+      togglingRef.current = true;
       const token = getToken();
       if (!token) {
+        togglingRef.current = false;
         router.replace(buildLoginRedirect());
         return;
       }
@@ -143,6 +152,7 @@ export function SecuritySection() {
         });
       } finally {
         setPending(false);
+        togglingRef.current = false;
       }
     },
     [router]
