@@ -81,17 +81,22 @@ function createPreloadedState() {
 }
 
 describe("ISS-591 — LibraryPage's SkillDetailModal inline markdown", () => {
-  // `it.fails` is vitest's xfail(strict=True) — observed red (literal
-  // "**bold**" text with no <strong> element) before this marker was added;
-  // remove once ISS-591 is fixed.
-  it.fails("renders inline bold/code/link markdown as HTML in the Formatted content section, not literal markup", () => {
+  // ISS-605: `it.fails` removed — FIX-403 already routed SkillDetailModal
+  // through react-markdown + remark-gfm (SkillMarkdown component). Assertion 2
+  // was previously unsatisfiable because it scanned `dialog.textContent`,
+  // which includes the sibling intentional raw SKILL.md <pre> block. Now
+  // scoped to `data-testid="skill-formatted-content"` so it tests only the
+  // rendered section, where **bold** MUST NOT appear as literal markup.
+  it("renders inline bold/code/link markdown as HTML in the Formatted content section, not literal markup", () => {
     renderWithProviders(<LibraryPage />, { preloadedState: createPreloadedState() });
 
     fireEvent.click(screen.getByRole("tab", { name: /skills/i }));
     fireEvent.click(screen.getByText(SKILL_A.name));
 
     const dialog = screen.getByRole("dialog", { name: `${SKILL_A.name} skill` });
-    expect(dialog.querySelector("strong, b")).not.toBeNull();
-    expect(/\*\*bold\*\*/.test(dialog.textContent ?? "")).toBe(false);
+    const formattedContent = dialog.querySelector("[data-testid='skill-formatted-content']");
+    expect(formattedContent).not.toBeNull();
+    expect(formattedContent!.querySelector("strong, b")).not.toBeNull();
+    expect(/\*\*bold\*\*/.test(formattedContent!.textContent ?? "")).toBe(false);
   });
 });

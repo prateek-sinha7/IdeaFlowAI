@@ -194,6 +194,18 @@ function EmptyGridState({ noun, query, onClear }: { noun: string; query: string;
   );
 }
 
+// ISS-330 — a failed agents/skills/hooks fetch fell through to the same bare
+// .map() as the zero-result empty state, leaving the grid blank with no error
+// messaging. One shared error state so a "the fetch failed" signal is visually
+// distinct from "your search matched nothing."
+function FetchErrorState({ noun }: { noun: string }) {
+  return (
+    <div className="col-span-full flex flex-col items-center gap-2 py-14">
+      <p className="text-[13px] text-ink-400">Failed to load {noun}. Please refresh and try again.</p>
+    </div>
+  );
+}
+
 // ─── Skill Detail Modal ───────────────────────────────────────────────────────
 
 function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => void }) {
@@ -261,8 +273,10 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
               `-`/`*`/numbered bullets, so inline **bold**, `code` and [links]
               rendered as literal markup. Routed through the same
               react-markdown + remark-gfm renderer the composer's skill modal
-              uses, so both surfaces parse the same SKILL.md identically. */}
-          <div className="px-6 py-4">
+              uses, so both surfaces parse the same SKILL.md identically.
+              ISS-605: data-testid scopes the regression test assertion to
+              this section only, not the sibling raw SKILL.md <pre> block. */}
+          <div className="px-6 py-4" data-testid="skill-formatted-content">
             <SkillMarkdown content={skill.content} />
           </div>
 
@@ -792,6 +806,8 @@ export function LibraryPage() {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(288px,1fr))] gap-[13px]">
               {agentsStatus === "loading" ? (
                 Array.from({ length: 6 }).map((_, i) => <AgentCardSkeleton key={i} />)
+              ) : agentsStatus === "failed" ? (
+                <FetchErrorState noun="agents" />
               ) : filteredAgents.length === 0 ? (
                 <EmptyGridState noun="agents" query={searchQuery} onClear={() => applySearch("")} />
               ) : (
@@ -877,6 +893,8 @@ export function LibraryPage() {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">
               {skillsStatus === "loading" ? (
                 Array.from({ length: 6 }).map((_, i) => <SkillCardSkeleton key={i} />)
+              ) : skillsStatus === "failed" ? (
+                <FetchErrorState noun="skills" />
               ) : filteredSkills.length === 0 ? (
                 // filteredSkills, not activeSkills: when only beta skills match,
                 // the Coming Soon grid below still renders them, so the area is
@@ -979,6 +997,8 @@ export function LibraryPage() {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">
               {hooksStatus === "loading" ? (
                 Array.from({ length: 6 }).map((_, i) => <HookCardSkeleton key={i} />)
+              ) : hooksStatus === "failed" ? (
+                <FetchErrorState noun="hooks" />
               ) : filteredHooks.length === 0 ? (
                 <EmptyGridState noun="hooks" query={hookSearch} onClear={() => applySearch("")} />
               ) : (

@@ -10,7 +10,7 @@ Generated from the card store — regenerate rather than editing rows by hand:
 python3 bug-hunter/tools/dedup.py
 ```
 
-**178 open cards → 156 units of work** (38 families + 118 singletons), schedulable as **31 work batches** — see [Work batches](#work-batches--how-to-actually-run-this) for the execution view. **226 closed** — see [Closed](#-closed--fix-landed).
+**171 open cards → 150 units of work** (36 families + 114 singletons), schedulable as **29 work batches** — see [Work batches](#work-batches--how-to-actually-run-this) for the execution view. **233 closed** — see [Closed](#-closed--fix-landed).
 
 A merge is proposed only where cards share a **fix site**, not merely a symptom
 class. Two Escape-key bugs in unrelated components are one class and two diffs —
@@ -18,16 +18,16 @@ merging those would close a family while a member is still broken.
 
 | tier | what it means | families | cards |
 |---|---|---|---|
-| A′ | root **already fixed**, siblings still open — replicate the landed diff | 22 | 35 |
-| A | declared family, root and siblings both open — one line trip | 3 | 7 |
+| A′ | root **already fixed**, siblings still open — replicate the landed diff | 21 | 34 |
+| A | declared family, root and siblings both open — one line trip | 2 | 5 |
 | B | same file **and** same defect class — proposed, needs review | 13 | 18 |
-| C | no kin found — stays its own row | — | 118 |
+| C | no kin found — stays its own row | — | 114 |
 
 ---
 
 ## ✅ Closed — fix landed
 
-226 defect card(s) now `status: resolved`. Kept here so this one file
+233 defect card(s) now `status: resolved`. Kept here so this one file
 shows every card's real status: the `→ FIX-NNN` column is the landed fix that
 closed it, and *origin* is the root it was a sibling of (where it came from).
 Generated from card frontmatter — a card drops out of the open backlog below and
@@ -84,7 +84,7 @@ appears here the moment its `status` flips to `resolved`.
 | [ISS-229](../.knowledge/cards/20260828-1601-ISS-229.md) | [FIX-339](../.knowledge/cards/20260828-2231-FIX-339.md) | — | ROOT CAUSE: AnalyticsPage.tsx derives KPI tiles/chart/success-rate/token-breakdown straight from th… |
 | [ISS-230](../.knowledge/cards/20260828-1805-ISS-230.md) | [FIX-328](../.knowledge/cards/20260828-2014-FIX-328.md), [FIX-334](../.knowledge/cards/20260828-2149-FIX-334.md), [FIX-355](../.knowledge/cards/20260828-2358-FIX-355.md), [FIX-411](../.knowledge/cards/20260829-1646-FIX-411.md), [FIX-417](../.knowledge/cards/20260831-0110-FIX-417.md), [FIX-445](../.knowledge/cards/20260901-FIX-445.md) | — | handlePreviewPanelTabSelect (DashboardLayout.tsx:471-498) builds routeMap from contentSourceRunId o… |
 | [ISS-231](../.knowledge/cards/20260828-1630-ISS-231.md) | [FIX-342](../.knowledge/cards/20260828-2238-FIX-342.md) | — | LibraryPage.tsx maps filteredAgents/activeSkills/filteredHooks with no length===0 branch, so a non-… |
-| [ISS-232](../.knowledge/cards/20260828-1627-ISS-232.md) | [FIX-340](../.knowledge/cards/20260828-2230-FIX-340.md) | — | LibraryPage's cold-mount seed effect never fires setSelectedSkill for any id; only GET /api/skills/… |
+| [ISS-232](../.knowledge/cards/20260828-1627-ISS-232.md) | [FIX-340](../.knowledge/cards/20260828-2230-FIX-340.md), [FIX-457](../.knowledge/cards/20260901-1900-FIX-457.md) | — | LibraryPage's cold-mount seed effect never fires setSelectedSkill for any id; only GET /api/skills/… |
 | [ISS-233](../.knowledge/cards/20260828-1829-ISS-233.md) | [FIX-329](../.knowledge/cards/20260828-2045-FIX-329.md) | [ISS-221](../.knowledge/cards/20260828-1718-ISS-221.md) | relaunch() (RunChatLane.tsx:1694) backs the degraded branch (line 1865) too, so a resumeError on "R… |
 | [ISS-234](../.knowledge/cards/20260828-1628-ISS-234.md) | [FIX-343](../.knowledge/cards/20260828-2039-FIX-343.md) | — | agent_ids=[] is falsy in run_commands.py:2695, so 0-agent Run once falls to get_pipeline_agents("cu… |
 | [ISS-235](../.knowledge/cards/20260828-1830-ISS-235.md) | [FIX-331](../.knowledge/cards/20260828-2056-FIX-331.md) | — | handleEditBrief never reads or clears pendingHomeBrief, IdeaInputPage.initialInput's fallback sourc… |
@@ -139,6 +139,7 @@ appears here the moment its `status` flips to `resolved`.
 | [ISS-315](../.knowledge/cards/20260828-1750-ISS-315.md) | [FIX-375](../.knowledge/cards/20260829-0151-FIX-375.md) | — | ComposerPage.tsx:1075-1082 blocks Save workflow on an empty name by only focusing the input and set… |
 | [ISS-316](../.knowledge/cards/20260828-1952-ISS-316.md) | [FIX-105](../.knowledge/cards/20260723-FIX-105.md), [FIX-229](../.knowledge/cards/20260812-0653-FIX-229.md), [FIX-381](../.knowledge/cards/20260829-0220-FIX-381.md) | — | resume_supersedes only checks pipeline_complete seq > cancelled seq, so a resumed run that instead … |
 | [ISS-317](../.knowledge/cards/20260828-1755-ISS-317.md) | [FIX-379](../.knowledge/cards/20260829-0210-FIX-379.md) | — | StepsOverviewSpine derives its status-summary label as `failed = pipelineState?.failed \|\| agents.… |
+| [ISS-318](../.knowledge/cards/20260828-1956-ISS-318.md) | [FIX-383](../.knowledge/cards/20260829-0025-FIX-383.md) | — | LibraryPage passes onSkillsChange to AgentCapabilitiesModal, which forces AgentSkillsPicker readOnl… |
 | [ISS-319](../.knowledge/cards/20260828-1804-ISS-319.md) | [FIX-361](../.knowledge/cards/20260829-0029-FIX-361.md), [FIX-382](../.knowledge/cards/20260829-0223-FIX-382.md), [FIX-439](../.knowledge/cards/20260831-1959-FIX-439.md), [FIX-441](../.knowledge/cards/20260831-2001-FIX-441.md) | — | update_preferences commits then db.refresh(user), so a concurrent commit lands between them and the… |
 | [ISS-320](../.knowledge/cards/20260828-1802-ISS-320.md) | [FIX-385](../.knowledge/cards/20260829-0241-FIX-385.md), [FIX-386](../.knowledge/cards/20260831-1020-FIX-386.md), [FIX-442](../.knowledge/cards/20260901-FIX-442.md), [FIX-452](../.knowledge/cards/20260901-1600-FIX-452.md) | — | handleDelete (AccountSettings.tsx:537-553) fires DELETE /api/settings/constitution on click with ze… |
 | [ISS-321](../.knowledge/cards/20260828-2002-ISS-321.md) | — | — | [...view]/page.tsx never calls can_run_pipeline before rendering LaunchWizard, so any tier reaches … |
@@ -149,8 +150,11 @@ appears here the moment its `status` flips to `resolved`.
 | [ISS-327](../.knowledge/cards/20260828-2033-ISS-327.md) | [FIX-390](../.knowledge/cards/20260829-0303-FIX-390.md), [FIX-418](../.knowledge/cards/20260831-0110-FIX-418.md) | — | WorkflowDetailView.tsx renders agentIds.map((id) => {id}) with no id-to-name lookup, unlike the Lib… |
 | [ISS-328](../.knowledge/cards/20260828-1834-ISS-328.md) | [FIX-391](../.knowledge/cards/20260829-0305-FIX-391.md), [FIX-400](../.knowledge/cards/20260829-0402-FIX-400.md) | — | WorkflowView.tsx:473 gates Run Workflow on ideaInput.trim() only, ignoring pipelineAgents.length; h… |
 | [ISS-329](../.knowledge/cards/20260828-1838-ISS-329.md) | [FIX-392](../.knowledge/cards/20260829-0119-FIX-392.md) | — | skills_catalog.py:112 defaults category to "" when SKILL.md frontmatter omits the field; html-deck-… |
+| [ISS-330](../.knowledge/cards/20260828-2041-ISS-330.md) | [FIX-342](../.knowledge/cards/20260828-2238-FIX-342.md), [FIX-456](../.knowledge/cards/20260901-1900-FIX-456.md) | — | agentsStatus/skillsStatus/hooksStatus only branch on "loading" (LibraryPage.tsx:732,793,815,893,911… |
 | [ISS-331](../.knowledge/cards/20260828-1840-ISS-331.md) | [FIX-395](../.knowledge/cards/20260829-0338-FIX-395.md), [FIX-453](../.knowledge/cards/20260901-1600-FIX-453.md) | — | CONFIRMED: HookDetailModal.handleCopy (LibraryPage.tsx:351-355) awaits writeText with no catch — an… |
 | [ISS-332](../.knowledge/cards/20260828-2041-ISS-332.md) | [FIX-394](../.knowledge/cards/20260829-0127-FIX-394.md), [FIX-395](../.knowledge/cards/20260829-0338-FIX-395.md) | — | FileTreeNode filters only file nodes on searchQuery (folder branch has no match check) and the foot… |
+| [ISS-335](../.knowledge/cards/20260828-2040-ISS-335.md) | [FIX-342](../.knowledge/cards/20260828-2238-FIX-342.md), [FIX-456](../.knowledge/cards/20260901-1900-FIX-456.md) | — | Same missing length===0 branch (LibraryPage.tsx:735/818/914) reachable via activeCategory/skillCate… |
+| [ISS-336](../.knowledge/cards/20260828-1846-ISS-336.md) | [FIX-340](../.knowledge/cards/20260828-2230-FIX-340.md), [FIX-457](../.knowledge/cards/20260901-1900-FIX-457.md) | [ISS-232](../.knowledge/cards/20260828-1627-ISS-232.md) | INFERRED sibling of ISS-232: useHooksCatalog.ts returns an unmemoized array like useSkillsCatalog, … |
 | [ISS-337](../.knowledge/cards/20260828-1900-ISS-337.md) | [FIX-393](../.knowledge/cards/20260829-0325-FIX-393.md), [FIX-398](../.knowledge/cards/20260829-0352-FIX-398.md) | — | Login error motion.div (page.tsx:261-268) has no role=alert/status or aria-live, and focus stays on… |
 | [ISS-338](../.knowledge/cards/20260828-2050-ISS-338.md) | [FIX-398](../.knowledge/cards/20260829-0352-FIX-398.md) | — | AccountSettings.tsx wires a show/hide toggle to Current and New password (L98-99, L292-306) but nev… |
 | [ISS-339](../.knowledge/cards/20260828-1850-ISS-339.md) | [FIX-397](../.knowledge/cards/20260829-0349-FIX-397.md) | — | routes.ts:401-403 parses bare /settings as unknown while next.config.ts:27-28 redirects it server-s… |
@@ -174,7 +178,7 @@ appears here the moment its `status` flips to `resolved`.
 | [ISS-383](../.knowledge/cards/20260828-2021-ISS-383.md) | [FIX-409](../.knowledge/cards/20260829-0449-FIX-409.md) | — | CodeView in SandboxTab.tsx never calls EditorState.readOnly/EditorView.editable despite its own doc… |
 | [ISS-385](../.knowledge/cards/20260828-2225-ISS-385.md) | [FIX-353](../.knowledge/cards/20260828-2353-FIX-353.md) | [ISS-278](../.knowledge/cards/20260828-1700-ISS-278.md) | INFERRED sibling of ISS-278: ChatTokenWidget.tsx:93-124 duplicates the identical uncachedInput-vs-t… |
 | [ISS-386](../.knowledge/cards/20260828-2228-ISS-386.md) | [FIX-359](../.knowledge/cards/20260829-0014-FIX-359.md), [FIX-422](../.knowledge/cards/20260901-1100-FIX-422.md) | — | runStepsAgent(id, agentId) has no version param unlike runSteps/runFiles/runWorkspace/runAudit, tho… |
-| [ISS-387](../.knowledge/cards/20260828-2228-ISS-387.md) | [FIX-359](../.knowledge/cards/20260829-0014-FIX-359.md), [FIX-455](../.knowledge/cards/20260901-1600-FIX-455.md) | — | setSelectedAgentId/setSelectedTaskIndex never push history, so Back after selecting an agent/task s… |
+| [ISS-387](../.knowledge/cards/20260828-2228-ISS-387.md) | [FIX-359](../.knowledge/cards/20260829-0014-FIX-359.md) | — | setSelectedAgentId/setSelectedTaskIndex never push history, so Back after selecting an agent/task s… |
 | [ISS-388](../.knowledge/cards/20260828-2234-ISS-388.md) | [FIX-358](../.knowledge/cards/20260829-0011-FIX-358.md), [FIX-448](../.knowledge/cards/20260901-1530-FIX-448.md) | [ISS-285](../.knowledge/cards/20260828-1745-ISS-285.md) | reopenTabFor has no run-preview-full case, so opening it on a BUILDING run lands on Steps (PreviewP… |
 | [ISS-389](../.knowledge/cards/20260828-2234-ISS-389.md) | [FIX-358](../.knowledge/cards/20260829-0011-FIX-358.md), [FIX-448](../.knowledge/cards/20260901-1530-FIX-448.md) | — | A failed run with 0 hook_runs hits ISS-285's Audit substitution AND AuditTab.tsx:701's own "No audi… |
 | [ISS-390](../.knowledge/cards/20260828-2048-ISS-390.md) | [FIX-357](../.knowledge/cards/20260828-2210-FIX-357.md), [FIX-358](../.knowledge/cards/20260829-0011-FIX-358.md) | — | page.tsx:3035 gates reopenedRunStatus to failed/cancelled/degraded only, so it is always undefined … |
@@ -184,15 +188,16 @@ appears here the moment its `status` flips to `resolved`.
 | [ISS-401](../.knowledge/cards/20260828-2121-ISS-401.md) | [FIX-367](../.knowledge/cards/20260828-2256-FIX-367.md) | [ISS-404](../.knowledge/cards/20260828-2120-ISS-404.md) | INFERRED sibling of ISS-404: admin.py:561 reuses the same false "managed outside" claim for auth_pr… |
 | [ISS-402](../.knowledge/cards/20260828-2121-ISS-402.md) | [FIX-364](../.knowledge/cards/20260829-0041-FIX-364.md), [FIX-423](../.knowledge/cards/20260831-1650-FIX-423.md) | [ISS-293](../.knowledge/cards/20260828-1924-ISS-293.md) | _inject_constitution (factory.py:673-699), called from _compose_system_prompt:586 every run, inject… |
 | [ISS-404](../.knowledge/cards/20260828-2120-ISS-404.md) | [FIX-367](../.knowledge/cards/20260828-2256-FIX-367.md) | — | SecuritySection.tsx:236-239 falsely claims a break-glass/local account's credentials are managed ou… |
-| [ISS-409](../.knowledge/cards/20260828-2148-ISS-409.md) | [FIX-370](../.knowledge/cards/20260829-0116-FIX-370.md), [FIX-451](../.knowledge/cards/20260901-1600-FIX-451.md) | [ISS-301](../.knowledge/cards/20260828-1740-ISS-301.md) | INFERRED sibling of ISS-301: IntegrationsCard.tsx:90's empty catch leaves patStatus/keys at their u… |
+| [ISS-409](../.knowledge/cards/20260828-2148-ISS-409.md) | [FIX-370](../.knowledge/cards/20260829-0116-FIX-370.md) | [ISS-301](../.knowledge/cards/20260828-1740-ISS-301.md) | INFERRED sibling of ISS-301: IntegrationsCard.tsx:90's empty catch leaves patStatus/keys at their u… |
 | [ISS-411](../.knowledge/cards/20260828-2147-ISS-411.md) | [FIX-370](../.knowledge/cards/20260829-0116-FIX-370.md) | [ISS-301](../.knowledge/cards/20260828-1740-ISS-301.md) | INFERRED sibling of ISS-301: loadError\|\|!session (HandoffWorkflow.tsx:216) fires on a failed post… |
 | [ISS-413](../.knowledge/cards/20260828-2357-ISS-413.md) | [FIX-354](../.knowledge/cards/20260828-2357-FIX-354.md), [FIX-406](../.knowledge/cards/20260829-0431-FIX-406.md) | — | run_events.created_at exists on the row but get_run_events returns only seq/event_id/type/payload_j… |
 | [ISS-416](../.knowledge/cards/20260828-2210-ISS-416.md) | [FIX-371](../.knowledge/cards/20260829-0131-FIX-371.md) | — | LibraryPage.tsx:598-604 skills branch of the same cold-mount effect has no isBeta check; unreproduc… |
 | [ISS-430](../.knowledge/cards/20260829-0029-ISS-430.md) | [FIX-361](../.knowledge/cards/20260829-0029-FIX-361.md), [FIX-421](../.knowledge/cards/20260831-FIX-421.md) | — | Deferred half of ISS-292: get_preferences now projects AVAILABLE_MODELS with an allowed flag per ti… |
 | [ISS-433](../.knowledge/cards/20260829-0040-ISS-433.md) | [FIX-378](../.knowledge/cards/20260829-0207-FIX-378.md), [FIX-446](../.knowledge/cards/20260901-1530-FIX-446.md) | [ISS-314](../.knowledge/cards/20260828-1946-ISS-314.md) | PrototypePreview.tsx:502 browser-chrome bar (dots, URL pill, zoom x3, divider, Tweaks, Source, Open… |
+| [ISS-441](../.knowledge/cards/20260828-2257-ISS-441.md) | — | [ISS-318](../.knowledge/cards/20260828-1956-ISS-318.md) | AgentsPopup.tsx:531-532 shadows the propHooks/propAttachHook params with ctx.attachedHooks/ctx.atta… |
 | [ISS-470](../.knowledge/cards/20260828-2310-ISS-470.md) | [FIX-382](../.knowledge/cards/20260829-0223-FIX-382.md), [FIX-439](../.knowledge/cards/20260831-1959-FIX-439.md), [FIX-441](../.knowledge/cards/20260831-2001-FIX-441.md) | — | Same commit-then-refresh(row) shape as ISS-319: a concurrent PUT could report the OTHER PATs github… |
 | [ISS-471](../.knowledge/cards/20260828-2310-ISS-471.md) | [FIX-382](../.knowledge/cards/20260829-0223-FIX-382.md), [FIX-439](../.knowledge/cards/20260831-1959-FIX-439.md), [FIX-441](../.knowledge/cards/20260831-2001-FIX-441.md) | [ISS-319](../.knowledge/cards/20260828-1804-ISS-319.md) | Same race as ISS-319: _to_response(user, db) reads user.tier/is_admin post-refresh, so a concurrent… |
-| [ISS-481](../.knowledge/cards/20260828-2321-ISS-481.md) | [FIX-385](../.knowledge/cards/20260829-0241-FIX-385.md), [FIX-452](../.knowledge/cards/20260901-1600-FIX-452.md) | [ISS-320](../.knowledge/cards/20260828-1802-ISS-320.md) | handleDeletePat/handleRevoke (IntegrationsCard.tsx:123-139/161-176) wired to onClick with zero conf… |
+| [ISS-481](../.knowledge/cards/20260828-2321-ISS-481.md) | [FIX-385](../.knowledge/cards/20260829-0241-FIX-385.md) | [ISS-320](../.knowledge/cards/20260828-1802-ISS-320.md) | handleDeletePat/handleRevoke (IntegrationsCard.tsx:123-139/161-176) wired to onClick with zero conf… |
 | [ISS-482](../.knowledge/cards/20260828-2322-ISS-482.md) | [FIX-385](../.knowledge/cards/20260829-0241-FIX-385.md), [FIX-386](../.knowledge/cards/20260831-1020-FIX-386.md), [FIX-421](../.knowledge/cards/20260831-FIX-421.md) | — | Tabs onChange (AccountSettings.tsx:230-234) unmounts ConstitutionSection, losing its local content … |
 | [ISS-483](../.knowledge/cards/20260829-0133-ISS-483.md) | [FIX-389](../.knowledge/cards/20260829-0253-FIX-389.md) | — | FilesTab.tsx:196-258 forks PreviewPanel's broken markdown-heading regex; Files-tab project.zip down… |
 | [ISS-484](../.knowledge/cards/20260829-0133-ISS-484.md) | [FIX-389](../.knowledge/cards/20260829-0253-FIX-389.md) | — | WorkflowHistory.tsx:74-105 forks the same broken regex; reopened-run IDE preview also lists/downloa… |
@@ -227,6 +232,7 @@ appears here the moment its `status` flips to `resolved`.
 | [ISS-588](../.knowledge/cards/20260829-0257-ISS-588.md) | [FIX-402](../.knowledge/cards/20260829-0414-FIX-402.md) | [ISS-351](../.knowledge/cards/20260828-2103-ISS-351.md) | AppBuilderPreview.tsx:556 sums f.content.length across files for "KB total" — UTF-16 char count, no… |
 | [ISS-589](../.knowledge/cards/20260829-0257-ISS-589.md) | [FIX-402](../.knowledge/cards/20260829-0414-FIX-402.md) | [ISS-351](../.knowledge/cards/20260828-2103-ISS-351.md) | CustomTemplateModal.tsx:80 gates the 2MB cap on text.length and :232/:267 label it "KB" from .lengt… |
 | [ISS-590](../.knowledge/cards/20260829-0113-ISS-590.md) | [FIX-403](../.knowledge/cards/20260829-0216-FIX-403.md) | — | Same AgentSkillsPicker.tsx:280-283 <pre> render is reachable via AgentRow.tsx:267 and AgentsPopup.t… |
+| [ISS-591](../.knowledge/cards/20260829-0114-ISS-591.md) | [FIX-403](../.knowledge/cards/20260829-0216-FIX-403.md), [FIX-458](../.knowledge/cards/20260901-1900-FIX-458.md) | — | SkillDetailModal (LibraryPage.tsx:207-221,285-301) only splits #/##-prefixed lines and -/*/numbered… |
 | [ISS-592](../.knowledge/cards/20260829-0117-ISS-592.md) | [FIX-407](../.knowledge/cards/20260829-0441-FIX-407.md), [FIX-442](../.knowledge/cards/20260901-FIX-442.md) | [ISS-360](../.knowledge/cards/20260828-1917-ISS-360.md) | routes.libraryAgent(slug) builds a bare /library/agents/<id> path with no query string; the router.… |
 | [ISS-593](../.knowledge/cards/20260829-0117-ISS-593.md) | [FIX-407](../.knowledge/cards/20260829-0441-FIX-407.md), [FIX-442](../.knowledge/cards/20260901-FIX-442.md) | [ISS-360](../.knowledge/cards/20260828-1917-ISS-360.md) | routes.librarySkill(slug) builds a bare /library/skills/<id> path with no query string; the router.… |
 | [ISS-594](../.knowledge/cards/20260829-0117-ISS-594.md) | [FIX-407](../.knowledge/cards/20260829-0441-FIX-407.md), [FIX-442](../.knowledge/cards/20260901-FIX-442.md) | — | T16 effect (LibraryPage.tsx:643-665) only clears selectedAgent/Skill/Hook on a URL change; it never… |
@@ -237,6 +243,7 @@ appears here the moment its `status` flips to `resolved`.
 | [ISS-599](../.knowledge/cards/20260829-0340-ISS-599.md) | [FIX-395](../.knowledge/cards/20260829-0338-FIX-395.md), [FIX-449](../.knowledge/cards/20260901-1530-FIX-449.md) | — | ArtifactCard/MessageBubble catch-and-console.error only, and artifactPreview.tsx:406 + PreviewPanel… |
 | [ISS-600](../.knowledge/cards/20260829-0341-ISS-600.md) | [FIX-395](../.knowledge/cards/20260829-0338-FIX-395.md), [FIX-451](../.knowledge/cards/20260901-1600-FIX-451.md), [FIX-453](../.knowledge/cards/20260901-1600-FIX-453.md) | — | useParams: () => ({}) makes LibraryPage's T16 URL-sync effect close the detail modal before the Cop… |
 | [ISS-601](../.knowledge/cards/20260829-0138-ISS-601.md) | [FIX-410](../.knowledge/cards/20260829-0249-FIX-410.md) | — | user_workflows.py never strips payload.name, unlike user_agents.py's create/update handlers -- ever… |
+| [ISS-605](../.knowledge/cards/20260829-0216-ISS-605.md) | [FIX-403](../.knowledge/cards/20260829-0216-FIX-403.md), [FIX-458](../.knowledge/cards/20260901-1900-FIX-458.md) | — | Assertion 2 scans the whole [role=dialog], which always contains the modal's intentional raw SKILL.… |
 | [ISS-606](../.knowledge/cards/20260829-1412-ISS-606.md) | [FIX-334](../.knowledge/cards/20260828-2149-FIX-334.md), [FIX-411](../.knowledge/cards/20260829-1646-FIX-411.md), [FIX-450](../.knowledge/cards/20260901-1530-FIX-450.md) | — | AgentThinkingTab (Steps tab) and FilesTab agent-outputs list get raw agentOutputs/agents/pipelineSt… |
 | [ISS-607](../.knowledge/cards/20260829-1450-ISS-607.md) | [FIX-412](../.knowledge/cards/20260829-1703-FIX-412.md), [FIX-417](../.knowledge/cards/20260831-0110-FIX-417.md) | — | Version-switch no-op from base /steps: handleSelectVersion (PreviewPanel.tsx:579) treats the newest… |
 | [ISS-608](../.knowledge/cards/20260829-1421-ISS-608.md) | [FIX-411](../.knowledge/cards/20260829-1646-FIX-411.md) | — | AppBuilderIDEPreview/GenericDeliverablePreview (PreviewPanel.tsx:1085,1160,1186) and SandboxTab age… |
@@ -288,7 +295,6 @@ change applied at the sibling's line. Send them straight to **fix**.
 | [ISS-326](../.knowledge/cards/20260828-ISS-326.md) | [FIX-388](../.knowledge/cards/20260829-0053-FIX-388.md) | [ISS-489](../.knowledge/cards/20260829-0150-ISS-489.md), [ISS-491](../.knowledge/cards/20260829-0149-ISS-491.md) | AgentSkillsPicker skill-detail modal (AgentSkillsPicker.tsx:251-289) has role="dialog" but zero Escape handli… |
 | [ISS-097](../.knowledge/cards/20260812-1153-ISS-097.md) | [FIX-242](../.knowledge/cards/20260812-2116-FIX-242.md), [FIX-424](../.knowledge/cards/20260831-1652-FIX-424.md) | [ISS-132](../.knowledge/cards/20260812-2116-ISS-132.md) | task_loop.py never passes invocation_gated, so ticking a task-loop agent opens one sequential review gate per… |
 | [ISS-225](../.knowledge/cards/20260828-1541-ISS-225.md) | [FIX-285](../.knowledge/cards/20260824-1621-FIX-285.md), [FIX-336](../.knowledge/cards/20260828-2201-FIX-336.md), [FIX-337](../.knowledge/cards/20260828-2210-FIX-337.md) | [ISS-263](../.knowledge/cards/20260828-1811-ISS-263.md) | INFERRED sibling of ISS-225: selections-only save skips R-03 entirely on empty selections, and synthesize_man… |
-| [ISS-232](../.knowledge/cards/20260828-1627-ISS-232.md) | [FIX-340](../.knowledge/cards/20260828-2230-FIX-340.md) | [ISS-336](../.knowledge/cards/20260828-1846-ISS-336.md) | INFERRED sibling of ISS-232: useHooksCatalog.ts returns an unmemoized array like useSkillsCatalog, so the sha… |
 | [ISS-244](../.knowledge/cards/20260828-1634-ISS-244.md) | [FIX-341](../.knowledge/cards/20260828-2236-FIX-341.md), [FIX-398](../.knowledge/cards/20260829-0352-FIX-398.md) | [ISS-342](../.knowledge/cards/20260828-2059-ISS-342.md) | INFERRED sibling of ISS-244: login/page.tsx ChallengeForm (L453/469/495/514 onChanges) never clears error set… |
 | [ISS-246](../.knowledge/cards/20260828-1657-ISS-246.md) | [FIX-348](../.knowledge/cards/20260828-2321-FIX-348.md) | [ISS-368](../.knowledge/cards/20260828-1927-ISS-368.md) | The Advanced modal "Reset to default" button (CanvasView.tsx:2249) is also disabled via !onRunConfigChange/!o… |
 | [ISS-247](../.knowledge/cards/20260828-1637-ISS-247.md) | [FIX-346](../.knowledge/cards/20260828-2314-FIX-346.md), [FIX-377](../.knowledge/cards/20260829-0158-FIX-377.md) | [ISS-361](../.knowledge/cards/20260828-2120-ISS-361.md) | INFERRED sibling of ISS-247: LaunchWizard.tsx:1046/583-584/243 wires the same ReviewGatesSection to its own g… |
@@ -318,15 +324,6 @@ Saved workflow's launch panel discards the override fetch — generic base-type 
 | [ISS-228](../.knowledge/cards/20260828-1758-ISS-228.md) | `frontend/src/components/workflow/LaunchWizard.tsx` | On /workflows/{id}/run, LaunchWizard.tsx fires GET /api/user-workflows/{id} and GET /api/workflows/{base_pipeline_type} in parall… |
 | [ISS-283](../.knowledge/cards/20260828-1905-ISS-283.md) | `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/workflow/LaunchWizard.tsx` | INFERRED sibling of ISS-228: handleLaunchSaved seeds the same {mode}.draft via /workflow/create, hitting the identical pipelineAg… |
 | [ISS-284](../.knowledge/cards/20260828-1906-ISS-284.md) | `frontend/src/components/workflow/LaunchWizard.tsx` | INFERRED sibling of ISS-228: handleSave/handleSaveAsOverride (LaunchWizard.tsx:703,737) send pipelineAgents as agent_ids, so savi… |
-
-### [ISS-318](../.knowledge/cards/20260828-1956-ISS-318.md) + 1 sibling(s)
-
-Library agent detail Skills tab shows persistent-looking Add feedback but only mirrors into an in-memory ref, lost on reload
-
-| card | fix site | summary |
-|---|---|---|
-| [ISS-318](../.knowledge/cards/20260828-1956-ISS-318.md) | `frontend/src/components/library/LibraryPage.tsx`, `frontend/src/components/workflow/AgentsPopup.tsx`, `frontend/src/components/workflow/composer/AgentSkillsPicker.tsx` | LibraryPage passes onSkillsChange to AgentCapabilitiesModal, which forces AgentSkillsPicker readOnly=false against its own doc co… |
-| [ISS-441](../.knowledge/cards/20260828-2257-ISS-441.md) | `frontend/src/app/layout.tsx`, `frontend/src/components/library/LibraryPage.tsx`, `frontend/src/components/workflow/AgentsPopup.tsx`, `frontend/src/context/SkillsHooksContext.tsx` | AgentsPopup.tsx:531-532 shadows the propHooks/propAttachHook params with ctx.attachedHooks/ctx.attachHook unconditionally, so the… |
 
 ### [ISS-392](../.knowledge/cards/20260828-2250-ISS-392.md) + 1 sibling(s)
 
@@ -370,9 +367,9 @@ line can trip on each. Batch them onto one worker; keep the rows separate.
 | class | cards |
 |---|---|
 | stale-state | 25: [BUG-006-007-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1520-BUG-006-007-GROUNDED-CONTEXT.md), [BUG-008-011-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1636-BUG-008-011-GROUNDED-CONTEXT.md), [BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT](../.knowledge/cards/20260716-2036-BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT.md), [BUG-012-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1725-BUG-012-GROUNDED-CONTEXT.md), [BUG-014-GROUNDED-CONTEXT](../.knowledge/cards/20260716-2156-BUG-014-GROUNDED-CONTEXT.md), [BUG-021-GROUNDED-CONTEXT](../.knowledge/cards/20260717-2113-BUG-021-GROUNDED-CONTEXT.md), [ISS-076](../.knowledge/cards/20260812-0212-ISS-076.md), [ISS-079](../.knowledge/cards/20260812-0236-ISS-079.md), [ISS-096](../.knowledge/cards/20260812-1120-ISS-096.md), [ISS-104](../.knowledge/cards/20260812-1312-ISS-104.md), [ISS-143](../.knowledge/cards/20260813-0205-ISS-143.md), [ISS-145](../.knowledge/cards/20260813-0205-ISS-145.md), [ISS-180](../.knowledge/cards/20260825-2115-ISS-180.md), [ISS-209](../.knowledge/cards/20260828-1617-ISS-209.md), [ISS-342](../.knowledge/cards/20260828-2059-ISS-342.md), [ISS-347](../.knowledge/cards/20260828-2058-ISS-347.md), [ISS-399](../.knowledge/cards/20260828-2308-ISS-399.md), [ISS-412](../.knowledge/cards/20260828-2343-ISS-412.md), [ISS-438](../.knowledge/cards/20260829-0056-ISS-438.md), [ISS-439](../.knowledge/cards/20260829-0057-ISS-439.md), [ISS-440](../.knowledge/cards/20260829-0058-ISS-440.md), [ISS-630](../.knowledge/cards/20260831-0115-ISS-630.md), [ISS-632](../.knowledge/cards/20260831-0115-ISS-632.md), [ISS-638](../.knowledge/cards/20260831-0115-ISS-638.md), [ISS-642](../.knowledge/cards/20260831-1842-ISS-642.md) |
-| silent-discard | 8: [BUG-036](../.knowledge/cards/20260829-1508-BUG-036.md), [BUG-073](../.knowledge/cards/20260829-1508-BUG-073.md), [BUG-095](../.knowledge/cards/20260829-1508-BUG-095.md), [BUG-106](../.knowledge/cards/20260829-1508-BUG-106.md), [BUG-CWF-002-custom-workflow](../.knowledge/cards/20260803-BUG-CWF-002-custom-workflow.md), [ISS-263](../.knowledge/cards/20260828-1811-ISS-263.md), [ISS-318](../.knowledge/cards/20260828-1956-ISS-318.md), [ISS-431](../.knowledge/cards/20260829-0038-ISS-431.md) |
+| silent-discard | 7: [BUG-036](../.knowledge/cards/20260829-1508-BUG-036.md), [BUG-073](../.knowledge/cards/20260829-1508-BUG-073.md), [BUG-095](../.knowledge/cards/20260829-1508-BUG-095.md), [BUG-106](../.knowledge/cards/20260829-1508-BUG-106.md), [BUG-CWF-002-custom-workflow](../.knowledge/cards/20260803-BUG-CWF-002-custom-workflow.md), [ISS-263](../.knowledge/cards/20260828-1811-ISS-263.md), [ISS-431](../.knowledge/cards/20260829-0038-ISS-431.md) |
 | confirm-dialog | 6: [ISS-371](../.knowledge/cards/20260828-2140-ISS-371.md), [ISS-372](../.knowledge/cards/20260828-2141-ISS-372.md), [ISS-414](../.knowledge/cards/20260828-2202-ISS-414.md), [ISS-415](../.knowledge/cards/20260828-2202-ISS-415.md), [ISS-480](../.knowledge/cards/20260828-2320-ISS-480.md), [ISS-622](../.knowledge/cards/20260831-0115-ISS-622.md) |
-| keyboard-a11y | 5: [BUG-104](../.knowledge/cards/20260829-1508-BUG-104.md), [ISS-431](../.knowledge/cards/20260829-0038-ISS-431.md), [ISS-489](../.knowledge/cards/20260829-0150-ISS-489.md), [ISS-491](../.knowledge/cards/20260829-0149-ISS-491.md), [ISS-605](../.knowledge/cards/20260829-0216-ISS-605.md) |
+| keyboard-a11y | 4: [BUG-104](../.knowledge/cards/20260829-1508-BUG-104.md), [ISS-431](../.knowledge/cards/20260829-0038-ISS-431.md), [ISS-489](../.knowledge/cards/20260829-0150-ISS-489.md), [ISS-491](../.knowledge/cards/20260829-0149-ISS-491.md) |
 | route-depth | 3: [ISS-348](../.knowledge/cards/20260828-2102-ISS-348.md), [ISS-349](../.knowledge/cards/20260828-2102-ISS-349.md), [ISS-350](../.knowledge/cards/20260828-2102-ISS-350.md) |
 | double-submit | 1: [ISS-352](../.knowledge/cards/20260828-2101-ISS-352.md) |
 | list-cap | 1: [BUG-037](../.knowledge/cards/20260829-1508-BUG-037.md) |
@@ -405,20 +402,20 @@ no possibility of collision. Rounds run one after another.**
 
 | round | batches | cards |
 |---|---|---|
-| 1 | 14 — all concurrent | 80 |
+| 1 | 13 — all concurrent | 76 |
 | 2 | 4 — all concurrent | 42 |
-| 3 | 6 — all concurrent | 27 |
-| 4 | 6 — all concurrent | 25 |
+| 3 | 7 — all concurrent | 32 |
+| 4 | 4 — all concurrent | 17 |
 | 5 | 1 — all concurrent | 4 |
 
-**25 multi-card batches** carry 172 of the 178 cards.
+**24 multi-card batches** carry 166 of the 171 cards.
 
 ### Domains — each block is one coherent area of the app
 
 | domain | cards | batches | earliest round |
 |---|---|---|---|
+| [frontend · workflow](#frontend--workflow) | 26 | 3 | 1 |
 | [frontend · layout](#frontend--layout) | 23 | 2 | 1 |
-| [frontend · workflow](#frontend--workflow) | 22 | 3 | 2 |
 | [backend · api](#backend--api) | 22 | 4 | 1 |
 | [frontend · unplaced](#frontend--unplaced) | 18 | 1 | 1 |
 | [backend · other](#backend--other) | 17 | 3 | 1 |
@@ -426,7 +423,6 @@ no possibility of collision. Rounds run one after another.**
 | [frontend · composer](#frontend--composer) | 14 | 2 | 3 |
 | [frontend · history](#frontend--history) | 13 | 1 | 2 |
 | [frontend · routes](#frontend--routes) | 13 | 5 | 1 |
-| [frontend · library](#frontend--library) | 11 | 2 | 1 |
 | [backend · unplaced](#backend--unplaced) | 3 | 1 | 1 |
 | [frontend · components](#frontend--components) | 2 | 1 | 4 |
 | [backend · engine](#backend--engine) | 1 | 1 | 1 |
@@ -438,6 +434,16 @@ Every card carries a domain — there is no uncategorised bucket. A row marked
 *fix site not recorded* is still domain-placed; what it lacks is a file, so it
 cannot be collision-checked and must be triaged before it is scheduled.
 
+#### frontend · workflow
+
+26 cards across 3 batch(es).
+
+| round | fix site | cards | members |
+|---|---|---|---|
+| 1 | `frontend/src/components/workflow/AgentsPopup.tsx` | 7 | [BUG-073](../.knowledge/cards/20260829-1508-BUG-073.md), [BUG-095](../.knowledge/cards/20260829-1508-BUG-095.md), [ISS-368](../.knowledge/cards/20260828-1927-ISS-368.md), [ISS-378](../.knowledge/cards/20260828-2006-ISS-378.md), [ISS-392](../.knowledge/cards/20260828-2250-ISS-392.md), [ISS-399](../.knowledge/cards/20260828-2308-ISS-399.md), [ISS-491](../.knowledge/cards/20260829-0149-ISS-491.md) |
+| 2 | `frontend/src/components/workflow/LaunchWizard.tsx` | 16 | [BUG-048](../.knowledge/cards/20260829-1508-BUG-048.md), [ISS-189](../.knowledge/cards/20260828-1457-ISS-189.md), [ISS-197](../.knowledge/cards/20260828-1559-ISS-197.md), [ISS-217](../.knowledge/cards/20260828-1649-ISS-217.md), [ISS-228](../.knowledge/cards/20260828-1758-ISS-228.md), [ISS-284](../.knowledge/cards/20260828-1906-ISS-284.md), [ISS-361](../.knowledge/cards/20260828-2120-ISS-361.md), [ISS-362](../.knowledge/cards/20260828-2121-ISS-362.md), [ISS-364](../.knowledge/cards/20260828-2130-ISS-364.md), [ISS-365](../.knowledge/cards/20260828-2131-ISS-365.md), [ISS-366](../.knowledge/cards/20260828-2132-ISS-366.md), [ISS-377](../.knowledge/cards/20260828-2202-ISS-377.md), [ISS-384](../.knowledge/cards/20260828-2221-ISS-384.md), [ISS-421](../.knowledge/cards/20260829-0020-ISS-421.md), [ISS-423](../.knowledge/cards/20260829-0026-ISS-423.md), [ISS-429](../.knowledge/cards/20260829-0022-ISS-429.md) |
+| 3 | **frontend · workflow** | 3 | [ISS-420](../.knowledge/cards/20260829-0021-ISS-420.md), [ISS-480](../.knowledge/cards/20260828-2320-ISS-480.md), [ISS-603](../.knowledge/cards/20260829-0402-ISS-603.md) |
+
 #### frontend · layout
 
 23 cards across 2 batch(es).
@@ -447,16 +453,6 @@ cannot be collision-checked and must be triaged before it is scheduled.
 | 1 | `frontend/src/components/layout/DashboardLayout.tsx` | 22 | [BUG-006-007-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1520-BUG-006-007-GROUNDED-CONTEXT.md), [BUG-008-011-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1636-BUG-008-011-GROUNDED-CONTEXT.md), [BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT](../.knowledge/cards/20260716-2036-BUG-012-FOLLOWUP-LABEL-GROUNDED-CONTEXT.md), [BUG-012-GROUNDED-CONTEXT](../.knowledge/cards/20260716-1725-BUG-012-GROUNDED-CONTEXT.md), [BUG-014-GROUNDED-CONTEXT](../.knowledge/cards/20260716-2156-BUG-014-GROUNDED-CONTEXT.md), [BUG-019-020-GROUNDED-CONTEXT](../.knowledge/cards/20260717-2007-BUG-019-020-GROUNDED-CONTEXT.md), [BUG-DEF-44-12-4-GROUNDED-CONTEXT](../.knowledge/cards/20260716-0952-BUG-DEF-44-12-4-GROUNDED-CONTEXT.md), [ISS-136](../.knowledge/cards/20260813-0005-ISS-136.md), [ISS-252](../.knowledge/cards/20260828-1847-ISS-252.md), [ISS-283](../.knowledge/cards/20260828-1905-ISS-283.md), [ISS-346](../.knowledge/cards/20260828-2058-ISS-346.md), [ISS-347](../.knowledge/cards/20260828-2058-ISS-347.md), [ISS-348](../.knowledge/cards/20260828-2102-ISS-348.md), [ISS-349](../.knowledge/cards/20260828-2102-ISS-349.md), [ISS-371](../.knowledge/cards/20260828-2140-ISS-371.md), [ISS-372](../.knowledge/cards/20260828-2141-ISS-372.md), [ISS-373](../.knowledge/cards/20260828-2142-ISS-373.md), [ISS-432](../.knowledge/cards/20260829-0039-ISS-432.md), [ISS-472](../.knowledge/cards/20260829-0110-ISS-472.md), [ISS-473](../.knowledge/cards/20260829-0111-ISS-473.md), [ISS-474](../.knowledge/cards/20260829-0112-ISS-474.md), [ISS-622](../.knowledge/cards/20260831-0115-ISS-622.md) |
 | 2 | **frontend · layout** | 1 | [ISS-143](../.knowledge/cards/20260813-0205-ISS-143.md) |
 
-#### frontend · workflow
-
-22 cards across 3 batch(es).
-
-| round | fix site | cards | members |
-|---|---|---|---|
-| 2 | `frontend/src/components/workflow/LaunchWizard.tsx` | 16 | [BUG-048](../.knowledge/cards/20260829-1508-BUG-048.md), [ISS-189](../.knowledge/cards/20260828-1457-ISS-189.md), [ISS-197](../.knowledge/cards/20260828-1559-ISS-197.md), [ISS-217](../.knowledge/cards/20260828-1649-ISS-217.md), [ISS-228](../.knowledge/cards/20260828-1758-ISS-228.md), [ISS-284](../.knowledge/cards/20260828-1906-ISS-284.md), [ISS-361](../.knowledge/cards/20260828-2120-ISS-361.md), [ISS-362](../.knowledge/cards/20260828-2121-ISS-362.md), [ISS-364](../.knowledge/cards/20260828-2130-ISS-364.md), [ISS-365](../.knowledge/cards/20260828-2131-ISS-365.md), [ISS-366](../.knowledge/cards/20260828-2132-ISS-366.md), [ISS-377](../.knowledge/cards/20260828-2202-ISS-377.md), [ISS-384](../.knowledge/cards/20260828-2221-ISS-384.md), [ISS-421](../.knowledge/cards/20260829-0020-ISS-421.md), [ISS-423](../.knowledge/cards/20260829-0026-ISS-423.md), [ISS-429](../.knowledge/cards/20260829-0022-ISS-429.md) |
-| 4 | `frontend/src/components/workflow/AgentsPopup.tsx` | 3 | [ISS-368](../.knowledge/cards/20260828-1927-ISS-368.md), [ISS-399](../.knowledge/cards/20260828-2308-ISS-399.md), [ISS-491](../.knowledge/cards/20260829-0149-ISS-491.md) |
-| 4 | **frontend · workflow** | 3 | [ISS-420](../.knowledge/cards/20260829-0021-ISS-420.md), [ISS-480](../.knowledge/cards/20260828-2320-ISS-480.md), [ISS-603](../.knowledge/cards/20260829-0402-ISS-603.md) |
-
 #### backend · api
 
 22 cards across 4 batch(es).
@@ -464,8 +460,8 @@ cannot be collision-checked and must be triaged before it is scheduled.
 | round | fix site | cards | members |
 |---|---|---|---|
 | 1 | **backend · api** | 2 | [ISS-134](../.knowledge/cards/20260812-2140-ISS-134.md), [ISS-419](../.knowledge/cards/20260829-0022-ISS-419.md) |
+| 3 | `backend/app/api/run_commands.py` | 13 | [ISS-100](../.knowledge/cards/20260812-1232-ISS-100.md), [ISS-104](../.knowledge/cards/20260812-1312-ISS-104.md), [ISS-119](../.knowledge/cards/20260812-1612-ISS-119.md), [ISS-127](../.knowledge/cards/20260812-2045-ISS-127.md), [ISS-128](../.knowledge/cards/20260812-2046-ISS-128.md), [ISS-154](../.knowledge/cards/20260813-0819-ISS-154.md), [ISS-161](../.knowledge/cards/20260813-1300-ISS-161.md), [ISS-398](../.knowledge/cards/20260828-2106-ISS-398.md), [ISS-418](../.knowledge/cards/20260828-2231-ISS-418.md), [ISS-422](../.knowledge/cards/20260829-0027-ISS-422.md), [ISS-435](../.knowledge/cards/20260828-2253-ISS-435.md), [ISS-436](../.knowledge/cards/20260828-2253-ISS-436.md), [ISS-437](../.knowledge/cards/20260828-2253-ISS-437.md) |
 | 3 | `backend/app/api/run_stream.py` | 3 | [BUG-015-016-GROUNDED-CONTEXT](../.knowledge/cards/20260717-0057-BUG-015-016-GROUNDED-CONTEXT.md), [ISS-105](../.knowledge/cards/20260812-1312-ISS-105.md), [ISS-137](../.knowledge/cards/20260813-0005-ISS-137.md) |
-| 4 | `backend/app/api/run_commands.py` | 13 | [ISS-100](../.knowledge/cards/20260812-1232-ISS-100.md), [ISS-104](../.knowledge/cards/20260812-1312-ISS-104.md), [ISS-119](../.knowledge/cards/20260812-1612-ISS-119.md), [ISS-127](../.knowledge/cards/20260812-2045-ISS-127.md), [ISS-128](../.knowledge/cards/20260812-2046-ISS-128.md), [ISS-154](../.knowledge/cards/20260813-0819-ISS-154.md), [ISS-161](../.knowledge/cards/20260813-1300-ISS-161.md), [ISS-398](../.knowledge/cards/20260828-2106-ISS-398.md), [ISS-418](../.knowledge/cards/20260828-2231-ISS-418.md), [ISS-422](../.knowledge/cards/20260829-0027-ISS-422.md), [ISS-435](../.knowledge/cards/20260828-2253-ISS-435.md), [ISS-436](../.knowledge/cards/20260828-2253-ISS-436.md), [ISS-437](../.knowledge/cards/20260828-2253-ISS-437.md) |
 | 5 | `backend/app/api/user_workflows.py` | 4 | [ISS-180](../.knowledge/cards/20260825-2115-ISS-180.md), [ISS-181](../.knowledge/cards/20260825-2115-ISS-181.md), [ISS-263](../.knowledge/cards/20260828-1811-ISS-263.md), [ISS-381](../.knowledge/cards/20260828-2210-ISS-381.md) |
 
 #### frontend · unplaced
@@ -484,7 +480,7 @@ cannot be collision-checked and must be triaged before it is scheduled.
 |---|---|---|---|
 | 1 | **backend · other** | 12 | [ISS-079](../.knowledge/cards/20260812-0236-ISS-079.md), [ISS-096](../.knowledge/cards/20260812-1120-ISS-096.md), [ISS-130](../.knowledge/cards/20260812-2116-ISS-130.md), [ISS-132](../.knowledge/cards/20260812-2116-ISS-132.md), [ISS-156](../.knowledge/cards/20260813-1300-ISS-156.md), [ISS-630](../.knowledge/cards/20260831-0115-ISS-630.md), [ISS-632](../.knowledge/cards/20260831-0115-ISS-632.md), [ISS-634](../.knowledge/cards/20260831-0115-ISS-634.md), [ISS-638](../.knowledge/cards/20260831-0115-ISS-638.md), [ISS-640](../.knowledge/cards/20260831-1814-ISS-640.md), [ISS-641](../.knowledge/cards/20260831-1818-ISS-641.md), [ISS-642](../.knowledge/cards/20260831-1842-ISS-642.md) |
 | 1 | `backend/agents/workflows/ex_A3_divert/workflow.yaml` | 2 | [ISS-173](../.knowledge/cards/20260825-0955-ISS-173.md), [ISS-174](../.knowledge/cards/20260825-0956-ISS-174.md) |
-| 3 | `backend/agents/execution_engine/engine.py` | 3 | [ADR-0002](../.knowledge/cards/20260811-ADR-0002.md), [ISS-094](../.knowledge/cards/20260812-1120-ISS-094.md), [ISS-639](../.knowledge/cards/20260831-1645-ISS-639.md) |
+| 4 | `backend/agents/execution_engine/engine.py` | 3 | [ADR-0002](../.knowledge/cards/20260811-ADR-0002.md), [ISS-094](../.knowledge/cards/20260812-1120-ISS-094.md), [ISS-639](../.knowledge/cards/20260831-1645-ISS-639.md) |
 
 #### frontend · hooks
 
@@ -501,8 +497,8 @@ cannot be collision-checked and must be triaged before it is scheduled.
 
 | round | fix site | cards | members |
 |---|---|---|---|
-| 3 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | 11 | [ISS-183](../.knowledge/cards/20260825-2115-ISS-183.md), [ISS-192](../.knowledge/cards/20260828-1345-ISS-192.md), [ISS-223](../.knowledge/cards/20260828-1735-ISS-223.md), [ISS-333](../.knowledge/cards/20260828-2044-ISS-333.md), [ISS-334](../.knowledge/cards/20260828-2045-ISS-334.md), [ISS-340](../.knowledge/cards/20260828-1856-ISS-340.md), [ISS-353](../.knowledge/cards/20260828-2102-ISS-353.md), [ISS-393](../.knowledge/cards/20260828-2251-ISS-393.md), [ISS-410](../.knowledge/cards/20260828-2344-ISS-410.md), [ISS-431](../.knowledge/cards/20260829-0038-ISS-431.md), [ISS-604](../.knowledge/cards/20260829-0207-ISS-604.md) |
 | 3 | **frontend · composer** | 3 | [ISS-178](../.knowledge/cards/20260825-1131-ISS-178.md), [ISS-382](../.knowledge/cards/20260828-2008-ISS-382.md), [ISS-489](../.knowledge/cards/20260829-0150-ISS-489.md) |
+| 4 | `frontend/src/components/workflow/composer/ComposerPage.tsx` | 11 | [ISS-183](../.knowledge/cards/20260825-2115-ISS-183.md), [ISS-192](../.knowledge/cards/20260828-1345-ISS-192.md), [ISS-223](../.knowledge/cards/20260828-1735-ISS-223.md), [ISS-333](../.knowledge/cards/20260828-2044-ISS-333.md), [ISS-334](../.knowledge/cards/20260828-2045-ISS-334.md), [ISS-340](../.knowledge/cards/20260828-1856-ISS-340.md), [ISS-353](../.knowledge/cards/20260828-2102-ISS-353.md), [ISS-393](../.knowledge/cards/20260828-2251-ISS-393.md), [ISS-410](../.knowledge/cards/20260828-2344-ISS-410.md), [ISS-431](../.knowledge/cards/20260829-0038-ISS-431.md), [ISS-604](../.knowledge/cards/20260829-0207-ISS-604.md) |
 
 #### frontend · history
 
@@ -519,19 +515,10 @@ cannot be collision-checked and must be triaged before it is scheduled.
 | round | fix site | cards | members |
 |---|---|---|---|
 | 1 | `frontend/src/app/login/page.tsx` | 3 | [ISS-342](../.knowledge/cards/20260828-2059-ISS-342.md), [ISS-352](../.knowledge/cards/20260828-2101-ISS-352.md), [ISS-602](../.knowledge/cards/20260829-0353-ISS-602.md) |
-| 1 | `frontend/src/app/admin/page.tsx` | 2 | [ISS-405](../.knowledge/cards/20260828-2324-ISS-405.md), [ISS-415](../.knowledge/cards/20260828-2202-ISS-415.md) |
 | 1 | `frontend/src/app/workflow/page.tsx` | 2 | [ISS-492](../.knowledge/cards/20260829-0150-ISS-492.md), [ISS-579](../.knowledge/cards/20260829-0234-ISS-579.md) |
+| 1 | `frontend/src/app/admin/page.tsx` | 2 | [ISS-405](../.knowledge/cards/20260828-2324-ISS-405.md), [ISS-415](../.knowledge/cards/20260828-2202-ISS-415.md) |
+| 3 | `frontend/src/app/[...view]/page.tsx` | 3 | [ISS-195](../.knowledge/cards/20260828-1558-ISS-195.md), [ISS-350](../.knowledge/cards/20260828-2102-ISS-350.md), [ISS-624](../.knowledge/cards/20260831-0115-ISS-624.md) |
 | 3 | **frontend · routes** | 3 | [ISS-376](../.knowledge/cards/20260828-2152-ISS-376.md), [ISS-407](../.knowledge/cards/20260828-2343-ISS-407.md), [ISS-442](../.knowledge/cards/20260829-0106-ISS-442.md) |
-| 4 | `frontend/src/app/[...view]/page.tsx` | 3 | [ISS-195](../.knowledge/cards/20260828-1558-ISS-195.md), [ISS-350](../.knowledge/cards/20260828-2102-ISS-350.md), [ISS-624](../.knowledge/cards/20260831-0115-ISS-624.md) |
-
-#### frontend · library
-
-11 cards across 2 batch(es).
-
-| round | fix site | cards | members |
-|---|---|---|---|
-| 1 | `frontend/src/components/library/LibraryPage.tsx` | 10 | [BUG-073](../.knowledge/cards/20260829-1508-BUG-073.md), [BUG-095](../.knowledge/cards/20260829-1508-BUG-095.md), [ISS-318](../.knowledge/cards/20260828-1956-ISS-318.md), [ISS-330](../.knowledge/cards/20260828-2041-ISS-330.md), [ISS-335](../.knowledge/cards/20260828-2040-ISS-335.md), [ISS-336](../.knowledge/cards/20260828-1846-ISS-336.md), [ISS-378](../.knowledge/cards/20260828-2006-ISS-378.md), [ISS-392](../.knowledge/cards/20260828-2250-ISS-392.md), [ISS-441](../.knowledge/cards/20260828-2257-ISS-441.md), [ISS-591](../.knowledge/cards/20260829-0114-ISS-591.md) |
-| 1 | **frontend · library** | 1 | [ISS-605](../.knowledge/cards/20260829-0216-ISS-605.md) |
 
 #### backend · unplaced
 
@@ -583,7 +570,7 @@ cannot be collision-checked and must be triaged before it is scheduled.
 
 ## Tier C — no kin found
 
-118 cards with no declared sibling and no same-file/same-class neighbour.
+114 cards with no declared sibling and no same-file/same-class neighbour.
 Each is its own unit of work.
 
 | card | fix site | summary |
@@ -665,10 +652,8 @@ Each is its own unit of work.
 | [ISS-223](../.knowledge/cards/20260828-1735-ISS-223.md) | `backend/agents/capabilities/deliverables/ppt.py`, `backend/agents/workflows/compiler.py`, `backend/app/api/user_workflows.py`, `frontend/src/components/workflow/composer/ComposerPage.tsx` | `deliverable/ppt` is registered without user_allowed, so `_validated_manifest` compiles at trust="db" and 422s any save… |
 | [ISS-252](../.knowledge/cards/20260828-1847-ISS-252.md) | `frontend/src/components/layout/DashboardLayout.tsx` | DashboardLayout.tsx:2347 and :2160 test effectiveReviseType against "ppt"/"ppt_revision" only, so a ppt_v2 run reads us… |
 | [ISS-325](../.knowledge/cards/20260828-2014-ISS-325.md) | `frontend/src/components/history/WorkflowHistory.tsx`, `tests/integration/e2e/suites/21_run_families_and_versions/test_run_families_and_versions.py` | RH.chip_count times out on `^Presentation\s*\d` at /runs; the test asserts named == rows == All, an equality its docstr… |
-| [ISS-330](../.knowledge/cards/20260828-2041-ISS-330.md) | `frontend/src/components/library/LibraryPage.tsx`, `frontend/src/store/slices/agentsSlice.ts` | agentsStatus/skillsStatus/hooksStatus only branch on "loading" (LibraryPage.tsx:732,793,815,893,911); "failed" falls th… |
 | [ISS-333](../.knowledge/cards/20260828-2044-ISS-333.md) | `frontend/src/components/home/CreationHub.tsx`, `frontend/src/components/workflow/composer/CanvasView.tsx`, `frontend/src/components/workflow/composer/ComposerPage.tsx` | ComposerPage.handleRunOnce (ComposerPage.tsx:939) has no pipelineAgents.length===0 guard -- a fresh custom canvas start… |
 | [ISS-334](../.knowledge/cards/20260828-2045-ISS-334.md) | `frontend/src/app/[...view]/page.tsx`, `frontend/src/components/workflow/composer/ComposerPage.tsx` | page.tsx:494-496 catches ANY getWorkflowDetail failure, not just 404, so a transient error on a REAL workflow id reache… |
-| [ISS-335](../.knowledge/cards/20260828-2040-ISS-335.md) | `frontend/src/components/library/LibraryPage.tsx` | Same missing length===0 branch (LibraryPage.tsx:735/818/914) reachable via activeCategory/skillCategory/hookEvent alone… |
 | [ISS-340](../.knowledge/cards/20260828-1856-ISS-340.md) | `frontend/src/components/workflow/composer/CanvasView.tsx`, `frontend/src/components/workflow/composer/ComposerPage.tsx`, `frontend/src/components/workflow/composer/IdentityCard.tsx` | PPT deliverable type: Simple hardcodes "Custom" (ComposerPage.tsx:478); Canvas derives it from runConfig (CanvasView.ts… |
 | [ISS-346](../.knowledge/cards/20260828-2058-ISS-346.md) | `backend/app/api/runs.py`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/lib/api.ts` | The list endpoint drops `input`, so normalizeWorkflowRun sets it undefined and `viewedRun?.input \|\| submittedBrief` a… |
 | [ISS-362](../.knowledge/cards/20260828-2121-ISS-362.md) | `frontend/src/components/workflow/IdeaInputPage.tsx`, `frontend/src/components/workflow/LaunchWizard.tsx`, `frontend/src/components/workflow/ReviewGatesSection.tsx`, `frontend/src/components/workflow/composer/CanvasConfigRail.tsx` | INFERRED inverse of ISS-247: CanvasConfigRail.tsx:354-357 patch()/selectGate only calls onSelection(agent.id, next) on … |
@@ -690,11 +675,9 @@ Each is its own unit of work.
 | [ISS-473](../.knowledge/cards/20260829-0111-ISS-473.md) | `frontend/next.config.ts`, `frontend/src/app/workflow/create/page.tsx`, `frontend/src/components/home/CreationHub.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | app/workflow/create/page.tsx:24 renders LaunchWizard with no tier check; next.config.ts has no /workflow/create redirec… |
 | [ISS-474](../.knowledge/cards/20260829-0112-ISS-474.md) | `frontend/src/app/[...view]/page.tsx`, `frontend/src/components/layout/DashboardLayout.tsx`, `frontend/src/components/workflow/composer/ComposerPage.tsx` | DashboardLayout.tsx:2946 renders ComposerPage for the built-in /workflows/{type}/canvas route with no userTier prop; Co… |
 | [ISS-579](../.knowledge/cards/20260829-0234-ISS-579.md) | `frontend/src/app/workflow/page.tsx`, `frontend/src/components/workflow/WorkflowView.tsx` | WorkflowView.tsx:165 passes ideaInput.trim() (can carry ISS-345's orphaned [Attached] marker) verbatim to onStartPipeli… |
-| [ISS-591](../.knowledge/cards/20260829-0114-ISS-591.md) | `frontend/src/components/library/LibraryPage.tsx` | SkillDetailModal (LibraryPage.tsx:207-221,285-301) only splits #/##-prefixed lines and -/*/numbered bullets; bold/code/… |
 | [ISS-602](../.knowledge/cards/20260829-0353-ISS-602.md) | `frontend/src/app/login/page.tsx` | login/page.tsx:303-317 keeps a hand-rolled type="password" input inside a Lock-icon relative wrapper; it was left out o… |
 | [ISS-603](../.knowledge/cards/20260829-0402-ISS-603.md) | `frontend/src/components/workflow/WorkflowView.attachmentRemove.test.tsx` | Fixture defect, not a code defect: the case removes the ONLY attachment (brief becomes "") and mounts with an empty age… |
 | [ISS-604](../.knowledge/cards/20260829-0207-ISS-604.md) | `frontend/src/app/[...view]/page.tsx`, `frontend/src/components/workflow/composer/ComposerPage.tsx` | ComposerPage's seededRunConfig effect adopts initialRunConfig only after the GET /api/workflows/<type> fetch resolves, … |
-| [ISS-605](../.knowledge/cards/20260829-0216-ISS-605.md) | `frontend/src/components/library/LibraryPage.skillMarkdown.test.tsx` | Assertion 2 scans the whole [role=dialog], which always contains the modal's intentional raw SKILL.md <pre>; scope it t… |
 | [ISS-623](../.knowledge/cards/20260831-0115-ISS-623.md) | `tests/integration/e2e/suites/04_composer_canvas/test_composer_canvas.py`, `tests/integration/e2e/suites/05_saved_workflows/test_saved_workflows.py` | da92b4a4 lost report-generator on 2026-08-29 and is the plain 3-agent ppt base now, so the saved roster no longer diffe… |
 | [ISS-624](../.knowledge/cards/20260831-0115-ISS-624.md) | `frontend/src/app/[...view]/page.tsx`, `tests/integration/e2e/suites/12_shell_nav/test_shell_nav.py` | document.body.innerText.length is 0 on a cold load of /library?tab=hooks; the other four top-level routes in the same t… |
 | [ISS-629](../.knowledge/cards/20260831-0115-ISS-629.md) | `frontend/src/components/history/RunDetailPage.tsx`, `frontend/src/components/history/WorkflowHistory.tsx`, `tests/integration/screens/21-run-families-and-versions.feature.md` | WorkflowHistory.handleSelectRun routes every tap to the shared run screen (BUG-002), so the timeline region S-21-07/08/… |
