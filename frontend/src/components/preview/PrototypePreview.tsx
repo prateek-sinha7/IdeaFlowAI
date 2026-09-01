@@ -495,7 +495,10 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
     <div className="h-full flex flex-col" style={{ background: "#f5f5f0" }}>
 
       {/* Browser chrome */}
-      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-3 py-2 flex items-center gap-2">
+      {/* ISS-433: flex-wrap mirrors FIX-378's fix on PreviewPanel.tsx's tab-bar
+          row — without it the dots + URL pill + zoom trio + divider + Tweaks +
+          Source + Open controls overflow the viewport at narrow widths. */}
+      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-3 py-2 flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <div className="w-2.5 h-2.5 rounded-full bg-gray-200" />
           <div className="w-2.5 h-2.5 rounded-full bg-gray-200" />

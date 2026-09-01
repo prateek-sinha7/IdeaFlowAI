@@ -4,13 +4,13 @@
 
 | card | status | batch | round | fix site | tier | phases | model |
 |---|---|---|---|---|---|---|---|
-| ISS-433 | ANALYZED | B1 | 1 | frontend·preview (ISS-433, ISS-596) | A′ (ISS-433 sibling of ISS-314/FIX-378) + C | ISS-433 replicate FIX-378; ISS-596 test-side | haiku |
-| ISS-596 | ANALYZED | B1 | 1 | frontend·preview (ISS-433, ISS-596) | A′ (ISS-433 sibling of ISS-314/FIX-378) + C | ISS-433 replicate FIX-378; ISS-596 test-side | haiku |
-| ISS-251 | ANALYZED | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
-| ISS-388 | ANALYZED | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
-| ISS-389 | ANALYZED | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
-| ISS-599 | ANALYZED | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
-| ISS-609 | ANALYZED | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
+| ISS-433 | CLOSED (FIX-446) | B1 | 1 | frontend·preview (ISS-433, ISS-596) | A′ (ISS-433 sibling of ISS-314/FIX-378) + C | ISS-433 replicate FIX-378; ISS-596 test-side | haiku |
+| ISS-596 | CLOSED (FIX-447) | B1 | 1 | frontend·preview (ISS-433, ISS-596) | A′ (ISS-433 sibling of ISS-314/FIX-378) + C | ISS-433 replicate FIX-378; ISS-596 test-side | haiku |
+| ISS-251 | CLOSED (FIX-449) | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
+| ISS-388 | CLOSED (FIX-448/ALREADY) | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
+| ISS-389 | CLOSED (FIX-448/ALREADY) | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
+| ISS-599 | CLOSED (FIX-449) | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
+| ISS-609 | CLOSED (FIX-450) | B2 | 5 | `frontend/src/components/preview/PreviewPanel.tsx` | A′ (ISS-388 sibling of ISS-285) + B (stale-state) + C | mixed | haiku |
 
 Notes:
 - ISS-433: replicate FIX-378 (PrototypePreview browser-chrome focus/a11y) at the

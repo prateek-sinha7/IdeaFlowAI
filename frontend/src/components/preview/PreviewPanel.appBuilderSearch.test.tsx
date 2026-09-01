@@ -73,6 +73,9 @@ describe("PreviewPanel — app_builder embedded Preview tab search (ISS-500)", (
 
     // "app" matches only src/app.js. "styles" (zero matches) should be hidden.
     expect(screen.queryByText("styles")).not.toBeInTheDocument();
-    expect(screen.getByText("app.js")).toBeInTheDocument();
+    // ISS-596: src/app.js is files[0] so it is also auto-opened as an editor
+    // tab — "app.js" appears twice (tree row + tab label). getAllByText avoids
+    // the TestingLibraryElementError that getByText throws on multiple matches.
+    expect(screen.getAllByText("app.js").length).toBeGreaterThan(0);
   });
 });

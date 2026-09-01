@@ -25,6 +25,25 @@ vi.mock("@/lib/api", () => ({
   getRunSandbox: (token: string, id: string) => mockGetRunSandbox(token, id),
   getRunSandboxFileBlob: (token: string, id: string, path: string) =>
     mockGetRunSandboxFileBlob(token, id, path),
+  // ISS-251: resolveRunDeliverable is now called by PreviewPanel instead of
+  // re-implementing the sibling-preference rule inline. Route through the same
+  // mockGetRunSandbox the old inline code used, so all existing download tests
+  // work unchanged — their sandbox stubs already encode the expected results.
+  resolveRunDeliverable: async (token: string, runId: string, declared?: string | null) => {
+    if (!declared) return null;
+    const listing = await mockGetRunSandbox(token, runId);
+    const dot = declared.lastIndexOf(".");
+    const stem = dot > 0 ? declared.slice(0, dot) : declared;
+    const ext = dot > 0 ? declared.slice(dot + 1).toLowerCase() : "";
+    const candidates = [...new Set(
+      ext === "html" ? [`${stem}.pptx`, declared]
+      : ext === "pptx" ? [declared, `${stem}.html`]
+      : [declared],
+    )];
+    return candidates
+      .map((c: string) => (listing.files as Array<{ path: string }>).find((f) => f.path === c))
+      .find(Boolean) ?? null;
+  },
 }));
 
 const STRIPPED_MOTION_PROPS = new Set([

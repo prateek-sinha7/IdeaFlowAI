@@ -27,7 +27,8 @@ import type { RunLaneState } from "@/components/chat/RunChatLane";
 import { Tabs } from "@/components/ui/Tabs";
 import type { WorkflowType, GenericDeliverable, RunFamily, WorkflowRun, AgentThinkingEntry, AgentRunState, PipelineRunState } from "@/types/index";
 import type { TabDeepLinkTarget } from "@/hooks/useTabDeepLink";
-import { authedFetch, getToken, getWorkflow, getRunSandbox, getRunSandboxFileBlob, getRunSandboxZip } from "@/lib/api";
+import { authedFetch, getToken, getWorkflow, getRunSandbox, getRunSandboxFileBlob, getRunSandboxZip, resolveRunDeliverable } from "@/lib/api";
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 import { isPlausibleFilePath } from "@/lib/parsers/filePath";
 import { ENV } from "@/lib/env";
 // ISS-024 — shared id→name resolution for the failed-agents list (no dual-impl).
@@ -1008,13 +1009,18 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // Client-only Share (ND-H) — copy the owner-auth-gated run deep link. Composed
   // from the live run id; NO backend call. Default provided here so the header is
   // functional even when the caller does not override it.
+  // ISS-599: use the shared useClipboardCopy hook so a clipboard-permission denial
+  // or a missing navigator.clipboard lands in `shareFailed` rather than silently
+  // swallowed (the `void optional?.writeText()` fire-and-forget it replaces gave
+  // no feedback whatsoever to the user or devtools).
+  const { copy: copyToClipboard } = useClipboardCopy();
   const handleHeaderShare = useCallback(() => {
     if (onShare) return onShare();
     const runId = liveRunId ?? activeRunId ?? "";
     if (!runId || typeof window === "undefined") return;
     const link = `${window.location.origin}${window.location.pathname}?run=${encodeURIComponent(runId)}`;
-    void navigator.clipboard?.writeText(link);
-  }, [onShare, liveRunId, activeRunId]);
+    void copyToClipboard(link);
+  }, [onShare, liveRunId, activeRunId, copyToClipboard]);
 
   // ─── Primary deliverable download — the WORKSPACE FILE, not a reconstruction ─
   //
@@ -1065,60 +1071,31 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
       const token = getToken();
       if (!token) return;
       try {
-        // The declared name: from live pipeline state when we have it, else off
-        // the persisted run row (the reopen path, where no event was seen).
-        let declared = pipelineState?.deliverableFilename ?? null;
+        // ISS-251: the sibling-preference rule (declared .html → prefer
+        // <stem>.pptx, declared .pptx → prefer <stem>.html, else the declared
+        // file) was duplicated inline here and in resolveRunDeliverable
+        // (frontend/src/lib/api.ts). Collapse to the shared function so a
+        // future change to the preference applied in api.ts is automatically
+        // reflected here too — the original drift was how ISS-214/215 happened.
+        //
+        // The ISS-313 bundle path (!declared → no single file, serve the whole
+        // workspace archive) is NOT inside resolveRunDeliverable (it returns
+        // null for no-declared and lets callers decide), so it stays here.
+        const declared = pipelineState?.deliverableFilename ?? null;
         if (!declared) {
-          declared = (await getWorkflow(token, activeRunId)).deliverableFilename ?? null;
-        }
-        if (cancelled) return;
-        const listing = await getRunSandbox(token, activeRunId);
-        if (cancelled) return;
-
-        // Nothing declared → the whole-workspace bundle (ISS-313, above).
-        if (!declared) {
+          // Nothing declared → whole-workspace bundle (ISS-313).
+          const listing = await getRunSandbox(token, activeRunId);
+          if (cancelled) return;
           setDeliverableBundle(listing.files.some((f) => f.deliverable));
           return;
         }
-
-        // ── Prefer the editable original over the rendered one ────────────────
-        // `ppt_v2` delivers "a rendered HTML deck AND a real editable PowerPoint
-        // file", but declares `presentation.html` as its deliverable ON PURPOSE:
-        // the declaration also drives Preview's mimetype, and it is what keeps a
-        // run whose render step failed still delivering a deck. So the
-        // DECLARATION is left alone and the choice is made here, over what the
-        // run actually wrote.
-        //
-        // SCOPED TO DECKS, structurally — the declared EXTENSION is the signal,
-        // never the workflow name (SC-001, the invariant this file keeps
-        // everywhere). Only a workflow that declares a .pptx or a .html is
-        // asking a deck question, so only those consider a sibling:
-        //
-        //   declared .html  → prefer <stem>.pptx, else the declared file
-        //                     (ppt_v2: gives you the PowerPoint, falls back to
-        //                     the deck when the render step did not run)
-        //   declared .pptx  → the declared file, else <stem>.html
-        //                     (plain ppt declares presentation.pptx while
-        //                     nothing in it emits PptxGenJS, so that file is
-        //                     never on disk and the button was dead — it now
-        //                     serves the deck the run actually wrote)
-        //   anything else   → the declared file alone, exactly as before
-        //                     (user_stories.md considers no siblings at all)
-        const dot = declared.lastIndexOf(".");
-        const stem = dot > 0 ? declared.slice(0, dot) : declared;
-        const ext = dot > 0 ? declared.slice(dot + 1).toLowerCase() : "";
-        const candidates = [...new Set(
-          ext === "html" ? [`${stem}.pptx`, declared]
-          : ext === "pptx" ? [declared, `${stem}.html`]
-          : [declared],
-        )];
-        const hit = candidates
-          .map((c) => listing.files.find((f) => f.path === c))
-          .find(Boolean);
+        if (cancelled) return;
+        const hit = await resolveRunDeliverable(token, activeRunId, declared);
+        if (cancelled) return;
         if (hit) setDeliverableFile(hit.path);
       } catch {
-        // A workspace that cannot be listed leaves the button disabled, which is
-        // the honest state — we cannot promise a file we have not seen.
+        // A workspace that cannot be listed leaves the button disabled —
+        // the honest state; we cannot promise a file we have not seen.
       }
     })();
     return () => { cancelled = true; };
@@ -1590,7 +1567,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
             >
               <AuditTab
                 hookRuns={pipelineState?.hookRuns}
-                workflowRunId={effPipelineState?.pipelineRunId}
+                workflowRunId={activeRunId ?? undefined}
                 isRunning={isStillRunning}
               />
             </motion.div>

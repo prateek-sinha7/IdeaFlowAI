@@ -9,7 +9,7 @@ memory. Updated by the closer after every domain run.
 | 2 | frontend·settings | 4 | DONE | 3+1already | 0 | 0 | [20260831-domain-02-frontend-settings.md](reports/20260831-domain-02-frontend-settings.md) |
 | 3 | frontend·lib | 4 | DONE | 3 (ISS-386 fixed; ISS-413,ISS-486 already-fixed) | 0 | 1 (BUG-013 Part A cross-domain) | [20260901-domain-03-frontend-lib.md](reports/20260901-1100-domain-03-frontend-lib.md) |
 | 4 | tests·integration | 5 | DONE | ISS-625,ISS-626,ISS-627 closed; ISS-628 partial | 0 | ISS-623(escalated),ISS-628-workspace(escalated) | [20260901-1200-domain-04-tests-integration.md](reports/20260901-1200-domain-04-tests-integration.md) |
-| 5 | frontend·preview | 7 | NOT STARTED | – | – | – | – |
+| 5 | frontend·preview | 7 | DONE | ISS-433,ISS-596,ISS-251,ISS-388,ISS-389,ISS-599,ISS-609 (7 closed: FIX-446–450; ISS-388/389 already fixed by FIX-358) | 0 | 0 | [20260901-1545-domain-05-frontend-preview.md](reports/20260901-1545-domain-05-frontend-preview.md) |
 | 6 | frontend·components | 10 | NOT STARTED | – | – | – | – |
 | 7 | frontend·library | 11 | NOT STARTED | – | – | – | – |
 | 8 | frontend·routes | 13 | NOT STARTED | – | – | – | – |
@@ -43,3 +43,9 @@ Status values: NOT STARTED · IN PROGRESS (round N) · PAUSED · DONE · BLOCKED
   Still pending: fix for ISS-100/104/127/128/154; verify for ISS-470/471;
   ISS-161/398/418/422/435/436/437 (B2 rest); ISS-180/181/263/381 (B3); BUG-015-016/ISS-105/137 (B4).
   See `bug-hunter/reports/20260831T180611Z-all.md`.
+- Run 2026-09-01T15:45:00Z: **Domain 5 (frontend·preview) DONE** — 7 CLOSED (FIX-446–450).
+  ISS-388/389 already fixed by FIX-358 (confirmed by degraded test suite 11/11). ISS-251 inline
+  deliverable logic collapsed to resolveRunDeliverable. ISS-599 clipboard hook. ISS-609 AuditTab
+  workflowRunId → activeRunId. ISS-433 flex-wrap. ISS-596 test disambiguation. e2e test for ISS-609
+  needs live servers. ISS-596 it.fails marker needs verifier removal.
+  See `reports/20260901-1545-domain-05-frontend-preview.md`.
