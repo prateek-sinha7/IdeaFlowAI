@@ -4,10 +4,13 @@
 bugs — the fixer edits the TEST, which is allowed here ONLY because each card says
 the test is what's wrong. Low blast radius.
 
-| batch | round | fix site | cards | tier | phases | model |
-|---|---|---|---|---|---|---|
-| B1 | 1 | tests·integration (ISS-625, ISS-627) | ISS-625, ISS-627 | C (stale-test) | validate→fix(test)→verify | haiku |
-| B2 | 2 | `tests/integration/e2e/suites/04_composer_canvas/test_composer_canvas.py` | ISS-623, ISS-626, ISS-628 | C (stale-test) | validate→fix(test)→verify | haiku |
+| card | status | batch | round | fix site | tier | phases | model |
+|---|---|---|---|---|---|---|---|
+| ISS-625 | ANALYZED | B1 | 1 | tests·integration (ISS-625, ISS-627) | C (stale-test) | validate→fix(test)→verify | haiku |
+| ISS-627 | ANALYZED | B1 | 1 | tests·integration (ISS-625, ISS-627) | C (stale-test) | validate→fix(test)→verify | haiku |
+| ISS-623 | ANALYZED | B2 | 2 | `tests/integration/e2e/suites/04_composer_canvas/test_composer_canvas.py` | C (stale-test) | validate→fix(test)→verify | haiku |
+| ISS-626 | ANALYZED | B2 | 2 | `tests/integration/e2e/suites/04_composer_canvas/test_composer_canvas.py` | C (stale-test) | validate→fix(test)→verify | haiku |
+| ISS-628 | ANALYZED | B2 | 2 | `tests/integration/e2e/suites/04_composer_canvas/test_composer_canvas.py` | C (stale-test) | validate→fix(test)→verify | haiku |
 
 Notes:
 - All five are the "chips count families vs headline counts runs" / lost-agent
@@ -21,4 +24,5 @@ Notes:
 
 Collision note: B2's file also appears in ISS-626/628. Owned here. Domain 9
 (run-history) and domain 10 (composer) must not touch these test files.
-Status: NOT STARTED.
+Status: the `status` column above is authoritative — it is what the line
+reads and writes. A whole-file status could only drift from it.

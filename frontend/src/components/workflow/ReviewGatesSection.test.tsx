@@ -204,3 +204,56 @@ describe("ReviewGatesSection — edge cases", () => {
     expect(touched).toBe(false);
   });
 });
+
+// ISS-419 — checkedIds' seed (`isSeedGated`) reads ONLY the two human-review
+// gate names (`human`, `before-human`) out of `selections[id].gates`. A
+// `custom-agent` step has no AGENT.md and so no static `gate` field at all —
+// the manifest's `gates: [...]` array is its ONLY declaration of ANY gate,
+// yet a declared `approval` or `security` gate renders this checklist with
+// that step unchecked and with NO other on-load indicator anywhere in the
+// checklist that the step carries a gate at all. `it.fails` is vitest's
+// xfail(strict=True) — it must fail now and flip to a loud failure the
+// moment isSeedGated (or an equivalent indicator) starts reflecting these
+// gate values, per the project's xfail-strict convention.
+describe("ReviewGatesSection — ISS-419 non-human-review manifest gates", () => {
+  // A custom-agent step: no AGENT.md, so `gate` is null and the manifest's
+  // `selections[id].gates` is its only declaration (ISS-247/ISS-306 shape).
+  const CUSTOM_AGENT_STEP: AgentDef = {
+    id: "custom-agent:reviewer",
+    name: "Reviewer",
+    role: "Sign-off",
+    description: "Custom-agent step with a manifest-declared gate.",
+    pipeline_type: "custom",
+    order: 1,
+    icon: "🔏",
+    estimated_duration: 10,
+    has_skill: false,
+    gate: null,
+  };
+
+  it.fails("ISS-419 — a step with a manifest-declared approval gate renders checked on fresh load", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReviewGatesSection
+        agents={[CUSTOM_AGENT_STEP]}
+        onChange={vi.fn()}
+        selections={{ "custom-agent:reviewer": { gates: ["approval"] } }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /review gates/i }));
+    expect(screen.getByRole("checkbox")).toBeChecked();
+  });
+
+  it.fails("ISS-419 — a step with a manifest-declared security gate renders checked on fresh load", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReviewGatesSection
+        agents={[CUSTOM_AGENT_STEP]}
+        onChange={vi.fn()}
+        selections={{ "custom-agent:reviewer": { gates: ["security"] } }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /review gates/i }));
+    expect(screen.getByRole("checkbox")).toBeChecked();
+  });
+});

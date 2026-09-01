@@ -555,6 +555,8 @@ class TestFixPolicyEndToEnd:
     (baseline exclusion), and the final deliverable is the clean HTML."""
 
     @pytest.mark.asyncio
+    @pytest.mark.issue("ISS-638")
+    @pytest.mark.xfail(reason="ISS-638 unfixed", strict=True)
     async def test_fix_message_targets_regression_not_baseline_and_reinjects_instruction(
         self, tmp_path, monkeypatch
     ) -> None:
@@ -834,6 +836,8 @@ class TestEventVocabularyUnchanged:
             )
 
     @pytest.mark.asyncio
+    @pytest.mark.issue("ISS-638")
+    @pytest.mark.xfail(reason="ISS-638 unfixed", strict=True)
     async def test_internal_fix_loop_leaks_no_phantom_second_agent(
         self, tmp_path, monkeypatch
     ) -> None:

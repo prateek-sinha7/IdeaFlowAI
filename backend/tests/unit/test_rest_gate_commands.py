@@ -257,6 +257,30 @@ def test_reject_sets_approved_false(env):
     assert _recorded(env, gate_key)["approved"] is False
 
 
+@pytest.mark.issue("ISS-128")
+@pytest.mark.xfail(reason="ISS-128 unfixed", strict=True)
+def test_reject_persists_reject_action_not_approve(env):
+    """ISS-128: the reject branch calls set_review_response without an
+    ``action=`` kwarg, so the store's ``action: str = "approve"`` default
+    stamps a false 'approve' on the durable audit row even though the
+    engine's terminal decision (keyed on ``approved``) still rejects
+    correctly. The persisted record must say what actually happened.
+    """
+    owner = _seed_user(env, "owner")
+    run_id = _seed_run(env, owner.id)
+    gate_key = f"{run_id}:prototype-specify"
+    _arm_gate(env, gate_key)
+    env["state"]["user"] = owner
+
+    resp = _post_gate(env, run_id, gate_key, action="reject")
+    assert resp.status_code == 200, resp.text
+    rec = _recorded(env, gate_key)
+    assert rec["approved"] is False
+    assert rec["action"] == "reject", (
+        f"durable audit row says action={rec['action']!r} for a rejection"
+    )
+
+
 def test_redo_carries_instructions(env):
     """REDO-GATE: the redo action rides the SAME owner-gated seam, carrying
     free-text instructions for an in-place re-run."""

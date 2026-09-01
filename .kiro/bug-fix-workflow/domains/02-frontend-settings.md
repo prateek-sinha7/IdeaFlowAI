@@ -2,10 +2,12 @@
 
 4 cards, 2 batches.
 
-| batch | round | fix site | cards | tier | phases | model |
-|---|---|---|---|---|---|---|
-| B1 | 1 | frontend·settings (ISS-354) | ISS-354 | A′ sibling of ISS-245 | **replicate FIX-345** → verify | haiku |
-| B2 | 2 | `frontend/src/components/settings/AccountSettings.tsx` | ISS-430, ISS-482, ISS-581 | B (confirm-dialog) + C | full | haiku |
+| card | status | batch | round | fix site | tier | phases | model |
+|---|---|---|---|---|---|---|---|
+| ISS-354 | TESTED | B1 | 1 | frontend·settings (ISS-354) | A′ sibling of ISS-245 | **replicate FIX-345** → verify | haiku |
+| ISS-430 | ANALYZED | B2 | 2 | `frontend/src/components/settings/AccountSettings.tsx` | B (confirm-dialog) + C | full | haiku |
+| ISS-482 | ANALYZED | B2 | 2 | `frontend/src/components/settings/AccountSettings.tsx` | B (confirm-dialog) + C | full | haiku |
+| ISS-581 | ANALYZED | B2 | 2 | `frontend/src/components/settings/AccountSettings.tsx` | B (confirm-dialog) + C | full | haiku |
 
 Notes:
 - ISS-354 is a tier-A′ sibling: FIX-345 already landed the root; replicate its shape
@@ -18,4 +20,4 @@ Notes:
 Collision note: AccountSettings.tsx is this domain's alone. ISS-482 also appears in
 domain 13's confirm-dialog class campaign — it is OWNED here (its primary fix site
 is AccountSettings.tsx); domain 13 must not touch it.
-Status: DONE — FIX-420 (B1/ISS-354), FIX-421 (B2/ISS-581+ISS-430). ISS-482 was already resolved (FIX-386).
+Status: DONE — FIX-420 (B1/ISS-354), FIX-421 (B2/ISS-581+ISS-430). ISS-482 was already resolved (FIX-386). The `status` column above is authoritative — it is what the line reads and writes.

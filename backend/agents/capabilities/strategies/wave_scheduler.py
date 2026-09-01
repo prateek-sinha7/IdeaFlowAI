@@ -33,6 +33,7 @@ D-02 precedent). The pure ``build_waves`` + ``WaveBuildError`` live in THIS modu
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, AsyncIterator
 
@@ -161,6 +162,11 @@ class WaveSchedulerStrategy:
     """
 
     name = "wave_scheduler"
+
+    # ISS-131: spawn-only, exactly like fanout_batch — every wave is dispatched
+    # through ``run_fanout`` and the step's own agent is never run inline, so the
+    # inline review gate never fires for it.
+    runs_agent_inline = False
 
     def __init__(self) -> None:
         # Module-singleton registry (capabilities are stateless) — resolves the task
@@ -337,6 +343,18 @@ class WaveSchedulerStrategy:
                         _data["step"] = step_id
                         event = {**event, "data": _data}
                     yield event
+            except asyncio.CancelledError:
+                # ISS-098: ``CancelledError`` has inherited from ``BaseException`` (not
+                # ``Exception``) since Python 3.8, so a Stop-during-a-wave never reached the
+                # arm below and this wave's row was left reading ``running`` forever (only
+                # self-corrected by the WR-01 stale-row sweep on the next resume). Flip it to
+                # a terminal ``cancelled`` (a free-String status like WR-01's ``superseded``,
+                # NOT a schema change) and re-raise so cancellation propagates unchanged.
+                # A NARROW arm, not ``except BaseException`` — that would also catch the
+                # ``GeneratorExit`` thrown at the ``yield`` above when the consumer closes
+                # this generator, where awaiting/yielding is a RuntimeError.
+                await runner.update_wave_run(row_id, status="cancelled")
+                raise
             except Exception:
                 await runner.update_wave_run(row_id, status="failed")
                 yield {

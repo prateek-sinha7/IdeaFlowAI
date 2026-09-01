@@ -14,28 +14,28 @@
           "icon": "📋",
           "id": "prototype-revision-feature-specify",
           "name": "Feature Specification Agent",
-          "order": 1,
+          "order": 2,
           "role": "Feature Definition"
         },
         {
           "icon": "🗂️",
           "id": "prototype-plan",
           "name": "Task Planner Agent",
-          "order": 2,
+          "order": 3,
           "role": "Build Planning & Task Decomposition"
         },
         {
           "icon": "🏗️",
           "id": "prototype-build",
           "name": "Build Agent",
-          "order": 4,
+          "order": 5,
           "role": "Incremental HTML Construction"
         },
         {
           "icon": "✅",
           "id": "prototype-validate",
           "name": "Validation Agent",
-          "order": 5,
+          "order": 6,
           "role": "Structural Validation & Delivery"
         }
       ],

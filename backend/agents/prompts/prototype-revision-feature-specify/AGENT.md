@@ -8,7 +8,7 @@ icon: 📋
 id: prototype-revision-feature-specify
 max_tokens: 32768
 name: Feature Specification Agent
-order: 1
+order: 2
 pipeline_type: prototype_feature_revision
 produces:
 - prototype-revision-feature-specify

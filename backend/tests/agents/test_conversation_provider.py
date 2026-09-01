@@ -4,7 +4,7 @@ Covers:
   * the provider is keyed on the DECLARED capability name (``.name == "conversation"``),
     never a workflow name (SC-001/INV-1);
   * ``load(ctx)`` reads this run's OWN chat ``run_events`` via the owner-scoped
-    ``ScopedStore.read_events`` handle and returns a single
+    ``ScopedStore.read_events_of_types`` handle (bounded, ISS-101) and returns a single
     ``{"conversation_context": ...}`` block carrying the compacted transcript;
   * the self-gate on the ``conversation`` inject token in ``ctx.current_spec_injects``
     — un-gated → ``{}`` (DORMANT on golden runs, INV-3);
@@ -44,11 +44,16 @@ class _FakeRow:
 
 
 class _FakeScopedStore:
-    """In-memory stand-in for ``ScopedStore`` — ``read_events(run_id, after_seq)``.
+    """In-memory stand-in for ``ScopedStore`` — both read surfaces, as production has.
 
     The scope is implicit (a real ScopedStore is constructed owner+workspace-bound);
     this fake just returns the rows it was seeded with, in order. ``raises=True``
     simulates a read error (the provider must degrade to ``{}``).
+
+    ``read_events_of_types`` mirrors ``ScopedStore.read_events_of_types``
+    (``agents/authz.py:380``): the last ``limit`` rows whose type is in ``types``,
+    oldest-first. ISS-101 — that BOUNDED read is the one the provider calls; the
+    unbounded ``read_events`` is kept here because the real store still exposes it.
     """
 
     def __init__(self, rows: list | None = None, *, raises: bool = False) -> None:
@@ -59,6 +64,13 @@ class _FakeScopedStore:
         if self._raises:
             raise RuntimeError("simulated scoped-store read failure")
         return list(self._rows)
+
+    async def read_events_of_types(
+        self, run_id: str, types, *, limit: int, after_seq: int = 0
+    ) -> list:
+        if self._raises:
+            raise RuntimeError("simulated scoped-store read failure")
+        return [r for r in self._rows if r.type in types][-limit:]
 
 
 def _chat(text: str, *, reply: bool = False) -> _FakeRow:

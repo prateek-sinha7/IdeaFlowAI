@@ -17,8 +17,14 @@ from agents.planner.smart_planner import SmartPlanner
 from app.core.config import settings
 
 
-def test_full_brief_reaches_planner_uncut():
-    """A brief well under the cap passes to the analyze prompt IN FULL — no 'chars omitted'."""
+def test_full_brief_reaches_planner_uncut(stub_provider_classes):
+    """A brief well under the cap passes to the analyze prompt IN FULL — no 'chars omitted'.
+
+    ``stub_provider_classes`` (ISS-118): ``SmartPlanner.__init__`` builds a provider
+    client before ``_build_prompt`` can be called; stubbing the class on its source
+    module keeps that construction offline without exempting this test from the
+    ISS-102 live-model guard.
+    """
     phrase = "The system shall support role-based access. "
     target = settings.BRIEF_MAX_CHARS // 2  # comfortably under the cap
     brief = (phrase * ((target // len(phrase)) + 1))[:target]
@@ -46,7 +52,7 @@ def test_full_user_request_reaches_clarify_uncut():
     assert len(brief_sample) == len(user_request)
 
 
-def test_ceiling_still_enforced_above_cap():
+def test_ceiling_still_enforced_above_cap(stub_provider_classes):
     """A brief > settings.BRIEF_MAX_CHARS is still head+tail sampled ('chars omitted')."""
     brief = "z" * (settings.BRIEF_MAX_CHARS + 10_000)  # over the ceiling
 

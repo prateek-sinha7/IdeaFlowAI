@@ -177,6 +177,7 @@ async def _dispatch_revision(
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-633")
 async def test_fe_exact_run_revision_dispatches_real_pipeline(db_factory) -> None:
     """SC1+SC2: the FE's exact run_revision payload drives the REAL
     ppt_revision pipeline through execute() — model runs observed, revised
@@ -267,6 +268,7 @@ async def test_fe_exact_run_revision_dispatches_real_pipeline(db_factory) -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-633")
 async def test_revision_of_revision_resolves_via_exact_kind_chain_link_1(
     db_factory,
 ) -> None:

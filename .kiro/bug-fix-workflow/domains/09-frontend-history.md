@@ -2,9 +2,21 @@
 
 13 cards, 1 batch (all one file).
 
-| batch | round | fix site | cards | tier | phases | model |
-|---|---|---|---|---|---|---|
-| B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | ISS-077, ISS-113, ISS-145, ISS-198, ISS-207, ISS-208, ISS-209, ISS-213, ISS-219, ISS-325, ISS-412, ISS-414, ISS-629 | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
+| card | status | batch | round | fix site | tier | phases | model |
+|---|---|---|---|---|---|---|---|
+| ISS-077 | ANALYZED | B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
+| ISS-113 | ANALYZED | B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
+| ISS-145 | ANALYZED | B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
+| ISS-198 | ANALYZED | B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
+| ISS-207 | ANALYZED | B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
+| ISS-208 | ANALYZED | B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
+| ISS-209 | ANALYZED | B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
+| ISS-213 | ANALYZED | B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
+| ISS-219 | ANALYZED | B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
+| ISS-325 | ANALYZED | B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
+| ISS-412 | ANALYZED | B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
+| ISS-414 | ANALYZED | B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
+| ISS-629 | ANALYZED | B1 | 3 | `frontend/src/components/history/WorkflowHistory.tsx` | B (stale-state) + A′ (ISS-414 sibling of ISS-302) + C | full; one read, one verify | **sonnet** (13 cards, pagination/stale-state cluster) |
 
 Notes:
 - This is the archetypal batch: WorkflowHistory.tsx read ONCE for 13 cards. Dominant
@@ -21,4 +33,5 @@ Notes:
 Collision note: WorkflowHistory.tsx owned here. RevisionFamilyView.tsx,
 RunDetailPage.tsx appear as secondary globs — if a fix needs them and they're not
 this file, escalate. Integration test files belong to domain 4.
-Status: NOT STARTED.
+Status: the `status` column above is authoritative — it is what the line
+reads and writes. A whole-file status could only drift from it.

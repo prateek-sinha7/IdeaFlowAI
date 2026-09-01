@@ -187,6 +187,29 @@ def stage_skills(
             errors.append(f"{skill_id}: failed to stage ({exc})")
             continue
 
+        # ISS-185: a skill body routinely points at a sibling file ("see
+        # `root-cause-tracing.md` in this directory"), and the agent resolves
+        # that SKILL-RELATIVE -- at the staged copy's own dir. Writing only the
+        # synthesized SKILL.md left every such read coming back empty, and the
+        # model burned turns ls-ing the mount point. Copy the rest of the
+        # catalog folder next to it. Deliberately AFTER the staged.append: a
+        # reference-file failure must not unstage a skill whose SKILL.md landed.
+        # `copy2` (copytree's default) preserves mtimes, so re-staging the same
+        # skill rewrites identical bytes with identical stamps -- idempotent.
+        try:
+            from app.agents.skills_catalog import skill_source_dir
+
+            source_dir = skill_source_dir(skill_id)
+            if source_dir.is_dir():
+                shutil.copytree(
+                    source_dir,
+                    target.parent,
+                    ignore=shutil.ignore_patterns("SKILL.md"),
+                    dirs_exist_ok=True,
+                )
+        except Exception as exc:  # noqa: BLE001 - must never raise
+            errors.append(f"{skill_id}: reference files not staged ({exc})")
+
     sources = ["/skills"] if staged else []
     est_tokens = 464 + 66 * len(staged) if staged else 0
 

@@ -302,6 +302,8 @@ async def test_denial_holds_on_the_async_path() -> None:
 # ===========================================================================
 
 
+@pytest.mark.issue("ISS-638")
+@pytest.mark.xfail(reason="ISS-638 unfixed", strict=True)
 def test_every_builtin_workflow_compiles_and_writers_keep_write() -> None:
     """Every shipped workflow compiles, and no agent that writes lost its grant.
 

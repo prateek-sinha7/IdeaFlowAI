@@ -3,7 +3,7 @@ id: FIX-BUGFIX-NESTED-REVISION
 type: fix
 kind: event
 title: Bugfix brief — the two deferred `update_specs` defects
-status: open
+status: done
 applies_to:
   phases: []
   modules:
@@ -26,12 +26,13 @@ locked_constraints:
 - INV-3
 verification:
   type: test
-  status: required
+  status: passed
   test_files:
-  - tests/agents/test_spec_revision_context.py
-  - tests/agents/_scripted_model.py
+  - backend/tests/agents/test_spec_revision_cycles.py
+  - backend/tests/agents/test_spec_revision_context.py
+  - backend/tests/agents/_scripted_model.py
 compact_summary: 'Two deferred defects: a second update_specs click at the re-opened gate silently no-ops, and nested revisions collide on the same :rev1 thread id.'
-last_updated: '2026-08-14'
+last_updated: '2026-08-31'
 author: 'Imran Yousaf <imrany@hexaware.com>'
 author_source: code-commit
 ---
@@ -42,7 +43,7 @@ author_source: code-commit
 
 **Depends on:** [FIX-214](20260811-1559-FIX-214.md), [FIX-BUGFIX-SPEC-REVISION-CONTEXT](20260811-1630-FIX-BUGFIX-SPEC-REVISION-CONTEXT.md)
 
-**Referenced by:** [ISS-052](20260811-2101-ISS-052.md), [ISS-064](20260812-0001-ISS-064.md)
+**Referenced by:** [FIX-252](20260813-1300-FIX-252.md), [ISS-052](20260811-2101-ISS-052.md), [ISS-064](20260812-0001-ISS-064.md)
 
 <!-- /RELATED -->
 
@@ -50,7 +51,34 @@ author_source: code-commit
 
 **Branch:** `bugfix/spec-revision-context-loss` (continues from quick `260811-mxg`; dev merged at `84f4bbe3`)
 **Found:** 2026-08-11, during the plan-check / verify / live-run of `260811-mxg`. Both are **pre-existing**, neither was introduced by that fix.
-**Status:** diagnosed, unfixed.
+**Status:** FIXED (quick `260811-si4`, already merged) and fully tested. Both defects and the
+in-pass fence (ISS-053) are proven in `backend/tests/agents/test_spec_revision_cycles.py` —
+`test_reopened_gate_second_update_specs_runs_a_second_cycle` /
+`test_reopened_gate_cycle_keeps_a_flat_stack` (Defect B),
+`test_update_specs_not_offered_while_a_revision_is_in_flight` /
+`test_nested_revision_keeps_distinct_threads_and_restores_the_outer_pass` (Defect A), plus the
+`test_single_cycle_shape_is_unchanged` dormancy guard — all 5 GREEN today
+(`engine.py:6642-6671`, `:6690-6798`, `:6803-6903`). No new test was written: this test-writer
+pass found the fix and its coverage already in place and is only linking the card to the
+existing suite (2026-08-31).
+
+**Fixer pass 2026-08-31** — re-confirmed with no source change. The implementing fix is carded as
+[FIX-252](20260813-1300-FIX-252.md) (quick `260811-si4`); its Verification section holds the
+current `file:line` for all three mechanisms and the observed counts (cycles 5 passed / 1 xfailed
+— that xfail is ISS-072's, not this card's; context 4 passed; redo-gate 7 passed; lint-imports
+3 kept / 1 broken, unchanged from the `84f4bbe3` baseline below).
+
+**Verified 2026-08-31 (verifier pass)** — independently re-ran, not copied from the fixer:
+`test_spec_revision_cycles.py` 5 passed / 1 XPASS(strict) (ISS-072's own marker, not this
+card's — no xfail exists for this bug's tests), `test_spec_revision_context.py` 4 passed,
+`test_redo_gate_safety.py` 7 passed. `lint-imports` (run from `backend/`) 3 kept / 1 broken,
+identical to the pre-existing `84f4bbe3` baseline. `npx tsc --noEmit` clean. `:8000/docs` → 200.
+No live browser click-through was performed: defect B's own record says "inferred from code,
+NOT observed live," and defect A's evidence came from harness instrumentation, not a UI repro —
+there is no live-UI reproduction on record for this bug to re-run. The scripted-model harness
+run above (`test_reopened_gate_second_update_specs_runs_a_second_cycle`,
+`test_nested_revision_keeps_distinct_threads_and_restores_the_outer_pass`, plus the dormancy
+guard) is the closest equivalent and passed. Status: CLOSED.
 
 ---
 

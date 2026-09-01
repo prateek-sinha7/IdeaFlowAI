@@ -14,9 +14,11 @@ golden runs (no golden agent declares the inject, INV-3 byte/event parity holds)
 
 Owner-scoped reads (T-33-01-01): chat ``run_events`` are read STRICTLY through the
 owner+workspace-scoped read surface reached via the ``ctx`` handle
-(``ScopedStore.read_events`` — a cross-owner run returns nothing → 404). There is NO
-raw ORM path here; the highest-risk information-disclosure boundary is closed by the
-scoped store's default-deny filter.
+(``ScopedStore.read_events_of_types`` — a cross-owner run returns nothing → 404). There
+is NO raw ORM path here; the highest-risk information-disclosure boundary is closed by
+the scoped store's default-deny filter. The read is BOUNDED (ISS-101): the type filter
+and the LIMIT are pushed into SQL rather than materialising a whole run's log to slice
+it in Python.
 
 Degrade-not-crash (mirrors ``uploaded_files.py``): a missing store/run handle, an empty
 transcript, or any read error degrades to ``{}`` — a broken chat log must never break the
@@ -47,6 +49,12 @@ _CHAT_TYPES = frozenset({_USER_TYPE, _REPLY_TYPE})
 # an engine edit; the compaction transform asserts the SHAPE, not these numbers.
 _DEFAULT_BUDGET = 6000
 _DEFAULT_KEEP_RECENT = 6
+
+# ISS-101 — hard cap on the bounded read (rows). Well above anything ``_DEFAULT_BUDGET``
+# could keep verbatim (200 turns is already 30 chars/turn at budget), so the cap can never
+# truncate a transcript the compaction would have kept, while keeping the read O(cap)
+# instead of O(whole run log) — 12,123 rows / ~9.2 MB on the worst run in the corpus.
+_MAX_CHAT_ROWS = 200
 
 
 @register(
@@ -94,11 +102,20 @@ class ConversationProvider:
     # ── owner-scoped read (degrade-not-crash — a broken log never breaks the agent) ──
     @staticmethod
     async def _read_chat_events(scoped_store: Any, run_id: str) -> list:
-        """Read this run's own ``run_events`` via the scoped store; ``[]`` on any miss."""
+        """Read this run's own chat ``run_events`` via the scoped store; ``[]`` on any miss.
+
+        Uses the BOUNDED, type-filtered read (ISS-101): ``read_events`` is the unbounded
+        replay primitive behind SSE resume and engine resume, and draining it to keep six
+        chat turns materialised the whole run's log server-side.
+        """
         try:
-            rows = await scoped_store.read_events(run_id, 0)
+            rows = await scoped_store.read_events_of_types(
+                run_id, _CHAT_TYPES, limit=_MAX_CHAT_ROWS
+            )
         except Exception as exc:  # noqa: BLE001 — a read error must not break the agent
-            logger.warning("conversation: read_events failed (%s) — no context", exc)
+            logger.warning(
+                "conversation: read_events_of_types failed (%s) — no context", exc
+            )
             return []
         return list(rows or [])
 

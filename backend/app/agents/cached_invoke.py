@@ -126,6 +126,7 @@ async def cached_invoke(
     model: "str | Any | None" = None,
     max_tokens: int | None = None,
     usage_sink: UsageSink | None = None,
+    enable_cache: bool = True,
 ) -> tuple[str, Usage]:
     """Invoke a chat model with Bedrock prompt-caching + token counting (ISS-033).
 
@@ -148,6 +149,13 @@ async def cached_invoke(
         usage_sink: optional callable; receives the call's :data:`Usage` so the tokens
             are COUNTED in the caller's run accounting (closes the ISS-033/034 counting
             half). Guarded — a raising sink never breaks the model call.
+        enable_cache: per-call OPT-OUT of Bedrock prompt caching (ISS-120). A cache
+            entry bills at 1.25x the input rate, so a short single-turn call that
+            writes a cache point nothing later re-reads pays a pure surcharge; such a
+            caller passes ``False`` to suppress the cache point on THIS call only,
+            leaving the process-wide ``BEDROCK_PROMPT_CACHE_ENABLED`` — and every
+            other concurrent call — untouched. Opt-OUT only: ``True`` never re-enables
+            caching that the global flag has turned off.
 
     Returns:
         ``(text, usage)`` — the response text and the :data:`Usage` dict
@@ -172,8 +180,9 @@ async def cached_invoke(
         msg_list.extend(messages)
 
     # ── Cache points: pass the Bedrock ``cache_control`` per-call kwarg (the
-    #    direct-invoke equivalent of the middleware). No-op on non-Bedrock / flag-off.
-    cc = _bedrock_cache_control(llm)
+    #    direct-invoke equivalent of the middleware). No-op on non-Bedrock / flag-off /
+    #    a caller that opted THIS call out (``enable_cache=False``, ISS-120).
+    cc = _bedrock_cache_control(llm) if enable_cache else None
     invoke_kwargs: dict[str, Any] = {"cache_control": cc} if cc else {}
 
     resp = await llm.ainvoke(msg_list, **invoke_kwargs)

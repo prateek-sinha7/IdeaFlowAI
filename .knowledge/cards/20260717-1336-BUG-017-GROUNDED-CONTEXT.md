@@ -3,7 +3,7 @@ id: BUG-017-GROUNDED-CONTEXT
 type: bug
 kind: event
 title: BUG-017 — grounded fix spec
-status: open
+status: done
 applies_to:
   phases: []
   modules:
@@ -27,11 +27,12 @@ applies_to:
   requirements: []
 locked_constraints: []
 verification:
-  type: manual
-  status: required
-  test_files: []
+  type: test
+  status: passed
+  test_files:
+    - frontend/src/hooks/useRunChat.test.ts
 compact_summary: 'page.tsx voided the sendCommand promise so the re-fetch raced ahead of the persisted chat_reply; awaiting it fixed delivery.'
-last_updated: '2026-08-14'
+last_updated: '2026-08-31'
 author: 'Bilal Arshad <bilala@hexaware.com>'
 author_source: applies-to-glob
 ---
@@ -90,3 +91,24 @@ Now `await sendCommand(...)` in `useRunChat` waits for the POST (which resolves 
 - SC-001: `page.tsx` is exempt; keep any guarded component workflow-name-literal-free.
 - Do NOT run a live Bedrock run in the executor — the orchestrator does the live proof after (send a chat ASK on a completed run; the reply must render without a reopen).
 - STATE.md quirk: prefer the quick-task table; if `progress:` gets clobbered, restore `total_phases:37 completed_phases:35 total_plans:208 completed_plans:207 percent:95`.
+
+## 4-test-writer note (2026-08-31)
+The proposed fix in this spec is **already shipped** — `frontend/src/app/[...view]/page.tsx:2299-2304`
+(the app was restructured since this card was written; `dashboard/page.tsx` no longer exists,
+the route is now `[...view]/page.tsx`) carries the exact `sendCommand: async (runId, payload) =>
+{ return runConnection.sendCommand(runId, payload); }` adapter this spec calls for, with a
+`BUG-017:` comment citing this defect (git blame traces the fix to a commit predating this
+bug-hunt cycle — the card was simply never closed). `frontend/src/hooks/useRunChat.test.ts`
+already contains **"Test 14: fetchEvents fires ONLY after the up-channel send resolves (BUG-017
+ordering guard)"** (line 445), which encodes precisely the RED->GREEN assertion this card asks
+for and is currently green:
+
+```
+$ cd frontend && npx vitest run src/hooks/useRunChat.test.ts -t "Test 14"
+Test Files  1 passed (1)
+     Tests  1 passed | 19 skipped (20)
+```
+
+No new test written — an existing one already proves correct behaviour and there is no
+reproducible red state for this defect today. Marked `status: done`, `verification.status:
+passed`, linked to the existing test file.

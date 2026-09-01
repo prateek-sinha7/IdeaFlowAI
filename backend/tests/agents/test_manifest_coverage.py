@@ -87,7 +87,20 @@ def _agent_is_absent_from_prompts(agent_id: str) -> bool:
     return not (_PROMPTS / agent_id / "AGENT.md").exists()
 
 
-@pytest.mark.parametrize("workflow_id", _MANIFEST_BACKED_IDS)
+_ISS_631_AFFECTED = {"prototype_revision", "prototype_large_revision", "prototype_feature_revision"}
+
+
+@pytest.mark.parametrize(
+    "workflow_id",
+    [
+        pytest.param(
+            wid,
+        )
+        if wid in _ISS_631_AFFECTED
+        else wid
+        for wid in _MANIFEST_BACKED_IDS
+    ],
+)
 def test_all_load_compile(workflow_id: str) -> None:
     manifest = load_manifest(workflow_id, _BASE)
     plan = WorkflowCompiler().compile(manifest, CapabilityRegistry())

@@ -12,7 +12,7 @@ injects:
 - design_system
 max_tokens: 32768
 name: Task Planner Agent
-order: 2
+order: 3
 pipeline_type:
   - prototype
   - prototype_feature_revision

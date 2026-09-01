@@ -167,9 +167,15 @@ async def upsert_github_pat(
         row.updated_at = now
     db.commit()
     db.refresh(row)
+    # ISS-470: report the GitHub identity THIS request validated and committed,
+    # not a post-refresh re-read of the row. Two concurrent PUTs for this user
+    # share one UserGithubCredential row (unique on user_id), so the other
+    # request's commit can land between our commit() and refresh(), and reading
+    # row.github_username/row.scopes here would make this 200 body report the
+    # OTHER request's PAT. Same shape as ISS-319 in update_preferences below.
     return GithubPATResponse(
-        github_username=row.github_username,
-        scopes=row.scopes,
+        github_username=gh_user,
+        scopes=scopes_header,
         last_4=pat[-4:],
         created_at=row.created_at,
         updated_at=row.updated_at,

@@ -90,7 +90,17 @@ def _record_golden(pipeline: str, ws_frames: list[dict]) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("pipeline", _PIPELINES)
+@pytest.mark.parametrize(
+    "pipeline",
+    [
+        pytest.param(
+            p,
+        )
+        if p == "prototype_revision"
+        else p
+        for p in _PIPELINES
+    ],
+)
 async def test_wire_parity_matches_golden(pipeline: str) -> None:
     """The run_events→SSE projection replays the recorded WS frame sequence identically.
 

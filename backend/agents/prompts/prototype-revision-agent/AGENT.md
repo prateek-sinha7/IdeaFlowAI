@@ -8,7 +8,7 @@ icon: ✏️
 id: prototype-revision-agent
 max_tokens: 32768
 name: Revision Specialist Agent
-order: 1
+order: 2
 pipeline_type: prototype_revision
 produces:
 - prototype-revision-agent

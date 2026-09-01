@@ -238,16 +238,25 @@ def _teardown_budget_seconds(*, stop_runs: bool) -> float:
       pump cancel-and-wait           run_shutdown.py:174-176
       [stop-runs] driver drain       run_shutdown.py:233-235   (only when SHUTDOWN_STOP_RUNS)
       [stop-runs] driver escalation  run_shutdown.py:247-249   (only when SHUTDOWN_STOP_RUNS)
+      checkpointer pool close        checkpointer.py:140-152   (ISS-106)
 
-    BOUNDED waits only. Step 4's close_checkpointer() awaits pool.close() with no timeout
-    (checkpointer.py:142), so the true worst case is unbounded and this guard cannot see
-    it — ISS-106. What this test does catch is a drain budget growing past the grace period.
+    Every wait on the path is bounded, so this really is the worst case: ISS-106 wrapped
+    step 4's pool.close() in asyncio.wait_for(SHUTDOWN_CHECKPOINTER_CLOSE_SECONDS), which
+    was previously untimeouted and invisible to this arithmetic.
     """
     from app.core.config import settings
 
     concierge = settings.SHUTDOWN_CONCIERGE_DRAIN_SECONDS
     task = settings.SHUTDOWN_TASK_DRAIN_SECONDS
-    total = _uvicorn_graceful_window_seconds() + concierge + task + task + task
+    checkpointer_close = settings.SHUTDOWN_CHECKPOINTER_CLOSE_SECONDS
+    total = (
+        _uvicorn_graceful_window_seconds()
+        + concierge
+        + task
+        + task
+        + task
+        + checkpointer_close
+    )
     if stop_runs:
         total += 2 * task
     return total

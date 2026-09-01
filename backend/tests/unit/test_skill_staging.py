@@ -172,6 +172,35 @@ def test_step_skills_narrow_staging_to_that_agent(tmp_path, monkeypatch):
     assert "x" not in delivery_b.staged
 
 
+@pytest.mark.issue("ISS-185")
+def test_staged_skill_carries_its_referenced_sibling_files(tmp_path):
+    """ISS-185 — a skill whose SKILL.md body tells the agent to read a sibling
+    file ("`root-cause-tracing.md` in this directory") must have that file land
+    next to the staged SKILL.md, or the agent's `ls`/`read_file` at the mount
+    point it was told to use comes back empty. `stage_skills` today writes only
+    the synthesized SKILL.md and never the catalog folder's other files."""
+    from app.agents import skills_catalog
+
+    skills_catalog.clear_cache()
+    catalog_entry = next(
+        e for e in skills_catalog.list_global_skills() if e.id == "systematic-debugging"
+    )
+    assert "root-cause-tracing.md" in catalog_entry.content  # sanity: body really references it
+
+    sb = _sandbox(tmp_path)
+    result = stage_skills(
+        sb,
+        [{"id": catalog_entry.id, "name": catalog_entry.name, "content": catalog_entry.content}],
+    )
+
+    assert result.staged == ["systematic-debugging"]
+    referenced_sibling = sb.root / "skills" / "systematic-debugging" / "root-cause-tracing.md"
+    assert referenced_sibling.exists(), (
+        "SKILL.md tells the agent to read root-cause-tracing.md 'in this directory' "
+        "but stage_skills never staged it there"
+    )
+
+
 def test_skill_name_in_frontmatter_is_properly_quoted(tmp_path):
     """Test that the skill_id is properly quoted in frontmatter and parses correctly."""
     sb = _sandbox(tmp_path)

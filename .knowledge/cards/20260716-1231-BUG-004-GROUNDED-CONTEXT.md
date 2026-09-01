@@ -3,7 +3,7 @@ id: BUG-004-GROUNDED-CONTEXT
 type: bug
 kind: event
 title: BUG-004 — SSE stream DB connection leak
-status: open
+status: done
 applies_to:
   phases: []
   modules:
@@ -35,14 +35,23 @@ locked_constraints:
 - INV-3
 - INV-13
 verification:
-  type: manual
-  status: required
-  test_files: []
+  type: test
+  status: passed
+  test_files:
+    - backend/tests/unit/test_run_stream_pool_leak.py
 compact_summary: 'FastAPI tears down Depends(get_db) before the SSE generator body runs, so read_events opens a fresh pooled connection per stream that ScopedStore never closes, leaking one per live stream.'
-last_updated: '2026-08-14'
+last_updated: '2026-08-31'
 author: 'Imran Yousaf <imrany@hexaware.com>'
 author_source: applies-to-glob
 ---
+
+<!-- RELATED -->
+
+## Related
+
+**Depends on:** [FIX-440](20260831-2002-FIX-440.md)
+
+<!-- /RELATED -->
 
 # BUG-004 — SSE stream DB connection leak (grounded fix spec)
 
@@ -85,3 +94,18 @@ In `backend/app/api/run_stream.py`: the store consumed **inside** `_iter_sse_fra
 ## At-risk / no-regression
 - The SSE endpoint's two owner checks (`:220`, `:239`) must STILL 404 cross-owner (owner isolation).
 - Durable replay (`:145`) + D-14g gate re-arm (`:178`) must still deliver the same events. `test_wire_parity.py` + the characterization goldens are the oracle.
+
+## Test-writer confirmation (2026-08-31)
+- The PRIMARY (session-less generator store, `run_stream.py:465-468`) and SECONDARY (pool
+  sizing, `database.py:19-27`) fixes are both already present in code — landed in commit
+  `d027f16bd` ("bug-hunter: close 80 bugs from the parallel validate/analyze/test/fix/verify
+  batch"), which pre-dates this bookkeeping pass. `backend/tests/unit/test_run_stream_pool_leak.py`
+  (also from that batch) is the exact regression suite this card asked for — it pins the leak
+  mechanism (`test_injected_closed_session_leaks`), the fix idiom
+  (`test_sessionless_store_no_leak`), and the endpoint-level fail-before/pass-after guard
+  (`test_stream_endpoint_returns_connections`). Ran it standalone: `cd backend && python3.11 -m
+  pytest tests/unit/test_run_stream_pool_leak.py -q` → **3 passed**. Because the fix is already
+  shipped, a fresh "red today" run against `run_stream.py`/`database.py` is not obtainable
+  without reverting application source (out of scope for a test-writer) — `observedRed` is
+  reported `false` for that reason, not because the test is unproven: it is a real,
+  currently-green oracle covering this exact defect, not a vacuous pass. No new test needed.

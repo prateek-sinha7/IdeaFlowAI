@@ -285,11 +285,14 @@ class TestH3SmartPlannerDesignNote:
     """FIX-ISS056-H3(b): SmartPlanner._build_prompt emits 'Design already chosen' block."""
 
     def _make_planner(self):
+        """ISS-118: callers must request the ``stub_provider_classes`` fixture —
+        ``SmartPlanner.__init__`` builds a provider client, and the ISS-102 guard
+        (rightly) fails any test that constructs a real one."""
         from agents.planner.smart_planner import SmartPlanner
 
         return SmartPlanner(model_id=None)
 
-    def test_design_note_present_when_design_context_supplied(self) -> None:
+    def test_design_note_present_when_design_context_supplied(self, stub_provider_classes) -> None:
         """ISS-056/H3(b): 'Design already chosen' must appear when design_context is non-None."""
         planner = self._make_planner()
         prompt = planner._build_prompt(
@@ -305,7 +308,7 @@ class TestH3SmartPlannerDesignNote:
         assert "Web Prototype" in prompt
         assert "Do NOT flag visual style" in prompt
 
-    def test_design_note_absent_when_design_context_none(self) -> None:
+    def test_design_note_absent_when_design_context_none(self, stub_provider_classes) -> None:
         """Safety boundary: prompt must NOT mention design_context when it is None."""
         planner = self._make_planner()
         prompt = planner._build_prompt(
@@ -318,7 +321,7 @@ class TestH3SmartPlannerDesignNote:
             "when design_context is None"
         )
 
-    def test_design_note_absent_when_both_names_missing(self) -> None:
+    def test_design_note_absent_when_both_names_missing(self, stub_provider_classes) -> None:
         """Edge case: empty design_context dict must not inject the note."""
         planner = self._make_planner()
         prompt = planner._build_prompt(

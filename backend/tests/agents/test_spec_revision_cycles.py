@@ -16,9 +16,10 @@ started from the RE-OPENED gate (B), and a pass that re-enters itself (A).
     runs the generator to exhaustion before ``break``ing, so by the time control reaches
     the re-opened gate the first pass is fully unwound. Asserted as pairwise-equal
     ``len(inspect.stack())`` between cycles — the REDO-GATE F2 flat-loop precedent. Test 2.
-  * A-affordance — the analyze re-run INSIDE a pass is itself gated and used to advertise
-    "Update the Specs" there, which is the one route that nests. The eligibility flag is
-    now withheld while a pass is in flight. Test 3.
+  * A-affordance — the analyze re-run INSIDE a pass used to be gated and to advertise
+    "Update the Specs" there, which is the one route that nests. ISS-053 withheld the
+    eligibility flag at that firing; ISS-072 then SUPPRESSED the firing itself, since it
+    showed the content the re-opened gate is about to show again. Test 3.
   * A-safety — a nested pass must be SAFE regardless: distinct ``:rev{N}`` at any depth (a
     monotone per-run high-water mark) and an inner pass that RESTORES rather than zeroes
     the outer pass's scratch. Test 4. Since ISS-053 the engine ENFORCES the eligibility
@@ -45,7 +46,8 @@ from tests.agents._scripted_model import ScriptedFakeChatModel  # noqa: E402
 
 PRIOR = "PRIOR-SPEC-SENTINEL ## Workflow Completion Checklist"
 
-# The gate stub fires 3 times per cycle; a correct two-cycle drive is 5 firings. Anything
+# The gate stub fires 2 times per cycle since ISS-072 suppressed the in-pass analyze gate
+# (3 with ``allow_in_pass_gate=True``); a correct two-cycle drive is 3 firings. Anything
 # far above that is a wiring mistake looping, so fail fast rather than hang.
 _RUNAWAY_LIMIT = 14
 
@@ -83,7 +85,7 @@ def _write_ref(ectx, run_id: str, producer_id: str, content: str) -> None:
     )
 
 
-async def _drive_cycles(run_id: str, click_at: set[int]):
+async def _drive_cycles(run_id: str, click_at: set[int], *, allow_in_pass_gate: bool = False):
     """Drive ``_run_agent`` over a REAL revision sub-pipeline, clicking "Update the
     Specs" at the gate firings named in ``click_at``. Every other firing approves.
 
@@ -91,11 +93,18 @@ async def _drive_cycles(run_id: str, click_at: set[int]):
     is a dict of ``firing`` / ``depth`` / ``revision_attempt`` / ``context_set`` /
     ``eligible`` sampled at the START of the gate, before any action is taken.
 
-    Gate-firing map, one cycle = 3 firings:
-      ``[0]`` the outer first-pass gate, ``[1]`` the analyze re-run's gate INSIDE the
-      sub-pipeline, ``[2]`` the gate re-opened after the sub-pipeline returned.
-    So ``{0}`` is a single cycle, ``{0, 2}`` is the two-sibling-cycle drive (Defect B) and
-    ``{0, 1}`` is the nested drive (Defect A).
+    Gate-firing map, one cycle = 2 firings since ISS-072:
+      ``[0]`` the outer first-pass gate, ``[1]`` the gate re-opened after the sub-pipeline
+      returned. The analyze re-run's gate INSIDE the sub-pipeline is SUPPRESSED — it
+      showed the content ``[1]`` is about to show again, so it never fires.
+    So ``{0}`` is a single cycle and ``{0, 1}`` is the two-sibling-cycle drive (Defect B).
+
+    ``allow_in_pass_gate=True`` stubs ``_should_gate`` down to its ``gate_agent_ids``
+    branch, which BYPASSES the ISS-072 suppression and restores the pre-ISS-072 three-
+    firing map (``[1]`` in-pass, ``[2]`` re-opened) so ``{0, 1}`` is the nested drive
+    (Defect A). It is the same deliberate fence-bypass as this file's ``_run_review_gate``
+    stub: no client can reach a nested pass any more, and the A-safety net must be kept
+    honest rather than left to rot behind the fence.
 
     ``_run_spec_revision_sub_pipeline`` is deliberately NOT stubbed — this file exists to
     prove what it does.
@@ -153,6 +162,12 @@ async def _drive_cycles(run_id: str, click_at: set[int]):
         lambda aid, idx: ScriptedFakeChatModel(_text_turn(f"{aid} output {idx}. "))
     ) as h:
         h.engine._run_review_gate = _gate  # type: ignore[assignment]
+        if allow_in_pass_gate:
+            # The ``gate_agent_ids`` branch of the real ``_should_gate``, minus its
+            # ISS-072 ``suppress_review_gate`` veto — see the docstring.
+            h.engine._should_gate = (  # type: ignore[assignment]
+                lambda spec, ectx, **_kw: spec.id in set(ectx.gate_agent_ids or [])
+            )
         ectx = _make_ectx(run_id, gate_agent_ids=[ordered[2].id])
         ectx_box["ectx"] = ectx
         _write_ref(ectx, run_id, ordered[0].id, PRIOR)
@@ -193,7 +208,7 @@ async def test_reopened_gate_second_update_specs_runs_a_second_cycle() -> None:
     gate closed, instantly re-opened on the same content, and nothing ran.
     """
     run_id = "cycles-b"
-    _records, thread_ids, _ectx, ordered, events = await _drive_cycles(run_id, {0, 2})
+    _records, thread_ids, _ectx, ordered, events = await _drive_cycles(run_id, {0, 1})
     _assert_sentinel_never_escapes(events)
 
     analyze_id = ordered[2].id
@@ -220,29 +235,24 @@ async def test_reopened_gate_second_update_specs_runs_a_second_cycle() -> None:
 async def test_reopened_gate_cycle_keeps_a_flat_stack() -> None:
     """B-flat: the second cycle is a SIBLING of the first, not a nested one.
 
-    Cycle 2's in-pass gate sits at the same engine stack depth as cycle 1's, and cycle 2's
-    re-opened gate at the same depth as cycle 1's. A nested implementation would make
-    cycle 2 strictly deeper — the REDO-GATE F2 reason unbounded human-paced operations
-    must not recurse.
+    Cycle 2's re-opened gate sits at the same engine stack depth as cycle 1's. A nested
+    implementation would make cycle 2 strictly deeper — the REDO-GATE F2 reason unbounded
+    human-paced operations must not recurse. (Pre-ISS-072 this compared the in-pass gates
+    too; that firing is suppressed now, so the re-opened pair is the whole comparison.)
     """
-    records, thread_ids, _ectx, _ordered, events = await _drive_cycles("cycles-flat", {0, 2})
+    records, thread_ids, _ectx, _ordered, events = await _drive_cycles("cycles-flat", {0, 1})
     _assert_sentinel_never_escapes(events)
 
     assert len(thread_ids) == 7, (
         f"the second cycle never ran, so there is no depth to compare; got {thread_ids}"
     )
-    assert len(records) == 5, (
-        "expected 5 gate firings (3 per cycle, sharing the re-opened one); "
+    assert len(records) == 3, (
+        "expected 3 gate firings (the outer one plus one re-open per cycle); "
         f"got {len(records)}: {[r['firing'] for r in records]}"
     )
 
-    in_pass_1, in_pass_2 = records[1]["depth"], records[3]["depth"]
-    reopened_1, reopened_2 = records[2]["depth"], records[4]["depth"]
+    reopened_1, reopened_2 = records[1]["depth"], records[2]["depth"]
 
-    assert in_pass_1 == in_pass_2, (
-        "cycle 2's in-pass gate is NESTED inside cycle 1 (stack grew "
-        f"{in_pass_1} -> {in_pass_2}); revision cycles must be flat siblings"
-    )
     assert reopened_1 == reopened_2, (
         "cycle 2's re-opened gate is NESTED inside cycle 1 (stack grew "
         f"{reopened_1} -> {reopened_2}); revision cycles must be flat siblings"
@@ -257,27 +267,139 @@ async def test_reopened_gate_cycle_keeps_a_flat_stack() -> None:
 @pytest.mark.asyncio
 async def test_update_specs_not_offered_while_a_revision_is_in_flight() -> None:
     """A-affordance: over ONE cycle the ``update_specs_eligible`` flag passed to the gate
-    is True at the outer first-pass gate, FALSE at the analyze re-run's gate INSIDE the
-    pass, and True again at the re-opened gate.
+    is True at the outer first-pass gate and True again at the re-opened gate.
 
-    This moves the single supported entry point to the one gate where the next cycle is
-    flat; it withdraws no capability (the user reaches it with the same number of clicks).
+    The single supported entry point is the one gate where the next cycle is flat; no
+    capability is withdrawn (the user reaches it with the same number of clicks).
+
+    ISS-072 narrowed this: the analyze re-run's in-pass gate, which this test used to
+    watch publish ``False``, is SUPPRESSED and no longer fires at all — a strictly
+    stronger fence than withholding the flag at it. The withholding RULE itself
+    (``_update_specs_eligible`` condition 2) is kept and is proven directly in
+    ``test_update_specs_enforcement.py``, where the rule lives.
     """
     records, _tids, _ectx, _ordered, events = await _drive_cycles("cycles-fence", {0})
     _assert_sentinel_never_escapes(events)
 
-    assert len(records) == 3, (
-        f"expected 3 gate firings for one cycle; got {[r['firing'] for r in records]}"
+    assert len(records) == 2, (
+        f"expected 2 gate firings for one cycle; got {[r['firing'] for r in records]}"
     )
     eligible = [r["eligible"] for r in records]
 
     assert eligible[0] is True, f"the first-pass analyze gate must offer it; got {eligible}"
-    assert eligible[1] is False, (
-        "the analyze re-run INSIDE the revision pass must NOT advertise 'Update the "
-        f"Specs' — that is the one route that nests; got {eligible}"
-    )
-    assert eligible[2] is True, (
+    assert eligible[1] is True, (
         f"the re-opened gate must offer it again (the flat sibling route); got {eligible}"
+    )
+
+
+@pytest.mark.issue("ISS-072")
+@pytest.mark.asyncio
+async def test_in_pass_analyze_gate_is_suppressed_not_just_ineligible() -> None:
+    """ISS-072: the in-pass analyze gate `[1]` must not fire at all, not merely be
+    ineligible for "Update the Specs".
+
+    ISS-053/FIX-218 already withhold the `update_specs_eligible` flag at firing `[1]`
+    (proven by ``test_update_specs_not_offered_while_a_revision_is_in_flight`` above), but
+    the gate itself still fires and still costs a plain approval — for content the user is
+    about to be shown again at the re-opened gate `[2]` (same producer, same content, per
+    ISS-072's live evidence). One cycle should cost 2 approvals (outer `[0]` +
+    re-opened `[2]`), not 3.
+    """
+    records, _tids, _ectx, _ordered, events = await _drive_cycles("cycles-suppress-inpass", {0})
+    _assert_sentinel_never_escapes(events)
+
+    assert len(records) == 2, (
+        "the in-pass analyze gate fired even though it is redundant with the re-opened "
+        f"gate; expected 2 firings (outer + re-opened), got {len(records)}: "
+        f"{[r['firing'] for r in records]}"
+    )
+
+
+async def _drive_cycle_all_three_gated(run_id: str):
+    """Like ``_drive_cycles``, but ``gate_agent_ids`` covers ALL THREE re-dispatched
+    agents (specify, plan, analyze), not just the analyze agent. Records ``agent_id`` on
+    each firing so the caller can tell which step gated.
+
+    This is the FIX-420 regression the ISS-072 suppression deliberately risked: the
+    suppression marker (``ectx.suppress_review_gate = sub_spec is analyze_spec``) is set
+    per-dispatch inside the sub-pipeline loop, True ONLY for the analyze re-dispatch — a
+    pass-wide signal (keying on ``revision_attempt`` alone, which ISS-072 explicitly
+    rejected) would have suppressed specify's and plan's in-pass gates too.
+    """
+    from tests.agents.test_redo_gate_safety import _EngineHarness, _drive_agent, _make_ectx, _text_turn
+
+    ordered = _revision_triple()
+    records: list[dict] = []
+    state = {"n": 0, "runaway": False}
+    ectx_box: dict = {}
+
+    async def _gate(pipeline_run_id, agent_id, agent_name, output, redoable=False, **kwargs):
+        i = state["n"]
+        state["n"] += 1
+        if i >= _RUNAWAY_LIMIT:
+            state["runaway"] = True
+            return
+        records.append({"firing": i, "agent_id": agent_id})
+        yield {
+            "type": "review_gate_ready",
+            "data": {"gate_key": f"{pipeline_run_id}:{agent_id}", "redoable": redoable},
+        }
+        if i == 0:
+            # Click "Update the Specs" at the outer gate to enter the sub-pipeline.
+            yield {"type": "_gate_update_specs", "analysis_report": output}
+
+    with _EngineHarness(
+        lambda aid, idx: ScriptedFakeChatModel(_text_turn(f"{aid} output {idx}. "))
+    ) as h:
+        h.engine._run_review_gate = _gate  # type: ignore[assignment]
+        # ALL THREE re-dispatched agents are gated, not just analyze.
+        ectx = _make_ectx(run_id, gate_agent_ids=[a.id for a in ordered])
+        ectx_box["ectx"] = ectx
+        _write_ref(ectx, run_id, ordered[0].id, PRIOR)
+        results: list[dict] = []
+        events = await _drive_agent(h.engine, ordered[2], ectx, results, ordered, index=2)
+
+    assert not state["runaway"], (
+        f"the gate fired more than {_RUNAWAY_LIMIT} times — the revision wiring is looping"
+    )
+    return records, ordered, events
+
+
+@pytest.mark.issue("ISS-072")
+@pytest.mark.asyncio
+async def test_specify_and_plan_in_pass_gates_still_fire_when_analyze_is_suppressed() -> None:
+    """ISS-072 regression guard: suppressing the analyze re-run's in-pass gate must NOT
+    suppress the specify/plan in-pass gates too. Those are WANTED (ISS-052's live evidence)
+    and the fix's own text calls out that a pass-wide ``revision_attempt`` signal would
+    have killed them — the suppression marker must be per-dispatch, identity-scoped to the
+    analyze re-dispatch alone.
+
+    With all three re-dispatched agents gated: one cycle must show specify and plan each
+    gating exactly once (their in-pass firing), analyze gating exactly twice (outer +
+    re-opened), and analyze's IN-PASS re-dispatch must never appear at all.
+    """
+    records, ordered, events = await _drive_cycle_all_three_gated("cycles-specify-plan-still-fire")
+    _assert_sentinel_never_escapes(events)
+
+    specify_id, plan_id, analyze_id = ordered[0].id, ordered[1].id, ordered[2].id
+    agent_ids = [r["agent_id"] for r in records]
+
+    assert agent_ids.count(specify_id) == 1, (
+        f"the specify in-pass gate must still fire exactly once; got {agent_ids}"
+    )
+    assert agent_ids.count(plan_id) == 1, (
+        f"the plan in-pass gate must still fire exactly once; got {agent_ids}"
+    )
+    assert agent_ids.count(analyze_id) == 2, (
+        "analyze must gate exactly twice (outer first-pass + re-opened), with its "
+        f"in-pass re-dispatch suppressed; got {agent_ids}"
+    )
+    # analyze's in-pass gate would sit strictly between the specify and plan firings —
+    # i.e. immediately after them and before the re-opened gate. Assert it is absent by
+    # checking the total firing count matches exactly 4 (specify + plan + analyze x2).
+    assert len(records) == 4, (
+        "expected 4 firings (specify in-pass, plan in-pass, analyze outer, analyze "
+        f"re-opened) with analyze's in-pass firing suppressed; got {len(records)}: {agent_ids}"
     )
 
 
@@ -291,12 +413,16 @@ async def test_nested_revision_keeps_distinct_threads_and_restores_the_outer_pas
     the stack.
 
     This drive stubs ``_run_review_gate``, so it bypasses the ISS-053 fence that now
-    refuses ``update_specs`` at the in-pass gate. That is deliberate: no client can reach
-    this state any more, and this test keeps the nesting safety honest as defence in depth
-    rather than letting it rot behind the fence.
+    refuses ``update_specs`` at the in-pass gate, and passes ``allow_in_pass_gate`` so the
+    ISS-072 suppression does not stop that gate opening in the first place. Both bypasses
+    are deliberate and for the same reason: no client can reach this state any more, and
+    this test keeps the nesting safety honest as defence in depth rather than letting it
+    rot behind the fences.
     """
     run_id = "cycles-nested"
-    records, thread_ids, _ectx, ordered, events = await _drive_cycles(run_id, {0, 1})
+    records, thread_ids, _ectx, ordered, events = await _drive_cycles(
+        run_id, {0, 1}, allow_in_pass_gate=True
+    )
     _assert_sentinel_never_escapes(events)
 
     first_pass = f"{run_id}:{ordered[2].id}"

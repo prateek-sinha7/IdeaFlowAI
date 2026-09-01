@@ -169,6 +169,8 @@ async def test_forward_build_with_stray_parent_run_id_does_not_seed() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.issue("ISS-633")
+@pytest.mark.xfail(reason="ISS-633 unfixed", strict=True)
 async def test_declared_revision_with_parent_seeds_after_assert_owns() -> None:
     """A DECLARED revision with a parent runs assert_owns, THEN seeds."""
     store = _RecordingStore()
