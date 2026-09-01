@@ -452,7 +452,6 @@ def test_a_saved_constitution_persists_across_a_reload(page, shot):
 
 
 @pytest.mark.issue("ISS-320")
-@pytest.mark.xfail(reason="ISS-320 unfixed", strict=True)
 @pytest.mark.destructive
 def test_clear_constitution_requires_confirmation_before_deleting(page, shot):
     """ISS-320 — "Clear" must not delete the saved constitution on a single,

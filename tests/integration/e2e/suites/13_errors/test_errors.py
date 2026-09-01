@@ -204,6 +204,7 @@ def test_missing_resource_errors_are_indistinguishable_from_a_bad_url(page, shot
 
 @pytest.mark.scenario("S-13-11")
 @pytest.mark.defect
+@pytest.mark.issue("ISS-628")
 def test_a_nonexistent_artifact_version_falls_back_to_v1_without_saying_so(page, shot):
     """Scenario: A nonexistent artifact version falls back to v1 without saying so
 
@@ -211,9 +212,24 @@ def test_a_nonexistent_artifact_version_falls_back_to_v1_without_saying_so(page,
     """
     page.goto("/runs")
     expect(page.locator(RH.ROW).first).to_be_visible()
-    completed = [label for label in RH.rows(page) if RH.status_of(label) == "completed"]
-    assert completed, "no completed run to ask for a version of"
-    page.locator(f'{RH.ROW}[aria-label="{completed[0]}"]').first.click()
+    # A family row opens its LATEST MEMBER (a revision whose v1 is its own
+    # revision-v1, not the root's v1). Use a single-version completed row so
+    # the /versions/99 → v1 fallback resolves unambiguously. ISS-628.
+    rows_info = page.locator(RH.ROW).evaluate_all(
+        """els => els.map((e, i) => {
+            const badge = e.querySelector('span[aria-label$=" versions"]');
+            return [i, e.getAttribute("aria-label"),
+                    badge ? parseInt(badge.getAttribute("aria-label"), 10) : 1];
+        })"""
+    )
+    solo_done = [
+        (idx, label)
+        for idx, label, n in rows_info
+        if n == 1 and RH.status_of(label) == "completed"
+    ]
+    assert solo_done, "no single-version completed run to ask for a version of"
+    idx, label = solo_done[0]
+    page.locator(RH.ROW).nth(idx).click()
     page.wait_for_url(lambda url: "/runs/" in url)
     run_id = page.url.split("/runs/")[1].split("/")[0].split("?")[0]
 

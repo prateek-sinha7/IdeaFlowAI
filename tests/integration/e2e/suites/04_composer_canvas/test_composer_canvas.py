@@ -374,6 +374,11 @@ def test_a_last_streamed_built_in_refuses_an_append_after_final_step_slot(page, 
     with shot("last-step-guard", 'When I cold-load "/workflows/ppt/canvas"'):
         open_composer(page, "/workflows/ppt/canvas", nodes=len(L.PPT_AGENT_IDS))
 
+    # The guard lives in a CapTip tooltip (role="tooltip", opacity-0 until
+    # hover). Hover the add-after-last-step button to trigger group-hover:opacity-100,
+    # then assert the tooltip is visible. ISS-626.
+    add_after_last = page.locator(L.ADD_AGENT).last
+    add_after_last.hover()
     expect(page.get_by_text(L.LAST_STEP_GUARD)).to_be_visible()
     # The last node offers no "move later" target beyond itself: appending after
     # it would silently replace output.md.

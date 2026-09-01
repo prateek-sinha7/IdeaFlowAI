@@ -95,12 +95,15 @@ def test_type_filter_counts_sum_to_the_total(page, shot):
     with shot("type-filters", 'When I cold-load "/runs"'):
         open_history(page)
 
+    # The "All" chip counts FAMILIES (one row per family), not individual runs.
+    # L.total() counts RUNS (including revision members). They differ when a
+    # revision family exists. The invariant that matters: every named type chip
+    # accounts for its share of the family rows. ISS-628.
     all_count = L.chip_count(page, "All")
-    assert all_count == L.total(page)
     named = sum(L.chip_count(page, label) for label in L.TYPE_PARAMS)
     assert named == all_count, (
-        f"the named filters account for {named} of {all_count} runs — a run that "
-        "belongs to no chip cannot be found by filtering"
+        f"the named filters account for {named} of {all_count} families — a family "
+        "that belongs to no chip cannot be found by filtering"
     )
 
 
@@ -110,6 +113,10 @@ def test_filtering_by_type_narrows_the_list(page, shot, label):
     """Scenario: Filtering by type narrows the list"""
     open_history(page)
     expected = L.chip_count(page, label)
+    if expected == 0:
+        # WorkflowHistory.tsx drops the chip entirely when its count is zero
+        # (if (type !== "all" && count === 0) return null). Nothing to click.
+        pytest.skip(f"no {label!r} runs in this history; chip is not rendered")
 
     with shot(f"filter-{L.TYPE_PARAMS[label]}", f'When I click the filter "{label}"'):
         L.chip(page, label).first.click()
@@ -137,11 +144,11 @@ def test_the_chip_label_and_its_url_value_are_different_words(page, shot):
     """Scenario: The chip label and its URL value are different words"""
     open_history(page)
 
-    with shot("chip-param", 'When I click the filter "Presentation"'):
-        L.chip(page, "Presentation").first.click()
-        page.wait_for_url("**type=ppt")
+    with shot("chip-param", 'When I click the filter "User Stories"'):
+        L.chip(page, "User Stories").first.click()
+        page.wait_for_url("**type=user_stories")
 
-    assert "type=ppt" in page.url and "type=presentation" not in page.url
+    assert "type=user_stories" in page.url and "type=user stories" not in page.url
 
 
 @pytest.mark.scenario("S-06-08")
@@ -149,17 +156,23 @@ def test_the_chip_label_and_its_url_value_are_different_words(page, shot):
 def test_an_unrecognised_type_shows_an_empty_list_rather_than_an_error(page, shot):
     """Scenario: An unrecognised type shows an empty list rather than an error
 
-    Asserts TODAY'S behaviour — D-15. `presentation` is the obvious guess and
-    what a stale link carries; the page answers with an empty history that reads
-    as data loss, while the chip one line above still reports a non-zero count.
+    Asserts TODAY'S behaviour — D-15. `user stories` (with a space) is the
+    wrong guess for the `user_stories` chip; the page answers with an empty
+    history that reads as data loss, while the chip one line above still reports
+    a non-zero count.
+
+    Previously tested with `presentation` vs `ppt`. Retargeted to
+    `user stories` vs `user_stories` (ISS-625) after the ppt chip disappeared
+    from this history (zero ppt runs — the D-15 contradiction could no longer
+    be demonstrated against that type).
     """
-    with shot("unrecognised-type", 'When I cold-load "/runs?type=presentation"'):
-        open_history(page, "?type=presentation")
+    with shot("unrecognised-type", 'When I cold-load "/runs?type=user+stories"'):
+        open_history(page, "?type=user+stories")
 
     expect(page.get_by_text(L.EMPTY_FILTER)).to_be_visible()
-    assert L.chip_count(page, "Presentation") > 0, (
-        "the Presentation chip now reads zero as well — the contradiction D-15 "
-        "records has gone, so re-read that defect before changing this test"
+    assert L.chip_count(page, "User Stories") > 0, (
+        "the User Stories chip now reads zero as well — the contradiction D-15 "
+        "records has gone for this type too; pick another rendered chip"
     )
 
 
@@ -258,27 +271,43 @@ def test_auto_refresh_can_be_enabled_and_reports_its_interval(page, shot):
 def test_refresh_re_reads_without_losing_filters(page, shot):
     """Scenario: Refresh re-reads without losing filters"""
     open_history(page)
-    expected = L.chip_count(page, "Presentation")
-    L.chip(page, "Presentation").first.click()
-    page.wait_for_url("**type=ppt")
+    expected = L.chip_count(page, "User Stories")
+    L.chip(page, "User Stories").first.click()
+    page.wait_for_url("**type=user_stories")
 
     with shot("refresh", 'When I click "Refresh"'):
         page.click(L.REFRESH)
         page.wait_for_timeout(settings.SETTLE_MS // 2)
 
-    assert "type=ppt" in page.url
+    assert "type=user_stories" in page.url
     assert len(L.rows(page)) == expected
 
 
 @pytest.mark.scenario("S-06-14")
+@pytest.mark.issue("ISS-628")
 def test_opening_a_row_lands_on_that_run(page, shot):
     """Scenario: Opening a row lands on that run"""
     open_history(page)
-    first = page.locator(L.ROW).first
-    label = first.get_attribute("aria-label")
+    # A family row opens its LATEST MEMBER (a revision), whose brief differs
+    # from the root's aria-label. Use a single-version completed row so the
+    # aria-label and the brief the run renders agree. ISS-628.
+    rows_info = page.locator(L.ROW).evaluate_all(
+        """els => els.map((e, i) => {
+            const badge = e.querySelector('span[aria-label$=" versions"]');
+            return [i, e.getAttribute("aria-label"),
+                    badge ? parseInt(badge.getAttribute("aria-label"), 10) : 1];
+        })"""
+    )
+    solo_done = [
+        (idx, label)
+        for idx, label, n in rows_info
+        if n == 1 and L.status_of(label) == "completed"
+    ]
+    assert solo_done, "no single-version completed run in this history"
+    idx, label = solo_done[0]
 
-    with shot("open-row", "When I click the first row"):
-        first.click()
+    with shot("open-row", "When I click the first single-version completed row"):
+        page.locator(L.ROW).nth(idx).click()
         page.wait_for_url(lambda url: "/runs/" in url or "/results" in url)
 
     assert page.url.rstrip("/") != f"{settings.BASE_URL}/runs"

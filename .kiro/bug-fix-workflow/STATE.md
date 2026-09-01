@@ -8,7 +8,7 @@ memory. Updated by the closer after every domain run.
 | 1 | warmup | 4 | DONE | 2 | 0 | 2 | [20260831-domain-01-warmup.md](reports/20260831-domain-01-warmup.md) |
 | 2 | frontend·settings | 4 | DONE | 3+1already | 0 | 0 | [20260831-domain-02-frontend-settings.md](reports/20260831-domain-02-frontend-settings.md) |
 | 3 | frontend·lib | 4 | DONE | 3 (ISS-386 fixed; ISS-413,ISS-486 already-fixed) | 0 | 1 (BUG-013 Part A cross-domain) | [20260901-domain-03-frontend-lib.md](reports/20260901-1100-domain-03-frontend-lib.md) |
-| 4 | tests·integration | 5 | NOT STARTED | – | – | – | – |
+| 4 | tests·integration | 5 | DONE | ISS-625,ISS-626,ISS-627 closed; ISS-628 partial | 0 | ISS-623(escalated),ISS-628-workspace(escalated) | [20260901-1200-domain-04-tests-integration.md](reports/20260901-1200-domain-04-tests-integration.md) |
 | 5 | frontend·preview | 7 | NOT STARTED | – | – | – | – |
 | 6 | frontend·components | 10 | NOT STARTED | – | – | – | – |
 | 7 | frontend·library | 11 | NOT STARTED | – | – | – | – |

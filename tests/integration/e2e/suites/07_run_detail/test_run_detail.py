@@ -26,12 +26,29 @@ from framework.locators import run_history as RH
 
 
 def a_completed_run(page) -> str:
-    """The id of a completed run this account owns."""
+    """The id of a completed single-version run this account owns.
+
+    A family row opens its LATEST MEMBER (a revision) whose type header reads
+    differently from the root. ISS-628: filter to n == 1 so the caller always
+    lands on the run whose label it matched.
+    """
     page.goto("/runs")
     expect(page.locator(RH.ROW).first).to_be_visible()
-    done = [label for label in RH.rows(page) if RH.status_of(label) == "completed"]
-    assert done, "no completed run to open"
-    page.locator(f'{RH.ROW}[aria-label="{done[0]}"]').first.click()
+    rows_info = page.locator(RH.ROW).evaluate_all(
+        """els => els.map((e, i) => {
+            const badge = e.querySelector('span[aria-label$=" versions"]');
+            return [i, e.getAttribute("aria-label"),
+                    badge ? parseInt(badge.getAttribute("aria-label"), 10) : 1];
+        })"""
+    )
+    done = [
+        (idx, label)
+        for idx, label, n in rows_info
+        if n == 1 and RH.status_of(label) == "completed"
+    ]
+    assert done, "no single-version completed run to open"
+    idx, label = done[0]
+    page.locator(RH.ROW).nth(idx).click()
     page.wait_for_url(lambda url: "/runs/" in url)
     return page.url.split("/runs/")[1].split("/")[0].split("?")[0]
 

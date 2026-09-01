@@ -66,13 +66,11 @@ def a_completed_run(page) -> str:
 
 
 @pytest.mark.scenario("S-15-01")
-@pytest.mark.defect
 def test_inspecting_a_catalog_workflow_describes_it_without_launching(page, shot):
     """Scenario: Inspecting a catalog workflow describes it without launching
 
-    The description half holds. The Escape half does NOT — the dialog stays open
-    — which is the same shape as D-07 on the add-agent modal, and why S-20-01
-    must never be collapsed into "Escape closes any overlay".
+    The description half holds. The Escape half also holds — pressing Escape
+    closes the inspect dialog.
     """
     page.goto("/dashboard")
     expect(page.get_by_text("What would you like to build today?")).to_be_visible()
@@ -90,13 +88,12 @@ def test_inspecting_a_catalog_workflow_describes_it_without_launching(page, shot
     assert re.search(r"No .* declared\.", body), "an empty section says nothing"
     assert page.url == before_url, "inspecting started a run"
 
-    with shot("inspect-escape-ignored", "When I press Escape"):
+    with shot("inspect-escape-closes", "When I press Escape"):
         page.keyboard.press("Escape")
         page.wait_for_timeout(settings.SETTLE_MS // 2)
 
-    assert dialogs(page) > 0, (
-        "Escape now closes the inspect dialog — the spec's S-15-01 can be "
-        "asserted in full, and S-20-01 gains a row"
+    assert dialogs(page) == 0, (
+        "Escape did not close the inspect dialog"
     )
 
 

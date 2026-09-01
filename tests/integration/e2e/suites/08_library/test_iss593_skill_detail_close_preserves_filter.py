@@ -23,7 +23,6 @@ CLOSE_BUTTON = "[role='dialog'] button.h-8.w-8"
 
 
 @pytest.mark.issue("ISS-593")
-@pytest.mark.xfail(reason="ISS-593 unfixed", strict=True)
 def test_closing_skill_detail_preserves_search_and_category(page):
     """ISS-593 — closing a skill's detail view must return to the Skills
     tab with the same search text and category filter the user left active,

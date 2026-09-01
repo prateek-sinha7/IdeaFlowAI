@@ -25,7 +25,6 @@ from framework.locators import library as L
 
 
 @pytest.mark.issue("ISS-594")
-@pytest.mark.xfail(reason="ISS-594 unfixed", strict=True)
 def test_back_button_from_hook_detail_preserves_search(page):
     """ISS-594 — pressing the browser Back button from a hook's detail view
     must return to the Hooks tab with the same search text active before the

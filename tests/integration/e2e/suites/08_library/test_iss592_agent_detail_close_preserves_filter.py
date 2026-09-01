@@ -25,7 +25,6 @@ CLOSE_BUTTON = "[role='dialog'] button.h-7.w-7"
 
 
 @pytest.mark.issue("ISS-592")
-@pytest.mark.xfail(reason="ISS-592 unfixed", strict=True)
 def test_closing_agent_detail_preserves_search_and_category(page):
     """ISS-592 — closing an agent's detail view must return to the Agents
     tab with the same search text and category filter the user left active,
