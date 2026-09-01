@@ -84,6 +84,8 @@ export function IntegrationsCard({
     copy: copyKey,
   } = useClipboardCopy();
 
+  const [fetchError, setFetchError] = useState<{ message: string; offline: boolean } | null>(null);
+
   const refresh = useCallback(async () => {
     const token = getToken();
     if (!token) return;
@@ -94,8 +96,20 @@ export function IntegrationsCard({
       ]);
       setPatStatus(p);
       setKeys(ks);
-    } catch {
-      /* dashboard auth already gated this surface */
+      setFetchError(null);
+    } catch (err) {
+      // ISS-409: a network/5xx failure must not silently default to the
+      // empty-state copy ("No GitHub token saved yet."). Surface a distinct
+      // retry notice so a user with real credentials isn't misled.
+      const offline =
+        err instanceof TypeError ||
+        (typeof err === "object" && err !== null && "status" in err && (err as { status: number }).status === 0);
+      setFetchError({
+        message: offline
+          ? "Couldn't reach the server — check your connection."
+          : "Couldn't load your saved credentials. Try again.",
+        offline,
+      });
     }
   }, []);
   useEffect(() => void refresh(), [refresh]);
@@ -128,6 +142,15 @@ export function IntegrationsCard({
   }, [pat]);
 
   const handleDeletePat = useCallback(async () => {
+    // ISS-481: the "Remove" button must ask before it fires DELETE — same
+    // unguarded-destroy pattern as ISS-320 / FIX-385 (Constitution Clear).
+    if (
+      !window.confirm(
+        "Remove your GitHub token? This will disconnect Flowin from GitHub " +
+          "until you save a new token.",
+      )
+    )
+      return;
     const token = getToken();
     if (!token) return;
     setPatBusy(true);
@@ -167,6 +190,13 @@ export function IntegrationsCard({
 
   const handleRevoke = useCallback(
     async (id: string) => {
+      // ISS-481: revoke is permanent — ask before firing DELETE.
+      if (
+        !window.confirm(
+          "Revoke this API key? Any client using it will immediately lose access.",
+        )
+      )
+        return;
       const token = getToken();
       if (!token) return;
       setKeyBusy(true);
@@ -187,6 +217,23 @@ export function IntegrationsCard({
 
   return (
     <div className={compact ? "space-y-3" : "space-y-4"}>
+      {/* ISS-409: surface a fetch-error notice when refresh() caught a network/5xx failure.
+          Distinct from the "No GitHub token saved yet." copy so a real credential
+          bearer isn't misled into thinking their config is gone. */}
+      {fetchError && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-[12px] text-amber-800">
+            <AlertCircle className="h-4 w-4 flex-none" />
+            {fetchError.message}
+          </div>
+          <button
+            onClick={() => void refresh()}
+            className="text-[11px] font-medium text-amber-800 hover:underline flex-none"
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {/* Install */}
       <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
         <div className="flex items-center gap-2 mb-2">

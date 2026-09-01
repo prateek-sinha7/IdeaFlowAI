@@ -438,6 +438,14 @@ export function useRunStateStore(): RunStateStoreReturn {
       "planner_error", "gate_status", "clarification_limit_reached",
       "agent_input", "tool_call", "tool_result", "workflow_validated",
       "task_progress", "task_loop_progress", "pipeline_reconnected",
+      // ISS-117: validator_result / gate_passed / gate_blocked were omitted from
+      // the allowlist, so the early-return at the `if (!pipelineFrameTypes.includes
+      // (msg.type)) return;` guard below silently dropped them on replay.
+      // ValidationResultCard in AgentDetailPanel gates on `passed === undefined`
+      // and renders nothing — so no run reopened from history ever showed a gate
+      // verdict. These three types rehydrate `validationPassed` / `validationIssues`
+      // via handlePipelineMessage's existing cases; no new reducer needed.
+      "validator_result", "gate_passed", "gate_blocked",
     ];
 
     if (!pipelineFrameTypes.includes(msg.type)) return;

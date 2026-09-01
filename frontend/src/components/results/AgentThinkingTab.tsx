@@ -1,7 +1,30 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { Activity } from "lucide-react";
+
+// ISS-387: safe wrapper — useRouter/usePathname throw an invariant when mounted
+// outside a Next.js App Router context (e.g. in unit tests). We isolate the
+// call in a tiny hook so the component can call it unconditionally while tests
+// that don't provide a router context simply get no-op stubs back.
+function useSafeRouter(): { push: (url: string) => void; back: () => void } {
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    return useRouter();
+  } catch {
+    return { push: () => {}, back: () => {} };
+  }
+}
+
+function useSafePathname(): string {
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    return usePathname();
+  } catch {
+    return "";
+  }
+}
 import type { AgentRunState, PipelineRunState, ClarifyRound, WaveGroup } from "@/types/index";
 import type { GateEventRow } from "@/lib/api";
 import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
@@ -88,6 +111,14 @@ export function AgentThinkingTab({
   // ── The three-level Steps navigation (mirrors the mock's stepView/taskView) ──
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(initialAgentId ?? null);
   const [selectedTaskIndex, setSelectedTaskIndex] = useState<number | null>(null);
+
+  // ISS-387: push a browser history entry when the user selects an agent or task
+  // so Back returns to the previous level (overview → agent → task) rather than
+  // skipping the Steps tab entirely. The router call is best-effort: if the
+  // component is mounted outside a Next.js router context (e.g. in a test) the
+  // hook may be absent — the state change is always applied regardless.
+  const router = useSafeRouter();
+  const pathname = useSafePathname();
 
   // ISS-277 — a deep link that names an agent selects it. Seeded above for the
   // mount that the deep link itself triggers, and re-applied here for a LATER
@@ -267,13 +298,19 @@ export function AgentThinkingTab({
             agentName={selectedAgent.name}
             status={taskStatusFor(selectedTaskIndex!)}
             task={pipelineState?.protoCompletedTasks?.find(t => t.number === selectedTaskIndex! + 1)}
-            onBack={() => setSelectedTaskIndex(null)}
+            onBack={() => {
+              setSelectedTaskIndex(null);
+              router.back();
+            }}
           />
         ) : selectedAgent ? (
           // ── L2 — agent detail ──
           <AgentDetailPanel
             agent={selectedAgent}
-            onBack={() => setSelectedAgentId(null)}
+            onBack={() => {
+              setSelectedAgentId(null);
+              router.back();
+            }}
             // ISS-065 — lets the detail list this agent's earlier artifact versions.
             runId={runId ?? null}
             construction={isConstructionSelected ? {
@@ -295,7 +332,11 @@ export function AgentThinkingTab({
                 return planned.map(p => completedByNum.get(p.number) ?? { number: p.number, title: p.title, summary: "" });
               })(),
             } : undefined}
-            onOpenTask={isConstructionSelected ? (i) => setSelectedTaskIndex(i) : undefined}
+            onOpenTask={isConstructionSelected ? (i) => {
+              setSelectedTaskIndex(i);
+              // ISS-387: push a history entry so Back returns to the agent detail.
+              router.push(`${pathname}?agent=${encodeURIComponent(selectedAgent!.id)}&task=${i}`);
+            } : undefined}
             agents={agents}
             agentIndex={agents.findIndex(a => a.id === selectedAgent.id)}
             dagEdges={pipelineState?.dagEdges}
@@ -308,7 +349,12 @@ export function AgentThinkingTab({
             pipelineState={pipelineState}
             clarifications={resolvedClarifications}
             clarificationsLoading={clarificationsLoading}
-            onOpenAgent={(id) => { setSelectedAgentId(id); setSelectedTaskIndex(null); }}
+            onOpenAgent={(id) => {
+              setSelectedAgentId(id);
+              setSelectedTaskIndex(null);
+              // ISS-387: push a history entry so Back returns to the overview.
+              router.push(`${pathname}?agent=${encodeURIComponent(id)}`);
+            }}
             gateEvents={gateEvents}
             topSlot={
               <StartingPointCard

@@ -10,7 +10,7 @@
  * with no live transport, following HandoffWorkflow.test.tsx's pattern.
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 
 vi.mock("@/lib/api", () => ({
   getToken: () => "test-jwt",
@@ -88,7 +88,14 @@ describe("IntegrationsCard API-key 'copy now' button — ISS-561", () => {
 
     const copyButtons = screen.getAllByRole("button").filter((b) => !b.textContent?.trim());
     expect(copyButtons.length).toBeGreaterThan(0);
-    fireEvent.click(copyButtons[0]);
+    // ISS-600: getAllByRole("button").filter(no text)[0] resolves to the PAT
+    // show/hide eye toggle (rendered before the API-key copy button in the DOM).
+    // Scope to the "New key — copy now" container so we click the right button.
+    const keyBanner = screen.getByText("New key — copy now").closest("div")!;
+    const { getAllByRole: getAllInBanner } = within(keyBanner);
+    const copyBtn = getAllInBanner("button").filter((b) => !b.textContent?.trim())[0]
+      ?? copyButtons[copyButtons.length - 1]; // fallback: last text-free button
+    fireEvent.click(copyBtn);
     await new Promise((r) => setTimeout(r, 0));
 
     // ISS-561: today this button has no `copied` state at all — click it and

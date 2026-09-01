@@ -19,6 +19,11 @@ vi.mock("next/navigation", () => ({
     prefetch: vi.fn(),
   }),
   useSearchParams: () => new URLSearchParams(),
+  // ISS-600: useParams must return a deep-link path so LibraryPage's T16 effect
+  // does NOT close the detail modal. With () => ({}) the URL slug is null, the
+  // effect fires setSelectedHook/Skill(null) on every render, and the click
+  // lands on a detached node — writeText is never called. Each test below
+  // overrides this mock for its own deep link; we set a no-op default here.
   useParams: () => ({}),
 }));
 
@@ -84,10 +89,16 @@ beforeEach(() => {
 
 describe("HookDetailModal Copy button — ISS-331", () => {
   it.fails("shows a failure state when the clipboard write rejects, instead of staying silent", async () => {
-    renderWithProviders(<LibraryPage />, { preloadedState: createPreloadedState() });
-    fireEvent.click(screen.getByRole("tab", { name: /hooks/i }));
-    fireEvent.click(screen.getByText(MOCK_HOOK.name));
+    // ISS-600: mock the URL as a deep link so LibraryPage's T16 effect opens
+    // (not closes) the hook detail modal. With () => ({}) the slug is null and
+    // the effect fires setSelectedHook(null) before the click lands.
+    vi.mocked(vi.importMock("next/navigation") as never);
+    // Override useParams directly on the module mock for this test.
+    const { useParams } = await import("next/navigation");
+    vi.mocked(useParams).mockReturnValue({ view: ["library", "hooks", MOCK_HOOK.id] });
 
+    renderWithProviders(<LibraryPage />, { preloadedState: createPreloadedState() });
+    // Deep link already opens the modal — no tab/card click needed.
     fireEvent.click(await screen.findByRole("button", { name: /^Copy$/ }));
     // Give the rejected microtask a tick to settle.
     await new Promise((r) => setTimeout(r, 0));
@@ -100,10 +111,12 @@ describe("HookDetailModal Copy button — ISS-331", () => {
 
 describe("SkillDetailModal Copy button — ISS-555", () => {
   it.fails("shows a failure state when the clipboard write rejects, instead of staying silent", async () => {
-    renderWithProviders(<LibraryPage />, { preloadedState: createPreloadedState() });
-    fireEvent.click(screen.getByRole("tab", { name: /skills/i }));
-    fireEvent.click(screen.getByText(MOCK_SKILL.name));
+    // ISS-600: mock the URL as a deep link so LibraryPage's T16 effect opens
+    // (not closes) the skill detail modal.
+    const { useParams } = await import("next/navigation");
+    vi.mocked(useParams).mockReturnValue({ view: ["library", "skills", MOCK_SKILL.id] });
 
+    renderWithProviders(<LibraryPage />, { preloadedState: createPreloadedState() });
     fireEvent.click(await screen.findByRole("button", { name: /^Copy$/ }));
     await new Promise((r) => setTimeout(r, 0));
 

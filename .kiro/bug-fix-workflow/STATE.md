@@ -10,7 +10,7 @@ memory. Updated by the closer after every domain run.
 | 3 | frontend·lib | 4 | DONE | 3 (ISS-386 fixed; ISS-413,ISS-486 already-fixed) | 0 | 1 (BUG-013 Part A cross-domain) | [20260901-domain-03-frontend-lib.md](reports/20260901-1100-domain-03-frontend-lib.md) |
 | 4 | tests·integration | 5 | DONE | ISS-625,ISS-626,ISS-627 closed; ISS-628 partial | 0 | ISS-623(escalated),ISS-628-workspace(escalated) | [20260901-1200-domain-04-tests-integration.md](reports/20260901-1200-domain-04-tests-integration.md) |
 | 5 | frontend·preview | 7 | DONE | ISS-433,ISS-596,ISS-251,ISS-388,ISS-389,ISS-599,ISS-609 (7 closed: FIX-446–450; ISS-388/389 already fixed by FIX-358) | 0 | 0 | [20260901-1545-domain-05-frontend-preview.md](reports/20260901-1545-domain-05-frontend-preview.md) |
-| 6 | frontend·components | 10 | NOT STARTED | – | – | – | – |
+| 6 | frontend·components | 10 | DONE | ISS-409,ISS-481,ISS-600,ISS-117,ISS-387 closed (FIX-451–455); ISS-073,ISS-114,ISS-216 already-fixed | 0 | ISS-112 (no FE data source), ISS-434 (needs PipelineRunState.deliverableMimetype + useWorkflow.ts) | [20260901-1630-domain-06-frontend-components.md](reports/20260901-1630-domain-06-frontend-components.md) |
 | 7 | frontend·library | 11 | NOT STARTED | – | – | – | – |
 | 8 | frontend·routes | 13 | NOT STARTED | – | – | – | – |
 | 9 | frontend·history | 13 | NOT STARTED | – | – | – | – |
@@ -49,3 +49,8 @@ Status values: NOT STARTED · IN PROGRESS (round N) · PAUSED · DONE · BLOCKED
   workflowRunId → activeRunId. ISS-433 flex-wrap. ISS-596 test disambiguation. e2e test for ISS-609
   needs live servers. ISS-596 it.fails marker needs verifier removal.
   See `reports/20260901-1545-domain-05-frontend-preview.md`.
+- Run 2026-09-01T16:30:00Z: **Domain 6 (frontend·components) DONE** — 5 CLOSED (FIX-451–455),
+  3 ALREADY_FIXED (ISS-073/114/216), 2 ESCALATED (ISS-112 no FE data source; ISS-434 needs
+  PipelineRunState.deliverableMimetype + useWorkflow.ts). tsc clean; 11 unit tests passing.
+  Backlog regenerated: 178 open cards → 156 work units.
+  See `reports/20260901-1630-domain-06-frontend-components.md`.
