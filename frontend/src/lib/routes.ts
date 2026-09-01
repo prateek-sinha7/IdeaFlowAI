@@ -95,8 +95,13 @@ export const routes = {
   runSteps: (id: string, version?: string): string =>
     version ? `/runs/${id}/versions/${version}/steps` : `/runs/${id}/steps`,
 
-  runStepsAgent: (id: string, agentId: string): string =>
-    `/runs/${id}/steps/${agentId}`,
+  // ISS-386: add version? to match every other run-tab builder and close the
+  // builder/parser asymmetry. Parser already returns {version} for this screen
+  // (parseViewPath:339); now the builder can also PRODUCE the versioned form.
+  runStepsAgent: (id: string, agentId: string, version?: string): string =>
+    version
+      ? `/runs/${id}/versions/${version}/steps/${agentId}`
+      : `/runs/${id}/steps/${agentId}`,
 
   runFiles: (id: string, version?: string): string =>
     version ? `/runs/${id}/versions/${version}/files` : `/runs/${id}/files`,

@@ -121,6 +121,19 @@ describe('routes - round-trip tests', () => {
       runId: 'run-789',
       agentId: 'agent-1',
     });
+    // ISS-386: runStepsAgent now accepts an optional version param, matching every
+    // other run-tab builder. Parser already produced {version} for this screen;
+    // now the builder can construct the pinned form too.
+    testRoundTrip(
+      'runStepsAgent with version',
+      () => routes.runStepsAgent('run-789', 'agent-1', 'v3'),
+      {
+        screen: 'run-steps-agent',
+        runId: 'run-789',
+        agentId: 'agent-1',
+        version: 'v3',
+      },
+    );
     testRoundTrip('runFiles', () => routes.runFiles('run-111'), {
       screen: 'run-files',
       runId: 'run-111',

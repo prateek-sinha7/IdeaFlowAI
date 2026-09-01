@@ -19,7 +19,7 @@
     "credentials": [
       {
         "email": "test@hexaware.com",
-        "password": "hexaware@123",
+        "password": "flowin-e2e-pass",
         "tier": "enterprise",
         "isAdmin": true
       },
